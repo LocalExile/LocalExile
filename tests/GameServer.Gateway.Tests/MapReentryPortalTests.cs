@@ -15,8 +15,11 @@ public sealed class MapReentryPortalTests
         Player Player(InstanceState instance, ulong number) =>
             new(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
             {
-                Character = owner, Account = owner, Instance = instance, InstanceNumber = number, PlayerSent = true,
-                PlayerLife = 100, Session = new(owner, wire.Stream, wire.Ciphers),
+                Character = { Name = owner, Account = owner },
+                Instance = instance,
+                InstanceNumber = number,
+                Connection = { PlayerSent = true, Session = new(owner, wire.Stream, wire.Ciphers) },
+                PlayerLife = 100
             };
         try
         {
@@ -53,7 +56,7 @@ public sealed class MapReentryPortalTests
 
             // Outside maps the checkpoint is in the area.
             var coast = new Player(new(0x7ad2, "1_1_2", 300, 300, 10, 10, null, []), 0, 1)
-                { Character = owner, Instance = new InstanceState(), InstanceNumber = 5 };
+                { Character = { Name = owner }, Instance = new InstanceState(), InstanceNumber = 5 };
             Assert.Null(Game.MapCheckpointExit(coast));
         }
         finally

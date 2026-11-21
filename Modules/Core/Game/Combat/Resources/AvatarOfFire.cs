@@ -11,7 +11,6 @@ public sealed class AvatarOfFireRotation
     public uint[] Hosts = [];
     public double Started, CarriedAge;
     public ushort Buff;
-    public long PresentedCycle = -1;
     public readonly HashSet<ushort> Retired = [];
 
     public void Reconcile(object? rules, int epoch, uint[] hosts, double now)
@@ -34,7 +33,7 @@ public sealed class AvatarOfFireRotation
     public void Clear()
     {
         if (Buff != 0) Retired.Add(Buff);
-        Buff = 0; PresentedCycle = -1; Hosts = []; Started = CarriedAge = 0;
+        Buff = 0; Hosts = []; Started = CarriedAge = 0;
     }
 }
 
@@ -46,35 +45,35 @@ public static partial class Game
     static readonly Store<Player, AvatarOfFireRotation> AvatarRotations = new();
     public sealed record CarriedAvatar(uint[] Hosts, double Age);
 
-    public static AvatarOfFireRotation AvatarRotationOf(Player conn) => AvatarRotations.GetOrCreateValue(conn);
+    public static AvatarOfFireRotation AvatarRotationOf(Player player) => AvatarRotations.GetOrCreateValue(player);
 
-    static IReadOnlyDictionary<string, bool> RequalifyAvatarOfFire(Player conn, IReadOnlyDictionary<string, bool> flags,
+    static IReadOnlyDictionary<string, bool> RequalifyAvatarOfFire(Player player, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
         int Get(uint key) => raw.GetValueOrDefault(key);
-        var equipment = ItemsOf(conn).EquipmentSnapshot();
+        var equipment = ItemsOf(player).EquipmentSnapshot();
         var active = activeItems?.ToArray();
         // The transfer owner captures the frozen interval before retiring it.
-        if (conn.LeavingArea) return WithFlags(flags, ("_while_you_have_avatar_of_fire", false), ("_while_you_do_not_have_avatar_of_fire", false));
-        bool alive = CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0;
+        if (player.LeavingArea) return WithFlags(flags, ("_while_you_have_avatar_of_fire", false), ("_while_you_do_not_have_avatar_of_fire", false));
+        bool alive = CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0;
         uint[] hosts = alive && Get(AvatarRotationStat) > 0 ? [.. equipment
-            .Where(e => active is null ? !IsInactive(conn, e.Item.Id)
+            .Where(e => active is null ? !IsInactive(player, e.Item.Id)
                 : active.Any(item => ReferenceEquals(item, e.Item.Item)))
-            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods).GetValueOrDefault(AvatarRotationStat) > 0)
+            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(player).Mods).GetValueOrDefault(AvatarRotationStat) > 0)
             .Select(e => e.Item.Id).Order()] : [];
-        var state = AvatarRotationOf(conn);
-        double now = ResourceEffectsTime(conn);
-        if (hosts.Length > 0) ResourceEffectsOf(conn); // Bind/retire the previous owner before installing this interval.
-        state.Reconcile(CombatLifetime, conn.ProjectileEpoch, hosts, now);
+        var state = AvatarRotationOf(player);
+        double now = ResourceEffectsTime(player);
+        if (hosts.Length > 0) ResourceEffectsOf(player); // Bind/retire the previous owner before installing this interval.
+        state.Reconcile(CombatLifetime, player.ProjectileEpoch, hosts, now);
         var phase = state.Read(now);
-        if (alive && hosts.Length > 0 && phase.Until > now) StatsChangeAt(phase.Until, () => ResourceEffectsTime(conn));
+        if (alive && hosts.Length > 0 && phase.Until > now) StatsChangeAt(phase.Until, () => ResourceEffectsTime(player));
         bool avatar = alive && (Get(AvatarKeystone) > 0 || phase.Active);
         return WithFlags(flags, ("_while_you_have_avatar_of_fire", avatar), ("_while_you_do_not_have_avatar_of_fire", alive && !avatar));
     }
 
-    static Dictionary<uint, int> WithAvatarOfFire(Player conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithAvatarOfFire(Player player, Dictionary<uint, int> sources)
     {
-        bool active = conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_you_have_avatar_of_fire") == true;
+        bool active = player.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_you_have_avatar_of_fire") == true;
         if (!active) return sources;
         void Add(uint name, int value)
         {
@@ -87,49 +86,38 @@ public static partial class Game
         return sources;
     }
 
-    public static CarriedAvatar? CaptureAvatarOfFire(Player conn, double at) =>
-        AvatarRotations.TryGetValue(conn, out var state) && state.Hosts.Length > 0
+    public static CarriedAvatar? CaptureAvatarOfFire(Player player, double at) =>
+        AvatarRotations.TryGetValue(player, out var state) && state.Hosts.Length > 0
             ? new([.. state.Hosts], state.Elapsed(at)) : null;
 
-    public static void RestoreAvatarOfFire(Player conn, CarriedAvatar value, double at)
+    public static void RestoreAvatarOfFire(Player player, CarriedAvatar value, double at)
     {
-        var state = AvatarRotationOf(conn);
-        state.Reconcile(CombatLifetime, conn.ProjectileEpoch, [.. value.Hosts], at);
+        var state = AvatarRotationOf(player);
+        state.Reconcile(CombatLifetime, player.ProjectileEpoch, [.. value.Hosts], at);
         state.Started = at; state.CarriedAge = Math.Max(0, value.Age);
     }
 
-    public static void RetireAvatarOfFire(Player conn)
+    public static void RetireAvatarOfFire(Player player)
     {
-        if (!AvatarRotations.TryGetValue(conn, out var state)) return;
+        if (!AvatarRotations.TryGetValue(player, out var state)) return;
         state.Clear();
-        foreach (ushort buff in state.Retired) conn.RetiredResourceBuffs.Add((PlayerId, buff));
+        foreach (ushort buff in state.Retired) player.RetiredResourceBuffs.Add((player.Id, buff));
         state.Retired.Clear();
     }
 
-    public static Task SendAvatarOfFire(Player conn) =>
-        SendWorldRecords(conn, PlayerId, () => AvatarOfFirePresentation(conn));
+    public static Task SendAvatarOfFire(Player player) =>
+        SendWorldRecords(player, player.Id, () => AvatarOfFirePresentation(player));
 
-    public static byte[][]? AvatarOfFirePresentation(Player conn)
+    public static byte[][]? AvatarOfFirePresentation(Player player)
     {
-        lock (conn.Monsters)
-        {
-            CharacterStatSources(conn);
-            var state = AvatarRotationOf(conn);
-            var result = state.Retired.Select(buff => InstanceEntities.RemoveBuff(PlayerId, buff)).ToList();
-            state.Retired.Clear();
-            double now = ResourceEffectsTime(conn);
-            var phase = state.Read(now);
-            if (state.Buff != 0 && (!phase.Active || state.PresentedCycle != phase.Cycle))
-            {
-                result.Add(InstanceEntities.RemoveBuff(PlayerId, state.Buff)); state.Buff = 0;
-            }
-            if (phase.Active && state.Buff == 0)
-            {
-                state.PresentedCycle = phase.Cycle;
-                result.Add(InstanceEntities.AddBuff(PlayerId, state.Buff = conn.NextBuff++, AvatarRotationBuffRow, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, phase.Until - now))));
-            }
-            return result.Count == 0 ? null : [.. result];
-        }
+        CharacterStatSources(player);
+        var state = AvatarRotationOf(player);
+        state.Retired.Clear();
+        double now = ResourceEffectsTime(player);
+        var phase = state.Read(now);
+        // Each rotation cycle is a buff of its own (its tag), with its countdown.
+        player.Area.Buffs.Replace(player.Id, b => b.Row == AvatarRotationBuffRow && b.Source == player.Id, phase.Active
+            ? [new(AvatarRotationBuffRow, player.Id, U68: Buff.Seconds(phase.Until - now), Tag: unchecked((ushort)phase.Cycle))] : []);
+        return null;
     }
 }

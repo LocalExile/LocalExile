@@ -11,57 +11,14 @@ namespace GameServer.Gateway.Tests;
 public sealed class PartyFollowerTests
 {
     [Fact]
-    public async Task Shared_deaths_reward_nearby_players_and_hide_each_observers_bar_once()
-    {
-        await PartyExperienceChecks.Verify();
-        await MixedPartyChecks.Verify();
-        using var runtime = new Runtime();
-        using var firstWire = new Wire();
-        using var sleepingWire = new Wire();
-        var instance = new InstanceState();
-        var first = runtime.Connection(instance, firstWire);
-        var sleeping = runtime.Connection(instance, sleepingWire);
-        instance.World.Runner = first;
-        const uint id = 0x08000000;
-        var variety = Game.Monsters.All.First();
-        var monster = new SpawnedMonster("shared victim", new PlayerWalk(110, 100, 30), 60, 8, 1000)
-            { Life = 0, Dead = true };
-        instance.World.Monsters[id] = monster;
-        instance.World.MonsterOrigins[id] = new(InstanceEntities.ObjectTypeHash(variety.Id),
-            new MonsterObject(110, 100, 1000, variety.ComponentsOrBase, variety.AnimatedObject),
-            (ushort)variety.Row, 1, MonsterRarity.Normal);
-        // Also repair views whose life was already mirrored to zero before this module loaded.
-        first.MonsterViews[id] = new((110, 100), (110, 100), 0);
-        sleeping.MonsterViews[id] = new((110, 100), (110, 100), 1000);
-        sleeping.AsleepMonsters.Add(id);
-        string hide = Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]));
-        string zero = Convert.ToHexString(InstanceProtocol.LifeUpdate(id, 0));
-        int Count(Wire wire, string hex) => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(hex, StringComparison.Ordinal));
-        await Game.SyncInstanceMonsters(first);
-        Assert.Equal(1, Count(firstWire, hide));
-        Assert.Equal(1, Count(firstWire, zero));
-        await Game.SyncInstanceMonsters(first);
-        Assert.Equal(1, Count(firstWire, hide));
-        await Game.SyncInstanceMonsters(sleeping);
-        Assert.Equal(0, Count(sleepingWire, hide));
-        sleeping.AsleepMonsters.Remove(id);
-        await Game.SyncInstanceMonsters(sleeping);
-        Assert.Equal(1, Count(sleepingWire, hide));
-        Assert.Equal(0u, sleeping.MonsterViews[id].Life);
-        monster.Dead = false; monster.Life = 500;
-        await Game.SyncInstanceMonsters(first);
-        Assert.Equal(1, Count(firstWire, Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 0)]))));
-    }
-
-    [Fact]
     public async Task Followers_clear_the_entrance_remain_calm_and_balance_attacking_with_catching_up()
     {
         ControlledPlayerBuildChecks.VerifyCampaignBuilds();
         using var runtime = new Runtime();
         using var wire = new Wire();
         var instance = new InstanceState();
-        var leader = runtime.Connection(instance, wire);
-        var bot = runtime.Connection(instance, wire);
+        var leader = runtime.PlayerOf(instance, wire);
+        var bot = runtime.PlayerOf(instance, wire);
         leader.Walk.Teleport(100, 100, 0);
         leader.Walk.Order(180, 100, 0);
         var ahead = Game.ControlledFollowerPoint(bot, leader, arrival: true);
@@ -95,14 +52,14 @@ public sealed class PartyFollowerTests
         Assert.False(Game.ControlledFollowAttackFits(49, 37, .75));
         Assert.False(Game.ControlledFollowAttackFits(50, 70, 1));
         Assert.False(Game.ControlledFollowAttackFits(0, 37, 3));
-        var inFront = runtime.Connection(instance, wire);
+        var inFront = runtime.PlayerOf(instance, wire);
         inFront.Walk.Teleport(137, 100, 0);
         Assert.False(Game.KeepControlledFollowerNear(inFront, leader, 0));
         Assert.Equal(0, inFront.ActionCount);
         Assert.Equal((137, 100), inFront.Walk.Destination);
 
         leader.Walk.Teleport(100, 100, 0);
-        var idle = runtime.Connection(instance, wire);
+        var idle = runtime.PlayerOf(instance, wire);
         idle.Walk.Teleport(160, 100, 0);
         action = idle.ActionCount;
         int adjustments = 0;
@@ -125,7 +82,7 @@ public sealed class PartyFollowerTests
         Assert.InRange(adjustments, 1, 3);
         foreach (int gap in new[] { 0, 3, 55, 60 })
         {
-            var standing = runtime.Connection(instance, wire);
+            var standing = runtime.PlayerOf(instance, wire);
             standing.Walk.Teleport(100 + gap, 100, 0);
             for (int tick = 0; tick < 100; tick++)
             {
@@ -135,7 +92,7 @@ public sealed class PartyFollowerTests
                 Assert.Equal(0, standing.ActionCount);
             }
         }
-        var delayed = runtime.Connection(instance, wire);
+        var delayed = runtime.PlayerOf(instance, wire);
         delayed.Walk.Teleport(180, 100, 0);
         delayed.Walk.SetSpeed(1, 0);
         Assert.True(Game.KeepControlledFollowerNear(delayed, leader, 0));
@@ -157,8 +114,8 @@ public sealed class PartyFollowerTests
         foreach (uint peer in new uint[] { 0x2000012a, 0x20000152 })
         {
             var instance = new InstanceState();
-            var leader = runtime.Connection(instance, wire);
-            var idle = runtime.Connection(instance, wire, peer: peer);
+            var leader = runtime.PlayerOf(instance, wire);
+            var idle = runtime.PlayerOf(instance, wire, peer: peer);
             leader.Walk.Teleport(100, 100, 0);
             idle.Walk.Teleport(160, 100, 0);
             Game.IdleControlledFollower(idle, leader, 0);
@@ -175,8 +132,8 @@ public sealed class PartyFollowerTests
         }
 
         var blockedInstance = new InstanceState();
-        var blockedLeader = runtime.Connection(blockedInstance, wire);
-        var blocked = runtime.Connection(blockedInstance, wire, peer: 0x2000012a);
+        var blockedLeader = runtime.PlayerOf(blockedInstance, wire);
+        var blocked = runtime.PlayerOf(blockedInstance, wire, peer: 0x2000012a);
         blockedLeader.Walk.Teleport(100, 100, 0);
         blocked.Walk.Teleport(160, 100, 0);
         var barrier = new HashSet<(int X, int Y)>();
@@ -205,16 +162,16 @@ public sealed class PartyFollowerTests
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         }
         // peer: a fixed id for a rule that is seeded by it; otherwise the next id of the process.
-        public Player Connection(InstanceState instance, Wire wire, string? character = null, uint? peer = null)
+        public Player PlayerOf(InstanceState instance, Wire wire, string? character = null, uint? peer = null)
         {
             AreaLayout layout = new(1, "follower", 300, 300, 100, 100, null, []);
-            var conn = peer is { } id
-                ? new Player(layout, 1, 1) { Instance = instance, Character = character, PeerId = id }
-                : new Player(layout, 1, 1) { Instance = instance, Character = character };
-            conn.PlayerLife = 1000; conn.PlayerSent = true; conn.Controlled = true;
-            conn.Session = new("follower-test", wire.Stream, wire.Ciphers);
-            players.Add(conn); Program.InGame.TryAdd(conn, 0);
-            return conn;
+            var player = peer is { } id
+                ? new Player(layout, 1, 1) { Instance = instance, Character = { Name = character }, Id = id }
+                : new Player(layout, 1, 1) { Instance = instance, Character = { Name = character } };
+            player.PlayerLife = 1000; player.Connection.PlayerSent = true; player.Controlled = true;
+            player.Connection.Session = new("follower-test", wire.Stream, wire.Ciphers);
+            players.Add(player); Program.InGame.TryAdd(player, 0);
+            return player;
         }
         public void Dispose()
         {

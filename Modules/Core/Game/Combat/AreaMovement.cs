@@ -21,29 +21,29 @@ public static partial class Game
 
     /// <summary>Whether this connection's area steps its walkers itself: an instance whose frames run, with a lockstep
     /// player in it (an area of predictive clients only keeps their own time-ordered pass).</summary>
-    public static bool AreaSteps(Player conn) =>
-        conn.Instance is not null && conn.Frames.Running && conn.Frames.Players() is { Length: > 0 } players
-        && players.Any(p => p.LockstepClient);
+    public static bool AreaSteps(Player player) =>
+        player.Instance is not null && player.Frames.Running && player.Frames.Players() is { Length: > 0 } players
+        && players.Any(p => p.Connection.LockstepClient);
 
     /// <summary>Puts every living walker where it stands now in the area's grid (with its body), and drops the dead and
-    /// gone: true when one changed cell, came or went. Under the instance's Monsters lock.</summary>
+    /// gone: true when one changed cell, came or went. In the area's frame.</summary>
     public static bool PlaceWalkers(Player[] players, double now, AreaGrid grid)
     {
         bool moved = false;
-        foreach (var (id, m) in players[0].Monsters)
+        foreach (var (id, m) in players[0].Area.Monsters)
             if (!m.Dead && m.Life > 0) moved |= grid.Set(new(id), m.Walk.Position(now), m.StopRange);
         foreach (var p in players)
-            if (p.PlayerSent) moved |= grid.Set(new(p.PeerId), p.Walk.Position(now));
+            if (p.Connection.PlayerSent) moved |= grid.Set(new(p.Id), p.Walk.Position(now));
         return grid.EndPass() | moved;
     }
 
-    public static void StepAreaWalkers(Player conn, double now)
+    public static void StepAreaWalkers(Player player, double now)
     {
-        var world = conn.Instance.World;
-        var players = conn.Frames.Players();
+        var world = player.Instance.World;
+        var players = player.Frames.Players();
         if (players.Length == 0) return;
         var state = AreaWalks.GetValue(world, _ => new());
-        if (conn.Frames.Running && !double.IsNaN(conn.Frames.Time)) now = Math.Min(now, conn.Frames.Time);
+        if (player.Frames.Running && !double.IsNaN(player.Frames.Time)) now = Math.Min(now, player.Frames.Time);
         if (double.IsNaN(state.SteppedTo))
         {
             state.SteppedTo = Math.Max(now, players.Max(p => p.WalkersSteppedTo));
@@ -55,13 +55,13 @@ public static partial class Game
         foreach (var p in players) p.WalkersSteppedTo = now;
         var first = players[0];
         var walks = new Dictionary<uint, PlayerWalk>();
-        foreach (var (id, m) in first.Monsters)
+        foreach (var (id, m) in first.Area.Monsters)
         {
             if (!ClientEntityGrid.Lists(first, id)) ClientEntityGrid.Stepped(first, id, m.Walk.Position(from));
             if (LivingCollision.StepsWithBodies(m) || players.Any(p => p.CorpseWalks(id, m))) walks[id] = m.Walk;
         }
         foreach (var p in players)
-            if (p.PlayerSent && p.PlayerLife > 0) walks[p.PeerId] = p.Walk;
+            if (p.Connection.PlayerSent && p.PlayerLife > 0) walks[p.Id] = p.Walk;
         StepAreaFrames(first, players, walks, from, now, Program.FrameMs / 1000d);
     }
 
@@ -69,14 +69,14 @@ public static partial class Game
         double from, double to, double length)
     {
         var chases = new Dictionary<uint, (SpawnedMonster M, Player Target)>();
-        foreach (var (id, m) in first.Monsters)
+        foreach (var (id, m) in first.Area.Monsters)
             if (m.Target is { } target && players.Contains(target) && WalkUpOpen(target, m)) chases[id] = (m, target);
         var attacks = new Dictionary<uint, (Player Player, LockstepAttack Attack)>();
         foreach (var p in players)
-            if (PlayerWalkUpOpen(p) is { } attack) attacks[p.PeerId] = (p, attack);
+            if (PlayerWalkUpOpen(p) is { } attack) attacks[p.Id] = (p, attack);
         if (chases.Count == 0 && attacks.Count == 0 && walks.Values.All(w => w.ArrivesAt <= from && w.Reached)) return;
         // The turn order: the players as they joined, then every other walker by id.
-        var playerIds = players.Select(p => p.PeerId).ToArray();
+        var playerIds = players.Select(p => p.Id).ToArray();
         var order = playerIds.Where(id => walks.ContainsKey(id) || attacks.ContainsKey(id))
             .Concat(walks.Keys.Union(chases.Keys).Except(playerIds).Order()).ToArray();
         var turn = new Dictionary<uint, int>();
@@ -106,16 +106,16 @@ public static partial class Game
                     if (chases.TryGetValue(id, out var chase) && WalkUpOpen(chase.Target, chase.M))
                     {
                         var chaser = chase.M;
-                        bool targetFirst = turn.TryGetValue(chase.Target.PeerId, out int at) && at < turn[id];
+                        bool targetFirst = turn.TryGetValue(chase.Target.Id, out int at) && at < turn[id];
                         var (result, timer) = StepAreaWalkUp(first, bodies, id, chaser.Walk, walks.ContainsKey(id),
-                            walks.GetValueOrDefault(chase.Target.PeerId) ?? chase.Target.Walk, targetFirst,
+                            walks.GetValueOrDefault(chase.Target.Id) ?? chase.Target.Walk, targetFirst,
                             (int)(chaser.Attack!.Range - 1), LivingCollision.PlayerSize, chaser.ClientChaseTimerFrom, default, start, end, length);
                         chaser.ClientChaseTimerFrom = timer;
                         if (result != WalkUpResult.Walking) WalkUpEnds(chaser, start, result == WalkUpResult.Swings);
                         continue;
                     }
                     if (!walks.TryGetValue(id, out var walk)) continue;
-                    if (first.Monsters.GetValueOrDefault(id) is { ClientActionWalkStop: { } stopAt } acting && start >= stopAt - 1e-6)
+                    if (first.Area.Monsters.GetValueOrDefault(id) is { ClientActionWalkStop: { } stopAt } acting && start >= stopAt - 1e-6)
                     {
                         acting.ClientActionWalkStop = null;
                         if (walk.Moving(start)) walk.StopAfter(end, start);
@@ -129,30 +129,10 @@ public static partial class Game
                         walk.Repath(walk.ArrivesAt);
                     }
                     // A corpse's death clip clears its body in its own turn, once it has on every lockstep client.
-                    if (first.Monsters.ContainsKey(id) && players.Any(p => p.CorpseClears(id, start))
-                        && players.All(p => !p.LockstepClient || !p.CorpseWalks(id, first.Monsters[id]) || p.CorpseClears(id, start)))
+                    if (first.Area.Monsters.ContainsKey(id) && players.Any(p => p.CorpseClears(id, start))
+                        && players.All(p => !p.Connection.LockstepClient || !p.CorpseWalks(id, first.Area.Monsters[id]) || p.CorpseClears(id, start)))
                         bodies.Remove(id);
                 }
-                // Each lockstep client's copies of the other players (PeerWalks): the orders its owner was sent, walked
-                // from the copy's cell on that client; checked against the area's bodies but the player's own.
-                foreach (var p in players)
-                    foreach (var (peer, copy) in p.PeerWalks)
-                        for (int round = 0; round < 8; round++)
-                        {
-                            bool stopped = false;
-                            foreach (var (stepAt, cell) in copy.Steps(start, end))
-                            {
-                                bool floor = copy.Slides || copy.Floor(cell.X, cell.Y);
-                                if (!floor || !copy.Slides && ClientPathfinder.ObjectBlocks(bodies.For(peer), cell.X, cell.Y, copy.Size + 1, copy.Size + 4))
-                                {
-                                    copy.StopAt(stepAt);
-                                    stopped = true;
-                                    break;
-                                }
-                            }
-                            if (stopped || copy.Reached || copy.ArrivesAt > end) break;
-                            copy.Repath(copy.ArrivesAt);
-                        }
                 if (ServerTrace.Sync) TraceAreaFrame(first, order, walks, end, to, length);
             }
         }
@@ -162,14 +142,14 @@ public static partial class Game
     static void TraceAreaFrame(Player first, uint[] order, Dictionary<uint, PlayerWalk> walks, double end, double to, double length)
     {
         var line = new System.Text.StringBuilder();
-        line.Append($"[frame] qpc={Stopwatch.GetTimestamp()} n={first.ServerFrame - 1 - (long)Math.Round((to - end) / length)} end={end:0.000} now={to:0.000} m=");
+        line.Append($"[frame] qpc={Stopwatch.GetTimestamp()} n={first.Connection.ServerFrame - 1 - (long)Math.Round((to - end) / length)} end={end:0.000} now={to:0.000} m=");
         foreach (uint id in order)
         {
             if (!walks.TryGetValue(id, out var traced)) continue;
             var at = traced.Position(end);
             var (into, step) = traced.StepPhase(end);
             // The trace names a player as its own client does (0x1000), so the sync scripts read the solo case as before.
-            line.Append($"{(id == first.PeerId ? PlayerId : id):x}:{at.X},{at.Y}/{into:0.0000}/{step:0.0000};");
+            line.Append($"{(id == first.Id ? first.Id : id):x}:{at.X},{at.Y}/{into:0.0000}/{step:0.0000};");
         }
         Console.WriteLine(line);
     }
@@ -254,10 +234,10 @@ public static partial class Game
             current = new BlockerSet(first.StationaryBlockers);
             foreach (var p in players)
             {
-                if (!p.PlayerSent || p.PlayerLife == 0) continue;
-                if (p.IsPhasing) { passThrough.Add(p.PeerId); continue; }
+                if (!p.Connection.PlayerSent || p.PlayerLife == 0) continue;
+                if (p.IsPhasing) { passThrough.Add(p.Id); continue; }
                 var at = p.Walk.Position(now);
-                index[p.PeerId] = current.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                index[p.Id] = current.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
             }
             foreach (var (id, m) in first.CollisionMonstersView)
             {

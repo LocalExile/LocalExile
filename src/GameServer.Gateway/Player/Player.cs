@@ -302,7 +302,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
-    /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
+    /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), in the area's frame.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
@@ -458,31 +458,31 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // When the player last hit it (Clock seconds): "enemies you've Hit Recently". Reset at the player's death.
     public double PlayerHitAt = double.NegativeInfinity;
     // When its attack last hit the player (Clock seconds; evaded and blocked attacks do not hit): "enemies that have Hit
-    // you with an Attack Recently". Reset at the player's death. Guarded by the Monsters lock.
+    // you with an Attack Recently". Reset at the player's death. Owned by the area's frame.
     public double HitPlayerAt = double.NegativeInfinity;
     // The attack time its Stats component carries on the client (SendAttackerSlows), when it differs from Attack.Seconds.
     public double? SwingSecondsSent;
     // Impales retained for consumption/expiry, including on a corpse (Impale.cs).
     public readonly ImpaleState Impale = new();
-    // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
+    // The player's ignites on it (MonsterIgnites.cs), in the area's frame.
     public readonly MonsterIgnites Ignites = new();
-    // The player's bleeds on it, under the Monsters lock: the same rules as ignites (wiki Bleeding: only the strongest
+    // The player's bleeds on it, in the area's frame: the same rules as ignites (wiki Bleeding: only the strongest
     // deals damage, each keeps its own expiry).
     public readonly MonsterIgnites Bleeds = new();
-    // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
+    // The player's poisons on it (MonsterPoisons.cs), in the area's frame.
     public readonly MonsterPoisons Poisons = new();
-    // The player's Contagion on it (MonsterContagion.cs), under the Monsters lock.
+    // The player's Contagion on it (MonsterContagion.cs), in the area's frame.
     public readonly MonsterContagion Contagion = new();
-    // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), under the Monsters lock.
+    // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), in the area's frame.
     public readonly MonsterEssenceDrain EssenceDrain = new();
-    // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
+    // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), in the area's frame.
     public readonly MonsterRuptures Ruptures = new();
     // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.
     public int OverpoweredPercent;
     public double OverpoweredUntil;
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
-    // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
+    // All outgoing attacks share this defender's sequence, in the area's frame. A new spawn starts fresh.
     public readonly GameServer.Core.World.EvasionEntropy AttackEvasion = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
@@ -498,7 +498,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // The client picks a melee swing's clip by its action sequence.
     public ushort Sequence = 0x8000;
     public ushort NextSequence() => Sequence = (ushort)(0x8000 | ((Sequence + 1) & 0x7fff));
-    // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
+    // The player's debuffs on it (Game.EnemyDebuffsTick, in the area's frame): taunted by him until when (Clock
     // seconds) with the taunted buff shown and the end it shows, his passives' and Pride's enemy auras (BuffDefinitions
     // row → buff instance), and the increased damage taken they give (every type; fire, cold and lightning) that its
     // hits read.
@@ -562,11 +562,13 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; set; } = maxLife;
-    public uint Life = maxLife;
+    /// <summary>Its life; a change goes to every client at the frame's end (AreaLife).</summary>
+    public uint Life { get; set { if (field == value) return; field = value; LifeChanged?.Invoke(); } } = maxLife;
+    internal Action? LifeChanged;
     // Until when its last flinch plays (Clock seconds; HitReaction): no new action or flinch before.
-    // Guarded by the Monsters lock.
+    // Owned by the area's frame.
     public double FlinchUntil = double.NegativeInfinity;
-    // A boss cannot be stunned again until then (HitReaction). Guarded by the Monsters lock.
+    // A boss cannot be stunned again until then (HitReaction). Owned by the area's frame.
     public double StunImmuneUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
     /// <summary>The player the instance's monster acts for now (its chase, swings and damage run on that player's
@@ -575,7 +577,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The player whose hit landed on it last: an ignite, bleed or poison that kills it is theirs (SharedKills.cs).</summary>
     public Player? LastHitBy;
     // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
-    // removed. Guarded by the Monsters lock.
+    // removed. Owned by the area's frame.
     public bool CorpseConsumed;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
     // Kept on this exact monster instance until the kill publication consumes it.
@@ -583,7 +585,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public sealed record UnhingedHitKillReceipt(Player Owner, bool DestroyCorpse);
 
     // A warcry's Howl of the Wolf already rerolled this corpse's loot: one reroll per corpse, like another use of it.
-    // Guarded by the Monsters lock.
+    // Owned by the area's frame.
     public bool CorpseLooted;
     // A Devour-supported killing blow recovered its life/mana: the kill consumes the corpse and removes its object.
     // Set by the hit, read by the kill.
@@ -656,7 +658,7 @@ public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? ta
     // When MoveTo's search timer (+0x55c) last started (Game.StepWalkUp).
     public double TimerFrom;
     public readonly record struct Swing(double Start, double End, (int X, int Y) From);
-    // Completed under the Monsters lock by the step pass: the attack's task must not run on there.
+    // Completed in the area's frame by the step pass: the attack's task must not run on there.
     readonly TaskCompletionSource<Swing?> decided = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // The swing (its frame and the cell it is swung from), or null when the walk-up failed or was replaced.
     public Task<Swing?> Decided => decided.Task;
@@ -716,6 +718,12 @@ public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPreven
 
 public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : IHasComponents
 {
+    /// <summary>The character this player entity is (its save data).</summary>
+    public Character Character => character ??= new() { StatsChanged = MarkStatsDirty };
+    Character? character;
+    /// <summary>The client's connection that controls this player.</summary>
+    public Connection Connection => connection ??= new(this);
+    Connection? connection;
     /// <summary>What modules keep on this player (their stores).</summary>
     public Components Components { get; } = new();
 
@@ -731,63 +739,27 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;
-    public string? Character { get; init; }
-    public Guid? CharacterId { get; init; }
     public readonly Guid VitalsSessionId = Guid.NewGuid();
-    /// <summary>The account the character belongs to (Auth's resolve): its stash (AccountStash) is shared by all of them.</summary>
-    public string? Account { get; init; }
-    public string? League { get; init; }
-    public bool Hardcore { get; init; }
-    public bool Ssf { get; init; }
-    public string? LeagueForm { get; init; }
     /// <summary>The league this connection plays by (Program.LeagueFor); LeagueForm above is the character's league form, from Auth.</summary>
     public LeagueRuntime? LeagueModule;
     /// <summary>The hideout scene furnishing this area, for the modules placing stations.</summary>
     public HideoutScene? CurrentHideoutScene;
     /// <summary>The module whose native window is open (IPlayerWorld.OpenWindow).</summary>
     public string? ModuleWindow;
-    /// <summary>The client's connection; the framework's alone (the rules send with Program.Send).</summary>
-    internal Session Session
-    {
-        get => session;
-        set { session = value; if (value.Ciphers is { } ciphers) Program.PlayersByCiphers.AddOrUpdate(ciphers, this); }
-    }
-    Session session = Session.None;
-    /// <summary>The client's address, for logs.</summary>
-    public string Remote => Session.Remote;
-    /// <summary>Whether a client is connected (a test's or a tool's player has none).</summary>
-    public bool Connected => Session.Connected;
-    /// <summary>Drops the client's connection; its reading ends and the connection closes.</summary>
-    public void Disconnect() => Session.Stream?.Close();
-    /// <summary>The key a ticket of this connection's keyring gives (the next instance's connect, S→C 0x14).</summary>
-    public byte[] TicketKey(uint ticket) => Session.Keyring.Key(ticket);
-    public double GemExperienceCarry;
     public bool BossRecoveryHandled;
-    public bool HardcoreDeathRecorded;
-    /// <summary>The character's last town (HASH16, from Auth's resolve): Resurrect in Town goes there. 0 before the
-    /// character has entered a town (the death screen then has no Resurrect in Town).</summary>
-    public ushort LastTown { get; init; }
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
     public int? ArrivalEntrance { get; init; }
-    // The character's class: its Characters.dat row (the Witch: 1).
-    public int ClassRow { get; init; } = SkillCatalog.WitchRow;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>
     public System.Diagnostics.Stopwatch Clock => Instance?.World.Clock ?? ownClock;
     readonly System.Diagnostics.Stopwatch ownClock = System.Diagnostics.Stopwatch.StartNew();
-    public readonly ConnectionPerformance Performance = new();
-    // Why the server closed the connection (the DISCONNECT line).
-    public volatile string? CloseReason;
-    /// <summary>Completes once the connection has ended and everything it saves is written (Program.EndAsync waits for it,
-    /// so a connection that takes over the character loads what this one saved, never an older copy).</summary>
-    public readonly TaskCompletionSource Ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
     // A module-owned pause (the Survivors reward window) that must survive the client's own C→S 0x1d4 unpause: while
     // this is set, SetPaused(false) leaves the clock stopped and keeps the client's world paused.
     public bool PauseHeld;
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
-    // Guarded by Monsters, like projectile impact commits and pause changes.
+    // Owned by the area's frame, like projectile impact commits and pause changes.
     public bool LeavingArea;
     // Auth accepted the destination; PendingTransfer is already consumed before this handoff.
     public bool TransferAccepted;
@@ -813,7 +785,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public int IncomingHitEpoch;
     /// <summary>The last incoming bleed/poison state actually presented through the player send gate.</summary>
     public IncomingDamagingAilments.State? PresentedIncomingAilments;
-    public int PresentedIncomingAilmentEpoch = -1;
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
@@ -830,25 +801,21 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     {
         if (PlayerLife == 0 || Closed)
         { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = ChaosDotBypassCarry = 0; }
-        lock (Monsters)
+        IncomingHitEpoch++;
+        // The action state machine replaces the old swing epoch argument. Retired work cannot
+        // resume after a failed transfer, even when admission reopens on this same connection.
+        foreach (var monster in Area.Monsters.Values)
         {
-            IncomingHitEpoch++;
-            // The action state machine replaces the old swing epoch argument. Retired work cannot
-            // resume after a failed transfer, even when admission reopens on this same connection.
-            foreach (var monster in Monsters.Values)
-            {
-                monster.ActionGeneration++;
-                monster.SwingGeneration = null;
-            }
-            if (clear)
-            {
-                RecentEnemyHits.Clear();
-                RecentEvents.Clear();
-                ElementalAilments.Clear();
-                IncomingAilments.Clear();
-                PresentedIncomingAilments = null;
-                PresentedIncomingAilmentEpoch = IncomingHitEpoch;
-            }
+            monster.ActionGeneration++;
+            monster.SwingGeneration = null;
+        }
+        if (clear)
+        {
+            RecentEnemyHits.Clear();
+            RecentEvents.Clear();
+            ElementalAilments.Clear();
+            IncomingAilments.Clear();
+            PresentedIncomingAilments = null;
         }
     }
     public int ProjectileEpoch;
@@ -857,7 +824,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public bool ProjectileActive(int epoch)
     {
-        lock (Monsters) return !Closed && !LeavingArea && !RageRetired && ProjectileEpoch == epoch;
+        return !Closed && !LeavingArea && !RageRetired && ProjectileEpoch == epoch;
     }
 
     public bool TryBeginAreaChange(PendingTransfer transfer, out uint[] projectiles)
@@ -871,7 +838,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
                 ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
             ResourceEffectsState?.Freeze(RampageTransferAt.Value);
             LeavingArea = true;
-            Instance.RemovePlayer(PeerId);
+            Instance.RemovePlayer(Id);
             PlayerSkillsCache = null;
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
@@ -885,15 +852,12 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public void ResumeAfterFailedTransfer()
     {
-        lock (Monsters)
-        {
-            ResourceEffectsState?.Resume(Clock.Elapsed.TotalSeconds);
-            LeavingArea = false;
-        }
+        ResourceEffectsState?.Resume(Clock.Elapsed.TotalSeconds);
+        LeavingArea = false;
     }
 
     // Successful transfers retire all source-area workers independently of any particular carried mechanic.
-    public void Retire() { lock (Monsters) RageRetired = true; WorldOutput.Close(); }
+    public void Retire() { RageRetired = true; Connection.WorldOutput.Close(); }
 
     /// <summary>The <see cref="Clock"/> time of a Stopwatch timestamp in the past (a socket read); now when 0 or paused.</summary>
     public double ClockAt(long timestamp)
@@ -930,23 +894,17 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
-            // Another player stands where this client's own copy of it does (PeerWalks), else on its published pose.
-            var copies = new Dictionary<uint, (int X, int Y)>();
-            lock (Monsters)
+            foreach (var (id, m) in CollisionMonsters)
             {
-                foreach (var (id, m) in CollisionMonsters)
-                {
-                    if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
-                }
-                // A copy moves only in this client's frames: its cell is the one the frame being sent starts on.
-                double frameStart = LockstepFrame is { } sending ? sending.Start : now;
-                foreach (var (id, copy) in PeerWalks) copies[id] = copy.Position(frameStart);
+                if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
             }
-            foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-                if (peer.Life > 0 && peer.Owner is not null && !copies.ContainsKey(peer.Id))
-                    (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
-            foreach (var (id, at) in copies)
-                if (Instance?.Player(id) is not { Life: 0 }) (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+            // Another player stands where its own walk has it.
+            foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
+                if (peer.Life > 0 && peer.Owner is { } other)
+                {
+                    var at = other.Walk.Position(now);
+                    (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                }
             return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
         }
     }
@@ -989,22 +947,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
-    public bool PlayerSent;
-    // Server frames ended so far (0x2b7).
-    public long ServerFrame;
-    /// <summary>The portal cosmetic: the MicrotransactionPortalVariations row every portal is listed with (0x008f +0x26),
-    /// 0 for the base effect. Applied to portals already standing as well as to new ones.</summary>
-    public ushort CosmeticPortalVariation;
-    /// <summary>The portrait frame the character logged in with (Auth's ticket): what the client draws and other players
-    /// are told. A pick reaches it at the next login, as the pick's message says.</summary>
-    public ushort PortraitFrame { get; init; }
-    /// <summary>The worn cosmetics as 0x1f3 lists them (WornCosmetics), read from the save on first use; null after a
-    /// pick, so the next use reads it again.</summary>
-    public List<InstanceMicrotransactions.Equipped>? WornCosmetics;
-    /// <summary>The Cosmetics tab's last published skill targets, built inside the send gate with 0x1f3.
-    /// A key lives only while its full target remains present; retired keys are never reassigned on this connection.</summary>
-    public Dictionary<uint, InstanceMicrotransactions.SkillSlot> SkillSlots = [];
-    public uint NextSkillCosmeticKey = InstanceMicrotransactions.SlotCount;
     /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; StepPetFollow walks them.</summary>
     public readonly Dictionary<uint, SpawnedPet> Pets = [];
     /// <summary>How map portals are turned around the vertical axis (degrees; Positioned rotation). Dev: /portal_rotation,
@@ -1036,7 +978,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // 0x400 only in the offer (0x141e937b0: a Move without it is refused while a non-Move action waits queued at +0x1c0)
     // and 0x8 nowhere (it is the client's own auto_equip bit on its requests, 0x14011ecb0). A predictive client keeps
     // 0x0408, the form it has always had.
-    public ushort MonsterOrderFlags => LockstepClient ? (ushort)0 : (ushort)0x0408;
+    public ushort MonsterOrderFlags => Connection.LockstepClient ? (ushort)0 : (ushort)0x0408;
     // Room server objects a quest keeps in the area until its flag is set (The Twilight Strand's force wall), by id.
     public readonly Dictionary<uint, (string Flag, IReadOnlySet<(int X, int Y)> Cells)> QuestRoomObjects = [];
     // A Trial of Ascendancy's objects in this area (LabyrinthTrials), by id, and the cells its closed doors and risen
@@ -1044,14 +986,14 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
     // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
-    // own projectile map (a trial's dart turrets). Changed and read under the Monsters lock.
+    // own projectile map (a trial's dart turrets). Changed and read in the area's frame.
     public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
     // Cells quest walls and closed doors close to the player's walk estimate (QuestBarriers): the union of
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
 
     /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls and closed doors; the player's walk estimate
-    /// reads it on its next order (call under the Monsters lock).</summary>
+    /// reads it on its next order (call in the area's frame).</summary>
     public void UpdateBarrier() =>
         Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
@@ -1083,23 +1025,21 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public ushort WardBuff, AdrenalineBuff;
     /// <summary>The passive self buffs published on the player: BuffDefinitions row → buff instance (PassiveBuffAuras).</summary>
     public readonly Dictionary<ushort, ushort> PassiveBuffs = [];
-    // Transient Rage belongs to this connection until its destination ticket takes ownership; guarded by Monsters.
+    // Transient Rage belongs to this connection until its destination ticket takes ownership; owned by the area's frame.
     public readonly RageState Rage = new();
     public bool RageRetired;
     public ushort RageBuff;
     public RageState.Value? SentRage;
-    // Reap's Blood Charges held (BloodCharges), the buff instance sent for them and the count it carried; guarded by Monsters.
+    // Reap's Blood Charges held (BloodCharges), the buff instance sent for them and the count it carried; owned by the area's frame.
     public int BloodCharges;
     public ushort BloodChargeBuff;
     public int SentBloodCharges;
-    // Shared Vaal row budgets and native presentation belong to this connection; guarded by Monsters.
+    // Shared Vaal row budgets and native presentation belong to this connection; owned by the area's frame.
     public readonly VaalSoulState VaalSouls = new();
     public bool VaalSoulsRetired;
     public readonly Dictionary<uint, VaalSoulBudget> SentVaalSouls = [];
-    // Running auras by skill id, with their buff instances and reservation. Guarded by the Monsters lock.
+    // Running auras by skill id, with their buff instances and reservation. Owned by the area's frame.
     public readonly Dictionary<ushort, AuraCatalog.Aura> Auras = [];
-    // Only self-owned aura instances actually sent on this connection's current player object.
-    public readonly Dictionary<ushort, AuraCatalog.Aura> PresentedAuras = [];
     public bool AuraStatsDirty { get => auraStatsDirty; set { auraStatsDirty = value; if (value) AuraStatsDirtied?.Invoke(); } }
     bool auraStatsDirty;
     /// <summary>The auras' stats need publishing again (the aura presentation follows).</summary>
@@ -1107,8 +1047,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>The stance the next Flesh and Stone activation starts in ("Blood" or "Sand"): the skill alternates on each
     /// use, and the stance flips when the aura starts (Game.ToggleAura), not when it ends.</summary>
     public string Stance = "Blood";
-    public bool PlayerObjectCreated;
-    // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
+    // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Owned by the area's frame.
     public readonly Dictionary<int, double> SkillReadyAt = [];
     // Ordinary stored uses retain recharge debt and base-time progress through recovery-rate/capacity changes.
     public readonly Dictionary<int, SingleUseCooldownState> SingleUseCooldowns = [];
@@ -1121,7 +1060,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public IReadOnlyList<GrantedSkill>? PlayerSkillsCache;
     public double PlayerSkillsAt;
     // The character's level and the pools that follow from it and the class (CharacterStats).
-    public EnergyShield EnergyShield => energyShield ??= new() { ConditionsChanged = () => MarkStatsDirty(StatInput.EnergyShield) };
+    public EnergyShield EnergyShield => energyShield ??= new() { ConditionsChanged = () => MarkStatsDirty(StatInput.EnergyShield),
+        Changed = () => Frames.Area?.Life.Changed(this) };
     EnergyShield? energyShield;
     CharacterStats.Pools pools = new(1, 50, 40, 2, 0);
     public CharacterStats.Pools Pools
@@ -1135,64 +1075,19 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             if (changed) MarkStatsDirty(StatInput.Pools);
         }
     }
-    // The player stat keys the client holds (PlayerStatsWithCleared). Guarded by the Monsters lock.
-    public HashSet<uint> SentStatKeys = [];
+    // The player stat keys the client holds (PlayerStatsWithCleared). Owned by the area's frame.
     // Dev-only forced lucky block, on top of the stats (Svalinn's "Chance to Block is Lucky").
     public bool ForceAttackBlockLucky, ForceSpellBlockLucky;
     // When the player last hit an enemy (attack or spell hit; Clock seconds), for "if you've hit an enemy recently".
-    // Guarded by the Monsters lock.
+    // Owned by the area's frame.
     public double LastEnemyHitAt { get => lastEnemyHitAt; set { lastEnemyHitAt = value; MarkStatsDirty(StatInput.EnemyHit); } }
     double lastEnemyHitAt = double.NegativeInfinity;
     // PoE evasion entropy (0..99): every attack adds the attacker's hit chance, and 100+ means a hit. Shared by all
-    // attackers and reset after 3.33 s without an attack. Guarded by the Monsters lock.
+    // attackers and reset after 3.33 s without an attack. Owned by the area's frame.
     public double EvasionEntropy = -1;
     public double LastEvasionAt = double.NegativeInfinity;
     // Dev-only forced lucky/unlucky Spell Suppression rolls, on top of the passive stat.
     public bool ForceSpellSuppressionLucky, ForceSpellSuppressionUnlucky;
-    // The character's experience (the Player component's; the level follows from it) and its allocated passives
-    // (PassiveSkillGraphId), both kept in its save (CharacterSaves). Changed under the Monsters lock.
-    public uint Experience;
-    /// <summary>A change in place (Add, Remove) is the changer's to hand over (StatsChanged with StatInput.Passives).</summary>
-    public List<ushort> Passives
-    {
-        get { StatGraph.ReadInput((int)StatInput.Passives); return passives; }
-        set { passives = value; MarkStatsDirty(StatInput.Passives); }
-    }
-    List<ushort> passives = [];
-    /// <summary>The three Atlas passive presets (PassiveSkillGraphId) and the points the character has; kept in its save.</summary>
-    public List<ushort>[] AtlasPassives = [[], [], []];
-    public ushort AtlasPassivePoints;
-    /// <summary>The Atlas preset the player last changed (the client's active one, Atlas tree +0xc2f0); -1 until a change
-    /// this session, when the fullest preset counts as active.</summary>
-    public int AtlasPreset = -1;
-    /// <summary>The cluster jewel nodes allocated in the tree's expansion cells: the client's own small ids, sent with
-    /// the expansion flag (C->S 0x34/0x36) and carried in 0x33's second list. Empty until a cluster jewel is socketed.
-    /// </summary>
-    public HashSet<ushort> ClusterPassives = [];
-    public AscendancyProgress MainAscendancy = new();
-    // The Descendancy.dat specialisation row the client shows as a second ascendancy layer (0: none). 0x33 carries it in
-    // its spare byte; Affliction's Wildwood classes and the 3.29 Bloodline classes are rows of that table.
-    public byte DescendancyRow;
-    // The descendancy layer's allocated nodes (PassiveSkills rows with that DescendancyKey); sent in 0x33 with the rest.
-    public HashSet<ushort> DescendancyNodes = [];
-    // The Descendancy row the server last offered with 0x7b kind 0x4c, and the area it offered it in. C->S 0x3a is
-    // accepted only for that row in that area, so a client cannot pick a row the server did not present.
-    public byte OfferedDescendancyRow;
-    public ushort OfferedDescendancyArea;
-    public CharacterSaves.PassiveProgressSnapshot? SavedPassiveProgress;
-    // Selected mastery effects: mastery node (PassiveSkillGraphId) -> effect HASH16. Saved with the character.
-    public Dictionary<ushort, ushort> MasteryEffects = [];
-    // Applied tattoos: passive node (PassiveSkillGraphId) -> tattoo name. The tattoo stays on the node when the
-    // passive is unallocated, so this map is independent of Passives. Saved with the character.
-    public Dictionary<ushort, string> Tattoos = [];
-    // Journey Tattoo of Makanui's chosen replacement keystone: passive node -> keystone PassiveSkillGraphId.
-    public Dictionary<ushort, ushort> TattooKeystones = [];
-    // Changes whenever Tattoos/TattooKeystones changes; part of the stat-source cache key.
-    public int TattooRevision;
-    // Extra passive points from /add_passive_points (the 0x33 extra_skill_points field), saved with the character.
-    public ushort ExtraPassivePoints;
-    // Refund points (0x33's first u16; Orbs of Regret), saved with the character; /add_refund_points grants them for now.
-    public ushort RefundPoints;
     // /god (GodStats) and the running Righteous Fire, if any; buff instance ids (0x1c1) given out on this connection.
     public bool God;
     // /god immune: god mode that also takes no damage (hits and ailment ticks); only with God.
@@ -1213,10 +1108,10 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public int IgnitedCorpsesConsumed;
     /// <summary>What Headhunter took from slain rares (StolenMods).</summary>
     public StolenMods StolenMods { get; } = new();
-    /// <summary>The Headhunter buff on the client, 0 for none (Monsters lock).</summary>
+    /// <summary>The Headhunter buff on the client, 0 for none (the area's frame).</summary>
     public ushort StolenModsBuff, InspiredLearningBuff;
     /// <summary>The flask buffs Mageblood has on the client, by flask item id (Program.StepMagebloodBuffs; Monsters lock).</summary>
-    public Dictionary<uint, (byte Slot, ushort Buff, ushort? Extra)> MagebloodBuffs { get; } = [];
+    public Dictionary<uint, (byte Slot, ushort Buff, ushort? Extra, ushort Row, ushort ExtraRow)> MagebloodBuffs { get; } = [];
     /// <summary>The flasks' partial charges and the crit charge cooldown (FlaskCharges).</summary>
     public FlaskCharges.Carry FlaskChargeCarry { get; } = new();
     /// <summary>One change of the flask bar and its S→C 0xbf at a time (Program.ChangeFlaskBar), so the revisions go out in
@@ -1224,10 +1119,10 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public SemaphoreSlim FlaskBarGate { get; } = new(1, 1);
     /// <summary>The smoke clouds and consecrated ground of flasks (FlaskGrounds).</summary>
     public FlaskGrounds.State FlaskGrounds { get; } = new();
-    /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Guarded by the Monsters lock.</summary>
+    /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Owned by the area's frame.</summary>
     public StrikeTargets.Memory StrikeLocations { get; } = new();
     /// <summary>Per-skill attack count (0..4) and active BuffDefinitions 2353 instance for Molten Strike of the Zenith.
-    /// Guarded by the Monsters lock.</summary>
+    /// Owned by the area's frame.</summary>
     public readonly Dictionary<ushort, int> MoltenStrikeAttackCounts = [];
     public readonly Dictionary<ushort, ushort> MoltenStrikeFifthBuffs = [];
     /// <summary>The Spirit chieftain skills' shared cooldown and Leadership buff (SpiritChieftains). Guarded by the Monsters
@@ -1242,20 +1137,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public PassiveBuffAuras.BlindState BlindAura { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
-    /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the monster ailments' fixed instances
-    /// (MonsterElementalAilments.Instance) and never hands out 0.</summary>
-    /// The instance's (InstanceWorld.NextBuff): one player's buff on a monster never shares an instance with another's, so a
-    /// client's removal of its own never takes off one another client put there.
-    public ushort NextBuff
-    {
-        get => Instance is { } i ? i.World.NextBuff : nextBuff;
-        set
-        {
-            ushort v = value is 0 or >= MonsterElementalAilments.FirstInstance ? (ushort)1 : value;
-            if (Instance is { } i) i.World.NextBuff = v; else nextBuff = v;
-        }
-    }
-    ushort nextBuff = 1;
+    /// <summary>The next buff instance (S→C 0x1c1): the area's, shared by every entity in it (AreaBuffs.Next).</summary>
+    public ushort NextBuff { get => Area.Buffs.Next; set => Area.Buffs.Next = value; }
     public uint PlayerMaxLife => Pools.Life;
     /// <summary>The shared Life reservation owner's latest usable cap. Full maximum Life is unchanged.</summary>
     public int PlayerLifeCap { get; set; } = int.MaxValue;
@@ -1265,14 +1148,14 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     {
         get
         {
-            lock (Monsters) return (uint)PlayerLifeReservation.Reserved;
+            return (uint)PlayerLifeReservation.Reserved;
         }
     }
     public uint PlayerUnreservedLife
     {
         get
         {
-            lock (Monsters) return (uint)PlayerLifeReservation.Unreserved;
+            return (uint)PlayerLifeReservation.Unreserved;
         }
     }
     LifeReservation.Value PlayerLifeReservation
@@ -1295,50 +1178,43 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         get => playerLife;
         set
         {
-            lock (Monsters)
+            // Resource loss belongs to the actual death transition, never a delayed death notification.
+            if (playerLife > 0 && value == 0)
             {
-                // Resource loss belongs to the actual death transition, never a delayed death notification.
-                if (playerLife > 0 && value == 0)
-                {
-                    VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
-                    MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
-                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
-                }
-                bool changed = playerLife != value;
-                playerLife = value;
-                if (changed) MarkStatsDirty(StatInput.Life);
+                VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
+                Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
             }
+            bool changed = playerLife != value;
+            playerLife = value;
+            if (changed) { MarkStatsDirty(StatInput.Life); Frames.Area?.Life.Changed(this); }
         }
     }
     // Defaults to the original shared stream; an isolated connection may supply deterministic critical draws.
     public Random CriticalRandom { get; init; } = Random.Shared;
     public Random AttackAccuracyRandom { get; set; } = Random.Shared;
     // The player's mana as the server keeps it: spent by gem skills (mana_cost), regenerated by RunPlayerTick.
-    public uint PlayerMana { get => playerMana; set { if (playerMana == value) return; playerMana = value; MarkStatsDirty(StatInput.Mana); } }
+    public uint PlayerMana { get => playerMana; set { if (playerMana == value) return; playerMana = value; MarkStatsDirty(StatInput.Mana); Frames.Area?.Life.Changed(this); } }
     uint playerMana;
     // When the server last sent the pool back after an attack-move, whose use the client pays for but the server only walks.
     public double LastManaResyncAt = double.NegativeInfinity;
-    public uint? SentEnergyShield;
-    public bool? SentRechargeActive;
-    public int? SentEsRecoveryRate;
     // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
     // Low Life reached): Game.LoyaltyResourceStateLocked.
     public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
     /// <summary>The degeneration on the player from what is around them (a trial's trap, an encounter's pool, a ground or a
     /// debuff), points a second, energy shield first: StartResourceRecovery deals the total, and while any runs the client is
-    /// sent no recovery rates to predict a rise with. Under the Monsters lock.</summary>
+    /// sent no recovery rates to predict a rise with. In the area's frame.</summary>
     public PlayerDegens Degens { get; } = new();
     /// <summary>The total of <see cref="Degens"/>.</summary>
     public double TrapDegenPerSecond => Degens.Total;
     // (MonsterVarieties row, level) pairs already registered with 0x20 on this connection.
-    public readonly HashSet<(int Row, byte Level)> MonsterTypes = [];
+    public HashSet<(int Row, byte Level)> MonsterTypes => Area.MonsterTypes;
     // The open sell window (Sell Items): what the player offered and what the NPC offers back.
     public NpcSale? Sale;
     // The shop tab opened last (Purchase Items), with what is left in it.
     public OpenShop? Shop;
     // The town's Stash object (0 = none here), and the stash tabs whose inventory this connection has sent (0xc0 + 0xc8).
     public uint StashObject;
-    public readonly HashSet<int> StashTabsSent = [];
     /// <summary>The guild stash: its object in the hideout, its tabs this connection has the contents of, and whether its
     /// panel is the one open (then the stash messages act on it; StashOf).</summary>
     public uint GuildStashObject;
@@ -1353,7 +1229,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (int X, int Y) StashAt;
     public void MoveWaypoint(WaypointObject waypoint) => Layout = Layout with { Waypoint = waypoint };
     public (int X, int Y) CraftingBenchAt;
-    public readonly HashSet<int> GuildStashTabsSent = [];
     public bool GuildStashOpen;
     // Whether this connection opened the stash already (only the first open selects the account's last tab), and while
     // that first open runs (until StashForcedUntil, Clock seconds) the tab it selects: the panel's own request for the
@@ -1377,7 +1252,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // When the quest items' flags are synced next (Game.SyncQuestItems, about once a second from the player tick).
     public double QuestItemSyncAt;
     // The quest engine's objects in this area (Modules/Core/Game/World/Quest/QuestEngine.cs): the quest chests by object id (guarded by itself),
-    // the room objects the sight rules watch, and the client's own blockers the server mirrors (Monsters lock).
+    // the room objects the sight rules watch, and the client's own blockers the server mirrors (the area's frame).
     public readonly Dictionary<uint, (Quests.ChestRule Rule, GlyphQuest.Placement At)> QuestChests = [];
     public List<(Quests.NearRule Rule, int X, int Y)> QuestNear = [];
     /// <summary>The instance's proximity spawns (Quests.NearSpawnRule) and whether each has spawned.</summary>
@@ -1397,45 +1272,14 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public NpcCatalog.Talk? NpcTalkScript;
     // The NPCs a quest decides in this instance (QuestNpc, Game's QuestNpcs.cs), created or not.
     public readonly List<QuestNpc> QuestNpcs = [];
-    // The monster varieties that died in this instance, for NPCs a death frees (Quests.NpcRule.FreedBy); under QuestNpcs' lock.
-    public readonly HashSet<string> KilledVarieties = new(StringComparer.Ordinal);
     // Where the later forms the area leaves out would stand (AreaPopulation.LaterFormPoints), by MonsterVarieties Id, for a
-    // quest that forms one (Quests.FormsRule); under Monsters' lock.
+    // quest that forms one (Quests.FormsRule); in the area's frame' lock.
     public Dictionary<string, (int X, int Y)> LaterFormPoints => Instance?.World.LaterFormPoints ?? ownLaterFormPoints;
     readonly Dictionary<string, (int X, int Y)> ownLaterFormPoints = new(StringComparer.Ordinal);
-    // The area transitions created on this instance's client (ids), and those a script showed before their quest flag
-    // (Game.TransitionShown).
-    public HashSet<uint> ShownTransitions = [];
-    public HashSet<uint> ScriptShownTransitions = [];
     public int? NpcRewardOffer;
     public Dictionary<uint, Item> NpcRewardItems = [];
     // NPCs created on this connection by object id (town NPCs, /npc).
     public readonly Dictionary<uint, SpawnedNpc> Npcs = [];
-    /// <summary>The character's quest flags (QuestFlags.dat Ids), saved in data/saves/.</summary>
-    public HashSet<string> QuestFlags = [];
-    /// <summary>Of <see cref="Quests.EveryCharacter"/> (given on login, in <see cref="QuestFlags"/> but for
-    /// <see cref="Quests.EndgameOnly"/>), those the character's save does not have: granted, not earned. A quest event that
-    /// sets one (Kitava's death: EndGameAvailable) saves it and takes it out of here; what is earned only through the quest
-    /// (Kitava's Act 10 penalty, /state's flags) reads this, and Game.PlayerQuestFlags sends an unearned endgame flag only
-    /// in a hideout or a map area.</summary>
-    public HashSet<string> UnearnedQuestFlags = [];
-    /// <summary>The chosen Pantheon gods (PantheonPanelLayout Ids, null = none), from the save (CharacterSaves.SetPantheon);
-    /// the Pantheon module changes them under the Monsters lock (campaign/pantheon.md).</summary>
-    public string? PantheonMajor, PantheonMinor;
-    // QuestFlags is changed under the Monsters lock (SetQuestFlagsHeld); code that may run beside it (the player tick)
-    // reads it through these, under the same lock.
-    public HashSet<string> QuestFlagsSnapshot() { lock (Monsters) return [.. QuestFlags]; }
-    public bool HasQuestFlag(string flag) { lock (Monsters) return QuestFlags.Contains(flag); }
-    /// <summary>Whether the character earned the flag: it has it, and not only as one every character is given at login
-    /// (<see cref="UnearnedQuestFlags"/>: EndGameAvailable before Kitava's Act 10 death).</summary>
-    public bool EarnedQuestFlag(string flag) { lock (Monsters) return QuestFlags.Contains(flag) && !UnearnedQuestFlags.Contains(flag); }
-    // One quest-flag change at a time per connection (SetQuestFlags, the quest item sync): each reads, changes and sends the whole
-    // set, so two at once could send an older set last.
-    public readonly SemaphoreSlim QuestGate = new(1, 1);
-
-    /// <summary>The character's league quest flags (client ids, Quests.League): every character's, and at login those the
-    /// account saved in its league (AccountStash.LeagueQuestFlags, Game.SetLeagueQuestFlags).</summary>
-    public HashSet<int> LeagueQuestFlags = [.. Quests.League.EveryCharacter, .. Program.Bench.UnlockFlags];
 
     /// <summary>The hideout doodads created in this area (the map device), by object id.</summary>
     public readonly Dictionary<uint, HideoutCatalog.Doodad> HideoutDoodads = [];
@@ -1486,25 +1330,16 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     /// <summary>The 0x8f entries' model byte (/map_portal sets it for experiments).</summary>
     public byte MapPortalStyle;
-    // Spawned monsters by object id, in spawn order (for /mobs and /despawn).
-    // The instance's (InstanceWorld.Monsters, also the instance's lock): every connection in it sees and hits the same ones.
-    public MonsterTable Monsters => Instance?.World.Monsters ?? ownMonsters;
-    readonly MonsterTable ownMonsters = [];
-    /// <summary>Created, untargetable monsters shared by the instance. Their native bodies exist before emergence.
-    /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
-    public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;
-    readonly SortedDictionary<uint, SpawnedMonster> ownDormantMonsters = [];
-    /// <summary>The instance's lurking monsters and emerge watch (InstanceWorld.EmergeGround); a connection outside an
-    /// instance (a test's) keeps its own.</summary>
-    public EmergeGround EmergeGround => Instance?.World.EmergeGround ?? ownEmergeGround;
-    readonly EmergeGround ownEmergeGround = new();
-    // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. Under Monsters.
+    /// <summary>The area the player is in: its instance's (every connection in it sees and hits the same monsters), else
+    /// the player's own (a test's, a tool's). The area owns the monsters, not the player.</summary>
+    public GameArea Area => Frames.World(this);
+    // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. In the area's frame.
     public int SentMonstersRemaining = -1;
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
     // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.
-    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters => Merged(Monsters, DormantMonsters);
-    /// <summary>The monsters that stand in paths, the dormant ones too (the area's movement reads them). Under Monsters.</summary>
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters => Merged(Area.Monsters, Area.DormantMonsters);
+    /// <summary>The monsters that stand in paths, the dormant ones too (the area's movement reads them). In the area's frame.</summary>
     public IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonstersView => CollisionMonsters;
 
     IEnumerable<KeyValuePair<uint, SpawnedMonster>> Merged(SortedDictionary<uint, SpawnedMonster> awake, SortedDictionary<uint, SpawnedMonster> dormant)
@@ -1512,9 +1347,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         using var others = dormant.GetEnumerator();
         bool NextBody()
         {
-            while (others.MoveNext())
-                if (Instance is null || MonsterViews.ContainsKey(others.Current.Key)) return true;
-            return false;
+            return others.MoveNext();
         }
         bool more = NextBody();
         foreach (var pair in awake)
@@ -1529,101 +1362,17 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public InstanceState Instance { get; init; } = null!;
     /// <summary>This connection placed or restored the instance's monsters, so it saves them when it closes.</summary>
     public bool MonstersPlaced;
-    public readonly WorldOutput WorldOutput = new();
     public volatile bool AiEnabled = true;
     volatile bool closed;
     public bool Closed
     {
         get => closed;
-        set { closed = value; if (value) WorldOutput.Close(); }
-    }
-    // The mode-only C→S messages this connection (one area) has had, by mode (ClientPackets, 07 §6). A client sends
-    // only one mode's, so the first one is the mode the handlers serve; one of each is a fault to report. Until then a
-    // client is served in Lockstep, the default way of playing: the mode with no desync, which a local server's latency
-    // suits and Auto picks on it. A server-controlled player drives itself with predictive messages, so it is predictive.
-    readonly Lock _modeLock = new();
-    readonly SortedSet<ushort> _predictiveIds = [], _lockstepIds = [];
-    volatile bool _modeSeen, _lockstep;
-    bool _mixedReported;
-    // Set: the mode is known (a test, or a connection whose mode is given).
-    public bool LockstepClient
-    {
-        get => _modeSeen ? _lockstep : !Controlled;
-        set { _lockstep = value; _modeSeen = true; }
-    }
-
-    /// <summary>Notes a C→S message from the client's wire (not the server's own made-up inputs). Returns the ids of
-    /// both modes the first time this area has had messages of both, else null.</summary>
-    public (ushort[] Predictive, ushort[] Lockstep)? NotePacket(string remote, ushort id)
-    {
-        var mode = ClientPackets.ModeOf(id);
-        if (mode == PacketMode.Shared) return null;
-        lock (_modeLock)
-        {
-            var ids = mode == PacketMode.Lockstep ? _lockstepIds : _predictiveIds;
-            if (!ids.Add(id)) return null;
-            if (_predictiveIds.Count + _lockstepIds.Count == 1)
-            {
-                _lockstep = mode == PacketMode.Lockstep;
-                _modeSeen = true;
-                Console.WriteLine($"[gateway] {remote} the client sends {mode.ToString().ToLowerInvariant()} messages (first 0x{id:x4})" +
-                    (_lockstep ? "" : ": served in predictive, but Lockstep is the preferred mode " +
-                        "(Options > Game > Network Mode, then log out to the character screen and Play again)"));
-            }
-            if (_mixedReported || _predictiveIds.Count == 0 || _lockstepIds.Count == 0) return null;
-            _mixedReported = true;
-            return ([.. _predictiveIds], [.. _lockstepIds]);
-        }
-    }
-    // What the default attack's last skill record was built for: a lockstep client (DefaultAttackRecordLockstep), and
-    // the projectile whose count it carries (DefaultArrow or WandProjectile), which the client then draws itself
-    // (Game.PlayerDefaultSkills); null when it carries none.
-    public volatile bool DefaultAttackRecordLockstep;
-    public volatile string? ClientDrawnShot;
-    // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
-    public LockstepLatency LockstepLatency = new();
-    public long LockstepProbeSentAt;
-    // Where the player was at each recent frame start (Game.LockstepClientCell).
-    public readonly Queue<(double At, (int X, int Y) Cell)> LockstepTrail = new();
-    public double LockstepNextProbeAt;
-    // The frame now being sent, on Clock (PlayerWalk.FrameOf).
-    public (double Start, double End)? LockstepFrame;
-    // Completed and replaced at every frame end (Program.EndWorldFrame): what waits for this connection's next frame.
-    TaskCompletionSource frameTurn = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    public void TurnFrame() =>
-        Interlocked.Exchange(ref frameTurn, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
-    /// <summary>Completes once the frame this connection is sending starts at or after <paramref name="start"/> (Clock
-    /// seconds): at once for a connection that runs no lockstep frames, and when it closes. Every connection of an
-    /// instance ends its frames on the instance's one grid (Program.BeginWorldFrames), so a record another connection
-    /// wrote in its frame n can be given to this one in frame n + 1 exactly.</summary>
-    public async Task FrameFrom(double start)
-    {
-        while (true)
-        {
-            var turn = Volatile.Read(ref frameTurn).Task;
-            lock (Monsters)
-                if (Closed || WorldOutput.Closed || LockstepFrame is not { } frame || frame.Start >= start - 1e-6) return;
-            await Task.WhenAny(turn, WorldOutput.ClosedTask);
-        }
-    }
-    // What other connections show this client of their players, in the order they made it (SharedMonsters.cs): each
-    // piece may wait for a frame, and the next must not overtake it.
-    readonly object mirrorOrder = new();
-    Task mirrorTail = Task.CompletedTask;
-    public Task Mirror(Func<Task> work)
-    {
-        lock (mirrorOrder) return mirrorTail = After(mirrorTail, work);
-        static async Task After(Task before, Func<Task> work)
-        {
-            try { await before; } catch { }
-            try { await work(); }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
-        }
+        set { closed = value; if (value) Connection.WorldOutput.Close(); }
     }
     // A lockstep client ends an action on a frame, up to two after the server's clock, and loses an order that comes first.
-    public double LockstepActionTail => LockstepClient ? .066 : 0;
+    public double LockstepActionTail => Connection.LockstepClient ? .066 : 0;
     (double Start, double End)? LockstepFrameOf(double at) =>
-        LockstepClient && LockstepFrame is { } frame ? (Math.Min(at, frame.Start), frame.End) : null;
+        Connection.LockstepClient && Connection.LockstepFrame is { } frame ? (Math.Min(at, frame.Start), frame.End) : null;
     public readonly GameServer.Core.World.LockstepHold LockstepHold = new();
     public ushort LockstepSequence;
     // The object use (C→S 0x18f) the next frame starts.
@@ -1635,11 +1384,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.
     public LockstepAttack? LockstepAttack;
-    // The character's activated waypoints (WorldAreas Ids, kept in its save) and whether this connection was reached
-    // by waypoint travel (the player then appears next to the area's waypoint).
-    public readonly HashSet<string> Waypoints = [];
-    // The areas the character has entered (WorldAreas Ids, kept in its save): their visit quest flags.
-    public readonly HashSet<string> Visited = [];
     public bool ArriveAtWaypoint;
 
     /// <summary>A walk estimate for a server object on this area's walk map.</summary>

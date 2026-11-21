@@ -10,15 +10,56 @@ using System.Diagnostics;
 /// </summary>
 public sealed class GameArea(ulong seed)
 {
-    public ulong Seed { get; } = seed;
+    /// <summary>The area's seed: the first player's (an area made before anyone came takes theirs then).</summary>
+    public ulong Seed { get; internal set; } = seed;
     public readonly Entities Entities = new();
     public readonly AreaEvents Events = new();
     public readonly AreaSystems Systems = new();
     public readonly AreaCommands Commands = new();
     public readonly AreaOutput Output = new();
+    /// <summary>The frame's changes to the shared world, written once to every player at its end (AreaDelta).</summary>
+    public AreaDelta Delta => field ??= new(this);
+    /// <summary>The monsters' Life component: what changed, written at the frame's end (AreaLife).</summary>
+    public AreaLife Life => field ??= new(this);
+    /// <summary>The entities' Stats component: what changed, written at the frame's start (AreaStats).</summary>
+    public AreaStats Stats => field ??= new(this);
+    /// <summary>The entities' Buffs component: what changed, written at the frame's start (AreaBuffs).</summary>
+    public AreaBuffs Buffs => field ??= new(this);
+    /// <summary>What the area wrote of its objects, for a client that joins (AreaObjectRecords).</summary>
+    public AreaObjectRecords Objects => field ??= new(this);
+    /// <summary>The area was generated (its monsters and objects placed): once, by its first player (GameEvents.AreaGenerated).</summary>
+    public bool Generated { get; set; }
     public readonly AreaZones Zones = new(new AreaGrid());
-    /// <summary>Where the walkers stand, by grid cell (AreaGrid): set by the movement phase each frame.</summary>
+    /// <summary>The area's awake monsters (and the players' minions in it) by object id.</summary>
+    public MonsterTable Monsters => field ??= new(this);
+    /// <summary>Created, untargetable monsters waiting to emerge: their bodies exist before they rise into Monsters.</summary>
+    public readonly SortedDictionary<uint, SpawnedMonster> DormantMonsters = [];
+    /// <summary>The area's other monsters waiting to emerge, and its emerge watch.</summary>
+    public readonly EmergeGround EmergeGround = new();
+    /// <summary>The monster types the area's clients were told (S→C 0x20 "Id@level"; a create of the type needs it).</summary>
+    public readonly HashSet<(int Row, byte Level)> MonsterTypes = [];
+    /// <summary>Where the walkers stand, by grid cell (AreaGrid): set by the movement phase each frame, and a monster as it
+    /// joins the area.</summary>
     public AreaGrid Grid => Zones.Grid;
+
+    /// <summary>How far a walker may have gone since the movement phase put it in its cell: queries reach this much further,
+    /// and the caller keeps its exact test.</summary>
+    public const int WalkSlack = 8;
+
+    /// <summary>The living monsters whose body may reach within <paramref name="radius"/> of <paramref name="at"/>, in id
+    /// order (as the table's): the few grid cells the radius covers (AreaGrid), never a pass over every monster. A query
+    /// for hits, aggro, collision and anything else near a point; the caller keeps its exact distance test.</summary>
+    public IEnumerable<KeyValuePair<uint, SpawnedMonster>> MonstersNear((int X, int Y) at, double radius)
+    {
+        var near = new List<EntityId>();
+        Grid.Near(at, (int)Math.Ceiling(radius) + WalkSlack, near);
+        near.Sort();
+        foreach (var id in near)
+            if (Monsters.TryGetValue(id.Value, out var m)) yield return new(id.Value, m);
+    }
+
+    public IEnumerable<KeyValuePair<uint, SpawnedMonster>> MonstersNear((double X, double Y) at, double radius) =>
+        MonstersNear(((int)Math.Round(at.X), (int)Math.Round(at.Y)), radius + 1);
     public AreaTimers Timers => timers ??= new(Entities);
     AreaTimers? timers;
 
@@ -81,14 +122,25 @@ public sealed class GameArea(ulong seed)
         }
     }
 
-    /// <summary>Whether this thread is stepping this area now.</summary>
+    /// <summary>Whether this thread runs this area's frame now.</summary>
     public bool Owned => ReferenceEquals(stepping, this);
 
-    /// <summary>Debug builds check that area state changes only in its frame.</summary>
+    /// <summary>Whether a driver runs the area's frames (AreaFrames): its state is then the frame's alone.</summary>
+    public bool Driven { get; set; }
+
+    /// <summary>This thread runs <paramref name="area"/>'s frame from now (null: none); returns the one it ran before.</summary>
+    public static GameArea? Own(GameArea? area)
+    {
+        var previous = stepping;
+        stepping = area;
+        return previous;
+    }
+
+    /// <summary>Debug builds check that the area's state changes only in its frame, while a driver runs it.</summary>
     [Conditional("DEBUG")]
     public void AssertOwner()
     {
-        if (!Owned) throw new InvalidOperationException("Area state was changed outside the area's frame.");
+        if (Driven && !Owned) throw new InvalidOperationException("Area state was changed outside the area's frame.");
     }
 
     /// <summary>Removes everything <paramref name="source"/> added: a module unloading, at a frame boundary.</summary>

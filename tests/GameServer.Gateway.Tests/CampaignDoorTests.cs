@@ -15,12 +15,12 @@ public class CampaignDoorTests
         Assert.Equal(flag, wall.UnblockedBy);
         Assert.True(Quests.IsInstanceFlag(flag));
         var layout = new AreaLayout(1, Act5Areas.Ossuary, 100, 100, 5, 5, null, []);
-        var conn = new Player(layout, 1, 1) { Instance = new(), QuestBlockers = [(wall, 50, 50)] };
-        Game.UpdateQuestBlockers(conn);
-        Assert.Single(conn.StationaryBlockers);
-        conn.Instance.SetState(flag);
-        Game.UpdateQuestBlockers(conn);
-        Assert.Empty(conn.StationaryBlockers);
+        var player = new Player(layout, 1, 1) { Instance = new(), QuestBlockers = [(wall, 50, 50)] };
+        Game.UpdateQuestBlockers(player);
+        Assert.Single(player.StationaryBlockers);
+        player.Instance.SetState(flag);
+        Game.UpdateQuestBlockers(player);
+        Assert.Empty(player.StationaryBlockers);
         Assert.False(new InstanceState().HasState(flag));
     }
 

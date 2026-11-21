@@ -40,99 +40,93 @@ public static partial class Game
         && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
 
     // Every payload needs an independent executor; unsupported mechanics stay unavailable.
-    static bool TriggeredSpellExecutable(Player conn, ushort id, SupportedGem gem) => SkillsFor(conn).IsSpell(gem.Effect)
-        && !SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsTravel(gem.Effect)
+    static bool TriggeredSpellExecutable(Player player, ushort id, SupportedGem gem) => SkillsFor(player).IsSpell(gem.Effect)
+        && !SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsTravel(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1
-        && SupportedReservation(conn, id) is null && SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
-        && TriggerPayloadAvailable(conn, gem);
+        && SupportedReservation(player, id) is null && SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null
+        && TriggerPayloadAvailable(player, gem);
 
     // Called only by accepted hit damage, before Ward/ES/Mana absorb it. DoT and costs never enter this hook.
-    public static void RecordDamageTakenTriggers(Player conn, int damage, double at)
+    public static void RecordDamageTakenTriggers(Player player, int damage, double at)
     {
-        lock (conn.Monsters)
+        if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PendingTransfer is not null
+            || player.PlayerLife == 0) { DamageTriggers.Remove(player); return; }
+        if (player.Paused) return;
+        if (damage <= 0 || InTown(player)) return;
+        if (!DamageTriggers.TryGetValue(player, out var state) || state.Epoch != player.ProjectileEpoch
+            || !ReferenceEquals(state.Rules, CombatLifetime))
         {
-            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PendingTransfer is not null
-                || conn.PlayerLife == 0) { DamageTriggers.Remove(conn); return; }
-            if (conn.Paused) return;
-            if (damage <= 0 || InTown(conn)) return;
-            if (!DamageTriggers.TryGetValue(conn, out var state) || state.Epoch != conn.ProjectileEpoch
-                || !ReferenceEquals(state.Rules, CombatLifetime))
-            {
-                DamageTriggers.Remove(conn);
-                DamageTriggers.Add(conn, state = new(conn.ProjectileEpoch, CombatLifetime));
-            }
-            var live = new HashSet<ushort>();
-            foreach (var skill in GemSkillEffects(conn)) // native equipment/socket order
-            {
-                var gem = SupportedSkill(conn, skill.Id);
-                var support = gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportCastWhenDamageTaken");
-                if (support is null || !TriggeredSpellExecutable(conn, skill.Id, gem)
-                    || GemSkillInstanceDisabled(conn, gem.Effect, skill.Id, triggered: true) is not null) continue;
-                live.Add(skill.Id);
-                if (!state.Counters.TryGetValue(skill.Id, out var counter) || !SameTriggerSource(counter.Gem, gem))
-                    state.Counters[skill.Id] = counter = new(gem);
-                if (TriggerGuardSpell(conn, gem) && !TriggerGuardReady(conn, at)) continue;
-                if (counter.Pending || at < counter.ReadyAt || at < LinkedTriggersOf(conn).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
-                int threshold = GolemStat(gem.Stats, Stat.CastOnDamageTakenThreshold);
-                if (threshold <= 0) continue;
-                threshold = (int)Math.Clamp((long)threshold * Math.Max(0L, 100L
-                    + GolemStat(gem.Stats, Stat.CastWhenDamageTakenTriggerThresholdPlusPct)) / 100, 1, int.MaxValue);
-                counter.Damage += damage;
-                if (counter.Damage < threshold) continue;
-                if (state.Pending.Count >= 128) continue;
-                counter.Damage = 0; counter.Pending = true;
-                var origin = conn.Walk.Position(at);
-                var aim = conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
-                    .OrderBy(e => Dist(origin, e.Value.Walk.Position(at))).ThenBy(e => e.Key)
-                    .Select(e => e.Value.Walk.Position(at)).FirstOrDefault((origin.X + 20, origin.Y));
-                state.Pending.Enqueue((skill.Id, counter, aim, at));
-            }
-            foreach (var id in state.Counters.Keys.Where(id => !live.Contains(id)).ToArray()) state.Counters.Remove(id);
+            DamageTriggers.Remove(player);
+            DamageTriggers.Add(player, state = new(player.ProjectileEpoch, CombatLifetime));
         }
+        var live = new HashSet<ushort>();
+        foreach (var skill in GemSkillEffects(player)) // native equipment/socket order
+        {
+            var gem = SupportedSkill(player, skill.Id);
+            var support = gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportCastWhenDamageTaken");
+            if (support is null || !TriggeredSpellExecutable(player, skill.Id, gem)
+                || GemSkillInstanceDisabled(player, gem.Effect, skill.Id, triggered: true) is not null) continue;
+            live.Add(skill.Id);
+            if (!state.Counters.TryGetValue(skill.Id, out var counter) || !SameTriggerSource(counter.Gem, gem))
+                state.Counters[skill.Id] = counter = new(gem);
+            if (TriggerGuardSpell(player, gem) && !TriggerGuardReady(player, at)) continue;
+            if (counter.Pending || at < counter.ReadyAt || at < LinkedTriggersOf(player).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
+            int threshold = GolemStat(gem.Stats, Stat.CastOnDamageTakenThreshold);
+            if (threshold <= 0) continue;
+            threshold = (int)Math.Clamp((long)threshold * Math.Max(0L, 100L
+                + GolemStat(gem.Stats, Stat.CastWhenDamageTakenTriggerThresholdPlusPct)) / 100, 1, int.MaxValue);
+            counter.Damage += damage;
+            if (counter.Damage < threshold) continue;
+            if (state.Pending.Count >= 128) continue;
+            counter.Damage = 0; counter.Pending = true;
+            var origin = player.Walk.Position(at);
+            var aim = player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
+                .OrderBy(e => Dist(origin, e.Value.Walk.Position(at))).ThenBy(e => e.Key)
+                .Select(e => e.Value.Walk.Position(at)).FirstOrDefault((origin.X + 20, origin.Y));
+            state.Pending.Enqueue((skill.Id, counter, aim, at));
+        }
+        foreach (var id in state.Counters.Keys.Where(id => !live.Contains(id)).ToArray()) state.Counters.Remove(id);
     }
 
-    public static void ReleaseDamageTakenTriggers(Player conn, ProjectileSession session)
+    public static void ReleaseDamageTakenTriggers(Player player, ProjectileSession session)
     {
-        lock (conn.Monsters)
+        if (!DamageTriggers.TryGetValue(player, out var state)) return;
+        if (!CurrentGameRules || !ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch
+            || player.Closed || player.LeavingArea || player.PendingTransfer is not null || player.PlayerLife == 0)
+        { DamageTriggers.Remove(player); return; }
+        if (player.Paused) return;
+        while (state.Pending.TryDequeue(out var request))
         {
-            if (!DamageTriggers.TryGetValue(conn, out var state)) return;
-            if (!CurrentGameRules || !ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch
-                || conn.Closed || conn.LeavingArea || conn.PendingTransfer is not null || conn.PlayerLife == 0)
-            { DamageTriggers.Remove(conn); return; }
-            if (conn.Paused) return;
-            while (state.Pending.TryDequeue(out var request))
-            {
-                ushort skillId = request.Skill;
-                var counter = request.Counter; counter.Pending = false;
-                var gem = SupportedSkill(conn, request.Skill);
-                double now = Math.Max(request.At, AreaTime(conn));
-                if (now < LinkedTriggersOf(conn).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
-                if (!state.Counters.TryGetValue(request.Skill, out var current) || !ReferenceEquals(current, counter)
-                    || !SameTriggerSource(counter.Gem, gem)
-                    || GemSkillInstanceDisabled(conn, gem.Effect, request.Skill, triggered: true) is not null
-                    || !TriggerPayloadAvailable(conn, gem)) continue;
-                var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == request.Skill);
-                if (skill.Name is null) continue;
-                var support = gem.Supports.Single(s => s.Effect.Id == "SupportCastWhenDamageTaken");
-                var player = CharacterPlayerStats(conn);
-                int milliseconds = Math.Max(SkillsFor(conn).CooldownMs(gem.Effect, gem.Level),
-                    SkillsFor(conn).CooldownMs(support.Gem.Effect, support.Gem.Level));
-                double rate = Math.Max(0, 1 + ((Stat.VirtualCooldownSpeedPlusPct is var recoveryKey
-                    ? player.GetValueOrDefault(recoveryKey) : 0)
-                    + (Stat.BaseCooldownSpeedPlusPct is var baseRecovery ? gem.Stats.GetValueOrDefault(baseRecovery) : 0)
-                    + (Stat.VirtualCooldownSpeedPlusPct is var ownRecovery ? gem.Stats.GetValueOrDefault(ownRecovery) : 0)) / 100d);
-                bool Current() => state.Epoch == conn.ProjectileEpoch && CurrentGameRules
-                    && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !conn.Paused
-                    && conn.PlayerLife > 0 && !conn.LeavingArea && conn.PendingTransfer is null
-                    && SameTriggerSource(gem, SupportedSkill(conn, skillId));
-                var release = PrepareTriggeredPayload(conn, session, skillId, request.Aim, Current);
-                if (release is null || !PayMana(conn, request.Skill, out uint cost, out uint lifeCost)) continue;
-                counter.ReadyAt = rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
-                LinkedTriggersOf(conn).ReadyAt[gem.Effect] = counter.ReadyAt;
-                release();
-                if (cost > 0 || lifeCost > 0) session.Enqueue(() => SendSkillCost(conn, lifeCost, "CWDT cost"));
-            }
+            ushort skillId = request.Skill;
+            var counter = request.Counter; counter.Pending = false;
+            var gem = SupportedSkill(player, request.Skill);
+            double now = Math.Max(request.At, AreaTime(player));
+            if (now < LinkedTriggersOf(player).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
+            if (!state.Counters.TryGetValue(request.Skill, out var current) || !ReferenceEquals(current, counter)
+                || !SameTriggerSource(counter.Gem, gem)
+                || GemSkillInstanceDisabled(player, gem.Effect, request.Skill, triggered: true) is not null
+                || !TriggerPayloadAvailable(player, gem)) continue;
+            var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == request.Skill);
+            if (skill.Name is null) continue;
+            var support = gem.Supports.Single(s => s.Effect.Id == "SupportCastWhenDamageTaken");
+            var playerStats = CharacterPlayerStats(player);
+            int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
+                SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level));
+            double rate = Math.Max(0, 1 + ((Stat.VirtualCooldownSpeedPlusPct is var recoveryKey
+                ? playerStats.GetValueOrDefault(recoveryKey) : 0)
+                + (Stat.BaseCooldownSpeedPlusPct is var baseRecovery ? gem.Stats.GetValueOrDefault(baseRecovery) : 0)
+                + (Stat.VirtualCooldownSpeedPlusPct is var ownRecovery ? gem.Stats.GetValueOrDefault(ownRecovery) : 0)) / 100d);
+            bool Current() => state.Epoch == player.ProjectileEpoch && CurrentGameRules
+                && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !player.Paused
+                && player.PlayerLife > 0 && !player.LeavingArea && player.PendingTransfer is null
+                && SameTriggerSource(gem, SupportedSkill(player, skillId));
+            var release = PrepareTriggeredPayload(player, session, skillId, request.Aim, Current);
+            if (release is null || !PayMana(player, request.Skill, out uint cost, out uint lifeCost)) continue;
+            counter.ReadyAt = rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
+            LinkedTriggersOf(player).ReadyAt[gem.Effect] = counter.ReadyAt;
+            release();
+            if (cost > 0 || lifeCost > 0) session.Enqueue(() => SendSkillCost(player, lifeCost, "CWDT cost"));
         }
     }
 }

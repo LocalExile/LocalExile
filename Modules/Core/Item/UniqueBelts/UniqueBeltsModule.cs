@@ -14,9 +14,9 @@ public sealed class UniqueBeltsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.Kill.Add(module.Manifest.Id, kill => { if (kill.PlayerKill) StealMonsterMods(kill.Conn, kill.Monster); });
+        GameEvents.Kill.Add(module.Manifest.Id, kill => { if (kill.PlayerKill) StealMonsterMods(kill.Player, kill.Monster); });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithStolenMods);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, (_, player, monster, rolled) => WithDamageVsRarity(player, monster, rolled));
-        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((conn, _) => StepUniqueBeltEffects(conn)));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => StepUniqueBeltEffects(player)));
     }
 }

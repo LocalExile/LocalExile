@@ -10,13 +10,13 @@ public class MagebloodTests
         var path = Path.Combine(Path.GetTempPath(), $"mageblood-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         var items = Program.Items;
-        var conn = new Player(new(1, "mageblood", 100, 100, 100, 100, null, []), 1, 1) { Character = "MagebloodFlasks" };
+        var player = new Player(new(1, "mageblood", 100, 100, 100, 100, null, []), 1, 1) { Character = { Name = "MagebloodFlasks" } };
         try
         {
             Item Flask(string name, ItemRarity rarity) => ItemCatalog.Create(items.Find(name)!) with { Rarity = rarity };
             string Effect(string name) => $"buff {items.UtilityFlaskOf(items.Find(name)!)!.BuffRow}";
             // A life flask and a normal utility flask sit between the magic utility flasks and do not count.
-            var bar = Game.ItemsOf(conn);
+            var bar = Game.ItemsOf(player);
             bar.Put(PlayerInventories.Flask, new(301, 0, 0, Flask("Divine Life Flask", ItemRarity.Magic)));
             bar.Put(PlayerInventories.Flask, new(302, 1, 0, Flask("Granite Flask", ItemRarity.Magic)));
             bar.Put(PlayerInventories.Flask, new(303, 2, 0, Flask("Quicksilver Flask", ItemRarity.Normal)));
@@ -31,15 +31,15 @@ public class MagebloodTests
             {
                 bar.Remove(PlayerInventories.Belt, 310);
                 bar.Put(PlayerInventories.Belt, new(310, 0, 0, belt));
-                return [.. Game.MagebloodSources(conn, character).Select(s => s.Effect)];
+                return [.. Game.MagebloodSources(player, character).Select(s => s.Effect)];
             }
             var left = Applied(Belt(leftmost), _ => 0);
             Assert.Contains(Effect("Granite Flask"), left);
             Assert.Contains(Effect("Jade Flask"), left);
             Assert.DoesNotContain(Effect("Basalt Flask"), left);
             Assert.DoesNotContain(Effect("Quicksilver Flask"), left);
-            Assert.True(Game.MagebloodBlocksFlaskUse(conn, Flask("Basalt Flask", ItemRarity.Magic)));
-            Assert.False(Game.MagebloodBlocksFlaskUse(conn, Flask("Quicksilver Flask", ItemRarity.Normal)));
+            Assert.True(Game.MagebloodBlocksFlaskUse(player, Flask("Basalt Flask", ItemRarity.Magic)));
+            Assert.False(Game.MagebloodBlocksFlaskUse(player, Flask("Quicksilver Flask", ItemRarity.Normal)));
 
             var right = Applied(Belt(items.Mods.ById("MutatedUniqueBelt43MagicUtilityFlasksAlwaysApplyRightmost")!), _ => 0);
             Assert.Contains(Effect("Jade Flask"), right);
@@ -50,10 +50,10 @@ public class MagebloodTests
             int Evasion(Func<uint, int> character)
             {
                 Applied(Belt(leftmost), character);
-                return Game.MagebloodSources(conn, character).Where(s => s.Effect == Effect("Jade Flask")).Max(s => s.Value);
+                return Game.MagebloodSources(player, character).Where(s => s.Effect == Effect("Jade Flask")).Max(s => s.Value);
             }
             Assert.Equal(Evasion(_ => 0) * 3 / 2, Evasion(name => name == Stat.FlaskEffectPlusPct ? 50 : 0));
         }
-        finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
+        finally { PlayerInventories.Forget(player.Character.Name!); TestEnvironment.ReleaseSaves(path); }
     }
 }

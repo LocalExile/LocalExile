@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Accounts;
+using AccountCharacter = GameServer.Core.Accounts.Character;
 using GameServer.Modding;
 using GameServer.Storage;
 
@@ -10,51 +11,51 @@ public sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? tim
     public static ICharacterBuilds For(IModContext mod) =>
         new CharacterBuildApi(mod.Lifetime as ModuleLifetime ?? throw new ArgumentException("The mod was not loaded by this server."));
 
-    public string Capture(IPlayer player) => JsonSerializer.Serialize(Current(Connection(player)));
+    public string Capture(IPlayer player) => JsonSerializer.Serialize(Current(PlayerOf(player)));
 
-    public ICharacterBuildPlan Prepare(IPlayer player, string json)
+    public ICharacterBuildPlan Prepare(IPlayer modPlayer, string json)
     {
-        var conn = Connection(player);
-        var plan = CharacterBuildImports.Validate(json, Current(conn));
-        return new Plan(conn, plan, lifetime, time);
+        var player = PlayerOf(modPlayer);
+        var plan = CharacterBuildImports.Validate(json, Current(player));
+        return new Plan(player, plan, lifetime, time);
     }
 
-    Player Connection(IPlayer player)
+    Player PlayerOf(IPlayer modPlayer)
     {
         if (!lifetime.IsActive) throw new InvalidOperationException("The importing mod is unloaded.");
-        if (player is not IConnectionPlayer issued) throw new ArgumentException("The player was not issued by this server.");
-        var conn = issued.Conn;
-        if (conn.CharacterId is null || !Available(conn))
+        if (modPlayer is not IGamePlayer issued) throw new ArgumentException("The player was not issued by this server.");
+        var player = issued.Player;
+        if (player.Character.Id is null || !Available(player))
             throw new InvalidOperationException("Wait for a living character to enter an area.");
-        return conn;
+        return player;
     }
 
-    static bool Available(Player conn) => !conn.Closed && !conn.LeavingArea
-        && conn.PendingTransfer is null && conn.PlayerLife != 0;
+    static bool Available(Player player) => !player.Closed && !player.LeavingArea
+        && player.PendingTransfer is null && player.PlayerLife != 0;
 
-    static Character Current(Player conn)
+    static AccountCharacter Current(Player player)
     {
         var accounts = new SqliteAccountStore(Saves.Db);
-        var record = accounts.GetCharacter(conn.CharacterId!.Value)
+        var record = accounts.GetCharacter(player.Character.Id!.Value)
             ?? throw new InvalidDataException("The character no longer exists.");
-        if (record.AccountId.ToString() != conn.Account && record.AccountId.ToString("N") != conn.Account
-            && !string.Equals(accounts.GetAccount(record.AccountId)?.Name, conn.Account, StringComparison.OrdinalIgnoreCase))
+        if (record.AccountId.ToString() != player.Character.Account && record.AccountId.ToString("N") != player.Character.Account
+            && !string.Equals(accounts.GetAccount(record.AccountId)?.Name, player.Character.Account, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Cannot confirm character ownership.");
         return record;
     }
 
     sealed class Plan : ICharacterBuildPlan
     {
-        readonly Player conn;
+        readonly Player player;
         readonly ModuleLifetime lifetime;
         readonly CharacterBuildImports.Session session;
         readonly Lock gate = new();
         public string Summary { get; }
         public IReadOnlyList<string> Warnings { get; }
 
-        public Plan(Player conn, CharacterBuildImports.Prepared build, ModuleLifetime lifetime, TimeProvider? time)
+        public Plan(Player player, CharacterBuildImports.Prepared build, ModuleLifetime lifetime, TimeProvider? time)
         {
-            this.conn = conn; this.lifetime = lifetime;
+            this.player = player; this.lifetime = lifetime;
             session = new(time); session.Stage(build);
             Summary = build.Summary; Warnings = Array.AsReadOnly(build.Warnings);
         }
@@ -65,22 +66,19 @@ public sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? tim
             {
                 var build = session.Confirm();
                 if (build is null) return false;
-                lock (conn.Monsters)
+                bool accepted = false;
+                lifetime.TryCommit(() =>
                 {
-                    bool accepted = false;
-                    lifetime.TryCommit(() =>
-                    {
-                        if (!Available(conn) || conn.CharacterId != build.CharacterId
-                            || Program.InGame.Keys.Any(c => c != conn && c.CharacterId == build.CharacterId && !c.Closed)
-                            || !CharacterBuildImports.Applying.TryAdd(build.CharacterId, 0)) return;
-                        conn.BuildImport.Accept(build);
-                        conn.CloseReason = "confirmed character build import";
-                        conn.Closed = true;
-                        conn.InvalidateIncomingHits();
-                        accepted = true;
-                    });
-                    return accepted;
-                }
+                    if (!Available(player) || player.Character.Id != build.CharacterId
+                        || Program.InGame.Keys.Any(c => c != player && c.Character.Id == build.CharacterId && !c.Closed)
+                        || !CharacterBuildImports.Applying.TryAdd(build.CharacterId, 0)) return;
+                    player.BuildImport.Accept(build);
+                    player.Connection.CloseReason = "confirmed character build import";
+                    player.Closed = true;
+                    player.InvalidateIncomingHits();
+                    accepted = true;
+                });
+                return accepted;
             }
         }
 

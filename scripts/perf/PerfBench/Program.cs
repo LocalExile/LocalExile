@@ -143,25 +143,25 @@ static class PerfBench
         // Game_PERF_CHARACTER (with Game_PERF_SAVES, a copy of a characters.db): that saved character, its class, level,
         // passives and gear, loaded as a login does (Game.LoadProgress), in its league.
         var saved = SavedCharacter();
-        var conn = new Player(layout, 1, seed)
+        var player = new Player(layout, 1, seed)
         {
-            Character = saved?.Name ?? "PerfBench" + Guid.NewGuid().ToString("N"), ClassRow = saved?.ClassRow ?? 1,
-            League = saved?.League, PlayerSent = true, Instance = new(),
-            Session = new("perf", wire.Stream, wire.Ciphers),
+            Character = { Name = saved?.Name ?? "PerfBench" + Guid.NewGuid().ToString("N"), ClassRow = saved?.ClassRow ?? 1, League = saved?.League },
+            Connection = { PlayerSent = true, Session = new("perf", wire.Stream, wire.Ciphers) },
+            Instance = new()
         };
-        Program.ConnectionMetrics.Add(new ConnectionCiphers(new byte[64], false), conn.Performance);
+        Program.ConnectionMetrics.Add(new ConnectionCiphers(new byte[64], false), player.Connection.Performance);
         if (saved is { } character)
         {
-            Game.LoadProgress(conn, character.Level);
-            conn.PlayerLife = conn.Pools.Life;
-            conn.PlayerMana = conn.Pools.Mana;
-            return conn;
+            Game.LoadProgress(player, character.Level);
+            player.PlayerLife = player.Pools.Life;
+            player.PlayerMana = player.Pools.Mana;
+            return player;
         }
         // Nothing the monsters do ends the measurement: a large life pool, and no death screen.
-        conn.Pools = Game.PoolsFor(conn, 40) with { Life = 100_000_000, Mana = 1000 };
-        conn.PlayerLife = conn.Pools.Life;
-        conn.PlayerMana = 1000;
-        return conn;
+        player.Pools = Game.PoolsFor(player, 40) with { Life = 100_000_000, Mana = 1000 };
+        player.PlayerLife = player.Pools.Life;
+        player.PlayerMana = 1000;
+        return player;
     }
 
     static (string Name, int ClassRow, int Level, string League)? SavedCharacter()
@@ -176,7 +176,7 @@ static class PerfBench
         });
     }
 
-    static Task PopulateArea(Wire wire, Player conn) => Game.PopulateArea(conn);
+    static Task PopulateArea(Wire wire, Player player) => Game.PopulateArea(player);
 
     // A copy of world.db (the Gateway holds its own open), then the client tables and the catalogues.
     public static void LoadWorld()
@@ -191,12 +191,12 @@ static class PerfBench
 
     // What the area-generated message (0x7d) starts: the world frames (the area's driver, its systems and the monster AI)
     // and the player's updates. The returned task ends a little after the player closes.
-    static async Task StartArea(Player conn)
+    static async Task StartArea(Player player)
     {
-        Game.ActivateResourceEffects(conn, Game.ProjectileWorldTime(conn));
-        Program.StartWorldFrames(conn);
-        Program.ActivatePlayerUpdates(conn);
-        while (!conn.Closed) await Task.Delay(100);
+        Game.ActivateResourceEffects(player, Game.ProjectileWorldTime(player));
+        Program.StartWorldFrames(player);
+        Program.ActivatePlayerUpdates(player);
+        while (!player.Closed) await Task.Delay(100);
         await Task.Delay(500);
     }
 
@@ -324,11 +324,11 @@ static class PerfBench
                 var layout = AreaLayouts.For(hash, seed);
                 held.Add(layout);
                 using var wire = new Wire();
-                var conn = Player(layout, seed, wire);
-                await PopulateArea(wire, conn);
-                Record("single", $"{name}: monsters", conn.Monsters.Count, "");
+                var player = Player(layout, seed, wire);
+                await PopulateArea(wire, player);
+                Record("single", $"{name}: monsters", player.Area.Monsters.Count, "");
                 Snapshot(name);
-                conn.Closed = true;
+                player.Closed = true;
             }
             if (typeof(ServerLevels).GetField("_fs", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null) is { } fs)
                 foreach (string field in new[] { "_cacheBytes", "_chunkBytes" })
@@ -354,8 +354,8 @@ static class PerfBench
         _ = ConsoleLog.Value;
         var town = AreaLayouts.For(AreaLayouts.LioneyesWatch, 1);
         using var wire = new Wire();
-        var conn = Player(town, 1, wire);
-        var area = StartArea(conn);
+        var player = Player(town, 1, wire);
+        var area = StartArea(player);
         await Task.Delay(TimeSpan.FromSeconds(5));
         using var self = Process.GetCurrentProcess();
         self.Refresh();
@@ -369,7 +369,7 @@ static class PerfBench
         Record("idle player", "process CPU ms per second", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds / seconds, "ms/s");
         Record("idle player", "allocated KB per second", (Allocated() - allocated) / 1024.0 / seconds, "KB/s");
         Record("idle player", "bytes sent per second", (Interlocked.Read(ref wire.Received) - received) / seconds, "B/s");
-        lock (conn.Monsters) conn.Closed = true;
+        player.Closed = true;
         await area;
     }
 
@@ -410,14 +410,14 @@ static class PerfBench
             Record("area", $"{id} layout retained MB", (GC.GetTotalMemory(forceFullCollection: true) - live) / 1048576.0, "MB");
             first = false;
             using var wire = new Wire();
-            var conn = Player(layout, seed, wire);
+            var player = Player(layout, seed, wire);
             before = Allocated();
             clock.Restart();
-            await PopulateArea(wire, conn);
+            await PopulateArea(wire, player);
             Record("area", $"{id} populate ms", clock.Elapsed.TotalMilliseconds, "ms");
             Record("area", $"{id} populate allocated MB", (Allocated() - before) / 1048576.0, "MB");
-            Record("area", $"{id} monsters", conn.Monsters.Count, "");
-            conn.Closed = true;
+            Record("area", $"{id} monsters", player.Area.Monsters.Count, "");
+            player.Closed = true;
         }
         // What the Gateway keeps afterwards: the generated levels (ServerLevels keeps the last few), the game files'
         // caches and the catalogues.
@@ -481,7 +481,7 @@ static class PerfBench
     // projectiles), Crowd of them around a player who keeps walking, so they chase, surround, swing and shoot, and Idle
     // more farther away, as the rest of an area's population. (PopulateArea is not used: its placement is seeded with
     // the process's randomized HashCode.)
-    static async Task<(Wire Wire, Player Conn, (int X, int Y)[] Path)> BusyInstance()
+    static async Task<(Wire Wire, Player Player, (int X, int Y)[] Path)> BusyInstance()
     {
         _ = ConsoleLog.Value;
         var wire = new Wire();
@@ -489,7 +489,7 @@ static class PerfBench
         const int Crowd = 60, Idle = 140;
         ushort hash = AreaTransitionCatalog.HashOf(id)!.Value;
         var layout = AreaLayouts.For(hash, 1);
-        var conn = Player(layout, 1, wire);
+        var player = Player(layout, 1, wire);
         var kinds = Game.Packs.For(id)!.Scattered.SelectMany(p => p.Pack.Entries).Select(e => Game.Monsters.Find(e.Variety.ToString()))
             .OfType<MonsterCatalog.Variety>().Where(v => v.Supported).DistinctBy(v => v.Row)
             // Monsters that wait buried rise on a wall-clock watch (MonsterEmerge): left out, so every run is the same.
@@ -506,17 +506,17 @@ static class PerfBench
             int x = px + random.Next(-spread, spread + 1), y = py + random.Next(-spread, spread + 1);
             if (placed >= Crowd && Math.Max(Math.Abs(x - px), Math.Abs(y - py)) < 150) continue;
             if (!layout.WalkableFor(x, y, 2)) continue;
-            await Game.SpawnMonster(conn, kinds[placed % kinds.Count], 5,
+            await Game.SpawnMonster(player, kinds[placed % kinds.Count], 5,
                 MonsterRarity.Normal, x, y, log: false);
             placed++;
         }
-        Record("busy", "monsters", conn.Monsters.Count, "");
+        Record("busy", "monsters", player.Area.Monsters.Count, "");
         Record("busy", "kinds", kinds.Count, "");
 
         // The player walks between points around the spawn, as a player kiting the crowd.
         var path = new[] { (px + 12, py), (px, py + 12), (px - 12, py), (px, py - 12) }
             .Where(p => layout.WalkableFor(p.Item1, p.Item2, 0)).DefaultIfEmpty((px, py)).ToArray();
-        return (wire, conn, path);
+        return (wire, player, path);
     }
 
     // The real AI loop runs over the busy instance (RunMonsterAi, its swings, contacts and projectiles, every packet
@@ -524,7 +524,7 @@ static class PerfBench
     public static async Task Busy_instance_ticks()
     {
         const double Seconds = 10;
-        var (wire, conn, path) = await BusyInstance();
+        var (wire, player, path) = await BusyInstance();
         using var _ = wire;
         using var stop = new CancellationTokenSource();
         var walking = Task.Run(async () =>
@@ -532,12 +532,12 @@ static class PerfBench
             for (int i = 0; !stop.IsCancellationRequested; i++)
             {
                 var (x, y) = path[i % path.Length];
-                lock (conn.Monsters) conn.Walk.Order(x, y, conn.Clock.Elapsed.TotalSeconds);
+                player.Walk.Order(x, y, player.Clock.Elapsed.TotalSeconds);
                 await Task.Delay(700);
             }
         });
         using var self = Process.GetCurrentProcess();
-        var ai = StartArea(conn);
+        var ai = StartArea(player);
         // A warm-up first (Game_PERF_WARMUP seconds, default 5): the JIT's tier-1 recompilation of the hot methods is a
         // one-time cost of a fresh process, not of a running server's instance.
         await Task.Delay(TimeSpan.FromSeconds(double.TryParse(Environment.GetEnvironmentVariable("Game_PERF_WARMUP"), out var w) ? w : 5));
@@ -556,7 +556,7 @@ static class PerfBench
         double elapsed = clock.Elapsed.TotalSeconds;
         self.Refresh();
         double cpuMs = (self.TotalProcessorTime - cpuBefore).TotalMilliseconds;
-        lock (conn.Monsters) conn.Closed = true;
+        player.Closed = true;
         stop.Cancel();
         await ai;
         await walking;
@@ -569,7 +569,7 @@ static class PerfBench
         Record("busy", "GC pause ms per game second", (GC.GetTotalPauseDuration() - pauseBefore).TotalMilliseconds / elapsed, "ms/s");
         Record("busy", "thread-pool work items per game second", (ThreadPool.CompletedWorkItemCount - workBefore) / elapsed, "/s");
         Record("busy", "bytes sent per game second", (Interlocked.Read(ref wire.Received) - sentBefore) / elapsed, "B/s");
-        Record("busy", "aggro monsters", conn.Monsters.Values.Count(m => m.Aggro), "");
+        Record("busy", "aggro monsters", player.Area.Monsters.Values.Count(m => m.Aggro), "");
         Record("busy", "log lines per game second", (LogLines() - linesBefore) / elapsed, "/s");
     }
 
@@ -579,34 +579,35 @@ static class PerfBench
     // a frame around each toggle (the first is the area's first use of the skill).
     public static async Task Righteous_fire_toggles()
     {
-        var (wire, conn, _) = await BusyInstance();
+        var (wire, player, _) = await BusyInstance();
         using var __ = wire;
         // Level 90 for the gem's level requirement; god mode for its attributes and for life the crowd cannot take. A saved
         // character (Game_PERF_CHARACTER) keeps its level and gear, with its own Righteous Fire.
-        conn.God = true;
+        player.God = true;
         if (Environment.GetEnvironmentVariable("Game_PERF_CHARACTER") is not { Length: > 0 })
         {
-            conn.Experience = CharacterStats.ExperienceFor(90);
-            WearRighteousFire(conn);
+            player.Character.Experience = CharacterStats.ExperienceFor(90);
+            WearRighteousFire(player);
         }
         var jitStart = System.Runtime.JitInfo.GetCompilationTime();
         long methodsStart = System.Runtime.JitInfo.GetCompiledMethodCount();
-        var area = StartArea(conn);
+        var area = StartArea(player);
         await Task.Delay(TimeSpan.FromSeconds(4));
         Record("rf", "JIT time in the area's first 4 s", (System.Runtime.JitInfo.GetCompilationTime() - jitStart).TotalMilliseconds, "ms");
         Record("rf", "methods compiled in the area's first 4 s", System.Runtime.JitInfo.GetCompiledMethodCount() - methodsStart, "");
         await Task.Delay(TimeSpan.FromSeconds(1));
-        var rf = Game.GemSkillEffects(conn).First(g => g.Name.Contains("Righteous Fire"));
+        var rf = Game.GemSkillEffects(player).First(g => g.Name.Contains("Righteous Fire"));
         double LongestGap(Func<Task> toggle)
         {
             double longest = 0, lastAt = 0;
-            long last = conn.Frames.Frame;
+            long last = player.Frames.Frame;
             var clock = Stopwatch.StartNew();
-            var running = Task.Run(toggle);
+            // In the area's frame, as the player's message is handled.
+            var running = player.Frames.Run(toggle);
             while (clock.Elapsed.TotalSeconds < 1)
             {
                 Thread.Sleep(2);
-                long frame = conn.Frames.Frame;
+                long frame = player.Frames.Frame;
                 double at = clock.Elapsed.TotalMilliseconds;
                 if (frame != last) { longest = Math.Max(longest, at - lastAt); (last, lastAt) = (frame, at); }
             }
@@ -621,84 +622,121 @@ static class PerfBench
             Record("rf", $"longest frame gap, turned on ({i})", LongestGap(async () =>
             {
                 long started = Stopwatch.GetTimestamp();
-                await Game.ActivateRighteousFire(conn, rf.Id, rf.Effect, rf.Level, rf.Quality, rf.Gem);
+                await Game.UseInstantSkill(player, rf.Id, player.Id, player.Walk.Position(Game.AreaTime(player)));
                 activation = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             }), "ms");
             Record("rf", $"its activation call ({i})", activation, "ms");
             Record("rf", $"JIT time in that second ({i})", (System.Runtime.JitInfo.GetCompilationTime() - jitBefore).TotalMilliseconds, "ms");
             Record("rf", $"methods compiled in that second ({i})", System.Runtime.JitInfo.GetCompiledMethodCount() - methodsBefore, "");
-            if (conn.RighteousFire is null) throw new InvalidOperationException("Righteous Fire did not turn on");
-            Record("rf", $"longest frame gap, turned off ({i})", LongestGap(() => Game.EndRighteousFire(conn, "perf")), "ms");
+            if (player.RighteousFire is null) throw new InvalidOperationException("Righteous Fire did not turn on");
+            Record("rf", $"longest frame gap, turned off ({i})", LongestGap(() => Game.EndRighteousFire(player, "perf")), "ms");
         }
-        lock (conn.Monsters) conn.Closed = true;
+        // The cast alone, warm, many times: the use message's work in the area's frame (UseInstantSkill), each turned
+        // on and off, a frame apart.
+        var casts = new List<double>();
+        for (int i = 0; i < 40; i++)
+        {
+            double took = 0;
+            await player.Frames.Run(async () =>
+            {
+                long started = Stopwatch.GetTimestamp();
+                await Game.UseInstantSkill(player, rf.Id, player.Id, player.Walk.Position(Game.AreaTime(player)));
+                took = Stopwatch.GetElapsedTime(started).TotalMilliseconds * 1000;
+            });
+            await Task.Delay(Program.FrameMs * 2);
+            await player.Frames.Run(() => Game.EndRighteousFire(player, "perf"));
+            await Task.Delay(Program.FrameMs * 2);
+            casts.Add(took);
+        }
+        casts.Sort();
+        Record("rf", "cast, median of 40", casts[casts.Count / 2], "us");
+        Record("rf", "cast, 90th percentile of 40", casts[casts.Count * 9 / 10], "us");
+        Record("rf", "cast, best of 40", casts[0], "us");
+        // Back to back in one frame (Game_PERF_CASTS, default 0): the cast's own work, for a profiler.
+        if (int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_CASTS"), out int loops) && loops > 0)
+        {
+            double total = 0;
+            await player.Frames.Run(async () =>
+            {
+                for (int i = 0; i < loops; i++)
+                {
+                    long started = Stopwatch.GetTimestamp();
+                    await Game.UseInstantSkill(player, rf.Id, player.Id, player.Walk.Position(Game.AreaTime(player)));
+                    total += Stopwatch.GetElapsedTime(started).TotalMilliseconds * 1000;
+                    await Game.EndRighteousFire(player, "perf");
+                }
+            });
+            Record("rf", $"cast, mean of {loops} back to back", total / loops, "us");
+        }
+        player.Closed = true;
         await area;
     }
 
     // A robe with a level 1 Righteous Fire gem worn; the character does not meet the gem's requirements, so it is exempt,
     // as one of the modules the player's league lists (only those are asked).
-    static void WearRighteousFire(Player conn)
+    static void WearRighteousFire(Player player)
     {
-        var items = Game.ItemsFor(conn);
+        var items = Game.ItemsFor(player);
         var (gemType, variant) = items.FindGem("Righteous Fire") ?? throw new InvalidOperationException("no Righteous Fire gem");
         var created = ItemCatalog.Create(gemType) with { GemExperience = items.Gem(gemType)!.ExperienceFor(1), GemVariant = variant.Index };
-        var inventories = Game.ItemsOf(conn);
+        var inventories = Game.ItemsOf(player);
         uint robe = inventories.NewItemId();
         inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(robe, 0, 0,
             ItemCatalog.Create(items.Find("Simple Robe")!) with { Sockets = [new ItemSocket(SocketColour.Red, created)] }));
-        GameEvents.RequirementExemptions.Add(Program.ModulesFor(conn).First(), c => ReferenceEquals(c, conn) ? [robe] : []);
+        GameEvents.RequirementExemptions.Add(Program.ModulesFor(player).First(), c => ReferenceEquals(c, player) ? [robe] : []);
     }
 
     public static async Task Pause_and_resume()
     {
-        var (wire, conn, _) = await BusyInstance();
+        var (wire, player, _) = await BusyInstance();
         using var __ = wire;
         // 10,000 more life: the crowd kills the character in about 15 s, and a death's frame is not the resume's.
-        conn.God = true;
+        player.God = true;
         // A robe with a Righteous Fire gem worn (Game_PERF_RF=0: none). The skill itself is not turned on here.
-        if (Environment.GetEnvironmentVariable("Game_PERF_RF") != "0") WearRighteousFire(conn);
-        var area = StartArea(conn);
+        if (Environment.GetEnvironmentVariable("Game_PERF_RF") != "0") WearRighteousFire(player);
+        var area = StartArea(player);
         await Task.Delay(TimeSpan.FromSeconds(5));
         long FramesIn(double seconds)
         {
-            long from = conn.Frames.Frame;
+            long from = player.Frames.Frame;
             Thread.Sleep(TimeSpan.FromSeconds(seconds));
-            return conn.Frames.Frame - from;
+            return player.Frames.Frame - from;
         }
         Record("pause", "frames in the second before", FramesIn(1), "");
-        await Game.SetPaused(conn, true);
+        await Game.SetPaused(player, true);
         Record("pause", "frames in 10 s paused", FramesIn(10), "");
-        await Game.SetPaused(conn, false);
+        await Game.SetPaused(player, false);
         // The longest wait for the next frame in the 3 s after the resume (the client sees nothing meanwhile).
         double longest = 0;
         var clock = Stopwatch.StartNew();
-        long last = conn.Frames.Frame;
+        long last = player.Frames.Frame;
         double lastAt = 0;
         while (clock.Elapsed.TotalSeconds < 3)
         {
             Thread.Sleep(2);
-            long frame = conn.Frames.Frame;
+            long frame = player.Frames.Frame;
             double at = clock.Elapsed.TotalMilliseconds;
             if (frame != last) { longest = Math.Max(longest, at - lastAt); (last, lastAt) = (frame, at); }
         }
         longest = Math.Max(longest, clock.Elapsed.TotalMilliseconds - lastAt);
         Record("pause", "longest gap between frames after the resume", longest, "ms");
         Record("pause", "frames a second after the resume", FramesIn(1), "");
-        lock (conn.Monsters) conn.Closed = true;
+        player.Closed = true;
         await area;
     }
 
     // The planner alone, single-threaded, over the same crowd: one decision pass per AI step (no sends).
     public static async Task Monster_planner()
     {
-        var (wire, conn, path) = await BusyInstance();
+        var (wire, player, path) = await BusyInstance();
         using var _ = wire;
         var clock = new Stopwatch();
         var cadence = new MonsterAiCadence();
         const int Steps = 2000;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        for (int i = 0; i < 50; i++) Game.PlanMonsterAi(conn, cadence, now += 0.05);   // warm-up
-        var surroundBefore = conn.Performance.Read(LatencyPhase.Surround);
-        var blockersBefore = conn.Performance.Read(LatencyPhase.BlockerBuild);
+        double now = player.Clock.Elapsed.TotalSeconds;
+        for (int i = 0; i < 50; i++) Game.PlanMonsterAi(player, cadence, now += 0.05);   // warm-up
+        var surroundBefore = player.Connection.Performance.Read(LatencyPhase.Surround);
+        var blockersBefore = player.Connection.Performance.Read(LatencyPhase.BlockerBuild);
         long planAllocated = GC.GetAllocatedBytesForCurrentThread();
         using var self = Process.GetCurrentProcess();
         var cpuBefore = self.TotalProcessorTime;
@@ -706,11 +744,11 @@ static class PerfBench
         int moves = 0;
         for (int i = 0; i < Steps; i++)
         {
-            if (i % 14 == 0) { var (x, y) = path[i / 14 % path.Length]; lock (conn.Monsters) conn.Walk.Order(x, y, now); }
-            var plan = Game.PlanMonsterAi(conn, cadence, now += 0.05);
+            if (i % 14 == 0) { var (x, y) = path[i / 14 % path.Length]; player.Walk.Order(x, y, now); }
+            var plan = Game.PlanMonsterAi(player, cadence, now += 0.05);
             moves += plan.Moves.Count;
             // Swings complete at once here: the planner keeps reserving them.
-            lock (conn.Monsters) foreach (var (_, m, action) in plan.Swings) cadence.CompleteSwing(m, action);
+            foreach (var (_, m, action) in plan.Swings) cadence.CompleteSwing(m, action);
         }
         Record("planner", "PlanMonsterAi Ã‚Âµs per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "Ã‚Âµs");
         self.Refresh();
@@ -720,10 +758,10 @@ static class PerfBench
         Record("planner", "PlanMonsterAi moves per step", moves / (double)Steps, "");
         // The planner's phases (ConnectionPerformance): the surround's slot search and the blocker snapshot.
         Record("planner", "MonsterSurround.Assign Ã‚Âµs per step",
-            (conn.Performance.Read(LatencyPhase.Surround).TotalMilliseconds - surroundBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
+            (player.Connection.Performance.Read(LatencyPhase.Surround).TotalMilliseconds - surroundBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
         Record("planner", "blocker frame Ã‚Âµs per step",
-            (conn.Performance.Read(LatencyPhase.BlockerBuild).TotalMilliseconds - blockersBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
-        conn.Closed = true;
+            (player.Connection.Performance.Read(LatencyPhase.BlockerBuild).TotalMilliseconds - blockersBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
+        player.Closed = true;
     }
 
     // One Ice Nova (level 20, in a body armour socket) on N monsters inside its radius: the real AreaSkillHit with every
@@ -736,17 +774,17 @@ static class PerfBench
         _ = ConsoleLog.Value;
         using var wire = new Wire();
         var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf("1_1_2")!.Value, 1);
-        var conn = Player(layout, 1, wire);
-        for (int i = 0; i < 300; i++) Game.CharacterPlayerStats(conn);
+        var player = Player(layout, 1, wire);
+        for (int i = 0; i < 300; i++) Game.CharacterPlayerStats(player);
         double seconds = double.TryParse(Environment.GetEnvironmentVariable("Game_PERF_SECONDS"), out var s) ? s : 20;
         Out.WriteLine($"stats: looping, pid {Environment.ProcessId}");
         long a0 = Allocated();
         int calls = 0;
         var clock = Stopwatch.StartNew();
-        while (clock.Elapsed.TotalSeconds < seconds) { Game.CharacterPlayerStats(conn); calls++; }
+        while (clock.Elapsed.TotalSeconds < seconds) { Game.CharacterPlayerStats(player); calls++; }
         Record("stats", "CharacterPlayerStats us per call", clock.Elapsed.TotalMilliseconds * 1000 / calls, "us");
         Record("stats", "CharacterPlayerStats KB per call", (Allocated() - a0) / 1024.0 / calls, "KB");
-        conn.Closed = true;
+        player.Closed = true;
     }
 
     public static async Task Area_sweep()
@@ -755,16 +793,16 @@ static class PerfBench
         using var wire = new Wire();
         const string id = "1_1_2";
         var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf(id)!.Value, 1);
-        var conn = Player(layout, 1, wire);
-        var items = Game.ItemsFor(conn);
+        var player = Player(layout, 1, wire);
+        var items = Game.ItemsFor(player);
         var (gemType, variant) = items.FindGem("Ice Nova") ?? throw new InvalidOperationException("no Ice Nova gem");
-        var gem = Game.ItemsFor(conn).Gem(gemType)!;
+        var gem = Game.ItemsFor(player).Gem(gemType)!;
         var created = ItemCatalog.Create(gemType) with { GemExperience = gem.ExperienceFor(20), GemVariant = variant.Index };
         var robe = items.Find("Simple Robe") ?? throw new InvalidOperationException("no Simple Robe");
-        var inventories = Game.ItemsOf(conn);
+        var inventories = Game.ItemsOf(player);
         inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(inventories.NewItemId(), 0, 0,
             ItemCatalog.Create(robe) with { Sockets = [new ItemSocket(SocketColour.Blue, created)] }));
-        var nova = Game.GemSkillEffects(conn).First(g => g.Name.Contains("Ice Nova"));
+        var nova = Game.GemSkillEffects(player).First(g => g.Name.Contains("Ice Nova"));
         var kind = Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite") ?? Game.Packs.For(id)!.Scattered
             .SelectMany(p => p.Pack.Entries).Select(e => Game.Monsters.Find(e.Variety.ToString()))
             .OfType<MonsterCatalog.Variety>().First(v => v.Supported && Game.Emerges.Kind(v, MonsterRarity.Normal) == EmergeKind.None);
@@ -772,15 +810,15 @@ static class PerfBench
         var random = new Random(7);
         foreach (int crowd in (int[])[100, 300, 500])
         {
-            while (conn.Monsters.Count < crowd)
+            while (player.Area.Monsters.Count < crowd)
             {
                 // Inside the nova's radius (the aimed point is the player): spawning may push a monster a little out.
                 int x = px + random.Next(-12, 13), y = py + random.Next(-12, 13);
-                await Game.SpawnMonster(conn, kind, 5, MonsterRarity.Normal, x, y, log: false);
+                await Game.SpawnMonster(player, kind, 5, MonsterRarity.Normal, x, y, log: false);
             }
             // Crowded spawns push each other apart: put every monster back inside the radius (overlapping is fine here).
-            double now0 = conn.Clock.Elapsed.TotalSeconds;
-            foreach (var m in conn.Monsters.Values)
+            double now0 = player.Clock.Elapsed.TotalSeconds;
+            foreach (var m in player.Area.Monsters.Values)
             {
                 m.Walk.Teleport(px + random.Next(-15, 16), py + random.Next(-15, 16), now0);
                 m.Life = 1_000_000_000; m.FlinchUntil = 0;
@@ -790,10 +828,10 @@ static class PerfBench
             long allocated = 0, sent = 0;
             for (int i = 0; i < Sweeps; i++)
             {
-                foreach (var m in conn.Monsters.Values) m.FlinchUntil = 0;
+                foreach (var m in player.Area.Monsters.Values) m.FlinchUntil = 0;
                 long a0 = Allocated(), s0 = Interlocked.Read(ref wire.Received);
                 var clock = Stopwatch.StartNew();
-                await Game.AreaSkillHit(conn, nova.Id, nova, (px, py), (px, py), immediate: true);
+                await Game.AreaSkillHit(player, nova.Id, nova, (px, py), (px, py), immediate: true);
                 times.Add(clock.Elapsed.TotalMilliseconds);
                 if (i > 0) { allocated += Allocated() - a0; sent += Interlocked.Read(ref wire.Received) - s0; }
             }
@@ -813,35 +851,29 @@ static class PerfBench
             Record("sweep", $"{name} µs per call", clock.Elapsed.TotalMilliseconds * 1000 / n, "µs");
             Record("sweep", $"{name} KB per call", (GC.GetAllocatedBytesForCurrentThread() - a0) / 1024.0 / n, "KB");
         }
-        var first = conn.Monsters.First();
-        var player = Game.CharacterPlayerStats(conn);
-        var skillStats = Game.SupportedSkill(conn, nova.Id).Stats;
-        var hit = Game.SupportedHit(conn, nova.Id);
-        var pen = Penetration.Of(player, Program.Stats, attack: false, skillStats, null);
-        var mods = Game.HitResistMods(player, skillStats);
-        lock (conn.Monsters)
-        {
-            Time("CharacterPlayerStats", () => Game.CharacterPlayerStats(conn), 200);
-            Time("SupportedHit", () => Game.SupportedHit(conn, nova.Id), 200);
-            Time("SupportedCriticalChance", () => Game.SupportedCriticalChance(conn, nova.Id), 200);
-            Time("SupportedCriticalMultiplier", () => Game.SupportedCriticalMultiplier(conn, nova.Id), 200);
-            Time("roll + mitigation (MonsterDamage)", () => Game.MonsterDamage(first.Value,
-                hit.Roll(Random.Shared), false, attack: false, mods, pen, out _, false));
-        }
+        var first = player.Area.Monsters.First();
+        var playerStats = Game.CharacterPlayerStats(player);
+        var skillStats = Game.SupportedSkill(player, nova.Id).Stats;
+        var hit = Game.SupportedHit(player, nova.Id);
+        var pen = Penetration.Of(playerStats, Program.Stats, attack: false, skillStats, null);
+        var mods = Game.HitResistMods(playerStats, skillStats);
+        Time("CharacterPlayerStats", () => Game.CharacterPlayerStats(player), 200);
+        Time("SupportedHit", () => Game.SupportedHit(player, nova.Id), 200);
+        Time("SupportedCriticalChance", () => Game.SupportedCriticalChance(player, nova.Id), 200);
+        Time("SupportedCriticalMultiplier", () => Game.SupportedCriticalMultiplier(player, nova.Id), 200);
+        Time("roll + mitigation (MonsterDamage)", () => Game.MonsterDamage(first.Value,
+            hit.Roll(Random.Shared), false, attack: false, mods, pen, out _, false));
         Time("LifeUpdate packet", () => InstanceProtocol.LifeUpdate(first.Key, 5));
-        lock (conn.Monsters)
-        {
-            Time("ChargesOnHit", () => Game.ChargesOnHit(conn, first.Value, false, true, nova.Effect, nova.Level, nova.Quality), 200);
-            var leech = Game.HitLeechSources(player, false, skillStats, null);
-            var rolledHit = hit.Roll(Random.Shared);
-            Time("LeechOnHitLocked", () => Game.LeechOnHitLocked(conn, first.Value, rolledHit, 10, leech), 200);
-            Time("ApplyMonsterHitLocked", () => Game.ApplyMonsterHitLocked(conn, first.Value, 1, null, null), 200);
-            Time("GamblerFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(conn, player, first.Value,
-                (Game.GamblerFor(player) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
-        }
-        Time("NotifyMonsterHit (sends)", () => Game.NotifyMonsterHit(conn, first.Key, first.Value,
+        Time("ChargesOnHit", () => Game.ChargesOnHit(player, first.Value, false, true, nova.Effect, nova.Level, nova.Quality), 200);
+        var leech = Game.HitLeechSources(playerStats, false, skillStats, null);
+        var rolledHit = hit.Roll(Random.Shared);
+        Time("LeechOnHitLocked", () => Game.LeechOnHitLocked(player, first.Value, rolledHit, 10, leech), 200);
+        Time("ApplyMonsterHitLocked", () => Game.ApplyMonsterHitLocked(player, first.Value, 1, null, null), 200);
+        Time("GamblerFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(player, playerStats, first.Value,
+            (Game.GamblerFor(playerStats) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
+        Time("NotifyMonsterHit (sends)", () => Game.NotifyMonsterHit(player, first.Key, first.Value,
             new(1_000_000, false), 1, "bench", log: true).GetAwaiter().GetResult(), 200);
-        conn.Closed = true;
+        player.Closed = true;
     }
 }
 

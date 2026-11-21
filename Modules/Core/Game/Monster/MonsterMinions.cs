@@ -85,48 +85,44 @@ public static partial class Game
         };
     }
 
-    /// <summary>Under the Monsters lock: the summoner's living minions of a variety beyond its limit, oldest (lowest
+    /// <summary>In the area's frame: the summoner's living minions of a variety beyond its limit, oldest (lowest
     /// object id) first, to make room for <paramref name="incoming"/> more.</summary>
-    /// <summary>How many of a summon's monsters its summoner has standing. Under the Monsters lock.</summary>
-    public static int LivingSummonsLocked(Player conn, uint summoner, SkillCatalog.MonsterSummonInfo summon) =>
-        conn.Monsters.Values.Count(m => m.SummonerId == summoner && !m.Dead && m.Life > 0 && m.Variety?.Row == summon.Variety);
+    /// <summary>How many of a summon's monsters its summoner has standing. In the area's frame.</summary>
+    public static int LivingSummonsLocked(Player player, uint summoner, SkillCatalog.MonsterSummonInfo summon) =>
+        player.Area.Monsters.Values.Count(m => m.SummonerId == summoner && !m.Dead && m.Life > 0 && m.Variety?.Row == summon.Variety);
 
-    static List<uint> SurplusMinionsLocked(Player conn, uint summoner, SkillCatalog.MonsterSummonInfo summon, int incoming)
+    static List<uint> SurplusMinionsLocked(Player player, uint summoner, SkillCatalog.MonsterSummonInfo summon, int incoming)
     {
         if (summon.Limit <= 0) return [];
-        var living = conn.Monsters.Where(p => p.Value.SummonerId == summoner && !p.Value.Dead && p.Value.Life > 0
+        var living = player.Area.Monsters.Where(p => p.Value.SummonerId == summoner && !p.Value.Dead && p.Value.Life > 0
             && p.Value.Variety?.Row == summon.Variety).Select(p => p.Key).Order().ToList();
         int surplus = living.Count + Math.Min(incoming, summon.Limit) - summon.Limit;
         return surplus > 0 ? living.GetRange(0, Math.Min(surplus, living.Count)) : [];
     }
 
     /// <summary>Takes summoned monsters out of the area (as a player's expired minion is: Golems.RemoveGolemLocked).</summary>
-    static async Task RetireSummonedMonsters(Player conn,
+    static async Task RetireSummonedMonsters(Player player,
         IReadOnlyCollection<uint> ids, string why)
     {
         List<uint> gone = [];
-        lock (conn.Monsters)
-            foreach (uint id in ids)
-                if (conn.Monsters.Remove(id, out var m))
-                {
-                    m.Dead = true; m.Life = 0; m.ActionGeneration++;
-                    conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
-                    gone.Add(id);
-                }
+        foreach (uint id in ids)
+            if (player.Area.Monsters.Remove(id, out var m))
+            {
+                m.Dead = true; m.Life = 0; m.ActionGeneration++;
+                player.Instance.World.MonsterOrigins.TryRemove(id, out _);
+                gone.Add(id);
+            }
         foreach (uint id in gone)
-            await SendWorldRemoval(conn, id, $"0x0013 summoned monster 0x{id:x} {why}");
+            await SendWorldRemoval(player, id, $"0x0013 summoned monster 0x{id:x} {why}");
     }
 
     /// <summary>The summoned monsters whose duration has run out leave (MonsterSummonInfo.Lifetime).</summary>
-    static Task ExpireSummonedMonsters(Player conn)
+    static Task ExpireSummonedMonsters(Player player)
     {
         uint[] expired;
-        lock (conn.Monsters)
-        {
-            double now = AreaTime(conn);
-            expired = [.. conn.Monsters.Where(p => p.Value.ExpiresAt <= now && !p.Value.Dead).Select(p => p.Key)];
-        }
+        double now = AreaTime(player);
+        expired = [.. player.Area.Monsters.Where(p => p.Value.ExpiresAt <= now && !p.Value.Dead).Select(p => p.Key)];
         return expired.Length == 0 ? Task.CompletedTask
-            : RetireSummonedMonsters(conn, expired, "expires");
+            : RetireSummonedMonsters(player, expired, "expires");
     }
 }

@@ -62,7 +62,7 @@ public static class StrikeTargets
 
     /// <summary>Each Strike skill's last use in this area and life: where the player stood and where its hit landed. The
     /// client keeps them in the <c>skill_location_memory</c> buff (BuffDefinitions 1451, CancelOnDeath), one per skill.
-    /// Guarded by the Monsters lock.</summary>
+    /// Owned by the area's frame.</summary>
     public sealed class Memory
     {
         readonly Dictionary<ushort, ((int X, int Y) Player, (int X, int Y) Centre)> last = [];

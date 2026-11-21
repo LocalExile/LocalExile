@@ -111,6 +111,7 @@ public sealed class MonsterIgnites
     public double RemainingBase(double now) => Math.Max(0, Until - now) * expiryRate;
 
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
+    /// <summary>The row of the buff that shows the set (its source: BuffSource), null while none (Game.ShowDot).</summary>
     public ushort? Buff;
 
     /// <summary>The attacking object shown as the buff source (0 for generic self-created ailments).</summary>

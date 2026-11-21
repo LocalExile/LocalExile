@@ -11,14 +11,14 @@ public static partial class Game
         => webs <= 0 ? raw : raw.Add(DamageType.Chaos,
             new(get(SpiderMin) * (double)webs * effectiveness, get(SpiderMax) * (double)webs * effectiveness));
 
-    public static SpiderDamageSource? CaptureSpiderDamage(Player conn, SupportedHitInputs inputs, double effectiveness,
+    public static SpiderDamageSource? CaptureSpiderDamage(Player player, SupportedHitInputs inputs, double effectiveness,
         bool context = false, IReadOnlyDictionary<uint, int>? local = null, bool bow = false)
     {
         if (!HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get)) return null;
         int per = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         int cap = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
-        double igniteFactor = per > 0 ? Math.Max(0, 1 + Math.Min((long)per * RecentlyIgnitedCount(conn,
-            ProjectileWorldTime(conn)), cap > 0 ? cap : long.MaxValue) / 100d) : 1;
+        double igniteFactor = per > 0 ? Math.Max(0, 1 + Math.Min((long)per * RecentlyIgnitedCount(player,
+            ProjectileWorldTime(player)), cap > 0 ? cap : long.MaxValue) / 100d) : 1;
         return new(inputs.Raw, inputs.Conversion, new Dictionary<uint, int>(inputs.FrozenStats),
             new Dictionary<uint, int>(inputs.Caster), inputs.Attack, inputs.Melee, inputs.Area, inputs.Projectile,
             inputs.Modifiers.ToArray(), new HashSet<int>(inputs.Types), effectiveness, inputs.WieldingWand,

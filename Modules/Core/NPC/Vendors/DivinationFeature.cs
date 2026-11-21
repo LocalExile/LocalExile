@@ -17,105 +17,105 @@ static class DivinationFeature
     {
         GameEventOwners.Own(module.Manifest.Id, new Cleanup(() =>
         {
-            foreach (var (conn, _) in Sessions) Close(conn);
+            foreach (var (player, _) in Sessions) Close(player);
             Sessions.Clear();
         }));
         GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
             if (talk.Category != "TradeDivinationCards") return false;
-            await Open(ConnOf(talk.Player));
+            await Open(talk.Player);
             return true;
         });
-        GameEvents.NpcTalk.Add(module.Manifest.Id, (conn, _, _) =>
+        GameEvents.NpcTalk.Add(module.Manifest.Id, (player, _, _) =>
         {
-            Close(conn);
+            Close(player);
             return Task.FromResult(false);
         });
-        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, conn =>
+        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, player =>
         {
-            Close(conn);
+            Close(player);
             return Task.CompletedTask;
         });
-        GameEvents.InventoryPick.Add(module.Manifest.Id, (conn, pick) =>
-            Task.FromResult(pick.InventoryId == PlayerInventories.InventoryId(Row) && !Current(conn)));
-        GameEvents.InventoryPlace.Add(module.Manifest.Id, (conn, place) =>
-            Task.FromResult(place.InventoryId == PlayerInventories.InventoryId(Row) && !CanDeposit(conn)));
-        GameEvents.Packet(InstanceItems.ItemActionId).Add(module.Manifest.Id, (conn, bytes) =>
+        GameEvents.InventoryPick.Add(module.Manifest.Id, (player, pick) =>
+            Task.FromResult(pick.InventoryId == PlayerInventories.InventoryId(Row) && !Current(player)));
+        GameEvents.InventoryPlace.Add(module.Manifest.Id, (player, place) =>
+            Task.FromResult(place.InventoryId == PlayerInventories.InventoryId(Row) && !CanDeposit(player)));
+        GameEvents.Packet(InstanceItems.ItemActionId).Add(module.Manifest.Id, (player, bytes) =>
         {
             var move = InstanceItems.ReadItemAction(bytes);
-            return Task.FromResult(move.InventoryId == PlayerInventories.InventoryId(Row) && !CanDeposit(conn));
+            return Task.FromResult(move.InventoryId == PlayerInventories.InventoryId(Row) && !CanDeposit(player));
         });
-        GameEvents.Packet(InstanceDivination.TurnInId).Add(module.Manifest.Id, async (conn, _) =>
+        GameEvents.Packet(InstanceDivination.TurnInId).Add(module.Manifest.Id, async (player, _) =>
         {
-            var changed = TurnIn(conn);
+            var changed = TurnIn(player);
             if (changed is not null)
-                await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(Row),
-                    ItemsOf(conn).NextRevision(Row), [changed.Id], [changed]), "divination card set exchanged");
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(Row),
+                    ItemsOf(player).NextRevision(Row), [changed.Id], [changed]), "divination card set exchanged");
             return true;
         });
-        GameEvents.Packet(InstanceDivination.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceDivination.MoveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            foreach (var change in Move(conn, InstanceDivination.ReadMove(bytes)))
-                await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(change.Row),
-                    ItemsOf(conn).NextRevision(change.Row), change.Removed, change.Added), "NPC divination Ctrl click");
+            foreach (var change in Move(player, InstanceDivination.ReadMove(bytes)))
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(change.Row),
+                    ItemsOf(player).NextRevision(change.Row), change.Removed, change.Added), "NPC divination Ctrl click");
             return true;
         });
     }
 
-    internal static bool Current(Player conn) => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
-        && conn.Sale is null && conn.Trade is null
-        && conn.ModuleWindow == Owner && Sessions.TryGetValue(conn, out var session)
-        && conn.TalkingTo == session.Id && conn.Npcs.TryGetValue(session.Id, out var npc)
+    internal static bool Current(Player player) => !player.Closed && !player.LeavingArea && player.PlayerLife > 0
+        && player.Sale is null && player.Trade is null
+        && player.ModuleWindow == Owner && Sessions.TryGetValue(player, out var session)
+        && player.TalkingTo == session.Id && player.Npcs.TryGetValue(session.Id, out var npc)
         && ReferenceEquals(npc, session.Npc);
 
-    static bool CanDeposit(Player conn) => Current(conn)
-        && ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault() is { } held
-        && ItemsFor(conn).ByHash(held.Item.TypeHash)?.Class == "DivinationCard";
+    static bool CanDeposit(Player player) => Current(player)
+        && ItemsOf(player).Items(PlayerInventories.Cursor).FirstOrDefault() is { } held
+        && ItemsFor(player).ByHash(held.Item.TypeHash)?.Class == "DivinationCard";
 
-    static void Close(Player conn)
+    static void Close(Player player)
     {
-        Sessions.Remove(conn);
-        if (conn.ModuleWindow == Owner) conn.ModuleWindow = null;
+        Sessions.Remove(player);
+        if (player.ModuleWindow == Owner) player.ModuleWindow = null;
     }
 
-    internal static async Task Open(Player conn)
+    internal static async Task Open(Player player)
     {
-        Close(conn);
-        uint id = conn.TalkingTo;
-        if (!conn.Npcs.TryGetValue(id, out var npc)
+        Close(player);
+        uint id = player.TalkingTo;
+        if (!player.Npcs.TryGetValue(id, out var npc)
             || !Game.Npcs.TalksOf(npc.Npc).Any(t => t.Category == "TradeDivinationCards")) return;
-        if (conn.Sale is not null)
-            await VendorsFeature.CloseSale(conn, accepted: false);
-        if (conn.Closed || conn.LeavingArea || !conn.Npcs.TryGetValue(id, out var current)
+        if (player.Sale is not null)
+            await VendorsFeature.CloseSale(player, accepted: false);
+        if (player.Closed || player.LeavingArea || !player.Npcs.TryGetValue(id, out var current)
             || !ReferenceEquals(npc, current)) return;
-        conn.TalkingTo = id;
-        conn.Shop = null;
-        conn.BenchOpen = false;
-        conn.InNpcTalk = false;
-        conn.ModuleWindow = Owner;
-        Sessions.Add(conn, new(id, npc));
-        await Send(conn, InstanceDivination.Open(), "open NPC divination window");
+        player.TalkingTo = id;
+        player.Shop = null;
+        player.BenchOpen = false;
+        player.InNpcTalk = false;
+        player.ModuleWindow = Owner;
+        Sessions.Add(player, new(id, npc));
+        await Send(player, InstanceDivination.Open(), "open NPC divination window");
     }
 
-    static Task Send(Player conn, byte[] packet, string label) =>
-        Program.Send(conn, packet, label);
+    static Task Send(Player player, byte[] packet, string label) =>
+        Program.Send(player, packet, label);
 
     sealed class Cleanup(Action run) : IDisposable { public void Dispose() => run(); }
 
     internal sealed record Change(byte Row, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added);
 
-    internal static IReadOnlyList<Change> Move(Player conn, InstanceDivination.Move request)
+    internal static IReadOnlyList<Change> Move(Player player, InstanceDivination.Move request)
     {
         // Worked out before the transaction: the check builds the character's stats under conn.Monsters, and that lock
         // comes before the save lock (Saves.cs), never inside it.
-        bool expandedAllowed = !request.Expanded || request.IntoWindow && Game.ExpandedInventoryGranted(conn);
-        return Saves.Atomically<IReadOnlyList<Change>>(() => MoveLocked(conn, request, expandedAllowed));
+        bool expandedAllowed = !request.Expanded || request.IntoWindow && Game.ExpandedInventoryGranted(player);
+        return Saves.Atomically<IReadOnlyList<Change>>(() => MoveLocked(player, request, expandedAllowed));
     }
 
-    static IReadOnlyList<Change> MoveLocked(Player conn, InstanceDivination.Move request, bool expandedAllowed)
+    static IReadOnlyList<Change> MoveLocked(Player player, InstanceDivination.Move request, bool expandedAllowed)
     {
-        if (!Current(conn) || !expandedAllowed) return [];
-        var items = ItemsOf(conn);
+        if (!Current(player) || !expandedAllowed) return [];
+        var items = ItemsOf(player);
         byte main = PlayerInventories.MainInventory;
         byte source = request.IntoWindow ? (request.Expanded ? PlayerInventories.ExpandedInventory : main) : Row;
         // An item offered in a sale or trade cannot move: the inventory refuses to remove it, so a move that went on would
@@ -128,13 +128,13 @@ static class DivinationFeature
         var before = rows.ToDictionary(r => r, items.Items);
         if (request.IntoWindow)
         {
-            if (ItemsFor(conn).ByHash(clicked.Item.TypeHash) is not { Class: "DivinationCard" } type
+            if (ItemsFor(player).ByHash(clicked.Item.TypeHash) is not { Class: "DivinationCard" } type
                 || clicked.Item.StackSize < 1 || clicked.Item.StackSize > type.MaxStack) return [];
             var existing = items.Items(Row);
             if (existing.Count > 1) return [];
             if (existing.FirstOrDefault() is { } slot)
             {
-                if (ItemsFor(conn).ByHash(slot.Item.TypeHash)?.Class == "DivinationCard")
+                if (ItemsFor(player).ByHash(slot.Item.TypeHash)?.Class == "DivinationCard")
                 {
                     if (slot.Item.TypeHash != clicked.Item.TypeHash || slot.Item.StackSize >= type.MaxStack) return [];
                     int take = Math.Min(clicked.Item.StackSize, type.MaxStack - slot.Item.StackSize);
@@ -175,18 +175,18 @@ static class DivinationFeature
         }).Where(c => c.Removed.Count + c.Added.Count > 0).ToArray();
     }
 
-    internal static InventoryItem? TurnIn(Player conn, Random? random = null) => Saves.Atomically(() =>
+    internal static InventoryItem? TurnIn(Player player, Random? random = null) => Saves.Atomically(() =>
     {
-        if (!Current(conn)) return null;
-        var items = ItemsOf(conn);
+        if (!Current(player)) return null;
+        var items = ItemsOf(player);
         var slot = items.Items(Row);
         if (slot.Count != 1 || items.Offered().Any(i => i.Id == slot[0].Id)
-            || ItemsFor(conn).ByHash(slot[0].Item.TypeHash) is not { Class: "DivinationCard" } card
+            || ItemsFor(player).ByHash(slot[0].Item.TypeHash) is not { Class: "DivinationCard" } card
             || DivinationRewards.Find(card.Id) is not { Enabled: true } reward
             || card.MaxStack != reward.Stack || slot[0].Item.StackSize != reward.Stack) return null;
         // Every refusal precedes the only persistent mutation. A reward with missing data never consumes the cards.
-        var result = DivinationRewards.Create(reward, ItemsFor(conn), UniquesFor(conn), RollsFor(conn),
-            random ?? AreaRng(conn), conn.Pools.Level);
+        var result = DivinationRewards.Create(reward, ItemsFor(player), UniquesFor(player), RollsFor(player),
+            random ?? AreaRng(player), player.Pools.Level);
         return result is null ? null : items.Change(Row, slot[0].Id, _ => result);
     });
 }

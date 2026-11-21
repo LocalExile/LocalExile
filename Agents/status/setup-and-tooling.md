@@ -74,6 +74,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- One owner for an area's state, its frame (`AreaFrames`, `GameArea`): sessions only read and queue messages, and the
+  frame's input phase handles them; every continuation of game code runs in the frame (its SynchronizationContext), so
+  the monsters (`GameArea.Monsters`, no longer reached through a player) have no lock, only a Debug owner check. The
+  frame's records about its entities are made once (`AreaDelta`) and written to every client with the frame's end: one
+  id per entity on every client, the players' own actions included. Life, stats and buffs are components of the area
+  (`AreaLife`, `AreaStats`, `AreaBuffs`): systems set them, the frame writes what changed since the frame before. The area
+  is generated once (`GameEvents.AreaGenerated`) and each player enters it (`GameEvents.PlayerEntered`): its shared
+  objects are written once and given to a later client as they are (`AreaObjectRecords`), a player's quest view (NPCs,
+  quest objects and blockers, portals) is theirs alone (`Program.ViewOf`). Each skill keeps a stat graph over the
+  player's stats (`SkillGraph`). Hit targeting, the monster AI pass, damage auras and ground-item pickups query the area
+  grid (`GameArea.MonstersNear`, `InstanceGround.Within`). Not yet checked with the real client; services that reach
+  into an area from another one's frame (party, trade) still do.
+
 - Databases from SQL in git ([#734](https://github.com/LocalExile/LocalExile/issues/734),
   [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 941 tables, 97 MB of
   SQL, and the 14 generated files the servers read as 45 snake_case tables) and `world.db` (game content, its item and

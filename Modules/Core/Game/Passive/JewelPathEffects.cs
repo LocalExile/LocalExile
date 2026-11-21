@@ -34,19 +34,19 @@ public static class JewelPathEffects
     }
     static readonly Store<Player, Cache> Caches = new();
 
-    public static List<InventoryItem> Apply(Player conn, PassiveTree tree, ItemCatalog catalog,
+    public static List<InventoryItem> Apply(Player player, PassiveTree tree, ItemCatalog catalog,
         AscendancyFamily family, ushort[] nodes, ushort[] clusters, IReadOnlyList<InventoryItem> jewels,
         List<InventoryItem> active)
     {
         var targets = active.Select(j => (Jewel: j, Percent: ItemModStats.Local(j.Item, catalog.Mods).GetValueOrDefault(EffectStat)))
             .Where(j => j.Percent != 0).ToArray();
         if (targets.Length == 0) return active;
-        int cls = Program.Skills.ClassFor(conn.ClassRow).IntegerId;
-        if (!Caches.TryGetValue(conn, out var cache) || !cache.Matches(tree, catalog, family, cls, nodes, clusters, jewels))
+        int cls = Program.Skills.ClassFor(player.Character.ClassRow).IntegerId;
+        if (!Caches.TryGetValue(player, out var cache) || !cache.Matches(tree, catalog, family, cls, nodes, clusters, jewels))
         {
             var counts = Counts(tree, family, cls, nodes, clusters, jewels);
             cache = new(tree, catalog, family, cls, [.. nodes], [.. clusters], [.. jewels], counts);
-            Caches.AddOrUpdate(conn, cache);
+            Caches.AddOrUpdate(player, cache);
         }
         var scaled = targets.ToDictionary(t => t.Jewel.Id, t => Scale(t.Jewel.Item, catalog.Mods,
             (long)t.Percent * cache.Counts.GetValueOrDefault(t.Jewel.X)));

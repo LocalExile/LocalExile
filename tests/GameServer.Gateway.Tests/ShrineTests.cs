@@ -212,44 +212,44 @@ public sealed class ShrineTests
 
         var instance = new InstanceState();
         await using var wire = await ShrineWire.Open(instance);
-        var conn = wire.Conn;
+        var player = wire.Player;
         using var stats = GameEvents.PlayerStatSources.Add("shrine-regression", ShrineManager.AddStats);
         try
         {
             var opening = new MapDevice.Opening(new(1, "test", "Test", 1), new MapMods(new Dictionary<uint, int>
                 { [Stat.MapNumExtraApparitionShrines] = 2 }));
-            var request = new MapOpening(conn, [], false, opening, "");
+            var request = new MapOpening(player, [], false, opening, "");
             ShrineMapAdmission.Check(request);
             Assert.Null(request.Opening);
             Assert.Contains("not been consumed", request.Reason);
-            var ordinary = new MapOpening(conn, [], false, opening with { Mods = MapMods.None }, "");
+            var ordinary = new MapOpening(player, [], false, opening with { Mods = MapMods.None }, "");
             ShrineMapAdmission.Check(ordinary);
             Assert.NotNull(ordinary.Opening);
 
-            await ShrineManager.SpawnLesser(conn, (100, 100), 10, "AccelerationLesser");
+            await ShrineManager.SpawnLesser(player, (100, 100), 10, "AccelerationLesser");
             var kept = Assert.Single(instance.ContentState, p => p.Key.StartsWith("Shrines/lesser/"));
             uint first = uint.Parse(kept.Key.Split('/')[^1]);
-            await ShrineManager.LeaveArea(conn);
-            await ShrineManager.SpawnArea(conn); // Unclaimed object survives a presentation rebuild, with its original deadline.
+            await ShrineManager.LeaveArea(player);
+            await ShrineManager.SpawnArea(player); // Unclaimed object survives a presentation rebuild, with its original deadline.
             Assert.Equal(kept.Value, instance.ContentState[kept.Key]);
-            Assert.True(await ShrineManager.Use(conn, new(first, 0, 1, 0), 0));
+            Assert.True(await ShrineManager.Use(player, new(first, 0, 1, 0), 0));
             Assert.DoesNotContain(instance.ContentState.Keys, k => k.StartsWith("Shrines/lesser/"));
-            Assert.NotEmpty(ShrineManager.AddStats(conn, []));
-            await ShrineManager.SpawnLesser(conn, (100, 100), 10, "AccelerationLesser");
+            Assert.NotEmpty(ShrineManager.AddStats(player, []));
+            await ShrineManager.SpawnLesser(player, (100, 100), 10, "AccelerationLesser");
             uint second = uint.Parse(Assert.Single(instance.ContentState, p => p.Key.StartsWith("Shrines/lesser/")).Key.Split('/')[^1]);
             Assert.NotEqual(first, second); // A new kill may make a fresh shrine on the same cell.
-            Assert.True(await ShrineManager.Use(conn, new(second, 0, 2, 0), 0));
+            Assert.True(await ShrineManager.Use(player, new(second, 0, 2, 0), 0));
             Assert.DoesNotContain(instance.ContentState.Keys, k => k.StartsWith("Shrines/lesser/"));
-            await ShrineManager.SpawnLesser(conn, (100, 100), 10, "AccelerationLesser");
+            await ShrineManager.SpawnLesser(player, (100, 100), 10, "AccelerationLesser");
             var expired = Assert.Single(instance.ContentState, p => p.Key.StartsWith("Shrines/lesser/"));
             uint expiredId = uint.Parse(expired.Key.Split('/')[^1]);
-            await ShrineManager.LeaveArea(conn);
+            await ShrineManager.LeaveArea(player);
             instance.ContentState[expired.Key] = "{\"Type\":\"AccelerationLesser\",\"X\":100,\"Y\":100,\"Until\":0}";
-            await ShrineManager.SpawnArea(conn);
+            await ShrineManager.SpawnArea(player);
             Assert.DoesNotContain(instance.ContentState.Keys, k => k.StartsWith("Shrines/lesser/"));
-            Assert.False(await ShrineManager.Use(conn, new(expiredId, 0, 3, 0), 0));
+            Assert.False(await ShrineManager.Use(player, new(expiredId, 0, 3, 0), 0));
         }
-        finally { await ShrineManager.LeaveArea(conn); }
+        finally { await ShrineManager.LeaveArea(player); }
     }
 
     static async Task Lifecycle()
@@ -261,47 +261,47 @@ public sealed class ShrineTests
         var instance = new InstanceState();
         await using var owner = await ShrineWire.Open(instance);
         await using var peer = await ShrineWire.Open(instance);
-        var conn = owner.Conn;
+        var player = owner.Player;
         using var stats = GameEvents.PlayerStatSources.Add("shrine-regression", ShrineManager.AddStats);
         try
         {
-            await ShrineManager.SpawnArea(peer.Conn);
-            Assert.Equal(1, await ShrineManager.SpawnAroundPlayer(conn, ["Acceleration"]));
+            await ShrineManager.SpawnArea(peer.Player);
+            Assert.Equal(1, await ShrineManager.SpawnAroundPlayer(player, ["Acceleration"]));
             uint shrine = uint.Parse(instance.ContentState["Shrines/id/112/100"]);
-            conn.Walk.Teleport(112, 100, 0);
-            peer.Conn.Walk.Teleport(112, 100, 0);
-            Assert.True(await ShrineManager.Use(conn, new(shrine, 0, 1, 0), 0));
-            Assert.True(await ShrineManager.Use(peer.Conn, new(shrine, 0, 1, 0), 0));
+            player.Walk.Teleport(112, 100, 0);
+            peer.Player.Walk.Teleport(112, 100, 0);
+            Assert.True(await ShrineManager.Use(player, new(shrine, 0, 1, 0), 0));
+            Assert.True(await ShrineManager.Use(peer.Player, new(shrine, 0, 1, 0), 0));
             Assert.Equal(1, effects.Sum(e => e.Applied));
-            Assert.Equal(1, ShrineManager.AddStats(conn, []).GetValueOrDefault(Stat.HasShrineEffect));
+            Assert.Equal(1, ShrineManager.AddStats(player, []).GetValueOrDefault(Stat.HasShrineEffect));
             // A second shrine replaces the old effect, including its owned objects.
-            await ShrineManager.SpawnAroundPlayer(conn, ["Acceleration"]);
+            await ShrineManager.SpawnAroundPlayer(player, ["Acceleration"]);
             uint second = uint.Parse(instance.ContentState["Shrines/id/124/100"]);
-            conn.Walk.Teleport(124, 100, 0);
-            await ShrineManager.Use(conn, new(second, 0, 2, 0), 0);
+            player.Walk.Teleport(124, 100, 0);
+            await ShrineManager.Use(player, new(second, 0, 2, 0), 0);
             Assert.Equal(2, effects.Sum(e => e.Applied));
             Assert.Equal(1, effects.Sum(e => e.Expired));
-            conn.PlayerLife = 0;
-            await ShrineManager.Tick(conn);
+            player.PlayerLife = 0;
+            await ShrineManager.Tick(player);
             Assert.Equal(2, effects.Sum(e => e.Expired));
-            Assert.Empty(ShrineManager.AddStats(conn, []));
-            conn.PlayerLife = 50;
-            await ShrineManager.LeaveArea(conn);
-            await ShrineManager.LeaveArea(peer.Conn);
+            Assert.Empty(ShrineManager.AddStats(player, []));
+            player.PlayerLife = 50;
+            await ShrineManager.LeaveArea(player);
+            await ShrineManager.LeaveArea(peer.Player);
             // Re-entry uses the same instance's claim ledger, including after the module discards its views.
-            conn.Walk.Teleport(100, 100, 0);
-            await ShrineManager.SpawnAroundPlayer(conn, ["Acceleration"]);
-            conn.Walk.Teleport(112, 100, 0);
-            await ShrineManager.Use(conn, new(shrine, 0, 3, 0), 0);
+            player.Walk.Teleport(100, 100, 0);
+            await ShrineManager.SpawnAroundPlayer(player, ["Acceleration"]);
+            player.Walk.Teleport(112, 100, 0);
+            await ShrineManager.Use(player, new(shrine, 0, 3, 0), 0);
             Assert.Equal(2, effects.Sum(e => e.Applied));
 
             ShrineRegistry.RegisterDefaults();
             var monster = new SpawnedMonster("aura target", new(112, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 1000);
-            conn.Monsters[0x7070] = monster;
+            player.Area.Monsters[0x7070] = monster;
             var definition = ShrineCatalog.Find("Resistance")!;
             ShrineInstance Make() => new() { Definition = definition, At = (112, 100), Before = ShrineRegistry.Before(definition) };
             var first = Make(); var overlapping = Make();
-            var ctx = new ShrineContext(conn, 0);
+            var ctx = new ShrineContext(player, 0);
             foreach (var effect in first.Before) await effect.OnNearbyMonsterEnter(ctx, first, 0x7070);
             foreach (var effect in overlapping.Before) await effect.OnNearbyMonsterEnter(ctx, overlapping, 0x7070);
             Assert.Equal(50, monster.Effects[Stat.BaseResistAllElementsPct]);
@@ -329,7 +329,7 @@ public sealed class ShrineTests
             var divine = ShrineCatalog.Find("GodMode")!;
             var god = new ShrineInstance { Definition = divine, At = (112, 100), Before = ShrineRegistry.Before(divine) };
             foreach (var effect in god.Before) await effect.OnNearbyMonsterEnter(ctx, god, 0x7070);
-            Assert.Null(Game.ApplyMonsterHitLocked(conn, monster, 100));
+            Assert.Null(Game.ApplyMonsterHitLocked(player, monster, 100));
             Assert.Equal(0, Game.MonsterDotTaken(monster, DamageType.Fire));
             foreach (var effect in god.Before) await effect.OnActivation(ctx, god);
             Assert.True(Game.MonsterDotTaken(monster, DamageType.Fire) > 0);
@@ -337,7 +337,7 @@ public sealed class ShrineTests
             // Gloom and physical explode modifiers both contribute, each retaining its own mitigation type.
             using var explosion = GameEvents.PlayerStatSources.Add("shrine-explosion-regression", (c, values) =>
             {
-                if (ReferenceEquals(c, conn))
+                if (ReferenceEquals(c, player))
                 {
                     values[Stat.EnemiesExplodeForPctLifeAsPhysicalDamage] = 10;
                     values[Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct] = 100;
@@ -346,9 +346,9 @@ public sealed class ShrineTests
             });
             var corpse = new SpawnedMonster("corpse", new(112, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 1000)
                 { Dead = true, Life = 0 };
-            conn.Monsters[0x7071] = corpse;
+            player.Area.Monsters[0x7071] = corpse;
             monster.Life = monster.MaxLife = 10000;
-            await Game.ExplodeOnKill(conn, 0x7071, corpse, (112, 100));
+            await Game.ExplodeOnKill(player, 0x7071, corpse, (112, 100));
             Assert.Equal(9650u, monster.Life);
 
             // A standing shrine's spell chills through the shared player-ailment lifecycle, flask events included.
@@ -359,11 +359,11 @@ public sealed class ShrineTests
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
             try
             {
-                conn.ElementalAilments.Clear(); conn.FlaskAutomation.Discard(); conn.PlayerLife = conn.PlayerMaxLife;
-                await ShrineManager.HitPlayers(conn, (112, 100), 20, DamageType.Cold, DamagePacket.Of(DamageType.Cold, 10, 10));
-                Assert.True(conn.PlayerLife > 0);
-                Assert.True(conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds).Chill > 0);
-                Assert.Contains(conn.FlaskAutomation.Events, e => e.Trigger == FlaskEnchantments.Trigger.Chill);
+                player.ElementalAilments.Clear(); player.FlaskAutomation.Discard(); player.PlayerLife = player.PlayerMaxLife;
+                await ShrineManager.HitPlayers(player, (112, 100), 20, DamageType.Cold, DamagePacket.Of(DamageType.Cold, 10, 10));
+                Assert.True(player.PlayerLife > 0);
+                Assert.True(player.ElementalAilments.Snapshot(player.Clock.Elapsed.TotalSeconds).Chill > 0);
+                Assert.Contains(player.FlaskAutomation.Events, e => e.Trigger == FlaskEnchantments.Trigger.Chill);
             }
             finally
             {
@@ -374,15 +374,15 @@ public sealed class ShrineTests
         }
         finally
         {
-            await ShrineManager.LeaveArea(conn);
-            await ShrineManager.LeaveArea(peer.Conn);
+            await ShrineManager.LeaveArea(player);
+            await ShrineManager.LeaveArea(peer.Player);
             ShrineRegistry.RegisterDefaults();
         }
     }
 
-    sealed class ShrineWire(TcpClient writer, TcpClient reader, Player conn, Task drain) : IAsyncDisposable
+    sealed class ShrineWire(TcpClient writer, TcpClient reader, Player player, Task drain) : IAsyncDisposable
     {
-        public Player Conn => conn;
+        public Player Player => player;
         public static async Task<ShrineWire> Open(InstanceState instance)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -391,19 +391,21 @@ public sealed class ShrineTests
             var accepting = listener.AcceptTcpClientAsync();
             await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             var reader = await accepting;
-            var conn = new Player(new(0, "ShrineLifecycleTest", 1000, 1000, 100, 100, (_, _) => true, []), 0, 1)
-            { LockstepClient = false,
-                Instance = instance, PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true,
-                Pools = new(1, 1000, 1000, 1000, 0),
-                LeagueModule = new(new GameServer.Core.Accounts.League("shrine-test", "Standard", false, false),
-                    new HashSet<string>(["Game", "shrine-regression", "shrine-explosion-regression"])),
-                Session = new("shrine-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
-            };
-            return new(writer, reader, conn, reader.GetStream().CopyToAsync(Stream.Null));
+            var player = new Player(new(0, "ShrineLifecycleTest", 1000, 1000, 100, 100, (_, _) => true, []), 0, 1)
+            {
+              Connection = { LockstepClient = false, PlayerSent = true, Session = new("shrine-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)) },
+              Instance = instance,
+              PlayerLife = 1000,
+              PlayerMana = 1000,
+              Pools = new(1, 1000, 1000, 1000, 0),
+              LeagueModule = new(new GameServer.Core.Accounts.League("shrine-test", "Standard", false, false),
+                    new HashSet<string>(["Game", "shrine-regression", "shrine-explosion-regression"]))
+          };
+            return new(writer, reader, player, reader.GetStream().CopyToAsync(Stream.Null));
         }
         public async ValueTask DisposeAsync()
         {
-            conn.Closed = true;
+            player.Closed = true;
             writer.Dispose();
             await drain;
             reader.Dispose();

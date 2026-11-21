@@ -118,7 +118,7 @@ public static class BossKits
     }
 
     /// <summary>The life a kit monster just lost to a hit (the hit funnel, Game.ApplyMonsterHitLocked): it counts toward
-    /// each of its triggers on damage taken. Under the Monsters lock.</summary>
+    /// each of its triggers on damage taken. In the area's frame.</summary>
     public static void TakeDamage(SpawnedMonster monster, long lost)
     {
         if (lost <= 0) return;
@@ -132,10 +132,10 @@ public static class BossKits
     /// <param name="defaultAttack">The attack the monster would have swung without a kit: the kit's first entry is that
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     /// <param name="unique">A hostile unique monster (a Rogue Exile): it plays its kit like a boss, bar or not.</param>
-    public static IReadOnlyList<MonsterKitSkill> Kit(Player conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<MonsterKitSkill> Kit(Player player, MonsterCatalog.Variety variety, byte level,
         int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false)
     {
-        var catalog = SkillsFor(conn);
+        var catalog = SkillsFor(player);
         if (!IsKitBoss(catalog, variety) && !(unique && UniqueEffects(catalog, variety).Count > 1)) return [];
         List<MonsterKitSkill> kit = [];
         IReadOnlyList<int> effects = unique ? UniqueEffects(catalog, variety) : Effects(catalog, variety);
@@ -146,7 +146,7 @@ public static class BossKits
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             int trigger = DamageTakenThreshold(catalog, effect, effectLevel);
             ushort id = (ushort)(0x4000 + kit.Count);
-            var built = AttackFor(conn, variety, level, effect, id);
+            var built = AttackFor(player, variety, level, effect, id);
             // A unique's default skill that places a totem or a minion is that summon, not the plain hit its default
             // attack makes of it (Vickas Giantbone's Ethereal Knives totem).
             var attack = (kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null)
@@ -181,11 +181,11 @@ public static class BossKits
                 // A totem's skill is its body's to use: the summon is kept only when that body has something to do.
                 if (attack.Summon is { Effect: >= 0 } totem)
                 {
-                    if (BodyAttack(conn, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null && kit.Count > 0) continue;
+                    if (BodyAttack(player, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null && kit.Count > 0) continue;
                 }
                 else if (attack.Summon is null)
                 {
-                    if (Shaped(conn, variety, level, effect, attack) is { } shaped) attack = shaped;
+                    if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
                     else if (kit.Count > 0) continue;
                 }
             }
@@ -224,10 +224,10 @@ public static class BossKits
     /// <param name="setOff">Shape what a trap of the skill plays once set off, rather than the throw.</param>
     /// <param name="body">Shape it as the body summoned for it uses it (a totem's: <see cref="BodyAttack"/>), not as a
     /// summon.</param>
-    public static MonsterAttack? Shaped(Player conn, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack,
+    public static MonsterAttack? Shaped(Player player, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack,
         bool setOff = false, bool body = false)
     {
-        var catalog = SkillsFor(conn);
+        var catalog = SkillsFor(player);
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         int Get(uint key) => stats.GetValueOrDefault(key);
         var names = stats.Where(p => p.Value != 0).Select(p => Stats.Name(p.Key)).OfType<string>().ToList();
@@ -235,7 +235,7 @@ public static class BossKits
         if (catalog.HasType(effect, "Trapped") && !setOff)
         {
             // A trap is thrown at the aim; what it plays when set off is the skill as any other use of it plays.
-            if (Shaped(conn, variety, level, effect, attack, setOff: true, body) is not { } payload || !Acts(payload)) return null;
+            if (Shaped(player, variety, level, effect, attack, setOff: true, body) is not { } payload || !Acts(payload)) return null;
             return attack with { Trap = payload, Projectile = null, Release = null, ReleaseEffect = null, AreaRadius = 0, Ground = null };
         }
         attack = attack with { Debuffs = SkillDebuffs(catalog, effect, kind, Get, names) };
@@ -252,7 +252,7 @@ public static class BossKits
         double? radius = area ? AreaRadius(catalog, effect, level) : null;
         bool ownArea = radius > 0 || kind?.Ground?.At == (setOff ? ActionClasses.GroundAt.Trap : ActionClasses.GroundAt.Landing);
         if (attack.Projectile is null && (fromUser || attack.Ranged && !ownArea) && ArtShot(catalog, effect, level) is { } shot)
-            attack = attack with { Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(conn, variety, effect, level, shot) };
+            attack = attack with { Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(player, variety, effect, level, shot) };
         if (attack.Projectile is not null)
             return attack with { Ground = SkillGround(kind, ActionClasses.GroundAt.ProjectileEnd, Get, names, null, spell) };
         if (fromUser) return null;
@@ -318,13 +318,13 @@ public static class BossKits
     /// <summary>What a summoned body (a monster's totem) does with the skill it was summoned for: that skill at the
     /// summoner's level, as a unique plays it (<see cref="Shaped"/>), from as far as base_totem_range reaches when the
     /// skill names one (cells, as the player's totems target: Game.TotemTargetRange). Null when it would do nothing.</summary>
-    public static MonsterAttack? BodyAttack(Player conn, MonsterCatalog.Variety? body, byte level, int effect, ushort id)
+    public static MonsterAttack? BodyAttack(Player player, MonsterCatalog.Variety? body, byte level, int effect, ushort id)
     {
         if (body is null) return null;
-        var catalog = SkillsFor(conn);
+        var catalog = SkillsFor(player);
         // The skill's own summon is this body: the body uses the skill itself.
-        var attack = AttackFor(conn, body, level, effect, id) with { Effect = effect, Proxy = true };
-        if (Shaped(conn, body, level, effect, attack, body: true) is not { } shaped) return null;
+        var attack = AttackFor(player, body, level, effect, id) with { Effect = effect, Proxy = true };
+        if (Shaped(player, body, level, effect, attack, body: true) is not { } shaped) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         if (Stat.BaseTotemRange is var key && stats.GetValueOrDefault(key) is > 0 and var range)
             shaped = shaped with { Range = range };
@@ -374,16 +374,16 @@ public static class BossKits
 
     /// <summary>The kit as the actor's skill list: 0x4000 + the kit index names the action, as the campaign's own kits do
     /// (DepravedTrinity.Skill).</summary>
-    public static IReadOnlyList<GrantedSkill> SkillsOf(Player conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill> SkillsOf(Player player, MonsterCatalog.Variety variety, byte level,
         IReadOnlyList<MonsterKitSkill> kit)
     {
-        var catalog = SkillsFor(conn);
+        var catalog = SkillsFor(player);
         List<GrantedSkill> skills = [];
         for (int i = 0; i < kit.Count; i++)
         {
             var entry = kit[i];
             int effectLevel = catalog.MaxLevelAt(entry.Effect, level);
-            var stats = MonsterActionSkillStats(conn, entry.Effect, effectLevel, entry.Attack);
+            var stats = MonsterActionSkillStats(player, entry.Effect, effectLevel, entry.Attack);
             if (catalog.FindByRow((ushort)(0x4000 + i), entry.Effect, effectLevel, stats) is { } granted) skills.Add(granted);
         }
         return skills;
@@ -392,9 +392,9 @@ public static class BossKits
     /// <summary>One action of a kit, built the way a monster's default attack is (DepravedTrinity.Attack): the skill's
     /// own damage and cast time at the actor's level, the reach it reaches the player from, and the projectile whose flight
     /// carries the hit. Its id is the kit slot (0x4000 + the kit index), which is the one the actor's skill list names.</summary>
-    public static MonsterAttack AttackFor(Player conn, MonsterCatalog.Variety variety, byte actorLevel, int effect, ushort skillId)
+    public static MonsterAttack AttackFor(Player player, MonsterCatalog.Variety variety, byte actorLevel, int effect, ushort skillId)
     {
-        var catalog = SkillsFor(conn);
+        var catalog = SkillsFor(player);
         var native = GolemData.Skill(catalog, effect, actorLevel);
         int Raw(uint key) => native.Stats.GetValueOrDefault(key);
         bool spell = catalog.IsSpell(effect);
@@ -438,7 +438,7 @@ public static class BossKits
             Projectile = projectile,
             Summon = summon,
             ReleaseEffect = projectile is null ? null : effect,
-            Release = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, actorLevel, projectile),
+            Release = projectile is null ? null : MonsterReleaseFor(player, variety, effect, actorLevel, projectile),
             Hits = catalog.IsMelee(effect) && !catalog.IsChannelled(effect) ? hits : 1,
         };
     }
@@ -493,7 +493,7 @@ public static class BossKits
 
     /// <summary>Records the swing just ordered: the skill it used goes on cooldown, and even one without a cooldown
     /// records when it was used, which is what <see cref="Choose"/> rotates by. Called with the attack the order names,
-    /// under the Monsters lock.</summary>
+    /// in the area's frame.</summary>
     public static void Consume(SpawnedMonster monster, MonsterAttack attack, double now)
     {
         if (monster.Kit.Count == 0) return;

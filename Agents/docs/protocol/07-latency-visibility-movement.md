@@ -494,7 +494,8 @@ the server the two cases look alike, so the Gateway leaves bodies blocking; lock
 
 **The wake zone.** Monsters more than about 171 cells from the player leave it (S→C 0x1aa) and stop ticking on the client,
 so a chase the server gave up does not run on there. The historical trace below used 0x1a9 with a 0x128 snapshot on return.
-Current `KeepWakeZone` uses 0x1a9 with individual 0x1b7 relocations in Predictive and `LockstepPlace` in Lockstep.
+The area keeps one wake zone for all its players (`StepAreaWake`): a monster is awake while any player is near it, and
+its return is a 0x1a9 with a 0x1b7 to where the server has it, for every client.
 The server's copy stands out there too: its walk ends where it is and the AI gives it no order until it is back. Chased
 on instead, an estimate walked 162 cells while the client's copy stood frozen, and the return's 0x128 put the copy there
 in one jump (live 2026-11-03, a Rhoa pack outrun on the Mud Flats: three such jumps of 95–162 cells in one packet).
@@ -1003,8 +1004,8 @@ Explicit frame ordering and birth dependencies have deterministic coverage. Comp
 producer coverage and skill/network parity remain unverified.
 
 **Other players.** A player's own orders go to every other client that shows the player as the same 0x1ab and 0x1ac
-with the owner's sequences, walks included, and the player's hits (0x1af) keep their action's sequence
-(`MirrorPlayerAction`). GGG's recordings show it so: 851 orders to other players, none with 0xffff, 844 of them from
+with the owner's sequences, walks included, and the player's hits (0x1af) keep their action's sequence: they are
+records of the area's frame (`AreaDelta`), written to every client. GGG's recordings show it so: 851 orders to other players, none with 0xffff, 844 of them from
 the cell the receiving client had the player on. Every connection of an instance ends its frames on one grid of the
 instance clock (`BeginWorldFrames`), and a lockstep client is given what the owner was sent in frame n as records of its
 own frame n + 1 (`Player.FrameFrom`): its copy runs the owner's orders one frame later, step for step. Before, a

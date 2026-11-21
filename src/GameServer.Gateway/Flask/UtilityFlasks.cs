@@ -578,42 +578,37 @@ public static class UtilityFlasks
         : null;
 
     /// <summary>Starts an effect and recomputes the character (<paramref name="recompute"/>: the pools and the walk
-    /// speed) under the connection's Monsters lock, which every pools writer takes, so no writer keeps a stale total.</summary>
-    public static int? Start(Player conn, Active effect, Action recompute)
+    /// speed) in the area's frame, which every pools writer takes, so no writer keeps a stale total.</summary>
+    public static int? Start(Player player, Active effect, Action recompute)
     {
-        lock (conn.Monsters)
-        {
-            var started = conn.UtilityFlaskEffects.Start(effect);
-            recompute();
-            return started;
-        }
+        var started = player.UtilityFlaskEffects.Start(effect);
+        recompute();
+        return started;
     }
 
     /// <summary>Ends the effects that are due (<see cref="Effects.End"/>) and recomputes the character in the same locked
     /// block, when any ended.</summary>
-    public static List<Active> EndDue(Player conn, double now, bool dead, Func<Active, bool>? gone, Action recompute, out bool stop)
+    public static List<Active> EndDue(Player player, double now, bool dead, Func<Active, bool>? gone, Action recompute, out bool stop)
     {
-        lock (conn.Monsters)
-        {
-            var ended = conn.UtilityFlaskEffects.End(now, dead, out stop, gone);
-            if (ended.Count > 0) recompute();
-            return ended;
-        }
+        var ended = player.UtilityFlaskEffects.End(now, dead, out stop, gone);
+        if (ended.Count > 0) recompute();
+        return ended;
     }
 
     /// <summary>S→C 0x1c1 for an effect: the flask's buff (<see cref="Flasks.Buff"/>: duration and flask-bar cell) and the
     /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
-    public static IEnumerable<byte[]> StartPackets(Active e, uint player)
+    public static void ShowBuffs(Active e, Player player)
     {
-        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, (e.Ends - e.Started) * e.ExpiryRate);
+        double seconds = (e.Ends - e.Started) * e.ExpiryRate;
+        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds));
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
-            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player, u68: BitConverter.SingleToUInt32Bits((float)((e.Ends - e.Started) * e.ExpiryRate)));
+            player.Area.Buffs.Set(player.Id, new(x.BuffRow, player.Id, U68: global::Buff.Seconds(seconds), Tag: extra));
     }
 
-    /// <summary>S→C 0x1c2 for an effect that ends: its buff and the extra buff.</summary>
-    public static IEnumerable<byte[]> EndPackets(Active e, uint player)
+    /// <summary>An effect that ends: its buff and the extra buff.</summary>
+    public static void EndBuffs(Active e, Player player)
     {
-        yield return InstanceEntities.RemoveBuff(player, e.Buff);
-        if (e.ExtraBuff is ushort extra) yield return InstanceEntities.RemoveBuff(player, extra);
+        player.Area.Buffs.Clear(player.Id, e.Flask.BuffRow, player.Id, tag: e.Buff);
+        if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra) player.Area.Buffs.Clear(player.Id, x.BuffRow, player.Id, tag: extra);
     }
 }

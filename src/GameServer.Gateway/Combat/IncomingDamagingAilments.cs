@@ -3,7 +3,7 @@ using GameServer.Core.World;
 /// <summary>
 /// The damaging ailments other objects have put on the player. Every accepted bleed is retained so a weaker
 /// bleed can continue after a stronger one expires; only the strongest active bleed deals damage. Poison stacks
-/// expire independently. Resource damage is advanced only by the player recovery owner under the Monsters lock.
+/// expire independently. Resource damage is advanced only by the player recovery owner in the area's frame.
 /// </summary>
 public sealed class IncomingDamagingAilments
 {

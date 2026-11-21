@@ -10,7 +10,7 @@ using GameServer.Core;
 /// (GrantedEffectsPerLevel CooldownGroup 24, 20 s, one use) and the Leadership buff the summoned chieftain gives the
 /// player for the skill's duration, while the immortal chieftain it summons fights beside him (PlayerMinions,
 /// Game.MinionAttacks). The buff's <c>ancestral_buff_cooldown_does_not_tick</c> stops that cooldown while it lasts.
-/// Guarded by the Monsters lock; times are the connection's game seconds.
+/// Owned by the area's frame; times are the connection's game seconds.
 /// </summary>
 public sealed class SpiritChieftains
 {
@@ -33,7 +33,6 @@ public sealed class SpiritChieftains
     public Summon? Pending;
     /// <summary>The buff the client was last sent and its instance (Program.SpiritChieftainPresentation).</summary>
     public Leadership? Sent;
-    public ushort SentInstance;
 
     /// <summary>A Leadership buff started or ended early (the stat steps that read it run again).</summary>
     public Action? Changed;

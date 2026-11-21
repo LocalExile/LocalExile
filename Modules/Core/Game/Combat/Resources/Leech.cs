@@ -7,29 +7,26 @@ using GameServer.Core.World;
 public static partial class Game
 {
     public static readonly Store<Player, LeechSession> LeechSessions = new();
-    public static LeechSession LeechOf(Player conn) => LeechSessions.GetValue(conn, _ => new());
+    public static LeechSession LeechOf(Player player) => LeechSessions.GetValue(player, _ => new());
 
     // Invisible BuffDefinitions rows for the leech overlay on the life, mana and energy-shield orbs.
     const ushort LifeLeechBuffRow = 39, ManaLeechBuffRow = 38, EnergyShieldLeechBuffRow = 40;
 
-    public static (bool Life, bool Mana, bool EnergyShield, bool FullEnergyShield) LeechContext(Player conn)
+    public static (bool Life, bool Mana, bool EnergyShield, bool FullEnergyShield) LeechContext(Player player)
     {
-        lock (conn.Monsters)
-        {
-            TrimLeechLocked(conn);
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return default;
-            double now = ProjectileWorldTime(conn);
-            var session = LeechOf(conn);
-            var active = session.Active(now);
-            // A step that reads it runs again when a leech stops on its own.
-            if (session.NextChangeAt(now) is double stops) StatsChangeAt(stops, () => ProjectileWorldTime(conn));
-            return (active.Life, active.Mana, active.EnergyShield, conn.EnergyShield.Full);
-        }
+        TrimLeechLocked(player);
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return default;
+        double now = ProjectileWorldTime(player);
+        var session = LeechOf(player);
+        var active = session.Active(now);
+        // A step that reads it runs again when a leech stops on its own.
+        if (session.NextChangeAt(now) is double stops) StatsChangeAt(stops, () => ProjectileWorldTime(player));
+        return (active.Life, active.Mana, active.EnergyShield, player.EnergyShield.Full);
     }
 
-    public static void WithLeechConditions(Player conn, StatMap stats)
+    public static void WithLeechConditions(Player player, StatMap stats)
     {
-        var state = LeechContext(conn);
+        var state = LeechContext(player);
         foreach (var (name, active) in new[] { (Stat.IsLifeLeeching, state.Life), (Stat.IsManaLeeching, state.Mana),
             (Stat.IsEsLeeching, state.EnergyShield), (Stat.IsLeeching, state.Life || state.Mana || state.EnergyShield),
             (Stat.OnFullEnergyShield, state.FullEnergyShield) })
@@ -38,9 +35,9 @@ public static partial class Game
 
     // "X% increased Attack Speed while Leeching" (Endless Hunger): the client's increased attack speed sum (0x142704be0)
     // adds it while is_leeching. The server sends the final main-hand value, so it joins there.
-    public static int LeechingAttackSpeed(Player conn, IReadOnlyDictionary<uint, int> stats)
+    public static int LeechingAttackSpeed(Player player, IReadOnlyDictionary<uint, int> stats)
     {
-        var state = LeechContext(conn);
+        var state = LeechContext(player);
         return (state.Life || state.Mana || state.EnergyShield) && Stat.AttackSpeedPlusPctWhileLeeching is var key
             ? stats.GetValueOrDefault(key) : 0;
     }
@@ -58,30 +55,27 @@ public static partial class Game
                 ? 1 : 0;
     }
 
-    public static void ConfigureLeech(Player conn, Func<uint, int> get, bool onLowLife)
+    public static void ConfigureLeech(Player player, Func<uint, int> get, bool onLowLife)
     {
-        lock (conn.Monsters)
-        {
-            int claws = (ActiveMainHand(conn)?.Type?.Class == "Claw" ? 1 : 0)
-                + (ActiveOffHand(conn)?.Type?.Class == "Claw" ? 1 : 0);
-            LeechOf(conn).Configure(ProjectileWorldTime(conn),
-                LeechLimits.Resolve(get, conn.Pools.Life, conn.Pools.Mana, conn.Pools.EnergyShield, onLowLife),
-                get, claws);
-            LeechOf(conn).OnKill = KillRecovery.From(get, conn.Pools.Level);
-            TrimLeechLocked(conn);
-        }
+        int claws = (ActiveMainHand(player)?.Type?.Class == "Claw" ? 1 : 0)
+            + (ActiveOffHand(player)?.Type?.Class == "Claw" ? 1 : 0);
+        LeechOf(player).Configure(ProjectileWorldTime(player),
+            LeechLimits.Resolve(get, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield, onLowLife),
+            get, claws);
+        LeechOf(player).OnKill = KillRecovery.From(get, player.Pools.Level);
+        TrimLeechLocked(player);
     }
 
     // Pool commits (including instant flasks/block gains) cannot leave ordinary leech alive until the next tick.
-    public static void TrimLeechLocked(Player conn)
+    public static void TrimLeechLocked(Player player)
     {
-        double now = ProjectileWorldTime(conn);
-        if (conn.PlayerLife == 0) LeechOf(conn).Clear(now);
+        double now = ProjectileWorldTime(player);
+        if (player.PlayerLife == 0) LeechOf(player).Clear(now);
         else
         {
-            LeechOf(conn).ClearFull(now, conn.PlayerLife >= LifeCap(conn),
-                conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
-            SettleFullManaLocked(conn, ResourceEffectsTime(conn));
+            LeechOf(player).ClearFull(now, player.PlayerLife >= LifeCap(player),
+                player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum);
+            SettleFullManaLocked(player, ResourceEffectsTime(player));
         }
     }
 
@@ -93,10 +87,10 @@ public static partial class Game
     }
 
     // Invoke only inside an accepted direct-hit transaction, after evasion/block and before impale reflection.
-    public static void LeechOnHitLocked(Player conn, SpawnedMonster target, DamagePacket taken,
+    public static void LeechOnHitLocked(Player player, SpawnedMonster target, DamagePacket taken,
         int directDamage, LeechSources sources)
     {
-        if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
+        if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
         if (sources.Attack)
         {
             DamagePacket Extra(string pool) => DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
@@ -109,29 +103,29 @@ public static partial class Game
         var amounts = sources.Amounts(taken, directDamage);
         // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
         amounts.Life += sources.OverkillLife(directDamage, target.Life);
-        var session = LeechOf(conn);
+        var session = LeechOf(player);
         if (target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0) amounts.Life = 0;
         if (target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0)
         {
             amounts.EnergyShield = 0;
             if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
         }
-        double now = ProjectileWorldTime(conn);
-        var instant = session.Hit(now, amounts, conn.PlayerLife >= LifeCap(conn),
-            conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum, sources.Attack);
+        double now = ProjectileWorldTime(player);
+        var instant = session.Hit(now, amounts, player.PlayerLife >= LifeCap(player),
+            player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum, sources.Attack);
         var gain = sources.GainOnHit;
-        uint life = conn.PlayerLife, mana = conn.PlayerMana;
+        uint life = player.PlayerLife, mana = player.PlayerMana;
         // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
         // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool. Petrified
         // Blood caps the actual recovery like regeneration/Recoup; the leech instance itself remains until full Life.
-        conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,
+        player.PlayerLife = PetrifiedBlood.RecoverLife(player, life,
             instant.Life + (session.RecoversLife ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
-        conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), instant.Mana + gain.Mana,
+        player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), instant.Mana + gain.Mana,
             ref session.ManaInstantCarry);
-        conn.EnergyShield.Gain(instant.EnergyShield + (session.RecoversEnergyShield ? gain.EnergyShield : 0));
-        session.InstantLifeChanged |= life != conn.PlayerLife;
-        session.InstantManaChanged |= mana != conn.PlayerMana;
-        TrimLeechLocked(conn);
+        player.EnergyShield.Gain(instant.EnergyShield + (session.RecoversEnergyShield ? gain.EnergyShield : 0));
+        session.InstantLifeChanged |= life != player.PlayerLife;
+        session.InstantManaChanged |= mana != player.PlayerMana;
+        TrimLeechLocked(player);
     }
 
     /// <summary>
@@ -140,11 +134,11 @@ public static partial class Game
     /// by Petrified Blood's Low Life recovery cap: the orb shows the leech's full potential while the server caps the
     /// actual pool update.
     /// </summary>
-    public static byte[]? LeechBuffPresentation(Player conn)
+    public static byte[]? LeechBuffPresentation(Player player)
     {
-        double now = ProjectileWorldTime(conn);
-        var display = LeechOf(conn).Display(now);
-        var state = conn.LeechDisplay;
+        double now = ProjectileWorldTime(player);
+        var display = LeechOf(player).Display(now);
+        var state = player.LeechDisplay;
         var packets = new List<byte[]>();
         Sync(display.Life, LifeLeechBuffRow, ref state.LifeBuff, ref state.LifePerMinute, ref state.LifeExpiry);
         Sync(display.Mana, ManaLeechBuffRow, ref state.ManaBuff, ref state.ManaPerMinute, ref state.ManaExpiry);
@@ -158,37 +152,30 @@ public static partial class Game
             bool show = value.PerMinute > 0 && value.Expiry > now;
             if (buff != 0 && (!show || perMinute != value.PerMinute || expiry != value.Expiry))
             {
-                packets.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
+                player.Area.Buffs.Clear(player.Id, row, player.Id);
                 buff = 0;
                 perMinute = 0;
                 expiry = 0;
             }
             if (!show || buff != 0) return;
-            buff = conn.NextBuff++;
-            packets.Add(InstanceEntities.AddBuff(PlayerId, buff, row, PlayerId,
-                values: [(uint)Math.Min(value.PerMinute, int.MaxValue), 1u],
-                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, value.Expiry - now))));
+            buff = 1;
+            player.Area.Buffs.Set(player.Id, new(row, player.Id, Values: [(uint)Math.Min(value.PerMinute, int.MaxValue), 1u],
+                U68: Buff.Seconds(value.Expiry - now)));
             perMinute = value.PerMinute;
             expiry = value.Expiry;
         }
     }
 
     // A stat presentation: on a granted or removed instance (DisplayChanged), and when the next one ends.
-    public static Task SendLeechBuffs(Player conn)
+    public static Task SendLeechBuffs(Player player)
     {
-        lock (conn.Monsters)
+        double now = ProjectileWorldTime(player);
+        if (LeechOf(player).NextExpiry(now) is double expires) PresentIn(player, expires - now);
+        return Send(player, [], null, atGate: () =>
         {
-            double now = ProjectileWorldTime(conn);
-            if (LeechOf(conn).NextExpiry(now) is double expires) PresentIn(conn, expires - now);
-        }
-        return Send(conn, [], null, atGate: () =>
-        {
-            lock (conn.Monsters)
-            {
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired
-                    || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
-                return LeechBuffPresentation(conn);
-            }
+            if (player.Closed || player.LeavingArea || player.RageRetired
+                || (!player.Connection.PlayerObjectCreated && !player.Connection.PlayerSent)) return null;
+            return LeechBuffPresentation(player);
         });
     }
 }

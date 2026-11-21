@@ -7,18 +7,18 @@ public static class HotReload
     static readonly ConcurrentDictionary<Player, byte> Players = new();
 
     /// <summary>A connection in game that hears about reloads (Program.Connection, after its chat commands).</summary>
-    public static void Register(Player conn) => Players[conn] = 0;
+    public static void Register(Player player) => Players[player] = 0;
 
     public static void Tell(string text)
     {
-        foreach (var conn in Players.Keys)
+        foreach (var player in Players.Keys)
         {
-            if (conn.Closed) { Players.TryRemove(conn, out _); continue; }
-            if (conn.Commands is not { } commands) continue;
+            if (player.Closed) { Players.TryRemove(player, out _); continue; }
+            if (player.Commands is not { } commands) continue;
             _ = Task.Run(async () =>
             {
                 try { await commands.Reply(text); }
-                catch (Exception ex) when (ex is IOException or ObjectDisposedException) { Players.TryRemove(conn, out _); }
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException) { Players.TryRemove(player, out _); }
             });
         }
     }

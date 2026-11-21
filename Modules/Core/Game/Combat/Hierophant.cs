@@ -46,16 +46,16 @@ public static class Hierophant
     static readonly RuleTable<TotemState.Totem, Carry> TotemCarry = new();
 
     static readonly Store<Player, State> States = new();
-    public static State Of(Player conn) => States.GetValue(conn, _ => new());
+    public static State Of(Player player) => States.GetValue(player, _ => new());
 
-    public static long Revision(Player conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
+    public static long Revision(Player player) => States.TryGetValue(player, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
-    static int Raw(Player conn, uint name) => name is var key && conn.StatSourcesCache is { } cached
+    static int Raw(Player player, uint name) => name is var key && player.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(key) : 0;
 
     /// <summary>GameEvents.PlayerStatSources: per-totem regeneration, the unreserved-mana area and mana-to-damage.</summary>
-    public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> stats)
     {
         int Get(uint k) => stats.GetValueOrDefault(k);
         void Add(uint name, long value)
@@ -65,7 +65,7 @@ public static class Hierophant
         }
         // Read before anything below adds to maximum_mana_+% (nothing does) or damage_+%.
         Add(Stat.DamagePlusPct, DamageFromMana(Get));
-        if (!States.TryGetValue(conn, out var state)) return stats;
+        if (!States.TryGetValue(player, out var state)) return stats;
         Add(ActiveTotems, state.Totems);
         Add(Stat.LifeRegenerationRatePerMinutePct, (long)Get(LifeRegenPerTotem) * state.Totems);
         Add(Stat.ManaRegenerationRatePerMinutePct, (long)Get(ManaRegenPerTotem) * state.Totems);
@@ -77,52 +77,49 @@ public static class Hierophant
 
     /// <summary>The player tick: count the Summoned Totems and the unreserved-mana area (only with a stat that reads
     /// them), regenerate the totems' Life, and when a value changed rebuild the pools and send the stats.</summary>
-    public static async Task Tick(Player conn)
+    public static async Task Tick(Player player)
     {
-        if (!conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
+        if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
         bool changed;
-        lock (conn.Monsters)
-        {
-            var state = Of(conn);
-            double now = AreaTime(conn);
-            double elapsed = double.IsNaN(state.LastTick) || conn.Paused ? 0 : Math.Max(0, now - state.LastTick);
-            state.LastTick = now;
-            bool alive = conn.PlayerLife > 0;
-            int lifePerTotem = Raw(conn, LifeRegenPerTotem);
-            // Counted for everyone: the client reads number_of_active_totems for its own per-totem stats (the skill
-            // tooltip's damage), as Slayer's nearby enemies.
-            int totems = alive ? conn.Totems.Living(now).Count() : 0;
-            // "You and your Totems Regenerate 1% of Life per second for each Summoned Totem": the totems' part.
-            if (totems > 0 && lifePerTotem > 0 && elapsed > 0)
-                foreach (var totem in conn.Totems.Living(now))
-                {
-                    if (totem.Life >= totem.MaxLife) continue;
-                    var carry = TotemCarry.GetValue(totem, _ => new());
-                    carry.Life += totem.MaxLife * (double)lifePerTotem * totems / 100 / 60 * elapsed;
-                    uint whole = (uint)Math.Min(totem.MaxLife - totem.Life, Math.Floor(carry.Life));
-                    carry.Life -= whole;
-                    totem.Life += whole;
-                    if (totem.Life >= totem.MaxLife) carry.Life = 0;
-                }
-            int perStep = Raw(conn, AreaPerUnreservedMana);
-            int area = alive && perStep != 0 ? AreaFromMana(perStep, UnreservedMana(conn)) : 0;
-            changed = (totems, area) != (state.Totems, state.ManaArea);
-            (state.Totems, state.ManaArea) = (totems, area);
-            if (changed)
+        var state = Of(player);
+        double now = AreaTime(player);
+        double elapsed = double.IsNaN(state.LastTick) || player.Paused ? 0 : Math.Max(0, now - state.LastTick);
+        state.LastTick = now;
+        bool alive = player.PlayerLife > 0;
+        int lifePerTotem = Raw(player, LifeRegenPerTotem);
+        // Counted for everyone: the client reads number_of_active_totems for its own per-totem stats (the skill
+        // tooltip's damage), as Slayer's nearby enemies.
+        int totems = alive ? player.Totems.Living(now).Count() : 0;
+        // "You and your Totems Regenerate 1% of Life per second for each Summoned Totem": the totems' part.
+        if (totems > 0 && lifePerTotem > 0 && elapsed > 0)
+            foreach (var totem in player.Totems.Living(now))
             {
-                state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
-                RecomputePoolsAndSpeed(conn);
-                Console.WriteLine($"[gateway] Hierophant: {totems} summoned totems, unreserved-mana area +{area}%");
+                if (totem.Life >= totem.MaxLife) continue;
+                var carry = TotemCarry.GetValue(totem, _ => new());
+                carry.Life += totem.MaxLife * (double)lifePerTotem * totems / 100 / 60 * elapsed;
+                uint whole = (uint)Math.Min(totem.MaxLife - totem.Life, Math.Floor(carry.Life));
+                carry.Life -= whole;
+                totem.Life += whole;
+                if (totem.Life >= totem.MaxLife) carry.Life = 0;
             }
+        int perStep = Raw(player, AreaPerUnreservedMana);
+        int area = alive && perStep != 0 ? AreaFromMana(perStep, UnreservedMana(player)) : 0;
+        changed = (totems, area) != (state.Totems, state.ManaArea);
+        (state.Totems, state.ManaArea) = (totems, area);
+        if (changed)
+        {
+            state.Revision++; MarkPlayerStats(player, PlayerStatStep.Sources);
+            RecomputePoolsAndSpeed(player);
+            Console.WriteLine($"[gateway] Hierophant: {totems} summoned totems, unreserved-mana area +{area}%");
         }
         if (!changed) return;
-        await SendCharacterStats(conn, PlayerStatChange.Sources);
+        await SendCharacterStats(player, PlayerStatChange.Sources);
     }
 
     /// <summary>A new area is a new connection: the leaving one forgets its state.</summary>
-    public static Task Leaving(Player conn)
+    public static Task Leaving(Player player)
     {
-        States.Remove(conn);
+        States.Remove(player);
         return Task.CompletedTask;
     }
 }

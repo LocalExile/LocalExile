@@ -6,32 +6,28 @@ public static class PlayerRules
     // would hold the value, and with it the rules that made it, in memory after a reload.
     static readonly Store<Player, Game.StatSourcesResult> StatSources = new();
 
-    extension(Player conn)
+    extension(Player player)
     {
         public RampageWorld RampageWorld
         {
             get
             {
-                lock (conn.Monsters)
+                // Old Game stat/recovery continuations must not claim the replacement's runtime.
+                if (!Game.CurrentGameRules) return Game.RetiredRampageWorld;
+                var source = AscendancyPolicies.SourceOwner(player);
+                if (player.OwnedCombatState is not RampageWorld current
+                    || !ReferenceEquals(current.SourceOwner, source))
                 {
-                    // Old Game stat/recovery continuations must not claim the replacement's runtime.
-                    if (!Game.CurrentGameRules) return Game.RetiredRampageWorld;
-                    var source = AscendancyPolicies.SourceOwner(conn);
-                    if (conn.OwnedCombatState is not RampageWorld current
-                        || !ReferenceEquals(current.SourceOwner, source))
-                    {
-                        conn.RetireOwnedCombat();
-                        current = new RampageWorld(source);
-                        current.PendingRemoval.UnionWith(conn.RetiredCombatObjects);
-                        current.PendingBuffRemoval.UnionWith(conn.RetiredCombatBuffs);
-                        conn.RetiredCombatObjects.Clear(); conn.RetiredCombatBuffs.Clear();
-                        conn.OwnedCombatState = current;
-                        conn.SentRampage = default;
-                        conn.SentRampageStat = null;
-                        conn.SentRampageStacks = 0;
-                    }
-                    return current;
+                    player.RetireOwnedCombat();
+                    current = new RampageWorld(source);
+                    current.PendingRemoval.UnionWith(player.RetiredCombatObjects);
+                    player.RetiredCombatObjects.Clear();
+                    player.OwnedCombatState = current;
+                    player.SentRampage = default;
+                    player.SentRampageStat = null;
+                    player.SentRampageStacks = 0;
                 }
+                return current;
             }
         }
 
@@ -42,37 +38,36 @@ public static class PlayerRules
         {
             get
             {
-                lock (conn.Monsters)
-                    return Game.CurrentGameRules && conn.OwnedCombatState is RampageWorld current
-                        && ReferenceEquals(current.SourceOwner, AscendancyPolicies.SourceOwner(conn)) ? current : null;
+                return Game.CurrentGameRules && player.OwnedCombatState is RampageWorld current
+                    && ReferenceEquals(current.SourceOwner, AscendancyPolicies.SourceOwner(player)) ? current : null;
             }
         }
 
         public VaalUseReservation? VaalUse
         {
-            get => conn.VaalUseState as VaalUseReservation;
-            set => conn.VaalUseState = value;
+            get => player.VaalUseState as VaalUseReservation;
+            set => player.VaalUseState = value;
         }
 
         internal Game.WinterOrbRuntime? OrbRuntime
         {
-            get => conn.WinterOrbState as Game.WinterOrbRuntime;
-            set => conn.WinterOrbState = value;
+            get => player.WinterOrbState as Game.WinterOrbRuntime;
+            set => player.WinterOrbState = value;
         }
 
         public Game.ProjectileSession? ProjectileRuntime
         {
-            get => conn.ProjectileRuntimeState as Game.ProjectileSession;
-            set => conn.ProjectileRuntimeState = value;
+            get => player.ProjectileRuntimeState as Game.ProjectileSession;
+            set => player.ProjectileRuntimeState = value;
         }
 
         public Game.StatSourcesResult? StatSourcesCache
         {
-            get => StatSources.TryGetValue(conn, out var cached) ? cached : null;
+            get => StatSources.TryGetValue(player, out var cached) ? cached : null;
             set
             {
-                if (value is null) StatSources.Remove(conn);
-                else StatSources.AddOrUpdate(conn, value);
+                if (value is null) StatSources.Remove(player);
+                else StatSources.AddOrUpdate(player, value);
             }
         }
     }

@@ -13,12 +13,12 @@ public static partial class Game
     /// <paramref name="player"/> is the character's final stats; <paramref name="own"/> a selected attack gem's own
     /// stats, whose flat/increased accuracy and critical increases join as they do for the main hand.
     /// </summary>
-    public static List<(uint Stat, int Value)>? OffHandPanelStats(Player conn, IReadOnlyDictionary<uint, int> player,
+    public static List<(uint Stat, int Value)>? OffHandPanelStats(Player player, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int> mainLocal, IReadOnlyDictionary<uint, int> offLocal,
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
-        OffHandPanelStats(() => OffhandWeaponFor(conn), () => ActiveOffHand(conn), () => conn.Pools,
-            () => WeaponProfileFor(conn, activeSet: true), ItemsFor(conn), () => AttackCriticalMultiplier(conn, player, effect, own),
-            player, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(conn, player).Less);
+        OffHandPanelStats(() => OffhandWeaponFor(player), () => ActiveOffHand(player), () => player.Pools,
+            () => WeaponProfileFor(player, activeSet: true), ItemsFor(player), () => AttackCriticalMultiplier(player, playerStats, effect, own),
+            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(player, playerStats).Less);
 
     // The same rows from inputs read once (the stat snapshot's tail inputs), each asked where the line above asks conn.
     public static List<(uint Stat, int Value)>? OffHandPanelStats(Func<SkillCatalog.Unarmed?> offhandWeapon,

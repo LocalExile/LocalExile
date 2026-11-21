@@ -11,11 +11,12 @@ public sealed class AncestralBloodlinesTests
     [Fact]
     public void Bloodlines_recovery_rates_reach_life_mana_and_energy_shield_consumers()
     {
-        var conn = new Player(new(1, "bloodlines", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "bloodlines", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "AncestralBloodlines", PlayerLife = 1000,
+            Character = { Name = "AncestralBloodlines" },
+            PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         // Nine distinct tribes plus the Bloodlines tattoo itself (tribe 11, excluded from the count).
         string[] tribes =
@@ -29,11 +30,11 @@ public sealed class AncestralBloodlinesTests
         for (int i = 0; i < tribes.Length; i++)
         {
             ushort node = (ushort)(60000 + i);
-            conn.Passives.Add(node);
-            conn.Tattoos[node] = i < 9 ? tribes[i] : "Ancestral Tattoo of Bloodlines";
+            player.Character.Passives.Add(node);
+            player.Character.Tattoos[node] = i < 9 ? tribes[i] : "Ancestral Tattoo of Bloodlines";
         }
-        conn.TattooRevision++;
-        var stats = Game.CharacterPlayerStats(conn);
+        player.Character.TattooRevision++;
+        var stats = Game.CharacterPlayerStats(player);
         int Get(uint name) => stats.GetValueOrDefault(name);
         Assert.Equal(18, Get(Stat.LifeRecoveryRatePlusPct));
         Assert.Equal(18, Get(Stat.ManaRecoveryRatePlusPct));

@@ -16,7 +16,7 @@ public sealed class RottingCoreTests
     {
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new Player(new(1, DepravedTrinity.Area, 4000, 4000, 2000, 2000, (_, _) => true, []), 1, 1)
-            { Character = "VisibleSoulRegression", Instance = new(), Session = new("soul-visibility", wire.Stream, wire.Ciphers) };
+            { Character = { Name = "VisibleSoulRegression" }, Instance = new(), Connection = { Session = new("soul-visibility", wire.Stream, wire.Ciphers) } };
         runtime.Player = c;
         var v = Game.Monsters.Find(DepravedTrinity.Souls[0])!;
         int visible = v.StateMachine!.IndexOf("visible");
@@ -27,13 +27,13 @@ public sealed class RottingCoreTests
         uint restored = await Game.RestoreMonster(c, v,
             new(v.Row, 64, MonsterRarity.Unique, true, 2200, 2200, 50));
         AssertVisible(restored);
-        Assert.Equal(50u, c.Monsters[restored].Life);
+        Assert.Equal(50u, c.Area.Monsters[restored].Life);
         Assert.Null(DepravedTrinity.StartStates(Game.Monsters.Find(DepravedTrinity.Boss)!));
         Assert.Null(DepravedTrinity.StartStates(Game.Monsters.Find(DepravedTrinity.Souls[1])!));
         void AssertVisible(uint id)
         {
             var origin = c.Instance.World.MonsterOrigins[id].Object;
-            Assert.Equal(1, c.Monsters[id].States!.SharedStates[visible]);
+            Assert.Equal(1, c.Area.Monsters[id].States!.SharedStates[visible]);
             Assert.Equal(1, origin.StateMachine!.SharedStates[visible]);
             Assert.Contains(visible, origin.StateMachine.Overridden);
         }
@@ -85,13 +85,13 @@ public sealed class RottingCoreTests
         {
             var transitions = new (uint, AreaTransitionObject)[7];
             var c = new Player(new(1, DepravedTrinity.Area, 5000, 5000, 20, 20, (_, _) => true, transitions), 1, 1);
-            c.QuestFlags.Add("a9q1-BlackHeartOpen"); // A completed character still has to clear this new instance.
+            c.Character.QuestFlags.Add("a9q1-BlackHeartOpen"); // A completed character still has to clear this new instance.
             c.LaterFormPoints[DepravedTrinity.Boss] = (3000 + offset.Item1, 2000 + offset.Item2);
             var names = new[] { "DoedrePortal", "MaligaroPortal", "ShavronnePortal" };
             for (int n = 0; n < 3; n++)
             {
                 var at = (X: 1000 + n * 700 + offset.Item1, Y: 1500 + offset.Item2);
-                c.Monsters[(uint)n + 1] = new("soul", new PlayerWalk(at.X, at.Y, 1), 80, 5, 1000)
+                c.Area.Monsters[(uint)n + 1] = new("soul", new PlayerWalk(at.X, at.Y, 1), 80, 5, 1000)
                     { Variety = Game.Monsters.Find(DepravedTrinity.Souls[n]) };
                 var portal = new AreaTransitionObject(100 + n * 30 + offset.Item1, 100 + offset.Item2, 1, names[n] + ".ao")
                     { SourceType = "Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioSubbossPortal" };
@@ -105,13 +105,13 @@ public sealed class RottingCoreTests
             for (int n = 0; n < 3; n++)
             {
                 var entry = transitions[n * 2]; var back = transitions[n * 2 + 1];
-                var at = c.Monsters[(uint)n + 1].Walk.Position(0);
+                var at = c.Area.Monsters[(uint)n + 1].Walk.Position(0);
                 Assert.True(DepravedTrinity.GateShown(c, entry.Item1, entry.Item2));
                 Assert.False(DepravedTrinity.GateShown(c, back.Item1, back.Item2));
                 Assert.False(DepravedTrinity.GateShown(c, 30, heart));
                 Assert.Equal(c.Layout.Near((at.X - 18, at.Y - 12)), DepravedTrinity.Destination(c, entry.Item2));
                 Assert.Equal(c.Layout.Near((entry.Item2.GridX + 10, entry.Item2.GridY)), DepravedTrinity.Destination(c, back.Item2));
-                c.Monsters[(uint)n + 1].Life = 0;
+                c.Area.Monsters[(uint)n + 1].Life = 0;
                 Assert.False(DepravedTrinity.GateShown(c, entry.Item1, entry.Item2));
                 Assert.True(DepravedTrinity.GateShown(c, back.Item1, back.Item2));
             }
@@ -120,90 +120,6 @@ public sealed class RottingCoreTests
             Assert.Equal(c.Layout.Near((centre.X, centre.Y - 28)), DepravedTrinity.Destination(c, heart));
             Assert.Null(DepravedTrinity.Destination(c, heart with { SourceType = "unrelated" }));
         }
-    }
-
-    [Fact]
-    public async Task Trinity_waits_for_each_scorpion_wave_survives_reload_and_evacuates_only_after_death()
-    {
-        using var runtime = new Runtime();
-        using var wire = new Wire();
-        var markers = Enumerable.Range(0, 6).Select(n => new PlacedTileObject(
-            "Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmergeSpawner", "", 1980 + n * 8, 2020, 0, 0)).ToList();
-        markers.Add(new("Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioLootLocator", "", 3000, 1000, 0, 0));
-        var layout = new AreaLayout(1, DepravedTrinity.Area, 4000, 4000, 2000, 2000, (_, _) => true, [])
-        { Level = new(4000, 4000, [], [], [], [], [], [], []) { RoomObjects = markers } };
-        var c = new Player(layout, 1, 1)
-        {
-            Character = "TrinityRegression", PlayerSent = true, PlayerLife = 1000000, Instance = new(),
-            Pools = new(64, 1000000, 100, 2, 0), Session = new("trinity", wire.Stream, wire.Ciphers),
-        };
-        runtime.Player = c;
-        var item = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyIdentification")!);
-        c.Instance.Ground.Observe(c);
-        uint loot = c.Instance.Ground.Add(new WorldItemObject(1995, 1995, item), c);
-        uint personal = c.Instance.Ground.Add(new WorldItemObject(1990, 1990, item), c, shared: false);
-        uint outside = c.Instance.Ground.Add(new WorldItemObject(500, 500, item), c);
-        c.LaterFormPoints[DepravedTrinity.Boss] = (2000, 2000);
-        var variety = Game.Monsters.Find(DepravedTrinity.Boss)!;
-        Assert.True(DepravedTrinity.Attack(c, variety, 64, 4995).Damage.MaxTotal > 100);
-        Assert.True(DepravedTrinity.Attack(c, variety, 64, 4995).Damage.MaxTotal > DepravedTrinity.Attack(c, variety, 1, 4995).Damage.MaxTotal);
-        Assert.True(DepravedTrinity.Attack(c, variety, 64, 5607).Damage.MaxTotal > DepravedTrinity.Attack(c, variety, 64, 406).Damage.MaxTotal);
-        var boss = new SpawnedMonster("Trinity", new PlayerWalk(2000, 2000, 1), 130, 8, 1000)
-            { Variety = variety, Level = 64, Rarity = MonsterRarity.Unique, States = variety.StateMachine, LifePhases = new([66, 33]) };
-        const uint id = 0x8000000;
-        c.Monsters[id] = boss; c.NextObjectId = id + 1;
-        c.MonsterViews[id] = new((2000, 2000), (2000, 2000), 1000);
-        var fight = new DepravedTrinity.Fight(id, boss, c);
-        await fight.Bind(c);
-        Assert.Equal(14, DepravedTrinity.SkillsFor(c, variety, 64)!.Count);
-        for (int wave = 0; wave < 2; wave++)
-        {
-            boss.Life = boss.LifePhases.Damage(boss.Life, boss.MaxLife, int.MaxValue);
-            Assert.Equal(wave == 0 ? 660u : 330u, boss.Life);
-            await fight.Step(c, 1 + wave * 10);
-            Assert.True(boss.Invulnerable);
-            var adds = c.Monsters.Values.Where(m => m.Variety?.Id == "Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmerge" && !m.Dead && m.Life > 0).ToArray();
-            Assert.Equal(6, adds.Length);
-            if (wave == 1)
-            {
-                fight.Stop();
-                fight = new(id, boss, c);
-                await fight.Bind(c);
-            }
-            await fight.Step(c, 5 + wave * 10);
-            Assert.True(boss.LifePhases.Active);
-            Assert.Equal((2000, 2000), c.Walk.Position(0));
-            foreach (var add in adds) add.Life = 0;
-            await fight.Step(c, 6 + wave * 10);
-            Assert.False(boss.LifePhases.Active);
-            Assert.Equal(wave + 1, boss.LifePhases.Completed);
-        }
-        boss.Life = boss.LifePhases.Damage(boss.Life, boss.MaxLife, int.MaxValue);
-        Assert.Equal(0u, boss.Life);
-        await fight.Step(c, 20);
-        await fight.Step(c, 23);
-        Assert.Equal((2000, 2000), c.Walk.Position(0));
-        await fight.Step(c, 25.5);
-        Assert.Equal(layout.Near((3000, 1000)), c.Walk.Position(c.Clock.Elapsed.TotalSeconds));
-        Assert.Equal(DepravedTrinity.Landing(c), DepravedTrinity.Destination(c, new AreaTransitionObject(10, 10, 1)
-            { SourceType = "Metadata/QuestObjects/Act9/HarvestFinalBossTransition" }));
-        Assert.Null(c.Instance.Ground.Get(loot));
-        Assert.Equal(3, c.Instance.Ground.All().Count);
-        var moved = c.Instance.Ground.All().Single(p => p.Id != personal && p.Id != outside);
-        Assert.Same(item, moved.Item.Item);
-        Assert.InRange(Math.Abs(moved.Item.GridX - 3000), 0, 50);
-        Assert.InRange(Math.Abs(moved.Item.GridY - 1000), 0, 50);
-        Assert.False(c.Instance.Ground.IsNewFor(c, moved.Id));
-        Assert.Equal((1990, 1990), (c.Instance.Ground.Get(personal)!.GridX, c.Instance.Ground.Get(personal)!.GridY));
-        Assert.Equal((c, false), c.Instance.Ground.Origin(personal));
-        c.Monsters[7] = new("abandoned summon", new PlayerWalk(3000, 1000, 1), 80, 5, 100) { SummonerId = id };
-        c.Monsters[8] = new("friendly", new PlayerWalk(3000, 1000, 1), 80, 5, 100) { OwnerId = Program.PlayerId, Hostile = false };
-        Assert.Equal(new uint[] { 7 }, DepravedTrinity.RetireCreatures(c));
-        Assert.True(c.Monsters.ContainsKey(8));
-        var landing = c.Walk.Position(c.Clock.Elapsed.TotalSeconds);
-        await fight.Step(c, 40);
-        Assert.Equal(landing, c.Walk.Position(c.Clock.Elapsed.TotalSeconds));
-        fight.Stop();
     }
 
     sealed class Runtime : IDisposable

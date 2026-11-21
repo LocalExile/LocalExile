@@ -261,17 +261,21 @@ public sealed class DivinationCardTests
         readonly TcpClient reader;
         public NetworkStream Stream => writer.GetStream();
         public ConnectionCiphers Ciphers { get; } = new(new byte[64], false);
-        public Player Conn { get; } = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1)
-            { Instance = new(), PlayerLife = 50, Character = "Cards" + Guid.NewGuid().ToString("N"),
-              LeagueModule = new(new League("cards", "Standard", false, false), new HashSet<string>(["Game", "divination-test"])) };
+        public Player Player { get; } = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1)
+            {
+              Instance = new(),
+              PlayerLife = 50,
+              Character = { Name = "Cards" + Guid.NewGuid().ToString("N") },
+              LeagueModule = new(new League("cards", "Standard", false, false), new HashSet<string>(["Game", "divination-test"]))
+          };
         public Wire()
         {
             listener.Start();
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accepting.GetAwaiter().GetResult();
-            Conn.Session = new("test", Stream, Ciphers);
+            Player.Connection.Session = new("test", Stream, Ciphers);
         }
-        public void Dispose() { Conn.Closed = true; reader.Dispose(); writer.Dispose(); listener.Stop(); }
+        public void Dispose() { Player.Closed = true; reader.Dispose(); writer.Dispose(); listener.Stop(); }
     }
 }

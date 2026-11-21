@@ -14,7 +14,7 @@ public sealed partial class DelveModule
         TripPrices = LoadTripPrices();
     }
 
-    static string DestinationFlag(IPlayer player) => $"Delve.Destination.{CharacterName(ConnOf(player))}";
+    static string DestinationFlag(IPlayer player) => $"Delve.Destination.{CharacterName(PlayerOf(player))}";
     sealed class Attempt(DelveMine.Plan plan, ISavedData account)
     {
         public readonly DelveMine.Plan Plan = plan;
@@ -51,7 +51,7 @@ public sealed partial class DelveModule
         if (ServerLevels.DelveTerrain(player.Seed) is null && mine.LastScene is { Terrain: { } saved } scene && scene.SceneSeed == player.Seed)
         {
             if (ServerLevels.PrepareDelve(player.Seed, level, saved) is not null)
-                ConnOf(player).Use(AreaLayouts.For(InstanceDelve.MineArea, player.Seed));
+                PlayerOf(player).Use(AreaLayouts.For(InstanceDelve.MineArea, player.Seed));
         }
         return new(ServerLevels.DelveTerrain(player.Seed) ?? DelveTerrain.Data(player.Seed), [2]) { Level = level };
     }
@@ -70,21 +70,21 @@ public sealed partial class DelveModule
 
     void RegisterTrips(IModuleContext module)
     {
-        module.Lifetime.Own(GameEvents.TransferResolved.Add(module.Manifest.Id, async (conn, _, response) =>
+        module.Lifetime.Own(GameEvents.TransferResolved.Add(module.Manifest.Id, async (player, _, response) =>
         {
             if (response.Ok) return;
-            foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, PlayerOf(conn))))
-                await AbortTrip(module, PlayerOf(conn), attempt, "instance transfer failed");
+            foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, PlayerOf(player))))
+                await AbortTrip(module, PlayerOf(player), attempt, "instance transfer failed");
         }));
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, async (connection, _) =>
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (Func<Player, string, Task>)(async (leaving, _) =>
         {
-            var player = PlayerOf(connection);
+            var player = PlayerOf(leaving);
             foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, player)))
             {
-                lock (attempt.Departures) if (attempt.Departures.Contains(ConnOf(player))) continue;
+                lock (attempt.Departures) if (attempt.Departures.Contains(PlayerOf(player))) continue;
                 await AbortTrip(module, player, attempt, "left the mine");
             }
-        });
+        }));
         module.Lifetime.Own(module.Lifetime.Stopping.Register(() =>
         {
             foreach (var attempt in _attempts.Values)
@@ -93,48 +93,47 @@ public sealed partial class DelveModule
                 DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m with { Pending = null } : null);
             }
         }));
-        GameEvents.AreaTick.Add(module.Manifest.Id, start => !start.Layout.Id.StartsWith("Delve", StringComparison.Ordinal) ? null : async (connection, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, (Func<Player, Func<Player, double, Task>?>)(start => (Func<Player, double, Task>?)(!start.Layout.Id.StartsWith("Delve", StringComparison.Ordinal) ? null : async (player, _) =>
         {
-            var player = PlayerOf(connection);
-            var ready = ConnOf(player);
-            if (ready.PlayerSent && !ready.Closed && !ready.LeavingArea && player.AreaId is "Delve_Hub" or "Delve_Main")
+            var modPlayer = PlayerOf(player);
+            var ready = player;
+            if (ready.Connection.PlayerSent && !ready.Closed && !ready.LeavingArea && modPlayer.AreaId is "Delve_Hub" or "Delve_Main")
             {
                 // Without DelveOwner the native 0x7b handler opens only the current terrain's local preview in a mine.
-                if (!ready.HasQuestFlag("DelveOwner"))
+                if (!ready.Character.HasQuestFlag("DelveOwner"))
                 {
                     await SetQuestFlags(ready, ["DelveOwner"]);
                 }
-                await SpawnCrawler(module, player);
+                await SpawnCrawler(module, modPlayer);
             }
-            if (player.AreaId != "Delve_Main") return;
-            var conn = ConnOf(player);
-            if (_states.TryGetValue(player, out var deadState) && conn.PlayerLife == 0
-                && (deadState.Journey?.Completed == true || conn.Instance.HasState(DestinationFlag(player))))
+            if (modPlayer.AreaId != "Delve_Main") return;
+            if (_states.TryGetValue(modPlayer, out var deadState) && player.PlayerLife == 0
+                && (deadState.Journey?.Completed == true || player.Instance.HasState(DestinationFlag(modPlayer))))
                 deadState.ResetNeeded = true;
-            if (_states.TryGetValue(player, out var state) && state.ResetNeeded && conn.PlayerLife > 0)
+            if (_states.TryGetValue(modPlayer, out var state) && state.ResetNeeded && player.PlayerLife > 0)
             {
-                await ResetScene(module, player, state); state.ResetNeeded = false;
+                await ResetScene(module, modPlayer, state); state.ResetNeeded = false;
             }
-            foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, player)))
-                if (conn.PlayerLife == 0) await AbortTrip(module, player, attempt, "player died");
-        });
-        GameEvents.Drops.Add(module.Manifest.Id, roll =>
+            foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, modPlayer)))
+                if (player.PlayerLife == 0) await AbortTrip(module, modPlayer, attempt, "player died");
+        })));
+        GameEvents.Drops.Add(module.Manifest.Id, (Action<DropRoll>)(roll =>
         {
-            if (roll.Player.AreaId != "Delve_Main" || !_states.TryGetValue(roll.Player, out var state) || state.Journey is not { } journey) return;
+            if (roll.ModPlayer.AreaId != "Delve_Main" || !_states.TryGetValue(roll.ModPlayer, out var state) || state.Journey is not { } journey) return;
             var policy = DelveRewards.Current();
             roll.Quantity *= 1 + (journey.Depth - 1L) * policy.QuantityPerDepth / 100;
             roll.Rarity *= 1 + (journey.Depth - 1L) * policy.RarityPerDepth / 100;
-        });
-        module.Lifetime.Own(GameEvents.StateBuilding.Add(module.Manifest.Id, (conn, json) =>
+        }));
+        module.Lifetime.Own(GameEvents.StateBuilding.Add(module.Manifest.Id, (player, json) =>
         {
-            if (conn.Layout.Hash is not (Hub or InstanceDelve.MineArea)) return;
-            var player = PlayerOf(conn); var mine = Mine(module, player);
+            if (player.Layout.Hash is not (Hub or InstanceDelve.MineArea)) return;
+            var modPlayer = PlayerOf(player); var mine = Mine(module, modPlayer);
             json["delveMine"] = JsonSerializer.SerializeToNode(mine);
-            if (_states.TryGetValue(player, out var state) && state.Journey is { } journey && state.Rail is { } rail)
+            if (_states.TryGetValue(modPlayer, out var state) && state.Journey is { } journey && state.Rail is { } rail)
             {
                 var next = journey.At(Math.Min(journey.Length, journey.Travelled + 40)).At;
                 int defenders;
-                lock (conn.Monsters) defenders = journey.DestinationMonsters.Count(id => conn.Monsters.TryGetValue(id, out var m)
+                defenders = journey.DestinationMonsters.Count(id => player.Area.Monsters.TryGetValue(id, out var m)
                     && m.Hostile && !m.Dead && m.Life > 0);
                 json["delveTrip"] = JsonSerializer.SerializeToNode(new { journey.Depth, journey.Travelled, journey.Length,
                     journey.Cost, journey.Charged, journey.Started, journey.Completed, FinishDefendersAlive = defenders,
@@ -146,65 +145,62 @@ public sealed partial class DelveModule
         }));
     }
 
-    async Task AbortTrip(IModuleContext module, IPlayer player, Attempt attempt, string reason)
+    async Task AbortTrip(IModuleContext module, IPlayer modPlayer, Attempt attempt, string reason)
     {
         if (!_attempts.TryRemove(attempt.Plan.Id, out _)) return;
         attempt.Cancelled = true;
         DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m with { Pending = null } : null);
-        if (_states.TryGetValue(player, out var state))
+        if (_states.TryGetValue(modPlayer, out var state))
         {
-            if (!ConnOf(player).Closed && !ConnOf(player).LeavingArea) await RemoveStartBoundary(player, state);
+            if (!PlayerOf(modPlayer).Closed && !PlayerOf(modPlayer).LeavingArea) await RemoveStartBoundary(modPlayer, state);
             state.ResetNeeded = true;
             if (state.Journey is { } journey)
             {
-                var conn = ConnOf(player); uint[] monsters;
-                lock (conn.Monsters)
+                var player = PlayerOf(modPlayer); uint[] monsters;
+                monsters = journey.EncounterMonsters.ToArray();
+                foreach (uint id in monsters)
                 {
-                    monsters = journey.EncounterMonsters.ToArray();
-                    foreach (uint id in monsters)
-                    {
-                        if (conn.Monsters.Remove(id, out var m)) { m.Life = 0; m.Dead = true; m.ActionGeneration++; }
-                        conn.AsleepMonsters.Remove(id); conn.MonsterViews.Remove(id);
-                        conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
-                    }
-                    state.Journey = null;
+                    if (player.Area.Monsters.Remove(id, out var m)) { m.Life = 0; m.Dead = true; m.ActionGeneration++; }
+
+                    player.Instance.World.MonsterOrigins.TryRemove(id, out _);
                 }
-                if (!conn.Closed && !conn.LeavingArea)
-                    foreach (uint id in monsters) await RemoveSceneObject(player, id);
+                state.Journey = null;
+                if (!player.Closed && !player.LeavingArea)
+                    foreach (uint id in monsters) await RemoveSceneObject(modPlayer, id);
             }
-            if (!ConnOf(player).Closed && !ConnOf(player).LeavingArea)
-                foreach (uint id in state.Trail) await RemoveSceneObject(player, id);
+            if (!PlayerOf(modPlayer).Closed && !PlayerOf(modPlayer).LeavingArea)
+                foreach (uint id in state.Trail) await RemoveSceneObject(modPlayer, id);
             state.Trail.Clear();
         }
         module.Log($"Delve attempt {attempt.Plan.Id} reset to saved checkpoint: {reason}");
     }
 
-    static async Task ResetScene(IModuleContext module, IPlayer player, State state)
+    static async Task ResetScene(IModuleContext module, IPlayer modPlayer, State state)
     {
-        var conn = ConnOf(player);
-        if ((state.Rail ??= DelveRailRoute.Load(player.AreaId, conn.Seed)) is not { } rail) return;
+        var player = PlayerOf(modPlayer);
+        if ((state.Rail ??= DelveRailRoute.Load(modPlayer.AreaId, player.Seed)) is not { } rail) return;
         if (state.Trail.Contains(state.DestinationLight)) state.DestinationLight = 0;
-        foreach (uint id in state.Trail) await RemoveSceneObject(player, id);
+        foreach (uint id in state.Trail) await RemoveSceneObject(modPlayer, id);
         state.Trail.Clear();
-        bool completed = state.Journey?.Completed == true || conn.Instance.HasState(DestinationFlag(player));
+        bool completed = state.Journey?.Completed == true || player.Instance.HasState(DestinationFlag(modPlayer));
         var start = completed ? rail.Points[^1] : rail.Points[0];
-        if (completed) await EnsureDestinationLight(player, state, start);
+        if (completed) await EnsureDestinationLight(modPlayer, state, start);
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
-            await global::Game.SendWorldRecord(player, id, InstanceProtocol.Teleport(id, start.X, start.Y));
+            await global::Game.SendWorldRecord(modPlayer, id, InstanceProtocol.Teleport(id, start.X, start.Y));
         state.CrawlerCell = start;
-        lock (conn.Monsters) { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Teleport(start.X + 10, start.Y, AreaTime(conn)); }
-        await global::Game.SendWorldRecord(player, PlayerId, InstanceProtocol.Teleport(PlayerId, start.X + 10, start.Y));
-        await global::Game.SendWorldRecord(player, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1));
+        Interlocked.Increment(ref player.ActionCount); player.Walk.Teleport(start.X + 10, start.Y, AreaTime(player));
+        await global::Game.SendWorldRecord(modPlayer, player.Id, InstanceProtocol.Teleport(player.Id, start.X + 10, start.Y));
+        await global::Game.SendWorldRecord(modPlayer, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1));
         var presentation = new DelveJourney(rail.Points, 0);
-        await BlockCrawler(module, player, state, start.X, start.Y, presentation.Heading(completed ? presentation.Length : 0));
+        await BlockCrawler(module, modPlayer, state, start.X, start.Y, presentation.Heading(completed ? presentation.Length : 0));
     }
 
-    async Task TransferChunk(IModuleContext module, IPlayer player, Attempt attempt)
+    async Task TransferChunk(IModuleContext module, IPlayer modPlayer, Attempt attempt)
     {
-        var conn = ConnOf(player);
-        lock (attempt.Departures) attempt.Departures.Add(conn);
-        await ChangeArea(conn,
+        var player = PlayerOf(modPlayer);
+        lock (attempt.Departures) attempt.Departures.Add(player);
+        await ChangeArea(player,
             new PendingTransfer(InstanceDelve.MineArea, 0, true, AtSpawn: true) { Seed = attempt.Seed }, "Delve route segment");
-        if (!conn.LeavingArea) await AbortTrip(module, player, attempt, "departure refused");
+        if (!player.LeavingArea) await AbortTrip(module, modPlayer, attempt, "departure refused");
     }
 }

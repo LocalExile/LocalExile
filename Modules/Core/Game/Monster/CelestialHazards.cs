@@ -40,12 +40,12 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
     }
     async Task Show(Player p, Visual v)
     {
-        lock (p.Monsters) if (p.SceneViews.Contains(v.Id)) return;
+        if (Scenes(p).Contains(v.Id)) return;
         if (await SendWorldCreate(p, v.Id, () => InstanceEntities.CreateObject(v.Id,
             InstanceEntities.ObjectTypeHash(v.Link is null ? EffectObject.TypePath : BeamEffectObject.TypePath),
             v.Link?.Blob() ?? v.Object.Blob()), "[Celestial] arena effect", wake: true))
         {
-            lock (p.Monsters) p.SceneViews.Add(v.Id);
+            Scenes(p).Add(v.Id);
             if (v.Clip is { } clip) await SendWorldRecord(p, v.Id,
                 InstanceProtocol.AnimationUpdate(v.Id, 0, clip, v.Speed), "[Celestial] effect animation");
         }
@@ -65,7 +65,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         if (!visuals.Remove(id)) return;
         foreach (var p in Present.ToArray())
         {
-            bool shown; lock (p.Monsters) shown = p.SceneViews.Remove(id);
+            bool shown; shown = Scenes(p).Remove(id);
             if (shown) { await SendWorldRemoval(p, id, "[Celestial] arena effect ends"); }
         }
     }
@@ -94,7 +94,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
     {
         if (c.Paused || stopped) return;
         if (!Current) { await Clear(); return; }
-        if (!Present.Any(p => p.PlayerLife > 0 && p.MonsterViews.ContainsKey(casterId) && !p.AsleepMonsters.Contains(casterId))) return;
+        if (!Present.Any(p => p.PlayerLife > 0 && MonsterShown(p, casterId) && !MonsterAsleep(p, casterId))) return;
         foreach (var p in Present.ToArray()) await Bind(p);
         foreach (var v in visuals.Values.Where(v => now >= v.Until).OrderBy(v => v.Link is null).ToArray()) await Drop(v.Id);
         patches.RemoveAll(p => now >= p.Until);
@@ -115,8 +115,8 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
             if (visuals.TryGetValue(sweep.Visual, out var v))
             {
                 visuals[sweep.Visual] = v with { Object = v.Object with { GridX = at.Item1, GridY = at.Item2 } };
-                foreach (var p in Present.ToArray())
-                { await SendWorldRecord(p, v.Id,
+                if (Present.FirstOrDefault() is { } sweeper)
+                { await SendWorldRecord(sweeper, v.Id,
                     InstanceProtocol.MoveTo(v.Id, at.Item1, at.Item2, 30, InstanceProtocol.FollowTerrain), "[Celestial] solar beam sweeps"); }
             }
             if (now <= sweep.Starts + 2.25 && now >= sweep.NextPatch)
@@ -181,8 +181,8 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         double seconds = cat.CastTimeMs(effectId) / 1000d;
         double release = now + seconds * .299 / .966;
         nextCast = now + Math.Max(seconds, cat.CooldownMs(effectId, cat.MaxLevelAt(effectId, caster.Level)) / 1000d);
-        foreach (var p in Present.ToArray())
-        { await SendWorldRecord(p, casterId,
+        if (Present.FirstOrDefault() is { } sender)
+        { await SendWorldRecord(sender, casterId,
             InstanceProtocol.AnimationUpdate(casterId, 0, solar ? effectId == 6477 ? (ushort)5 : (ushort)4 : (ushort)3,
                 effectId == 6477 ? 1 : (float)(.966 / Math.Max(.01, seconds))), "[Celestial] cast"); }
         if (effectId == 6464)
@@ -226,7 +226,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         foreach (var p in Present.ToArray())
             foreach (uint id in visuals.Values.OrderBy(v => v.Link is null).Select(v => v.Id).ToArray())
             {
-                lock (p.Monsters) p.SceneViews.Remove(id);
+                Scenes(p).Remove(id);
                 _ = Send(p, InstanceProtocol.RemoveObject(id), null);
             }
         visuals.Clear();

@@ -15,15 +15,15 @@ public static class OwnedCountItemStats
     public static bool IsCoefficient(uint stat) => Rules.Any(r => r.Input == stat);
 
     // Captured beside the other condition inputs; consumers reuse this view instead of counting again mid-build.
-    public static void Capture(Player conn, double totemNow, double minionNow, Dictionary<string, long> measured)
+    public static void Capture(Player player, double totemNow, double minionNow, Dictionary<string, long> measured)
     {
         foreach (var key in Rules.Select(r => r.Count)) measured[key] = 0;
-        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-        measured[Totems] = conn.Totems.Living(totemNow).Count();
-        foreach (var minion in conn.Minions.All)
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        measured[Totems] = player.Totems.Living(totemNow).Count();
+        foreach (var minion in player.Minions.All)
         {
             if (minion.Monster.Dead || minion.Monster.Life == 0 || minionNow >= minion.Until
-                || !conn.Monsters.TryGetValue(minion.Id, out var held) || !ReferenceEquals(held, minion.Monster)) continue;
+                || !player.Area.Monsters.TryGetValue(minion.Id, out var held) || !ReferenceEquals(held, minion.Monster)) continue;
             string? key = minion.Kind switch
             {
                 "Skeleton" => Skeletons, "RagingSpirit" => RagingSpirits, "Zombie" => Zombies, "Spectre" => Spectres,

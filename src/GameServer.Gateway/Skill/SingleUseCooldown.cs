@@ -41,7 +41,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
     }
 }
 
-/// <summary>Elapsed game-time budget, used under the connection's Monsters lock. Rate changes settle the old rate
+/// <summary>Elapsed game-time budget, used in the area's frame. Rate changes settle the old rate
 /// first, preserving progress through equipment/stat refreshes and pause.</summary>
 public sealed class SingleUseCooldownState(double at, double rate, double remainingBaseMilliseconds = 0,
     int totalBaseMilliseconds = 0)

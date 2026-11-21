@@ -11,25 +11,25 @@ public static partial class Game
     /// Damage per Use (these skills ask for the average, not DPS) and the secondary ailment rows. Display rows only:
     /// a placed trap's actual hit uses the same secondary damage inputs.
     /// </summary>
-    public static List<(uint Stat, int Value)> SecondaryPanelRows(Player conn, Func<uint, int> get,
-        IReadOnlyDictionary<uint, int> player, SupportedGem supported, DamagePacket secondaryBase)
+    public static List<(uint Stat, int Value)> SecondaryPanelRows(Player player, Func<uint, int> get,
+        IReadOnlyDictionary<uint, int> playerStats, SupportedGem supported, DamagePacket secondaryBase)
     {
-        int Player(uint key) => player.GetValueOrDefault(key);
+        int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Own(uint key) => supported.Stats.GetValueOrDefault(key);
         var types = Supports.Of(supported.Effect)?.Types.ToHashSet() ?? [];
-        var merged = MergeSkillStats(player, supported.Stats);
+        var merged = MergeSkillStats(playerStats, supported.Stats);
         var conversion = DamageStats.Conversion(merged, Stats, attack: null);
         var modifiers = supported.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         bool area = get(Stat.IsAreaDamage) != 0, projectile = get(Stat.BaseIsProjectile) != 0;
-        var raw = SecondaryRawHit(conn, supported, secondaryBase, get);
+        var raw = SecondaryRawHit(player, supported, secondaryBase, get);
         var hit = PlayerHitDamage.Resolve(raw, get, conversion, spell: false, area: area, projectile: projectile,
             supportModifiers: modifiers, skillTypes: types, secondary: true);
-        int chance = SpellCriticalStrike.Chance(SkillsFor(conn).SpellCritChance(supported.Effect, supported.Level), Player, Own,
+        int chance = SpellCriticalStrike.Chance(SkillsFor(player).SpellCritChance(supported.Effect, supported.Level), Player, Own,
             playerIncrease: Player(Stat.CriticalStrikeChancePlusPct));
         int multiplier = CriticalHitMultiplier((long)DamageModel.BaseCriticalStrikeMultiplier
-            + Player(Stat.BaseCriticalStrikeMultiplierPlus) + Own(Stat.BaseCriticalStrikeMultiplierPlus), player, supported.Stats);
-        double factor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(player, attack: false, supported.Stats) ? 0 : chance,
-            multiplier, CriticalExtraRollsFor(conn, player, supported.Stats));
+            + Player(Stat.BaseCriticalStrikeMultiplierPlus) + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, supported.Stats);
+        double factor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(playerStats, attack: false, supported.Stats) ? 0 : chance,
+            multiplier, CriticalExtraRollsFor(player, playerStats, supported.Stats));
         var rows = new List<(uint, int)> { (Stat.DisplaySkillDealsSecondaryDamage, 1) };
         // The skill inherits the default attack's hand rows with the player's stats: clear them, as a spell does.
         foreach (string hand in new[] { "main_hand", "off_hand" })
@@ -45,8 +45,8 @@ public static partial class Game
         return rows;
     }
 
-    static DamagePacket SecondaryRawHit(Player conn, SupportedGem gem, DamagePacket basis, Func<uint, int> get) =>
+    static DamagePacket SecondaryRawHit(Player player, SupportedGem gem, DamagePacket basis, Func<uint, int> get) =>
         DamageStats.RawAdded(basis, name => Stats.Name(name).StartsWith("spell_", StringComparison.Ordinal)
             && Stats.Name(name).Contains("_added_", StringComparison.Ordinal) ? 0 : get(name), spell: true,
-            AddedEffectiveness(conn, gem.Effect, gem.Level));
+            AddedEffectiveness(player, gem.Effect, gem.Level));
 }

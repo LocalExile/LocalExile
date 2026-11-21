@@ -10,7 +10,7 @@ using GameServer.Core.World;
 /// loot, experience and the instance save never see them. A totem dies when its Life reaches 0, its duration ends, a new
 /// one replaces it past the limit, or the player dies (wiki Totem, Soul Mantle); it then plays its death (0x1b1 at 0) and
 /// is removed (0x2bd) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by
-/// the Monsters lock; times are the connection's game seconds.
+/// the area's frame; times are the connection's game seconds.
 /// </summary>
 public sealed class TotemState
 {
@@ -79,8 +79,6 @@ public sealed class TotemState
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
-        public uint SentLife = maxLife;
-        public bool SentDeath;
         public bool Alive(double now) => DiedAt is null && Life > 0 && now < Until;
     }
 

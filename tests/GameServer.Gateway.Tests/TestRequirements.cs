@@ -9,6 +9,6 @@ static class TestRequirements
 {
     /// <summary>Everything <paramref name="conn"/> wears counts as meeting its requirements until disposed. The owner is
     /// the Game module, which every test league lists.</summary>
-    internal static IDisposable Waive(Player conn) => GameEvents.RequirementExemptions.Add("Game",
-        c => ReferenceEquals(c, conn) ? [.. global::Game.ItemsOf(c).EquipmentSnapshot().Select(e => e.Item.Id)] : []);
+    internal static IDisposable Waive(Player player) => GameEvents.RequirementExemptions.Add("Game",
+        c => ReferenceEquals(c, player) ? [.. global::Game.ItemsOf(c).EquipmentSnapshot().Select(e => e.Item.Id)] : []);
 }

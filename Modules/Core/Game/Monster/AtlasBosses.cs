@@ -168,17 +168,17 @@ static class AtlasBosses
     /// <summary>The actor's skill list: every effect the controller can play, so that the client owns the clip a 0x1ab
     /// action names. Each record carries its own numbers (main-hand damage, the spell's virtual cast time), which the
     /// client reads to pick and play the clip; <see cref="Attack"/> supplies the same numbers to the server's hits.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety variety, int level,
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player player, MonsterCatalog.Variety variety, int level,
         MonsterAttack attack)
     {
         if (!IsBoss(variety)) return null;
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         var effects = EffectsFor(variety);
         return [.. effects.Select(effect =>
         {
-            var use = Attack(conn, variety, level, effect, attack);
+            var use = Attack(player, variety, level, effect, attack);
             return catalog.FindByRow(Skill(variety, effect), effect, level,
-                WithBehaviourVariation(conn, effect, use.SkillStats()));
+                WithBehaviourVariation(player, effect, use.SkillStats()));
         }).OfType<GrantedSkill>()];
     }
 
@@ -215,10 +215,10 @@ static class AtlasBosses
     /// <summary>One of the boss's skills as the server plays it: its own damage at the area's level, its clip's cast time
     /// and reach, and — for the skills that name one — its projectile. <paramref name="swing"/> is the variety's plain
     /// attack, the source of a melee's physical damage.</summary>
-    internal static MonsterAttack Attack(Player conn, MonsterCatalog.Variety variety, int level, int effect,
+    internal static MonsterAttack Attack(Player player, MonsterCatalog.Variety variety, int level, int effect,
         MonsterAttack? swing = null)
     {
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         var (min, max) = Monsters.BaseDamage(variety, (byte)Math.Clamp(level, 1, 100)) ?? (1, 1);
         bool melee = effect == BasicEffect(variety) && MeleeLike(variety);
         // The skill's own base hit: its spell_minimum_base_*_damage (HitDamage also reads the unprefixed names, so an
@@ -233,7 +233,7 @@ static class AtlasBosses
         double seconds = melee ? Math.Max(0.3, variety.AttackMs / 1000.0) : Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
         double reach = melee ? variety.AttackRange : 45;
         if (melee && swing is not null) return swing with { SkillId = Skill(variety, effect), Scripted = true };
-        var projectile = ProjectileFor(conn, effect);
+        var projectile = ProjectileFor(player, effect);
         return new MonsterAttack(Skill(variety, effect), seconds, reach, damage)
         {
             Spell = catalog.IsSpell(effect),
@@ -246,11 +246,11 @@ static class AtlasBosses
     /// <summary>The shot a skill launches: its own MonsterProjectileVariation row when the skill has one, and the
     /// Projectiles.dat row for the two that name none (the bullet-hell ring is twelve in a circle, which no skill record
     /// makes, and the doom shot is a single slow one).</summary>
-    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(Player conn, int effect) => effect switch
+    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(Player player, int effect) => effect switch
     {
         BulletHellEffect => BulletHellShot,
         DoomProjectileEffect => DoomShot,
-        _ => Game.SkillsFor(conn).MonsterProjectile(effect),
+        _ => Game.SkillsFor(player).MonsterProjectile(effect),
     };
 
     /// <summary>A degen skill's damage from its own stat set: the base fire/cold/lightning/physical/chaos
@@ -258,9 +258,9 @@ static class AtlasBosses
     /// lightning 6084 a second (323067, 264915 and 365066 a minute), the Elder's siphon 614 physical (36825 a minute);
     /// the rows are constant at every level, not per-level.
     /// </summary>
-    internal static DamagePacket DamageOverTime(Player conn, int effect, int level)
+    internal static DamagePacket DamageOverTime(Player player, int effect, int level)
     {
-        var stats = Game.SkillsFor(conn).EffectStats(effect, level);
+        var stats = Game.SkillsFor(player).EffectStats(effect, level);
         int Get(uint name)
         {
             if (!(name is var key)) return 0;
@@ -286,39 +286,38 @@ static class AtlasBosses
 
     /// <summary>Runs the fight of every Shaper, Elder and Sirus in this connection's instance. Called once per tick per
     /// connection, like <see cref="BrineKing.Tick"/>: the instance's runner plays the steps, a join only binds.</summary>
-    internal static async Task Tick(Player conn)
+    internal static async Task Tick(Player player)
     {
-        if (!conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
+        if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
         List<(uint Id, SpawnedMonster Monster)> found = [];
-        lock (conn.Monsters)
-            foreach (var (id, monster) in conn.Monsters)
-                if (IsBoss(monster.Variety)) found.Add((id, monster));
-        if (found.Count == 0 && !Fights.TryGetValue(conn.Instance, out _)) return;
+        foreach (var (id, monster) in player.Area.Monsters)
+            if (IsBoss(monster.Variety)) found.Add((id, monster));
+        if (found.Count == 0 && !Fights.TryGetValue(player.Instance, out _)) return;
         foreach (var (id, monster) in found)
         {
-            if (!Fights.TryGetValue(conn.Instance, out var byMonster))
-                Fights.Add(conn.Instance, byMonster = new Dictionary<uint, AtlasBossFight>());
+            if (!Fights.TryGetValue(player.Instance, out var byMonster))
+                Fights.Add(player.Instance, byMonster = new Dictionary<uint, AtlasBossFight>());
             if (!byMonster.TryGetValue(id, out var fight))
             {
                 var variety = monster.Variety!;
-                fight = IsSirus(variety) ? new SirusFight(id, monster, conn)
-                    : IsShaper(variety) ? new ShaperFight(id, monster, conn)
-                    : new ElderFight(id, monster, conn);
+                fight = IsSirus(variety) ? new SirusFight(id, monster, player)
+                    : IsShaper(variety) ? new ShaperFight(id, monster, player)
+                    : new ElderFight(id, monster, player);
                 byMonster[id] = fight;
-                Console.WriteLine($"[gateway] {conn.Remote} 0x{id:x} {variety.Name ?? variety.Id} "
+                Console.WriteLine($"[gateway] {player.Connection.Remote} 0x{id:x} {variety.Name ?? variety.Id} "
                     + $"({variety.Id}, level {monster.Level}, life {monster.MaxLife}): fight started, "
-                    + $"{(IsMonsterRunner(conn) ? "its steps run here" : "another connection runs its steps")}");
+                    + $"{(IsMonsterRunner(player) ? "its steps run here" : "another connection runs its steps")}");
             }
             await fight.Gate.WaitAsync();
             try
             {
-                await fight.Bind(conn);
-                if (IsMonsterRunner(conn)) await fight.Step(conn, AreaTime(conn));
+                await fight.Bind(player);
+                if (IsMonsterRunner(player)) await fight.Step(player, AreaTime(player));
             }
             catch (Exception ex)
             {
                 // Guard logs an exception that escapes a tick and drops the hook; a fight that cannot step must say so.
-                Console.WriteLine($"[gateway] {conn.Remote} {monster.Variety!.Id} 0x{id:x} step failed: {ServerLog.Describe(ex)}");
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {monster.Variety!.Id} 0x{id:x} step failed: {ServerLog.Describe(ex)}");
             }
             finally { fight.Gate.Release(); }
         }

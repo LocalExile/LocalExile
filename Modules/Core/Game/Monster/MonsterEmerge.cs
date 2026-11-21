@@ -106,27 +106,27 @@ public sealed class MonsterEmerge
     ];
 
     /// <summary>The buried monsters of a connection by object id: not in <see cref="Player.Monsters"/> until they
-    /// rise. Guarded by the Monsters lock.</summary>
-    public static SortedDictionary<uint, SpawnedMonster> Buried(Player conn) => conn.DormantMonsters;
+    /// rise. Owned by the area's frame.</summary>
+    public static SortedDictionary<uint, SpawnedMonster> Buried(Player player) => player.Area.DormantMonsters;
 
     /// <summary>Every monster that has not risen yet, buried or lurking (for the instance's saved state). Under the
     /// Monsters lock.</summary>
-    public static List<SpawnedMonster> Unrisen(Player conn)
+    public static List<SpawnedMonster> Unrisen(Player player)
     {
-        var g = conn.EmergeGround;
-        return [.. conn.DormantMonsters.Values, .. g.Lurking.Select(id => conn.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
+        var g = player.Area.EmergeGround;
+        return [.. player.Area.DormantMonsters.Values, .. g.Lurking.Select(id => player.Area.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
     }
 
     /// <summary>Registers a new monster (SpawnMonster): a buried one that has not risen goes to <see cref="Buried"/>,
     /// everything else to the connection's monsters; a lurking one that has not risen is busy until it rises. Returns
-    /// whether it waits to rise (the caller then starts the watch). Under the Monsters lock.</summary>
-    public static bool AddLocked(Player conn, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
+    /// whether it waits to rise (the caller then starts the watch). In the area's frame.</summary>
+    public static bool AddLocked(Player player, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
     {
         m.ObjectId = id;
-        var g = conn.EmergeGround;
+        var g = player.Area.EmergeGround;
         bool waits = unrisen && kind != EmergeKind.None;
-        if (waits && kind == EmergeKind.Buried) { conn.DormantMonsters[id] = m; return true; }
-        conn.Monsters[id] = m;
+        if (waits && kind == EmergeKind.Buried) { player.Area.DormantMonsters[id] = m; return true; }
+        player.Area.Monsters[id] = m;
         if (waits)
         {
             m.BusyUntil = double.PositiveInfinity;
@@ -135,10 +135,10 @@ public sealed class MonsterEmerge
         return waits;
     }
 
-    /// <summary>Marks the connection's watch as running; false when it already was. Under the Monsters lock.</summary>
-    public static bool StartWatch(Player conn)
+    /// <summary>Marks the connection's watch as running; false when it already was. In the area's frame.</summary>
+    public static bool StartWatch(Player player)
     {
-        var g = conn.EmergeGround;
+        var g = player.Area.EmergeGround;
         if (g.Watching) return false;
         return g.Watching = true;
     }
@@ -146,30 +146,30 @@ public sealed class MonsterEmerge
     /// <summary>The monsters that rise now: within reach of the player (<see cref="Range"/>, or the aggro range if
     /// shorter), or a lurking one that has been hit. A buried one leaves <see cref="Buried"/> for the connection's
     /// monsters; each is aggroed and busy for its clip. Returns them with where they stand; the caller sends the rise.
-    /// When none is left waiting the watch ends (<paramref name="watching"/> false). Under the Monsters lock.</summary>
-    public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(Player conn,
-        (int X, int Y) player, double now, out bool watching)
+    /// When none is left waiting the watch ends (<paramref name="watching"/> false). In the area's frame.</summary>
+    public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(Player player,
+        (int X, int Y) playerAt, double now, out bool watching)
     {
-        var g = conn.EmergeGround;
+        var g = player.Area.EmergeGround;
         var risen = new List<(uint, SpawnedMonster, (int, int), double)>();
         bool Near(SpawnedMonster m, out (int X, int Y) at)
         {
             at = m.Walk.Position(now);
-            double d = Math.Sqrt((double)(at.X - player.X) * (at.X - player.X) + (double)(at.Y - player.Y) * (at.Y - player.Y));
-            int range = WakeRange(conn.Layout.Id, m.Variety);
+            double d = Math.Sqrt((double)(at.X - playerAt.X) * (at.X - playerAt.X) + (double)(at.Y - playerAt.Y) * (at.Y - playerAt.Y));
+            int range = WakeRange(player.Layout.Id, m.Variety);
             return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
-        foreach (var (id, m) in conn.DormantMonsters)
+        foreach (var (id, m) in player.Area.DormantMonsters)
             if (Near(m, out var at)) risen.Add((id, m, at, SecondsOf(m)));
         foreach (var (id, m, _, _) in risen)
         {
-            conn.DormantMonsters.Remove(id);
-            conn.Monsters[id] = m;
+            player.Area.DormantMonsters.Remove(id);
+            player.Area.Monsters[id] = m;
         }
         foreach (uint id in g.Lurking.ToList())
         {
-            if (!conn.Monsters.TryGetValue(id, out var m) || m.Dead) { g.Lurking.Remove(id); continue; }
+            if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead) { g.Lurking.Remove(id); continue; }
             if (Near(m, out var at) || m.Life < m.MaxLife)
             {
                 g.Lurking.Remove(id);
@@ -184,21 +184,21 @@ public sealed class MonsterEmerge
             // No extra idle tail follows the clip; the next AI decision may run once it ends.
             m.BusyUntil = now + seconds;
         }
-        watching = g.Watching = conn.DormantMonsters.Count + g.Lurking.Count > 0;
+        watching = g.Watching = player.Area.DormantMonsters.Count + g.Lurking.Count > 0;
         return risen;
     }
 
     /// <summary>Whether any monster still waits to rise, and none watches for it (its watcher's connection left).
-    /// Under the Monsters lock.</summary>
-    public static bool Unwatched(Player conn) =>
-        conn.EmergeGround is { Watching: false } g && conn.DormantMonsters.Count + g.Lurking.Count > 0;
+    /// In the area's frame.</summary>
+    public static bool Unwatched(Player player) =>
+        player.Area.EmergeGround is { Watching: false } g && player.Area.DormantMonsters.Count + g.Lurking.Count > 0;
 
-    /// <summary>The watch ended with its connection. Under the Monsters lock.</summary>
-    public static void StopWatch(Player conn) => conn.EmergeGround.Watching = false;
+    /// <summary>The watch ended with its connection. In the area's frame.</summary>
+    public static void StopWatch(Player player) => player.Area.EmergeGround.Watching = false;
 
     /// <summary>Whether this monster still lies in wait (buried ones are not in the instance's monsters until they rise).
-    /// Under the Monsters lock.</summary>
-    public static bool Waiting(Player conn, uint id) => conn.EmergeGround.Lurking.Contains(id);
+    /// In the area's frame.</summary>
+    public static bool Waiting(Player player, uint id) => player.Area.EmergeGround.Lurking.Contains(id);
 
     /// <summary>The kind of one object_types row (see <see cref="EmergeKind"/>); used by the loader and tests.</summary>
     public static EmergeKind KindOf(ClientRow t)

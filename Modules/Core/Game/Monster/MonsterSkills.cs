@@ -51,9 +51,9 @@ public static partial class MonsterSkills
 
     /// <summary>The skill's own skill_travel_distance_+% at the monster's level (ExileQuickDodge's 20: its Dash goes 36
     /// cells, where the player's base Dash goes 30). StatsOf leaves skill_ stats out of a use's stats.</summary>
-    static int TravelPct(Player conn, int effect, byte level) =>
+    static int TravelPct(Player player, int effect, byte level) =>
         Stat.SkillTravelDistancePlusPct is var key
-            ? GolemData.Skill(SkillsFor(conn), effect, level).Stats.GetValueOrDefault(key) : 0;
+            ? GolemData.Skill(SkillsFor(player), effect, level).Stats.GetValueOrDefault(key) : 0;
 
     /// <summary>What the skill does beyond a hit; null for a plain hit and for an aura (which is up from the spawn).</summary>
     public static MonsterSkillShape? ShapeOf(SkillCatalog skills, int effect)
@@ -132,22 +132,22 @@ public static partial class MonsterSkills
     static bool IsCorpse(SpawnedMonster m) =>
         m.Dead && m.Life == 0 && !m.CorpseConsumed && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
 
-    /// <summary>The corpse a monster uses the skill on, under the Monsters lock: for a travel, the one nearest the player
+    /// <summary>The corpse a monster uses the skill on, in the area's frame: for a travel, the one nearest the player
     /// that is within its reach and brings it nearer; for a spell, the one nearest the player whose hits reach the player.
     /// Null when there is none.</summary>
-    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player conn, SpawnedMonster m, MonsterAttack a, double now)
+    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player player, SpawnedMonster m, MonsterAttack a, double now)
     {
         if (a.Use is not { OnCorpse: true } use) return null;
         var here = m.Walk.Position(now);
-        var player = conn.Walk.Position(now);
-        double near = Dist(here, player);
+        var playerAt = player.Walk.Position(now);
+        double near = Dist(here, playerAt);
         (uint, SpawnedMonster, (int, int))? best = null;
         double bestDistance = double.MaxValue;
-        foreach (var (id, corpse) in conn.Monsters)
+        foreach (var (id, corpse) in player.Area.Monsters)
         {
             if (!IsCorpse(corpse)) continue;
             var at = corpse.Walk.Position(now);
-            double fromMonster = Dist(here, at), fromPlayer = Dist(at, player);
+            double fromMonster = Dist(here, at), fromPlayer = Dist(at, playerAt);
             bool fits = use.Shape == MonsterSkillShape.Travel
                 ? fromMonster <= a.Range && fromPlayer < near - use.MinRange / 2
                 : fromMonster <= a.Range && fromPlayer <= use.Reach;
@@ -159,49 +159,46 @@ public static partial class MonsterSkills
 
     /// <summary>Whether the kit may choose this attack now (BossKits.Choose): a corpse skill only with a corpse for it, a
     /// summon only while its summoner has fewer of its monsters than the skill's limit (a totem is placed when there is
-    /// none, not again over the one that stands). Under the Monsters lock.</summary>
-    public static bool Usable(Player conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        (a.Use is not { OnCorpse: true } || CorpseFor(conn, m, a, now) is not null)
-        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(conn, id, summon) < summon.Limit);
+    /// none, not again over the one that stands). In the area's frame.</summary>
+    public static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+        (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now) is not null)
+        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit);
 
     /// <summary>Takes the corpse and, for a skill that takes several, others within its radius: they leave the client
     /// (0x2bd) and every corpse use. Returns where each was.</summary>
-    static async Task<List<(int X, int Y)>> Consume(Player conn, uint corpseId, MonsterSkillUse use)
+    static async Task<List<(int X, int Y)>> Consume(Player player, uint corpseId, MonsterSkillUse use)
     {
         List<(uint Id, string Label, (int X, int Y) At)> taken = [];
-        lock (conn.Monsters)
+        double now = AreaTime(player);
+        if (!player.Area.Monsters.TryGetValue(corpseId, out var first) || !IsCorpse(first)) return [];
+        var centre = first.Walk.Position(now);
+        foreach (var (id, corpse) in player.Area.Monsters.ToArray()
+            .Where(p => IsCorpse(p.Value) && (p.Key == corpseId || Dist(p.Value.Walk.Position(now), centre) <= use.Radius))
+            .OrderBy(p => p.Key == corpseId ? 0 : 1).Take(use.Corpses))
         {
-            double now = AreaTime(conn);
-            if (!conn.Monsters.TryGetValue(corpseId, out var first) || !IsCorpse(first)) return [];
-            var centre = first.Walk.Position(now);
-            foreach (var (id, corpse) in conn.Monsters.ToArray()
-                .Where(p => IsCorpse(p.Value) && (p.Key == corpseId || Dist(p.Value.Walk.Position(now), centre) <= use.Radius))
-                .OrderBy(p => p.Key == corpseId ? 0 : 1).Take(use.Corpses))
-            {
-                corpse.CorpseConsumed = true;
-                conn.Monsters.Remove(id);
-                taken.Add((id, corpse.Label, corpse.Walk.Position(now)));
-            }
+            corpse.CorpseConsumed = true;
+            player.Area.Monsters.Remove(id);
+            taken.Add((id, corpse.Label, corpse.Walk.Position(now)));
         }
         foreach (var (id, label, _) in taken)
-            await SendWorldRemoval(conn, id, $"0x02bd corpse 0x{id:x} ({label}) consumed by a monster's skill");
+            await SendWorldRemoval(player, id, $"0x02bd corpse 0x{id:x} ({label}) consumed by a monster's skill");
         return [.. taken.Select(t => t.At)];
     }
 
     /// <summary>A hit on the player from a point (a corpse's explosion, orb or geyser), if the player is within reach of
     /// it when it lands.</summary>
-    static async Task HitFrom(Player conn, uint id, SpawnedMonster m, int action, ushort seq, MonsterAttack a, (int X, int Y) from, double reach)
+    static async Task HitFrom(Player player, uint id, SpawnedMonster m, int action, ushort seq, MonsterAttack a, (int X, int Y) from, double reach)
     {
         MonsterHitOutcome? outcome = null;
         var hit = a with { Range = reach, Use = null };
-        if (!await SendMonsterAction(conn, id, m, action, () =>
+        if (!await SendMonsterAction(player, id, m, action, () =>
         {
-            if (InGracePeriod(conn) || m.Dead) return null;
-            double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
-            outcome = CommitMonsterHitLocked(conn, id, m, hit, now, conn.Walk.Position(now), from, checkRange: true, sequence: seq);
+            if (InGracePeriod(player) || m.Dead) return null;
+            double now = Math.Max(ProjectileWorldTime(player), AreaTime(player));
+            outcome = CommitMonsterHitLocked(player, id, m, hit, now, player.Walk.Position(now), from, checkRange: true, sequence: seq);
             return outcome?.HitPacket;
         }, $"0x01af monster 0x{id:x} hit on the player from ({from.X}, {from.Y})")) return;
-        if (outcome is not null) await PresentMonsterHit(conn, id, outcome);
+        if (outcome is not null) await PresentMonsterHit(player, id, outcome);
     }
 
     /// <summary>The auras a monster's skills keep up: their stats together and the BuffDefinitions rows that draw them.</summary>
@@ -288,42 +285,39 @@ public static partial class MonsterSkills
     }
 
     /// <summary>Sends the aura looks of a monster just created.</summary>
-    public static async Task ShowAuras(Player conn, uint id, IReadOnlyList<ushort> rows, bool log)
+    public static async Task ShowAuras(Player player, uint id, IReadOnlyList<ushort> rows, bool log)
     {
         foreach (ushort row in rows)
         {
-            ushort buff;
-            lock (conn.Monsters) buff = conn.NextBuff++;
-            await SendWorldRecord(conn, id, InstanceEntities.AddBuff(id, buff, row, id, auraSource: true),
-                !log ? null : $"0x01c1 monster 0x{id:x} aura (BuffDefinitions row {row})");
+            player.Area.Buffs.Set(id, new(row, id, AuraSource: true));
         }
     }
 
     // ---- Playing a kit skill ------------------------------------------------------------------------------------------
 
     /// <summary>Plays a kit skill that is no plain hit: the action, then at its contact what it does.</summary>
-    public static async Task Play(Player conn, uint id,
+    public static async Task Play(Player player, uint id,
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
         // The skill goes on its cooldown here too: its order may come from a walk-up the kit's choice did not consume.
-        lock (conn.Monsters) BossKits.Consume(m, a, AreaTime(conn));
+        BossKits.Consume(m, a, AreaTime(player));
         if (use.OnCorpse)
         {
-            await OnCorpse(conn, id, m, action, a, use);
+            await OnCorpse(player, id, m, action, a, use);
             return;
         }
         int chargePct = use.Shape == MonsterSkillShape.Travel ? use.Stats.GetValueOrDefault(ChargeStat) : 0;
         if (chargePct > 0)
         {
-            await Charge(conn, id, m, action, a, chargePct);
+            await Charge(player, id, m, action, a, chargePct);
             return;
         }
         double startedAt = 0, seconds = a.Seconds;
-        ushort seq = conn.NextActionSequence();
+        ushort seq = player.NextActionSequence();
         (int X, int Y) from = default, target = default;
-        if (!await SendMonsterAction(conn, id, m, action, () =>
+        if (!await SendMonsterAction(player, id, m, action, () =>
         {
-            if (MonsterSwingOrderLocked(conn, m, a, action, false, seconds, AreaTime(conn), seq) is not { } order) return null;
+            if (MonsterSwingOrderLocked(player, m, a, action, false, seconds, AreaTime(player), seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             from = order.From;
             target = use.Shape switch
@@ -332,9 +326,9 @@ public static partial class MonsterSkills
                 // ExileQuickDodge, landed short of the player, ran on 14 cells past that on the client and snapped back at
                 // his next order, or stood where the client's line stopped while the server had him at the end (sync trace
                 // 2026-11-17).
-                MonsterSkillShape.Travel when a.Effect is int effect && IsDash(effect) => Game.DashLanding(conn.Layout, conn.Barrier, from,
-                    order.Player, TravelPct(conn, effect, m.Level), false, m.Variety?.ObjectSize ?? 1),
-                MonsterSkillShape.Travel => Landing(conn, from, order.Player),
+                MonsterSkillShape.Travel when a.Effect is int effect && IsDash(effect) => Game.DashLanding(player.Layout, player.Barrier, from,
+                    order.Player, TravelPct(player, effect, m.Level), false, m.Variety?.ObjectSize ?? 1),
+                MonsterSkillShape.Travel => Landing(player, from, order.Player),
                 MonsterSkillShape.Self => from,
                 _ => order.Player,
             };
@@ -345,21 +339,21 @@ public static partial class MonsterSkills
             // position mid-Dash, the jump at the order 17).
             if (use.Shape == MonsterSkillShape.Travel && a.Effect is int dash && IsDash(dash)) m.Walk.Slide(target.X, target.Y, seconds, startedAt);
             else if (use.Shape == MonsterSkillShape.Travel) m.Walk.Teleport(target.X, target.Y, startedAt);
-            return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, conn.MonsterOrderFlags,
-                targetObjectId: use.Shape == MonsterSkillShape.Curse ? PlayerId : null);
+            return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, player.MonsterOrderFlags,
+                targetObjectId: use.Shape == MonsterSkillShape.Curse ? player.Id : null);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) uses {use.Shape} skill 0x{a.SkillId:x4}, {seconds:0.00} s")) return;
-        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * (StanceContact(conn, m, a, seq) ?? .6))) return;
+        if (!await WaitMonsterActionTime(player, id, m, action, startedAt + seconds * (StanceContact(player, m, a, seq) ?? .6))) return;
         switch (use.Shape)
         {
             case MonsterSkillShape.Travel:
                 if (!a.Damage.IsZero)
-                    await MonsterContact(conn, id, m, action, seq, a with { Range = LandingRadius, Use = null });
+                    await MonsterContact(player, id, m, action, seq, a with { Range = LandingRadius, Use = null });
                 break;
             case MonsterSkillShape.Self:
-                await BuffSelf(conn, id, m, use);
+                await BuffSelf(player, id, m, use);
                 break;
             case MonsterSkillShape.Curse:
-                await Curse(conn, id, use);
+                await Curse(player, id, use);
                 break;
         }
     }
@@ -367,29 +361,29 @@ public static partial class MonsterSkills
     /// <summary>A corpse skill: the action aimed at the corpse (its object as the target), then at its contact the corpse
     /// taken. Bodyswap carries the monster onto it and explodes around it; a spell hits from each corpse it took, an
     /// explosion at once, an orb or a geyser's projectile when it has flown to the player, a geyser once per burst.</summary>
-    static async Task OnCorpse(Player conn, uint id,
+    static async Task OnCorpse(Player player, uint id,
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
         double startedAt = 0, seconds = a.Seconds;
-        ushort seq = conn.NextActionSequence();
+        ushort seq = player.NextActionSequence();
         uint corpseId = 0;
         (int X, int Y) corpseAt = default;
-        if (!await SendMonsterAction(conn, id, m, action, () =>
+        if (!await SendMonsterAction(player, id, m, action, () =>
         {
-            if (CorpseFor(conn, m, a, AreaTime(conn)) is not { } corpse) return null;
-            if (MonsterSwingOrderLocked(conn, m, a, action, false, seconds, AreaTime(conn), seq) is not { } order) return null;
+            if (CorpseFor(player, m, a, AreaTime(player)) is not { } corpse) return null;
+            if (MonsterSwingOrderLocked(player, m, a, action, false, seconds, AreaTime(player), seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             (corpseId, corpseAt) = (corpse.Id, corpse.At);
             return InstanceProtocol.ActionStarted(id, order.From.X, order.From.Y, corpseAt.X, corpseAt.Y, a.SkillId, seq,
-                conn.MonsterOrderFlags, targetObjectId: corpseId);
+                player.MonsterOrderFlags, targetObjectId: corpseId);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) uses {use.Shape} skill 0x{a.SkillId:x4} on a corpse, {seconds:0.00} s")) return;
-        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * (StanceContact(conn, m, a, seq) ?? .6))) return;
-        var corpses = await Consume(conn, corpseId, use);
+        if (!await WaitMonsterActionTime(player, id, m, action, startedAt + seconds * (StanceContact(player, m, a, seq) ?? .6))) return;
+        var corpses = await Consume(player, corpseId, use);
         if (corpses.Count == 0) return;
         if (use.Shape == MonsterSkillShape.Travel)
         {
-            lock (conn.Monsters) m.Walk.Teleport(corpseAt.X, corpseAt.Y, AreaTime(conn));
-            if (!a.Damage.IsZero) await HitFrom(conn, id, m, action, seq, a, corpseAt, use.Reach);
+            m.Walk.Teleport(corpseAt.X, corpseAt.Y, AreaTime(player));
+            if (!a.Damage.IsZero) await HitFrom(player, id, m, action, seq, a, corpseAt, use.Reach);
             return;
         }
         if (a.Damage.IsZero) return;
@@ -397,18 +391,19 @@ public static partial class MonsterSkills
         for (int pulse = 0; pulse < use.Pulses; pulse++)
         {
             if (pulse > 0) await Task.Delay(TimeSpan.FromSeconds(use.PulseSeconds));
-            if (conn.Closed || m.Dead) return;
+            if (player.Closed || m.Dead) return;
             foreach (var from in corpses)
             {
-                if (!shots) { await HitFrom(conn, id, m, action, seq, a, from, use.Reach); continue; }
+                if (!shots) { await HitFrom(player, id, m, action, seq, a, from, use.Reach); continue; }
                 // An orb or a projectile flies to where the player is, and hits if the player is still near it.
-                double flight = Dist(from, conn.Walk.Position(AreaTime(conn))) / CorpseShotSpeed;
+                double flight = Dist(from, player.Walk.Position(AreaTime(player))) / CorpseShotSpeed;
                 var corpse = from;
-                _ = Task.Delay(TimeSpan.FromSeconds(flight)).ContinueWith(async _ =>
+                _ = AreaFrames.Start(async () =>
                 {
-                    var player = conn.Walk.Position(AreaTime(conn));
-                    if (Dist(corpse, player) <= use.Reach) await HitFrom(conn, id, m, action, seq, a, player, LandingRadius);
-                }).Unwrap();
+                    await Task.Delay(TimeSpan.FromSeconds(flight));
+                    var playerAt = player.Walk.Position(AreaTime(player));
+                    if (Dist(corpse, playerAt) <= use.Reach) await HitFrom(player, id, m, action, seq, a, playerAt, LandingRadius);
+                });
             }
         }
     }
@@ -426,27 +421,23 @@ public static partial class MonsterSkills
     /// reads movement_velocity_+% from its Stats), so its length is the distance over that speed, not the attack time.
     /// The skill's movement bonus goes to the client as the monster's movement_velocity_+% (0xf5) while it runs, the
     /// server's walk charges at the same speed (PlayerWalk.Charge), and the hit lands where and when the walk arrives.</summary>
-    static async Task Charge(Player conn, uint id,
+    static async Task Charge(Player player, uint id,
         SpawnedMonster m, int action, MonsterAttack a, int bonusPct)
     {
         int ownPct = m.Mods.Effects.MovementPct;
         double walkSpeed, chargeSpeed;
-        lock (conn.Monsters)
-        {
-            walkSpeed = m.Walk.Speed;
-            chargeSpeed = walkSpeed / Math.Max(.01, 1 + ownPct / 100.0) * Math.Max(.01, 1 + (ownPct + bonusPct) / 100.0);
-        }
-        await SendWorldRecord(conn, id,
-            InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, ownPct + bonusPct)]), null);
+        walkSpeed = m.Walk.Speed;
+        chargeSpeed = walkSpeed / Math.Max(.01, 1 + ownPct / 100.0) * Math.Max(.01, 1 + (ownPct + bonusPct) / 100.0);
+        SetStats(player, id, [(Stat.MovementVelocityPlusPct, ownPct + bonusPct)]);
         double startedAt = 0, arrives = 0;
-        ushort seq = conn.NextActionSequence();
+        ushort seq = player.NextActionSequence();
         (int X, int Y) from = default, target = default;
-        bool sent = await SendMonsterAction(conn, id, m, action, () =>
+        bool sent = await SendMonsterAction(player, id, m, action, () =>
         {
-            if (MonsterSwingOrderLocked(conn, m, a, action, false, a.Seconds, AreaTime(conn), seq) is not { } order) return null;
+            if (MonsterSwingOrderLocked(player, m, a, action, false, a.Seconds, AreaTime(player), seq) is not { } order) return null;
             (startedAt, seq) = (order.StartedAt, order.Sequence);
             from = order.From;
-            target = Landing(conn, from, order.Player);
+            target = Landing(player, from, order.Player);
             // The client drops a charge whose straight line meets terrain: its monster stays where it stands, so there is
             // no charge to send (sync trace 2026-11-17: Jonah Unchained stood still on five lines past a pillar that the
             // server's run stopped at, 1 to 10 cells along).
@@ -454,7 +445,7 @@ public static partial class MonsterSkills
                 if (cell != from && !m.Walk.Floor(cell.X, cell.Y)) return null;
             // A lockstep client starts the run later than the order (ten charges, sync trace 2026-11-17: it left its cell
             // and arrived 85 ms after the server's walk on average, 12-169 ms), so the walk and the impact wait for it.
-            double runsFrom = startedAt + (conn.LockstepClient ? ChargeStartDelay : 0);
+            double runsFrom = startedAt + (player.Connection.LockstepClient ? ChargeStartDelay : 0);
             m.Walk.SetSpeed(chargeSpeed, runsFrom);
             m.Walk.Charge(target.X, target.Y, ChargeDistance, runsFrom);
             // The client runs a monster's charge past other bodies; terrain still ends it (sync traces 2026-11-17, Jonah
@@ -462,75 +453,68 @@ public static partial class MonsterSkills
             // matched and the rest were within 4 cells but one).
             m.Walk.ChargesThrough = true;
             arrives = Math.Max(m.Walk.ArrivesAt, runsFrom);
-            m.BusyUntil = Math.Max(m.BusyUntil, arrives + conn.LockstepActionTail);
-            return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, conn.MonsterOrderFlags);
+            m.BusyUntil = Math.Max(m.BusyUntil, arrives + player.LockstepActionTail);
+            return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, player.MonsterOrderFlags);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) charges with skill 0x{a.SkillId:x4} at {ownPct + bonusPct:+0;-0}% movement speed");
         if (sent)
             Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) charge from {from} to {target}: arrives in {arrives - startedAt:0.00} s");
-        bool arrived = sent && await WaitMonsterActionTime(conn, id, m, action, arrives);
+        bool arrived = sent && await WaitMonsterActionTime(player, id, m, action, arrives);
         // The step pass runs on frames, so the walk can be a cell or two short at its arrival time; it ends as a charge only
         // once the pass has stepped past the arrival, or a body next to the end stops its last step (sync traces
         // 2026-11-17: 2 cells short of the client's beside the player; then, waiting only for the walk's own clock, 1 to 3
         // cells short a second after 8 of 29 charges, until the next action).
-        for (double until = AreaTime(conn) + .25; arrived && !conn.Closed;)
+        for (double until = AreaTime(player) + .25; arrived && !player.Closed;)
         {
-            lock (conn.Monsters)
-                if (!MonsterActionCurrent(conn, id, m, action) || conn.WalkersSteppedTo >= m.Walk.ArrivesAt
-                    || AreaTime(conn) >= until) break;
+            if (!MonsterActionCurrent(player, id, m, action) || player.WalkersSteppedTo >= m.Walk.ArrivesAt
+                || AreaTime(player) >= until) break;
             await AreaWait(PlayerUpdateRole.MonsterAction, 16);
         }
-        lock (conn.Monsters) { m.Walk.SetSpeed(walkSpeed, AreaTime(conn)); m.Walk.ChargesThrough = false; }
-        if (!conn.Closed && !m.Dead)
-            await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, ownPct)]), null);
+        m.Walk.SetSpeed(walkSpeed, AreaTime(player)); m.Walk.ChargesThrough = false;
+        if (!player.Closed && !m.Dead)
+            SetStats(player, id, [(Stat.MovementVelocityPlusPct, ownPct)]);
         if (arrived && !a.Damage.IsZero)
-            await MonsterContact(conn, id, m, action, seq, a with { Range = ChargeEndRadius, Use = null });
+            await MonsterContact(player, id, m, action, seq, a with { Range = ChargeEndRadius, Use = null });
     }
 
     /// <summary>Where a travel lands: short of the player on the line from the monster, on a walkable cell; else the
     /// player's own.</summary>
-    static (int X, int Y) Landing(Player conn, (int X, int Y) from, (int X, int Y) player)
+    static (int X, int Y) Landing(Player player, (int X, int Y) from, (int X, int Y) playerAt)
     {
-        double dx = from.X - player.X, dy = from.Y - player.Y, d = Math.Sqrt(dx * dx + dy * dy);
-        if (d < 1) return player;
+        double dx = from.X - playerAt.X, dy = from.Y - playerAt.Y, d = Math.Sqrt(dx * dx + dy * dy);
+        if (d < 1) return playerAt;
         for (double back = LandShort; back >= 0; back--)
         {
-            int x = player.X + (int)Math.Round(dx / d * back), y = player.Y + (int)Math.Round(dy / d * back);
-            if (conn.Layout.WalkableFor(x, y, 0)) return (x, y);
+            int x = playerAt.X + (int)Math.Round(dx / d * back), y = playerAt.Y + (int)Math.Round(dy / d * back);
+            if (player.Layout.WalkableFor(x, y, 0)) return (x, y);
         }
-        return player;
+        return playerAt;
     }
 
     sealed class Buffs { public readonly List<(ushort Buff, IReadOnlyDictionary<uint, int> Stats, double Until)> Active = []; }
     static readonly ConditionalWeakTable<SpawnedMonster, Buffs> MonsterBuffs = new();
 
-    static async Task BuffSelf(Player conn, uint id, SpawnedMonster m, MonsterSkillUse use)
+    static async Task BuffSelf(Player player, uint id, SpawnedMonster m, MonsterSkillUse use)
     {
         var buffs = MonsterBuffs.GetValue(m, _ => new());
         ushort buff;
         double until;
-        lock (conn.Monsters)
-        {
-            buff = conn.NextBuff++;
-            until = AreaTime(conn) + use.Seconds;
-            buffs.Active.Add((buff, use.Stats, until));
-            m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
-        }
+        buff = player.NextBuff++;
+        until = AreaTime(player) + use.Seconds;
+        buffs.Active.Add((buff, use.Stats, until));
+        m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
+        // Each use is a buff of its own (its tag), with its countdown.
         if (use.BuffRow > 0)
-            await SendWorldRecord(conn, id, InstanceEntities.AddBuff(id, buff, use.BuffRow, id,
-                u68: BitConverter.SingleToUInt32Bits((float)use.Seconds)), $"0x01c1 monster 0x{id:x} buffs itself (row {use.BuffRow}, {use.Seconds:0.#} s)");
-        _ = EndBuff(conn, id, m, use, buffs, buff, conn.Layout);
+            player.Area.Buffs.Set(id, new(use.BuffRow, id, U68: Buff.Seconds(use.Seconds), Tag: buff));
+        _ = EndBuff(player, id, m, use, buffs, buff, player.Layout);
     }
 
-    static async Task EndBuff(Player conn, uint id, SpawnedMonster m, MonsterSkillUse use, Buffs buffs, ushort buff, object area)
+    static async Task EndBuff(Player player, uint id, SpawnedMonster m, MonsterSkillUse use, Buffs buffs, ushort buff, object area)
     {
         await Task.Delay(TimeSpan.FromSeconds(use.Seconds));
-        lock (conn.Monsters)
-        {
-            buffs.Active.RemoveAll(b => b.Buff == buff);
-            m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
-        }
-        if (use.BuffRow > 0 && !conn.Closed && !m.Dead && ReferenceEquals(area, conn.Layout))
-            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
+        buffs.Active.RemoveAll(b => b.Buff == buff);
+        m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
+        if (use.BuffRow > 0 && !player.Closed && !m.Dead && ReferenceEquals(area, player.Layout))
+            player.Area.Buffs.Clear(id, use.BuffRow, id, tag: buff);
     }
 
     static Dictionary<uint, int> Sum(IEnumerable<IReadOnlyDictionary<uint, int>> all)
@@ -545,8 +529,8 @@ public static partial class MonsterSkills
 
     /// <summary>A curse on the player for its time: its look, and its stats on the player's sheet (Game.PlayerDebuffs). A
     /// curse of the same look replaces the one there.</summary>
-    static Task Curse(Player conn, uint caster, MonsterSkillUse use) =>
-        AddPlayerDebuff(conn, use.BuffRow, caster, Player(use.Stats), use.Seconds);
+    static Task Curse(Player player, uint caster, MonsterSkillUse use) =>
+        AddPlayerDebuff(player, use.BuffRow, caster, Player(use.Stats), use.Seconds);
 
     /// <summary>A curse's stats as the player's: the reductions a curse names for its target are the player's own
     /// (physical_damage_taken_+%, the resistances); the curse's own mechanics without a player stat are left out.</summary>

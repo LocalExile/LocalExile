@@ -8,11 +8,11 @@ public static partial class Game
         MonsterPoisons.Settings Poison, int PoisonChance);
     static readonly RuleTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
 
-    static void MinionAilmentsLocked(Player conn, GolemState.Golem fighter, GolemState.Ability ability,
+    static void MinionAilmentsLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
         uint id, SpawnedMonster target, bool critical, double now)
     {
         if (!MinionAilmentProfiles.TryGetValue(ability, out var profile)) return;
-        double factor = DoedreSewers.MinionDamageFactor(conn) * MinionTacticsDamage(conn, fighter, id, target, now);
+        double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, fighter, id, target, now);
         if (factor != 1)
         {
             MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with
@@ -25,16 +25,16 @@ public static partial class Game
         var packets = new List<byte[]>();
         if (target.Ignites.TryApply(profile.Ignite with { Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]) }, critical, now,
             target.Effects[Stat.AvoidIgnitePct],
-            target.Effects[Stat.ImmuneToIgnite] != 0, AreaRng(conn)))
-            packets.AddRange(ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now));
-        if (BleedOnHitLocked(conn, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);
-        if (profile.Poison.Seconds > 0 && profile.PoisonChance > 0 && RandomRolls.Chance(profile.PoisonChance, 100, AreaRng(conn))
-            && target.Effects[Stat.CannotBePoisoned] == 0 && !RandomRolls.Chance(target.Effects[Stat.AvoidPoisonPct], 100, AreaRng(conn)))
+            target.Effects[Stat.ImmuneToIgnite] != 0, AreaRng(player)))
+            packets.AddRange(ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now));
+        if (BleedOnHitLocked(player, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);
+        if (profile.Poison.Seconds > 0 && profile.PoisonChance > 0 && RandomRolls.Chance(profile.PoisonChance, 100, AreaRng(player))
+            && target.Effects[Stat.CannotBePoisoned] == 0 && !RandomRolls.Chance(target.Effects[Stat.AvoidPoisonPct], 100, AreaRng(player)))
         {
             var p = profile.Poison;
             double min = critical ? p.CriticalMin : p.Min, max = critical ? p.CriticalMax : p.Max;
-            target.Poisons.Add(now, min + (max - min) * AreaRng(conn).NextDouble(), p.Seconds * MonsterPoisons.SelfDuration(n => target.Effects[n]));
+            target.Poisons.Add(now, min + (max - min) * AreaRng(player).NextDouble(), p.Seconds * MonsterPoisons.SelfDuration(n => target.Effects[n]));
         }
-        foreach (var packet in packets) conn.Minions.OutputQueue.Add(new(packet, null));
+        foreach (var packet in packets) player.Minions.OutputQueue.Add(new(packet, null));
     }
 }

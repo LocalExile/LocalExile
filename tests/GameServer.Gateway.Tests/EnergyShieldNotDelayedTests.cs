@@ -29,22 +29,23 @@ public sealed class EnergyShieldNotDelayedTests
     [Fact]
     public void VaalAuraExpiryUsesGameTimeAndRemovesBothBuffsOnce()
     {
-        var conn = new Player(new(1, "vaal", 100, 100, 10, 10, null, []), 1, 1) { PlayerLife = 100 };
+        var player = new Player(new(1, "vaal", 100, 100, 10, 10, null, []), 1, 1) { PlayerLife = 100 };
         var aura = new Game.VaalAuraState { Buff = 11, Source = 12, Until = 3, Stat = global::Stat.EnergyShieldRechargeNotDelayedByDamage };
-        Game.VaalAuraStates.Add(conn, aura);
+        Game.VaalAuraStates.Add(player, aura);
         try
         {
-            Assert.Null(Game.ExpireVaalAura(conn, 2));
-            conn.Clock.Stop();
-            Assert.Null(Game.ExpireVaalAura(conn, 3)!);
+            Assert.Null(Game.ExpireVaalAura(player, 2));
+            player.Clock.Stop();
+            Assert.Null(Game.ExpireVaalAura(player, 3)!);
             Assert.Equal(11, aura.Buff);
-            conn.Clock.Start();
-            Assert.Null(Game.ExpireVaalAura(conn, 2));
-            Assert.Equal([.. GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(Program.PlayerId, 11),
-                .. GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(Program.PlayerId, 12)], Game.ExpireVaalAura(conn, 3)!);
+            player.Clock.Start();
+            Assert.Null(Game.ExpireVaalAura(player, 2));
+            // Both buffs end through the Buffs component; the expiry itself happens once.
+            Assert.NotNull(Game.ExpireVaalAura(player, 3));
+            Assert.Equal(0, aura.Buff);
             Assert.Null(aura.Stat);
-            Assert.Null(Game.ExpireVaalAura(conn, 4));
+            Assert.Null(Game.ExpireVaalAura(player, 4));
         }
-        finally { Game.VaalAuraStates.Remove(conn); }
+        finally { Game.VaalAuraStates.Remove(player); }
     }
 }

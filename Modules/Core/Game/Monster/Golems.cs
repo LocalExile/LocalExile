@@ -52,87 +52,94 @@ public static partial class Game
         new(golem.Monster.Life, golem.Monster.MaxLife, golem.ShieldPool.Current, golem.ShieldPool.Maximum,
             golem.Regeneration, golem.ShieldPool.Capture(at), at, golem.LastStep);
 
-    static IReadOnlyList<PlayerSkillSource> PlayerSkillSourcesLocked(Player conn)
+    static IReadOnlyList<PlayerSkillSource> PlayerSkillSourcesLocked(Player player)
     {
-        string name = CharacterName(conn);
-        var equipment = ItemsOf(conn).EquipmentSnapshot();
-        return PlayerSkillSourcesAt(name, equipment, InactiveItems.GetValueOrDefault(name), LeagueFor(conn),
-            GrantedSkillsOf(conn), WornGrantedSkillsOf(conn, equipment));
+        if (BuildScopeOf(player) is not { Building: true } && CurrentActiveSkills(player) is { } current)
+            return current.Sources ??= PlayerSkillSourcesNow(player);
+        return PlayerSkillSourcesNow(player);
     }
 
-    static PlayerSkillSource? CurrentPlayerSkillSourceLocked(Player conn, ushort source) =>
-        PlayerSkillSourcesLocked(conn).FirstOrDefault(row => row.Id == source);
-
-    static FreshSummonAdmission? PrepareFreshSummonLocked(Player conn, ushort source, SupportedGem supported,
-        Dictionary<uint, int> player, GemSourceLifetimes.SourceLifetime? gemSource)
+    static IReadOnlyList<PlayerSkillSource> PlayerSkillSourcesNow(Player player)
     {
-        var sourceRow = CurrentPlayerSkillSourceLocked(conn, source);
+        string name = CharacterName(player);
+        var equipment = ItemsOf(player).EquipmentSnapshot();
+        return PlayerSkillSourcesAt(name, equipment, InactiveItems.GetValueOrDefault(name), LeagueFor(player),
+            GrantedSkillsOf(player), WornGrantedSkillsOf(player, equipment));
+    }
+
+    static PlayerSkillSource? CurrentPlayerSkillSourceLocked(Player player, ushort source) =>
+        PlayerSkillSourcesLocked(player).FirstOrDefault(row => row.Id == source);
+
+    static FreshSummonAdmission? PrepareFreshSummonLocked(Player player, ushort source, SupportedGem supported,
+        Dictionary<uint, int> playerStats, GemSourceLifetimes.SourceLifetime? gemSource)
+    {
+        var sourceRow = CurrentPlayerSkillSourceLocked(player, source);
         if (!supported.RequirementsMet || supported.Level <= 0 || supported.Quality < 0 || gemSource is null
             || sourceRow is null || !sourceRow.Active || sourceRow.Effect != supported.Effect
-            || sourceRow.Identity != gemSource.Key || conn.StatSourcesCache is not { } sources)
+            || sourceRow.Identity != gemSource.Key || player.StatSourcesCache is not { } sources)
             return null;
         return new(source, supported.Effect, supported.Level, supported.Quality,
-            new(supported.Stats), new(player), sourceRow.Identity, sources.Key, conn.Instance, CombatLifetime, gemSource);
+            new(supported.Stats), new(playerStats), sourceRow.Identity, sources.Key, player.Instance, CombatLifetime, gemSource);
     }
 
-    static bool FreshSummonCurrentLocked(Player conn, FreshSummonAdmission admission)
+    static bool FreshSummonCurrentLocked(Player player, FreshSummonAdmission admission)
     {
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-            || !ReferenceEquals(conn.Instance, admission.Area) || !ReferenceEquals(CombatLifetime, admission.Lifetime)
-            || !conn.GemSourceLifetimes.IsCurrent(admission.GemSource))
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
+            || !ReferenceEquals(player.Instance, admission.Area) || !ReferenceEquals(CombatLifetime, admission.Lifetime)
+            || !player.GemSourceLifetimes.IsCurrent(admission.GemSource))
             return false;
-        using var scope = new PlayerStatScope(conn, fresh: true);
-        var player = CharacterPlayerStats(conn);
-        var supported = SupportedSkill(conn, admission.Source);
-        var sourceRow = CurrentPlayerSkillSourceLocked(conn, admission.Source);
+        using var scope = new PlayerStatScope(player, fresh: true);
+        var playerStats = CharacterPlayerStats(player);
+        var supported = SupportedSkill(player, admission.Source);
+        var sourceRow = CurrentPlayerSkillSourceLocked(player, admission.Source);
         return supported.RequirementsMet && supported.Effect == admission.Effect
             && supported.Level == admission.Level && supported.Quality == admission.Quality
-            && SameStats(supported.Stats, admission.Own) && SameStats(player, admission.Player)
+            && SameStats(supported.Stats, admission.Own) && SameStats(playerStats, admission.Player)
             && sourceRow is { Active: true } && sourceRow.Effect == admission.Effect
             && sourceRow.Identity == admission.Identity && sourceRow.Identity == admission.GemSource.Key
-            && conn.StatSourcesCache is { } currentStatSourcesCache
+            && player.StatSourcesCache is { } currentStatSourcesCache
             && currentStatSourcesCache.Key.Matches(admission.StatSourcesKey);
     }
 
-    static bool ReplacementRosterCurrentLocked(SummonReplacementFamily family, Player conn, GolemState.Golem old) =>
+    static bool ReplacementRosterCurrentLocked(SummonReplacementFamily family, Player player, GolemState.Golem old) =>
         family == SummonReplacementFamily.Golem
-            ? conn.Golems.All.GetValueOrDefault(old.Id) == old
-            : conn.Summons.Fighters.GetValueOrDefault(old.Id) == old
-                && conn.Summons.Definitions.GetValueOrDefault(old.Id)?.Id == old.Definition.Id;
+            ? player.Golems.All.GetValueOrDefault(old.Id) == old
+            : player.Summons.Fighters.GetValueOrDefault(old.Id) == old
+                && player.Summons.Definitions.GetValueOrDefault(old.Id)?.Id == old.Definition.Id;
 
-    static SummonReplacementAdmission? PrepareReplacementLocked(Player conn, SummonReplacementFamily family,
-        GolemState.Golem old, ushort source, int effect, SupportedGem supported, Dictionary<uint, int> player, double now)
+    static SummonReplacementAdmission? PrepareReplacementLocked(Player player, SummonReplacementFamily family,
+        GolemState.Golem old, ushort source, int effect, SupportedGem supported, Dictionary<uint, int> playerStats, double now)
     {
         if (supported.Level <= 0 || supported.Quality < 0
             || old.Monster.Dead || old.Monster.Life == 0 || old.Source != source || old.Definition.Effect != effect
-            || conn.Monsters.GetValueOrDefault(old.Id) != old.Monster || !conn.Minions.Owns(old.Id, old.Monster)
-            || !ReplacementRosterCurrentLocked(family, conn, old))
+            || player.Area.Monsters.GetValueOrDefault(old.Id) != old.Monster || !player.Minions.Owns(old.Id, old.Monster)
+            || !ReplacementRosterCurrentLocked(family, player, old))
             return null;
-        var sourceRow = CurrentPlayerSkillSourceLocked(conn, source);
-        if (sourceRow is null || !sourceRow.Active || sourceRow.Effect != effect || conn.StatSourcesCache is not { } sources
+        var sourceRow = CurrentPlayerSkillSourceLocked(player, source);
+        if (sourceRow is null || !sourceRow.Active || sourceRow.Effect != effect || player.StatSourcesCache is not { } sources
             || !supported.RequirementsMet
-            || family == SummonReplacementFamily.Summon && !conn.Summons.Until.ContainsKey(old.Id))
+            || family == SummonReplacementFamily.Summon && !player.Summons.Until.ContainsKey(old.Id))
             return null;
-        var gemSource = old.GemSource ?? CaptureGemSourceLifetimeLocked(conn, sourceRow);
-        if (gemSource is null || !conn.GemSourceLifetimes.IsCurrent(gemSource) || gemSource.Key != sourceRow.Identity)
+        var gemSource = old.GemSource ?? CaptureGemSourceLifetimeLocked(player, sourceRow);
+        if (gemSource is null || !player.GemSourceLifetimes.IsCurrent(gemSource) || gemSource.Key != sourceRow.Identity)
             return null;
-        double until = family == SummonReplacementFamily.Summon ? conn.Summons.Until[old.Id] : double.PositiveInfinity;
+        double until = family == SummonReplacementFamily.Summon ? player.Summons.Until[old.Id] : double.PositiveInfinity;
         if (double.IsFinite(until) && now >= until) return null;
         return new(family, old, source, effect, supported.Level, supported.Quality,
             GolemSummonedInPastEightSeconds(old, now),
-            new(supported.Stats), new(player), sourceRow.Identity, sources, conn.Instance, CombatLifetime,
+            new(supported.Stats), new(playerStats), sourceRow.Identity, sources, player.Instance, CombatLifetime,
             CaptureReplacementResources(old, now), old.SummonedAt, old.LastStep, until, gemSource);
     }
 
-    static bool SummonReplacementCurrentLocked(Player conn, SummonReplacementAdmission admission)
+    static bool SummonReplacementCurrentLocked(Player player, SummonReplacementAdmission admission)
     {
         var old = admission.Old;
-        double now = AreaTime(conn);
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-            || !conn.GemSourceLifetimes.IsCurrent(admission.GemSource)
-            || !ReferenceEquals(conn.Instance, admission.Area) || !ReferenceEquals(CombatLifetime, admission.Lifetime)
-            || !ReplacementRosterCurrentLocked(admission.Family, conn, old)
-            || conn.Monsters.GetValueOrDefault(old.Id) != old.Monster || !conn.Minions.Owns(old.Id, old.Monster)
+        double now = AreaTime(player);
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
+            || !player.GemSourceLifetimes.IsCurrent(admission.GemSource)
+            || !ReferenceEquals(player.Instance, admission.Area) || !ReferenceEquals(CombatLifetime, admission.Lifetime)
+            || !ReplacementRosterCurrentLocked(admission.Family, player, old)
+            || player.Area.Monsters.GetValueOrDefault(old.Id) != old.Monster || !player.Minions.Owns(old.Id, old.Monster)
             || old.Monster.Dead || old.Monster.Life == 0 || old.Source != admission.Source
             || old.Definition.Effect != admission.Effect
             || GolemSummonedInPastEightSeconds(old, now) != admission.SummonedRecently)
@@ -144,28 +151,28 @@ public static partial class Game
             || !SameDouble(old.LastStep, captured.LastStep)
             || old.ShieldPool.Capture(captured.CapturedAt) != captured.EnergyShieldCapture)
             return false;
-        using var scope = new PlayerStatScope(conn, fresh: true);
-        var player = CharacterPlayerStats(conn);
-        var supported = SupportedSkill(conn, admission.Source);
-        var sourceRow = CurrentPlayerSkillSourceLocked(conn, admission.Source);
+        using var scope = new PlayerStatScope(player, fresh: true);
+        var playerStats = CharacterPlayerStats(player);
+        var supported = SupportedSkill(player, admission.Source);
+        var sourceRow = CurrentPlayerSkillSourceLocked(player, admission.Source);
         if (!supported.RequirementsMet || supported.Effect != admission.Effect
             || supported.Level <= 0 || supported.Quality < 0
             || supported.Level != admission.Level || supported.Quality != admission.Quality
-            || !SameStats(supported.Stats, admission.Own) || !SameStats(player, admission.Player)
+            || !SameStats(supported.Stats, admission.Own) || !SameStats(playerStats, admission.Player)
             || sourceRow is null || !sourceRow.Active || sourceRow.Effect != admission.Effect
             || sourceRow.Identity != admission.Identity
             || sourceRow.Identity != admission.GemSource.Key
-            || conn.StatSourcesCache is not { } sources || !ReferenceEquals(sources, admission.Sources)
+            || player.StatSourcesCache is not { } sources || !ReferenceEquals(sources, admission.Sources)
             || !sources.Key.Matches(admission.Sources.Key))
             return false;
         if (admission.Family == SummonReplacementFamily.Summon
-            && (!conn.Summons.Until.TryGetValue(old.Id, out double until)
-                || !SameDouble(until, admission.Until) || double.IsFinite(until) && AreaTime(conn) >= until))
+            && (!player.Summons.Until.TryGetValue(old.Id, out double until)
+                || !SameDouble(until, admission.Until) || double.IsFinite(until) && AreaTime(player) >= until))
             return false;
         return admission.Family switch
         {
-            SummonReplacementFamily.Golem => conn.Golems.All.GetValueOrDefault(old.Id) == old,
-            SummonReplacementFamily.Summon => conn.Summons.Fighters.GetValueOrDefault(old.Id) == old,
+            SummonReplacementFamily.Golem => player.Golems.All.GetValueOrDefault(old.Id) == old,
+            SummonReplacementFamily.Summon => player.Summons.Fighters.GetValueOrDefault(old.Id) == old,
             _ => false,
         };
     }
@@ -199,70 +206,60 @@ public static partial class Game
         replacement.BlockedAt = oldGolem.BlockedAt;
     }
 
-    static void RetireReplacementLocked(Player conn, SummonReplacementAdmission admission, double now)
+    static void RetireReplacementLocked(Player player, SummonReplacementAdmission admission, double now)
     {
-        if (admission.Family == SummonReplacementFamily.Golem) RemoveGolemLocked(conn, admission.Old, now);
-        else RemoveSummonLocked(conn, admission.Old, now);
+        if (admission.Family == SummonReplacementFamily.Golem) RemoveGolemLocked(player, admission.Old, now);
+        else RemoveSummonLocked(player, admission.Old, now);
     }
 
     static double SavedPositiveDelay(double seconds) =>
         double.IsFinite(seconds) && seconds > 0 ? seconds : .001;
 
-    public static bool GolemSummonedInPastEightSeconds(Player conn, double at)
+    public static bool GolemSummonedInPastEightSeconds(Player player, double at)
     {
-        lock (conn.Monsters)
-        {
-            double last = conn.Golems.LastSummoned;
-            return double.IsFinite(last) && at >= last && at - last < 8;
-        }
+        double last = player.Golems.LastSummoned;
+        return double.IsFinite(last) && at >= last && at - last < 8;
     }
 
     static double GolemSummonedSecondsRemaining(GolemState.Golem golem, double now) =>
         !golem.Monster.Dead && GolemSummonedInPastEightSeconds(golem, now)
             ? Math.Clamp(8 - Math.Max(0, now - golem.SummonedAt), 0, 8) : 0;
 
-    static void AddGolemStats(Player conn, StatMap stats)
+    static void AddGolemStats(Player player, StatMap stats)
     {
-        AddSummonCounts(conn, stats);
-        lock (conn.Monsters)
-        {
-            if (Stat.NumberOfActiveMines is var mines)
-                stats[mines] = conn.Placed.All.Values.Count(p => p.Mine);
-            if (Stat.NumberOfActiveTraps is var traps)
-                stats[traps] = conn.Placed.All.Values.Count(p => !p.Mine);
-        }
-        lock (conn.Monsters)
-            if (conn.PlayerLife > 0)
-                foreach (var (key, value) in conn.Golems.OwnerStats)
-                    stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        AddSummonCounts(player, stats);
+        if (Stat.NumberOfActiveMines is var mines)
+            stats[mines] = player.Placed.All.Values.Count(p => p.Mine);
+        if (Stat.NumberOfActiveTraps is var traps)
+            stats[traps] = player.Placed.All.Values.Count(p => !p.Mine);
+        if (player.PlayerLife > 0)
+            foreach (var (key, value) in player.Golems.OwnerStats)
+                stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
     }
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, object> MinionSaveLocks = new();
 
-    public static void SaveGolems(Player conn)
+    public static void SaveGolems(Player player)
     {
-        lock (MinionSaveLocks.GetOrCreateValue(conn))
+        lock (MinionSaveLocks.GetOrCreateValue(player))
         {
             Dictionary<ushort, PlayerSkillSource> canonical;
             LocalGolemSave[] local;
             string character;
             Guid owner;
-            lock (conn.Monsters)
-            {
-                if (!conn.Golems.Restored) return;
-                double now = AreaTime(conn);
-                canonical = PlayerSkillSourcesLocked(conn).Where(source => source.Active)
-                    .GroupBy(source => source.Id).ToDictionary(group => group.Key, group => group.First());
-                local = conn.Golems.All.Values
-                    .Where(g => !g.Monster.Dead || double.IsFinite(g.ReviveAt))
-                    .Select(g => new LocalGolemSave(g.Source, g.Definition.Effect, SavedGolem(conn, g, now), g.GemSource))
-                    .Concat(conn.Golems.Waiting.Select(w => new LocalGolemSave(
-                        w.Saved.Skill, GolemData.Find(w.Saved.Effect)?.Effect ?? int.MinValue, w.Saved with
-                        { ReviveSeconds = SavedPositiveDelay(w.At - now) }, w.GemSource)))
-                    .ToArray();
-                character = CharacterName(conn);
-                owner = conn.VitalsSessionId;
-            }
+            if (!player.Golems.Restored) return;
+            double now = AreaTime(player);
+            canonical = PlayerSkillSourcesLocked(player).Where(source => source.Active)
+                .GroupBy(source => source.Id).ToDictionary(group => group.Key, group => group.First());
+            local = player.Golems.All.Values
+                .Where(g => !g.Monster.Dead || double.IsFinite(g.ReviveAt))
+                .Select(g => new LocalGolemSave(g.Source, g.Definition.Effect, SavedGolem(player, g, now), g.GemSource))
+                .Concat(player.Golems.Waiting.Select(w => new LocalGolemSave(
+                    w.Saved.Skill, GolemData.Find(w.Saved.Effect)?.Effect ?? int.MinValue, w.Saved with
+                    { ReviveSeconds = SavedPositiveDelay(w.At - now) }, w.GemSource)))
+                .ToArray();
+            character = CharacterName(player);
+            owner = player.VitalsSessionId;
             Saves.Atomically(() => CharacterSaves.ChangeModuleData(character, GolemSaveKey, existing =>
             {
                 var inventory = PlayerInventories.Current(character);
@@ -299,10 +296,10 @@ public static partial class Game
         }
     }
 
-    static GolemState.Saved SavedGolem(Player conn, GolemState.Golem golem, double now)
+    static GolemState.Saved SavedGolem(Player player, GolemState.Golem golem, double now)
     {
-        var gem = SupportedSkill(conn, golem.Source);
-        var place = ItemsOf(conn).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
+        var gem = SupportedSkill(player, golem.Source);
+        var place = ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
         return new(golem.Definition.Id, golem.Source,
             SavedLifeFraction(golem.Monster),
             golem.Monster.Dead ? SavedPositiveDelay(golem.ReviveAt - now) : 0,
@@ -310,19 +307,19 @@ public static partial class Game
             Host: place.ItemId == 0 ? null : place.ItemId, Socket: place.ItemId == 0 ? null : place.Socket);
     }
 
-    internal static ushort RestoredGolemSource(Player conn, GolemState.Saved saved) =>
-        RestoredMinionSource(conn, saved.Effect, saved.Skill, saved.Host, saved.Socket);
+    internal static ushort RestoredGolemSource(Player player, GolemState.Saved saved) =>
+        RestoredMinionSource(player, saved.Effect, saved.Skill, saved.Host, saved.Socket);
 
-    internal static Task<bool> CastGolem(Player conn,
+    internal static Task<bool> CastGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
         bool triggered = false) =>
-        RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
+        RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
-            await SummonGolem(conn, source, definition, aim, current: current);
+            await SummonGolem(player, source, definition, aim, current: current);
             return true;
         });
 
-    public static async Task<uint> SummonGolem(Player conn,
+    public static async Task<uint> SummonGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
         Func<bool>? current = null, double summonedSecondsRemaining = 0,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
@@ -331,23 +328,23 @@ public static partial class Game
     {
         double preparedNow;
         SupportedGem supported;
-        Dictionary<uint, int> player;
+        Dictionary<uint, int> playerStats;
         FreshSummonAdmission? fresh;
         SummonReplacementAdmission? replacement;
         GemSourceLifetimes.SourceLifetime? gemSource;
-        using (ProjectileMutation(conn, advance: false, phase: "golem replacement preparation"))
-        using (new PlayerStatScope(conn, fresh: true))
+        using (ProjectileMutation(player, advance: false, phase: "golem replacement preparation"))
+        using (new PlayerStatScope(player, fresh: true))
         {
-            preparedNow = AreaTime(conn);
-            supported = SupportedSkill(conn, source);
-            player = CharacterPlayerStats(conn);
+            preparedNow = AreaTime(player);
+            supported = SupportedSkill(player, source);
+            playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
             gemSource = retainedSource ?? (supported.RequirementsMet
-                ? CaptureGemSourceLifetimeLocked(conn, source, definition.Effect) : null);
+                ? CaptureGemSourceLifetimeLocked(player, source, definition.Effect) : null);
             fresh = replacingOld is null
-                ? PrepareFreshSummonLocked(conn, source, supported, player, gemSource) : null;
+                ? PrepareFreshSummonLocked(player, source, supported, playerStats, gemSource) : null;
             replacement = replacingOld is null ? null
-                : PrepareReplacementLocked(conn, SummonReplacementFamily.Golem, replacingOld, source,
-                    definition.Effect, supported, player, preparedNow);
+                : PrepareReplacementLocked(player, SummonReplacementFamily.Golem, replacingOld, source,
+                    definition.Effect, supported, playerStats, preparedNow);
             if (replacement is not null) gemSource = replacement.GemSource;
             if (replacingOld is not null && replacement is null) return 0;
         }
@@ -355,7 +352,7 @@ public static partial class Game
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
-        int Player(uint name) => GolemStat(player, name);
+        int Player(uint name) => GolemStat(playerStats, name);
         int limit = GolemCatalog.Limit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
@@ -364,11 +361,11 @@ public static partial class Game
         double summonedAt = replacement?.SummonedAt ?? preparedNow - (8 - remaining);
         var probe = new GolemState.Golem(0, null!, definition, source, gemSource)
         {
-            GemLevel = supported.Level, Quality = supported.Quality, Own = supported.Stats, Player = new(player),
-            Limit = limit, SummonedAt = summonedAt, Utility = MinionOfferingStats(conn, preparedNow),
+            GemLevel = supported.Level, Quality = supported.Quality, Own = new(supported.Stats), Player = new(playerStats),
+            Limit = limit, SummonedAt = summonedAt, Utility = MinionOfferingStats(player, preparedNow),
         };
-        var mods = GolemModifiers(conn, probe, player, preparedNow);
-        var pools = GolemPools.Calculate(Monsters, variety, level, probe, player, mods.Effects);
+        var mods = GolemModifiers(player, probe, playerStats, preparedNow);
+        var pools = GolemPools.Calculate(Monsters, variety, level, probe, playerStats, mods.Effects);
         uint transportMaximum = pools.Fatal ? 1 : pools.MaximumLife;
         uint maximumEnergyShield = NativeEnergyShield(pools.MaximumEnergyShield);
         uint wireLife = pools.Fatal ? 1 : replacement is { } liveReplacement
@@ -384,31 +381,31 @@ public static partial class Game
             : legacyArrival ? 0 : maximumEnergyShield;
         if (!pools.Fatal)
         {
-            probe.Abilities = GolemAbilities(conn, variety, level, probe, player, preparedNow);
-            probe.Skills = GolemNativeSkills(conn, level, probe.Abilities);
+            probe.Abilities = GolemAbilities(player, variety, level, probe, playerStats, preparedNow);
+            probe.Skills = GolemNativeSkills(player, level, probe.Abilities);
         }
-        var at = definition.Kind == "Flame" && definition.Special && !arrival ? aim : NextToPlayer(conn);
-        uint id = await SpawnMonster(conn, variety, level, MonsterRarity.Normal, at.X, at.Y,
+        var at = definition.Kind == "Flame" && definition.Special && !arrival ? aim : NextToPlayer(player);
+        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
             ownedSkills: probe.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield,
             damagedLife: wireLife,
             ownedInitialDeath: pools.Fatal,
-            ownedCurrent: () => conn.PlayerLife > 0 && (current?.Invoke() ?? true)
+            ownedCurrent: () => player.PlayerLife > 0 && (current?.Invoke() ?? true)
                 && (replacement is { } admission
-                    ? SummonReplacementCurrentLocked(conn, admission)
-                    : fresh is { } captured && FreshSummonCurrentLocked(conn, captured)),
+                    ? SummonReplacementCurrentLocked(player, admission)
+                    : fresh is { } captured && FreshSummonCurrentLocked(player, captured)),
             owned: (id, m) =>
             {
-                double committed = AreaTime(conn);
+                double committed = AreaTime(player);
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
                 probe.Id = id; probe.Monster = m;
                 if (replacement is not null)
                     TransferIncomingReplacementStateLocked(replacement.Old, probe, committed);
-                if (replacement is not null) RetireReplacementLocked(conn, replacement, committed);
-                else if (conn.Golems.Replacement(definition.Kind, limit) is { } old)
-                    RemoveGolemLocked(conn, old, committed);
+                if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
+                else if (player.Golems.Replacement(definition.Kind, limit) is { } old)
+                    RemoveGolemLocked(player, old, committed);
                 probe.SummonedAt = replacement?.SummonedAt ?? committed - (8 - remaining);
                 probe.LastStep = replacement?.LastStep ?? committed;
                 probe.ShieldPool.SetMaximum(maximumEnergyShield,
@@ -425,76 +422,70 @@ public static partial class Game
                 }
                 else if (legacyArrival) probe.ShieldPool.Interrupt(committed);
                 m.Mods = mods;
-                conn.Golems.All.Add(id, probe);
-                conn.Minions.Add(new(id, m, definition.Id, definition.Kind) { Until = double.PositiveInfinity });
+                player.Golems.All.Add(id, probe);
+                player.Minions.Add(new(id, m, definition.Id, definition.Kind) { Until = double.PositiveInfinity });
                 if (claimActivation && replacement is null && gemSource?.Parent is { } marker)
-                    PlayerInventories.Current(CharacterName(conn))?.ClaimGemActivation(
-                        GolemSaveKey, source, marker, conn.VitalsSessionId);
+                    PlayerInventories.Current(CharacterName(player))?.ClaimGemActivation(
+                        GolemSaveKey, source, marker, player.VitalsSessionId);
                 m.NoRewards = true; m.Aggro = true;
-                if (!arrival) conn.Golems.LastSummoned = committed;
-                conn.Golems.RefreshAt = 0;
-                if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(conn, probe, committed);
-                if (pools.Fatal) GolemDieLocked(conn, probe, committed, emitLife: false);
+                if (!arrival) player.Golems.LastSummoned = committed;
+                player.Golems.RefreshAt = 0;
+                if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(player, probe, committed);
+                if (pools.Fatal) GolemDieLocked(player, probe, committed, emitLife: false);
             });
         if (id == 0) return 0;
         if (!arrival && definition.Kind == "Flame" && definition.Special && !pools.Fatal)
-            using (ProjectileMutation(conn))
-                if (conn.Golems.All.TryGetValue(id, out var spawned)) GolemMeteorLocked(conn, spawned, AreaTime(conn));
-        await RefreshGolemBuffs(conn);
-        SaveGolems(conn);
+            using (ProjectileMutation(player))
+                if (player.Golems.All.TryGetValue(id, out var spawned)) GolemMeteorLocked(player, spawned, AreaTime(player));
+        await RefreshGolemBuffs(player);
+        SaveGolems(player);
         return id;
     }
 
-    static void RemoveGolemLocked(Player conn, GolemState.Golem golem, double now)
+    static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now)
     {
-        conn.Golems.All.Remove(golem.Id); conn.Minions.Remove(golem.Id);
-        conn.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
+        player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
+        player.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
         golem.Pending = null;
         foreach (var hazard in golem.Hazards) if (hazard.Object is uint art)
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null, WorldId: art, RemovesObject: true));
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null, WorldId: art, RemovesObject: true));
         golem.Hazards.Clear(); golem.Pulses.Clear(); golem.ReviveAt = double.PositiveInfinity;
         golem.Monster.ActionGeneration++; golem.Monster.Dead = true; golem.Monster.Life = 0;
-        if (conn.Monsters.TryGetValue(golem.Id, out var held) && ReferenceEquals(held, golem.Monster))
+        if (player.Area.Monsters.TryGetValue(golem.Id, out var held) && ReferenceEquals(held, golem.Monster))
         {
-            conn.Monsters.Remove(golem.Id); conn.MinionOrigins.TryRemove(golem.Id, out _);
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
+            player.Area.Monsters.Remove(golem.Id); player.MinionOrigins.TryRemove(golem.Id, out _);
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
                 Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
         }
-        conn.Golems.RefreshAt = 0;
+        player.Golems.RefreshAt = 0;
     }
 
-    public static async Task GolemsTick(Player conn, double now)
+    public static async Task GolemsTick(Player player, double now)
     {
-        if (!conn.PlayerSent || !CurrentGameWork || conn.Closed || conn.LeavingArea) return;
-        if (!conn.Golems.Restored)
+        if (!player.Connection.PlayerSent || !CurrentGameWork || player.Closed || player.LeavingArea) return;
+        if (!player.Golems.Restored)
         {
             GolemState.Saved[] saved;
-            lock (conn.Monsters)
-            {
-                conn.Golems.Restored = true;
-                try { saved = JsonSerializer.Deserialize<GolemState.Saved[]>(CharacterSaves.ModuleData(CharacterName(conn), GolemSaveKey) ?? "[]") ?? []; }
-                catch (JsonException) { saved = []; }
-            }
+            player.Golems.Restored = true;
+            try { saved = JsonSerializer.Deserialize<GolemState.Saved[]>(CharacterSaves.ModuleData(CharacterName(player), GolemSaveKey) ?? "[]") ?? []; }
+            catch (JsonException) { saved = []; }
             foreach (var old in saved.Take(100))
             {
                 if (GolemData.Find(old.Effect) is not { } definition) continue;
-                ushort source = RestoredGolemSource(conn, old);
+                ushort source = RestoredGolemSource(player, old);
                 if (source == 0) continue;
                 if (old.ReviveSeconds > 0)
                 {
-                    lock (conn.Monsters)
-                    {
-                        var lease = CaptureGemSourceLifetimeLocked(conn, source, definition.Effect);
-                        if (lease?.Parent is not { } marker
-                            || !GemSourceLifetimeCurrentLocked(conn, source, definition.Effect, lease)
-                            || PlayerInventories.Current(CharacterName(conn))?.ClaimGemActivation(
-                                GolemSaveKey, source, marker, conn.VitalsSessionId) != true)
-                            continue;
-                        conn.Golems.Waiting.Add(new(old with { Skill = source }, now + old.ReviveSeconds, lease));
-                    }
+                    var lease = CaptureGemSourceLifetimeLocked(player, source, definition.Effect);
+                    if (lease?.Parent is not { } marker
+                        || !GemSourceLifetimeCurrentLocked(player, source, definition.Effect, lease)
+                        || PlayerInventories.Current(CharacterName(player))?.ClaimGemActivation(
+                            GolemSaveKey, source, marker, player.VitalsSessionId) != true)
+                        continue;
+                    player.Golems.Waiting.Add(new(old with { Skill = source }, now + old.ReviveSeconds, lease));
                     continue;
                 }
-                await SummonGolem(conn, source, definition, NextToPlayer(conn),
+                await SummonGolem(player, source, definition, NextToPlayer(player),
                     double.IsFinite(old.Life) ? Math.Clamp(old.Life, 0, 1) : 0, arrival: true,
                     summonedSecondsRemaining: old.SummonedSecondsRemaining, resources: old.Resources,
                     legacyArrival: old.Resources is null);
@@ -502,118 +493,109 @@ public static partial class Game
         }
         bool changed = false;
         List<(GolemState.Awaiting Waiting, bool Current, ushort Source)> dueWaiting;
-        lock (conn.Monsters)
-        {
-            dueWaiting = conn.Golems.Waiting.Where(w => conn.PlayerLife > 0 && now >= w.At)
-                .Select(waiting =>
-                {
-                    ushort source = waiting.GemSource is null ? RestoredGolemSource(conn, waiting.Saved) : waiting.Saved.Skill;
-                    bool current = source != 0 && (waiting.GemSource is null
-                        || GolemData.Find(waiting.Saved.Effect) is { } definition
-                            && GemSourceLifetimeCurrentLocked(conn, waiting.Saved.Skill, definition.Effect,
-                                waiting.GemSource));
-                    return (waiting, current, source);
-                }).ToList();
-            conn.Golems.Waiting.RemoveAll(waiting => dueWaiting.Exists(due => ReferenceEquals(due.Waiting, waiting)));
-            if (dueWaiting.Count > 0) changed = true;
-        }
+        dueWaiting = player.Golems.Waiting.Where(w => player.PlayerLife > 0 && now >= w.At)
+            .Select(waiting =>
+            {
+                ushort source = waiting.GemSource is null ? RestoredGolemSource(player, waiting.Saved) : waiting.Saved.Skill;
+                bool current = source != 0 && (waiting.GemSource is null
+                    || GolemData.Find(waiting.Saved.Effect) is { } definition
+                        && GemSourceLifetimeCurrentLocked(player, waiting.Saved.Skill, definition.Effect,
+                            waiting.GemSource));
+                return (waiting, current, source);
+            }).ToList();
+        player.Golems.Waiting.RemoveAll(waiting => dueWaiting.Exists(due => ReferenceEquals(due.Waiting, waiting)));
+        if (dueWaiting.Count > 0) changed = true;
         foreach (var (revive, current, source) in dueWaiting.Where(due => due.Current))
             if (GolemData.Find(revive.Saved.Effect) is { } definition)
-                await SummonGolem(conn, source, definition, NextToPlayer(conn),
+                await SummonGolem(player, source, definition, NextToPlayer(player),
                     retainedSource: revive.GemSource, claimActivation: false);
         // Deadlines run at the companion cadence, independently of the slower stat-source refresh.
         List<(GolemState.Golem Golem, bool Current)> due;
-        lock (conn.Monsters)
+        foreach (var ended in player.Golems.All.Values.Where(g => (g.Monster.Dead || g.Monster.Life == 0) && !double.IsFinite(g.ReviveAt)))
+            GolemDieLocked(player, ended, now);
+        var dueActors = player.PlayerLife > 0
+            ? player.Golems.All.Values.Where(g => g.Monster.Dead && now >= g.ReviveAt).ToArray() : [];
+        due = dueActors.Select(golem =>
         {
-            foreach (var ended in conn.Golems.All.Values.Where(g => (g.Monster.Dead || g.Monster.Life == 0) && !double.IsFinite(g.ReviveAt)))
-                GolemDieLocked(conn, ended, now);
-            var dueActors = conn.PlayerLife > 0
-                ? conn.Golems.All.Values.Where(g => g.Monster.Dead && now >= g.ReviveAt).ToArray() : [];
-            due = dueActors.Select(golem =>
-            {
-                bool current = golem.GemSource is null
-                    || GemSourceLifetimeCurrentLocked(conn, golem.Source, golem.Definition.Effect, golem.GemSource);
-                RemoveGolemLocked(conn, golem, now);
-                return (golem, current);
-            }).ToList();
-            if (due.Count > 0) changed = true;
-        }
+            bool current = golem.GemSource is null
+                || GemSourceLifetimeCurrentLocked(player, golem.Source, golem.Definition.Effect, golem.GemSource);
+            RemoveGolemLocked(player, golem, now);
+            return (golem, current);
+        }).ToList();
+        if (due.Count > 0) changed = true;
         foreach (var (dead, current) in due.Where(due => due.Current))
-            await SummonGolem(conn, dead.Source, dead.Definition, NextToPlayer(conn),
+            await SummonGolem(player, dead.Source, dead.Definition, NextToPlayer(player),
                 retainedSource: dead.GemSource, claimActivation: false);
-        if (conn.Golems.All.Count == 0)
+        if (player.Golems.All.Count == 0)
         {
             if (changed)
             {
-                SaveGolems(conn);
-                await RefreshGolemBuffs(conn);
-                await PublishMinionOutcomes(conn);
+                SaveGolems(player);
+                await RefreshGolemBuffs(player);
+                await PublishMinionOutcomes(player);
             }
             return;
         }
         var rebuild = new List<GolemState.Golem>();
-        if (now >= conn.Golems.RefreshAt)
+        if (now >= player.Golems.RefreshAt)
         {
-            using var scope = new PlayerStatScope(conn, fresh: true);
-            var player = CharacterPlayerStats(conn);
-            var sources = GemSkillEffects(conn).ToDictionary(g => g.Id, g => g.Effect);
-            lock (conn.Monsters)
+            using var scope = new PlayerStatScope(player, fresh: true);
+            var playerStats = CharacterPlayerStats(player);
+            var sources = GemSkillEffects(player).ToDictionary(g => g.Id, g => g.Effect);
+            player.Golems.RefreshAt = now + .5;
+            foreach (var golem in player.Golems.All.Values.ToArray())
             {
-                conn.Golems.RefreshAt = now + .5;
-                foreach (var golem in conn.Golems.All.Values.ToArray())
+                if (!sources.TryGetValue(golem.Source, out int effect) || effect != golem.Definition.Effect)
+                { RemoveGolemLocked(player, golem, now); changed = true; continue; }
+                var gem = SupportedSkill(player, golem.Source);
+                if (!gem.RequirementsMet) { RemoveGolemLocked(player, golem, now); changed = true; continue; }
+                if (golem.Monster.Dead)
                 {
-                    if (!sources.TryGetValue(golem.Source, out int effect) || effect != golem.Definition.Effect)
-                    { RemoveGolemLocked(conn, golem, now); changed = true; continue; }
-                    var gem = SupportedSkill(conn, golem.Source);
-                    if (!gem.RequirementsMet) { RemoveGolemLocked(conn, golem, now); changed = true; continue; }
-                    if (golem.Monster.Dead)
-                    {
-                        continue;
-                    }
-                    golem.Own = gem.Stats; golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                    golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(player, n));
-                    int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
-                    if (level != golem.Monster.Level)
-                    {
-                        rebuild.Add(golem); continue;
-                    }
-                    RefreshGolemLocked(conn, golem, player, now);
+                    continue;
                 }
-                int limit = conn.Golems.All.Values.Select(g => g.Limit).DefaultIfEmpty(0).Max();
-                foreach (var surplus in conn.Golems.All.Values.OrderByDescending(g => g.SummonedAt).Skip(limit).ToArray())
-                { RemoveGolemLocked(conn, surplus, now); changed = true; }
+                golem.Own = new(gem.Stats); golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
+                golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(playerStats, n));
+                int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
+                if (level != golem.Monster.Level)
+                {
+                    rebuild.Add(golem); continue;
+                }
+                RefreshGolemLocked(player, golem, playerStats, now);
             }
-            await RefreshGolemBuffs(conn);
+            int limit = player.Golems.All.Values.Select(g => g.Limit).DefaultIfEmpty(0).Max();
+            foreach (var surplus in player.Golems.All.Values.OrderByDescending(g => g.SummonedAt).Skip(limit).ToArray())
+            { RemoveGolemLocked(player, surplus, now); changed = true; }
+            await RefreshGolemBuffs(player);
         }
         foreach (var golem in rebuild)
-            if (await SummonGolem(conn, golem.Source, golem.Definition, NextToPlayer(conn),
+            if (await SummonGolem(player, golem.Source, golem.Definition, NextToPlayer(player),
                 arrival: true, replacingOld: golem) != 0)
                 changed = true;
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(player))
         {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
-            GolemIncomingContactsLocked(conn, now);
-            foreach (var golem in conn.Golems.All.Values.ToArray())
-                GolemStepLocked(conn, golem, now);
+            if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
+            GolemIncomingContactsLocked(player, now);
+            foreach (var golem in player.Golems.All.Values.ToArray())
+                GolemStepLocked(player, golem, now);
         }
-        if (changed) SaveGolems(conn);
-        await PublishMinionOutcomes(conn);
+        if (changed) SaveGolems(player);
+        await PublishMinionOutcomes(player);
     }
 
     // One synchronous state transition for the normal refresh and direct physical-source retirement. The caller owns
     // Monsters and supplies one fresh player snapshot; only the normal network wrapper publishes that snapshot.
-    static (byte[][] Packets, bool Changed) PlanGolemBuffsLocked(Player conn, Dictionary<uint, int> player)
+    static (byte[][] Packets, bool Changed) PlanGolemBuffsLocked(Player player, Dictionary<uint, int> playerStats)
     {
         var bytes = new List<byte[]>(); var totals = new Dictionary<uint, int>();
-        var alive = conn.Golems.All.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0).ToArray();
+        var alive = player.Golems.All.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0).ToArray();
         var buffs = new Dictionary<ushort, GolemState.Golem>();
         var changedRecovery = new HashSet<uint>();
         foreach (var g in alive)
         {
             int oldGuard = GolemStat(g.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct);
             g.OwnerBuff = [];
-            if (conn.PlayerLife == 0 || g.Definition.Buff == 0) continue;
-            double scale = 1 + GolemCatalog.BuffEffect(g.Definition, n => GolemStat(player, n), n => GolemStat(g.Own, n), alive.Length) / 100.0;
+            if (player.PlayerLife == 0 || g.Definition.Buff == 0) continue;
+            double scale = 1 + GolemCatalog.BuffEffect(g.Definition, n => GolemStat(playerStats, n), n => GolemStat(g.Own, n), alive.Length) / 100.0;
             foreach (var (source, target) in g.Definition.BuffStats)
                 GolemAdd(g.OwnerBuff, target, (int)Math.Floor(GolemStat(g.Own, source) * scale));
             if (g.Definition.Buff == 592 && oldGuard != GolemStat(g.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct))
@@ -621,21 +603,20 @@ public static partial class Game
             if (!buffs.TryGetValue(g.Definition.Buff, out var best) || g.OwnerBuff.Values.Sum() > best.OwnerBuff.Values.Sum())
                 buffs[g.Definition.Buff] = g;
         }
-        var wrath = alive.Where(g => g.WrathUntil > AreaTime(conn)
-                && Dist(g.Monster.Walk.Position(AreaTime(conn)), conn.Walk.Position(AreaTime(conn))) <= 60)
+        var wrath = alive.Where(g => g.WrathUntil > AreaTime(player)
+                && Dist(g.Monster.Walk.Position(AreaTime(player)), player.Walk.Position(AreaTime(player))) <= 60)
             .Select(g => (Golem: g, Skill: g.Abilities.FirstOrDefault(a => a.Effect == 5906))).Where(p => p.Skill is not null)
             .OrderByDescending(p => p.Golem.Monster.Level).FirstOrDefault();
-        foreach (var (row, old) in conn.Golems.Buffs.ToArray())
+        foreach (var (row, old) in player.Golems.Buffs.ToArray())
             if (row == 676 ? wrath.Skill is null || wrath.Golem.Id != old.Source
                 : !buffs.TryGetValue(row, out var next) || old.Source != next.Id || row == 592 && changedRecovery.Contains(old.Source))
-            { bytes.Add(InstanceEntities.RemoveBuff(PlayerId, old.Instance)); conn.Golems.Buffs.Remove(row); }
+            { player.Area.Buffs.Clear(player.Id, row, old.Source); player.Golems.Buffs.Remove(row); }
         foreach (var (row, g) in buffs)
         {
-            if (!conn.Golems.Buffs.ContainsKey(row))
+            if (!player.Golems.Buffs.ContainsKey(row))
             {
-                ushort instance = conn.NextBuff++;
-                bytes.Add(GolemOwnerBuffPacket(instance, row, g));
-                conn.Golems.Buffs[row] = (g.Id, instance);
+                player.Area.Buffs.Set(player.Id, GolemOwnerBuff(row, g));
+                player.Golems.Buffs[row] = (g.Id, 1);
             }
             foreach (var (k, v) in g.OwnerBuff) totals[k] = totals.GetValueOrDefault(k) + v;
         }
@@ -648,53 +629,48 @@ public static partial class Game
                     uint stat = Stat.Of($"{kind}_{bound}_added_lightning_damage");
                     GolemAdd(totals, stat, GolemStat(wrath.Skill.Stats, stat));
                 }
-            if (!conn.Golems.Buffs.ContainsKey(676))
+            if (!player.Golems.Buffs.ContainsKey(676))
             {
-                ushort instance = conn.NextBuff++;
-                bytes.Add(InstanceEntities.AddBuff(PlayerId, instance, 676, wrath.Golem.Id));
-                conn.Golems.Buffs[676] = (wrath.Golem.Id, instance);
+                player.Area.Buffs.Set(player.Id, new(676, wrath.Golem.Id));
+                player.Golems.Buffs[676] = (wrath.Golem.Id, 1);
             }
         }
         GolemAdd(totals, Stat.VirtualTotalNumberOfActiveGolems, alive.Length);
         GolemAdd(totals, Stat.VirtualCurrentNumberOfGolemTypes, alive.Select(g => g.Definition.Kind).Distinct().Count());
         foreach (var family in alive.GroupBy(g => g.Definition.Kind))
             GolemAdd(totals, Stat.Of("current_number_of_" + (family.Key == "Flame" ? "fire" : family.Key.ToLowerInvariant()) + "_golems"), family.Count());
-        bool changed = !totals.OrderBy(p => p.Key).SequenceEqual(conn.Golems.OwnerStats.OrderBy(p => p.Key));
+        bool changed = !totals.OrderBy(p => p.Key).SequenceEqual(player.Golems.OwnerStats.OrderBy(p => p.Key));
         if (changed)
         {
-            conn.Golems.OwnerStats.Clear(); foreach (var entry in totals) conn.Golems.OwnerStats.Add(entry.Key, entry.Value);
-            conn.Golems.Version++; MarkPlayerStats(conn, PlayerStatStep.Golems); conn.Minions.StatRevision++;
-            conn.Pools = BuildPoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
+            player.Golems.OwnerStats.Clear(); foreach (var entry in totals) player.Golems.OwnerStats.Add(entry.Key, entry.Value);
+            player.Golems.Version++; MarkPlayerStats(player, PlayerStatStep.Golems); player.Minions.StatRevision++;
+            player.Pools = BuildPoolsFor(player, player.Pools.Level); player.ApplyMovementSpeed();
         }
         return ([.. bytes], changed);
     }
 
-    public static async Task RefreshGolemBuffs(Player conn)
+    public static async Task RefreshGolemBuffs(Player player)
     {
-        await SendWorldRecords(conn, PlayerId, () =>
+        await SendWorldRecords(player, player.Id, () =>
         {
-            lock (conn.Monsters)
+            if (!CurrentGameWork || player.Closed || player.LeavingArea) return null;
+            (byte[][] Packets, bool Changed) plan;
+            using (new PlayerStatScope(player, fresh: true))
+                plan = PlanGolemBuffsLocked(player, new Dictionary<uint, int>(CharacterPlayerStats(player)));
+            if (!plan.Changed) return plan.Packets.Length == 0 ? null : plan.Packets;
+            var bytes = new List<byte[]>(plan.Packets);
+            // The planner updates OwnerStats, while SkillBuildScope caches immutable character inputs for its
+            // lifetime. Project through a new scope so the packet contains the reconciled counts and buffs.
+            using (new PlayerStatScope(player, fresh: true))
             {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
-                (byte[][] Packets, bool Changed) plan;
-                using (new PlayerStatScope(conn, fresh: true))
-                    plan = PlanGolemBuffsLocked(conn, CharacterPlayerStats(conn));
-                if (!plan.Changed) return plan.Packets.Length == 0 ? null : plan.Packets;
-                var bytes = new List<byte[]>(plan.Packets);
-                // The planner updates OwnerStats, while SkillBuildScope caches immutable character inputs for its
-                // lifetime. Project through a new scope so the packet contains the reconciled counts and buffs.
-                using (new PlayerStatScope(conn, fresh: true))
-                {
-                    bytes.Add(PlayerStatsOffFrames(conn));
-                    bytes.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
-                }
-                return bytes.Count == 0 ? null : [.. bytes];
+                bytes.Add(PlayerStatsOffFrames(player));
+                bytes.Add(PlayerSkillsIfChanged(player, PlayerSkills(player)));
             }
+            return bytes.Count == 0 ? null : [.. bytes];
         });
     }
 
-    public static byte[] GolemOwnerBuffPacket(ushort instance, ushort row, GolemState.Golem golem) =>
-        InstanceEntities.AddBuff(PlayerId, instance, row, golem.Id,
-            values: row == 592 ? [(uint)GolemStat(golem.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct)] : null,
-            u82: row == 592 ? (ushort)0 : null);
+    public static Buff GolemOwnerBuff(ushort row, GolemState.Golem golem) => new(row, golem.Id,
+        Values: row == 592 ? [(uint)GolemStat(golem.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct)] : null,
+        U82: row == 592 ? (ushort)0 : null);
 }

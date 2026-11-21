@@ -1,6 +1,6 @@
 using GameServer.Core.World;
 
-/// <summary>Incoming ordinary monster-hit ailments. Connection-local, guarded by Monsters, on its pauseable clock.
+/// <summary>Incoming ordinary monster-hit ailments. Connection-local, owned by the area's frame, on its pauseable clock.
 /// Alternative ailments require an explicit source and are not substituted for the ordinary ailments here.</summary>
 public sealed class PlayerElementalAilments
 {

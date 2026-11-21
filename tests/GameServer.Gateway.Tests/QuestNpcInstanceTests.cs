@@ -27,21 +27,21 @@ public sealed class QuestNpcInstanceTests
         using var returnWire = new PartyFollowerTests.Wire();
         using var freshWire = new PartyFollowerTests.Wire();
         var instance = new InstanceState();
-        var player = runtime.Connection(instance, wire, "SoulHost");
-        var returning = runtime.Connection(instance, returnWire, "SoulReturn");
-        var fresh = runtime.Connection(new(), freshWire, "SoulFresh");
+        var player = runtime.PlayerOf(instance, wire, "SoulHost");
+        var returning = runtime.PlayerOf(instance, returnWire, "SoulReturn");
+        var fresh = runtime.PlayerOf(new(), freshWire, "SoulFresh");
         foreach (var c in new[] { player, returning, fresh })
         {
             c.LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false),
                 new HashSet<string> { Source });
-            c.QuestFlags.Add("appearance-killed");
+            c.Character.QuestFlags.Add("appearance-killed");
         }
         var variety = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find(Boss));
         SpawnedMonster Monster() => new("Yugul", new PlayerWalk(120, 130, 30), 50, 10, 1000)
             { Variety = variety, Level = 58, Hostile = true };
         var boss = Monster();
-        player.Monsters[1] = boss;
-        fresh.Monsters[1] = Monster();
+        player.Area.Monsters[1] = boss;
+        fresh.Area.Monsters[1] = Monster();
         Assert.Empty(Game.AppearedBefore(player));
         Assert.Empty(Game.AppearedBefore(fresh));
 
@@ -51,7 +51,7 @@ public sealed class QuestNpcInstanceTests
         Assert.Equal((120, 130), (Assert.Single(player.QuestNpcs).X, Assert.Single(player.QuestNpcs).Y));
 
         // The instance saves only living monsters; the appearance must not need its discarded corpse.
-        player.Monsters.Clear();
+        player.Area.Monsters.Clear();
         returning.QuestNpcs.AddRange(Game.AppearedBefore(returning));
         await Game.UpdateQuestNpcs(returning, "return");
         var restored = Assert.Single(returning.QuestNpcs);
@@ -59,7 +59,7 @@ public sealed class QuestNpcInstanceTests
         Assert.Equal(2, Assert.Single(returning.Npcs).Value.State);
         Assert.Empty(Game.AppearedBefore(fresh));
 
-        returning.QuestFlags.Add("appearance-reward");
+        returning.Character.QuestFlags.Add("appearance-reward");
         await Game.UpdateQuestNpcs(returning, "reward");
         Assert.Empty(returning.Npcs);
     }

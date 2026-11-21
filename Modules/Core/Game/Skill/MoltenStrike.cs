@@ -100,13 +100,13 @@ public static partial class Game
 
     /// <summary>Resolves Molten Strike's melee contact delay against the skill clip or the class ACT's defaultAttack pool
     /// (never clamped by EarlyAllowance or shifted earlier than the client's late pair view).</summary>
-    public static double MoltenStrikeContactDelay(Player conn, int effect, double attackSeconds, ushort sequence,
+    public static double MoltenStrikeContactDelay(Player player, int effect, double attackSeconds, ushort sequence,
         out string? clip, out double fraction, out double earliestSeconds)
     {
-        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(conn, activeSet: true);
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
+        var weapon = WeaponProfileFor(player, activeSet: true);
         double latestLimit = Math.Max(0, attackSeconds - AttackTiming.LandMargin);
-        if (SkillsFor(conn).EffectId(effect) is { } effectId
+        if (SkillsFor(player).EffectId(effect) is { } effectId
             && Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId)) is { } found)
         {
             double delay = AttackTiming.ContactDelay(attackSeconds, found.Contact, 0, early: false);
@@ -128,84 +128,80 @@ public static partial class Game
         return fallback;
     }
 
-    public static Task ScheduleMoltenStrike(Player conn,
+    public static Task ScheduleMoltenStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
         double? swingAt = null)
     {
-        var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
+        var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return Task.CompletedTask;
-        var initialStats = SupportedSkill(conn, skillId).Stats;
+        var initialStats = SupportedSkill(player, skillId).Stats;
         int InitialStat(uint k) => initialStats.GetValueOrDefault(k);
         if (InitialStat(Stat.BaseDealNoDamage) != 0) return Task.CompletedTask;
 
-        double ruthless = RuthlessBlowMore(conn, skillId, InitialStat);
-        int meleeRepeats = MeleeAttackRepeats(conn, skillId);
-        double attackSeconds = SupportedAttackSeconds(conn, skillId);
+        double ruthless = RuthlessBlowMore(player, skillId, InitialStat);
+        int meleeRepeats = MeleeAttackRepeats(player, skillId);
+        double attackSeconds = SupportedAttackSeconds(player, skillId);
         double repeatInterval = meleeRepeats > 0 ? attackSeconds : 0;
-        double acceptedAt = swingAt ?? AreaTime(conn);
-        var roll = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);
+        double acceptedAt = swingAt ?? AreaTime(player);
+        var roll = criticalRoll ?? CaptureSkillCriticalRoll(player, skillId);
         bool hasFifthMechanic = InitialStat(Stat.MoltenStrikeEvery5thAttackFireXAdditionalProjectiles) > 0
             || InitialStat(Stat.MoltenStrikeEvery5thAttackProjectilesDamagePlusPctFinal) != 0;
         bool fifthAttack = false;
         ushort armFifthBuff = 0;
         if (hasFifthMechanic)
         {
-            lock (conn.Monsters)
+            if (!player.MoltenStrikeFifthBuffs.TryGetValue(skillId, out ushort buffId) || buffId == 0)
             {
-                if (!conn.MoltenStrikeFifthBuffs.TryGetValue(skillId, out ushort buffId) || buffId == 0)
-                {
-                    conn.MoltenStrikeFifthBuffs[skillId] = buffId = conn.NextBuff++;
-                    armFifthBuff = buffId;
-                }
-                int next = conn.MoltenStrikeAttackCounts.GetValueOrDefault(skillId) + 1;
-                if (next >= 5)
-                {
-                    fifthAttack = true;
-                    conn.MoltenStrikeAttackCounts[skillId] = 0;
-                }
-                else
-                {
-                    conn.MoltenStrikeAttackCounts[skillId] = next;
-                }
+                player.MoltenStrikeFifthBuffs[skillId] = buffId = 1;
+                armFifthBuff = buffId;
+            }
+            int next = player.MoltenStrikeAttackCounts.GetValueOrDefault(skillId) + 1;
+            if (next >= 5)
+            {
+                fifthAttack = true;
+                player.MoltenStrikeAttackCounts[skillId] = 0;
+            }
+            else
+            {
+                player.MoltenStrikeAttackCounts[skillId] = next;
             }
         }
         var jobs = new List<Task>();
         for (int repeat = 0; repeat <= meleeRepeats; repeat++)
-            jobs.Add(ExecuteMoltenStrikeSwing(conn, skillId, gem, from, to,
+            jobs.Add(ExecuteMoltenStrikeSwing(player, skillId, gem, from, to,
                 recoveryGeneration, targetId, sequence, actionToken, cooldownUse, roll, acceptedAt,
                 repeat, meleeRepeats, attackSeconds, repeat * repeatInterval, ruthless,
                 fifthAttack, repeat == 0 ? armFifthBuff : (ushort)0));
         return Task.WhenAll(jobs);
     }
 
-    public static async Task ExecuteMoltenStrikeSwing(Player conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    public static async Task ExecuteMoltenStrikeSwing(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId, ushort sequence,
         int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll criticalRoll, double? swingAt,
         int repeat, int totalRepeats, double attackSeconds, double repeatDelay, double ruthless,
         bool fifthAttack = false, ushort armFifthBuff = 0)
     {
-        var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
-        bool Current() => PlayerStateAllowsAction(conn)
-            && conn.ActionInterruptionGeneration == recoveryGeneration
-            && (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
-                || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal));
+        var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
+        bool Current() => PlayerStateAllowsAction(player)
+            && player.ActionInterruptionGeneration == recoveryGeneration
+            && (SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null
+                || paidVaal is not null && VaalAdmissionCurrent(player, paidVaal));
         if (!Current()) return;
 
-        var startStats = SupportedSkill(conn, skillId).Stats;
+        var startStats = SupportedSkill(player, skillId).Stats;
         bool cannotCancel = Stat.CannotCancelSkillBeforeContactPoint is var cancelKey
             && startStats.GetValueOrDefault(cancelKey) != 0;
-        bool vaalBehaviour = SkillsFor(conn).BehaviourVariation(gem.Effect) == 2;
+        bool vaalBehaviour = SkillsFor(player).BehaviourVariation(gem.Effect) == 2;
 
         double delay;
         double earliestContact;
         string? contactClip;
         double contactFraction;
-        lock (conn.Monsters)
-            delay = MoltenStrikeContactDelay(conn, gem.Effect, attackSeconds, sequence,
-                out contactClip, out contactFraction, out earliestContact);
-        double swung = swingAt ?? AreaTime(conn);
+        delay = MoltenStrikeContactDelay(player, gem.Effect, attackSeconds, sequence,
+            out contactClip, out contactFraction, out earliestContact);
+        double swung = swingAt ?? AreaTime(player);
         // From here on the swing has connected for the client: a later use (accepted from 1 - EarlyAllowance of the
         // attack time, AttackReady) or a queued Move no longer takes it back, as AreaSkillHit's holdsItsSwing and Lightning
         // Strike keep theirs. A later Multistrike swing still belongs to the original action and is cancelled with it.
@@ -213,15 +209,15 @@ public static partial class Game
             Math.Max(0, attackSeconds * (1 - AttackTiming.EarlyAllowance) - AttackTiming.LandMargin));
         double earliestAt = swung + keptFrom;
 
-        int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
+        int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
         bool Replaced()
         {
-            if (cooldownUse?.Instant == true || conn.ActionCount == action) return false;
+            if (cooldownUse?.Instant == true || player.ActionCount == action) return false;
             if (repeat > 0) return true;
             if (cannotCancel) return false;
-            if (AreaTime(conn) >= earliestAt && PlayerStateAllowsAction(conn)) return false;
-            Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
-                + $"{conn.ActionCount} before its hit (action {action}), no hit lands");
+            if (AreaTime(player) >= earliestAt && PlayerStateAllowsAction(player)) return false;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
+                + $"{player.ActionCount} before its hit (action {action}), no hit lands");
             return true;
         }
         if (Replaced()) return;
@@ -229,43 +225,40 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        using (ProjectileMutation(conn))
-            (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, startStats, from, to,
-                sequence, targetId, ProjectileWorldTime(conn));
+        using (ProjectileMutation(player))
+            (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, startStats, from, to,
+                sequence, targetId, ProjectileWorldTime(player));
         if (memoryBuff is not null && repeat == 0)
-            await SendWorldRecord(conn, PlayerId, memoryBuff,
+            await SendWorldRecord(player, player.Id, memoryBuff,
                 $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
         if (armFifthBuff != 0)
-            await SendWorldRecord(conn, PlayerId,
-                InstanceEntities.AddBuff(PlayerId, armFifthBuff, MoltenStrikeFifthAttackBuffRow, PlayerId, skillId,
-                    activeSkill: SkillsFor(conn).ActionHash(gem.Effect) is ushort hash ? (skillId, hash) : null,
-                    stacks: 1),
-                $"0x01c1 player buff molten_strike_fifth_attack_counter armed for skill 0x{skillId:x4}");
+            player.Area.Buffs.Set(player.Id, new(MoltenStrikeFifthAttackBuffRow, player.Id, skillId,
+                ActiveSkill: SkillsFor(player).ActionHash(gem.Effect) is ushort hash ? (skillId, hash) : null, Stacks: 1, Tag: skillId));
 
-        double remaining = swung + delay + repeatDelay - AreaTime(conn);
+        double remaining = swung + delay + repeatDelay - AreaTime(player);
         if (remaining > 0)
             await Task.Delay(TimeSpan.FromSeconds(remaining));
-        await WhilePaused(conn);
-        if (Replaced() || conn.Closed || !Current()) return;
+        await WhilePaused(player);
+        if (Replaced() || player.Closed || !Current()) return;
 
-        double repeatMore = repeat > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1;
+        double repeatMore = repeat > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1;
         var results = new List<(uint Id, SpawnedMonster Monster, MonsterHit Hit, int Damage, bool Critical, string? Resistance,
             List<byte[]>? Ignited, string IgniteLog, List<byte[]>? Bled, string BleedLog, StunHit Stun)>();
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         var reflected = new List<MonsterElementalAilments.Effect>();
-        Dictionary<uint, int>? player = null;
+        Dictionary<uint, int>? playerStats = null;
         int emitted = 0;
         int hitTargets = 0;
         int totalTargets = 0;
 
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(player))
         {
-            if (!Current() || Replaced() || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused)
+            if (!Current() || Replaced() || player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0 || player.Paused)
                 return;
-            double now = ProjectileWorldTime(conn);
-            var playerAt = conn.Walk.Position(now);
-            var weapon = WeaponFor(conn);
-            var skillStats = SupportedSkill(conn, skillId).Stats;
+            double now = ProjectileWorldTime(player);
+            var playerAt = player.Walk.Position(now);
+            var weapon = WeaponFor(player);
+            var skillStats = SupportedSkill(player, skillId).Stats;
             int Stat(uint k) => skillStats.GetValueOrDefault(k);
             if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
 
@@ -274,33 +267,33 @@ public static partial class Game
             uint? primaryId = targetId != 0
                 ? targetId
                 : MoltenStrikeGeometry.SelectGroundStrikeTarget(
-                    conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null)
+                    player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null)
                         .Select(e => (e.Key, e.Value.Walk.Position(now), LivingCollision.Size(e.Value))),
                     playerAt, to, weapon.Range);
-            if (primaryId is uint pid && conn.Monsters.TryGetValue(pid, out var pm)
+            if (primaryId is uint pid && player.Area.Monsters.TryGetValue(pid, out var pm)
                 && pm.Hostile && !pm.Dead && pm.Life > 0 && pm.OwnerId is null
                 && Dist(playerAt, pm.Walk.Position(now)) <= weapon.Range + Math.Max(0, LivingCollision.Size(pm)) + 2
                 && struck.Add(pid))
                 targets.Add((pid, pm, true));
             foreach (uint sid in spirit)
-                if (struck.Add(sid) && conn.Monsters.TryGetValue(sid, out var sm) && sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null)
+                if (struck.Add(sid) && player.Area.Monsters.TryGetValue(sid, out var sm) && sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null)
                     targets.Add((sid, sm, true));
             if (echo is { } echoAt
                 && MoltenStrikeGeometry.SelectGroundStrikeTarget(
-                    conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null && !struck.Contains(e.Key))
+                    player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null && !struck.Contains(e.Key))
                         .Select(e => (e.Key, e.Value.Walk.Position(now), LivingCollision.Size(e.Value))),
                     echoAt, echoAt, weapon.Range) is uint eid
-                && conn.Monsters.TryGetValue(eid, out var em) && struck.Add(eid))
+                && player.Area.Monsters.TryGetValue(eid, out var em) && struck.Add(eid))
                 targets.Add((eid, em, true));
 
             var splashMore = new Dictionary<uint, double>();
-            var merged = SupportedStats(conn, skillId);
+            var merged = SupportedStats(player, skillId);
             int SplashStat(uint k) => merged.GetValueOrDefault(k);
             if (targets.Count > 0 && MeleeSplash.Settings(SplashStat) is { } splash)
                 foreach (var (_, strikeMonster, _) in targets.ToArray())
                 {
                     var splashAt = strikeMonster.Walk.Position(now);
-                    foreach (var (sid, sm) in conn.Monsters)
+                    foreach (var (sid, sm) in player.Area.Monsters)
                         if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && struck.Add(sid)
                             && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius)
                         {
@@ -312,119 +305,119 @@ public static partial class Game
             totalTargets = targets.Count;
             if (targets.Count == 0 && !vaalBehaviour)
             {
-                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: melee swing whiffed at ({to.X}, {to.Y}), no projectiles emitted (t={AreaTime(conn):0.000})");
+                Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: melee swing whiffed at ({to.X}, {to.Y}), no projectiles emitted (t={AreaTime(player):0.000})");
                 return;
             }
 
-            player = CharacterPlayerStats(conn);
-            var local = MainHandLocalSources(conn);
-            var pen = Penetration.Of(player, Stats, attack: true, skillStats, local);
-            var mods = HitResistMods(player, skillStats);
-            var meleeHit = SupportedHit(conn, skillId);
+            playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
+            var local = MainHandLocalSources(player);
+            var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
+            var mods = HitResistMods(playerStats, skillStats);
+            var meleeHit = SupportedHit(player, skillId);
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
-            int criticalMultiplierBase = SupportedCriticalMultiplier(conn, skillId);
-            var accuracy = SupportedAccuracy(conn, skillId);
-            var leech = HitLeechSources(player, true, skillStats, local);
-            var impale = ImpaleStats.From(player, Stats, true, skillStats, local);
-            var criticalImpale = ImpaleStats.From(player, Stats, true, skillStats, local, critical: true);
-            var ignite = SupportedIgnite(conn, skillId, spell: false, player);
-            var bleed = SupportedBleed(conn, skillId, spell: false, player, melee: true);
-            var poison = SupportedPoison(conn, skillId, spell: false, player);
+            int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId);
+            var accuracy = SupportedAccuracy(player, skillId);
+            var leech = HitLeechSources(playerStats, true, skillStats, local);
+            var impale = ImpaleStats.From(playerStats, Stats, true, skillStats, local);
+            var criticalImpale = ImpaleStats.From(playerStats, Stats, true, skillStats, local, critical: true);
+            var ignite = SupportedIgnite(player, skillId, spell: false, playerStats);
+            var bleed = SupportedBleed(player, skillId, spell: false, playerStats, melee: true);
+            var poison = SupportedPoison(player, skillId, spell: false, playerStats);
             ignite = RepeatAilment(ignite, repeatMore);
             bleed = RepeatAilment(bleed, repeatMore);
             poison = RepeatAilment(poison, repeatMore);
-            var criticalTrigger = CaptureCriticalTriggerSource(conn, skillId);
+            var criticalTrigger = CaptureCriticalTriggerSource(player, skillId);
             bool fortificationGranted = false;
             bool rageGranted = false;
             var hitOrigins = new List<ProjectileVector>();
 
             foreach (var (id, m, isStrikeTarget) in targets)
             {
-                if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m))
+                if (m.Dead || m.Life == 0 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m))
                     continue;
-                var contactHit = WithMeleeProximityLocked(conn, player, skillStats, m, meleeHit, now);
-                int hitChance = AttackHitChanceAt(conn, id, m, now, accuracy, player);
-                if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, conn.AttackAccuracyRandom))
+                var contactHit = WithMeleeProximityLocked(player, playerStats, skillStats, m, meleeHit, now);
+                int hitChance = AttackHitChanceAt(player, id, m, now, accuracy, playerStats);
+                if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, player.AttackAccuracyRandom))
                 {
-                    Console.WriteLine($"[gateway] {conn.Remote} {gem.Name} on 0x{id:x} ({m.Label}) evaded ({hitChance}% chance to hit)");
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) evaded ({hitChance}% chance to hit)");
                     continue;
                 }
-                if (MonsterBlocks(m, AreaRng(conn), spell: false, now, skillStats))
+                if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats))
                 {
-                    Console.WriteLine($"[gateway] {conn.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;
                 }
-                var gambler = GamblerFor(player);
-                var rolled = WithConditionalSupportDamageLocked(conn, skillStats, attack: true, m,
-                    GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
+                var gambler = GamblerFor(playerStats);
+                var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
+                    GameEvents.WithOutgoingDamage(player, playerStats, m, (gambler with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats)
-                        .RollOutgoingHit(contactHit, AreaRng(conn))), now);
+                        .RollOutgoingHit(contactHit, AreaRng(player))), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {
                     double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
                     rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                     m.HallowingFlameUntil = 0;
                 }
-                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
-                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsGround(conn, skillId, release: false));
-                bool critical = RollCriticalStrike(conn, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, player: player)
-                    && EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
+                int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
+                    SupportedCriticalChanceVsBlinded(player, skillId, release: false),
+                    SupportedCriticalChanceVsGround(player, skillId, release: false));
+                bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
+                    && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, mods, pen,
-                    gambler.InvertsResistance(AreaRng(conn)));
+                    gambler.InvertsResistance(AreaRng(player)));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
-                LeechOnHitLocked(conn, m, taken, damage, leech);
-                damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, criticalMultiplierBase,
+                LeechOnHitLocked(player, m, taken, damage, leech);
+                damage = WithImpaleHitLocked(player, m, damage, rolled, critical, criticalMultiplierBase,
                     critical ? criticalImpale : impale, more).Damage;
-                var stun = OwnerStun(conn, m, damage, mitigated, melee: true, spell: false, critical, player, skillStats);
+                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
                 var mAt = m.Walk.Position(now);
-                var rampageSource = RampageOnMeleeHitLocked(conn, m, melee: true, player);
+                var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);
                 uint lifeBefore = m.Life;
-                var applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, player,
-                    cull: Cull.Of(player, skillStats, critical, spell: false));
+                var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats,
+                    cull: Cull.Of(playerStats, skillStats, critical, spell: false));
                 if (applied is not { } hit) continue;
                 // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.
-                CrueltyOnHitLocked(conn, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);
+                CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);
 
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
-                ReleaseCriticalTrigger(conn, ProjectilesFor(conn), criticalTrigger, critical, m.Hostile, mAt, now);
-                conn.RecentEvents.RecordCriticalOutcome(now, critical);
+                ReleaseCriticalTrigger(player, ProjectilesFor(player), criticalTrigger, critical, m.Hostile, mAt, now);
+                player.RecentEvents.RecordCriticalOutcome(now, critical);
                 if (global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                 if (global::Stat.BaseKilledMonsterDroppedItemRarityPlusPct is var rarityKey)
                     m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
-                SoulEaterHit(conn, m);
-                if (hit.Life == 0) DevourOnKill(conn, m, skillStats);
-                AilmentsOnHitLocked(conn, id, m, mitigated, spell: false, critical, multiplier, player, skillStats, now,
-                    AreaRng(conn), reflected: reflected, poison: poison, sourceSkill: skillId,
-                    blind: BlindHitInput.Capture(player, skillStats),
-                    attackGains: AttackAilmentGains.Capture(player, attack: true));
+                SoulEaterHit(player, m);
+                if (hit.Life == 0) DevourOnKill(player, m, skillStats);
+                AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
+                    AreaRng(player), reflected: reflected, poison: poison, sourceSkill: skillId,
+                    blind: BlindHitInput.Capture(playerStats, skillStats),
+                    attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";
-                if (m.Life > 0 && ignite.CanIgnite(rolled) && IgniteOnHitLocked(conn, id, m, ignite, critical, now) is { } ignitePackets)
+                if (m.Life > 0 && ignite.CanIgnite(rolled) && IgniteOnHitLocked(player, id, m, ignite, critical, now) is { } ignitePackets)
                     (ignited, igniteLog) = (ignitePackets, IgnitedLog(id, m, critical, now));
-                if (m.Life > 0 && rolled[DamageType.Physical].Max > 0 && BleedOnHitLocked(conn, id, m, bleed, critical, now) is { } cut)
+                if (m.Life > 0 && rolled[DamageType.Physical].Max > 0 && BleedOnHitLocked(player, id, m, bleed, critical, now) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(id, m, critical, now));
                 if (hit.StageStarts)
                 {
-                    CommitBossStage(conn, id, m, now);
+                    CommitBossStage(player, id, m, now);
                     hit = hit with { StageStarts = false };
                 }
                 // As AreaSkillHit's: the stun carries the hit's Fortification damage, so "Melee Hits which Stun have X%
                 // chance to Fortify" rolls for this skill too.
                 var fortificationDamage = RawFortificationDamage(rolled, critical, multiplier);
-                bool fortifiedThisHit = !fortificationGranted && (fortificationGranted = FortificationOnHitLocked(conn, m,
-                    fortificationDamage, melee: true, player, skillStats));
+                bool fortifiedThisHit = !fortificationGranted && (fortificationGranted = FortificationOnHitLocked(player, m,
+                    fortificationDamage, melee: true, playerStats, skillStats));
                 stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
-                    rageGranted = RageOnHitLocked(conn, attack: true, melee: true, critical, skillStats, player: player);
-                CombatRushOnHit(conn, skillStats, now);
-                HallowOnMeleeHit(conn, m, skillStats, now);
-                ExcommunicateOnMeleeHit(conn, m, skillStats, now);
+                    rageGranted = RageOnHitLocked(player, attack: true, melee: true, critical, skillStats, playerStats: playerStats);
+                CombatRushOnHit(player, skillStats, now);
+                HallowOnMeleeHit(player, m, skillStats, now);
+                ExcommunicateOnMeleeHit(player, m, skillStats, now);
                 results.Add((id, m, hit, damage, critical, resistance, ignited, igniteLog, bled, bleedLog, stun));
             }
 
@@ -433,33 +426,33 @@ public static partial class Game
                 hitOrigins.Add(MoltenStrikeGeometry.SwingOrigin(playerAt, to, weapon.Range));
             if (hitOrigins.Count > 0)
             {
-                var session = ProjectilesFor(conn);
-                emitted = EmitMoltenStrikeBallsLocked(conn, session, skillId, gem, playerAt, to, criticalRoll,
-                    sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, AreaRng(conn), fifthAttack);
+                var session = ProjectilesFor(player);
+                emitted = EmitMoltenStrikeBallsLocked(player, session, skillId, gem, playerAt, to, criticalRoll,
+                    sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, AreaRng(player), fifthAttack);
             }
         }
 
         foreach (var r in results)
         {
-            if (r.Critical) _ = GainFlaskChargesOnCrit(conn);
-            if (r.Critical) await MaybeCreateProfaneGround(conn, r.Monster.Walk.Position(ProjectileWorldTime(conn)));
-            await NotifyMonsterHit(conn, r.Id, r.Monster, r.Hit, r.Damage,
+            if (r.Critical) _ = GainFlaskChargesOnCrit(player);
+            if (r.Critical) await MaybeCreateProfaneGround(player, r.Monster.Walk.Position(ProjectileWorldTime(player)));
+            await NotifyMonsterHit(player, r.Id, r.Monster, r.Hit, r.Damage,
                 $"{gem.Name}{(r.Critical ? " (critical)" : "")}{(r.Resistance is null ? "" : $", {r.Resistance}")}",
                 melee: true, sequence: sequence, deaths: deaths, stun: r.Stun);
-            await SendDotBuff(conn, r.Ignited, r.IgniteLog);
-            await SendDotBuff(conn, r.Bled, r.BleedLog);
-            ChargesOnHit(conn, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id);
+            await SendDotBuff(player, r.Ignited, r.IgniteLog);
+            await SendDotBuff(player, r.Bled, r.BleedLog);
+            ChargesOnHit(player, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id);
         }
-        if (reflected.Count > 0 && player is not null)
-            using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, AreaRng(conn));
-        foreach (var (deadId, dead) in deaths) await MonsterKilled(conn, deadId, dead);
+        if (reflected.Count > 0 && playerStats is not null)
+            using (ProjectileMutation(player)) ReflectAilmentsLocked(player, reflected, ProjectileWorldTime(player), playerStats, AreaRng(player));
+        foreach (var (deadId, dead) in deaths) await MonsterKilled(player, deadId, dead);
         string contactNote = contactClip is null ? "the attack1 fallback" : contactClip;
-        Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: melee hit {hitTargets}/{totalTargets} monster(s), "
-            + $"launched {emitted} molten projectile(s), contact {contactFraction:0.###} of the attack ({contactNote}) (t={AreaTime(conn):0.000})");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: melee hit {hitTargets}/{totalTargets} monster(s), "
+            + $"launched {emitted} molten projectile(s), contact {contactFraction:0.###} of the attack ({contactNote}) (t={AreaTime(player):0.000})");
     }
 
-    /// <summary>Distributes and releases Molten Strike's balls across struck targets. Call under the Monsters lock.</summary>
-    public static int EmitMoltenStrikeBallsLocked(Player conn, ProjectileSession session, ushort skillId,
+    /// <summary>Distributes and releases Molten Strike's balls across struck targets. Call in the area's frame.</summary>
+    public static int EmitMoltenStrikeBallsLocked(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) playerAt, (int X, int Y) aim, SkillCriticalRoll criticalRoll, ushort sequence,
         uint repeatsLeft, double releaseDelay, double repeatMore, IReadOnlyList<ProjectileVector> hitOrigins,
@@ -469,15 +462,15 @@ public static partial class Game
         ProjectileUse baseUse;
         try
         {
-            baseUse = CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, repeatsLeft, releaseDelay);
+            baseUse = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, repeatsLeft, releaseDelay);
         }
         catch (InvalidOperationException ex)
         {
-            Console.WriteLine($"[gateway] {session.Conn.Remote} {gem.Name} projectile release skipped: {ex.Message}");
+            Console.WriteLine($"[gateway] {session.Player.Connection.Remote} {gem.Name} projectile release skipped: {ex.Message}");
             return 0;
         }
-        var own = SupportedSkill(conn, skillId).Stats;
-        var merged = MergeSkillStats(CharacterPlayerStats(conn), own);
+        var own = SupportedSkill(player, skillId).Stats;
+        var merged = MergeSkillStats(CharacterPlayerStats(player), own);
         int Merged(uint k) => merged.GetValueOrDefault(k);
 
         int totalCount = baseUse.Profile.Count;
@@ -495,13 +488,13 @@ public static partial class Game
                 Ignite = RepeatAilment(shot.Ignite, damageScale), Bleed = RepeatAilment(shot.Bleed, damageScale),
                 Poison = RepeatAilment(shot.Poison, damageScale) };
 
-        var areaStats = MergeSkillStats(AreaPlayerStats(conn), own);
+        var areaStats = MergeSkillStats(AreaPlayerStats(player), own);
         int AreaGet(uint name) => name == SkillArea.BaseIncreased
             ? own.GetValueOrDefault(name) + areaStats.GetValueOrDefault(Stat.MoltenStrikeRadiusPlusPct)
             : areaStats.GetValueOrDefault(name);
         int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
         var (minDist, maxDist) = MoltenStrikeGeometry.DistanceBounds(radiusPercent, Merged(Stat.ProjectileSpeedPlusPct), Merged(Stat.ChainingRangePlusPct));
-        double clipSeconds = (SkillsFor(conn).Clips(baseUse.Profile.Id)?.Flight?.Ms ?? 633) / 1000.0;
+        double clipSeconds = (SkillsFor(player).Clips(baseUse.Profile.Id)?.Flight?.Ms ?? 633) / 1000.0;
         // Client 0x141b6b3cf..0x141b6b411 adds 10 * base projectile count (before Zenith's 5th-attack +5) to molten_strike_projectile_animation_speed_+%.
         int animSpeedPct = MoltenStrikeGeometry.EffectiveAnimationSpeedPct(
             Merged(Stat.MoltenStrikeProjectileAnimationSpeedPlusPct), baseUse.Profile.Count);

@@ -30,12 +30,12 @@ static class IncomingDamagingAilmentTestCases
             })),
         };
         var range = DamagePacket.Of(DamageType.Physical, 10, 100);
-        var conn = Fresh();
-        conn.Clock.Stop();
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        Game.ApplyMonsterDamagingAilmentsLocked(conn, 1, monster, range, false, now, prepared: Stats());
-        Assert.Equal(70, conn.IncomingAilments.BleedPerSecond(now), 8);
-        Assert.Equal(30, conn.IncomingAilments.PoisonPerSecond(now), 8);
+        var player = Fresh();
+        player.Clock.Stop();
+        double now = player.Clock.Elapsed.TotalSeconds;
+        Game.ApplyMonsterDamagingAilmentsLocked(player, 1, monster, range, false, now, prepared: Stats());
+        Assert.Equal(70, player.IncomingAilments.BleedPerSecond(now), 8);
+        Assert.Equal(30, player.IncomingAilments.PoisonPerSecond(now), 8);
 
         foreach (var prevented in new[]
         {
@@ -43,80 +43,78 @@ static class IncomingDamagingAilmentTestCases
             Stats(("virtual_immune_to_bleeding", 1), ("cannot_be_poisoned", 1)),
         })
         {
-            conn.IncomingAilments.Clear();
-            Game.ApplyMonsterDamagingAilmentsLocked(conn, 1, monster, range, false, now, prepared: prevented);
-            Assert.True(conn.IncomingAilments.Idle);
+            player.IncomingAilments.Clear();
+            Game.ApplyMonsterDamagingAilmentsLocked(player, 1, monster, range, false, now, prepared: prevented);
+            Assert.True(player.IncomingAilments.Idle);
         }
-        conn.IncomingAilments.Clear();
-        Game.ApplyMonsterDamagingAilmentsLocked(conn, 1, monster, range, true, now, prepared: Stats());
-        Assert.True(conn.IncomingAilments.Idle);
-        Game.ApplyMonsterDamagingAilmentsLocked(conn, 1, monster, range, false, now, attack: false, prepared: Stats());
-        Assert.Equal(70, conn.IncomingAilments.BleedPerSecond(now), 8);
-        conn.InvalidateIncomingHits();
-        Assert.True(conn.IncomingAilments.Idle);
-        conn.Closed = true;
+        player.IncomingAilments.Clear();
+        Game.ApplyMonsterDamagingAilmentsLocked(player, 1, monster, range, true, now, prepared: Stats());
+        Assert.True(player.IncomingAilments.Idle);
+        Game.ApplyMonsterDamagingAilmentsLocked(player, 1, monster, range, false, now, attack: false, prepared: Stats());
+        Assert.Equal(70, player.IncomingAilments.BleedPerSecond(now), 8);
+        player.InvalidateIncomingHits();
+        Assert.True(player.IncomingAilments.Idle);
+        player.Closed = true;
     }
 
     public static void Resource_writer_preserves_stack_intervals_routing_and_paid_cleanse_protection()
     {
-        var conn = Fresh();
-        conn.Clock.Stop();
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        conn.Auras[1] = new(1, 0, "Vitality", "Vitality", 1, 153, 500, 0, ReservesLife: true);
-        int cap = conn.PlayerLifeCap;
-        Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(Program.PlayerId, 10000, 500),
-            Game.PlayerLifeUpdate(conn));
-        Assert.Equal(10000u, conn.PlayerLife);
-        Assert.Equal(cap, conn.PlayerLifeCap);
-        conn.Auras.Clear();
-        conn.IncomingAilments.ApplyBleed(now, 10, 2);
-        conn.IncomingAilments.ApplyBleed(now, 5, 4);
-        conn.IncomingAilments.ApplyPoison(now + 1, 10, 2);
-        conn.EnergyShield.SetMaximum(100, refill: true);
-        Game.AdvancePlayerAilmentsLocked(conn, now, now + 2, Stats());
-        Assert.Equal(80u, conn.EnergyShield.Current);
-        Assert.Equal(9990u, conn.PlayerLife);
-        Game.AdvancePlayerAilmentsLocked(conn, now, now + 2, Stats());
-        Assert.Equal(80u, conn.EnergyShield.Current);
-        Assert.Equal(9990u, conn.PlayerLife);
-        Game.AdvancePlayerAilmentsLocked(conn, now + 2, now + 4, Stats());
-        Assert.Equal(70u, conn.EnergyShield.Current);
-        Assert.Equal(9980u, conn.PlayerLife);
-        Assert.True(conn.IncomingAilments.Idle);
+        var player = Fresh();
+        player.Clock.Stop();
+        double now = player.Clock.Elapsed.TotalSeconds;
+        player.Auras[1] = new(1, 0, "Vitality", "Vitality", 1, 153, 500, 0, ReservesLife: true);
+        int cap = player.PlayerLifeCap;
+        Assert.Equal(500u, player.PlayerReservedLife);
+        Assert.Equal(10000u, player.PlayerLife);
+        Assert.Equal(cap, player.PlayerLifeCap);
+        player.Auras.Clear();
+        player.IncomingAilments.ApplyBleed(now, 10, 2);
+        player.IncomingAilments.ApplyBleed(now, 5, 4);
+        player.IncomingAilments.ApplyPoison(now + 1, 10, 2);
+        player.EnergyShield.SetMaximum(100, refill: true);
+        Game.AdvancePlayerAilmentsLocked(player, now, now + 2, Stats());
+        Assert.Equal(80u, player.EnergyShield.Current);
+        Assert.Equal(9990u, player.PlayerLife);
+        Game.AdvancePlayerAilmentsLocked(player, now, now + 2, Stats());
+        Assert.Equal(80u, player.EnergyShield.Current);
+        Assert.Equal(9990u, player.PlayerLife);
+        Game.AdvancePlayerAilmentsLocked(player, now + 2, now + 4, Stats());
+        Assert.Equal(70u, player.EnergyShield.Current);
+        Assert.Equal(9980u, player.PlayerLife);
+        Assert.True(player.IncomingAilments.Idle);
 
-        conn.IncomingAilments.Clear();
-        conn.IncomingAilments.ApplyBleed(now, 10, 5);
-        Assert.True(conn.IncomingAilments.RemoveOrProtectBleeding(now, 2));
-        Assert.False(conn.IncomingAilments.ApplyBleed(now + 1, 10, 5));
-        Assert.True(conn.IncomingAilments.ApplyBleed(now + 2, 10, 5));
-        Assert.False(conn.IncomingAilments.RemoveOrProtectPoison(now, 2));
-        Assert.True(conn.IncomingAilments.ApplyPoison(now, 10, 5));
-        conn.IncomingAilments.Reconcile(name => name == Stat.CannotBePoisoned ? 1 : 0);
-        Assert.Equal(0, conn.IncomingAilments.PoisonStacks(now));
+        player.IncomingAilments.Clear();
+        player.IncomingAilments.ApplyBleed(now, 10, 5);
+        Assert.True(player.IncomingAilments.RemoveOrProtectBleeding(now, 2));
+        Assert.False(player.IncomingAilments.ApplyBleed(now + 1, 10, 5));
+        Assert.True(player.IncomingAilments.ApplyBleed(now + 2, 10, 5));
+        Assert.False(player.IncomingAilments.RemoveOrProtectPoison(now, 2));
+        Assert.True(player.IncomingAilments.ApplyPoison(now, 10, 5));
+        player.IncomingAilments.Reconcile(name => name == Stat.CannotBePoisoned ? 1 : 0);
+        Assert.Equal(0, player.IncomingAilments.PoisonStacks(now));
 
-        conn.IncomingAilments.Clear();
-        conn.EnergyShield.Empty();
-        conn.IncomingAilments.ApplyBleed(now, 10, 5);
-        conn.EnergyShield.Empty();
-        conn.Walk.Order(conn.Walk.Position(now).X + 100, conn.Walk.Position(now).Y, now);
-        Assert.True(conn.Walk.Moving(now));
-        uint before = conn.PlayerLife;
-        Game.AdvancePlayerAilmentsLocked(conn, now, now + 1, Stats());
-        Assert.Equal(before - 30, conn.PlayerLife);
-        conn.IncomingAilments.Clear();
-        conn.IncomingAilments.ApplyPoison(now, .5, 4);
-        before = conn.PlayerLife;
-        for (int i = 0; i < 4; i++) Game.AdvancePlayerAilmentsLocked(conn, now + i, now + i + 1, Stats());
-        Assert.Equal(before - 2, conn.PlayerLife);
+        player.IncomingAilments.Clear();
+        player.EnergyShield.Empty();
+        player.IncomingAilments.ApplyBleed(now, 10, 5);
+        player.EnergyShield.Empty();
+        player.Walk.Order(player.Walk.Position(now).X + 100, player.Walk.Position(now).Y, now);
+        Assert.True(player.Walk.Moving(now));
+        uint before = player.PlayerLife;
+        Game.AdvancePlayerAilmentsLocked(player, now, now + 1, Stats());
+        Assert.Equal(before - 30, player.PlayerLife);
+        player.IncomingAilments.Clear();
+        player.IncomingAilments.ApplyPoison(now, .5, 4);
+        before = player.PlayerLife;
+        for (int i = 0; i < 4; i++) Game.AdvancePlayerAilmentsLocked(player, now + i, now + i + 1, Stats());
+        Assert.Equal(before - 2, player.PlayerLife);
 
-        conn.IncomingAilments.Clear();
-        conn.IncomingAilments.ApplyPoison(now, 100000, 2);
-        Game.AdvancePlayerAilmentsLocked(conn, now, now + 1, Stats());
-        Assert.Equal(0u, conn.PlayerLife);
-        Assert.True(conn.IncomingAilments.Idle);
-        Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(Program.PlayerId, 0, 0),
-            Game.PlayerLifeUpdate(conn));
-        Assert.Equal(0u, conn.PlayerLife);
-        conn.Closed = true;
+        player.IncomingAilments.Clear();
+        player.IncomingAilments.ApplyPoison(now, 100000, 2);
+        Game.AdvancePlayerAilmentsLocked(player, now, now + 1, Stats());
+        Assert.Equal(0u, player.PlayerLife);
+        Assert.True(player.IncomingAilments.Idle);
+        Assert.Equal(0u, player.PlayerReservedLife);
+        Assert.Equal(0u, player.PlayerLife);
+        player.Closed = true;
     }
 }

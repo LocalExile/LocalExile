@@ -199,7 +199,6 @@ static async Task SaveUnsavedProgress(CancellationToken stop)
 
 public sealed partial class Program
 {
-    public const uint PlayerId = 0x1000;
     // The server's tick: 30 per second. Nothing the server times (an attack) is shorter than one tick.
     public const int TickRate = 30;
     public const double TickSeconds = 1.0 / TickRate;

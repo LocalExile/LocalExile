@@ -113,12 +113,12 @@ public sealed class NpcConversationTests
         async Task<byte[]?> Click(ushort flags, NpcCatalog.Npc? npc = null)
         {
             using var wire = new Wire();
-            var conn = wire.Conn;
-            var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            lock (conn.Npcs) conn.Npcs[0x300] = new SpawnedNpc(npc ?? kirac, x, y);
-            await Game.OnUseObject(conn,
-                new InstanceTransfer.UseSkillOnObject(0x300, 0x266, 1, flags), conn.Clock.Elapsed.TotalSeconds);
-            Assert.Equal(0x300u, conn.TalkingTo);
+            var player = wire.Player;
+            var (x, y) = player.Walk.Position(player.Clock.Elapsed.TotalSeconds);
+            lock (player.Npcs) player.Npcs[0x300] = new SpawnedNpc(npc ?? kirac, x, y);
+            await Game.OnUseObject(player,
+                new InstanceTransfer.UseSkillOnObject(0x300, 0x266, 1, flags), player.Clock.Elapsed.TotalSeconds);
+            Assert.Equal(0x300u, player.TalkingTo);
             return wire.Sent(InstanceNpcs.Talk(0x300).Length);
         }
         byte[] options = InstanceNpcs.Talk(0x300);
@@ -147,7 +147,7 @@ public sealed class NpcConversationTests
         readonly TcpClient reader;
         readonly ConnectionCiphers decrypt = new(new byte[64], true);
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
-        public readonly Player Conn = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
+        public readonly Player Player = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
         public NetworkStream Stream => writer.GetStream();
         public Wire()
         {
@@ -155,7 +155,7 @@ public sealed class NpcConversationTests
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accepting.GetAwaiter().GetResult();
-            Conn.Session = new("test", Stream, Ciphers);
+            Player.Connection.Session = new("test", Stream, Ciphers);
         }
         /// <summary>The next <paramref name="count"/> bytes the server wrote, or null when it wrote nothing.</summary>
         public byte[]? Sent(int count)
@@ -166,6 +166,6 @@ public sealed class NpcConversationTests
             decrypt.Receive.Process(bytes);
             return bytes;
         }
-        public void Dispose() { Conn.Closed = true; reader.Dispose(); writer.Dispose(); listener.Stop(); }
+        public void Dispose() { Player.Closed = true; reader.Dispose(); writer.Dispose(); listener.Stop(); }
     }
 }

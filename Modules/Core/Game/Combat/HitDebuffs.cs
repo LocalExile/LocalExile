@@ -47,7 +47,7 @@ public static partial class Game
     public static double BlindSeconds(Func<uint, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0);
 
-    // A hit that landed on a living hostile monster, under the Monsters lock. <paramref name="random"/> belongs to the
+    // A hit that landed on a living hostile monster, in the area's frame. <paramref name="random"/> belongs to the
     // hit so projectile draws stay in order; callers without one use AreaRng(conn).
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
         Random? random = null)
@@ -131,7 +131,7 @@ public static partial class Game
         return Math.Min(0, minimum < 0 ? Math.Min(magnitude, minimum) : magnitude);
     }
 
-    // A hit that landed on a living monster, under the Monsters lock: each element's Exposure for 4 s, a later one of the
+    // A hit that landed on a living monster, in the area's frame: each element's Exposure for 4 s, a later one of the
     // same magnitude restarting it. Then Elemental Equilibrium (poedb: "Hits that deal Elemental Damage remove Exposure to
     // those Elements and inflict Exposure to other Elements"), after the hit's own Exposure as in PoB, for 4 s too:
     // Exposure's default duration, as the keystone names none.
@@ -198,7 +198,7 @@ public static partial class Game
         return seconds / Math.Max(0.01, 1 + get(Stat.WitherExpireSpeedPlusPct) / 100.0);
     }
 
-    // A hit that landed on a living monster, under the Monsters lock: one more Withered stack, with withered_effect_+%.
+    // A hit that landed on a living monster, in the area's frame: one more Withered stack, with withered_effect_+%.
     public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random)
     {
         if (m.Mods.Effects[Stat.ImmuneToWither] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;

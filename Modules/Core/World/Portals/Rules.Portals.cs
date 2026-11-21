@@ -4,10 +4,10 @@ using GameServer.Core.Protocol.Login;
 
 static partial class PortalsRules
 {
-    internal static IEnumerable<Player> DeviceVisitors(Player conn) =>
-        Program.InGame.Keys.Append(conn).Distinct().Where(c => !c.Closed && !c.LeavingArea
-            && (c.InstanceNumber == conn.InstanceNumber && c.Layout.Hash == conn.Layout.Hash
-                || c.MapPortalRun?.Owner == CharacterName(conn)));
+    internal static IEnumerable<Player> DeviceVisitors(Player player) =>
+        Program.InGame.Keys.Append(player).Distinct().Where(c => !c.Closed && !c.LeavingArea
+            && (c.InstanceNumber == player.InstanceNumber && c.Layout.Hash == player.Layout.Hash
+                || c.MapPortalRun?.Owner == CharacterName(player)));
 
     internal static async Task RetireMapPortal(MapDevice.OpenMap run, int index)
     {
@@ -36,21 +36,21 @@ static partial class PortalsRules
     // burst is not done yet (live 2026-10-20), so each portal is listed MapPortalListMs after its create; on entering the
     // area the objects also wait until the world is active (firstAfterMs). A newer Activate or the portals' removal stops
     // the sequence.
-    internal static Task SpawnMapPortals(Player conn, MapDevice.OpenMap open, int firstAfterMs = 0)
+    internal static Task SpawnMapPortals(Player player, MapDevice.OpenMap open, int firstAfterMs = 0)
     {
-        if (MapDeviceHere(conn) is not { } device) return Task.CompletedTask;
+        if (MapDeviceHere(player) is not { } device) return Task.CompletedTask;
         uint deviceId = device.Id;
         var centre = (device.X, device.Y);
-        if (device.Campaign && new QuestObjectTypes.AreaPlacements(conn.Layout.Id, conn.Seed, [])
+        if (device.Campaign && new QuestObjectTypes.AreaPlacements(player.Layout.Id, player.Seed, [])
             .Of(MapDevice.CampaignDeviceType + "_Main").FirstOrDefault() is { } orrery)
             centre = (orrery.X, orrery.Y);
-        conn.MapPortalRun = open;
-        int generation = Interlocked.Increment(ref conn.MapPortalGeneration);
-        bool Current() => !conn.Closed && !conn.LeavingArea && conn.MapPortalGeneration == generation
+        player.MapPortalRun = open;
+        int generation = Interlocked.Increment(ref player.MapPortalGeneration);
+        bool Current() => !player.Closed && !player.LeavingArea && player.MapPortalGeneration == generation
             && MapDevice.OpenOf(open.Owner)?.Run == open.Run;
         bool Available(int index) => Current() && MapDevice.OpenOf(open.Owner)?.Left.Contains(index) == true;
         uint type = InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath);
-        _ = Task.Run(async () =>
+        _ = AreaFrames.Start(async () =>
         {
             try
             {
@@ -62,48 +62,48 @@ static partial class PortalsRules
                     if (n++ > 0) await Task.Delay(MapPortalGapMs);
                     if (!Current()) return;
                     if (!Available(index)) continue;
-                    uint id = conn.TakeObjectId();
+                    uint id = player.TakeObjectId();
                     var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
-                    var (x, y) = device.Campaign && conn.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
-                        ? conn.Layout.Near(ring) : ring;
-                    await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, type,
-                            new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
+                    var (x, y) = device.Campaign && player.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
+                        ? player.Layout.Near(ring) : ring;
+                    await global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, type,
+                            new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()),
                                 $"0x02bb create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})", wake: true, awaitBirth: false);
                     bool keep;
-                    lock (conn.MapPortals)
+                    lock (player.MapPortals)
                     {
                         keep = Available(index);
-                        if (keep) conn.MapPortals[id] = (x, y, index);
+                        if (keep) player.MapPortals[id] = (x, y, index);
                     }
                     if (!keep)
                     {
-                        await global::Game.SendWorldRemoval(conn, id, null);
+                        await global::Game.SendWorldRemoval(player, id, null);
                         continue;
                     }
                     await Task.Delay(MapPortalListMs);
                     if (!Current()) return;
-                    await SendMapPortals(conn, deviceId, open.Area.Hash16);
+                    await SendMapPortals(player, deviceId, open.Area.Hash16);
                 }
                 // Every portal but the last was listed again with the next one; the last gets its second listing here
                 // (Game.ListPortal says why one listing can be lost).
                 if (n == 0) return;
                 await Task.Delay(MapPortalRelistMs);
-                if (Current()) await SendMapPortals(conn, deviceId, open.Area.Hash16);
+                if (Current()) await SendMapPortals(player, deviceId, open.Area.Hash16);
             }
             catch (Exception e) when (e is IOException or ObjectDisposedException) { } // The visitor left during the sequence.
         });
         return Task.CompletedTask;
     }
 
-    internal static async Task RemoveMapPortals(Player conn)
+    internal static async Task RemoveMapPortals(Player player)
     {
         List<uint> ids;
-        Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them
-        lock (conn.MapPortals) { ids = [.. conn.MapPortals.Keys]; conn.MapPortals.Clear(); }
-        uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
+        Interlocked.Increment(ref player.MapPortalGeneration);   // stops a sequence still placing them
+        lock (player.MapPortals) { ids = [.. player.MapPortals.Keys]; player.MapPortals.Clear(); }
+        uint deviceId = MapDeviceHere(player)?.Id ?? 0;
         if (ids.Count > 0 && deviceId != 0)
-            await Send(conn, InstanceMapDevice.Portals(deviceId, [.. ids.Select(id => new InstanceMapDevice.Portal(id, 0))]),
+            await Send(player, InstanceMapDevice.Portals(deviceId, [.. ids.Select(id => new InstanceMapDevice.Portal(id, 0))]),
                 $"0x008f map device 0x{deviceId:x}: {ids.Count} portal(s) closed");
-        foreach (uint id in ids) await global::Game.SendWorldRemoval(conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{id:x}");
+        foreach (uint id in ids) await global::Game.SendWorldRemoval(player, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{id:x}");
     }
 }

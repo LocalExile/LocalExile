@@ -51,13 +51,13 @@ public static partial class Game
     public static EssenceCrafting HardModeEssences = default!;
     public static readonly ConcurrentDictionary<string, ItemDrops> HardModeDrops = new();
 
-    public static ItemCatalog ItemsFor(Player conn) => LeagueFor(conn).HardMode ? HardModeItems : Items;
-    public static SkillCatalog SkillsFor(Player conn) => LeagueFor(conn).HardMode ? HardModeSkills : Skills;
-    public static PassiveTree PassivesFor(Player conn) => LeagueFor(conn).HardMode ? HardModePassives : Passives;
-    public static ItemRolls RollsFor(Player conn) => LeagueFor(conn).HardMode ? HardModeRolls : Rolls;
-    public static UniqueCatalog UniquesFor(Player conn) => LeagueFor(conn).HardMode ? HardModeUniques : Uniques;
-    public static EssenceCrafting EssencesFor(Player conn) => LeagueFor(conn).HardMode ? HardModeEssences : Essences;
-    public static ItemDrops DropsFor(Player conn) => LeagueFor(conn) is { HardMode: true } league
+    public static ItemCatalog ItemsFor(Player player) => LeagueFor(player).HardMode ? HardModeItems : Items;
+    public static SkillCatalog SkillsFor(Player player) => LeagueFor(player).HardMode ? HardModeSkills : Skills;
+    public static PassiveTree PassivesFor(Player player) => LeagueFor(player).HardMode ? HardModePassives : Passives;
+    public static ItemRolls RollsFor(Player player) => LeagueFor(player).HardMode ? HardModeRolls : Rolls;
+    public static UniqueCatalog UniquesFor(Player player) => LeagueFor(player).HardMode ? HardModeUniques : Uniques;
+    public static EssenceCrafting EssencesFor(Player player) => LeagueFor(player).HardMode ? HardModeEssences : Essences;
+    public static ItemDrops DropsFor(Player player) => LeagueFor(player) is { HardMode: true } league
         ? HardModeDrops[league.Id] : Drops;
 
     public sealed class VitalsAdmission
@@ -69,98 +69,89 @@ public static partial class Game
     // Registration precedes expensive progress preparation. An older preparation cannot claim resources after a
     // newer connection was admitted. Entries are removed when their latest connection finishes, including refusals.
     public static readonly ConcurrentDictionary<(string Database, Guid Character), VitalsAdmission> VitalsAdmissions = new();
-    public static (string, Guid)? VitalsAdmissionKey(Player conn) => conn.CharacterId is { } id
+    public static (string, Guid)? VitalsAdmissionKey(Player player) => player.Character.Id is { } id
         ? (Path.GetFullPath(Saves.Db.Path).ToUpperInvariant(), id) : null;
 
-    public static void RegisterVitalsAdmission(Player conn)
+    public static void RegisterVitalsAdmission(Player player)
     {
-        if (!LeagueFor(conn).Rules.PersistsVitals) return;
-        lock (conn.Monsters)
+        if (!LeagueFor(player).Rules.PersistsVitals) return;
+        var key = VitalsAdmissionKey(player)
+            ?? throw new InvalidOperationException("Saved life and mana require an admitted character identity");
+        while (true)
         {
-            var key = VitalsAdmissionKey(conn)
-                ?? throw new InvalidOperationException("Saved life and mana require an admitted character identity");
-            while (true)
+            var admission = VitalsAdmissions.GetOrAdd(key, _ => new());
+            lock (admission.Gate)
             {
-                var admission = VitalsAdmissions.GetOrAdd(key, _ => new());
-                lock (admission.Gate)
-                {
-                    if (!VitalsAdmissions.TryGetValue(key, out var current) || !ReferenceEquals(current, admission)) continue;
-                    admission.Latest = conn.VitalsSessionId;
-                    break;
-                }
+                if (!VitalsAdmissions.TryGetValue(key, out var current) || !ReferenceEquals(current, admission)) continue;
+                admission.Latest = player.VitalsSessionId;
+                break;
             }
         }
     }
 
-    public static void InitializeCharacterVitals(Player conn)
+    public static void InitializeCharacterVitals(Player player)
     {
-        lock (conn.Monsters)
+        uint maxLife = LifeCap(player), maxMana = (uint)UnreservedMana(player);
+        (uint Life, uint Mana) initial;
+        if (!LeagueFor(player).Rules.PersistsVitals) initial = InitialVitals(false, null, maxLife, maxMana);
+        else
         {
-            uint maxLife = LifeCap(conn), maxMana = (uint)UnreservedMana(conn);
-            (uint Life, uint Mana) initial;
-            if (!LeagueFor(conn).Rules.PersistsVitals) initial = InitialVitals(false, null, maxLife, maxMana);
-            else
+            var key = VitalsAdmissionKey(player);
+            if (key is null || !VitalsAdmissions.TryGetValue(key.Value, out var admission))
+                throw new InvalidOperationException("Saved-vitals admission was not registered");
+            lock (admission.Gate)
             {
-                var key = VitalsAdmissionKey(conn);
-                if (key is null || !VitalsAdmissions.TryGetValue(key.Value, out var admission))
-                    throw new InvalidOperationException("Saved-vitals admission was not registered");
-                lock (admission.Gate)
-                {
-                    if (admission.Latest != conn.VitalsSessionId)
-                        throw new InvalidOperationException("A newer connection superseded this resource admission");
-                    initial = CharacterSaves.BeginVitalsSession(CharacterName(conn), key.Value.Item2,
-                        conn.VitalsSessionId, conn.League, save => InitialVitals(true, save, maxLife, maxMana));
-                }
+                if (admission.Latest != player.VitalsSessionId)
+                    throw new InvalidOperationException("A newer connection superseded this resource admission");
+                initial = CharacterSaves.BeginVitalsSession(CharacterName(player), key.Value.Item2,
+                    player.VitalsSessionId, player.Character.League, save => InitialVitals(true, save, maxLife, maxMana));
             }
-            conn.PlayerLife = initial.Life;
-            conn.PlayerMana = initial.Mana;
-            conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
-            conn.AuraDeathHandled = false;
         }
+        player.PlayerLife = initial.Life;
+        player.PlayerMana = initial.Mana;
+        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: true);
+        player.AuraDeathHandled = false;
     }
 
-    public static void ForgetVitalsAdmission(Player conn)
+    public static void ForgetVitalsAdmission(Player player)
     {
-        if (!LeagueFor(conn).Rules.PersistsVitals || VitalsAdmissionKey(conn) is not { } key
+        if (!LeagueFor(player).Rules.PersistsVitals || VitalsAdmissionKey(player) is not { } key
             || !VitalsAdmissions.TryGetValue(key, out var admission)) return;
         lock (admission.Gate)
-            if (admission.Latest == conn.VitalsSessionId)
+            if (admission.Latest == player.VitalsSessionId)
                 VitalsAdmissions.TryRemove(new KeyValuePair<(string, Guid), VitalsAdmission>(key, admission));
     }
 
-    public static void PersistVitals(Player conn, bool bestEffort = false)
+    public static void PersistVitals(Player player, bool bestEffort = false)
     {
-        if (!LeagueFor(conn).Rules.PersistsVitals) return;
+        if (!LeagueFor(player).Rules.PersistsVitals) return;
         try
         {
-            lock (conn.Monsters)
-                if (!conn.LeavingArea && conn.CharacterId is { } id)
-                    CharacterSaves.SaveVitals(CharacterName(conn), id, conn.VitalsSessionId, conn.League,
-                        conn.PlayerLife, conn.PlayerMana);
+            if (!player.LeavingArea && player.Character.Id is { } id)
+                CharacterSaves.SaveVitals(CharacterName(player), id, player.VitalsSessionId, player.Character.League,
+                    player.PlayerLife, player.PlayerMana);
         }
         catch (Exception e) when (bestEffort)
         {
-            Console.WriteLine($"[vitals] {CharacterName(conn)}: resource pools not saved; will retry: {ServerLog.Describe(e)}");
+            Console.WriteLine($"[vitals] {CharacterName(player)}: resource pools not saved; will retry: {ServerLog.Describe(e)}");
         }
     }
 
     // Save and retire before Auth can issue the destination ticket. Neither periodic nor disconnect saves from the
     // source may follow that handoff. An Auth refusal can resume only this same retired token, never a newer owner.
-    public static bool RetireVitalsForTransfer(Player conn)
+    public static bool RetireVitalsForTransfer(Player player)
     {
-        if (!LeagueFor(conn).Rules.PersistsVitals) return true;
-        if (conn.CharacterId is not { } id) return false;
-        lock (conn.Monsters)
-            return CharacterSaves.SaveVitals(CharacterName(conn), id, conn.VitalsSessionId, conn.League,
-                conn.PlayerLife, conn.PlayerMana, retire: true);
+        if (!LeagueFor(player).Rules.PersistsVitals) return true;
+        if (player.Character.Id is not { } id) return false;
+        return CharacterSaves.SaveVitals(CharacterName(player), id, player.VitalsSessionId, player.Character.League,
+            player.PlayerLife, player.PlayerMana, retire: true);
     }
 
-    public static void ResumeVitalsAfterFailedTransfer(Player conn)
+    public static void ResumeVitalsAfterFailedTransfer(Player player)
     {
-        if (!LeagueFor(conn).Rules.PersistsVitals || conn.CharacterId is not { } id) return;
-        lock (conn.Monsters)
-            CharacterSaves.ResumeVitalsSession(CharacterName(conn), id, conn.VitalsSessionId, conn.League,
-                conn.PlayerLife, conn.PlayerMana);
+        if (!LeagueFor(player).Rules.PersistsVitals || player.Character.Id is not { } id) return;
+        CharacterSaves.ResumeVitalsSession(CharacterName(player), id, player.VitalsSessionId, player.Character.League,
+            player.PlayerLife, player.PlayerMana);
     }
 
     public static (uint Life, uint Mana) InitialVitals(bool persists, CharacterSaves.Save? saved, uint maxLife, uint maxMana)
@@ -171,27 +162,24 @@ public static partial class Game
             : (maxLife, maxMana);
     }
 
-    public static IReadOnlyList<(uint Id, uint Life)> RecoverBossesOnDeath(Player conn)
+    public static IReadOnlyList<(uint Id, uint Life)> RecoverBossesOnDeath(Player player)
     {
-        lock (conn.Monsters)
-        {
-            var settings = LeagueFor(conn).Rules;
-            if (settings.BossLifeRecoveryFraction <= 0 || conn.PlayerLife != 0 || conn.BossRecoveryHandled) return [];
-            conn.BossRecoveryHandled = true;
-            if (!settings.BossRecoveryAreaPrefixes.Any(p => conn.Layout.Id.StartsWith(p, StringComparison.Ordinal))) return [];
-            double now = AreaTime(conn);
-            var at = conn.Walk.Position(now);
-            List<(uint, uint)> changed = [];
-            foreach (var (id, monster) in conn.Monsters)
-                if (!monster.Dead && monster.Life > 0 && monster.Variety?.BossHealthBar == true
-                    && Dist(monster.Walk.Position(now), at) <= ExperienceRange)
-                {
-                    uint life = LeagueGameplay.BossLifeAfterDeath(monster.Life, monster.MaxLife, settings.BossLifeRecoveryFraction);
-                    if (life == monster.Life) continue;
-                    monster.Life = life;
-                    changed.Add((id, life));
-                }
-            return changed;
-        }
+        var settings = LeagueFor(player).Rules;
+        if (settings.BossLifeRecoveryFraction <= 0 || player.PlayerLife != 0 || player.BossRecoveryHandled) return [];
+        player.BossRecoveryHandled = true;
+        if (!settings.BossRecoveryAreaPrefixes.Any(p => player.Layout.Id.StartsWith(p, StringComparison.Ordinal))) return [];
+        double now = AreaTime(player);
+        var at = player.Walk.Position(now);
+        List<(uint, uint)> changed = [];
+        foreach (var (id, monster) in player.Area.Monsters)
+            if (!monster.Dead && monster.Life > 0 && monster.Variety?.BossHealthBar == true
+                && Dist(monster.Walk.Position(now), at) <= ExperienceRange)
+            {
+                uint life = LeagueGameplay.BossLifeAfterDeath(monster.Life, monster.MaxLife, settings.BossLifeRecoveryFraction);
+                if (life == monster.Life) continue;
+                monster.Life = life;
+                changed.Add((id, life));
+            }
+        return changed;
     }
 }

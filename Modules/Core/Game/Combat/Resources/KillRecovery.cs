@@ -41,29 +41,26 @@ public static partial class Game
 {
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): its "on kill" recovery, at once. The
     // amounts follow the last player stat snapshot (ConfigureLeech), so a pack's deaths do not each rebuild the stats.
-    public static void RecoverOnKill(Player conn, SpawnedMonster m)
+    public static void RecoverOnKill(Player player, SpawnedMonster m)
     {
-        lock (conn.Monsters)
-        {
-            var session = LeechOf(conn);
-            if (conn.PlayerLife == 0) return;
-            // The corpse keeps its killing hit's ailments (wiki Ailment: they count as killing an affected enemy); a
-            // shattered one kept only that it was frozen.
-            double now = ProjectileWorldTime(conn);
-            var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
-                m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
-            k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] : 0),
-                Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] };
-            static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
-            uint life = conn.PlayerLife, mana = conn.PlayerMana;
-            conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,
-                Amount(k.Life, k.LifePct, conn.PlayerMaxLife), ref session.LifeInstantCarry, minimum: 1);
-            conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), Amount(k.Mana, k.ManaPct, conn.Pools.Mana),
-                ref session.ManaInstantCarry);
-            conn.EnergyShield.Gain(Amount(k.EnergyShield, k.EnergyShieldPct, conn.EnergyShield.Maximum));
-            // Sent with the next vitals update, as instant leech is.
-            session.InstantLifeChanged |= life != conn.PlayerLife;
-            session.InstantManaChanged |= mana != conn.PlayerMana;
-        }
+        var session = LeechOf(player);
+        if (player.PlayerLife == 0) return;
+        // The corpse keeps its killing hit's ailments (wiki Ailment: they count as killing an affected enemy); a
+        // shattered one kept only that it was frozen.
+        double now = ProjectileWorldTime(player);
+        var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
+            m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
+        k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] : 0),
+            Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] };
+        static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
+        uint life = player.PlayerLife, mana = player.PlayerMana;
+        player.PlayerLife = PetrifiedBlood.RecoverLife(player, life,
+            Amount(k.Life, k.LifePct, player.PlayerMaxLife), ref session.LifeInstantCarry, minimum: 1);
+        player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), Amount(k.Mana, k.ManaPct, player.Pools.Mana),
+            ref session.ManaInstantCarry);
+        player.EnergyShield.Gain(Amount(k.EnergyShield, k.EnergyShieldPct, player.EnergyShield.Maximum));
+        // Sent with the next vitals update, as instant leech is.
+        session.InstantLifeChanged |= life != player.PlayerLife;
+        session.InstantManaChanged |= mana != player.PlayerMana;
     }
 }

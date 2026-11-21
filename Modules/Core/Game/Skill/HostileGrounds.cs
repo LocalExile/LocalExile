@@ -51,32 +51,29 @@ public static partial class Game
     /// <summary>Lays a ground of the kind at a cell for a time (seconds), reaching <paramref name="radius"/> cells,
     /// keeping its buff with <paramref name="stats"/> on the player standing in it. A kind without art (Art "") sends no
     /// object: the skill's own action draws that ground.</summary>
-    public static async Task PlaceHostileGround(Player conn, uint owner, GroundKind kind,
+    public static async Task PlaceHostileGround(Player player, uint owner, GroundKind kind,
         IReadOnlyDictionary<uint, int> stats, (int X, int Y) at, double radius, double seconds)
     {
         if (radius <= 0 || seconds <= 0) return;
         uint placed = 0;
-        await SendWorldBatch(conn, [], admission =>
+        await SendWorldBatch(player, [], admission =>
         {
-            lock (conn.Monsters)
-            {
-                if (conn.Closed || conn.LeavingArea) return null;
-                double now = AreaTime(conn);
-                uint ground = conn.TakeObjectId();
-                bool drawn = kind.Art.Length > 0;
-                conn.MonsterPlaced.Grounds[ground] = new(ground, owner, kind.BuffRow, stats, at, radius, now + seconds, conn.Layout, drawn);
-                placed = ground;
-                if (!drawn) return null;
-                float scale = kind.ArtRadius > 0 ? (float)(radius * WorldPerCell / kind.ArtRadius) : 1;
-                var bytes = new WorldRecordBuilder(conn, admission);
-                bytes.Create(ground, InstanceEntities.CreateObject(ground, InstanceEntities.ObjectTypeHash(GroundEffectObject.TypePath),
-                    new GroundEffectObject(at.X, at.Y, kind.ArtRow, kind.Art, (float)seconds) { Scale = scale, Team = 1 }.Blob()));
-                bytes.Presentation(ground, InstanceProtocol.EnterWakeZone(ground));
-                return bytes.Build();
-            }
+            if (player.Closed || player.LeavingArea) return null;
+            double now = AreaTime(player);
+            uint ground = player.TakeObjectId();
+            bool drawn = kind.Art.Length > 0;
+            player.MonsterPlaced.Grounds[ground] = new(ground, owner, kind.BuffRow, stats, at, radius, now + seconds, player.Layout, drawn);
+            placed = ground;
+            if (!drawn) return null;
+            float scale = kind.ArtRadius > 0 ? (float)(radius * WorldPerCell / kind.ArtRadius) : 1;
+            var bytes = new WorldRecordBuilder(player, admission);
+            bytes.Create(ground, InstanceEntities.CreateObject(ground, InstanceEntities.ObjectTypeHash(GroundEffectObject.TypePath),
+                new GroundEffectObject(at.X, at.Y, kind.ArtRow, kind.Art, (float)seconds) { Scale = scale, Team = 1 }.Blob()));
+            bytes.Presentation(ground, InstanceProtocol.EnterWakeZone(ground));
+            return bytes.Build();
         });
         if (placed != 0)
-            Console.WriteLine($"[gateway] {conn.Remote} monster 0x{owner:x} leaves {kind.Type} ground 0x{placed:x} (GroundEffects row {kind.ArtRow}) at "
+            Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{owner:x} leaves {kind.Type} ground 0x{placed:x} (GroundEffects row {kind.ArtRow}) at "
                 + $"({at.X}, {at.Y}), radius {radius:0.#}, {seconds:0.#} s: " + string.Join(", ", stats.Select(s => $"{s.Key} {s.Value}")));
     }
 
@@ -88,43 +85,40 @@ public static partial class Game
 
     /// <summary>Each AI step: the grounds whose time is up (or of another area) go, and the player standing in grounds
     /// holds each kind's buff with the strongest one's stats.</summary>
-    static async Task HostileGroundsTick(Player conn)
+    static async Task HostileGroundsTick(Player player)
     {
-        var placed = conn.MonsterPlaced;
-        var holders = GroundHolders.GetValue(conn, _ => []);
+        var placed = player.MonsterPlaced;
+        var holders = GroundHolders.GetValue(player, _ => []);
         if (placed.Grounds.Count == 0 && holders.Count == 0) return;
         Dictionary<ushort, MonsterPlacedObjects.Ground?> standing = [];
-        await SendWorldBatch(conn, [], admission =>
+        await SendWorldBatch(player, [], admission =>
         {
-            lock (conn.Monsters)
+            if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return null;
+            double now = AreaTime(player);
+            var bytes = new WorldRecordBuilder(player, admission);
+            foreach (var ground in placed.Grounds.Values.ToArray())
             {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return null;
-                double now = AreaTime(conn);
-                var bytes = new WorldRecordBuilder(conn, admission);
-                foreach (var ground in placed.Grounds.Values.ToArray())
-                {
-                    bool here = ReferenceEquals(ground.Area, conn.Layout);
-                    if (here && now < ground.Until) continue;
-                    placed.Grounds.Remove(ground.Id);
-                    if (here && ground.Drawn) bytes.Remove(ground.Id);
-                }
-                var player = conn.Walk.Position(now);
-                bool exposed = conn.PlayerLife > 0 && !InGracePeriod(conn);
-                foreach (ushort row in holders.Keys) standing[row] = null;
-                foreach (var ground in placed.Grounds.Values)
-                {
-                    if (!exposed || Dist(player, ground.At) > ground.Radius) continue;
-                    if (standing.GetValueOrDefault(ground.BuffRow) is { } best && Strength(best) >= Strength(ground)) continue;
-                    standing[ground.BuffRow] = ground;
-                }
-                return bytes.Count > 0 ? bytes.Build() : null;
+                bool here = ReferenceEquals(ground.Area, player.Layout);
+                if (here && now < ground.Until) continue;
+                placed.Grounds.Remove(ground.Id);
+                if (here && ground.Drawn) bytes.Remove(ground.Id);
             }
+            var playerAt = player.Walk.Position(now);
+            bool exposed = player.PlayerLife > 0 && !InGracePeriod(player);
+            foreach (ushort row in holders.Keys) standing[row] = null;
+            foreach (var ground in placed.Grounds.Values)
+            {
+                if (!exposed || Dist(playerAt, ground.At) > ground.Radius) continue;
+                if (standing.GetValueOrDefault(ground.BuffRow) is { } best && Strength(best) >= Strength(ground)) continue;
+                standing[ground.BuffRow] = ground;
+            }
+            return bytes.Count > 0 ? bytes.Build() : null;
         });
         foreach (var (row, ground) in standing)
         {
             var holder = holders.TryGetValue(row, out var h) ? h : holders[row] = new object();
-            if (ground is null) { await ReleasePlayerDebuff(conn, holder); holders.Remove(row); }
-            else await HoldPlayerDebuff(conn, holder, row, ground.Owner, ground.Stats);
+            if (ground is null) { await ReleasePlayerDebuff(player, holder); holders.Remove(row); }
+            else await HoldPlayerDebuff(player, holder, row, ground.Owner, ground.Stats);
         }
     }
 

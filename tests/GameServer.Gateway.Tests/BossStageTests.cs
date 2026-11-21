@@ -27,38 +27,39 @@ public sealed class BossStageTests
         {
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-            var conn = new Player(new(1, "stage", 100, 100, 10, 10, null, []), 1, 1);
+            var player = new Player(new(1, "stage", 100, 100, 10, 10, null, []), 1, 1);
             var m = new SpawnedMonster("Hillock", new PlayerWalk(10, 10, 1), 60, 2, maxLife: 311)
             {
                 Stage = BossFights.For(hillock), StageRunning = true, Life = 141, BusyUntil = 13,
                 StageEffectAt = 10 + BossFights.For(hillock)!.EffectSeconds(clip),
             };
-            conn.Monsters[7] = m;
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 10.74));
+            player.Area.Monsters[7] = m;
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 10.74));
             Assert.Equal(141u, m.Life);
-            conn.Clock.Stop();
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 10.75));
+            player.Clock.Stop();
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 10.75));
             Assert.Equal(141u, m.Life);
-            conn.Clock.Start();
-            conn.LeavingArea = true;
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 10.75));
-            conn.LeavingArea = false;
-            conn.Monsters.Remove(7);
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 10.75));
-            conn.Monsters[7] = m;
+            player.Clock.Start();
+            player.LeavingArea = true;
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 10.75));
+            player.LeavingArea = false;
+            player.Area.Monsters.Remove(7);
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 10.75));
+            player.Area.Monsters[7] = m;
             m.Dead = true;
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 10.75));
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 10.75));
             m.Dead = false;
-            Assert.NotNull(Game.AdvanceMonsterStage(conn, 7, m, 10.75));
+            // The heal goes out as the area's Life (AreaLife); this Hillock has no Transitionable to write.
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 10.75));
             Assert.Equal(311u, m.Life);
             Assert.True(m.StageRunning);
             Assert.True(m.StageEffectApplied);
             m.Life = 200;
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 12.99));
-            Assert.NotNull(Game.AdvanceMonsterStage(conn, 7, m, 13));
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 12.99));
+            Assert.NotNull(Game.AdvanceMonsterStage(player, 7, m, 13));
             Assert.Equal(200u, m.Life); // Recovery ends without a second heal.
             Assert.False(m.StageRunning);
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 14));
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 14));
 
             // Ordinary hits and projectiles use the chronological runtime, rather than the async stage worker.
             using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -67,13 +68,13 @@ public sealed class BossStageTests
             using var writer = new TcpClient();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             using var reader = await accepting;
-            var session = new Game.ProjectileSession(conn);
+            var session = new Game.ProjectileSession(player);
             var chronological = new SpawnedMonster("Hillock", new PlayerWalk(10, 10, 1), 60, 2, maxLife: 311)
             {
                 Stage = BossFights.For(hillock), StageRunning = true, Life = 141,
                 Variety = new MonsterCatalog().Find(hillock),
             };
-            conn.Monsters[8] = chronological;
+            player.Area.Monsters[8] = chronological;
             Game.CommitProjectileBossStage(session, 8, chronological, ProjectileRuntime.Time(10));
             session.AdvanceTo(ProjectileRuntime.Time(10.74));
             Assert.Equal(141u, chronological.Life);
@@ -90,7 +91,7 @@ public sealed class BossStageTests
             m.StageRunning = true;
             m.StageEffectApplied = false;
             lifetime.Stop(ex => throw ex);
-            Assert.Null(Game.AdvanceMonsterStage(conn, 7, m, 14));
+            Assert.Null(Game.AdvanceMonsterStage(player, 7, m, 14));
         }
         finally
         {

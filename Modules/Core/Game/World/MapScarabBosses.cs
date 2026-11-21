@@ -36,13 +36,13 @@ public static class MapScarabBosses
         if (!request.Campaign && request.Opening is not null && Bosses.Count > 0) request.HandledContent.Add(Terrors);
     }
 
-    public static IReadOnlyList<AreaPopulation.Spawn> Guards(Player conn, IReadOnlyList<(int X, int Y)> shrines,
+    public static IReadOnlyList<AreaPopulation.Spawn> Guards(Player player, IReadOnlyList<(int X, int Y)> shrines,
         IReadOnlyList<AreaPopulation.Spawn> existing, AreaLayout? layout = null)
     {
         // The population is planned ahead of the area's entry, before conn.Layout is the area's: it hands its layout.
-        layout ??= conn.Layout;
-        if (MapModsOf(conn)?.Get(Stat.MapShrinesHaveStandaloneMapBoss) is not > 0 || Bosses.Count == 0) return [];
-        var random = new Random(unchecked((int)(conn.Seed ^ 0x54455252)));
+        layout ??= player.Layout;
+        if (MapModsOf(player)?.Get(Stat.MapShrinesHaveStandaloneMapBoss) is not > 0 || Bosses.Count == 0) return [];
+        var random = new Random(unchecked((int)(player.Seed ^ 0x54455252)));
         var result = new List<AreaPopulation.Spawn>();
         foreach (var at in shrines.Distinct())
         {

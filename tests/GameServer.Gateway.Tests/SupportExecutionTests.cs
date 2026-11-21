@@ -8,23 +8,25 @@ public sealed class SupportExecutionTests
     static Dictionary<uint, int> With(params (string Name, int Value)[] values) =>
         values.ToDictionary(v => Program.Stats.Key(v.Name)!.Value, v => v.Value);
 
-    static Player Connection(string name)
+    static Player PlayerOf(string name)
     {
-        var conn = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = name, Experience = CharacterStats.ExperienceFor(100) },
+            PlayerLife = 1000,
+            PlayerMana = 1000,
+            Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
-        TestRequirements.Waive(conn);
-        return conn;
+        TestRequirements.Waive(player);
+        return player;
     }
 
     static Item Gem(string name) => ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)!);
-    static ushort Equip(Player conn, string active, string support)
+    static ushort Equip(Player player, string active, string support)
     {
-        var items = Game.ItemsOf(conn);
+        var items = Game.ItemsOf(player);
         foreach (var previous in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Weapon1))
             items.Remove(PlayerInventories.Weapon1, previous.Item.Id);
         var sword = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1")!);
@@ -32,7 +34,7 @@ public sealed class SupportExecutionTests
         {
             Sockets = [new(SocketColour.White, Gem(active)), new(SocketColour.White, Gem(support))], Links = [2],
         });
-        return Game.GemSkillEffects(conn).Single().Id;
+        return Game.GemSkillEffects(player).Single().Id;
     }
 
     [Fact]
@@ -41,12 +43,12 @@ public sealed class SupportExecutionTests
         string path = Path.Combine(Path.GetTempPath(), $"supports-cooldown-{Guid.NewGuid():N}.db");
         var previous = Program.GameLogicOrNull;
         Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SecondWindAcceptance");
+        var player = PlayerOf("SecondWindAcceptance");
         try
         {
-            ushort id = Equip(conn, "SkillGemDash", "SupportGemSecondWind");
-            var gem = Game.SupportedSkill(conn, id);
-            var resolved = Game.CooldownFor(conn, gem.Effect, gem.Level, gem.Quality);
+            ushort id = Equip(player, "SkillGemDash", "SupportGemSecondWind");
+            var gem = Game.SupportedSkill(player, id);
+            var resolved = Game.CooldownFor(player, gem.Effect, gem.Level, gem.Quality);
             Assert.True(resolved is not null, string.Join(", ", gem.Stats.Select(s => $"{Program.Stats.Name(s.Key)}={s.Value}")));
             var plan = resolved!.Value;
             // PoEDB: one additional NON-INSTANT use, level-one 24% reduced recovery, 200% cost multiplier.
@@ -78,22 +80,22 @@ public sealed class SupportExecutionTests
             Assert.True(state.TryUse(100, zero)); Assert.True(state.TryUse(100, zero));
             state.Refresh(1000, 0); Assert.False(state.Ready);
             // Instant skills receive recovery and cost modifiers, but never the extra use.
-            id = Equip(conn, "SkillGemFrostblink", "SupportGemSecondWind");
-            gem = Game.SupportedSkill(conn, id);
-            plan = Game.CooldownFor(conn, gem.Effect, gem.Level, gem.Quality)!.Value;
+            id = Equip(player, "SkillGemFrostblink", "SupportGemSecondWind");
+            gem = Game.SupportedSkill(player, id);
+            plan = Game.CooldownFor(player, gem.Effect, gem.Level, gem.Quality)!.Value;
             Assert.Equal(1, plan.Uses); Assert.Equal(-24, plan.RecoveryPercent);
             // Native Flame Dash already has three charges; Second Wind grants the fourth.
-            id = Equip(conn, "SkillGemFlameDash", "SupportGemSecondWind");
-            gem = Game.SupportedSkill(conn, id);
-            Assert.Equal(4, Game.CooldownFor(conn, gem.Effect, gem.Level, gem.Quality)!.Value.Uses);
+            id = Equip(player, "SkillGemFlameDash", "SupportGemSecondWind");
+            gem = Game.SupportedSkill(player, id);
+            Assert.Equal(4, Game.CooldownFor(player, gem.Effect, gem.Level, gem.Quality)!.Value.Uses);
             // PoEDB's level-20 penalty (-5) and 20% quality recovery (+5) cancel in the installed native data.
-            var qualityStats = Game.SkillsFor(conn).EffectStats(Game.SkillsFor(conn).EffectRow("SupportSecondWind"), 20, 20)
+            var qualityStats = Game.SkillsFor(player).EffectStats(Game.SkillsFor(player).EffectRow("SupportSecondWind"), 20, 20)
                 .ToDictionary(s => s.Item1, s => s.Item2);
             Assert.Equal(0, qualityStats[Stat.BaseCooldownSpeedPlusPct]);
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+            PlayerInventories.Forget(player.Character.Name!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
 

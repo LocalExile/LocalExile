@@ -5,34 +5,34 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    // Reap's Blood Charges (BloodCharges): held on the connection (Player.BloodCharges, under the Monsters lock),
+    // Reap's Blood Charges (BloodCharges): held on the connection (Player.BloodCharges, in the area's frame),
     // settled by the skill's area sweep (AreaSkillHit), shown by BuffDefinitions 1822 and the Charges tab rows.
 
     // Whether a GrantedEffects row uses Blood Charges (its per-charge damage stat, a constant at every level), decided
     // once per row: CharacterPlayerStats asks on every hit, and resolving a stat set each time would cost a crowd's hits.
     public static readonly ConcurrentDictionary<(bool HardMode, int Effect), bool> BloodChargeEffects = new();
 
-    public static bool UsesBloodCharges(Player conn, int effect) => BloodChargeEffects.GetOrAdd((LeagueFor(conn).HardMode, effect),
+    public static bool UsesBloodCharges(Player player, int effect) => BloodChargeEffects.GetOrAdd((LeagueFor(player).HardMode, effect),
         key => BloodCharges.Uses(name => name is var k
-            ? SkillsFor(conn).EffectStats(key.Effect, 1).Where(s => s.Item1 == k).Select(s => s.Item2).FirstOrDefault() : 0));
+            ? SkillsFor(player).EffectStats(key.Effect, 1).Where(s => s.Item1 == k).Select(s => s.Item2).FirstOrDefault() : 0));
 
     // The Charges tab's rows: the count, the maximum (Character.ot's 5 plus the raw maximum_blood_scythe_charges sources,
     // the Reap enchantment) and show_blood_charge_info while a gem socketed in an active item uses the charges. get reads
     // the sources before this publication, so the base adds once.
-    public static List<(uint Stat, int Value)> BloodChargePanelRows(Player conn, Func<uint, int> get)
+    public static List<(uint Stat, int Value)> BloodChargePanelRows(Player player, Func<uint, int> get)
     {
-        var (held, shown) = BloodChargePanelInputs(conn);
+        var (held, shown) = BloodChargePanelInputs(player);
         return BloodChargePanelRows(held, shown, get);
     }
 
     // The count held and whether the rows show, as the stat snapshot reads them before its tail.
-    public static (int Held, bool Shown) BloodChargePanelInputs(Player conn)
+    public static (int Held, bool Shown) BloodChargePanelInputs(Player player)
     {
         int held;
-        lock (conn.Monsters) held = conn.BloodCharges;
-        var inactive = InactiveItems.GetValueOrDefault(CharacterName(conn));
-        bool shown = ItemsOf(conn).SocketedGemsByItem().Any(g => inactive?.Contains(g.ItemId) != true
-            && ItemsFor(conn).GemEffects(g.Gem).Any(effect => UsesBloodCharges(conn, effect)));
+        held = player.BloodCharges;
+        var inactive = InactiveItems.GetValueOrDefault(CharacterName(player));
+        bool shown = ItemsOf(player).SocketedGemsByItem().Any(g => inactive?.Contains(g.ItemId) != true
+            && ItemsFor(player).GemEffects(g.Gem).Any(effect => UsesBloodCharges(player, effect)));
         return (held, shown);
     }
 
@@ -51,48 +51,43 @@ public static partial class Game
         BloodCharges.Maximum is var key ? Math.Max(0, player.GetValueOrDefault(key)) : BloodCharges.BaseMaximum;
 
     // The skill's more damage from the charges held now, read under the lock with the sweep's other inputs.
-    public static double BloodChargeDamageMore(Player conn, Func<uint, int> own)
+    public static double BloodChargeDamageMore(Player player, Func<uint, int> own)
     {
         if (!BloodCharges.Uses(own)) return 1;
-        lock (conn.Monsters) return BloodCharges.More(own(BloodCharges.DamagePerCharge), conn.BloodCharges);
+        return BloodCharges.More(own(BloodCharges.DamagePerCharge), player.BloodCharges);
     }
 
     // A use of a Blood Charge skill landed: kills take a charge each, a hit without kills gives one. True when the count changed.
-    public static bool SettleBloodChargesLocked(Player conn, IReadOnlyDictionary<uint, int> player, int kills, int survivors)
+    public static bool SettleBloodChargesLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, int kills, int survivors)
     {
-        int before = conn.BloodCharges;
-        conn.BloodCharges = BloodCharges.Settle(before, kills, survivors, BloodChargeMaximum(player));
-        return conn.BloodCharges != before;
+        int before = player.BloodCharges;
+        player.BloodCharges = BloodCharges.Settle(before, kills, survivors, BloodChargeMaximum(playerStats));
+        return player.BloodCharges != before;
     }
 
     // Death takes the charges (BuffDefinitions CancelOnDeath; the client drops the buff itself).
-    public static void ClearBloodChargesOnDeath(Player conn)
+    public static void ClearBloodChargesOnDeath(Player player)
     {
-        conn.BloodCharges = 0;
-        conn.BloodChargeBuff = 0;
-        conn.SentBloodCharges = 0;
+        player.BloodCharges = 0;
+        player.BloodChargeBuff = 0;
+        player.SentBloodCharges = 0;
     }
 
     // The buff with the new count (0x1c2 for the old instance, 0x1c1 with the stacks) and the stats and skills that read
     // the count (SendChargeStats: the panel rows and the skill's damage).
-    public static async Task SendBloodCharges(Player conn, string why)
+    public static async Task SendBloodCharges(Player player, string why)
     {
         int held; ushort remove, add;
-        lock (conn.Monsters)
-        {
-            held = conn.BloodCharges;
-            if (held == conn.SentBloodCharges) return;
-            remove = conn.BloodChargeBuff;
-            add = held > 0 ? conn.NextBuff++ : (ushort)0;
-            conn.BloodChargeBuff = add;
-            conn.SentBloodCharges = held;
-        }
-        if (remove != 0)
-            await SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, remove), $"0x01c2 player buff {remove}: blood_scythe_charge off");
-        if (add != 0)
-            await SendWorldRecord(conn, PlayerId, InstanceEntities.AddBuff(PlayerId, add, BloodCharges.BuffRow, PlayerId,
-                stacks: (ushort)Math.Clamp(held, 0, ushort.MaxValue)), $"0x01c1 player buff {add}: blood_scythe_charge (BuffDefinitions row {BloodCharges.BuffRow}) × {held}");
-        Console.WriteLine($"[gateway] {conn.Remote} blood charges {held} ({why}) (t={AreaTime(conn):0.000})");
-        await SendChargeStats(conn, $"blood charges {held}");
+        held = player.BloodCharges;
+        if (held == player.SentBloodCharges) return;
+        remove = player.BloodChargeBuff;
+        add = (ushort)(held > 0 ? 1 : 0);
+        player.BloodChargeBuff = add;
+        player.SentBloodCharges = held;
+        if (held > 0) player.Area.Buffs.Set(player.Id, new(BloodCharges.BuffRow, player.Id, Stacks: (ushort)Math.Clamp(held, 0, ushort.MaxValue)));
+        else player.Area.Buffs.Clear(player.Id, BloodCharges.BuffRow, player.Id);
+        await Task.CompletedTask;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} blood charges {held} ({why}) (t={AreaTime(player):0.000})");
+        await SendChargeStats(player, $"blood charges {held}");
     }
 }

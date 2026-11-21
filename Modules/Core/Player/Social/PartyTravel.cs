@@ -22,9 +22,9 @@ static class PartyTravel
         .GroupBy(r => (ushort)r.Int("HASH16"))
         .ToDictionary(g => g.Key, g => g.First().Ints("EndQuestFlags").ToArray());
 
-    internal static Player? Member(Player conn, string name) => PartyRoster.TravelMember(conn, name);
+    internal static Player? Member(Player player, string name) => PartyRoster.TravelMember(player, name);
 
-    internal static PendingTransfer? Destination(Player conn, Player member)
+    internal static PendingTransfer? Destination(Player player, Player member)
     {
         if (member.InstanceNumber == 0) return null;
         PendingTransfer destination;
@@ -41,29 +41,29 @@ static class PartyTravel
             if (LabyrinthDay.DifficultyOf(member.Layout.Id) is not null || AreaMods.DisablesPortals(member.Layout.Id))
                 return null;
             bool waypoint;
-            lock (member.Waypoints) waypoint = member.Waypoints.Contains(member.Layout.Id);
+            lock (member.Character.Waypoints) waypoint = member.Character.Waypoints.Contains(member.Layout.Id);
             var arrival = member.ReturnPortal is { } portal && member.ReturnPortalTo != 0
                 ? member.Layout.Near((portal.X, portal.Y)) : member.Layout.Checkpoint(waypoint);
             destination = new(member.Layout.Hash, member.InstanceNumber, false, ArriveAt: arrival);
         }
         if (!Access.TryGetValue(destination.Area, out var required)) return null;
-        var flags = PlayerQuestFlags(conn).ToHashSet();
+        var flags = PlayerQuestFlags(player).ToHashSet();
         return required.All(flags.Contains) ? destination : null;
     }
 
-    internal static async Task<bool> Travel(Player conn, string name)
+    internal static async Task<bool> Travel(Player player, string name)
     {
-        var member = Member(conn, name);
+        var member = Member(player, name);
         if (member is null) return false;
-        var destination = Destination(conn, member);
+        var destination = Destination(player, member);
         if (destination is null)
         {
-            if (conn.Commands is { } commands) await commands.Reply("You cannot travel to that party member's area.");
+            if (player.Commands is { } commands) await commands.Reply("You cannot travel to that party member's area.");
             return true;
         }
-        if (destination.Area == conn.Layout.Hash && destination.Instance == conn.InstanceNumber) return true;
+        if (destination.Area == player.Layout.Hash && destination.Instance == player.InstanceNumber) return true;
         // Pin the selected member's instance: another party member may be in a different copy of the same area.
-        await ChangeArea(conn, destination, $"party panel: travel to {name}");
+        await ChangeArea(player, destination, $"party panel: travel to {name}");
         return true;
     }
 }

@@ -17,77 +17,71 @@ public static partial class Game
     // A ticket nobody connects with (a failed load) is forgotten after a few minutes.
     public static readonly ConcurrentDictionary<uint, (DateTime At, List<Charges.Carried> Charges)> CarriedCharges = new();
 
-    public static ChargeSession ChargesOf(Player conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState,
-        (type, at) => conn.RecentEvents.Record(type switch
+    public static ChargeSession ChargesOf(Player player) => ChargeSessions.GetValue(player, _ => new ChargeSession(player.PlayerChargeState,
+        (type, at) => player.RecentEvents.Record(type switch
         {
             ChargeType.Frenzy => StatConditions.GainedFrenzyCharge,
             ChargeType.Power => StatConditions.GainedPowerCharge,
             _ => StatConditions.GainedEnduranceCharge,
-        }, at), () => ResourceEffectsTime(conn), (from, until) => conn.Walk.MovingSeconds(from, until)));
+        }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until)));
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
     // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it.
-    public static void ChargesOnHit(Player conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
+    public static void ChargesOnHit(Player player, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
         int quality = 0, bool? melee = null, bool primary = true)
     {
         if (critical)
-            lock (conn.Monsters) TryGainElusiveLocked(conn, critical: true, kill: false, ProjectileWorldTime(conn));
+            TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player));
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
-            QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
+            QueueFlaskTrigger(player, FlaskEnchantments.Trigger.RareHit);
         Func<uint, int>? skill = null;
         if (effect >= 0)
         {
-            var own = SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            var own = SkillsFor(player).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
             skill = name => name is var key ? own.GetValueOrDefault(key) : 0;
         }
-        ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
+        ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary));
-        CurseCharges(conn, m, false);
+        CurseCharges(player, m, false);
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
-    public static void ChargesOnDeath(Player conn)
+    public static void ChargesOnDeath(Player player)
     {
-        lock (conn.Monsters) { ChargesOf(conn).Die(); ClearSiphoningOnDeath(conn); }
+        ChargesOf(player).Die(); ClearSiphoningOnDeath(player);
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
     // corpse kept a freeze (its killing hit's included) or shattered.
-    public static void ChargesOnKill(Player conn, SpawnedMonster m)
+    public static void ChargesOnKill(Player player, SpawnedMonster m)
     {
-        if (conn.PlayerLife == 0) return;
+        if (player.PlayerLife == 0) return;
         bool frozen;
-        lock (conn.Monsters)
-        {
-            double now = ProjectileWorldTime(conn);
-            frozen = m.Ailments.FrozenAtDeath(now);
-            conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
-            TryGainElusiveLocked(conn, critical: false, kill: true, now);
-        }
-        ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
-        CurseCharges(conn, m, true);
+        double now = ProjectileWorldTime(player);
+        frozen = m.Ailments.FrozenAtDeath(now);
+        player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+        TryGainElusiveLocked(player, critical: false, kill: true, now);
+        ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
+        CurseCharges(player, m, true);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
     // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c).
-    public static void ChargesWhenHit(Player conn, bool blocked, bool spell = false)
+    public static void ChargesWhenHit(Player player, bool blocked, bool spell = false)
     {
-        ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit());
-        if (blocked) ChargesOf(conn).Enqueue(new ChargeEvent.Block(spell));
+        ChargesOf(player).Enqueue(new ChargeEvent.WhenHit());
+        if (blocked) ChargesOf(player).Enqueue(new ChargeEvent.Block(spell));
     }
 
     // Transfer: the charges go with the player to the area of the new ticket.
     // Whether the official server keeps charges across areas is not documented (poewiki's Charge page says nothing about
     // it); this one call is the rule. A dead player carries nothing (Resurrect in Town changes area while dead).
-    public static void CarryCharges(Player conn, uint ticket)
+    public static void CarryCharges(Player player, uint ticket)
     {
         List<Charges.Carried> carried;
-        lock (conn.Monsters)
-        {
-            if (conn.PlayerLife == 0) ChargesOf(conn).Die();
-            carried = ChargesOf(conn).State.Carry(AreaTime(conn));
-        }
+        if (player.PlayerLife == 0) ChargesOf(player).Die();
+        carried = ChargesOf(player).State.Carry(AreaTime(player));
         foreach (var (old, entry) in CarriedCharges)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedCharges.TryRemove(old, out _);
         if (carried.Count > 0) CarriedCharges[ticket] = (DateTime.UtcNow, carried);
@@ -95,29 +89,26 @@ public static partial class Game
 
     // The character's stat sources with its charges (CharacterStatSources): Character.ot's per-charge stats, what the
     // charges held add (ChargeEffects.Expand) and their counts for the panel and the buffs.
-    public static Dictionary<uint, int> WithCharges(Player conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithCharges(Player player, Dictionary<uint, int> sources)
     {
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in ChargeEffects.Inherent)
             if (stat is var key) stats[key] = stats.GetValueOrDefault(key) + value;
         int Get(uint k) => stats.GetValueOrDefault(k);
-        var session = ChargesOf(conn);
+        var session = ChargesOf(player);
         var limits = new Dictionary<ChargeType, Charges.Limits>();
         var held = new Dictionary<ChargeType, int>();
         var converted = new Dictionary<ChargeType, bool>();
         var minimumConverted = new Dictionary<ChargeType, bool>();
-        lock (conn.Monsters)
+        // The session's limits, periodic stats and conversion flags follow every change of the character's stats
+        // from here, so the ticker never polls them.
+        session.Observe(Get);
+        foreach (var type in Charges.Types)
         {
-            // The session's limits, periodic stats and conversion flags follow every change of the character's stats
-            // from here, so the ticker never polls them.
-            session.Observe(Get);
-            foreach (var type in Charges.Types)
-            {
-                limits[type] = session.Limits(type);
-                held[type] = session.Effective(type);
-                converted[type] = session.Converted(type);
-                minimumConverted[type] = session.MinimumConverted(type);
-            }
+            limits[type] = session.Limits(type);
+            held[type] = session.Effective(type);
+            converted[type] = session.Converted(type);
+            minimumConverted[type] = session.MinimumConverted(type);
         }
         // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
         // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
@@ -126,7 +117,7 @@ public static partial class Game
         // expansion is reused while they are the same (every stat snapshot expands twice, idle or not).
         int[] heldNow = [.. Charges.Types.Select(t => held[t])];
         bool[] convertedNow = [.. Charges.Types.Select(t => converted[t])];
-        var slot = ChargeExpansions.GetValue(conn, _ => new());
+        var slot = ChargeExpansions.GetValue(player, _ => new());
         Dictionary<uint, int> added;
         if (slot.Last is { } last && last.Held.AsSpan().SequenceEqual(heldNow) && last.Converted.AsSpan().SequenceEqual(convertedNow)
             && SameInOrder(last.Stats, stats))
@@ -144,7 +135,7 @@ public static partial class Game
         foreach (var (stat, value) in ItemChargeCosts.Expand(Coefficient, t => held[t], t => converted[t]))
             finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
         int poisonStacks;
-        lock (conn.Monsters) poisonStacks = conn.IncomingAilments.PoisonStacks(AreaTime(conn));
+        poisonStacks = player.IncomingAilments.PoisonStacks(AreaTime(player));
         foreach (var (stat, value) in IncomingAilmentEffects.Expand(Coefficient, poisonStacks))
             finalAdded[stat] = finalAdded.GetValueOrDefault(stat) + value;
         // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
@@ -176,10 +167,10 @@ public static partial class Game
         ChargeEffects.DamageMore(name => name is var key ? stats.GetValueOrDefault(key) : 0, spell);
 
     // The player's additional physical and elemental damage reduction (Endurance Charges, passives) for hits taken.
-    public static (int Physical, int Elemental) PlayerDamageReduction(Player conn,
+    public static (int Physical, int Elemental) PlayerDamageReduction(Player player,
         IReadOnlyDictionary<uint, int>? stats = null)
     {
-        stats ??= CharacterPlayerStats(conn);
+        stats ??= CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         var reduction = ChargeEffects.Reduction(Get);
         return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)), reduction.Elemental);
@@ -187,39 +178,36 @@ public static partial class Game
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through
     // armour plus additional physical reduction; the other types take resistance before the shared hit-only pass.
-    public static int MitigateTaken(Player conn, DamageType type, int amount, int resistance, int maxResistance)
+    public static int MitigateTaken(Player player, DamageType type, int amount, int resistance, int maxResistance)
     {
-        lock (conn.Monsters)
-        {
-            int priorContacts = conn.RecentEnemyHits.Count(AreaTime(conn));
-            var stats = CharacterPlayerStats(conn);
-            bool relevant = amount > 0 && (type == DamageType.Physical
-                || PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
-                    && DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
-            var armour = IncomingArmourLocked(conn, relevant, priorContacts, stats);
-            return MitigateTakenWithArmour(conn, type, amount, resistance, maxResistance, armour.EffectiveArmour, stats);
-        }
+        int priorContacts = player.RecentEnemyHits.Count(AreaTime(player));
+        var stats = CharacterPlayerStats(player);
+        bool relevant = amount > 0 && (type == DamageType.Physical
+            || PlayerHitMitigation.ArmourPercent(player.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
+                && DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
+        var armour = IncomingArmourLocked(player, relevant, priorContacts, stats);
+        return MitigateTakenWithArmour(player, type, amount, resistance, maxResistance, armour.EffectiveArmour, stats);
     }
 
     // Then, as a monster's hit: the flat damage taken, a ranged attack's physical (Turtle Shell) and the increased damage
     // taken with the shock's (PlayerDamageTaken). An attack that is not ranged is melee.
-    public static int MitigateTakenWithArmour(Player conn, DamageType type, int amount, int resistance, int maxResistance,
+    public static int MitigateTakenWithArmour(Player player, DamageType type, int amount, int resistance, int maxResistance,
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack = true, bool ranged = false) =>
-        MitigateTakenWithArmour(conn, type, amount, resistance, maxResistance, effectiveArmour, stats, attack, ranged, spell: false);
+        MitigateTakenWithArmour(player, type, amount, resistance, maxResistance, effectiveArmour, stats, attack, ranged, spell: false);
 
-    public static int MitigateTakenWithArmour(Player conn, DamageType type, int amount, int resistance, int maxResistance,
+    public static int MitigateTakenWithArmour(Player player, DamageType type, int amount, int resistance, int maxResistance,
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
         int increased = PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell);
-        var reduction = PlayerDamageReduction(conn, stats);
+        var reduction = PlayerDamageReduction(player, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
-        int value = Math.Max(0, PlayerHitMitigation.AfterResistance(conn.Pools, type, resisted,
-            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(conn.Pools, type, Get))
+        int value = Math.Max(0, PlayerHitMitigation.AfterResistance(player.Pools, type, resisted,
+            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get))
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
-        return FortificationDamageTaken(conn, (int)Math.Round(value
-            * conn.ElementalAilments.DamageTakenFactor(AreaTime(conn), increased)));
+        return FortificationDamageTaken(player, (int)Math.Round(value
+            * player.ElementalAilments.DamageTakenFactor(AreaTime(player), increased)));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every
@@ -230,84 +218,77 @@ public static partial class Game
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
     // own buffs and exerted attacks remain separate, except Intimidating Cry (IntimidatingCry.cs).
     // True when the skill was a warcry.
-    public static bool UseWarcryInstance(Player conn,
+    public static bool UseWarcryInstance(Player player,
         ushort skillId, int effect)
-        => SkillsFor(conn).IsWarcry(effect) && UseWarcry(conn, effect, SupportedSkill(conn, skillId).Stats);
+        => SkillsFor(player).IsWarcry(effect) && UseWarcry(player, effect, SupportedSkill(player, skillId).Stats);
 
     const int InfiniteWarcryPower = 999999;
 
     // A warcry's use time (PoB CalcOffence calcWarcryCastTime): its cast time over warcry speed (the player's and the
     // gem's) and action speed, at least a server tick. The client times the cry from the same warcry_speed_+% (0x141abf4b0).
-    public static double WarcryCastSeconds(Player conn, int effect, IReadOnlyDictionary<uint, int> player,
+    public static double WarcryCastSeconds(Player player, int effect, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int> own)
     {
-        long speed = Stat.WarcrySpeedPlusPct is var key ? (long)player.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
-        return Math.Max(TickSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(conn));
+        long speed = Stat.WarcrySpeedPlusPct is var key ? (long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
+        return Math.Max(TickSeconds, SkillsFor(player).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(player));
     }
 
-    public static bool UseWarcry(Player conn, int effect,
+    public static bool UseWarcry(Player player, int effect,
         IReadOnlyDictionary<uint, int> own)
     {
-        if (!SkillsFor(conn).IsWarcry(effect)) return false;
-        bool enduring = SkillsFor(conn).EffectId(effect) == "EnduringCry";
+        if (!SkillsFor(player).IsWarcry(effect)) return false;
+        bool enduring = SkillsFor(player).EffectId(effect) == "EnduringCry";
         int Own(uint key) => own.GetValueOrDefault(key);
         int per = Own(Stat.EnduranceChargeGrantedPerXMonsterPowerDuringEnduranceWarcry);
         // The warcry cannot be cancelled before its contact point (cannot_cancel_skill_before_contact_point), so a later
         // action does not stop it. Admission checks the actor restriction before this accepted release is scheduled;
         // changing its source later does not cancel this continuation. Warcry and action speed are taken at the use.
-        var player = AreaPlayerStats(conn);
-        int Player(uint key) => player.GetValueOrDefault(key);
-        double castSeconds = WarcryCastSeconds(conn, effect, player, own);
-        double until = AreaTime(conn) + castSeconds;
-        int epoch = conn.ProjectileEpoch;
+        var playerStats = AreaPlayerStats(player);
+        int Player(uint key) => playerStats.GetValueOrDefault(key);
+        double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
+        double until = AreaTime(player) + castSeconds;
+        int epoch = player.ProjectileEpoch;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
-        _ = Task.Run(async () =>
+        _ = AreaFrames.Start(async () =>
         {
             // The game clock: a pause holds the cry.
-            while (!conn.Closed && AreaTime(conn) < until) await Task.Delay(16);
-            if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
+            while (!player.Closed && AreaTime(player) < until) await Task.Delay(16);
+            if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
-            foreach (var (k, v) in own) player[k] = v;
-            int radius = SkillArea.Radius(WarcryRadius, name => name is var key ? player.GetValueOrDefault(key) : 0, spell: false);
-            double now = AreaTime(conn);
+            foreach (var (k, v) in own) playerStats[k] = v;
+            int radius = SkillArea.Radius(WarcryRadius, name => name is var key ? playerStats.GetValueOrDefault(key) : 0, spell: false);
+            double now = AreaTime(player);
             int power, taunted;
             (int X, int Y) here;
-            lock (conn.Monsters)
-            {
-                if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
-                here = conn.Walk.Position(now);
-                taunted = TauntLocked(conn, here, radius, now, taunt);
-                if (!enduring)
-                    Console.WriteLine($"[gateway] {SkillsFor(conn).EffectId(effect)}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
-            }
+            if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
+            here = player.Walk.Position(now);
+            taunted = TauntLocked(player, here, radius, now, taunt);
+            if (!enduring)
+                Console.WriteLine($"[gateway] {SkillsFor(player).EffectId(effect)}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
             if (!enduring)
             {
-                if (SkillsFor(conn).EffectId(effect) == "IntimidatingCry")
-                    lock (conn.Monsters)
-                        if (conn.ProjectileActive(epoch) && conn.PlayerLife > 0)
-                            ApplyIntimidatingCryLocked(conn, own, CharacterPlayerStats(conn), now);
-                await WarcryReleased(conn, here, radius, epoch);
+                if (SkillsFor(player).EffectId(effect) == "IntimidatingCry")
+                    if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
+                        ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                await WarcryReleased(player, here, radius, epoch);
                 return;
             }
-            lock (conn.Monsters)
-            {
-                if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
-                power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
-                    : conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), here) <= radius)
-                        .Sum(m => WarcryPower(m.Rarity));
-                // The target's stat description caps regeneration at 25 Power. Charge generation retains its own rule.
-                double percentPerMinute = Math.Min(25, power) / 5d
-                    * Own(Stat.EnduringCryLifeRegenerationRatePerMinutePctPer5PowerUpToCap)
-                    * buffEffect;
-                conn.EnduringCryRecovery.Begin(now, duration, conn.PlayerMaxLife * percentPerMinute / 6000d);
-                Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
-                    + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
-            }
+            if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
+            power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
+                : player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), here) <= radius)
+                    .Sum(m => WarcryPower(m.Rarity));
+            // The target's stat description caps regeneration at 25 Power. Charge generation retains its own rule.
+            double percentPerMinute = Math.Min(25, power) / 5d
+                * Own(Stat.EnduringCryLifeRegenerationRatePerMinutePctPer5PowerUpToCap)
+                * buffEffect;
+            player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
+            Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
+                + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
-            if (charges > 0) ChargesOf(conn).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
-            await WarcryReleased(conn, here, radius, epoch);
+            if (charges > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
+            await WarcryReleased(player, here, radius, epoch);
         });
         return true;
     }
@@ -329,111 +310,101 @@ public static partial class Game
     // the pools, the walk speed and the stats (SendChargeStats). It runs while the session has work (a charge held, an
     // event queued, a periodic gain's stat, a presentation or refresh pending) and stops otherwise; a queued event
     // (ChargeSession.Woken), a stat update or a pool refresh starts it again (WakeCharges). The character's stats are
-    // worked out outside the Monsters lock, and only while events wait (their gain chances); the limits come with every
+    // worked out outside the area's frame, and only while events wait (their gain chances); the limits come with every
     // stats change (ChargeSession.Observe through WithCharges).
-    static void StartCharges(Player conn, PlayerUpdatesState updates)
+    static void StartCharges(Player player, PlayerUpdatesState updates)
     {
-        var session = ChargesOf(conn);
-        if (CarriedCharges.TryRemove(conn.Ticket, out var entry) && entry.Charges is var carried)
-            lock (conn.Monsters)
+        var session = ChargesOf(player);
+        if (CarriedCharges.TryRemove(player.Ticket, out var entry) && entry.Charges is var carried)
             {
-                session.State.Restore(carried, updates.Schedule.Now(conn));
-                Console.WriteLine($"[gateway] {conn.Remote} charges carried from the last area: " +
+                session.State.Restore(carried, updates.Schedule.Now(player));
+                Console.WriteLine($"[gateway] {player.Connection.Remote} charges carried from the last area: " +
                     string.Join(", ", carried.Select(c => $"{c.Held} {Charges.Name(c.Type)} ({c.Remaining:0.0} s left)")));
             }
-        session.Woken = () => WakeCharges(conn);
-        WakeCharges(conn);
+        session.Woken = () => WakeCharges(player);
+        WakeCharges(player);
     }
 
     static readonly RuleTable<PlayerUpdatesState, object> ChargeTickers = new();
 
-    public static void WakeCharges(Player conn)
+    public static void WakeCharges(Player player)
     {
-        if (conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
-        lock (conn.Monsters)
+        if (player.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(player, updates)) return;
+        if (ChargeTickers.TryGetValue(updates, out _)) return;
+        ChargeTickers.AddOrUpdate(updates, new());
+        EveryFrameAsPlayer(player, () =>
         {
-            if (ChargeTickers.TryGetValue(updates, out _)) return;
-            ChargeTickers.AddOrUpdate(updates, new());
-        }
-        EveryFrameAsPlayer(conn, () =>
-        {
-            lock (conn.Monsters)
-            {
-                var session = ChargesOf(conn);
-                if (PlayerUpdatesCurrent(conn, updates) && (session.TimesCharges || ChargePresentationPending(session)
-                    || ChargePoolRefreshes.GetOrCreateValue(conn).Pending)) return true;
-                ChargeTickers.Remove(updates);
-                return false;
-            }
-        }, conn => StepCharges(conn, updates));
+            var session = ChargesOf(player);
+            if (PlayerUpdatesCurrent(player, updates) && (session.TimesCharges || ChargePresentationPending(session)
+                || ChargePoolRefreshes.GetOrCreateValue(player).Pending)) return true;
+            ChargeTickers.Remove(updates);
+            return false;
+        }, player => StepCharges(player, updates));
     }
 
-    static async Task StepCharges(Player conn, PlayerUpdatesState updates)
+    static async Task StepCharges(Player player, PlayerUpdatesState updates)
     {
-        var session = ChargesOf(conn);
+        var session = ChargesOf(player);
         try
         {
             Func<uint, int>? stats = null;
             WeaponProfile weapon = default;
             if (session.Pending)
             {
-                var final = CharacterPlayerStats(conn);
+                var final = CharacterPlayerStats(player);
                 stats = name => name is var key ? final.GetValueOrDefault(key) : 0;
-                weapon = WeaponProfileFor(conn);
+                weapon = WeaponProfileFor(player);
             }
-            double now = updates.Schedule.Now(conn);
+            double now = updates.Schedule.Now(player);
             ChargeSession.StepResult step;
             bool presentationPending;
-            using (ProjectileMutation(conn))
+            using (ProjectileMutation(player))
             {
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                if (conn.LeavingArea) return;
-                now = ProjectileWorldTime(conn);
+                if (!PlayerUpdatesCurrent(player, updates)) return;
+                if (player.LeavingArea) return;
+                now = ProjectileWorldTime(player);
                 session.SettleDegeneration(now);
                 // Idle charges have no deadline to retime; degeneration still settles on its own clock.
                 if (session.TimesCharges)
                 {
-                    var recipient = CharacterPlayerStats(conn);
+                    var recipient = CharacterPlayerStats(player);
                     session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
                         name => name is var k ? recipient.GetValueOrDefault(k) : 0));
                 }
-                step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
-                    inTown: InTown(conn), AreaRng(conn),
-                    mineDetonatedRecently: conn.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(conn)));
+                step = session.Step(now, stats, () => weapon, alive: player.PlayerLife > 0, moving: player.Walk.Moving(now),
+                    inTown: InTown(player), AreaRng(player),
+                    mineDetonatedRecently: player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player)));
                 presentationPending = ChargePresentationPending(session);
-                var refresh = ChargePoolRefreshes.GetOrCreateValue(conn);
+                var refresh = ChargePoolRefreshes.GetOrCreateValue(player);
                 if (refresh.Pending) step = step with { CountsChanged = true };
                 refresh.Pending = false;
                 if (step.CountsChanged)
                 {
-                    conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                    conn.ApplyMovementSpeed();
+                    player.Pools = PoolsFor(player, player.Pools.Level);
+                    player.ApplyMovementSpeed();
                 }
             }
-            foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Remote} {line} (t={now:0.000})");
+            foreach (string line in step.Log) Console.WriteLine($"[gateway] {player.Connection.Remote} {line} (t={now:0.000})");
             bool countsChanged = step.CountsChanged;
             if (presentationPending)
-                await Send(conn, [], null, atGate: () =>
+                await Send(player, [], null, atGate: () =>
                 {
-                    lock (conn.Monsters)
-                    {
-                        if (!PlayerUpdatesCurrent(conn, updates) || conn.LeavingArea) return null;
-                        var (packet, changed) = CurrentChargePresentationLocked(conn, conn.Remote);
-                        countsChanged |= changed;
-                        return packet;
-                    }
+                    if (!PlayerUpdatesCurrent(player, updates) || player.LeavingArea) return null;
+                    var (packet, changed) = CurrentChargePresentationLocked(player, player.Connection.Remote);
+                    countsChanged |= changed;
+                    return packet;
                 });
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            if (!PlayerUpdatesCurrent(player, updates)) return;
             if (countsChanged)
             {
-                await SendChargeStats(conn,
+                await SendChargeStats(player,
                     string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Label(t, session.Converted(t))}")));
             }
         }
         catch (OperationCanceledException) when (updates.Stop.IsCancellationRequested) { }
         catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
         {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} charges: {ServerLog.Describe(ex)}");
+            if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} charges: {ServerLog.Describe(ex)}");
         }
         catch (Exception) { }   // the connection has gone
     }
@@ -441,29 +412,29 @@ public static partial class Game
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in
     // its skill records), without SendSkills' skill-bar work (no skill came or went). A changed skill set (a gem moved at
     // the same moment) takes the full SendCharacterStats.
-    public static async Task SendChargeStats(Player conn, string why)
+    public static async Task SendChargeStats(Player player, string why)
     {
-        if (StatsPublishedByFrame(conn)) return;
-        await PublishStatValues(conn, $"charges {why}");
+        if (StatsPublishedByFrame(player)) return;
+        await PublishStatValues(player, $"charges {why}");
     }
 
     /// <summary>The stats after a change of their values: 0x1b3, the skills whose records changed and the Energy Shield
     /// (a changed skill set takes the full publication).</summary>
-    public static async Task PublishStatValues(Player conn,
+    public static async Task PublishStatValues(Player player,
         string why = "changed")
     {
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
-        var skills = PlayerSkills(conn);
-        if (!conn.ClientSkillIds.SetEquals(skills.Select(s => s.Id)))
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired) return;
+        var skills = PlayerSkills(player);
+        if (!player.ClientSkillIds.SetEquals(skills.Select(s => s.Id)))
         {
-            await PublishCharacterStats(conn, PlayerStatChange.Sources);
+            await PublishCharacterStats(player, PlayerStatChange.Sources);
             return;
         }
-        await SendPlayerStatSnapshot(conn,
-            () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
-        await SendPlayerStatSnapshot(conn,
-            () => PlayerSkillsIfChanged(conn, PlayerSkills(conn)),
+        await SendPlayerStatSnapshot(player,
+            () => PublishPlayerStats(player), $"0x01b3 player stats ({why})");
+        await SendPlayerStatSnapshot(player,
+            () => PlayerSkillsIfChanged(player, PlayerSkills(player)),
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
-        await SendPlayerEnergyShield(conn);
+        await SendPlayerEnergyShield(player);
     }
 }

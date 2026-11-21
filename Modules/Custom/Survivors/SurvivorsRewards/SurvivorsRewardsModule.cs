@@ -10,28 +10,28 @@ public sealed class SurvivorsRewardsModule : IModule
     {
         RewardsStopping = module.Lifetime.Stopping;
         GameEvents.RequirementExemptions.Add(module.Manifest.Id,
-            conn => StateOf(conn).SurvivorsItemIds.ToArray());
-        GameEvents.FinalStatsBuilding.Add(module.Manifest.Id, (conn, stats) =>
+            player => StateOf(player).SurvivorsItemIds.ToArray());
+        GameEvents.FinalStatsBuilding.Add(module.Manifest.Id, (player, stats) =>
         {
-            if (StateOf(conn).SurvivorsItemIds.Count == 0) return;
+            if (StateOf(player).SurvivorsItemIds.Count == 0) return;
             foreach (uint key in new[] { Stat.VirtualStrengthForRequirements, Stat.VirtualDexterityForRequirements,
                 Stat.VirtualIntelligenceForRequirements })
                 stats[key] = Math.Max(stats.GetValueOrDefault(key), 1000);
         });
-        GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, (conn, bytes) =>
+        GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, (player, bytes) =>
         {
-            return SurvivorsRewards.ChooseSurvivorsSkill(conn,
+            return SurvivorsRewards.ChooseSurvivorsSkill(player,
                 InstanceNpcs.ReadBuy(bytes.AsSpan()).ItemId);
         });
-        GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, (conn, bytes) =>
+        GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, (player, bytes) =>
         {
-            return SurvivorsRewards.ChooseSurvivorsSkill(conn,
+            return SurvivorsRewards.ChooseSurvivorsSkill(player,
                 InstanceNpcs.ReadCtrlBuy(bytes.AsSpan()).ItemId);
         });
-        GameEvents.RewardClosing.Add(module.Manifest.Id, async conn =>
+        GameEvents.RewardClosing.Add(module.Manifest.Id, async player =>
         {
-            if (StateOf(conn) is not { Survivors: { } run, SurvivorsOffer: not null } || run.Offer.Count == 0) return false;
-            return await SurvivorsRewards.ApplySurvivorsChoice(conn, run.Offer[0]);
+            if (StateOf(player) is not { Survivors: { } run, SurvivorsOffer: not null } || run.Offer.Count == 0) return false;
+            return await SurvivorsRewards.ApplySurvivorsChoice(player, run.Offer[0]);
         });
     }
 }

@@ -3,7 +3,7 @@ using GameServer.Core.World;
 /// <summary>
 /// The chill, freeze and shock the player's hits put on one monster (wiki Chill, Freeze and Shock; PoB CalcOffence's
 /// non-damaging ailments). Each inflicted ailment keeps its own magnitude and duration; only the strongest of a kind
-/// applies. They stay on a corpse until they run out. Guarded by the Monsters lock, on the connection's pauseable clock.
+/// applies. They stay on a corpse until they run out. Owned by the area's frame, on the connection's pauseable clock.
 /// </summary>
 public sealed class MonsterElementalAilments
 {
@@ -345,7 +345,7 @@ public sealed class MonsterElementalAilments
         // duration modifier changes (wiki Brine Bound).
         if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker(Stat.FreezeMinimumDurationXMs) / 1000.0);
         effect = effect with { Until = now + seconds / expiryRate,
-            Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.PeerId ?? 0 };
+            Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.Id ?? 0 };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
             && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));

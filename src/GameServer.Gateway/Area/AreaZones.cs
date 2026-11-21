@@ -32,7 +32,7 @@ public sealed class Zone
 /// <summary>
 /// The area's zones. Their membership is updated in the movement phase from the area's grid (AreaGrid): a zone is checked
 /// again when a walker changed cell, the zone moved or its radius changed, never by scanning on a timer, and only the
-/// grid cells its radius overlaps are looked at. Guarded by the instance's Monsters lock, which the movement phase holds
+/// grid cells its radius overlaps are looked at. Owned by the area's frame, which the movement phase holds
 /// while it updates them.
 /// </summary>
 public sealed class AreaZones(AreaGrid grid)

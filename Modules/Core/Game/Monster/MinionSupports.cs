@@ -30,8 +30,8 @@ public static partial class Game
         return GemSupports.Matches(rule.Allowed, types, true) && !GemSupports.Matches(rule.Excluded, types, false);
     }
 
-    static bool MinionMelee(Player conn, GolemState.Ability a) =>
-        !a.Attack.Spell && a.Projectile is null && SkillsFor(conn).IsMelee(a.Effect);
+    static bool MinionMelee(Player player, GolemState.Ability a) =>
+        !a.Attack.Spell && a.Projectile is null && SkillsFor(player).IsMelee(a.Effect);
 
     static GolemState.Ability MinionDamageScale(GolemState.Ability original, double hitMore, double ailmentMore,
         IReadOnlyDictionary<uint, int>? stats = null)
@@ -59,10 +59,10 @@ public static partial class Game
         return scaled;
     }
 
-    static GolemState.Ability MinionSupportAction(Player conn, GolemState.Golem fighter, GolemState.Action action)
+    static GolemState.Ability MinionSupportAction(Player player, GolemState.Golem fighter, GolemState.Action action)
     {
         var original = action.Original ?? action.Ability;
-        if (!MinionMelee(conn, original)) return original;
+        if (!MinionMelee(player, original)) return original;
         int Own(uint n) => GolemStat(fighter.Own, n);
         if (action.RepeatIndex == 0)
         {
@@ -86,7 +86,7 @@ public static partial class Game
         return MinionDamageScale(original, action.UseDamageMore * more, action.UseAilmentMore * more, stats);
     }
 
-    static bool RepeatMinionAttackLocked(Player conn, GolemState.Golem fighter, double now)
+    static bool RepeatMinionAttackLocked(Player player, GolemState.Golem fighter, double now)
     {
         if (fighter.Repeat is not { } repeat) return false;
         fighter.Repeat = null;
@@ -95,12 +95,12 @@ public static partial class Game
             || Own(Stat.BaseMeleeAttackRepeatCount) <= 0 || Own(Stat.DisableAttackRepeats) != 0 || Own(Stat.DisableSkillRepeats) != 0) return false;
         var a = repeat.Original!;
         var at = fighter.Monster.Walk.Position(now);
-        var target = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0
-                && !p.Value.Invulnerable && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key)
+        var target = player.Area.MonstersNear(at, a.Attack.Range).Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0
+                && !p.Value.Invulnerable && !p.Value.Asleep && !MonsterAsleep(player, p.Key)
                 && Dist(at, p.Value.Walk.Position(now)) <= a.Attack.Range + LivingCollision.Size(p.Value))
             .OrderBy(p => p.Key == repeat.Target ? 0 : 1).ThenBy(p => Dist(at, p.Value.Walk.Position(now))).FirstOrDefault();
         if (target.Value is null) return false;
-        GolemReserveLocked(conn, fighter, a, target.Key, target.Value, target.Value.Walk.Position(now), now);
+        GolemReserveLocked(player, fighter, a, target.Key, target.Value, target.Value.Walk.Position(now), now);
         fighter.Pending!.Original = a;
         fighter.Pending.RepeatIndex = repeat.RepeatIndex + 1;
         fighter.Pending.RepeatsRemaining = repeat.RepeatsRemaining - 1;

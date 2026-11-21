@@ -17,13 +17,14 @@ public sealed class InstancePauseLifecycleTests
         var instance = new InstanceState();
         var arriving = new Player(new(1, "pause-arrival", 300, 300, 100, 100, null, []), 1, 1)
         {
-            Character = $"PauseArrival{Guid.NewGuid():N}", ClassRow = 0, Instance = instance,
-            LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            Character = { Name = $"PauseArrival{Guid.NewGuid():N}", ClassRow = 0 },
+            Instance = instance,
+            LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         try
         {
             // Exit to character selection from the open menu: the connection closes with the clock still stopped.
-            var leaver = runtime.Connection(instance, wire, "Leaver");
+            var leaver = runtime.PlayerOf(instance, wire, "Leaver");
             await Game.SetPaused(leaver, true);
             Assert.False(instance.World.Clock.IsRunning);
             Close(leaver);
@@ -31,7 +32,7 @@ public sealed class InstancePauseLifecycleTests
             Assert.Null(instance.World.PausedBy);
 
             // A pause a module took over (the Survivors reward window) is its module's to end.
-            var holder = runtime.Connection(instance, wire, "Holder");
+            var holder = runtime.PlayerOf(instance, wire, "Holder");
             await Game.SetPaused(holder, true);
             holder.PauseHeld = true;
             Close(holder);
@@ -44,10 +45,10 @@ public sealed class InstancePauseLifecycleTests
 
             // The clock pauses only for a player alone in the instance: another player coming in ends that pause, and the
             // pausing player's world is resumed too.
-            var pauser = runtime.Connection(instance, wire, "Pauser");
-            instance.PublishPlayer(new InstancePlayer(pauser.PeerId, 1, null!, 100, 100, 1000, pauser));
+            var pauser = runtime.PlayerOf(instance, wire, "Pauser");
+            instance.PublishPlayer(new InstancePlayer(pauser.Id, 1, null!, 100, 100, 1000, pauser));
             var sent = new List<byte[]>();
-            pauser.Outbox = (bytes, _) => { lock (sent) sent.Add(bytes); return Task.CompletedTask; };
+            pauser.Connection.Outbox = (bytes, _) => { lock (sent) sent.Add(bytes); return Task.CompletedTask; };
             await Game.SetPaused(pauser, true);
             Assert.False(instance.World.Clock.IsRunning);
             Game.PrepareCharacterForArea(arriving, 1);
@@ -63,17 +64,14 @@ public sealed class InstancePauseLifecycleTests
         }
         finally
         {
-            PlayerInventories.Forget(arriving.Character!);
+            PlayerInventories.Forget(arriving.Character.Name!);
             TestEnvironment.ReleaseSaves(path);
         }
 
-        static void Close(Player conn)
+        static void Close(Player player)
         {
-            lock (conn.Monsters)
-            {
-                conn.Closed = true;
-                Program.GameLogicOrNull!.Closing(conn);
-            }
+            player.Closed = true;
+            Program.GameLogicOrNull!.Closing(player);
         }
     }
 }

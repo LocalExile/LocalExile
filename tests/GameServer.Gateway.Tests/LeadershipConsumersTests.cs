@@ -66,28 +66,29 @@ public sealed class LeadershipConsumersTests
         Assert.True(skills.IsTravel(travel));
         Assert.False(skills.IsTravel(plain));
         var speed = Stat.TravelSkillCooldownSpeedPlusPct;
-        var player = new Dictionary<uint, int> { [speed] = 100 };
+        var playerStats = new Dictionary<uint, int> { [speed] = 100 };
         var own = new Dictionary<uint, int>();
-        Assert.Equal(100, Game.TravelSkillCooldownSpeed(skills, travel, player, own));
-        Assert.Equal(150, Game.TravelSkillCooldownSpeed(skills, travel, player, new Dictionary<uint, int> { [speed] = 50 }));
-        Assert.Equal(0, Game.TravelSkillCooldownSpeed(skills, plain, player, own));
+        Assert.Equal(100, Game.TravelSkillCooldownSpeed(skills, travel, playerStats, own));
+        Assert.Equal(150, Game.TravelSkillCooldownSpeed(skills, travel, playerStats, new Dictionary<uint, int> { [speed] = 50 }));
+        Assert.Equal(0, Game.TravelSkillCooldownSpeed(skills, plain, playerStats, own));
         Assert.Equal(0, Game.TravelSkillCooldownSpeed(skills, travel,
             new Dictionary<uint, int>(), new Dictionary<uint, int>()));
 
         // Rakiata's Leadership: the level 1 spirit's 10 is "action speed cannot be modified below 110% of base value".
-        var conn = new Player(new(1, "leadership", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "leadership", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "LeadershipConsumers", PlayerLife = 1000,
+            Character = { Name = "LeadershipConsumers" },
+            PlayerLife = 1000
         };
         static int Get(uint name, int value) => name == Stat.ActionSpeedMinusPct ? value : 0;
-        Assert.Equal(0.5, Game.PlayerActionFactorFrom(conn, name => Get(name, 50)), 6);
+        Assert.Equal(0.5, Game.PlayerActionFactorFrom(player, name => Get(name, 50)), 6);
         int SpeedFloor(uint name) => name switch
         {
             Stat.ActionSpeedMinusPct => 50,
             Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership => 10,
             _ => 0,
         };
-        Assert.Equal(1.1, Game.PlayerActionFactorFrom(conn, SpeedFloor), 6);
+        Assert.Equal(1.1, Game.PlayerActionFactorFrom(player, SpeedFloor), 6);
         // A frozen (0) action speed stays frozen: the floor only lifts a lowered positive factor.
         int Frozen(uint name) => name switch
         {
@@ -95,12 +96,12 @@ public sealed class LeadershipConsumersTests
             Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership => 10,
             _ => 0,
         };
-        Assert.Equal(0, Game.PlayerActionFactorFrom(conn, Frozen), 6);
+        Assert.Equal(0, Game.PlayerActionFactorFrom(player, Frozen), 6);
         // The Leadership itself carries the stat; the server's action-factor path reads it even though the raw source
         // cache does not (the buff is added by CharacterPlayerStats).
         uint floorKey = Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership;
-        Assert.Equal(1, Game.PlayerActionFactor(conn), 6);
-        Assert.True(conn.SpiritChieftains.TryTrigger(0, new SingleUseCooldown(80000, 0), 2274, [(floorKey, 10)], 12));
-        Assert.Equal(1.1, Game.PlayerActionFactor(conn), 6);
+        Assert.Equal(1, Game.PlayerActionFactor(player), 6);
+        Assert.True(player.SpiritChieftains.TryTrigger(0, new SingleUseCooldown(80000, 0), 2274, [(floorKey, 10)], 12));
+        Assert.Equal(1.1, Game.PlayerActionFactor(player), 6);
     }
 }

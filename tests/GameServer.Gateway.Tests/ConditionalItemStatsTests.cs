@@ -334,22 +334,22 @@ public partial class ConditionalItemStatsTests
         Saves.Open(path);
         try
         {
-            var conn = new Player(new(1, "received-hit", 300, 300, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "received-hit", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };
             // Cold catalogue setup can outlast Recently; observe the contact at its captured game time.
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            Assert.True(Game.TrySyntheticEnemyHit(conn, GameServer.Core.World.DamageType.Physical, 1,
+            double now = player.Clock.Elapsed.TotalSeconds;
+            Assert.True(Game.TrySyntheticEnemyHit(player, GameServer.Core.World.DamageType.Physical, 1,
                 block: false, spell: false, suppress: false, out _));
-            Assert.Equal(1, conn.RecentEnemyHits.Count(now));
-            Assert.True(conn.RecentEvents.Happened(StatConditions.BeenHit, now));
-            conn.InvalidateIncomingHits(clear: false);
-            Assert.Equal(1, conn.RecentEnemyHits.Count(now));
-            Assert.True(conn.RecentEvents.Happened(StatConditions.BeenHit, now));
-            conn.InvalidateIncomingHits();
-            Assert.Equal(0, conn.RecentEnemyHits.Count(now));
-            Assert.False(conn.RecentEvents.Happened(StatConditions.BeenHit, now));
+            Assert.Equal(1, player.RecentEnemyHits.Count(now));
+            Assert.True(player.RecentEvents.Happened(StatConditions.BeenHit, now));
+            player.InvalidateIncomingHits(clear: false);
+            Assert.Equal(1, player.RecentEnemyHits.Count(now));
+            Assert.True(player.RecentEvents.Happened(StatConditions.BeenHit, now));
+            player.InvalidateIncomingHits();
+            Assert.Equal(0, player.RecentEnemyHits.Count(now));
+            Assert.False(player.RecentEvents.Happened(StatConditions.BeenHit, now));
         }
         finally
         {

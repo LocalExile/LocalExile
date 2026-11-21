@@ -8,21 +8,21 @@ public static partial class Game
     // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
     // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
     // Reusing this flask replaces its timer; another flask of the same kind keeps its own, strongest effect applies.
-    public static async Task<bool> UseUtilityFlaskCore(Player conn, uint slot,
+    public static async Task<bool> UseUtilityFlaskCore(Player player, uint slot,
         InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility, FlaskAutomationStep? signal = null)
     {
         var owner = CombatLifetime;
-        bool CurrentUse() => CurrentGameWork && ReferenceEquals(CombatLifetime, owner) && !conn.Closed
-            && !conn.LeavingArea && !conn.RageRetired && !conn.Paused && conn.PlayerLife > 0
-            && ItemsOf(conn).Items(PlayerInventories.Flask).FirstOrDefault(i => i.Id == flask.Id && i.X == slot) is { } current
-            && (signal is null || Automation(conn).CanAccept(signal.Value, current.Id))
-            && EndSignalCurrent(conn, current, signal);
+        bool CurrentUse() => CurrentGameWork && ReferenceEquals(CombatLifetime, owner) && !player.Closed
+            && !player.LeavingArea && !player.RageRetired && !player.Paused && player.PlayerLife > 0
+            && ItemsOf(player).Items(PlayerInventories.Flask).FirstOrDefault(i => i.Id == flask.Id && i.X == slot) is { } current
+            && (signal is null || Automation(player).CanAccept(signal.Value, current.Id))
+            && EndSignalCurrent(player, current, signal);
         if (!CurrentUse()) return false;
         // Mageblood: its magic utility flasks are always on and cannot be used (the client enforces the mod; this is the
         // server backstop).
-        if (MagebloodBlocksFlaskUse(conn, flask.Item))
+        if (MagebloodBlocksFlaskUse(player, flask.Item))
         {
-            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, Mageblood's magic utility flasks cannot be used");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, Mageblood's magic utility flasks cannot be used");
             return false;
         }
         // The character's flask stats (passives and gear: increased flask effect, duration and charges used) and the
@@ -30,53 +30,50 @@ public static partial class Game
         Dictionary<uint, int> character;
         int playerLevel;
         // Keep level and coefficient sources in one use snapshot, including across the asynchronous charge spend.
-        lock (conn.Monsters)
-        {
-            playerLevel = conn.Pools.Level;
-            character = CharacterPlayerStats(conn);
-        }
+        playerLevel = player.Pools.Level;
+        character = new Dictionary<uint, int>(CharacterPlayerStats(player));
         int Get(uint key) => character.GetValueOrDefault(key);
-        var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
+        var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods);
         var charges = FlaskCharges.Of(utility.Charges, local, Get);
-        if (UtilityFlasks.Refusal(conn.PlayerLife == 0, conn.UtilityFlaskEffects.Of(flask.Id), flask.Item, charges,
-                AreaTime(conn)) is { } refused)
+        if (UtilityFlasks.Refusal(player.PlayerLife == 0, player.UtilityFlaskEffects.Of(flask.Id), flask.Item, charges,
+                AreaTime(player)) is { } refused)
         {
-            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
             return false;
         }
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, Get, playerLevel);
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
-        if (await SpendFlask(conn, flask, charges, slot, CurrentUse, _ =>
+        if (await SpendFlask(player, flask, charges, slot, CurrentUse, _ =>
         {
-            var state = Automation(conn);
+            var state = Automation(player);
             if (signal is { } step) state.Accepted(step, flask.Id);
-            double now = AreaTime(conn);
-            if (NamedFlaskRecent(type.Id) is { } recent) conn.RecentEvents.Record(recent, now);
-            var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, conn.NextBuff++,
-                utility.Extra is null ? null : conn.NextBuff++, stats, now, now + seconds);
-            if (conn.UtilityFlaskEffects.Of(flask.Id) is { } previous)
-                QueueUtilityFlaskEnd(state, previous, "refreshed");
-            UtilityFlasks.Start(conn, effect, () => RecomputePoolsAndSpeed(conn));
-            ApplyConditionalFlaskAilmentProtectionLocked(conn, local, now);
-            if (UtilityFlasks.RestoreWardAfterPaidUse(conn.Ward, name => local.GetValueOrDefault(name), now))
-                Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {conn.Ward.Current}/{conn.Ward.Maximum}");
-            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
-                string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {conn.Walk.Speed:0.##} cells/s");
+            double now = AreaTime(player);
+            if (NamedFlaskRecent(type.Id) is { } recent) player.RecentEvents.Record(recent, now);
+            var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, player.NextBuff++,
+                utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds);
+            if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
+                QueueUtilityFlaskEnd(player, state, previous, "refreshed");
+            UtilityFlasks.Start(player, effect, () => RecomputePoolsAndSpeed(player));
+            ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
+            if (UtilityFlasks.RestoreWardAfterPaidUse(player.Ward, name => local.GetValueOrDefault(name), now))
+                Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {player.Ward.Current}/{player.Ward.Maximum}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
+                string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {player.Walk.Speed:0.##} cells/s");
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
                 UtilityStart: effect));
-            FlaskToLinkedTargetsLocked(conn, flask.Item, local, utility, Get);
+            FlaskToLinkedTargetsLocked(player, flask.Item, local, utility, Get);
             // "Gain X Endurance/Frenzy/Power Charge(s) on use" (Replica Rumi's Concoction).
             foreach (var (stat, charge) in ChargesOnFlaskUse)
                 if (local.GetValueOrDefault(stat) is int count and > 0)
-                    ChargesOf(conn).Enqueue(new ChargeEvent.Grant(charge, count, $"{type.Name} on use"));
-            MakeFlaskGroundsLocked(conn, local, seconds, now, character);
+                    ChargesOf(player).Enqueue(new ChargeEvent.Grant(charge, count, $"{type.Name} on use"));
+            MakeFlaskGroundsLocked(player, local, seconds, now, character);
             state.StatRevision++;
             state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
         }) is null) return false;
-        await PublishFlaskChanges(conn);
-        if (CurrentGameWork && !conn.Closed && !conn.LeavingArea) await EnemyDebuffsTick(conn, AreaTime(conn));
+        await PublishFlaskChanges(player);
+        if (CurrentGameWork && !player.Closed && !player.LeavingArea) await EnemyDebuffsTick(player, AreaTime(player));
         return true;
     }
 
@@ -99,12 +96,12 @@ public static partial class Game
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
     // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own
     // base_killed_monster_dropped_item_rarity_+% (Item Rarity Support).
-    public static int IncreasedItemRarity(Player conn, SpawnedMonster? monster = null)
+    public static int IncreasedItemRarity(Player player, SpawnedMonster? monster = null)
     {
-        var stats = CharacterPlayerStats(conn);
+        var stats = CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int player = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
-        return player + (MapModsOf(conn)?.Rarity ?? 0)
+        int playerValue = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
+        return playerValue + (MapModsOf(player)?.Rarity ?? 0)
             + (monster?.Effects[Stat.BaseItemFoundRarityPlusPct] ?? 0)
             + (monster?.Effects[Stat.FromLeagueItemRarityPlusPctPermyriad] ?? 0) / 100
             + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
@@ -113,130 +110,118 @@ public static partial class Game
     // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls
     // (ItemDrops.Roll). A kill made with a supported skill adds the skill's own
     // base_killed_monster_dropped_item_quantity_+% (Item Quantity Support).
-    public static double ItemQuantityFactor(Player conn, SpawnedMonster? monster = null)
+    public static double ItemQuantityFactor(Player player, SpawnedMonster? monster = null)
     {
-        var stats = CharacterPlayerStats(conn);
+        var stats = CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
-        double player = Math.Max(0, 100 + Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct)) / 100.0;
-        return player * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
+        double playerValue = Math.Max(0, 100 + Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct)) / 100.0;
+        return playerValue * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
             * Math.Max(0, 1 + (monster?.Effects[Stat.BaseItemFoundQuantityPlusPct] ?? 0) / 100.0)
             * Math.Max(0, 1 + (monster?.Effects[MapSulphite.EnragedQuantity] ?? 0) / 10000.0)
-            * (MapModsOf(conn)?.QuantityFactor ?? 1);
+            * (MapModsOf(player)?.QuantityFactor ?? 1);
     }
 
-    // The pools and the walk speed again (under the Monsters lock): after a utility flask effect started or ended, or the
+    // The pools and the walk speed again (in the area's frame): after a utility flask effect started or ended, or the
     // equipment changed.
-    public static void RecomputePoolsAndSpeed(Player conn)
+    public static void RecomputePoolsAndSpeed(Player player)
     {
-        RefreshRighteousFireProfileLocked(conn);
-        using (new PlayerStatScope(conn, fresh: true))
+        RefreshRighteousFireProfileLocked(player);
+        using (new PlayerStatScope(player, fresh: true))
         {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            conn.ApplyMovementSpeed();
-            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
-            var stats = CharacterPlayerStats(conn);
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+            player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
+            var stats = CharacterPlayerStats(player);
             int Get(uint key) => stats.GetValueOrDefault(key);
-            conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
-            conn.ElementalAilments.Reconcile(Get);
-            conn.ApplyMovementSpeed();
+            player.Phasing = UtilityFlasks.Phasing(UtilityStats(player, Get));
+            player.ElementalAilments.Reconcile(Get);
+            player.ApplyMovementSpeed();
         }
     }
 
     // The already-owned resource writer advances utility deadlines. During Stop/Start there is no writer;
     // the unchanged accepted effect is claimed by the replacement, even if its deadline passed in that gap.
-    public static void AdvanceUtilityFlasks(Player conn, PlayerUpdatesState updates)
+    public static void AdvanceUtilityFlasks(Player player, PlayerUpdatesState updates)
     {
-        lock (conn.Monsters)
+        if (!PlayerUpdatesCurrent(player, updates) || player.LeavingArea || !player.UtilityFlaskEffects.Any) return;
+        bool dead = player.PlayerLife == 0;
+        var bar = ItemsOf(player).Items(PlayerInventories.Flask);
+        bool Gone(UtilityFlasks.Active effect) => UtilityFlasks.LeftItsCell(effect, bar);
+        var ended = UtilityFlasks.EndDue(player, updates.Schedule.Now(player), dead, Gone,
+            () => RecomputePoolsAndSpeed(player), out _);
+        if (ended.Count == 0) return;
+        var state = Automation(player);
+        foreach (var effect in ended)
         {
-            if (!PlayerUpdatesCurrent(conn, updates) || conn.LeavingArea || !conn.UtilityFlaskEffects.Any) return;
-            bool dead = conn.PlayerLife == 0;
-            var bar = ItemsOf(conn).Items(PlayerInventories.Flask);
-            bool Gone(UtilityFlasks.Active effect) => UtilityFlasks.LeftItsCell(effect, bar);
-            var ended = UtilityFlasks.EndDue(conn, updates.Schedule.Now(conn), dead, Gone,
-                () => RecomputePoolsAndSpeed(conn), out _);
-            if (ended.Count == 0) return;
-            var state = Automation(conn);
-            foreach (var effect in ended)
-            {
-                QueueUtilityFlaskEnd(state, effect, dead ? "death" : Gone(effect) ? "the flask left its cell" : "its time is up");
-                // Record this admitted edge before any await or second lifetime read can lose it.
-                if (!dead && !Gone(effect)) state.Enqueue(new(FlaskEnchantments.Trigger.End,
-                    effect.ItemId, effect.Slot, effect.Activation));
-            }
-            state.StatRevision++;
+            QueueUtilityFlaskEnd(player, state, effect, dead ? "death" : Gone(effect) ? "the flask left its cell" : "its time is up");
+            // Record this admitted edge before any await or second lifetime read can lose it.
+            if (!dead && !Gone(effect)) state.Enqueue(new(FlaskEnchantments.Trigger.End,
+                effect.ItemId, effect.Slot, effect.Activation));
         }
+        state.StatRevision++;
     }
 
-    static void QueueUtilityFlaskEnd(FlaskAutomationState state, UtilityFlasks.Active effect, string why) =>
-        state.Packets.AddRange(UtilityFlasks.EndPackets(effect, PlayerId)
-            .Select(p => new FlaskOutput(p, $"0x01c2 player buff: {effect.Name} (flask {effect.Slot}) effect ends ({why})", WorldId: PlayerId)));
-
-    public static async Task PublishFlaskChanges(Player conn)
+    static void QueueUtilityFlaskEnd(Player player, FlaskAutomationState state, UtilityFlasks.Active effect, string why)
     {
-        var state = Automation(conn);
-        lock (conn.Monsters)
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea
-                || state.Packets.Count == 0 && state.StatRevision == state.PresentedStatRevision) return;
+        UtilityFlasks.EndBuffs(effect, player);
+        Note($"player buff: {effect.Name} (flask {effect.Slot}) effect ends ({why})");
+    }
+
+    public static async Task PublishFlaskChanges(Player player)
+    {
+        var state = Automation(player);
+        if (!CurrentGameWork || player.Closed || player.LeavingArea
+            || state.Packets.Count == 0 && state.StatRevision == state.PresentedStatRevision) return;
         await state.PublishGate.WaitAsync();
         try
         {
             while (true)
             {
                 FlaskOutput output;
-                lock (conn.Monsters)
-                {
-                    if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || state.Packets.Count == 0) break;
-                    output = state.Packets[0];
-                }
+                if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired || state.Packets.Count == 0) break;
+                output = state.Packets[0];
                 bool sent = false;
                 byte[][]? Project()
                 {
-                    lock (conn.Monsters)
+                    if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired || state.Packets.Count == 0
+                        || !ReferenceEquals(state.Packets[0], output)) return null;
+                    // Pool/reservation output samples current values, never a pre-reload instant snapshot.
+                    byte[][] packet = output.Pool switch
                     {
-                        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || state.Packets.Count == 0
-                            || !ReferenceEquals(state.Packets[0], output)) return null;
-                        // Pool/reservation output samples current values, never a pre-reload instant snapshot.
-                        byte[][] packet = output.Pool switch
-                        {
-                            FlaskOutputPool.Life => [PlayerLifeUpdate(conn)],
-                            FlaskOutputPool.Mana => WithOwnAuraRecords(conn, () => [InstanceProtocol.LifeUpdate(PlayerId,
-                                conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)]),
-                            _ => [output.Packet],
-                        };
-                        if (output.UtilityStart is { } effect)
-                        {
-                            var prefix = PlayerStatsOffFrames(conn);
-                            double now = AreaTime(conn);
-                            bool live = conn.PlayerLife > 0 && effect.Ends > now
-                                && conn.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
-                                && ReferenceEquals(conn.UtilityFlaskEffects.Of(effect.ItemId), effect);
-                            packet = live ? [prefix, .. UtilityFlasks.StartPackets(effect with { Started = now }, PlayerId)] : [prefix];
-                        }
-                        state.Packets.RemoveAt(0); sent = true; return packet;
+                        FlaskOutputPool.Life => PoolsResent(player),
+                        FlaskOutputPool.Mana => WithOwnAuraRecords(player, () => PoolsResent(player)),
+                        _ => [output.Packet],
+                    };
+                    if (output.UtilityStart is { } effect)
+                    {
+                        var prefix = PlayerStatsOffFrames(player);
+                        double now = AreaTime(player);
+                        bool live = player.PlayerLife > 0 && effect.Ends > now
+                            && player.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
+                            && ReferenceEquals(player.UtilityFlaskEffects.Of(effect.ItemId), effect);
+                        if (live) UtilityFlasks.ShowBuffs(effect with { Started = now }, player);
+                        packet = [prefix];
                     }
+                    state.Packets.RemoveAt(0); sent = true; return packet;
                 }
-                uint? worldId = output.WorldId ?? (output.Pool != FlaskOutputPool.None || output.UtilityStart is not null ? PlayerId : null);
+                uint? worldId = output.WorldId ?? (output.Pool != FlaskOutputPool.None || output.UtilityStart is not null ? player.Id : null);
                 if (output.CreatesObject)
-                    await SendWorldCreate(conn, worldId!.Value, () => Project()?.Single(), output.Log);
+                    await SendWorldCreate(player, worldId!.Value, () => Project()?.Single(), output.Log);
                 else if (output.RemovesObject)
-                    await SendWorldRemoval(conn, worldId!.Value, output.Log, atGate: () => Project()?.Single());
+                    await SendWorldRemoval(player, worldId!.Value, output.Log, atGate: () => Project()?.Single());
                 else if (worldId is uint id)
-                    await SendWorldRecords(conn, id, Project, output.Log);
-                else await Send(conn, [], output.Log, atGate: () =>
+                    await SendWorldRecords(player, id, Project, output.Log);
+                else await Send(player, [], output.Log, atGate: () =>
                     Project() is { } records ? [.. records.SelectMany(p => p)] : null);
                 if (sent && output.Pool == FlaskOutputPool.Mana && CurrentGameWork)
-                    await SendPlayerEnergyShield(conn);
+                    await SendPlayerEnergyShield(player);
             }
         }
         finally { state.PublishGate.Release(); }
         long revision;
-        lock (conn.Monsters)
-        {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || state.StatRevision == state.PresentedStatRevision) return;
-            revision = state.StatRevision;
-        }
-        await SendCharacterStats(conn, PlayerStatChange.Flasks);
-        lock (conn.Monsters)
-            if (CurrentGameWork && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || state.StatRevision == state.PresentedStatRevision) return;
+        revision = state.StatRevision;
+        await SendCharacterStats(player, PlayerStatChange.Flasks);
+        if (CurrentGameWork && !player.Closed && !player.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
     }
 }

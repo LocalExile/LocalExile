@@ -8,28 +8,28 @@ public static partial class Game
     /// <summary>Consumes all Fortification for a supported skill's use and stores this use's more ailment damage: the
     /// support's per-3 value times the whole groups of three consumed (Fortification's 20-stack base maximum caps it at
     /// 36% at level 1 and 48% at level 3, the exceptional gem's top level). A skill without the support stores nothing.
-    /// Under the Monsters lock.</summary>
-    public static void OverheatConsumeLocked(Player conn, ushort skillId, Func<uint, int> skill, double now)
+    /// In the area's frame.</summary>
+    public static void OverheatConsumeLocked(Player player, ushort skillId, Func<uint, int> skill, double now)
     {
         int perThree = skill(Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed);
         if (perThree <= 0)
         {
-            conn.SupportGems.OverheatMore.Remove(skillId);
+            player.SupportGems.OverheatMore.Remove(skillId);
             return;
         }
-        int consumed = FortificationOf(conn).ConsumeAll(now);
+        int consumed = FortificationOf(player).ConsumeAll(now);
         double more = Math.Max(0, 1 + perThree * (consumed / 3) / 100.0);
-        if (more == 1) conn.SupportGems.OverheatMore.Remove(skillId);
-        else conn.SupportGems.OverheatMore[skillId] = more;
+        if (more == 1) player.SupportGems.OverheatMore.Remove(skillId);
+        else player.SupportGems.OverheatMore[skillId] = more;
     }
 
     /// <summary>This skill's last use's Overheat more ailment damage (1 when it consumed fewer than three stacks).</summary>
-    public static double OverheatAilmentMore(Player conn, ushort skillId) =>
-        conn.SupportGems.OverheatMore.GetValueOrDefault(skillId, 1);
+    public static double OverheatAilmentMore(Player player, ushort skillId) =>
+        player.SupportGems.OverheatMore.GetValueOrDefault(skillId, 1);
 
-    public static MonsterIgnites.Settings WithOverheat(Player conn, ushort skillId, MonsterIgnites.Settings settings)
+    public static MonsterIgnites.Settings WithOverheat(Player player, ushort skillId, MonsterIgnites.Settings settings)
     {
-        double more = OverheatAilmentMore(conn, skillId);
+        double more = OverheatAilmentMore(player, skillId);
         return more == 1 ? settings : settings with
         {
             Min = settings.Min * more, Max = settings.Max * more,
@@ -37,9 +37,9 @@ public static partial class Game
         };
     }
 
-    public static MonsterPoisons.Settings WithOverheat(Player conn, ushort skillId, MonsterPoisons.Settings settings)
+    public static MonsterPoisons.Settings WithOverheat(Player player, ushort skillId, MonsterPoisons.Settings settings)
     {
-        double more = OverheatAilmentMore(conn, skillId);
+        double more = OverheatAilmentMore(player, skillId);
         return more == 1 ? settings : settings with
         {
             Min = settings.Min * more, Max = settings.Max * more,

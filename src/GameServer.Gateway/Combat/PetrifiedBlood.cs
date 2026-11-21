@@ -8,8 +8,6 @@ public sealed class PetrifiedBloodState
     public ushort SkillId { get; private set; }
     public int Effect { get; private set; }
     public ushort Buff { get; private set; }
-    /// <summary>The buff instance this connection actually sent; 0 while none is presented.</summary>
-    public ushort PresentedBuff { get; set; }
     public int PreventPct { get; private set; } = 40;
     public int LoseOverTimePct { get; private set; } = 100;
     public int LifeCostPct { get; private set; } = 40;
@@ -180,16 +178,16 @@ public static class PetrifiedBlood
         LifeCostSource = Stat.SkillGrantsLifeCostPctManaCostWhileNotOnLowLife;
 
     /// <summary>Low Life uses the shared threshold: 50% by default, changed by the low-life threshold stats.</summary>
-    public static bool OnLowLife(Player conn) =>
-        LowLife.Is(conn.PlayerLife, conn.PlayerMaxLife, conn.PetrifiedBlood.LowLifeThresholdPct);
+    public static bool OnLowLife(Player player) =>
+        LowLife.Is(player.PlayerLife, player.PlayerMaxLife, player.PetrifiedBlood.LowLifeThresholdPct);
 
     /// <summary>The largest whole Life total that is still Low Life under the buff's threshold.</summary>
-    public static uint LowLifeMaximum(Player conn) =>
-        (uint)((long)conn.PlayerMaxLife * conn.PetrifiedBlood.LowLifeThresholdPct / 100);
+    public static uint LowLifeMaximum(Player player) =>
+        (uint)((long)player.PlayerMaxLife * player.PetrifiedBlood.LowLifeThresholdPct / 100);
 
     /// <summary>Whether the buff currently stops non-flask recovery: it runs and Life is at or above Low Life.</summary>
-    public static bool BlocksRecovery(Player conn) =>
-        conn.PetrifiedBlood.Active && conn.PlayerLife > 0 && conn.PlayerLife >= LowLifeMaximum(conn);
+    public static bool BlocksRecovery(Player player) =>
+        player.PetrifiedBlood.Active && player.PlayerLife > 0 && player.PlayerLife >= LowLifeMaximum(player);
 
     /// <summary>
     /// Splits a hit's post-Energy-Shield Life loss into the part taken at once and the part Petrified Blood defers.
@@ -215,11 +213,11 @@ public static class PetrifiedBlood
 
     /// <summary>Applies the buff to a hit's life loss and records the deferred amount. Returns the life loss the
     /// caller takes at once.</summary>
-    public static int PreventHitLifeLoss(Player conn, int lifeLoss, double now)
+    public static int PreventHitLifeLoss(Player player, int lifeLoss, double now)
     {
-        var state = conn.PetrifiedBlood;
+        var state = player.PetrifiedBlood;
         if (!state.Active || lifeLoss <= 0) return lifeLoss;
-        var (immediate, deferred) = SplitHitLoss(conn.PlayerLife, conn.PlayerMaxLife, lifeLoss,
+        var (immediate, deferred) = SplitHitLoss(player.PlayerLife, player.PlayerMaxLife, lifeLoss,
             state.PreventPct, state.LoseOverTimePct);
         state.AddDeferred(now, deferred);
         return immediate;
@@ -231,23 +229,23 @@ public static class PetrifiedBlood
     /// full maximum. Leech instances themselves are not cleared at Low Life: their own cap is maximum unreserved Life,
     /// but the recovery they apply through this function is capped like regeneration and Recoup.
     /// </summary>
-    public static uint RecoverLife(Player conn, uint current, double amount, ref double carry, uint minimum = 0)
+    public static uint RecoverLife(Player player, uint current, double amount, ref double carry, uint minimum = 0)
     {
-        if (amount > 0 && conn.PetrifiedBlood.Active)
+        if (amount > 0 && player.PetrifiedBlood.Active)
         {
-            uint half = LowLifeMaximum(conn);
-            uint maximum = Math.Min(conn.PlayerUnreservedLife, current >= half ? current : half);
+            uint half = LowLifeMaximum(player);
+            uint maximum = Math.Min(player.PlayerUnreservedLife, current >= half ? current : half);
             return RecoveryPool.Advance(current, maximum, amount, ref carry, minimum);
         }
-        return RecoveryPool.Advance(current, conn.PlayerUnreservedLife, amount, ref carry, minimum);
+        return RecoveryPool.Advance(current, player.PlayerUnreservedLife, amount, ref carry, minimum);
     }
 
     /// <summary>The life cost a skill adds while the buff runs and the player is not on Low Life: the buff's share of
     /// the base mana cost, rounded to a whole point.</summary>
-    public static int LifeCost(Player conn, int manaCost)
+    public static int LifeCost(Player player, int manaCost)
     {
-        var state = conn.PetrifiedBlood;
-        if (!state.Active || manaCost <= 0 || OnLowLife(conn)) return 0;
+        var state = player.PetrifiedBlood;
+        if (!state.Active || manaCost <= 0 || OnLowLife(player)) return 0;
         return (int)Math.Round(manaCost * (double)state.LifeCostPct / 100.0, MidpointRounding.AwayFromZero);
     }
 

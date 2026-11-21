@@ -72,34 +72,34 @@ public static partial class Game
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
     /// (<paramref name="weapon"/>) brings no main-hand local chance.</summary>
-    public static MonsterIgnites.Settings SupportedBleed(Player conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, bool melee = false,
+    public static MonsterIgnites.Settings SupportedBleed(Player player, ushort skillId, bool spell,
+        IReadOnlyDictionary<uint, int> playerStats, SkillCatalog.Unarmed? weapon = null, bool melee = false,
         long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
     {
         if (spell) return MonsterIgnites.Settings.None;
         Func<uint, int> get;
         if (capturedInputs is null)
         {
-            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            var merged = MergeSkillStats(playerStats, SupportedSkill(player, skillId).Stats);
             get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
         }
         else
             get = capturedInputs.Get;
         var rows = capturedInputs is null
-            ? SupportedAilmentRows(conn, skillId, "main_hand", weapon, additionalIncreased)
+            ? SupportedAilmentRows(player, skillId, "main_hand", weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);
-        return WithOverheat(conn, skillId, BleedSettings(rows, "main_hand", get,
-            weapon is null ? MainHandLocalSources(conn) : null, melee, bow: false));
+        return WithOverheat(player, skillId, BleedSettings(rows, "main_hand", get,
+            weapon is null ? MainHandLocalSources(player) : null, melee, bow: false));
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    public static MonsterIgnites.Settings DefaultAttackBleed(Player conn, IReadOnlyDictionary<uint, int> player,
+    public static MonsterIgnites.Settings DefaultAttackBleed(Player player, IReadOnlyDictionary<uint, int> playerStats,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
-        int Get(uint key) => player.GetValueOrDefault(key);
-        var sourceWeapon = weapon ?? WeaponFor(conn);
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
+        var sourceWeapon = weapon ?? WeaponFor(player);
         return BleedSettings(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get, sourceWeapon.LocalSources, melee: true, bow: false);
     }
@@ -111,20 +111,20 @@ public static partial class Game
     // cannot_gain_bleeding stop it. First the hit aggravates the bleeds already on the target, whether or not it bleeds
     // (wiki Bleeding, Aggravate): they deal damage as though it moved for the rest of their durations.
     // shortcut: callers only come here for a hit that dealt physical damage, so a hit without any never aggravates.
-    public static List<byte[]>? BleedOnHitLocked(Player conn, uint id, SpawnedMonster target,
+    public static List<byte[]>? BleedOnHitLocked(Player player, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
         SettleBleeding(target, now);
         target.Bleeds.Stacks = settings.Stacks;
         if (target.Bleeds.Burning
-            && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, conn.IgniteRandom))
+            && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, player.IgniteRandom))
             target.Bleeds.Aggravate();
-        if (!RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, conn.IgniteRandom)) return null;
+        if (!RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, player.IgniteRandom)) return null;
         var e = target.Mods.Effects;
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e[Stat.AvoidBleedPct] + e[Stat.BaseAvoidBleedPct],
                 e[Stat.ImmuneToBleeding] != 0 || e[Stat.CannotGainBleeding] != 0 || e[Stat.BaseCannotGainBleeding] != 0,
-                conn.IgniteRandom, out double perSecond)) return null;
+                player.IgniteRandom, out double perSecond)) return null;
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
         {
@@ -134,28 +134,28 @@ public static partial class Game
         }
         if (reflect)
         {
-            var player = CharacterPlayerStats(conn);
-            conn.IncomingAilments.ApplyBleed(now, perSecond, settings.Seconds, reflected: true,
-                victim: name => name is var key ? player.GetValueOrDefault(key) : 0);
+            var playerStats = CharacterPlayerStats(player);
+            player.IncomingAilments.ApplyBleed(now, perSecond, settings.Seconds, reflected: true,
+                victim: name => name is var key ? playerStats.GetValueOrDefault(key) : 0);
         }
-        return [.. PresentRupturesLocked(conn, id, target, now), .. ShowDotBuffLocked(conn, id, target.Bleeds, row, now)];
+        return [.. PresentRupturesLocked(player, id, target, now), .. ShowDotBuffLocked(player, id, target.Bleeds, row, now)];
     }
 
     /// <summary>A sure bleed of so much physical damage a second for so long, from no skill (a trap's hit that always
     /// bleeds: the Labyrinth's spikes), as an attack hit's bleed lands: the target's avoidance and immunity still apply.</summary>
-    public static async Task BleedMonsterFor(Player conn,
+    public static async Task BleedMonsterFor(Player player,
         uint id, SpawnedMonster m, double perSecond, double seconds)
     {
         List<byte[]>? packets;
         string log;
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(player))
         {
-            double now = ProjectileWorldTime(conn);
-            if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) return;
-            packets = BleedOnHitLocked(conn, id, m, new(100, perSecond, perSecond, perSecond, perSecond, seconds, 100), false, now);
+            double now = ProjectileWorldTime(player);
+            if (m.Dead || m.Life == 0 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) return;
+            packets = BleedOnHitLocked(player, id, m, new(100, perSecond, perSecond, perSecond, perSecond, seconds, 100), false, now);
             log = BleedingLog(id, m, false, now);
         }
-        await SendDotBuff(conn, packets, log);
+        await SendDotBuff(player, packets, log);
     }
 
     public static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
@@ -163,7 +163,7 @@ public static partial class Game
 
     public static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false) =>
-        QueueDotBuff(session, BleedOnHitLocked(session.Conn, id, target, settings, critical, now, reflect),
+        QueueDotBuff(session, BleedOnHitLocked(session.Player, id, target, settings, critical, now, reflect),
             BleedingLog(id, target, critical, now));
 
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
@@ -198,6 +198,6 @@ public static partial class Game
 
     // One tick of the bleeding monsters (the area's monster damage over time), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
-    public static Task BleedMonsters(Player conn) =>
-        TickStrongestDots(conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
+    public static Task BleedMonsters(Player player) =>
+        TickStrongestDots(player, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
 }

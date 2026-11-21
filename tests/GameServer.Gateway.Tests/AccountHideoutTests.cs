@@ -30,11 +30,11 @@ public sealed class AccountHideoutTests : IDisposable
         CharacterSaves.Write(name, new([], Experience: 123, SelectedHideout: area));
         var home = HideoutCatalog.Selected(area)!;
         return new(new(home.AreaHash16, home.AreaId, 100, 100, 20, 20, null, []), 1, 1)
-            { Account = account.Name, Character = name, League = league };
+            { Character = { Account = account.Name, Name = name, League = league } };
     }
 
     static Player Visit(Player player, Player owner) => new(owner.Layout, 1, 1)
-        { Account = player.Account, Character = player.Character, League = player.League, InstanceOwner = owner.Character };
+        { Character = { Account = player.Character.Account, Name = player.Character.Name, League = player.Character.League }, InstanceOwner = owner.Character.Name };
 
     [Fact]
     public void First_selected_home_and_layout_are_shared_across_characters_and_leagues()
@@ -46,12 +46,12 @@ public sealed class AccountHideoutTests : IDisposable
         var alternate = Player(account, "HomeAlternate", 2, HideoutCatalog.DefaultArea, "Hardcore");
         var position = new HideoutPlacement(42, 53, 90);
         var statue = new CharacterSaves.SavedMonsterStatue(20, 30, 45, 7);
-        CharacterSaves.SetHideoutPlacement(founder.Character!, home.AreaId, "stash", position);
-        CharacterSaves.AddMonsterStatue(founder.Character!, home.AreaId, statue);
+        CharacterSaves.SetHideoutPlacement(founder.Character.Name!, home.AreaId, "stash", position);
+        CharacterSaves.AddMonsterStatue(founder.Character.Name!, home.AreaId, statue);
 
         Game.InitializeAccountHideouts();
-        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, alternate.Character!));
-        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, oldest.Character!));
+        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, alternate.Character.Name!));
+        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, oldest.Character.Name!));
         Assert.Equal(home.AreaId, Game.HomeHideout(alternate)!.AreaId);
         Assert.Equal(home.AreaId, Game.HomeHideout(oldest)!.AreaId);
         alternate.Use(founder.Layout);
@@ -69,7 +69,7 @@ public sealed class AccountHideoutTests : IDisposable
         AccountStash.Forget(account.Name);
         Assert.Equal(moved, Game.SavedHideoutPlacements(founder)!["stash"]);
         Assert.Equal(2, Game.AccountMonsterStatues(founder).Count);
-        store.DeleteCharacter(store.FindCharacter(founder.Character!)!.Id);
+        store.DeleteCharacter(store.FindCharacter(founder.Character.Name!)!.Id);
         Assert.Equal(home.AreaId, Game.HomeHideout(oldest)!.AreaId);
         Assert.Equal(moved, Game.SavedHideoutPlacements(alternate)!["stash"]);
     }
@@ -84,20 +84,20 @@ public sealed class AccountHideoutTests : IDisposable
         var preferred = Player(account, "HomePreferred", 1, home.AreaId);
         var outsider = Player(Account(), "HomeVisitor", 0, home.AreaId);
         var position = new HideoutPlacement(12, 34, 56);
-        CharacterSaves.SetHideoutPlacement(preferred.Character!, home.AreaId, "waypoint", position);
-        CharacterSaves.SetHideoutPlacement(older.Character!, HideoutCatalog.DefaultArea, "stash", position);
+        CharacterSaves.SetHideoutPlacement(preferred.Character.Name!, home.AreaId, "waypoint", position);
+        CharacterSaves.SetHideoutPlacement(older.Character.Name!, HideoutCatalog.DefaultArea, "stash", position);
         // A failed legacy mirror write must not commit the new account profile on its own.
         AccountStash.For(account.Name, Program.Items);
         string? beforeMigration = Saves.Get(SaveDatabase.Table.Stashes, account.Name);
         try
         {
-            Saves.FailWrite = name => name == older.Character;
-            Assert.Throws<IOException>(() => Game.InitializeAccountHideout(preferred.Character!));
+            Saves.FailWrite = name => name == older.Character.Name;
+            Assert.Throws<IOException>(() => Game.InitializeAccountHideout(preferred.Character.Name!));
         }
         finally { Saves.FailWrite = null; }
         Assert.Equal(beforeMigration, Saves.Get(SaveDatabase.Table.Stashes, account.Name));
-        Assert.Equal(HideoutCatalog.DefaultArea, CharacterHome.SelectedHideout(Saves.Db, older.Character!));
-        Game.InitializeAccountHideout(preferred.Character!);
+        Assert.Equal(HideoutCatalog.DefaultArea, CharacterHome.SelectedHideout(Saves.Db, older.Character.Name!));
+        Game.InitializeAccountHideout(preferred.Character.Name!);
         Assert.Equal(home.AreaId, Game.HomeHideout(older)!.AreaId);
         Assert.True(Game.OwnHideout(Visit(older, preferred)));
         var visitor = Visit(outsider, preferred);
@@ -108,15 +108,15 @@ public sealed class AccountHideoutTests : IDisposable
         string? beforeSelection = Saves.Get(SaveDatabase.Table.Stashes, account.Name);
         try
         {
-            Saves.FailWrite = name => name == preferred.Character;
+            Saves.FailWrite = name => name == preferred.Character.Name;
             Assert.Throws<IOException>(() => Game.SelectAccountHideout(older, HideoutCatalog.DefaultArea));
         }
         finally { Saves.FailWrite = null; }
         Assert.Equal(beforeSelection, Saves.Get(SaveDatabase.Table.Stashes, account.Name));
-        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, older.Character!));
+        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, older.Character.Name!));
         Assert.Equal(home.AreaId, Game.HomeHideout(preferred)!.AreaId);
         Game.SelectAccountHideout(older, HideoutCatalog.DefaultArea);
-        Game.InitializeAccountHideout(preferred.Character!);
+        Game.InitializeAccountHideout(preferred.Character.Name!);
         Assert.Equal(HideoutCatalog.DefaultArea, Game.HomeHideout(preferred)!.AreaId);
         older.Use(originalLayout);
         Assert.Null(Game.SavedHideoutPlacements(older)); // Another character's old layout cannot reappear.

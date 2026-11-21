@@ -63,7 +63,7 @@ public static class MapScarabContent
             string values = string.Join(", ", mods.Stats.Select(s => (Name: Program.Stats.Name(s.Key), s.Value))
                 .OrderBy(s => s.Name, StringComparer.Ordinal).Select(s => $"{s.Name}={s.Value}"));
             request.ContentWarnings.Add((content,
-                $"area={opening.Area.Id} owner={request.Conn.Character} scarab={type.Id} ({type.Name}) "
+                $"area={opening.Area.Id} owner={request.Player.Character.Name} scarab={type.Id} ({type.Name}) "
                 + $"content={content} stats=[{values}]: no enabled provider implements this named encounter effect"));
         }
     }

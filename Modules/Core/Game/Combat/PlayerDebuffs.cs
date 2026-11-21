@@ -31,154 +31,144 @@ public static partial class Game
     static readonly ConditionalWeakTable<Player, PlayerDebuffSet> DebuffsOf = new();
 
     /// <summary>A debuff for its time (seconds): a curse, Withered, an immobilise.</summary>
-    public static Task AddPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
-        double seconds) => ApplyPlayerDebuff(conn, row, caster, stats, seconds, null);
+    public static Task AddPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
+        double seconds) => ApplyPlayerDebuff(player, row, caster, stats, seconds, null);
 
     /// <summary>A debuff kept until <see cref="ReleasePlayerDebuff"/> with the same holder (a ground's, while the player
     /// stands in it). Holding the same row with the same stats again changes nothing.</summary>
-    public static Task HoldPlayerDebuff(Player conn, object holder, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats) =>
-        ApplyPlayerDebuff(conn, row, caster, stats, double.PositiveInfinity, holder);
+    public static Task HoldPlayerDebuff(Player player, object holder, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats) =>
+        ApplyPlayerDebuff(player, row, caster, stats, double.PositiveInfinity, holder);
 
     /// <summary>Ends the debuffs <paramref name="holder"/> keeps.</summary>
-    public static async Task ReleasePlayerDebuff(Player conn, object holder)
+    public static async Task ReleasePlayerDebuff(Player player, object holder)
     {
-        if (!DebuffsOf.TryGetValue(conn, out var set)) return;
-        List<ushort> gone;
-        lock (conn.Monsters)
-        {
-            gone = [.. set.Active.Where(d => ReferenceEquals(d.Holder, holder)).Select(d => d.Instance)];
-            if (gone.Count == 0) return;
-            set.Active.RemoveAll(d => ReferenceEquals(d.Holder, holder));
-        }
-        await EndPlayerDebuffs(conn, set, gone);
+        if (!DebuffsOf.TryGetValue(player, out var set)) return;
+        List<PlayerDebuff> gone = [.. set.Active.Where(d => ReferenceEquals(d.Holder, holder))];
+        if (gone.Count == 0) return;
+        set.Active.RemoveAll(d => ReferenceEquals(d.Holder, holder));
+        await EndPlayerDebuffs(player, set, gone);
     }
 
     /// <summary>Whether a debuff of this row is on the player now.</summary>
-    public static bool HasPlayerDebuff(Player conn, ushort row)
+    public static bool HasPlayerDebuff(Player player, ushort row)
     {
-        if (!DebuffsOf.TryGetValue(conn, out var set)) return false;
-        lock (conn.Monsters)
-        {
-            double now = AreaTime(conn);
-            return ReferenceEquals(set.Area, conn.Layout) && set.Active.Any(d => d.Row == row && d.Until > now);
-        }
+        if (!DebuffsOf.TryGetValue(player, out var set)) return false;
+        double now = AreaTime(player);
+        return ReferenceEquals(set.Area, player.Layout) && set.Active.Any(d => d.Row == row && d.Until > now);
     }
 
-    static async Task ApplyPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
+    static async Task ApplyPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
         double seconds, object? holder)
     {
-        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn) || seconds <= 0) return;
-        var set = DebuffsOf.GetValue(conn, _ => new());
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player) || seconds <= 0) return;
+        var set = DebuffsOf.GetValue(player, _ => new());
         var info = BuffRows.Of(row);
-        List<ushort> replaced = [];
+        List<PlayerDebuff> replaced = [];
         ushort instance;
-        lock (conn.Monsters)
+        double now = AreaTime(player);
+        if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; }
+        if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
         {
-            double now = AreaTime(conn);
-            if (!ReferenceEquals(set.Area, conn.Layout)) { set.Active.Clear(); set.Area = conn.Layout; }
-            if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
-            {
-                if (SameStats(held.Stats, stats)) return;
-                replaced.Add(held.Instance);
-                set.Active.Remove(held);
-            }
-            foreach (var expired in set.Active.Where(d => d.Until <= now).ToArray()) { replaced.Add(expired.Instance); set.Active.Remove(expired); }
-            if (row != 0 && info is { Stacks: true })
-            {
-                var same = set.Active.Where(d => d.Row == row && d.Holder is null).ToList();
-                if (holder is null && info.Limit > 0 && same.Count >= info.Limit)
-                {
-                    var first = same.MinBy(d => d.Until)!;
-                    replaced.Add(first.Instance);
-                    set.Active.Remove(first);
-                }
-            }
-            else if (row != 0 && holder is null)
-                foreach (var same in set.Active.Where(d => d.Row == row && d.Holder is null).ToArray())
-                {
-                    replaced.Add(same.Instance);
-                    set.Active.Remove(same);
-                }
-            instance = conn.NextBuff++;
-            set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder));
+            if (SameStats(held.Stats, stats)) return;
+            replaced.Add(held);
+            set.Active.Remove(held);
         }
-        foreach (ushort old in replaced)
-            await Send(conn, GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(PlayerId, old), null);
+        foreach (var expired in set.Active.Where(d => d.Until <= now).ToArray()) { replaced.Add(expired); set.Active.Remove(expired); }
+        if (row != 0 && info is { Stacks: true })
+        {
+            var same = set.Active.Where(d => d.Row == row && d.Holder is null).ToList();
+            if (holder is null && info.Limit > 0 && same.Count >= info.Limit)
+            {
+                var first = same.MinBy(d => d.Until)!;
+                replaced.Add(first);
+                set.Active.Remove(first);
+            }
+        }
+        else if (row != 0 && holder is null)
+            foreach (var same in set.Active.Where(d => d.Row == row && d.Holder is null).ToArray())
+            {
+                replaced.Add(same);
+                set.Active.Remove(same);
+            }
+        instance = player.NextBuff++;
+        set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder));
+        foreach (var old in replaced) ClearPlayerDebuff(player, old);
+        // Each debuff is a buff of its own (its instance number is its tag: a row that stacks has several from one caster).
         if (row != 0)
-            await Send(conn, BuffRows.Add(PlayerId, instance, row, caster, stats, holder is null ? seconds : null),
-                $"0x01c1 the player gets {info?.Id ?? row.ToString()} from 0x{caster:x}" + (holder is null ? $" for {seconds:0.#} s" : " while in it"));
-        await RefreshDebuffedPlayer(conn);
+        {
+            player.Area.Buffs.Set(player.Id, BuffRows.Spec(row, caster, stats, holder is null ? seconds : null, instance));
+            Console.WriteLine($"[gateway] the player gets {info?.Id ?? row.ToString()} from 0x{caster:x}" + (holder is null ? $" for {seconds:0.#} s" : " while in it"));
+        }
+        await RefreshDebuffedPlayer(player);
     }
 
     /// <summary>Each AI step: the debuffs whose time is up end; after an area change the old area's are dropped (the new
     /// instance has none of their looks to remove).</summary>
-    static async Task PlayerDebuffsTick(Player conn)
+    static async Task PlayerDebuffsTick(Player player)
     {
-        if (!DebuffsOf.TryGetValue(conn, out var set)) return;
-        List<ushort> gone = [];
+        if (!DebuffsOf.TryGetValue(player, out var set)) return;
+        List<PlayerDebuff> gone = [];
         bool areaChanged;
-        lock (conn.Monsters)
+        if (set.Active.Count == 0) return;
+        areaChanged = !ReferenceEquals(set.Area, player.Layout);
+        double now = AreaTime(player);
+        foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now).ToArray())
         {
-            if (set.Active.Count == 0) return;
-            areaChanged = !ReferenceEquals(set.Area, conn.Layout);
-            double now = AreaTime(conn);
-            foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now).ToArray())
-            {
-                if (!areaChanged) gone.Add(d.Instance);
-                set.Active.Remove(d);
-            }
-            if (areaChanged) set.Area = conn.Layout;
-            // The resistances the degeneration is less of can change with anything else the player has.
-            conn.Degens[set] = DebuffDegenLocked(conn);
-            if (gone.Count == 0 && !areaChanged) return;
+            if (!areaChanged) gone.Add(d);
+            set.Active.Remove(d);
         }
-        await EndPlayerDebuffs(conn, set, gone);
+        if (areaChanged) set.Area = player.Layout;
+        // The resistances the degeneration is less of can change with anything else the player has.
+        player.Degens[set] = DebuffDegenLocked(player);
+        if (gone.Count == 0 && !areaChanged) return;
+        await EndPlayerDebuffs(player, set, gone);
     }
 
-    static async Task EndPlayerDebuffs(Player conn, PlayerDebuffSet set, IReadOnlyList<ushort> instances)
+    static void ClearPlayerDebuff(Player player, PlayerDebuff debuff)
     {
-        if (!conn.Closed)
-            foreach (ushort instance in instances)
-                await Send(conn, GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(PlayerId, instance), null);
-        await RefreshDebuffedPlayer(conn);
+        if (debuff.Row != 0) player.Area.Buffs.Clear(player.Id, debuff.Row, debuff.Caster, tag: debuff.Instance);
+    }
+
+    static async Task EndPlayerDebuffs(Player player, PlayerDebuffSet set, IReadOnlyList<PlayerDebuff> debuffs)
+    {
+        if (!player.Closed)
+            foreach (var debuff in debuffs) ClearPlayerDebuff(player, debuff);
+        await RefreshDebuffedPlayer(player);
     }
 
     /// <summary>The player's pools, movement and degeneration after the debuffs changed, and the stats the client shows.</summary>
-    static async Task RefreshDebuffedPlayer(Player conn)
+    static async Task RefreshDebuffedPlayer(Player player)
     {
-        if (conn.Closed) return;
-        lock (conn.Monsters)
-        {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            conn.ApplyMovementSpeed();
-            conn.Degens[DebuffsOf.GetValue(conn, _ => new())] = DebuffDegenLocked(conn);
-        }
-        await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn), null);
+        if (player.Closed) return;
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        player.Degens[DebuffsOf.GetValue(player, _ => new())] = DebuffDegenLocked(player);
+        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player), null);
     }
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over
     /// a minute, less the player's resistance to it (none for physical; nothing of a type the player is immune to).</summary>
-    static double DebuffDegenLocked(Player conn)
+    static double DebuffDegenLocked(Player player)
     {
-        if (!DebuffsOf.TryGetValue(conn, out var set) || !ReferenceEquals(set.Area, conn.Layout)) return 0;
-        double now = AreaTime(conn), total = 0;
-        var immune = PlayerImmunities(conn);
+        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return 0;
+        double now = AreaTime(player), total = 0;
+        var immune = PlayerImmunities(player);
         foreach (var type in new[] { DamageType.Physical, DamageType.Fire, DamageType.Cold, DamageType.Lightning, DamageType.Chaos })
         {
             uint stat = Stat.Of($"base_{type.ToString().ToLowerInvariant()}_damage_taken_per_minute");
             double perMinute = set.Active.Where(d => d.Until > now).Sum(d => (double)d.Stats.GetValueOrDefault(stat));
             if (perMinute <= 0 || immune.Contains(type)) continue;
-            double resisted = type == DamageType.Physical ? 0 : Math.Min(MaxResistance(conn, type), Resistance(conn, type));
+            double resisted = type == DamageType.Physical ? 0 : Math.Min(MaxResistance(player, type), Resistance(player, type));
             total += perMinute / 60 * (1 - resisted / 100.0);
         }
         return Math.Max(0, total);
     }
 
     /// <summary>GameEvents.PlayerStatSources: the debuffs on the player add their stats.</summary>
-    public static Dictionary<uint, int> PlayerDebuffStats(Player conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> PlayerDebuffStats(Player player, Dictionary<uint, int> sources)
     {
-        if (!DebuffsOf.TryGetValue(conn, out var set) || !ReferenceEquals(set.Area, conn.Layout)) return sources;
-        double now = AreaTime(conn);
+        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return sources;
+        double now = AreaTime(player);
         foreach (var debuff in set.Active.Where(d => d.Until > now))
             foreach (var (name, value) in debuff.Stats)
                 sources[name] = sources.GetValueOrDefault(name) + value;

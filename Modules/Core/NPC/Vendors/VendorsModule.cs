@@ -27,92 +27,92 @@ public sealed class VendorsModule : IModule
     {
         LoadData();
         DivinationFeature.Load(module);
-        GameEvents.NpcTalk.Add(module.Manifest.Id, (conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
+        GameEvents.NpcTalk.Add(module.Manifest.Id, (player,_,_) => { player.Shop = null; return Task.FromResult(false); });
         GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
-            (conn, args) => RefreshKirac(conn));
+            (player, args) => RefreshKirac(player));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
         {
-            var conn = ConnOf(kill.Player);
+            var player = kill.Player;
             if (kill.Monster.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Unique
-                && global::Game.MapRunOf(conn) is { } map && map.Owner.Equals(CharacterName(conn), StringComparison.OrdinalIgnoreCase))
-                KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
+                && global::Game.MapRunOf(player) is { } map && map.Owner.Equals(CharacterName(player), StringComparison.OrdinalIgnoreCase))
+                KiracProgress.Complete(PersonalStashOf(player),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
         });
         GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
-            var conn = ConnOf(talk.Player);
+            var player = talk.Player;
             SpawnedNpc? npc;
-            lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(conn.TalkingTo);
+            lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(player.TalkingTo);
             if (npc is null) return false;
-            if (talk.Category == "BuyItems") await OpenNpcShop(conn, conn.TalkingTo, npc);
-            else if (talk.Category == "SellItems") await OpenNpcSale(conn, npc);
+            if (talk.Category == "BuyItems") await OpenNpcShop(player, player.TalkingTo, npc);
+            else if (talk.Category == "SellItems") await OpenNpcSale(player, npc);
             else return false;
             return true;
         });
-        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, async conn =>
+        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, async player =>
         {
-            conn.Shop = null;
-            if (conn.Sale is not null) await CloseSale(conn, accepted: false);
+            player.Shop = null;
+            if (player.Sale is not null) await CloseSale(player, accepted: false);
         });
-        GameEvents.InventoryPick.Add(module.Manifest.Id, async (conn, pick) =>
+        GameEvents.InventoryPick.Add(module.Manifest.Id, async (player, pick) =>
         {
-            if (conn.Sale is not { } sale || pick.InventoryId != sale.Mine) return false;
-            await TakeFromSale(conn, sale, pick.ItemId);
+            if (player.Sale is not { } sale || pick.InventoryId != sale.Mine) return false;
+            await TakeFromSale(player, sale, pick.ItemId);
             return true;
         });
-        GameEvents.InventoryPlace.Add(module.Manifest.Id, async (conn, place) =>
+        GameEvents.InventoryPlace.Add(module.Manifest.Id, async (player, place) =>
         {
-            if (conn.Sale is not { } sale || place.InventoryId != sale.Mine) return false;
+            if (player.Sale is not { } sale || place.InventoryId != sale.Mine) return false;
             uint cursor = PlayerInventories.InventoryId(PlayerInventories.Cursor);
-            var held = ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault();
-            if (held is not null) await OfferForSale(conn, sale, cursor, held.Id, (byte)place.X, (byte)place.Y);
+            var held = ItemsOf(player).Items(PlayerInventories.Cursor).FirstOrDefault();
+            if (held is not null) await OfferForSale(player, sale, cursor, held.Id, (byte)place.X, (byte)place.Y);
             return true;
         });
-        GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             // A trade between players has these messages first.
-            if (conn.Trade is not null) return false;
+            if (player.Trade is not null) return false;
             var offer = InstanceNpcs.ReadTradeOffer(bytes);
             // Ctrl + click on an inventory item sends x = y = 0xff (0x14030e970 → 0x14216d010): any free offer cell.
-            if (conn.Sale is { } sale && offer.X == 0xff && offer.Y == 0xff) await OfferFromInventory(conn, sale, offer.InventoryId, offer.ItemId);
-            else if (conn.Sale is { } open) await OfferForSale(conn, open, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
-            else Console.WriteLine($"[gateway] {conn.Remote} <= 0x00b2 trade offer {offer}: no sale open");
+            if (player.Sale is { } sale && offer.X == 0xff && offer.Y == 0xff) await OfferFromInventory(player, sale, offer.InventoryId, offer.ItemId);
+            else if (player.Sale is { } open) await OfferForSale(player, open, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
+            else Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00b2 trade offer {offer}: no sale open");
             return true;
         });
         foreach (ushort id in new[] { InstanceNpcs.TradeTakeBackId, InstanceNpcs.TradeMoveAllId })
-            GameEvents.Packet(id).Add(module.Manifest.Id, async (conn, bytes) =>
+            GameEvents.Packet(id).Add(module.Manifest.Id, async (player, bytes) =>
             {
             // A trade between players has these messages first.
-            if (conn.Trade is not null) return false;
+            if (player.Trade is not null) return false;
                 var (item, inventory) = InstanceNpcs.ReadTradeMove(bytes);
-                if (conn.Sale is not { } sale) Console.WriteLine($"[gateway] {conn.Remote} trade move: no sale open");
-                else if (ItemsOf(conn).Offered().Any(i => i.Id == item)) await TakeFromSale(conn, sale, item);
-                else await OfferFromInventory(conn, sale, inventory, item);
+                if (player.Sale is not { } sale) Console.WriteLine($"[gateway] {player.Connection.Remote} trade move: no sale open");
+                else if (ItemsOf(player).Offered().Any(i => i.Id == item)) await TakeFromSale(player, sale, item);
+                else await OfferFromInventory(player, sale, inventory, item);
                 return true;
             });
-        GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             // A trade between players has these messages first.
-            if (conn.Trade is not null) return false;
+            if (player.Trade is not null) return false;
             uint revision = InstanceNpcs.ReadTradeAccept(bytes);
-            await CloseSale(conn, accepted: conn.Sale is { } s && s.TheirsRevision == revision);
+            await CloseSale(player, accepted: player.Sale is { } s && s.TheirsRevision == revision);
             return true;
         });
-        GameEvents.Packet(InstanceNpcs.TradeAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceNpcs.TradeAnswerId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             // A trade between players has this message first.
-            if (conn.Trade is not null || conn.TradeRequestTo != 0 || (InstanceNpcs.ReadTradeAnswer(bytes).Other != 0 && conn.Sale is null)) return false;
-            await AnswerSale(conn, InstanceNpcs.ReadTradeAnswer(bytes));
+            if (player.Trade is not null || player.TradeRequestTo != 0 || (InstanceNpcs.ReadTradeAnswer(bytes).Other != 0 && player.Sale is null)) return false;
+            await AnswerSale(player, InstanceNpcs.ReadTradeAnswer(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await BuyFromShop(conn, InstanceNpcs.ReadBuy(bytes));
+            await BuyFromShop(player, InstanceNpcs.ReadBuy(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await CtrlBuyFromShop(conn, InstanceNpcs.ReadCtrlBuy(bytes));
+            await CtrlBuyFromShop(player, InstanceNpcs.ReadCtrlBuy(bytes));
             return true;
         });
     }

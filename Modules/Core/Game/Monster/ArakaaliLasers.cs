@@ -14,9 +14,9 @@ public static class ArakaaliLasers
     static readonly Store<InstanceState, Field> Fields = new();
     public static async Task Tick(Player c)
     {
-        if (c.Layout.Id != Arakaali.Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
+        if (c.Layout.Id != Arakaali.Area || !CurrentGameWork || !c.Connection.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         KeyValuePair<uint, SpawnedMonster> found;
-        lock (c.Monsters) found = c.Monsters.FirstOrDefault(p => Arakaali.IsBoss(p.Value.Variety));
+        found = c.Area.Monsters.FirstOrDefault(p => Arakaali.IsBoss(p.Value.Variety));
         if (found.Value is null) return;
         var field = Fields.GetValue(c.Instance, _ => new(c, found.Key, found.Value));
         await field.Gate.WaitAsync();
@@ -50,57 +50,51 @@ public static class ArakaaliLasers
             var lookup = ObjectTypes.All().Where(t => t.Type.StartsWith(Root, StringComparison.Ordinal))
                 .ToDictionary(t => t.Type, t => (Info: QuestObjectTypes.Find(t.Type)!,
                     States: ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates())!));
-            lock (c.Monsters)
+            foreach (var p in points)
             {
-                foreach (var p in points)
-                {
-                    if (instance.World.SceneObjects.ContainsKey(Key(p))) continue;
-                    var info = lookup[p.Type];
-                    if (info.Info is null || info.States is null || !QuestObject.CanSerialize(info.Info.Components, true)) continue;
-                    instance.World.SceneObjects[Key(p)] = (instance.World.TakeObjectId(), p.Type,
-                        new(p.X, p.Y, info.Info.Components, p.Rotation, p.Z, p.Model, 1) { StateMachine = info.States.Set("active", 0) });
-                }
-                var available = displays.ToList();
-                foreach (var source in a.Concat(b))
-                {
-                    if (!instance.World.SceneObjects.ContainsKey(Key(source)) || available.Count == 0) continue;
-                    var end = available.OrderBy(p => Math.Min(Math.Abs(p.X - source.X), Math.Abs(p.Y - source.Y)))
-                        .ThenBy(p => Math.Abs(p.X - source.X) + Math.Abs(p.Y - source.Y)).First();
-                    if (!instance.World.SceneObjects.TryGetValue(Key(end), out var target)) continue;
-                    available.Remove(end);
-                    var origin = instance.World.SceneObjects[Key(source)];
-                    instance.World.SceneObjects[Key(source)] = (origin.Id, origin.Type,
-                        origin.Object with { EntityVariables = new Dictionary<uint, uint> { [NextVariable] = target.Id } });
-                    lanes.Add(new(Key(source), Key(end), source.Type.EndsWith("_A", StringComparison.Ordinal)));
-                }
+                if (instance.World.SceneObjects.ContainsKey(Key(p))) continue;
+                var info = lookup[p.Type];
+                if (info.Info is null || info.States is null || !QuestObject.CanSerialize(info.Info.Components, true)) continue;
+                instance.World.SceneObjects[Key(p)] = (instance.World.TakeObjectId(), p.Type,
+                    new(p.X, p.Y, info.Info.Components, p.Rotation, p.Z, p.Model, 1) { StateMachine = info.States.Set("active", 0) });
+            }
+            var available = displays.ToList();
+            foreach (var source in a.Concat(b))
+            {
+                if (!instance.World.SceneObjects.ContainsKey(Key(source)) || available.Count == 0) continue;
+                var end = available.OrderBy(p => Math.Min(Math.Abs(p.X - source.X), Math.Abs(p.Y - source.Y)))
+                    .ThenBy(p => Math.Abs(p.X - source.X) + Math.Abs(p.Y - source.Y)).First();
+                if (!instance.World.SceneObjects.TryGetValue(Key(end), out var target)) continue;
+                available.Remove(end);
+                var origin = instance.World.SceneObjects[Key(source)];
+                instance.World.SceneObjects[Key(source)] = (origin.Id, origin.Type,
+                    origin.Object with { EntityVariables = new Dictionary<uint, uint> { [NextVariable] = target.Id } });
+                lanes.Add(new(Key(source), Key(end), source.Type.EndsWith("_A", StringComparison.Ordinal)));
             }
         }
         IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance));
         public async Task Bind(Player c)
         {
-            if (!c.MonsterViews.ContainsKey(bossId) || c.AsleepMonsters.Contains(bossId)) return;
+            if (!MonsterShown(c, bossId) || MonsterAsleep(c, bossId)) return;
             players.Add(c);
             (uint Id, string Type, QuestObject Object)[] scenes;
-            lock (c.Monsters) scenes = [.. instance.World.SceneObjects.Where(p => p.Key.StartsWith(Prefix, StringComparison.Ordinal)).Select(p => p.Value)];
+            scenes = [.. instance.World.SceneObjects.Where(p => p.Key.StartsWith(Prefix, StringComparison.Ordinal)).Select(p => p.Value)];
             foreach (var s in scenes)
             {
-                lock (c.Monsters) if (c.SceneViews.Contains(s.Id)) continue;
+                if (Scenes(c).Contains(s.Id)) continue;
                 if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()),
                     "[Arakaali] linked arena turret", wake: true))
-                    lock (c.Monsters) c.SceneViews.Add(s.Id);
+                    Scenes(c).Add(s.Id);
             }
         }
         async Task State(string key, byte transition, int active)
         {
             (uint Id, string Type, QuestObject Object) s;
-            lock (instance.World.Monsters)
-            {
-                s = instance.World.SceneObjects[key];
-                s.Object = s.Object with { TransitionState = transition, StateMachine = s.Object.StateMachine!.Set("active", active) };
-                instance.World.SceneObjects[key] = s;
-            }
+            s = instance.World.SceneObjects[key];
+            s.Object = s.Object with { TransitionState = transition, StateMachine = s.Object.StateMachine!.Set("active", active) };
+            instance.World.SceneObjects[key] = s;
             var components = s.Object.Components.ToList();
-            foreach (var p in Present.Where(p => p.SceneViews.Contains(s.Id)).ToArray())
+            if ((Present.Where(p => Scenes(p).Contains(s.Id)).ToArray()).FirstOrDefault() is { } p)
             {
                 await SendWorldRecords(p, s.Id, () =>
                     [InstanceEntities.StateMachineUpdate(s.Id, (byte)components.IndexOf("StateMachine"), s.Object.StateMachine!),
@@ -128,18 +122,15 @@ public static class ArakaaliLasers
             MonsterHitOutcome? outcome = null;
             await SendWorldRecord(p, bossId, [], null, atGate: () =>
             {
-                lock (p.Monsters)
-                {
-                    if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p) || boss.Dead || boss.Life == 0 || boss.StageRunning || boss.LifePhases?.Active == true) return null;
-                    double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
-                    var minionAttack = attack with { Damage = attack.Damage.Scale(.5) };
-                    foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                        if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, bossId, boss, minionAttack, now, area: true);
-                    if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now))) return null;
-                    outcome = CommitMonsterHitLocked(p, bossId, boss, attack, now, p.Walk.Position(now),
-                        (from.GridX, from.GridY), false, p.NextActionSequence());
-                    return outcome?.HitPacket;
-                }
+                if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p) || boss.Dead || boss.Life == 0 || boss.StageRunning || boss.LifePhases?.Active == true) return null;
+                double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
+                var minionAttack = attack with { Damage = attack.Damage.Scale(.5) };
+                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
+                    if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, bossId, boss, minionAttack, now, area: true);
+                if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now))) return null;
+                outcome = CommitMonsterHitLocked(p, bossId, boss, attack, now, p.Walk.Position(now),
+                    (from.GridX, from.GridY), false, p.NextActionSequence());
+                return outcome?.HitPacket;
             });
             if (outcome is not null) await PresentMonsterHit(p, bossId, outcome);
         }
@@ -149,7 +140,7 @@ public static class ArakaaliLasers
             if (reset) { await Reset(); reset = false; next = now + 5; }
             if (boss.Dead || boss.StageRunning || boss.LifePhases?.Active == true)
             { if (stage != 0) await Reset(); next = now + 5; return; }
-            if (!Present.Any(p => p.PlayerLife > 0 && p.MonsterViews.ContainsKey(bossId) && !p.AsleepMonsters.Contains(bossId))) return;
+            if (!Present.Any(p => p.PlayerLife > 0 && MonsterShown(p, bossId) && !MonsterAsleep(p, bossId))) return;
             if (stage == 0)
             {
                 if (now < next) return;

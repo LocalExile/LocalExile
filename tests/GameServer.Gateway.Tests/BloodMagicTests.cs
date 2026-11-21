@@ -17,28 +17,28 @@ public sealed class BloodMagicTests
         var previous = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = SpellTotemExecutionTests.Connection(gemName);
+        var player = SpellTotemExecutionTests.PlayerOf(gemName);
         try
         {
             var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!);
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + gemName)!);
-            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand with
+            Game.ItemsOf(player).Add(PlayerInventories.Weapon1, 0, 0, wand with
             {
                 Sockets = [new(SocketColour.White, gem)], Links = [1],
             });
-            var skill = Game.GemSkillEffects(conn).Single();
-            conn.BloodCharges = charges;
-            conn.PlayerLife = expected;
-            Assert.False(Game.CanPaySkillCost(conn, skill.Id));
-            Assert.False(Game.PayMana(conn, skill.Id, out _, out _));
-            Assert.Equal(expected, conn.PlayerLife);
-            conn.PlayerLife++;
-            Assert.True(Game.CanPaySkillCost(conn, skill.Id));
-            Assert.True(Game.PayMana(conn, skill.Id, out uint mana, out uint life));
+            var skill = Game.GemSkillEffects(player).Single();
+            player.BloodCharges = charges;
+            player.PlayerLife = expected;
+            Assert.False(Game.CanPaySkillCost(player, skill.Id));
+            Assert.False(Game.PayMana(player, skill.Id, out _, out _));
+            Assert.Equal(expected, player.PlayerLife);
+            player.PlayerLife++;
+            Assert.True(Game.CanPaySkillCost(player, skill.Id));
+            Assert.True(Game.PayMana(player, skill.Id, out uint mana, out uint life));
             Assert.Equal(expected, life);
             Assert.Equal(0u, mana);
-            Assert.Equal(1u, conn.PlayerLife);
-            Assert.Equal(1000u, conn.PlayerMana);
+            Assert.Equal(1u, player.PlayerLife);
+            Assert.Equal(1000u, player.PlayerMana);
         }
         finally
         {

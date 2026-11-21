@@ -2,8 +2,8 @@
 public enum PlayerUpdateRole { Player, MonsterAction, Tour, Minions, Projectiles }
 public interface IPlayerUpdateSchedule
 {
-    double Now(Player conn);
-    double ResourceNow(Player conn) => Now(conn);
+    double Now(Player player);
+    double ResourceNow(Player player) => Now(player);
     Task Wait(int milliseconds, CancellationToken stopping);
     Task Wait(PlayerUpdateRole role, int milliseconds, CancellationToken stopping) => Wait(milliseconds, stopping);
 }
@@ -20,24 +20,18 @@ public sealed partial class Player
 
     public void RetirePlayerUpdates()
     {
-        lock (Monsters)
-        {
-            PlayerUpdatesWorker.Retire();
-            PlayerUpdatesState?.Clear();
-            PlayerUpdatesState = null;
-        }
+        PlayerUpdatesWorker.Retire();
+        PlayerUpdatesState?.Clear();
+        PlayerUpdatesState = null;
     }
 }
 
 // Host-owned identities, not a retained Game closure; removal cannot touch a replacement runtime.
-public sealed class ConnectionProjectileRetirement(Player conn, IProjectileRuntime runtime) : IDisposable
+public sealed class ConnectionProjectileRetirement(Player player, IProjectileRuntime runtime) : IDisposable
 {
     public void Dispose()
     {
-        lock (conn.Monsters)
-        {
-            runtime.Invalidate();
-            if (ReferenceEquals(conn.ProjectileRuntimeState, runtime)) conn.ProjectileRuntimeState = null;
-        }
+        runtime.Invalidate();
+        if (ReferenceEquals(player.ProjectileRuntimeState, runtime)) player.ProjectileRuntimeState = null;
     }
 }

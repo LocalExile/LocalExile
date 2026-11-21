@@ -28,13 +28,13 @@ public sealed class JuggernautNodesTests
         Assert.Equal(75, HitReaction.StunningDamage(100, physicalShare: 1, melee: false), 6);
         Assert.Equal(56.25, HitReaction.StunningDamage(100, physicalShare: 0, melee: false), 6);
 
-        var conn = new Player(new(1, "stun", 1000, 1000, 100, 100, null, []), 1, 1);
-        var charges = Game.ChargesOf(conn);
+        var player = new Player(new(1, "stun", 1000, 1000, 100, 100, null, []), 1, 1);
+        var charges = Game.ChargesOf(player);
         Func<uint, int> stats = name => name == Stat.ChanceToGainEnduranceChargeWhenYouStunEnemyPct ? 100 : 0;
         charges.Observe(stats);
 
         var boss = new SpawnedMonster("boss", new(0, 0, 0), 0, 0, 1000) { Rarity = MonsterRarity.Unique, HitAnimations = [new(0, 2)] };
-        Assert.True(HitReaction.TryFlinch(boss, new(500, DurationPct: 100, Melee: true, Owner: conn), 10, new Random(1)));
+        Assert.True(HitReaction.TryFlinch(boss, new(500, DurationPct: 100, Melee: true, Owner: player), 10, new Random(1)));
         Assert.Equal(11.05, boss.FlinchUntil, 6);   // .35 x 2 x 1.5
         Assert.False(HitReaction.TryFlinch(boss, new(500), 15.04, new Random(1)));   // 4 s after the stun ended
         Assert.True(HitReaction.TryFlinch(boss, new(500), 15.06, new Random(1)));

@@ -29,12 +29,12 @@ public static partial class Game
         get(Stat.RecoupEffectsApplyOver3SecondsInstead) != 0
             || get(Stat.RecoupLifeEffectsApplyOver3SecondsInstead) != 0 ? 3 : 4;
 
-    // A hit the player took (after block, mitigation and Fortification), under the Monsters lock: its recoup starts.
-    public static void RecoupHitLocked(Player conn, DamagePacket taken, double now,
+    // A hit the player took (after block, mitigation and Fortification), in the area's frame: its recoup starts.
+    public static void RecoupHitLocked(Player player, DamagePacket taken, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.Immune || conn.PlayerLife == 0 || taken.IsZero) return;
+        if (player.Immune || player.PlayerLife == 0 || taken.IsZero) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
-        conn.LifeRecoup.Add(now, LifeRecoupOf(Get, taken), LifeRecoupSeconds(Get));
+        player.LifeRecoup.Add(now, LifeRecoupOf(Get, taken), LifeRecoupSeconds(Get));
     }
 }

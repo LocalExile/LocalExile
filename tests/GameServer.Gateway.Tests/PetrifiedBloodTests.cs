@@ -6,16 +6,16 @@ public sealed class PetrifiedBloodTests
 {
     static Player Player(uint life, uint maximumLife)
     {
-        var conn = new Player(new(1, "petrified", 300, 300, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "petrified", 300, 300, 100, 100, null, []), 1, 1)
         {
             Pools = new(1, maximumLife, 1000, 0, 0),
             PlayerLife = life,
         };
-        return conn;
+        return player;
     }
 
     // The hit pool only takes hits while the game's rules are active.
-    static int TakeHit(Player conn, int damage)
+    static int TakeHit(Player player, int damage)
     {
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
@@ -24,9 +24,8 @@ public sealed class PetrifiedBloodTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
-            lock (conn.Monsters)
-                return Game.DamagePlayerHit(conn, damage, 0, 0, new Dictionary<uint, int>(),
-                    DamagePacket.Of(DamageType.Physical, damage, damage));
+            return Game.DamagePlayerHit(player, damage, 0, 0, new Dictionary<uint, int>(),
+                DamagePacket.Of(DamageType.Physical, damage, damage));
         }
         finally
         {
@@ -42,20 +41,20 @@ public sealed class PetrifiedBloodTests
     [Fact]
     public void Hits_below_half_life_are_partly_deferred_over_four_seconds()
     {
-        var conn = Player(600, 1000);
-        conn.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
+        var player = Player(600, 1000);
+        player.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
             manaPercent: 3500, lowLifeThresholdPct: 50, buff: 7, now: 0);
         // 100 of the 300 is above half Life; of the 200 below it 80 is prevented, and 81% of 80 is deferred.
-        Assert.Equal(220, TakeHit(conn, 300));
-        var loss = conn.PetrifiedBlood.Display(0);
+        Assert.Equal(220, TakeHit(player, 300));
+        var loss = player.PetrifiedBlood.Display(0);
         Assert.Equal(972, loss.PerMinute);   // 64.8 deferred over 4 s = 16.2/s
         Assert.Equal(4, loss.Expiry, 6);
-        conn.PlayerLife = 380;
-        Assert.Equal(32.0, conn.PetrifiedBlood.Take(2), 6);   // 16.2 per second, whole points
-        Assert.Equal(32.0, conn.PetrifiedBlood.Take(4), 6);
-        Assert.Equal(0.0, conn.PetrifiedBlood.Take(6), 6);
-        Assert.Equal(0, conn.PetrifiedBlood.Display(6).PerMinute);
-        Assert.Equal(350, PetrifiedBlood.RequiredMana(conn.Pools, 3500));
+        player.PlayerLife = 380;
+        Assert.Equal(32.0, player.PetrifiedBlood.Take(2), 6);   // 16.2 per second, whole points
+        Assert.Equal(32.0, player.PetrifiedBlood.Take(4), 6);
+        Assert.Equal(0.0, player.PetrifiedBlood.Take(6), 6);
+        Assert.Equal(0, player.PetrifiedBlood.Display(6).PerMinute);
+        Assert.Equal(350, PetrifiedBlood.RequiredMana(player.Pools, 3500));
 
         // A hit wholly below half Life protects 40% of all of it; level 1 defers every protected point.
         var low = Player(400, 1000);
@@ -81,11 +80,11 @@ public sealed class PetrifiedBloodTests
     [Fact]
     public void Recovery_stops_at_low_life_and_skills_cost_life_above_it()
     {
-        var conn = Player(300, 1000);
-        conn.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
+        var player = Player(300, 1000);
+        player.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
             manaPercent: 3500, lowLifeThresholdPct: 40, buff: 7, now: 0);
         double carry = 0;
-        Assert.Equal(400u, PetrifiedBlood.RecoverLife(conn, 300, 500, ref carry));
+        Assert.Equal(400u, PetrifiedBlood.RecoverLife(player, 300, 500, ref carry));
         Assert.Equal(5u, PetrifiedBlood.RecoveryMargin(20));   // 250 ms at 20 Life/s
         Assert.Equal(1u, PetrifiedBlood.RecoveryMargin(0));
         double flaskCarry = 0;
@@ -148,32 +147,32 @@ public sealed class PetrifiedBloodTests
         Assert.Equal(500u, PetrifiedBlood.RecoverLife(recoupPlayer, 450, 75, ref recoupCarry));
         Assert.Equal(500u, PetrifiedBlood.RecoverLife(recoupPlayer, 500, 75, ref recoupCarry));
 
-        conn.PlayerLife = 401;
-        Assert.False(PetrifiedBlood.OnLowLife(conn));
-        Assert.True(PetrifiedBlood.BlocksRecovery(conn));   // at/above the boundary: no non-flask gain
-        Assert.Equal(4, PetrifiedBlood.LifeCost(conn, 10));
-        conn.PlayerLife = 400;
-        Assert.True(PetrifiedBlood.OnLowLife(conn));
-        Assert.True(PetrifiedBlood.BlocksRecovery(conn));
-        Assert.Equal(0, PetrifiedBlood.LifeCost(conn, 10));
-        conn.PlayerLife = 399;
-        Assert.True(PetrifiedBlood.OnLowLife(conn));
-        Assert.False(PetrifiedBlood.BlocksRecovery(conn));  // below the boundary: regen may reach it
-        Assert.Equal(0, PetrifiedBlood.LifeCost(conn, 10));
-        conn.PlayerLife = 600;
-        conn.PetrifiedBlood.RefreshThreshold(50);
-        Assert.False(PetrifiedBlood.OnLowLife(conn));
-        Assert.True(PetrifiedBlood.BlocksRecovery(conn));
-        Assert.Equal(4, PetrifiedBlood.LifeCost(conn, 10));
-        conn.PlayerLife = 500;
-        Assert.True(PetrifiedBlood.OnLowLife(conn));
-        Assert.True(PetrifiedBlood.BlocksRecovery(conn));
-        Assert.Equal(0, PetrifiedBlood.LifeCost(conn, 10));
-        conn.PlayerLife = 499;
-        Assert.True(PetrifiedBlood.OnLowLife(conn));
-        Assert.False(PetrifiedBlood.BlocksRecovery(conn));
-        conn.PetrifiedBlood.Suspend();
-        conn.PlayerLife = 600;
-        Assert.Equal(0, PetrifiedBlood.LifeCost(conn, 10));
+        player.PlayerLife = 401;
+        Assert.False(PetrifiedBlood.OnLowLife(player));
+        Assert.True(PetrifiedBlood.BlocksRecovery(player));   // at/above the boundary: no non-flask gain
+        Assert.Equal(4, PetrifiedBlood.LifeCost(player, 10));
+        player.PlayerLife = 400;
+        Assert.True(PetrifiedBlood.OnLowLife(player));
+        Assert.True(PetrifiedBlood.BlocksRecovery(player));
+        Assert.Equal(0, PetrifiedBlood.LifeCost(player, 10));
+        player.PlayerLife = 399;
+        Assert.True(PetrifiedBlood.OnLowLife(player));
+        Assert.False(PetrifiedBlood.BlocksRecovery(player));  // below the boundary: regen may reach it
+        Assert.Equal(0, PetrifiedBlood.LifeCost(player, 10));
+        player.PlayerLife = 600;
+        player.PetrifiedBlood.RefreshThreshold(50);
+        Assert.False(PetrifiedBlood.OnLowLife(player));
+        Assert.True(PetrifiedBlood.BlocksRecovery(player));
+        Assert.Equal(4, PetrifiedBlood.LifeCost(player, 10));
+        player.PlayerLife = 500;
+        Assert.True(PetrifiedBlood.OnLowLife(player));
+        Assert.True(PetrifiedBlood.BlocksRecovery(player));
+        Assert.Equal(0, PetrifiedBlood.LifeCost(player, 10));
+        player.PlayerLife = 499;
+        Assert.True(PetrifiedBlood.OnLowLife(player));
+        Assert.False(PetrifiedBlood.BlocksRecovery(player));
+        player.PetrifiedBlood.Suspend();
+        player.PlayerLife = 600;
+        Assert.Equal(0, PetrifiedBlood.LifeCost(player, 10));
     }
 }

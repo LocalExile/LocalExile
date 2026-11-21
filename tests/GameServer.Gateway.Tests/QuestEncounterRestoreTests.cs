@@ -41,15 +41,15 @@ public class QuestEncounterRestoreTests
         using var hostWire = new PartyFollowerTests.Wire();
         using var peerWire = new PartyFollowerTests.Wire();
         var instance = new InstanceState();
-        var host = runtime.Connection(instance, hostWire, "AppearanceHost");
-        var peer = runtime.Connection(instance, peerWire, "AppearancePeer");
+        var host = runtime.PlayerOf(instance, hostWire, "AppearanceHost");
+        var peer = runtime.PlayerOf(instance, peerWire, "AppearancePeer");
         foreach (var player in new[] { host, peer })
         {
             player.LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string> { source });
-            var template = new GameServer.Core.Protocol.Instance.PlayerObject(player.Character!, 0, 100, 100, 1000, 1000);
-            instance.PublishPlayer(new(player.PeerId, 1, template, 100, 100, 1000, player));
+            var template = new GameServer.Core.Protocol.Instance.PlayerObject(player.Character.Name!, 0, 100, 100, 1000, 1000);
+            instance.PublishPlayer(new(player.Id, 1, template, 100, 100, 1000, player));
         }
-        host.QuestFlags.Add("a5q6-QuestReceived");
+        host.Character.QuestFlags.Add("a5q6-QuestReceived");
         var boss = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/AvariusCasticus/AvariusCasticusDivine"));
         for (int i = 0; i < 2; i++)
         {

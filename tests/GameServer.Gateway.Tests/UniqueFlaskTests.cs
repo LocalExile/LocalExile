@@ -58,11 +58,11 @@ public class UniqueFlaskTests
             [FlaskGrounds.ConsecratedAreaStat] = 200,
         };
         Assert.Equal((FlaskGrounds.Kind.ConsecratedGround, 54), FlaskGrounds.OnUse(local).Single());
-        var conn = new Player(new(1, "faith", 100, 100, 100, 100, null, []), 0, 1);
-        conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 10, 10, 54, 100, null, EnemyDamageTakenPct: 8));
-        conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 12, 12, 18, 100, null, EnemyDamageTakenPct: 5));
-        Assert.Equal(8, conn.FlaskGrounds.ConsecratedEnemyDamageTaken((20, 20)));
-        Assert.Equal(0, conn.FlaskGrounds.ConsecratedEnemyDamageTaken((200, 200)));
+        var player = new Player(new(1, "faith", 100, 100, 100, 100, null, []), 0, 1);
+        player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 10, 10, 54, 100, null, EnemyDamageTakenPct: 8));
+        player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 12, 12, 18, 100, null, EnemyDamageTakenPct: 5));
+        Assert.Equal(8, player.FlaskGrounds.ConsecratedEnemyDamageTaken((20, 20)));
+        Assert.Equal(0, player.FlaskGrounds.ConsecratedEnemyDamageTaken((200, 200)));
 
         var physical = DamagePacket.Of(DamageType.Physical, 1000, 1000);
         int Stormblood(uint name) => name == Stat.AllDamageFromCriticalStrikesCanFreeze ? 1 : 0;
@@ -73,40 +73,39 @@ public class UniqueFlaskTests
 
         // Increased critical chance against Blinded enemies adds to Bottled Faith and Profane Ground.
         var target = new SpawnedMonster("blinded", new(10, 10, 0), 0, 0, 100) { Hostile = true };
-        conn.Monsters[7] = target;
-        conn.FlaskGrounds.SetBlinded(7, true, () => 99);
+        player.Area.Monsters[7] = target;
+        player.FlaskGrounds.SetBlinded(7, true, () => 99);
         // The grounds are zones of the area (AreaZones), which a player outside a socket does not have: it gets one, the
         // grounds go in, and the area's movement places the target inside them.
-        var area = new GameArea(1);
-        typeof(AreaFrames).GetProperty(nameof(AreaFrames.Area))!.SetValue(conn.Frames, area);
+        var area = player.Area;
         typeof(Game).GetMethod("SyncFlaskGroundZones", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
-            .Invoke(null, [conn]);
+            .Invoke(null, [player]);
         area.Grid.Set(new(7), (10, 10));
         area.Zones.Update(moved: true);
-        StartFlask(conn, FlaskGrounds.VsConsecratedCriticalStat, 100);
-        var critical = Game.SpellCriticalChanceVsGround(conn, extra => 500 + (int)extra * 5, blinded: 200);
-        Assert.Equal(2000, Game.CriticalChanceOn(conn, 7, 500, 1500, critical));
-        conn.FlaskGrounds.SetProfane(7, true, true, 1, () => 100);
-        Assert.Equal(2500, Game.CriticalChanceOn(conn, 7, 500, 1500, critical));
+        StartFlask(player, FlaskGrounds.VsConsecratedCriticalStat, 100);
+        var critical = Game.SpellCriticalChanceVsGround(player, extra => 500 + (int)extra * 5, blinded: 200);
+        Assert.Equal(2000, Game.CriticalChanceOn(player, 7, 500, 1500, critical));
+        player.FlaskGrounds.SetProfane(7, true, true, 1, () => 100);
+        Assert.Equal(2500, Game.CriticalChanceOn(player, 7, 500, 1500, critical));
     }
 
-    static void StartFlask(Player conn, uint stat, int value) =>
-        conn.UtilityFlaskEffects.Start(new(1, 0, "test", new(0, 0, "test", [], 10, 1, 10), 1, null,
+    static void StartFlask(Player player, uint stat, int value) =>
+        player.UtilityFlaskEffects.Start(new(1, 0, "test", new(0, 0, "test", [], 10, 1, 10), 1, null,
             [new("mod " + Program.Stats.Name(stat), stat, value)], 0, 10));
 
     static void CinderswallowRetainsOnlyTheQualifyingIgnite()
     {
-        var conn = new Player(new(1, "cinderswallow", 100, 100, 100, 100, null, []), 0, 1);
+        var player = new Player(new(1, "cinderswallow", 100, 100, 100, 100, null, []), 0, 1);
         var target = new SpawnedMonster("target", new(10, 10, 0), 0, 0, 10000);
         // A long, earlier ignite cannot extend the shorter ignite inflicted during flask effect.
-        Game.IgniteLocked(conn, 1, target, new(DamageType.Fire, 1, 100), 0);
-        StartFlask(conn, UtilityFlasks.IgnitedDuringEffectTakenStat, 20);
-        Game.IgniteLocked(conn, 1, target, new(DamageType.Fire, 1, 4), 1);
+        Game.IgniteLocked(player, 1, target, new(DamageType.Fire, 1, 100), 0);
+        StartFlask(player, UtilityFlasks.IgnitedDuringEffectTakenStat, 20);
+        Game.IgniteLocked(player, 1, target, new(DamageType.Fire, 1, 4), 1);
         Assert.Equal(1.2, Game.MonsterDamageTaken(target, false, 2), 6);
         Assert.Equal(1, Game.MonsterDamageTaken(target, false, 5), 6);
         // A weaker flask's longer ignite must not retain the stronger expired modifier.
-        StartFlask(conn, UtilityFlasks.IgnitedDuringEffectTakenStat, 7);
-        Game.IgniteOnHitLocked(conn, 1, target, new(100, 1, 1, 1, 1, 10), false, 2);
+        StartFlask(player, UtilityFlasks.IgnitedDuringEffectTakenStat, 7);
+        Game.IgniteOnHitLocked(player, 1, target, new(100, 1, 1, 1, 1, 10), false, 2);
         Assert.Equal(1.07, Game.MonsterDamageTaken(target, false, 6), 6);
         target.Ignites.SetExpiryRate(6, .5);
         Assert.Equal(1.07, Game.MonsterDamageTaken(target, false, 17), 6);
@@ -117,12 +116,12 @@ public class UniqueFlaskTests
         expired.Ignites.Add(-100, 1, 4);
         expired.Ignites.Clear();
         Assert.True(expired.Ignites.DiedBurning);
-        Game.NoteCorpseConsumedLocked(conn, expired);
-        Assert.Equal(0, conn.IgnitedCorpsesConsumed);
+        Game.NoteCorpseConsumedLocked(player, expired);
+        Assert.Equal(0, player.IgnitedCorpsesConsumed);
         var fresh = new SpawnedMonster("fresh corpse", new(10, 10, 0), 0, 0, 100);
         fresh.Ignites.Add(0, 1, 1000);
         fresh.Ignites.Clear();
-        Game.NoteCorpseConsumedLocked(conn, fresh);
-        Assert.Equal(1, conn.IgnitedCorpsesConsumed);
+        Game.NoteCorpseConsumedLocked(player, fresh);
+        Assert.Equal(1, player.IgnitedCorpsesConsumed);
     }
 }

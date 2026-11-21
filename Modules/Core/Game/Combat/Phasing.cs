@@ -34,81 +34,41 @@ public static partial class Game
         return (ushort)813;
     }
 
-    /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill, resetting the
-    /// connection's timed phasing (<see cref="Player.IsPhasing"/>). A stat presentation publishes the stat the
-    /// client's pathfinder reads and the Phasing Buff icon.</summary>
-    public static void GainPhasingOnKill(Player conn)
+    /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill.</summary>
+    public static void GainPhasingOnKill(Player player)
     {
-        uint key = Stat.PhasingFor4SecondsOnKillPct;
-        int chance = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
-        if (chance <= 0 || AreaRng(conn).Next(100) >= Math.Min(100, chance)) return;
-        // The game clock: projectile contacts carry their own quanta origin.
-        double at = AreaTime(conn);
-        lock (conn.Monsters)
-            conn.PhasingUntil = Math.Max(conn.PhasingUntil, at + 4);
-        PresentStats(conn);
-        Console.WriteLine($"[gateway] phasing on kill: {chance}% -> 4 seconds (until {conn.PhasingUntil:0.###})");
+        int chance = StatSourceValues(player).GetValueOrDefault(Stat.PhasingFor4SecondsOnKillPct);
+        if (chance <= 0 || AreaRng(player).Next(100) >= Math.Min(100, chance)) return;
+        GainPhasing(player, 4);
+        Console.WriteLine($"[gateway] phasing on kill: {chance}% -> 4 seconds (until {player.PhasingUntil:0.###})");
     }
 
-    /// <summary>The Phasing Buff (BuffDefinitions "phasing_buff") and the virtual stat the client's pathfinder
-    /// reads. The server's own blockers already follow <see cref="Player.IsPhasing"/>; without the stat the
-    /// client walks around them and the estimates drift apart.</summary>
-    public static async Task SyncPhasing(Player conn)
+    /// <summary>Phasing for some seconds (a kill, Rampage): its end moves, and the buff shows the countdown from now.</summary>
+    public static void GainPhasing(Player player, double seconds)
     {
-        byte[]? buffBytes = null;
-        byte[]? statBytes = null;
-        lock (conn.Monsters)
-        {
-            if (conn.Closed || conn.LeavingArea) return;
-            double now = AreaTime(conn);
-            bool active = conn.PlayerLife > 0 && conn.IsPhasing;
-            bool timed = active && conn.PhasingUntil > now;
-            if (conn.PhasingUntil > now) PresentIn(conn, conn.PhasingUntil - now);
-            double until = timed ? conn.PhasingUntil : 0;
-            if (active)
-            {
-                bool created = conn.PhasingBuff == 0;
-                if (created)
-                {
-                    conn.PhasingBuff = conn.NextBuff++;
-                    conn.PhasingSentUntil = until;
-                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow, PlayerId,
-                        u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null,
-                        visual: PhasingVisualRow);
-                    Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} for {(timed ? $"{until - now:0.###} s" : "the flask effect")} (row {PhasingBuffRow})");
-                    statBytes = PhaseStat(conn.IsPhasing);
-                }
-                else if (TimedChanged(conn, timed, until))
-                {
-                    conn.PhasingSentUntil = until;
-                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow, PlayerId,
-                        u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null,
-                        visual: PhasingVisualRow);
-                }
-            }
-            else if (conn.PhasingBuff != 0)
-            {
-                buffBytes = InstanceEntities.RemoveBuff(PlayerId, conn.PhasingBuff);
-                Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} ended");
-                conn.PhasingBuff = 0;
-                conn.PhasingSentUntil = 0;
-                statBytes = PhaseStat(false);
-            }
-        }
-        if (buffBytes is not null) await Send(conn, buffBytes, "phasing buff");
-        if (statBytes is not null) await Send(conn, statBytes, "phasing stat");
+        double now = AreaTime(player);
+        if (now + seconds <= player.PhasingUntil) return;
+        player.PhasingUntil = now + seconds;
+        if (player.PlayerLife > 0) player.Area.Buffs.Set(player.Id, PhasingBuff(player, seconds));
+        PresentStats(player);
     }
 
-    // The timed remainder is re-sent when a kill extends it; a timed buff that fell back to a flask-only source
-    // loses its countdown by omitting u68.
-    static bool TimedChanged(Player conn, bool timed, double until) =>
-        timed ? Math.Abs(until - conn.PhasingSentUntil) > 0.001 : conn.PhasingSentUntil != 0;
+    static Buff PhasingBuff(Player player, double? seconds) =>
+        new(PhasingBuffRow, player.Id, U68: seconds is { } s ? Buff.Seconds(s) : null, Visual: PhasingVisualRow);
 
-    static byte[] PhaseStat(bool on)
+    /// <summary>The Phasing Buff (BuffDefinitions "phasing_buff") and the virtual stat the client's pathfinder reads. The
+    /// server's own blockers already follow <see cref="Player.IsPhasing"/>; without the stat the client walks around them and
+    /// the estimates drift apart. A timed phasing's buff is set when it starts (GainPhasing); here the flask's untimed one
+    /// starts when the timer is out, and the buff ends with the phasing.</summary>
+    public static Task SyncPhasing(Player player)
     {
-        var stats = new List<(uint Key, int Value)>();
-        if (Stat.VirtualPhaseThroughObjects is var virtualKey) stats.Add((virtualKey, on ? 1 : 0));
-        if (Stat.PhaseThroughObjects is var phaseKey) stats.Add((phaseKey, on ? 1 : 0));
-        return InstanceEntities.StatsUpdate(PlayerId, stats);
+        if (player.Closed || player.LeavingArea) return Task.CompletedTask;
+        double now = AreaTime(player);
+        bool active = player.PlayerLife > 0 && player.IsPhasing;
+        if (player.PhasingUntil > now) PresentIn(player, player.PhasingUntil - now);
+        if (!active) player.Area.Buffs.Clear(player.Id, PhasingBuffRow, player.Id);
+        else if (player.PhasingUntil <= now) player.Area.Buffs.Set(player.Id, PhasingBuff(player, null));
+        SetStats(player, player.Id, [(Stat.VirtualPhaseThroughObjects, active ? 1 : 0), (Stat.PhaseThroughObjects, active ? 1 : 0)]);
+        return Task.CompletedTask;
     }
 }

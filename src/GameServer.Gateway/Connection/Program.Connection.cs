@@ -10,12 +10,12 @@ using WalkEstimator = GameServer.Core.World.WalkEstimator;
 public partial class Program
 {
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
-    public static string CharacterName(Player conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
+    public static string CharacterName(Player player) => string.IsNullOrEmpty(player.Character.Name) ? "Exile" : player.Character.Name;
 
     // Set while a projectile's output is sent: false drops it (Send).
     public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
-    /// <summary>The player whose work this is: set by their handlers (RunHandlers) and the loops and tasks run as theirs,
+    /// <summary>The player whose work this is: set by their handlers (Handle) and the loops and tasks run as theirs,
     /// and flows into what those start. What a player causes in the area can name them as its source by it (a monster's
     /// ailment); the area's own systems run with none.</summary>
     public static readonly AsyncLocal<Player?> ActingPlayer = new();
@@ -52,6 +52,7 @@ public partial class Program
         long total = 0;
         uint ticket = 0;
         Player? left = null;
+        AreaFrames? attached = null;
         InstanceState? entered = null;
         bool prepared = false;
         long connectedAt = Stopwatch.GetTimestamp();
@@ -125,46 +126,51 @@ public partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new Player(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, InstanceOwner = resolved.InstanceOwner, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level) };
-                conn.Session = new(remote, stream, ciphers) { Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
-                ConnectionMetrics.Add(ciphers, conn.Performance);
-                PacketHistories.Add(ciphers, conn.Session.Packets);
-                left = conn;
+                var player = new Player(layout, ticket, seed) { Character = { Name = resolved.Character, Id = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class) }, InstanceOwner = resolved.InstanceOwner, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level) };
+                player.Connection.Session = new(remote, stream, ciphers) { Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                ConnectionMetrics.Add(ciphers, player.Connection.Performance);
+                PacketHistories.Add(ciphers, player.Connection.Session.Packets);
+                left = player;
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate, and
                 // a rule that takes this connection over (AdmittingAsync) can tell it why before it is prepared.
-                conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
+                player.Connection.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
+                // From here the connection is in the area: everything it does to the game runs in the area's frames
+                // (AreaFrames), its messages too. The read loop answers ticks; the rest waits in the inbox for the frame's
+                // input phase (ClientInbox, issue #46).
+                var inbox = new ClientInbox(player.Connection.Performance);
+                using var reading = new CancellationTokenSource();
+                var frames = player.Frames;
+                frames.Attach(player, inbox, reading);
+                attached = frames;
                 // A rule may end the connection this one replaces first (one connection per character, AdmittingAsync):
                 // this connection's character is loaded only after that.
                 // Closed: a third login of the character ended this one while it waited for the first.
-                if (!await Logic.AdmittingAsync(conn) || conn.Closed)
+                bool admitted = await frames.Run(async () =>
                 {
-                    conn.CloseReason ??= "the game rules refused the connection";
-                    Console.WriteLine($"[gateway] {remote} connection refused by the rules");
-                    return;
-                }
-                Logic.Admitting(conn);
-                conn.Commands = Commands(conn);
-                HotReload.Register(conn);
-                InGame[conn] = 0;
+                if (!await Logic.AdmittingAsync(player) || player.Closed) return false;
+                Logic.Admitting(player);
+                player.Commands = Commands(player);
+                HotReload.Register(player);
+                InGame[player] = 0;
                 WindowsTimerResolution.Acquire();
-                conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
-                conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
-                int level = Logic.PrepareCharacter(conn, resolved.Level);
+                player.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
+                player.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
+                int level = Logic.PrepareCharacter(player, resolved.Level);
                 prepared = true;
-                var moduleHeader = GameEvents.RunAreaHeader(conn);
+                var moduleHeader = GameEvents.RunAreaHeader(player);
                 areaLevel = moduleHeader?.Level ?? areaLevel;
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
                 // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
-                if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
+                if (layout.Id == LabyrinthDay.Plaza) player.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
-                    Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
+                    Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
                     TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
                     AchievementSets: moduleHeader?.AchievementSets);
-                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
+                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
-                await Logic.Entered(conn, level, resolved.Level);
+                await Logic.Entered(player, level, resolved.Level);
                 // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.
                 if (resolved.Character is { Length: > 0 } runner)
                 {
@@ -172,76 +178,85 @@ public partial class Program
                     if (progress is not null)
                         await Send(remote, stream, ciphers, progress, $"0x01cb labyrinth progress: now node {labyrinthNode?.Row}");
                 }
-                // The read loop answers ticks; everything else runs in order on the handler task (ClientInbox, issue #46).
-                var inbox = new ClientInbox(conn.Performance);
-                using var reading = new CancellationTokenSource();
-                var handlers = RunHandlers(remote, stream, ciphers, conn, inbox, reading);
+                return true;
+                });
+                if (!admitted)
+                {
+                    player.Connection.CloseReason ??= "the game rules refused the connection";
+                    Console.WriteLine($"[gateway] {remote} connection refused by the rules");
+                    return;
+                }
                 try
                 {
                     byte[] rest = [.. pending.Skip(InstanceProtocol.OpeningLength)];
-                    if (rest.Length > 0) await OnClientData(remote, stream, ciphers, rest, conn, inbox, Stopwatch.GetTimestamp());
+                    if (rest.Length > 0) await OnClientData(remote, stream, ciphers, rest, player, inbox, Stopwatch.GetTimestamp());
                     // Closed early by C→S 0x153 (exit to character selection) or a handler error: the handler task cancels
                     // the read, and leaving the loop closes the connection.
-                    while (!conn.Closed)
+                    while (!player.Closed)
                     {
                         int n = await stream.ReadAsync(buffer, reading.Token);
                         if (n == 0)
                         {
                             // An area change closes it too; otherwise the client went away by itself: a crash (or a closed
                             // game), whose cause is usually in the last packets (PacketHistory).
-                            vanished = conn.CloseReason is null && !conn.LeavingArea && conn.PendingTransfer is null;
-                            reason = conn.CloseReason ?? (vanished
+                            vanished = player.Connection.CloseReason is null && !player.LeavingArea && player.PendingTransfer is null;
+                            reason = player.Connection.CloseReason ?? (vanished
                                 ? "the client closed the connection (no area change or exit: a client crash or a closed game?)"
                                 : "the client closed the connection (area change)");
                             break;
                         }
                         total += n;
-                        await OnClientData(remote, stream, ciphers, buffer.AsSpan(0, n).ToArray(), conn, inbox, Stopwatch.GetTimestamp());
+                        await OnClientData(remote, stream, ciphers, buffer.AsSpan(0, n).ToArray(), player, inbox, Stopwatch.GetTimestamp());
                         // A lost stream (ClientInbox.LostAfterUnframedReads): leaving the loop closes the connection.
-                        if (conn.Session.UnframedRun >= ClientInbox.LostAfterUnframedReads) { reason = conn.CloseReason; break; }
+                        if (player.Connection.Session.UnframedRun >= ClientInbox.LostAfterUnframedReads) { reason = player.Connection.CloseReason; break; }
                     }
-                    reason ??= conn.CloseReason ?? "closed by the server";
+                    reason ??= player.Connection.CloseReason ?? "closed by the server";
                 }
-                catch (OperationCanceledException) when (reading.IsCancellationRequested) { reason = conn.CloseReason ?? "closed by the server"; }
+                catch (OperationCanceledException) when (reading.IsCancellationRequested) { reason = player.Connection.CloseReason ?? "closed by the server"; }
                 finally
                 {
-                    lock (conn.Monsters)
+                    await frames.Run(() =>
                     {
-                        conn.Closed = true;
-                        conn.InvalidateIncomingHits();
-                        // The handlers below wait for the inbox: it must complete whatever the rules do.
-                        try { Logic.Closing(conn); }
+                        player.Closed = true;
+                        player.InvalidateIncomingHits();
+                        try { Logic.Closing(player); }
                         catch (Exception e) { Console.WriteLine($"[gateway] {remote} closing failed: {ServerLog.Describe(e)}"); }
-                    }
+                    });
                     inbox.Complete();
-                    await handlers;
+                    inbox.DiscardPending();
+                    // The batch it was on finishes first.
+                    try { await frames.Handling(player); }
+                    catch (Exception) { }
+                    await frames.Run(async () =>
+                    {
                     // An open trade ends with its owner: the other side gets its items back in view and the window closes.
-                    try { await GameEvents.RunPlayerLeaving(conn, "disconnected"); }
+                    try { await GameEvents.RunPlayerLeaving(player, "disconnected"); }
                     catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
-                    if (conn.BuildImport.Confirmed is { } build)
+                    if (player.BuildImport.Confirmed is { } build)
                     {
                         bool imported = false;
                         try
                         {
-                            Logic.Save(conn, prepared);
-                            Logic.Left(conn);
-                            conn.BuildFinalized = true;
+                            Logic.Save(player, prepared);
+                            Logic.Left(player);
+                            player.BuildFinalized = true;
                             CharacterBuildImports.Apply(build);
                             imported = true;
-                            Console.WriteLine($"[character-build] {CharacterName(conn)}: committed {build.Class} level {build.Level}");
+                            Console.WriteLine($"[character-build] {CharacterName(player)}: committed {build.Class} level {build.Level}");
                         }
                         catch (Exception e)
                         {
-                            Console.WriteLine($"[character-build] {CharacterName(conn)}: import failed: {e.Message}");
-                            try { await conn.Commands!.Reply("Build import failed: " + e.Message); }
+                            Console.WriteLine($"[character-build] {CharacterName(player)}: import failed: {e.Message}");
+                            try { await player.Commands!.Reply("Build import failed: " + e.Message); }
                             catch (Exception send) when (send is IOException or ObjectDisposedException) { }
                         }
                         if (imported)
                         {
-                            try { await conn.Commands!.Reply("Build applied. Select your character again."); }
+                            try { await player.Commands!.Reply("Build applied. Select your character again."); }
                             catch (Exception send) when (send is IOException or ObjectDisposedException) { }
                         }
                     }
+                    });
                 }
             }
         }
@@ -249,7 +264,7 @@ public partial class Program
         {
             // A client leaving for another area often resets the connection instead of closing it; otherwise a reset
             // (IOException) is how a crashed client often looks from here, and its packets are the lead.
-            if (left is { Closed: true, CloseReason: { } declared })
+            if (left is { Closed: true, Connection.CloseReason: { } declared })
                 reason = declared;   // the server ended it on purpose (another login took the character, a failed output)
             else if (ex is IOException && left is { } leaving && (leaving.LeavingArea || leaving.PendingTransfer is not null))
                 reason = "the client reset the connection (area change)";
@@ -257,28 +272,32 @@ public partial class Program
             {
                 reason = $"error: {ex.GetType().Name}: {ex.Message}";
                 Console.WriteLine($"[gateway] {remote} error: {ServerLog.Describe(ex)}");
-                left?.Session.Packets.Print(remote, "before the error");
+                left?.Connection.Session.Packets.Print(remote, "before the error");
             }
         }
         if (left is not null && vanished)
-            left.Session.Packets.Print(remote, "before the client closed the connection");
+            left.Connection.Session.Packets.Print(remote, "before the client closed the connection");
         if (left is not null)
         {
             try
             {
-                // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
-                try
+                void Leave()
                 {
-                    if (!left.BuildFinalized) Logic.Save(left, prepared);
+                    // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
+                    try
+                    {
+                        if (!left.BuildFinalized) Logic.Save(left, prepared);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                    }
+                    // What follows must run whatever the rules do, or the player stays in the instance.
+                    try { if (!left.BuildFinalized) Logic.Left(left); }
+                    catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
+                    left.Instance.RemovePlayer(left.Id);
                 }
-                catch (Exception e)
-                {
-                    Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
-                }
-                // What follows must run whatever the rules do, or the player stays in the instance.
-                try { if (!left.BuildFinalized) Logic.Left(left); }
-                catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
-                left.Instance.RemovePlayer(left.PeerId);
+                if (attached is not null) await attached.Run(Leave); else Leave();
                 if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
                 ForgetCommands(left);
                 Instances.Leave(left.Instance);
@@ -286,43 +305,44 @@ public partial class Program
             }
             finally
             {
+                attached?.Detach(left);
                 // The connection has ended and its save is written: whoever ended it for another connection goes on. Set
                 // whatever threw above, or that login (and every later one of the character) would wait for ever.
-                left.Ended.TrySetResult();
+                left.Connection.Ended.TrySetResult();
             }
         }
         else if (entered is not null) Instances.Leave(entered);   // ended before its Player existed
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder
-            ? left.Session.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")
+            ? left.Connection.Session.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")
             : null;
         Console.WriteLine($"[gateway] DISCONNECT {remote} total={total} after {Stopwatch.GetElapsedTime(connectedAt).TotalSeconds:0.0} s: " +
                           $"{reason ?? "?"}{(dump is null ? "" : $" (packets: {dump})")}");
     }
 
     // The read loop's part: decrypts one read, frames it (InstanceProtocol.SplitClientMessages), answers its 0x1b ticks with
-    // 0x1c at once and queues the rest for RunHandlers. readAt is when the read completed: a tick answered more than
+    // 0x1c at once and queues the rest for the area's input phase (Handle). readAt is when the read completed: a tick answered more than
     // ClientInbox.SlowAfter later is logged.
-    public static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, Player conn,
+    public static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, Player player,
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
-        byte[] all = [.. conn.Session.Carry, .. data];
-        var messages = InstanceProtocol.SplitClientMessages(all, out conn.Session.Carry, out byte[] unknown);
+        byte[] all = [.. player.Connection.Session.Carry, .. data];
+        var messages = InstanceProtocol.SplitClientMessages(all, out player.Connection.Session.Carry, out byte[] unknown);
         (ushort[] Predictive, ushort[] Lockstep)? mixed = null;
         foreach (var (id, bytes) in messages)
         {
-            conn.Session.Packets.Received(id, bytes);
-            mixed ??= conn.NotePacket(remote, id);
+            player.Connection.Session.Packets.Received(id, bytes);
+            mixed ??= player.Connection.NotePacket(remote, id);
             // ServerTrace.Client: every C→S message in full, the 0x1b ticks too, to compare what clients send.
             if (ServerTrace.Client || ServerTrace.Packets && PacketHistory.Kept(sent: false, id))
                 Console.WriteLine($"[packets] {remote} <= 0x{id:x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
         }
         if (mixed is { } both) await ReportMixedModes(remote, stream, ciphers, both.Predictive, both.Lockstep);
-        if (unknown.Length > 0) conn.Session.Packets.Received(0xffff, unknown);   // bytes no known message frames ("unframed")
-        conn.Session.UnframedRun = ClientInbox.UnframedRun(conn.Session.UnframedRun, messages.Count, unknown.Length);
-        if (conn.Session.UnframedRun == ClientInbox.LostAfterUnframedReads)
-            conn.CloseReason = $"the client's stream no longer decodes ({conn.Session.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
+        if (unknown.Length > 0) player.Connection.Session.Packets.Received(0xffff, unknown);   // bytes no known message frames ("unframed")
+        player.Connection.Session.UnframedRun = ClientInbox.UnframedRun(player.Connection.Session.UnframedRun, messages.Count, unknown.Length);
+        if (player.Connection.Session.UnframedRun == ClientInbox.LostAfterUnframedReads)
+            player.Connection.CloseReason = $"the client's stream no longer decodes ({player.Connection.Session.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
         if (MoveTrace)
             foreach (var (id, bytes) in messages)
                 // 0x18e click, 0x192 the held button's newest target, 0x195 release: a lockstep client's whole move
@@ -331,83 +351,57 @@ public partial class Program
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
-            if (conn.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
+            if (player.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{player.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
             // Answered after the input read before it (ClientInbox.DeferTick); the ack index and the side channel are taken
             // when it goes out, so the answers keep the ticks' order.
             inbox.DeferTick(() => SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs,
-                ackIndex: inbox.NextAckIndex(), sideChannel: conn.Session.Hnc!.NextIdleU32())));
+                ackIndex: inbox.NextAckIndex(), sideChannel: player.Connection.Session.Hnc!.NextIdleU32())));
             var waited = Stopwatch.GetElapsedTime(readAt);
             if (waited > ClientInbox.SlowAfter)
-                Console.WriteLine($"[gateway] {remote} slow tick #{conn.Ticks}: 0x001c sent {waited.TotalMilliseconds:0} ms after the 0x001b was read");
+                Console.WriteLine($"[gateway] {remote} slow tick #{player.Ticks}: 0x001c sent {waited.TotalMilliseconds:0} ms after the 0x001b was read");
         }
     }
 
-    // The connection's handler task: every message but the ticks, one read at a time and in order (ClientInbox). A handler
-    // that runs longer than ClientInbox.SlowAfter is logged. An error or 0x153 closes the connection by cancelling the read.
-    public static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, Player conn,
-        ClientInbox inbox, CancellationTokenSource reading)
+    // One batch of a connection's messages (every message but the ticks), handled in the area's input phase
+    // (AreaFrames.Input), in order. A batch that runs longer than ClientInbox.SlowAfter is logged. An error or 0x153 closes
+    // the connection by cancelling its read.
+    public static async Task Handle(Player player, ClientInbox inbox, ClientInbox.Batch batch, CancellationTokenSource reading)
     {
-        await Task.Yield();   // the read loop starts at once; the handlers run beside it
-        // From here every continuation of the handlers counts as the server's work while it runs (lockstep frames wait for it).
-        SynchronizationContext.SetSynchronizationContext(new ServerWorkContext(conn.Work));
-        ActingPlayer.Value = conn;
-        ClientInbox.Batch? handling = null;
-        // The input phase of the area's frame (AreaFrames.Turn): the batches run at the start of the next frame, after the
-        // frames end and before the loops step, one connection after another; the turn is held while more are queued.
-        AreaFrames.InputTurn? turn = null;
-        try
-        {
-            await foreach (var batch in inbox.ReadAllAsync())
-            {
-                if (conn.Closed) break;
-                turn ??= await conn.Frames.Turn(conn);
-                handling = batch;
-                conn.Work.Handling = string.Join(", ", batch.Messages.Select(m => $"0x{m.Id:x4}"));
-                long start = Stopwatch.GetTimestamp();
-                try { await Logic.OnClientMessages(batch.Messages, batch.Unknown, conn, batch.ReadAt); }
-                finally { inbox.Handled(); conn.Work.Handling = null; }
-                handling = null;
-                conn.Performance.Elapsed(LatencyPhase.Handler, start);
-                foreach (var (id, _) in batch.Messages)
-                    if (id == GameServer.Core.Protocol.Instance.InstanceProtocol.AreaGeneratedId)
-                        conn.Performance.AreaLoaded(remote, conn.Layout.Id, start);
-                conn.Performance.MaybeLog(remote, inbox.PendingBatches);
-                if (inbox.PendingBatches == 0) { turn.Dispose(); turn = null; }
-                var took = Stopwatch.GetElapsedTime(start);
-                if (took > ClientInbox.SlowAfter)
-                {
-                    var ids = batch.Messages.Select(m => $"0x{m.Id:x4}").Concat(batch.Unknown.Length > 1 ? [$"unframed 0x{batch.Unknown[0] << 8 | batch.Unknown[1]:x4}"] : []);
-                    Console.WriteLine($"[gateway] {remote} slow handler: {string.Join(", ", ids)} took {took.TotalMilliseconds:0} ms (ticks answered meanwhile)");
-                }
-                if (conn.Closed) break;
-            }
-        }
+        string remote = player.Connection.Session.Remote;
+        ActingPlayer.Value = player;
+        long start = Stopwatch.GetTimestamp();
+        try { await Logic.OnClientMessages(batch.Messages, batch.Unknown, player, batch.ReadAt); }
         catch (Exception ex)
         {
-            string ids = handling is null ? "" : " handling " + string.Join(", ", handling.Messages.Select(m => $"0x{m.Id:x4}"));
-            conn.CloseReason = $"handler error{ids}: {ex.GetType().Name}: {ex.Message}";
+            string ids = " handling " + string.Join(", ", batch.Messages.Select(m => $"0x{m.Id:x4}"));
+            player.Connection.CloseReason = $"handler error{ids}: {ex.GetType().Name}: {ex.Message}";
             Console.WriteLine($"[gateway] {remote} error{ids}: {ServerLog.Describe(ex)}");
-            if (ex is not (IOException or ObjectDisposedException)) conn.Session.Packets.Print(remote, "before the handler error");
+            if (ex is not (IOException or ObjectDisposedException)) player.Connection.Session.Packets.Print(remote, "before the handler error");
+            reading.Cancel();
+            return;
         }
-        finally { turn?.Dispose(); }
-        inbox.Complete();
-        inbox.DiscardPending();
-        lock (conn.Monsters)
+        finally { inbox.Handled(); }
+        player.Connection.Performance.Elapsed(LatencyPhase.Handler, start);
+        foreach (var (id, _) in batch.Messages)
+            if (id == GameServer.Core.Protocol.Instance.InstanceProtocol.AreaGeneratedId)
+                player.Connection.Performance.AreaLoaded(remote, player.Layout.Id, start);
+        player.Connection.Performance.MaybeLog(remote, inbox.PendingBatches);
+        var took = Stopwatch.GetElapsedTime(start);
+        if (took > ClientInbox.SlowAfter)
         {
-            conn.Closed = true;
-            conn.InvalidateIncomingHits();
-            Logic.Closing(conn);
+            var ids = batch.Messages.Select(m => $"0x{m.Id:x4}").Concat(batch.Unknown.Length > 1 ? [$"unframed 0x{batch.Unknown[0] << 8 | batch.Unknown[1]:x4}"] : []);
+            Console.WriteLine($"[gateway] {remote} slow handler: {string.Join(", ", ids)} took {took.TotalMilliseconds:0} ms (ticks answered meanwhile)");
         }
-        reading.Cancel();
+        if (player.Closed) reading.Cancel();
     }
 
     // Monster AI, one decision every MonsterAiCadence.StepMilliseconds of game time per connection (StartMonsterAi). A monster within its aggro range (MonsterVarieties MaxAgroRange, in
     // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to its own cell
     // around the player (MonsterSurround), re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
     // Positions are the server's estimates (PlayerWalk at MonsterVarieties MovementSpeed cells/s).
-    public static async Task WhilePaused(Player conn)
+    public static async Task WhilePaused(Player player)
     {
-        while (conn.Paused && !conn.Closed) await Task.Delay(100);
+        while (player.Paused && !player.Closed) await Task.Delay(100);
     }
 
     // One sender at a time per connection: the Salsa20 keystream must be applied and written in the same order (the read
@@ -416,12 +410,10 @@ public partial class Program
     // before another task's packets were sent can check that it still applies (SendFlinch).
     // Projectile impacts commit their short locked damage mutation inside this gate before relocation.
     // A factory samples clock-sensitive state and constructs its packet after earlier sends; null sends nothing.
-    /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
-    /// clients); it must copy what it keeps.</summary>
+    /// <summary>Sees every message before it is encrypted and written (a test's or a tool's observer); it must copy what it keeps.</summary>
     public static Action<Player, byte[]>? Outgoing;
     /// <summary>The player each connection's ciphers send for (Player.Session), for <see cref="Outgoing"/>.</summary>
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, Player> PlayersByCiphers = new();
-    [ThreadStatic] public static WorldOutput.Packet? WritingWorldRecord;
 
     // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
     // idempotent snapshots, so a skipped step publishes nothing lost, and the input handlers stop queueing behind them.
@@ -429,10 +421,47 @@ public partial class Program
 
     /// <summary>Sends to the player's client (<see cref="Send(string, NetworkStream, ConnectionCiphers, byte[], string?, Func{bool}?, Func{byte[]?}?, string?)"/>).</summary>
     /// A player made without a connection (Session.None: a tool's, a test's) has nobody to send to.
-    public static Task Send(Player conn, byte[] bytes, string? log,
-        Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null) =>
-        conn.Session.Connected ? Send(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, still, atGate, sync)
+    public static Task Send(Player player, byte[] bytes, string? log,
+        Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
+    {
+        // In the area's frame a message about an entity goes to every client in the area, the sender's too, at the frame's end.
+        if (player.Area.Owned && player.Connection.WorldOutput.Started && EntityMessage(atGate is null ? bytes : null) is not false)
+        {
+            if (sync is not null && !MetricsFor(player.Connection.Session.Ciphers).SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
+            if (still is not null && !still()) return Task.CompletedTask;
+            if (atGate is not null) bytes = atGate() ?? [];
+            if (bytes.Length == 0) return Task.CompletedTask;
+            if (EntityMessage(bytes) is true)
+            {
+                ToArea(player, bytes, log, only: ViewOf.Value ?? player.Area.Delta.ViewerOf(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)), player));
+                return Task.CompletedTask;
+            }
+            still = null; atGate = null; sync = null;
+        }
+        return player.Connection.Session.Connected ? Send(player.Connection.Session.Remote, player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes, log, still, atGate, sync)
             : Task.CompletedTask;
+    }
+
+    /// <summary>Whether a message is about one entity (null: not known yet, its bytes are made at the gate).</summary>
+    static bool? EntityMessage(byte[]? bytes) => bytes is null ? null : bytes.Length >= 12 && (bytes[0] << 8 | bytes[1]) is
+        InstanceProtocol.ActionStartedId or 0x1ac or InstanceProtocol.ActionTargetId or InstanceProtocol.ActionHitId
+        or InstanceProtocol.InstantActionId or InstanceProtocol.AnimationUpdateId or InstanceProtocol.ActorAnimationId
+        or InstanceEntities.AddBuffId or InstanceEntities.RemoveBuffId or InstanceEntities.StatsUpdateId or InstanceProtocol.TeleportId or InstanceProtocol.MoveToId
+        or InstanceProtocol.EnterWakeZoneId or InstanceProtocol.LeaveWakeZoneId
+        or InstanceEntities.CreateObjectId or InstanceProtocol.RemoveObjectId;
+
+    /// <summary>Records about the area's entities, for every client in it (or all but one), in this frame's delta.</summary>
+    public static void ToArea(Player player, byte[] bytes, string? log, Player? except = null, Player? only = null)
+    {
+        uint entity = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2));
+        ushort id = (ushort)(bytes[0] << 8 | bytes[1]);
+        player.Area.Delta.Add(entity, bytes, log, id switch
+        {
+            InstanceEntities.CreateObjectId => AreaDelta.Kind.Create,
+            InstanceProtocol.RemoveObjectId => AreaDelta.Kind.Remove,
+            _ => AreaDelta.Kind.World,
+        }, except, only);
+    }
 
     public static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
@@ -465,7 +494,7 @@ public partial class Program
             // Nothing to send (a sync with no change): nothing written, nothing in the history.
             if (bytes.Length == 0) return;
             sentId = (ushort)(bytes[0] << 8 | bytes[1]);
-            await WritePacket(remote, stream, ciphers, bytes, log);
+            await WritePacket(remote, stream, ciphers, bytes, log).ConfigureAwait(false);
         }
         finally
         {
@@ -493,14 +522,14 @@ public partial class Program
     }
 
     // Called under SendGate. Diagnostics and the shared-object observer see actual transmission, not queueing.
-    public static Task WritePacket(Player conn, byte[] bytes, string? log, WorldOutput.Packet? record = null) =>
-        WritePacket(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, record);
+    public static Task WritePacket(Player player, byte[] bytes, string? log, WorldOutput.Packet? record = null) =>
+        WritePacket(player.Connection.Session.Remote, player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes, log, record);
 
     public static async Task WritePacket(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         byte[] bytes, string? log, WorldOutput.Packet? record = null)
     {
         string? trace = Written(remote, ciphers, bytes, log, record);
-        await Write(stream, ciphers, bytes);
+        await Write(stream, ciphers, bytes).ConfigureAwait(false);
         if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
     }
 
@@ -538,11 +567,7 @@ public partial class Program
             if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
                 Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
             HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
-            // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
-            var previousRecord = WritingWorldRecord;
-            WritingWorldRecord = record;
-            try { if (Outgoing is { } outgoing && PlayersByCiphers.TryGetValue(ciphers, out var player)) outgoing(player, bytes); }
-            finally { WritingWorldRecord = previousRecord; }
+            if (Outgoing is { } outgoing && PlayersByCiphers.TryGetValue(ciphers, out var player)) outgoing(player, bytes);
             return MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
     }
@@ -562,8 +587,8 @@ public partial class Program
     /// <summary>Runs <paramref name="body"/>, whose sends to this connection take the send gate together at its end.
     /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
     /// gone out.</summary>
-    public static Task<bool> SendBatched(Player conn, Func<Task<bool>> body) => conn.Session.Connected
-        ? SendBatched(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, body) : body();
+    public static Task<bool> SendBatched(Player player, Func<Task<bool>> body) => player.Connection.Session.Connected
+        ? SendBatched(player.Connection.Session.Remote, player.Connection.Session.Stream, player.Connection.Session.Ciphers, body) : body();
 
     public static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
     {
@@ -604,7 +629,7 @@ public partial class Program
                 if (Outgoing is { } outgoing && PlayersByCiphers.TryGetValue(ciphers, out var player)) outgoing(player, bytes);
                 all.AddRange(bytes);
             }
-            if (all.Count > 0) await Write(stream, ciphers, [.. all]);
+            if (all.Count > 0) await Write(stream, ciphers, [.. all]).ConfigureAwait(false);
         }
         finally
         {
@@ -643,14 +668,14 @@ public partial class Program
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
         long waitingAt = Stopwatch.GetTimestamp();
-        await wire.WaitAsync();
+        await wire.WaitAsync().ConfigureAwait(false);
         performance.Elapsed(LatencyPhase.WireWait, waitingAt);
         long heldAt = Stopwatch.GetTimestamp();
         try
         {
             ciphers.Send.Process(bytes);
             long writeAt = Stopwatch.GetTimestamp();
-            try { await stream.WriteAsync(bytes); }
+            try { await stream.WriteAsync(bytes).ConfigureAwait(false); }
             finally { performance.Elapsed(LatencyPhase.SocketWrite, writeAt); }
         }
         finally { wire.Release(); performance.Elapsed(LatencyPhase.WireHold, heldAt); }
@@ -672,7 +697,7 @@ public partial class Program
     // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
     /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
-    public static Task SendPong(Player conn, byte[] bytes) => Write(conn.Session.Stream, conn.Session.Ciphers, bytes);
+    public static Task SendPong(Player player, byte[] bytes) => Write(player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes);
 
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();

@@ -1,20 +1,21 @@
 using System.Collections.Concurrent;
 
 /// <summary>
-/// A world's awake monsters, by id. A monster put here has its stat changes listed for the world's Stats phase
-/// (<see cref="TakeMarked"/>), so the phase steps only the monsters a change marked, never all of them.
+/// An area's awake monsters, by id: the area's frame owns them (Debug builds check that only it adds or removes one). A
+/// monster put here has its stat changes listed for the world's Stats phase (<see cref="TakeMarked"/>), so the phase steps
+/// only the monsters a change marked, never all of them.
 /// </summary>
-public sealed class MonsterTable : SortedDictionary<uint, SpawnedMonster>
+public sealed class MonsterTable(GameArea area) : SortedDictionary<uint, SpawnedMonster>
 {
     readonly ConcurrentDictionary<SpawnedMonster, byte> marked = new(ReferenceEqualityComparer.Instance);
 
     public new SpawnedMonster this[uint id]
     {
         get => base[id];
-        set { base[id] = value; Join(value); }
+        set { area.AssertOwner(); base[id] = value; Join(id, value); }
     }
 
-    public new void Add(uint id, SpawnedMonster monster) { base.Add(id, monster); Join(monster); }
+    public new void Add(uint id, SpawnedMonster monster) { area.AssertOwner(); base.Add(id, monster); Join(id, monster); }
 
     public bool TryAdd(uint id, SpawnedMonster monster)
     {
@@ -27,17 +28,28 @@ public sealed class MonsterTable : SortedDictionary<uint, SpawnedMonster>
 
     public bool Remove(uint id, out SpawnedMonster monster)
     {
+        area.AssertOwner();
         if (!TryGetValue(id, out monster!) || !base.Remove(id)) return false;
         marked.TryRemove(monster, out _);
+        area.Grid.Remove(new(id));
         return true;
     }
 
-    public new void Clear() { base.Clear(); marked.Clear(); }
-
-    // Its marks come here from now on, and a monster new to the table is stepped once (its first build).
-    void Join(SpawnedMonster monster)
+    public new void Clear()
     {
+        area.AssertOwner();
+        foreach (var id in Keys) area.Grid.Remove(new(id));
+        base.Clear();
+        marked.Clear();
+    }
+
+    // Its marks come here from now on, a monster new to the table is stepped once (its first build), and it is in the
+    // area's grid at once, not only from the next movement phase.
+    void Join(uint id, SpawnedMonster monster)
+    {
+        if (!monster.Dead) area.Grid.Set(new(id), monster.Walk.Position(area.Time), monster.StopRange);
         monster.StatsMarked = marked;
+        monster.LifeChanged = () => area.Life.Changed(id);
         marked.TryAdd(monster, 0);
     }
 

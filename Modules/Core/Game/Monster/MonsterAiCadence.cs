@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 /// <summary>
 /// AI decisions use elapsed game time; a slow frame or pause never creates a backlog of decisions to replay.
 /// Chase repaths have a separate budget so responsive attack/aggro checks do not keep restarting the same walk.
-/// Access under the connection's Monsters lock.
+/// Access in the area's frame.
 /// </summary>
 public sealed class MonsterAiCadence
 {

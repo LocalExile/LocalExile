@@ -19,23 +19,23 @@ public sealed class HarvestModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.HideoutReady.Add(module.Manifest.Id, async conn =>
+        GameEvents.HideoutReady.Add(module.Manifest.Id, async player =>
         {
-            var player = PlayerOf(conn);
-            if (await WorldOf(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
-                _states.GetOrCreateValue(player).Station = id;
+            var modPlayer = PlayerOf(player);
+            if (await WorldOf(modPlayer).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
+                _states.GetOrCreateValue(modPlayer).Station = id;
         });
-        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station) return false;
-            var world = WorldOf(conn);
+            if (!_states.TryGetValue(PlayerOf(player), out var state) || state.Station == 0 || use.TargetId != state.Station) return false;
+            var world = WorldOf(player);
             if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");
             return true;
         });
-        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await Craft(module, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes));
+            await Craft(module, PlayerOf(player), InstanceHarvest.ReadCraft(bytes));
             return true;
         });
     }

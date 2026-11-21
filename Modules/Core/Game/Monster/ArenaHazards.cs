@@ -47,18 +47,15 @@ internal static class ArenaHazards
         MonsterHitOutcome? outcome = null;
         await SendWorldRecord(p, id, [], null, atGate: () =>
         {
-            lock (p.Monsters)
-            {
-                if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
-                var minion = attack with { Damage = attack.Damage.Scale(minionFactor) };
-                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                    if (!g.Monster.Dead && inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, id, source, minion, now, area: true);
-                if (p.PlayerLife == 0 || !inside(p.Walk.Position(now))) return null;
-                outcome = CommitMonsterHitLocked(p, id, source, attack, now, p.Walk.Position(now),
-                    source.Walk.Position(now), false, p.NextActionSequence());
-                return outcome?.HitPacket;
-            }
+            if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
+            double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
+            var minion = attack with { Damage = attack.Damage.Scale(minionFactor) };
+            foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
+                if (!g.Monster.Dead && inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, id, source, minion, now, area: true);
+            if (p.PlayerLife == 0 || !inside(p.Walk.Position(now))) return null;
+            outcome = CommitMonsterHitLocked(p, id, source, attack, now, p.Walk.Position(now),
+                source.Walk.Position(now), false, p.NextActionSequence());
+            return outcome?.HitPacket;
         });
         if (outcome is not null) await PresentMonsterHit(p, id, outcome);
     }
@@ -68,63 +65,60 @@ internal static class ArenaHazards
         double seconds = double.IsNaN(e.Last) ? 0 : Math.Clamp(now - e.Last, 0, .5); e.Last = now;
         if (seconds == 0) return;
         bool shieldChanged = false, died = false;
-        await SendWorldRecord(p, PlayerId, [], null, atGate: () =>
+        await SendWorldRecord(p, p.Id, [], null, atGate: () =>
         {
-            lock (p.Monsters)
+            if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
+            var stats = CharacterPlayerStats(p);
+            int Get(uint key) => stats.GetValueOrDefault(key);
+            var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty : rawAt(p.Walk.Position(now), false);
+            var immune = PlayerImmunities(p); uint before = p.PlayerLife; double shield = p.EnergyShield.Current;
+            int loss = 0;
+            foreach (var type in DamageTypes.ConversionOrder)
             {
-                if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                var stats = CharacterPlayerStats(p);
-                int Get(uint key) => stats.GetValueOrDefault(key);
-                var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty : rawAt(p.Walk.Position(now), false);
-                var immune = PlayerImmunities(p); uint before = p.PlayerLife; double shield = p.EnergyShield.Current;
-                int loss = 0;
+                int slot = (int)type;
+                double resistance = type == DamageType.Physical ? PlayerDamageReduction(p, stats).Physical
+                    : Math.Min(Resistance(p, type), MaxResistance(p, type));
+                double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
+                    + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
+                    * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
+                    * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
+                double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];
+                int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
+                bool chaosBypasses = type == DamageType.Chaos && Get(global::Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
+                    && Get(global::Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
+                    && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
+                        && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
+                    && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
+                        && (long)p.PlayerMana * 2 > p.Pools.Mana);
+                loss += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
+                    : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
+            }
+            p.PlayerLife = (uint)Math.Max(0, (long)p.PlayerLife - loss);
+            shieldChanged = shield != p.EnergyShield.Current;
+            if (died = before > 0 && p.PlayerLife == 0) { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
+            foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
+            {
+                if (g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
+                var packet = rawAt(g.Monster.Walk.Position(now), true);
+                int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
+                bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) != 0
+                    || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) != 0);
+                double amount = e.MinionCarry.GetValueOrDefault(g.Id);
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
-                    int slot = (int)type;
-                    double resistance = type == DamageType.Physical ? PlayerDamageReduction(p, stats).Physical
-                        : Math.Min(Resistance(p, type), MaxResistance(p, type));
-                    double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
-                        + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
-                        * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
-                        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
-                    double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];
-                    int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
-                    bool chaosBypasses = type == DamageType.Chaos && Get(global::Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
-                        && Get(global::Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
-                        && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
-                            && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
-                        && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
-                            && (long)p.PlayerMana * 2 > p.Pools.Mana);
-                    loss += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
-                        : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
+                    if (elementalImmune && DamageTypes.IsElemental(type)) continue;
+                    var res = MonsterHitResistance(g.Monster, type, default);
+                    amount += DamageModel.Mitigate(packet[type].Min, res.Value, res.Maximum) * seconds;
                 }
-                p.PlayerLife = (uint)Math.Max(0, (long)p.PlayerLife - loss);
-                shieldChanged = shield != p.EnergyShield.Current;
-                if (died = before > 0 && p.PlayerLife == 0) { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
-                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                {
-                    if (g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
-                    var packet = rawAt(g.Monster.Walk.Position(now), true);
-                    int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
-                    bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) != 0
-                        || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) != 0);
-                    double amount = e.MinionCarry.GetValueOrDefault(g.Id);
-                    foreach (var type in DamageTypes.ConversionOrder)
-                    {
-                        if (elementalImmune && DamageTypes.IsElemental(type)) continue;
-                        var res = MonsterHitResistance(g.Monster, type, default);
-                        amount += DamageModel.Mitigate(packet[type].Min, res.Value, res.Maximum) * seconds;
-                    }
-                    int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.MinionCarry[g.Id] = amount - damage;
-                    int beforeShield = damage;
-                    damage = g.ShieldPool.Damage(damage, false, now);
-                    int absorbed = beforeShield - damage;
-                    g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                    if (absorbed > 0 || damage > 0) p.Minions.OutputQueue.Add(new([], "campaign ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
-                    if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
-                }
-                return before == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
+                int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.MinionCarry[g.Id] = amount - damage;
+                int beforeShield = damage;
+                damage = g.ShieldPool.Damage(damage, false, now);
+                int absorbed = beforeShield - damage;
+                g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
+                if (absorbed > 0 || damage > 0) p.Minions.OutputQueue.Add(new([], "campaign ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
             }
+            return null;
         });
         if (shieldChanged) await SendPlayerEnergyShield(p);
         if (died) await PlayerDied(p, "campaign arena ground");

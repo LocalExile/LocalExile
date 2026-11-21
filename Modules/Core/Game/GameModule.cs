@@ -118,26 +118,26 @@ public sealed class GameModule : IModule, IDisposable
         global::Game.LoadStats(module);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(global::Sirus.Area, global::Sirus.Tick));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
-        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((conn, _) => Rules.TickMapRunBoss(conn)));
-        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(Program.ConnOf(kill.Player), force: true));
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickMapRunBoss(player)));
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(kill.Player, force: true));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapStrongboxes.Opening);
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapStrongboxes.Enter);
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, MapStrongboxes.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
-        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((conn, _) => MapStrongboxes.Tick(conn)));
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => MapStrongboxes.Tick(player)));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapStrongboxes.Leave(player); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabBosses.Opening);
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapEssences.Enter);
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, MapEssences.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapEssences.Leave(player); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
@@ -146,15 +146,16 @@ public sealed class GameModule : IModule, IDisposable
         Program.Skills.WarmMonsterMeleeClocks();
         WarmCatalogues();
         Program.SetGameLogic(new GameLogic(module.Lifetime));
-        module.Lifetime.Own(Rules.InstallMirror());
+        module.Lifetime.Own(Rules.InstallJoining());
         string id = module.Manifest.Id;
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
         module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DoedreSewers.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::DoedreSewers.Leaving(player));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::BrineKing.Area, global::BrineKing.Tick));
-        GameEvents.AreaTick.Add(id, GameEvents.Always((conn, _) => global::AtlasBosses.Tick(conn)));
+        GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::AtlasBosses.Tick(player)));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::VaalOversoul.Area, global::VaalOversoul.Tick));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DepravedTrinity.Area, global::DepravedTrinity.Tick));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::Arakaali.Area, global::Arakaali.Tick));
@@ -168,31 +169,31 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DepravedTrinity.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DepravedTrinity.PlayerStats);
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DepravedTrinity.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::DepravedTrinity.Leaving(player));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActFive.Area, global::KitavaActFive.Tick));
         module.Lifetime.Own(global::KitavaActFive.CleanupOnUnload());
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::KitavaActFive.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::KitavaActFive.Leaving(player));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActTen.Area, global::KitavaActTen.Tick));
         module.Lifetime.Own(global::KitavaActTen.CleanupOnUnload());
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::KitavaActTen.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::KitavaActTen.Leaving(player));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::VaalOversoul.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
         // Curses, Withered, grounds and the other debuffs monsters put on the player (Game.PlayerDebuffs).
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.PlayerDebuffStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
-        GameEvents.AreaTick.Add(id, GameEvents.Always((conn, _) => global::Slayer.Tick(conn)));
+        GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Slayer.Tick(player)));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.SpreadPoisonOnKill);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
-        GameEvents.AreaTick.Add(id, GameEvents.Always((conn, _) => global::Hierophant.Tick(conn)));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::Slayer.Leaving(player));
+        GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Hierophant.Tick(player)));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::Hierophant.Leaving(player));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::BrineKing.Leaving(player));
     }
 }
 
@@ -208,31 +209,31 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public void QueueControlledIntent(Player player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(Player player) => Rules.ClearControlledIntent(player);
     public object ObserveControlledPlayer(Player player, Player leader) => Rules.ObserveControlledPlayer(player, leader);
-    public void ResumePlayerUpdates(Player conn)
+    public void ResumePlayerUpdates(Player player)
     {
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
-            Rules.EnsurePlayerUpdates(conn);
+            Rules.EnsurePlayerUpdates(player);
     }
-    public Task WorldFrameEnded(Player conn, double nextFrameStart) =>
-        Rules.LockstepFrameEnded(conn, nextFrameStart);
-    public Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player conn, long readAt) =>
-        Rules.OnClientMessages(messages, unknown, conn, readAt);
+    public Task WorldFrameEnded(Player player, double nextFrameStart) =>
+        Rules.LockstepFrameEnded(player, nextFrameStart);
+    public Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player player, long readAt) =>
+        Rules.OnClientMessages(messages, unknown, player, readAt);
 
-    public void Admitting(Player conn) => Rules.RegisterVitalsAdmission(conn);
+    public void Admitting(Player player) => Rules.RegisterVitalsAdmission(player);
 
     /// <summary>GGG's login rule: one connection holds a character at a time. The newer login takes it and the older client
     /// is told and dropped, and this one's character is loaded only after that connection saved what it held, so the two
     /// never write the same character (or its items) from two states.</summary>
-    public async Task<bool> AdmittingAsync(Player conn)
+    public async Task<bool> AdmittingAsync(Player player)
     {
         // A Ruthless league's data set is built for its first character, before that character is loaded.
-        if (Program.LeagueFor(conn) is { HardMode: true } league) await Task.Run(() => Rules.LoadHardModeData(league));
-        foreach (var previous in Rules.ClaimCharacter(conn))
+        if (Program.LeagueFor(player) is { HardMode: true } league) await Task.Run(() => Rules.LoadHardModeData(league));
+        foreach (var previous in Rules.ClaimCharacter(player))
         {
             // An area change: the old connection handed the character over (Travel.Transfer) and the client drops it once
             // this one is up (09 §6). It is not another login, and main's transfer path already orders its saves.
             if (previous.TransferAccepted) continue;
-            Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: another login took the character; ending the older connection");
+            Console.WriteLine($"[gateway] {Program.CharacterName(player)}: another login took the character; ending the older connection");
             try
             {
                 await Program.EndAsync(previous, "another login took this character",
@@ -240,7 +241,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
             }
             catch (TimeoutException)
             {
-                Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: the older connection did not finish ending within "
+                Console.WriteLine($"[gateway] {Program.CharacterName(player)}: the older connection did not finish ending within "
                     + $"{Program.EndingTimeout.TotalSeconds:0} s; this login is refused");
                 return false;
             }
@@ -248,75 +249,75 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         return true;
     }
 
-    public int PrepareCharacter(Player conn, int level)
+    public int PrepareCharacter(Player player, int level)
     {
-        Rules.RefuseInterruptedHardcoreDeath(conn);
-        level = Rules.PrepareCharacterForArea(conn, level);
-        global::KitavaActTen.ConfigurePortal(conn);
+        Rules.RefuseInterruptedHardcoreDeath(player);
+        level = Rules.PrepareCharacterForArea(player, level);
+        global::KitavaActTen.ConfigurePortal(player);
         // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
-        Rules.InitializeCharacterVitals(conn);
+        Rules.InitializeCharacterVitals(player);
         return level;
     }
 
-    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(Player conn) => Rules.LeagueStatsFor(conn);
+    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(Player player) => Rules.LeagueStatsFor(player);
 
-    public async Task Entered(Player conn, int level, int ticketLevel)
+    public async Task Entered(Player player, int level, int ticketLevel)
     {
         // The client generates the area from here (S→C 0x1d) until its 0x7d: the packs are planned meanwhile.
-        Rules.PlanPopulationAhead(conn);
+        Rules.PlanPopulationAhead(player);
         if (level != ticketLevel)
         {
             // The saved experience is the character's level: Auth's (the ticket's) was not updated at the last level-up.
-            var fixedLevel = await Rules.SynchronizeAccountLevel(conn);
-            Console.WriteLine($"[gateway] {conn.Remote} {Program.CharacterName(conn)}: level {level} from the saved experience (the account had {ticketLevel})" +
+            var fixedLevel = await Rules.SynchronizeAccountLevel(player);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {Program.CharacterName(player)}: level {level} from the saved experience (the account had {ticketLevel})" +
                 (fixedLevel.Ok ? "" : $"; not saved to the account: {fixedLevel.Error}"));
         }
-        Console.WriteLine($"[gateway] {conn.Remote} {Program.CharacterName(conn)}: {Rules.SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} {Program.CharacterName(player)}: {Rules.SkillsFor(player).ClassFor(player.Character.ClassRow).ObjectType} (Characters row {player.Character.ClassRow}), level {player.Pools.Level} (experience {player.Character.Experience}, {player.Character.Passives.Count} passive(s), life {player.Pools.Life}, mana {player.Pools.Mana}, attack speed +{player.Pools.AttackSpeedPct}%), league {player.Character.League ?? "?"}");
     }
 
-    public void Closing(Player conn)
+    public void Closing(Player player)
     {
-        foreach (var close in GameEvents.TransientClosing.For(conn)) close(conn);
-        Rules.EndEscapePause(conn);
-        conn.PaidChannel = null;
-        conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
-        conn.IncomingAilments.Clear();
-        conn.RetirePlayerUpdates();
-        Rules.FortificationOf(conn).Clear();
-        Rules.LeechOf(conn).Clear(Rules.AreaTime(conn));
-        conn.Rage.Clear();
-        conn.Rampage.Clear();
-        conn.RetireOwnedCombat();
-        conn.RetireResourceEffects();
-        conn.VaalPreventionUntil = 0;
+        foreach (var close in GameEvents.TransientClosing.For(player)) close(player);
+        Rules.EndEscapePause(player);
+        player.PaidChannel = null;
+        player.NonChaosDotBypassCarry = player.NonChaosDotTakenCarry = player.ChaosDotBypassCarry = 0;
+        player.IncomingAilments.Clear();
+        player.RetirePlayerUpdates();
+        Rules.FortificationOf(player).Clear();
+        Rules.LeechOf(player).Clear(Rules.AreaTime(player));
+        player.Rage.Clear();
+        player.Rampage.Clear();
+        player.RetireOwnedCombat();
+        player.RetireResourceEffects();
+        player.VaalPreventionUntil = 0;
     }
 
-    public void Save(Player conn, bool prepared)
+    public void Save(Player player, bool prepared)
     {
         // A refused admission must not load/start inventories or flush a previous connection's cached copy.
         if (prepared)
         {
-            CharacterSaves.SaveExperience(Program.CharacterName(conn));
-            Rules.ItemsOf(conn).SaveUnsaved();
-            Rules.PersistVitals(conn);
-            Rules.SaveGolems(conn);
+            CharacterSaves.SaveExperience(Program.CharacterName(player));
+            Rules.ItemsOf(player).SaveUnsaved();
+            Rules.PersistVitals(player);
+            Rules.SaveGolems(player);
         }
-        Rules.CommitHardcoreDeath(conn);
+        Rules.CommitHardcoreDeath(player);
     }
 
-    public void Left(Player conn)
+    public void Left(Player player)
     {
-        Rules.ReleaseCharacter(conn);
-        Rules.ForgetVitalsAdmission(conn);
+        Rules.ReleaseCharacter(player);
+        Rules.ForgetVitalsAdmission(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
-        Rules.KeepInstanceMonsters(conn);
+        Rules.KeepInstanceMonsters(player);
     }
 
-    public IDisposable ProjectileMutation(Player conn) => Rules.ProjectileMutation(conn, advance: false);
-    public IConnectionPlayer PlayerFor(Player conn) => new Rules.ModPlayer(conn);
-    public IPlayerWorld WorldFor(Player conn) => new Rules.ModuleWorld(conn);
+    public IDisposable ProjectileMutation(Player player) => Rules.ProjectileMutation(player, advance: false);
+    public IGamePlayer PlayerFor(Player player) => new Rules.ModPlayer(player);
+    public IPlayerWorld WorldFor(Player player) => new Rules.ModuleWorld(player);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
-    public double PlayerActionFactor(Player conn) => Rules.PlayerActionFactor(conn);
+    public double PlayerActionFactor(Player player) => Rules.PlayerActionFactor(player);
     public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
     public Task InitializeControlled(Player player, Player leader) => Rules.InitializeControlledPlayer(player, leader);
     public Task StepControlled(Player player, Player leader) => Rules.StepControlledPlayer(player, leader);

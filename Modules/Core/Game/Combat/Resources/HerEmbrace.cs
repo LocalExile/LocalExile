@@ -32,128 +32,123 @@ public static partial class Game
     public const uint HerEmbraceDegen = Stat.PctMaximumEsAndLifeTakenAsFireDamagePerMinutePerLevelWhileInHerEmbrace;
     public const ushort HerEmbraceBuffRow = 979;
     static readonly Store<Player, HerEmbraceState> HerEmbraces = new();
-    public static HerEmbraceState HerEmbraceOf(Player conn) => HerEmbraces.GetOrCreateValue(conn);
+    public static HerEmbraceState HerEmbraceOf(Player player) => HerEmbraces.GetOrCreateValue(player);
     public sealed record CarriedHerEmbrace(uint[] Hosts, double Seconds, double Pending, double TakenCarry, double BypassCarry);
 
-    static IReadOnlyDictionary<string, bool> RequalifyHerEmbrace(Player conn, IReadOnlyDictionary<string, bool> flags,
+    static IReadOnlyDictionary<string, bool> RequalifyHerEmbrace(Player player, IReadOnlyDictionary<string, bool> flags,
         IEnumerable<Item>? activeItems = null, IReadOnlyDictionary<uint, int>? raw = null)
     {
-        if (conn.LeavingArea) return WithFlags(flags, ("_while_in_her_embrace", false));
-        var state = HerEmbraceOf(conn);
+        if (player.LeavingArea) return WithFlags(flags, ("_while_in_her_embrace", false));
+        var state = HerEmbraceOf(player);
         var active = activeItems?.ToArray();
-        bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
-        var hosts = alive ? ItemsOf(conn).EquipmentSnapshot()
-            .Where(e => active is null ? !IsInactive(conn, e.Item.Id) : active.Any(i => ReferenceEquals(i, e.Item.Item)))
-            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods).GetValueOrDefault(HerEmbraceGain) > 0)
+        bool alive = CurrentGameWork && !player.Closed && !player.RageRetired && player.PlayerLife > 0;
+        var hosts = alive ? ItemsOf(player).EquipmentSnapshot()
+            .Where(e => active is null ? !IsInactive(player, e.Item.Id) : active.Any(i => ReferenceEquals(i, e.Item.Item)))
+            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(player).Mods).GetValueOrDefault(HerEmbraceGain) > 0)
             .Select(e => e.Item.Id).Order().ToArray() : [];
-        double now = ResourceEffectsTime(conn);
-        if (hosts.Length > 0) ResourceEffectsOf(conn);
-        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch || !state.Hosts.SequenceEqual(hosts))
+        double now = ResourceEffectsTime(player);
+        if (hosts.Length > 0) ResourceEffectsOf(player);
+        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch || !state.Hosts.SequenceEqual(hosts))
         {
-            state.Clear(); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Hosts = hosts; state.At = now;
+            state.Clear(); state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch; state.Hosts = hosts; state.At = now;
         }
-        raw ??= conn.StatSourcesCache?.Sources;
+        raw ??= player.StatSourcesCache?.Sources;
         state.GainMilliseconds = raw is null ? 0 : GolemStat(raw, HerEmbraceGain);
         state.Degeneration = raw is null ? 0 : GolemStat(raw, HerEmbraceDegen);
         state.Settle(now);
         bool embraced = alive && state.Hosts.Length > 0 && now < state.Until;
-        if (embraced) StatsChangeAt(state.Until, () => ResourceEffectsTime(conn));
+        if (embraced) StatsChangeAt(state.Until, () => ResourceEffectsTime(player));
         return WithFlags(flags, ("_while_in_her_embrace", embraced));
     }
 
-    public static void HerEmbraceOnIgniteLocked(Player conn, double now)
+    public static void HerEmbraceOnIgniteLocked(Player player, double now)
     {
-        if (conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 || !CurrentGameWork) return;
-        var state = HerEmbraceOf(conn);
+        if (player.LeavingArea || player.Paused || player.PlayerLife == 0 || !CurrentGameWork) return;
+        var state = HerEmbraceOf(player);
         int duration = state.GainMilliseconds;
         if (duration <= 0 || state.Hosts.Length == 0) return;
         state.Settle(now);
         state.Until = Math.Max(state.Until, now + duration / 1000d);
-        state.PerSecond = Math.Max(0, state.Degeneration) * (double)conn.Pools.Level
-            * ((double)conn.PlayerMaxLife + conn.Pools.EnergyShield) / 6000d;
+        player.Area.Buffs.Set(player.Id, HerEmbraceBuff(player, state, now));
+        state.PerSecond = Math.Max(0, state.Degeneration) * (double)player.Pools.Level
+            * ((double)player.PlayerMaxLife + player.Pools.EnergyShield) / 6000d;
     }
 
-    static Dictionary<uint, int> WithHerEmbrace(Player conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithHerEmbrace(Player player, Dictionary<uint, int> sources)
     {
-        var state = HerEmbraceOf(conn);
-        if (conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") != true) return sources;
+        var state = HerEmbraceOf(player);
+        if (player.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") != true) return sources;
         void Add(uint name, int value)
         {
             if (name is var key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         }
         Add(Stat.HasHerEmbrace, 1); Add(Stat.BaseCannotBeStunned, 1);
         Add(Stat.SwordPhysicalDamagePctToAddAsFire, 123);
-        if (WeaponProfileFor(conn, activeSet: true).Sword) Add(Stat.AttackPhysicalDamagePctToAddAsFire, 123);
+        if (WeaponProfileFor(player, activeSet: true).Sword) Add(Stat.AttackPhysicalDamagePctToAddAsFire, 123);
         Add(Stat.BurningGroundEffectOnSelfPlusPct, -100);
         foreach (string ailment in new[] { "freeze", "chill", "ignite" }) Add(Stat.Of($"base_immune_to_{ailment}"), 1);
         Add(Stat.AttackSpeedPlusPct, 20); Add(Stat.BaseCastSpeedPlusPct, 20); Add(Stat.BaseMovementVelocityPlusPct, 20);
         int coefficient = GolemStat(sources, HerEmbraceDegen);
         state.Degeneration = coefficient;
-        state.PerSecond = Math.Max(0, coefficient) * (double)conn.Pools.Level
-            * ((double)conn.PlayerMaxLife + conn.Pools.EnergyShield) / 6000d;
+        state.PerSecond = Math.Max(0, coefficient) * (double)player.Pools.Level
+            * ((double)player.PlayerMaxLife + player.Pools.EnergyShield) / 6000d;
         return sources;
     }
 
-    public static int AdvanceHerEmbraceDamageLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static int AdvanceHerEmbraceDamageLocked(Player player, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        if (!HerEmbraces.TryGetValue(conn, out var state) || state.Hosts.Length == 0
+        if (!HerEmbraces.TryGetValue(player, out var state) || state.Hosts.Length == 0
             || state.Until <= 0 && state.Pending <= 0) return 0;
-        RequalifyHerEmbrace(conn, new Dictionary<string, bool>());
+        RequalifyHerEmbrace(player, new Dictionary<string, bool>());
         double raw = state.Pending; state.Pending = 0;
-        if (raw <= 0 || InGracePeriod(conn) || InTown(conn) || conn.Immune || HardcoreProgressBlocked(conn)) return 0;
+        if (raw <= 0 || InGracePeriod(player) || InTown(player) || player.Immune || HardcoreProgressBlocked(player)) return 0;
         int Get(uint name) => GolemStat(stats, name);
         if (DamageImmunities.From(Get).Contains(DamageType.Fire)) return 0;
-        double resistance = Math.Clamp(Resistance(conn, DamageType.Fire), -200, MaxResistance(conn, DamageType.Fire));
+        double resistance = Math.Clamp(Resistance(player, DamageType.Fire), -200, MaxResistance(player, DamageType.Fire));
         int damage = IncomingResourceDefences.TakenOverTime(raw * (1 - resistance / 100d), Get, ref state.TakenCarry,
-            IncomingResourceDefences.LessTakenPct(conn.Pools, Get),
+            IncomingResourceDefences.LessTakenPct(player.Pools, Get),
             typedIncreasedPct: ActorScale.Saturate((long)Get(Stat.FireDamageTakenPlusPct) + Get(Stat.ElementalDamageTakenPlusPct)));
-        int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
+        int life = IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
             Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry);
-        conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - life);
-        if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); RecordHardcoreDeath(conn); }
+        player.PlayerLife = (uint)Math.Max(0, (long)player.PlayerLife - life);
+        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); RecordHardcoreDeath(player); }
         return life;
     }
 
-    public static CarriedHerEmbrace? CaptureHerEmbrace(Player conn, double at)
+    public static CarriedHerEmbrace? CaptureHerEmbrace(Player player, double at)
     {
-        var state = HerEmbraceOf(conn); state.Settle(at);
+        var state = HerEmbraceOf(player); state.Settle(at);
         return state.Hosts.Length > 0 && (state.Until > at || state.Pending > 0)
             ? new([.. state.Hosts], Math.Max(0, state.Until - at), state.Pending, state.TakenCarry, state.BypassCarry) : null;
     }
-    public static void RestoreHerEmbrace(Player conn, CarriedHerEmbrace value, double at)
+    public static void RestoreHerEmbrace(Player player, CarriedHerEmbrace value, double at)
     {
-        var state = HerEmbraceOf(conn); state.Clear();
-        state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Hosts = [.. value.Hosts];
+        var state = HerEmbraceOf(player); state.Clear();
+        state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch; state.Hosts = [.. value.Hosts];
         state.At = at; state.Until = at + value.Seconds; state.Pending = value.Pending;
         state.TakenCarry = value.TakenCarry; state.BypassCarry = value.BypassCarry;
     }
-    public static void RetireHerEmbrace(Player conn)
+    public static void RetireHerEmbrace(Player player)
     {
-        if (!HerEmbraces.TryGetValue(conn, out var state)) return;
+        if (!HerEmbraces.TryGetValue(player, out var state)) return;
         state.Clear();
-        foreach (ushort buff in state.Retired) conn.RetiredResourceBuffs.Add((PlayerId, buff));
+        foreach (ushort buff in state.Retired) player.RetiredResourceBuffs.Add((player.Id, buff));
         state.Retired.Clear();
     }
-    public static Task SendHerEmbrace(Player conn) =>
-        SendWorldRecords(conn, PlayerId, () => HerEmbracePresentation(conn));
-    public static byte[][]? HerEmbracePresentation(Player conn)
+    public static Task SendHerEmbrace(Player player) =>
+        SendWorldRecords(player, player.Id, () => HerEmbracePresentation(player));
+    public static byte[][]? HerEmbracePresentation(Player player)
     {
-        lock (conn.Monsters)
-        {
-            CharacterStatSources(conn);
-            var state = HerEmbraceOf(conn);
-            var packets = state.Retired.Select(b => InstanceEntities.RemoveBuff(PlayerId, b)).ToList(); state.Retired.Clear();
-            double now = ResourceEffectsTime(conn);
-            bool active = now < state.Until && state.Hosts.Length > 0 && !conn.LeavingArea;
-            if (state.Buff != 0 && (!active || state.ShownUntil != state.Until))
-            { packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.Buff)); state.Buff = 0; }
-            if (active && state.Buff == 0)
-            {
-                state.ShownUntil = state.Until;
-                packets.Add(InstanceEntities.AddBuff(PlayerId, state.Buff = conn.NextBuff++, HerEmbraceBuffRow, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.Until - now))));
-            }
-            return packets.Count == 0 ? null : [.. packets];
-        }
+        CharacterStatSources(player);
+        var state = HerEmbraceOf(player);
+        state.Retired.Clear();
+        double now = ResourceEffectsTime(player);
+        bool active = now < state.Until && state.Hosts.Length > 0 && !player.LeavingArea;
+        if (!active) player.Area.Buffs.Clear(player.Id, HerEmbraceBuffRow, player.Id);
+        else player.Area.Buffs.Keep(player.Id, HerEmbraceBuff(player, state, now));
+        return null;
     }
+
+    static Buff HerEmbraceBuff(Player player, HerEmbraceState state, double now) =>
+        new(HerEmbraceBuffRow, player.Id, U68: Buff.Seconds(state.Until - now));
 }

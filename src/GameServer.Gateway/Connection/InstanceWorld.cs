@@ -1,28 +1,23 @@
 /// <summary>
-/// An area instance's own world: its monsters, its clock and its object ids, the same for every connection in it. No
-/// monster belongs to a player: whoever comes, goes or comes back, the instance keeps them as they are. The monsters
-/// dictionary is also the instance's lock (Player.Monsters, which every connection's code takes).
+/// An area instance's own world: its area (GameArea: its monsters), its clock and its object ids, the same for every
+/// connection in it. No monster belongs to a player: whoever comes, goes or comes back, the area keeps them as they are.
 /// </summary>
 public sealed class InstanceWorld
 {
     /// <summary>Module-owned static scene snapshots that survive rule reloads, keyed by their owner and placement.</summary>
     public readonly Dictionary<string, (uint Id, string Type, GameServer.Core.Protocol.Instance.QuestObject Object)> SceneObjects = new(StringComparer.Ordinal);
-    /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
-    public readonly MonsterTable Monsters = [];
+    /// <summary>The instance's area: its monsters and everything its frame owns. Seeded by the first player who comes.</summary>
+    public GameArea Area => Frames.Area ?? Frames.World();
 
     // Numbered boss-room points survive host handoff and a return to a kept instance.
     public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);
 
-    /// <summary>Created monsters waiting to emerge, under the same Monsters lock and instance lifetime.</summary>
-    public readonly SortedDictionary<uint, SpawnedMonster> DormantMonsters = [];
 
     /// <summary>Monsters of the area placed far from every player: the instance's, counted and saved with it, but not
     /// created yet, so they are on no client and nothing acts on them. One is created, as a kept monster is, when a
-    /// player comes near. Under the Monsters lock.</summary>
+    /// player comes near. In the area's frame.</summary>
     public readonly List<SavedMonster> HeldBackMonsters = [];
 
-    /// <summary>The instance's other monsters waiting to emerge, and its emerge watch (Player.EmergeGround).</summary>
-    public readonly EmergeGround EmergeGround = new();
 
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
@@ -33,7 +28,7 @@ public sealed class InstanceWorld
     public AreaFrames Frames => LazyInitializer.EnsureInitialized(ref frames, () => new AreaFrames(() => Clock));
     AreaFrames? frames;
 
-    /// <summary>While the area steps its walkers (one pass of the area's movement, under the Monsters lock): what stands in
+    /// <summary>While the area steps its walkers (one pass of the area's movement, in the area's frame): what stands in
     /// each walker's way in that pass, so a walk that searches again mid-pass sees the same bodies. Null between passes.</summary>
     public Func<uint, IReadOnlyList<GameServer.Core.World.ClientPathfinder.Blocker>>? AreaBodies;
 
@@ -51,8 +46,6 @@ public sealed class InstanceWorld
     public uint NextObjectId = 0x04000000;
     public uint TakeObjectId() => Interlocked.Increment(ref NextObjectId) - 1;
 
-    /// <summary>Buff instances (S→C 0x1c1) of everyone in the instance (Player.NextBuff).</summary>
-    public ushort NextBuff = 1;
 
     // The instance's monsters have ids of their own, the same on every client, below 0x40000000: the client itself puts
     // an object of 0x40000000 or above in its wake zone, and the server's 0x1a9 then found it there ("ObjectInWakeZone ...
@@ -72,7 +65,7 @@ public sealed class InstanceWorld
 }
 
 /// <summary>Monsters lying in wait for a player to come near, besides the buried ones (DormantMonsters), and whether a
-/// connection's emerge watch looks for them. Under the Monsters lock. The instance's, so they outlast the player who placed
+/// connection's emerge watch looks for them. In the area's frame. The instance's, so they outlast the player who placed
 /// them and a reload of the game's rules: the new rules' watch raises them.</summary>
 public sealed class EmergeGround
 {

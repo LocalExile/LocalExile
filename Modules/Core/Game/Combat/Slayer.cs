@@ -86,12 +86,12 @@ public static class Slayer
     }
 
     static readonly Store<Player, State> States = new();
-    public static State Of(Player conn) => States.GetValue(conn, _ => new());
+    public static State Of(Player player) => States.GetValue(player, _ => new());
 
-    public static long Revision(Player conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
+    public static long Revision(Player player) => States.TryGetValue(player, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
-    static int Raw(Player conn, uint name) => name is var key && conn.StatSourcesCache is { } cached
+    static int Raw(Player player, uint name) => name is var key && player.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(key) : 0;
 
     /// <summary>A kill of the player's (GameEvents.Kill): it counts as killed recently, and starts or refreshes
@@ -99,23 +99,20 @@ public static class Slayer
     public static void Kill(KillContext kill)
     {
         if (!kill.PlayerKill) return;
-        var conn = kill.Conn;
-        lock (conn.Monsters)
-        {
-            if (conn.PlayerLife == 0) return;
-            double now = AreaTime(conn);
-            var state = Of(conn);
-            state.Kills.Enqueue(now);
-            if (Raw(conn, MovementOnKill) != 0) state.MovementUntil = now + HeadsmanSeconds;
-            if (Raw(conn, AttackSpeedOnRareKill) != 0 && kill.Monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
-                state.AttackSpeedUntil = now + HeadsmanSeconds;
-        }
+        var player = kill.Player;
+        if (player.PlayerLife == 0) return;
+        double now = AreaTime(player);
+        var state = Of(player);
+        state.Kills.Enqueue(now);
+        if (Raw(player, MovementOnKill) != 0) state.MovementUntil = now + HeadsmanSeconds;
+        if (Raw(player, AttackSpeedOnRareKill) != 0 && kill.Monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
+            state.AttackSpeedUntil = now + HeadsmanSeconds;
     }
 
     /// <summary>GameEvents.PlayerStatSources: the counts and Headsman's speeds as last applied.</summary>
-    public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> stats)
     {
-        if (!States.TryGetValue(conn, out var state)) return stats;
+        if (!States.TryGetValue(player, out var state)) return stats;
         void Add(uint name, int value)
         {
             if (value != 0 && name is var k)
@@ -133,12 +130,12 @@ public static class Slayer
     }
 
     /// <summary>GameEvents.OutgoingDamage: Bane of Legends' more damage on the rolled hit, which its ailments read.</summary>
-    public static DamagePacket OutgoingDamage(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target,
+    public static DamagePacket OutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster target,
         DamagePacket rolled)
     {
-        int Get(uint key) => player.GetValueOrDefault(key);
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
         double more = DamageMore(Get, target.Rarity == MonsterRarity.Unique);
-        var state = Of(conn);
+        var state = Of(player);
         if (state.BaneLogged == more) return more == 1 ? rolled : rolled.Scale(more);
         state.BaneLogged = more;
         if (more == 1) return rolled;
@@ -150,83 +147,79 @@ public static class Slayer
     /// <summary>The player tick: count the hostile enemies near the living player and those killed in the last four
     /// seconds (only with a stat that reads the count), end Headsman's buffs at their time or at death, and when a value
     /// changed rebuild the pools and send the stats and skills.</summary>
-    public static async Task Tick(Player conn)
+    public static async Task Tick(Player player)
     {
-        if (!conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
+        if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
         bool changed;
         var packets = new List<byte[]>();
-        lock (conn.Monsters)
+        var state = Of(player);
+        double now = AreaTime(player);
+        bool alive = player.PlayerLife > 0;
+        if (!alive)
         {
-            var state = Of(conn);
-            double now = AreaTime(conn);
-            bool alive = conn.PlayerLife > 0;
-            if (!alive)
-            {
-                state.MovementUntil = state.AttackSpeedUntil = double.NegativeInfinity;
-                state.Kills.Clear();
-            }
-            int killed = state.KilledWithin(now), areaPerKill = Raw(conn, AreaPerEnemyKilled);
-            bool readsKills = areaPerKill != 0 || Raw(conn, MoreIfKilledRecently) != 0;
-            if (!readsKills) killed = 0;
-            int nearby = 0, critPerEnemy = Raw(conn, CritPerNearbyEnemy);
-            if (alive && critPerEnemy != 0)
-            {
-                // Awake hostile monsters the client has been shown, as Flicker Strike's targets (FlickerDestination).
-                var here = conn.Walk.Position(now);
-                foreach (var (id, m) in conn.Monsters)
-                    if (m is { Hostile: true, Dead: false, Life: > 0 } && !conn.AsleepMonsters.Contains(id)
-                        && (conn.Instance is null || conn.MonsterViews.ContainsKey(id))
-                        && Dist(m.Walk.Position(now), here) <= NearbyRadius) nearby++;
-            }
-            int movement = now < state.MovementUntil ? Raw(conn, MovementOnKill) : 0;
-            int attackSpeed = now < state.AttackSpeedUntil ? Raw(conn, AttackSpeedOnRareKill) : 0;
-            // The counts sent are the real ones; a resend happens when a value one of the player's stats reads changes.
-            // With only Slayer's stats that is each count up to where its capped product stops (at one for Bane's
-            // "killed recently" alone); another stat reading a count makes every change of it count.
-            bool otherNearby = OtherNearbyReaders.Any(n => Raw(conn, n) != 0), otherKills = OtherKillReaders.Any(n => Raw(conn, n) != 0);
-            int Near(int count) => otherNearby ? count : UpToCap(count, critPerEnemy, 100);
-            int Kills(int count) => otherKills ? count : areaPerKill != 0 ? UpToCap(count, areaPerKill, 50) : Math.Min(count, 1);
-            changed = (Near(nearby), Kills(killed), movement, attackSpeed)
-                != (Near(state.Nearby), Kills(state.Killed), state.Movement, state.AttackSpeed);
-            Present(conn, ref state.MovementBuff, ref state.MovementShown, MovementBuffRow, movement != 0, state.MovementUntil, now, packets);
-            Present(conn, ref state.AttackSpeedBuff, ref state.AttackSpeedShown, AttackSpeedBuffRow, attackSpeed != 0,
-                state.AttackSpeedUntil, now, packets);
-            if (changed) (state.Nearby, state.Killed, state.Movement, state.AttackSpeed) = (nearby, killed, movement, attackSpeed);
-            if (changed)
-            {
-                state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
-                RecomputePoolsAndSpeed(conn);
-                int Stat(uint key) => CharacterPlayerStats(conn).GetValueOrDefault(key);
-                Console.WriteLine($"[gateway] Slayer: {nearby} nearby enemies, {killed} killed recently, Headsman +{movement}% "
-                    + $"movement +{attackSpeed}% attack speed; crit multiplier {conn.Pools.CriticalStrikeMultiplier}%, "
-                    + $"area +{Stat(global::Stat.SkillAreaOfEffectPlusPct)}%");
-            }
+            state.MovementUntil = state.AttackSpeedUntil = double.NegativeInfinity;
+            state.Kills.Clear();
         }
-        foreach (var packet in packets) await Send(conn, packet, null);
-        if (changed) await SendCharacterStats(conn, PlayerStatChange.Sources);
+        int killed = state.KilledWithin(now), areaPerKill = Raw(player, AreaPerEnemyKilled);
+        bool readsKills = areaPerKill != 0 || Raw(player, MoreIfKilledRecently) != 0;
+        if (!readsKills) killed = 0;
+        int nearby = 0, critPerEnemy = Raw(player, CritPerNearbyEnemy);
+        if (alive && critPerEnemy != 0)
+        {
+            // Awake hostile monsters the client has been shown, as Flicker Strike's targets (FlickerDestination).
+            var here = player.Walk.Position(now);
+            foreach (var (id, m) in player.Area.Monsters)
+                if (m is { Hostile: true, Dead: false, Life: > 0 } && !MonsterAsleep(player, id)
+                    && (player.Instance is null || MonsterShown(player, id))
+                    && Dist(m.Walk.Position(now), here) <= NearbyRadius) nearby++;
+        }
+        int movement = now < state.MovementUntil ? Raw(player, MovementOnKill) : 0;
+        int attackSpeed = now < state.AttackSpeedUntil ? Raw(player, AttackSpeedOnRareKill) : 0;
+        // The counts sent are the real ones; a resend happens when a value one of the player's stats reads changes.
+        // With only Slayer's stats that is each count up to where its capped product stops (at one for Bane's
+        // "killed recently" alone); another stat reading a count makes every change of it count.
+        bool otherNearby = OtherNearbyReaders.Any(n => Raw(player, n) != 0), otherKills = OtherKillReaders.Any(n => Raw(player, n) != 0);
+        int Near(int count) => otherNearby ? count : UpToCap(count, critPerEnemy, 100);
+        int Kills(int count) => otherKills ? count : areaPerKill != 0 ? UpToCap(count, areaPerKill, 50) : Math.Min(count, 1);
+        changed = (Near(nearby), Kills(killed), movement, attackSpeed)
+            != (Near(state.Nearby), Kills(state.Killed), state.Movement, state.AttackSpeed);
+        Present(player, ref state.MovementBuff, ref state.MovementShown, MovementBuffRow, movement != 0, state.MovementUntil, now, packets);
+        Present(player, ref state.AttackSpeedBuff, ref state.AttackSpeedShown, AttackSpeedBuffRow, attackSpeed != 0,
+            state.AttackSpeedUntil, now, packets);
+        if (changed) (state.Nearby, state.Killed, state.Movement, state.AttackSpeed) = (nearby, killed, movement, attackSpeed);
+        if (changed)
+        {
+            state.Revision++; MarkPlayerStats(player, PlayerStatStep.Sources);
+            RecomputePoolsAndSpeed(player);
+            int Stat(uint key) => CharacterPlayerStats(player).GetValueOrDefault(key);
+            Console.WriteLine($"[gateway] Slayer: {nearby} nearby enemies, {killed} killed recently, Headsman +{movement}% "
+                + $"movement +{attackSpeed}% attack speed; crit multiplier {player.Pools.CriticalStrikeMultiplier}%, "
+                + $"area +{Stat(global::Stat.SkillAreaOfEffectPlusPct)}%");
+        }
+        foreach (var packet in packets) await Send(player, packet, null);
+        if (changed) await SendCharacterStats(player, PlayerStatChange.Sources);
     }
 
     // A Headsman buff: shown for its time left while on, shown again when a kill moved its deadline, taken off when it
     // ends. Its stats are in PlayerStats, not in the buff.
-    static void Present(Player conn, ref ushort buff, ref double shown, ushort row, bool on, double until, double now,
+    static void Present(Player player, ref ushort buff, ref double shown, ushort row, bool on, double until, double now,
         List<byte[]> packets)
     {
         if (buff != 0 && (!on || shown != until))
         {
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
+            player.Area.Buffs.Clear(player.Id, row, player.Id);
             buff = 0;
         }
         if (!on || buff != 0) return;
-        buff = conn.NextBuff++;
+        buff = 1;
         shown = until;
-        packets.Add(InstanceEntities.AddBuff(PlayerId, buff, row, PlayerId,
-            u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, until - now))));
+        player.Area.Buffs.Set(player.Id, new(row, player.Id, U68: Buff.Seconds(until - now)));
     }
 
     /// <summary>A new area is a new connection: the leaving one forgets its state.</summary>
-    public static Task Leaving(Player conn)
+    public static Task Leaving(Player player)
     {
-        States.Remove(conn);
+        States.Remove(player);
         return Task.CompletedTask;
     }
 }

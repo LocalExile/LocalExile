@@ -9,33 +9,33 @@ public sealed class SurvivorsRunModule : IModule
     {
         SurvivorsRunRules.Lifetime = module.Lifetime;
         GameEvents.Command(module.Manifest.Id, "survivors", "/survivors [start | stop | pick <1-6> | status] (Survivors league)", SurvivorsRunRules.SurvivorsCommand);
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => SurvivorsRunRules.EnterArea(conn));
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, reason) =>
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, player => SurvivorsRunRules.EnterArea(player));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, reason) =>
         {
-            if (conn.Closed) SurvivorsRunRules.PendingRuns.TryRemove(conn, out _);
-            SurvivorsRunRules.Release(conn);
+            if (player.Closed) SurvivorsRunRules.PendingRuns.TryRemove(player, out _);
+            SurvivorsRunRules.Release(player);
             return Task.CompletedTask;
         });
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
-            if (!kill.Monster.Hostile || StateOf(kill.Conn).Survivors is not { } run) return;
+            if (!kill.Monster.Hostile || StateOf(kill.Player).Survivors is not { } run) return;
             run.RecordKill(kill.Monster.Rarity);
             // Experience waits on the ground as an orb; the run tick collects it when the player passes near.
             int experience = SurvivorsRules.ExperienceForKill(kill.Monster.Rarity);
-            var conn = kill.Conn;
-            kill.Later(() => SurvivorsDropOrb(kill.Conn, kill.At, experience));
+            var player = kill.Player;
+            kill.Later(() => SurvivorsDropOrb(kill.Player, kill.At, experience));
             // A share of kills leave a death ground zone: a DOT that lands under the monster or under the player.
-            if (AreaRng(conn).NextDouble() < SurvivorsRules.DeathZoneChance)
-                kill.Later(() => SurvivorsDropDeathZone(kill.Conn, kill.At));
+            if (AreaRng(player).NextDouble() < SurvivorsRules.DeathZoneChance)
+                kill.Later(() => SurvivorsDropDeathZone(kill.Player, kill.At));
         });
-        GameEvents.LootAllowed.Add(module.Manifest.Id, conn => StateOf(conn).Survivors is null);
-        GameEvents.IncomingDamage.Add(module.Manifest.Id, (conn, damage) =>
-            StateOf(conn).Survivors is { } run ? SurvivorsRules.IncomingDamage(damage, run.IncomingDamagePercent) : damage);
+        GameEvents.LootAllowed.Add(module.Manifest.Id, player => StateOf(player).Survivors is null);
+        GameEvents.IncomingDamage.Add(module.Manifest.Id, (player, damage) =>
+            StateOf(player).Survivors is { } run ? SurvivorsRules.IncomingDamage(damage, run.IncomingDamagePercent) : damage);
         // A run's leech must not make the player immortal: the base 20%-a-second cap out-heals the horde and lets a
         // leech build stand still, so the run lowers the cap to a trickle and cancels instant leech outright.
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id, (conn, sources) =>
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, (player, sources) =>
         {
-            if (StateOf(conn).Survivors is null) return sources;
+            if (StateOf(player).Survivors is null) return sources;
             Nerf(sources, Stat.MaximumLifeLeechRatePctPerMinute, -SurvivorsRules.LifeLeechRateNerfPermyriadPerMinute);
             Nerf(sources, Stat.LeechPctIsInstant, -SurvivorsRules.InstantLeechNerf);
             Nerf(sources, Stat.LifeLeechPctIsInstant, -SurvivorsRules.InstantLeechNerf);

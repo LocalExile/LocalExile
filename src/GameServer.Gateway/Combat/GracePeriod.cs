@@ -48,6 +48,5 @@ public sealed class GracePeriod
         }
     }
 
-    public static byte[] BeginPacket(uint player, ushort buff) =>
-        InstanceEntities.AddBuff(player, buff, BuffRow, player, u68: BitConverter.SingleToUInt32Bits(Seconds));
+    public static Buff Buff(uint player) => new(BuffRow, player, U68: global::Buff.Seconds(Seconds));
 }

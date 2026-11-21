@@ -15,155 +15,141 @@ public static partial class Game
     // while it runs does nothing (no 0x1ce): the original server answered a second press with nothing.
     public static bool IsBladefallTrarthus(int effect) => Skills.EffectId(effect) == BladefallVolleys.EffectId;
 
-    public static async Task<bool> ActivateBladefallTrarthus(Player conn, ushort skillId)
+    public static async Task<bool> ActivateBladefallTrarthus(Player player, ushort skillId)
     {
         if (BladefallVolleys.BuffRow(BladefallVolleys.CostBuff) is not ushort costRow
             || BladefallVolleys.BuffRow(BladefallVolleys.BladesBuff) is not ushort bladesRow) return false;
-        var gem = SupportedSkill(conn, skillId);
+        var gem = SupportedSkill(player, skillId);
         int Own(uint k) => gem.Stats.GetValueOrDefault(k);
-        (ushort Id, ushort Action)? icon = SkillsFor(conn).ActionHash(gem.Effect) is ushort action ? (skillId, action) : null;
+        (ushort Id, ushort Action)? icon = SkillsFor(player).ActionHash(gem.Effect) is ushort action ? (skillId, action) : null;
         BladefallTrarthusState state;
-        lock (conn.Monsters)
+        if (player.BladefallTrarthus is not null || player.PlayerLife == 0 || player.PlayerMana == 0 || player.Closed || player.LeavingArea) return false;
+        state = new(player.NextBuff++, player.NextBuff++, skillId)
         {
-            if (conn.BladefallTrarthus is not null || conn.PlayerLife == 0 || conn.PlayerMana == 0 || conn.Closed || conn.LeavingArea) return false;
-            state = new(conn.NextBuff++, conn.NextBuff++, skillId)
-            {
-                ManaPerMinute = BladefallVolleys.ManaPerMinute(Own(Stat.BaseManaCostPctPerMinute), conn.Pools.Mana),
-                NextVolley = AreaTime(conn) + BladefallVolleySeconds(conn, Own),
-            };
-            conn.BladefallTrarthus = state;
-        }
-        await Send(conn, InstanceEntities.AddBuff(PlayerId, state.CostBuff, costRow, PlayerId, skillId,
-                activeSkill: icon, list: [0]),
-            $"0x01c1 player buff {state.CostBuff}: {BladefallVolleys.CostBuff} (BuffDefinitions row {costRow}) from skill 0x{skillId:x4}");
-        await SendBladefallManaSpent(conn, state.ManaPerMinute);
-        await Send(conn, InstanceEntities.AddBuff(PlayerId, state.BladesBuff, bladesRow, PlayerId, skillId, activeSkill: icon),
-            $"0x01c1 player buff {state.BladesBuff}: {BladefallVolleys.BladesBuff} (BuffDefinitions row {bladesRow}): " +
-            $"a volley every {BladefallVolleySeconds(conn, Own) * 1000:0} ms, {state.ManaPerMinute / 60.0:0.#} mana per second");
-        _ = RunBladefallTrarthus(conn, state);
+            ManaPerMinute = BladefallVolleys.ManaPerMinute(Own(Stat.BaseManaCostPctPerMinute), player.Pools.Mana),
+            NextVolley = AreaTime(player) + BladefallVolleySeconds(player, Own),
+        };
+        player.BladefallTrarthus = state;
+        player.Area.Buffs.Set(player.Id, new(costRow, player.Id, skillId, ActiveSkill: icon, List: [0]));
+        await SendBladefallManaSpent(player, state.ManaPerMinute);
+        player.Area.Buffs.Set(player.Id, new(bladesRow, player.Id, skillId, ActiveSkill: icon));
+        Note($"{BladefallVolleys.BladesBuff} (BuffDefinitions row {bladesRow}): " +
+            $"a volley every {BladefallVolleySeconds(player, Own) * 1000:0} ms, {state.ManaPerMinute / 60.0:0.#} mana per second");
+        _ = RunBladefallTrarthus(player, state);
         return true;
     }
 
-    static double BladefallVolleySeconds(Player conn, Func<uint, int> own) =>
+    static double BladefallVolleySeconds(Player player, Func<uint, int> own) =>
         Math.Max(.05, BladefallVolleys.FrequencyMs(own(Stat.BladefallBaseVolleyFrequencyMs),
-            own(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), conn.Pools.Mana) / 1000.0);
+            own(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), player.Pools.Mana) / 1000.0);
 
-    static Task SendBladefallManaSpent(Player conn, int perMinute) =>
-        Stat.ManaSpentPerMinute is var key
-            ? Send(conn, InstanceEntities.StatsUpdate(PlayerId, [(key, perMinute)]),
-                $"0x01b3 player mana_spent_per_minute {perMinute}")
-            : Task.CompletedTask;
+    static Task SendBladefallManaSpent(Player player, int perMinute)
+    {
+        SetStats(player, player.Id, [(Stat.ManaSpentPerMinute, perMinute)]);
+        return Task.CompletedTask;
+    }
 
     // The mana Bladefall of Trarthus spends over this recovery step (StartResourceRecovery takes it off with regeneration).
-    public static double BladefallManaSpent(Player conn, double seconds) =>
-        conn.BladefallTrarthus is { Ended: false } state ? state.ManaPerMinute / 60.0 * seconds : 0;
+    public static double BladefallManaSpent(Player player, double seconds) =>
+        player.BladefallTrarthus is { Ended: false } state ? state.ManaPerMinute / 60.0 * seconds : 0;
 
-    public static async Task EndBladefallTrarthus(Player conn, string why)
+    public static async Task EndBladefallTrarthus(Player player, string why)
     {
         BladefallTrarthusState? state;
-        lock (conn.Monsters)
-        {
-            state = conn.BladefallTrarthus;
-            conn.BladefallTrarthus = null;
-            if (state is not null) state.Ended = true;
-        }
+        state = player.BladefallTrarthus;
+        player.BladefallTrarthus = null;
+        if (state is not null) state.Ended = true;
         if (state is null) return;
-        await Send(conn, InstanceEntities.RemoveBuff(PlayerId, state.CostBuff),
-            $"0x01c2 player buff {state.CostBuff}: Bladefall of Trarthus ends ({why})");
-        await Send(conn, InstanceEntities.RemoveBuff(PlayerId, state.BladesBuff), null);
-        await SendBladefallManaSpent(conn, 0);
+        foreach (string buff in (string[])[BladefallVolleys.CostBuff, BladefallVolleys.BladesBuff])
+            if (BladefallVolleys.BuffRow(buff) is ushort row) player.Area.Buffs.Clear(player.Id, row, player.Id);
+        Note($"Bladefall of Trarthus ends ({why})");
+        await SendBladefallManaSpent(player, 0);
     }
 
     // The volleys while it runs, then the blades' last moments after it ends; the connection's end (an area change)
     // stops it, as the area's objects go with it.
-    static async Task RunBladefallTrarthus(Player conn,
+    static async Task RunBladefallTrarthus(Player player,
         BladefallTrarthusState state)
     {
         const double Lands = 1.0;
         uint? bladeRow = Art.MiscAnimatedRow(BladefallVolleys.GroundBladeArt) is int r ? (uint)r : null;
-        var random = AreaRng(conn);
+        var random = AreaRng(player);
         try
         {
-            while (!conn.Closed && !conn.LeavingArea)
+            while (!player.Closed && !player.LeavingArea)
             {
-                await WhilePaused(conn);
-                double now = AreaTime(conn);
+                await WhilePaused(player);
+                double now = AreaTime(player);
                 var landed = new List<uint>();
                 var gone = new List<uint>();
-                lock (conn.Monsters)
+                foreach (var blade in state.Blades)
+                    if (blade.Landed <= now && blade.Landed > 0) landed.Add(blade.Id);
+                if (landed.Count > 0)
                 {
-                    foreach (var blade in state.Blades)
-                        if (blade.Landed <= now && blade.Landed > 0) landed.Add(blade.Id);
-                    if (landed.Count > 0)
-                    {
-                        var kept = state.Blades.Select(b => landed.Contains(b.Id) ? (b.Id, 0d, b.Gone) : b).ToList();
-                        state.Blades.Clear();
-                        foreach (var b in kept) state.Blades.Enqueue(b);
-                    }
-                    while (state.Blades.TryPeek(out var oldest) && oldest.Gone <= now) gone.Add(state.Blades.Dequeue().Id);
+                    var kept = state.Blades.Select(b => landed.Contains(b.Id) ? (b.Id, 0d, b.Gone) : b).ToList();
+                    state.Blades.Clear();
+                    foreach (var b in kept) state.Blades.Enqueue(b);
                 }
+                while (state.Blades.TryPeek(out var oldest) && oldest.Gone <= now) gone.Add(state.Blades.Dequeue().Id);
                 foreach (uint id in landed)
-                    await Send(conn, InstanceEntities.ComponentUpdate(id, GroundBladeObject.AnimatedIndex, GroundBladeObject.Landed()), null);
-                foreach (uint id in gone) await Send(conn, InstanceProtocol.RemoveObject(id), null);
-                if (state.Ended || !ReferenceEquals(conn.BladefallTrarthus, state))
+                    await Send(player, InstanceEntities.ComponentUpdate(id, GroundBladeObject.AnimatedIndex, GroundBladeObject.Landed()), null);
+                foreach (uint id in gone) await Send(player, InstanceProtocol.RemoveObject(id), null);
+                if (state.Ended || !ReferenceEquals(player.BladefallTrarthus, state))
                 {
                     if (state.Blades.Count == 0) return;
                 }
                 else if (now >= state.NextVolley)
                 {
-                    await BladefallVolley(conn, state, bladeRow, random, now, Lands);
-                    var own = SupportedSkill(conn, state.Skill).Stats;
-                    double interval = BladefallVolleySeconds(conn, n => n is var k ? own.GetValueOrDefault(k) : 0);
+                    await BladefallVolley(player, state, bladeRow, random, now, Lands);
+                    var own = SupportedSkill(player, state.Skill).Stats;
+                    double interval = BladefallVolleySeconds(player, n => n is var k ? own.GetValueOrDefault(k) : 0);
                     state.NextVolley = Math.Max(now, state.NextVolley + interval);
                 }
                 await Task.Delay(25);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} Bladefall of Trarthus stopped: {ServerLog.Describe(ex)}"); }
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} Bladefall of Trarthus stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static async Task BladefallVolley(Player conn,
+    static async Task BladefallVolley(Player player,
         BladefallTrarthusState state, uint? bladeRow, Random random, double now, double lands)
     {
-        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == state.Skill);
-        if (gem.Name is null) { await EndBladefallTrarthus(conn, "the gem is gone"); return; }
-        var supported = SupportedSkill(conn, state.Skill);
+        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == state.Skill);
+        if (gem.Name is null) { await EndBladefallTrarthus(player, "the gem is gone"); return; }
+        var supported = SupportedSkill(player, state.Skill);
         int Own(uint k) => supported.Stats.GetValueOrDefault(k);
         (int X, int Y) at;
-        lock (conn.Monsters) at = conn.Walk.Position(now);
-        await AreaSkillHit(conn, state.Skill, gem, at, at, immediate: true);
+        at = player.Walk.Position(now);
+        await AreaSkillHit(player, state.Skill, gem, at, at, immediate: true);
         if (bladeRow is not uint row) return;
-        var player = CharacterPlayerStats(conn);
-        int Player(uint k) => player.GetValueOrDefault(k);
+        var playerStats = CharacterPlayerStats(player);
+        int Player(uint k) => playerStats.GetValueOrDefault(k);
         double lasts = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
-        int radius = Math.Max(1, SkillRadius(conn, supported.Stats, true, supported.Effect));
+        int radius = Math.Max(1, SkillRadius(player, supported.Stats, true, supported.Effect));
         int count = Math.Max(0, Own(Stat.BladefallCreateXLingeringBladesPerVolley));
         int most = Own(Stat.MaximumNumberOfBladesLeftInGround) is int m and > 0 ? m : int.MaxValue;
         var created = new List<(uint Id, GroundBladeObject Blade)>();
         var removed = new List<uint>();
-        lock (conn.Monsters)
+        if (!ReferenceEquals(player.BladefallTrarthus, state)) return;
+        for (int i = 0; i < count; i++)
         {
-            if (!ReferenceEquals(conn.BladefallTrarthus, state)) return;
-            for (int i = 0; i < count; i++)
+            // A cell in the area that the layout says is walkable (a few tries), else the player's own.
+            (int X, int Y) cell = at;
+            for (int tries = 0; tries < 8; tries++)
             {
-                // A cell in the area that the layout says is walkable (a few tries), else the player's own.
-                (int X, int Y) cell = at;
-                for (int tries = 0; tries < 8; tries++)
-                {
-                    double angle = random.NextDouble() * Math.Tau, distance = Math.Sqrt(random.NextDouble()) * radius;
-                    var c = (X: at.X + (int)Math.Round(Math.Cos(angle) * distance), Y: at.Y + (int)Math.Round(Math.Sin(angle) * distance));
-                    if (conn.Layout.Walkable?.Invoke(c.X, c.Y) != false) { cell = c; break; }
-                }
-                uint id = conn.TakeObjectId();
-                created.Add((id, new GroundBladeObject(cell.X, cell.Y, (float)(random.NextDouble() * Math.Tau), row)));
-                state.Blades.Enqueue((id, now + lands, now + lasts));
-                while (state.Blades.Count > most) removed.Add(state.Blades.Dequeue().Id);
+                double angle = random.NextDouble() * Math.Tau, distance = Math.Sqrt(random.NextDouble()) * radius;
+                var c = (X: at.X + (int)Math.Round(Math.Cos(angle) * distance), Y: at.Y + (int)Math.Round(Math.Sin(angle) * distance));
+                if (player.Layout.Walkable?.Invoke(c.X, c.Y) != false) { cell = c; break; }
             }
+            uint id = player.TakeObjectId();
+            created.Add((id, new GroundBladeObject(cell.X, cell.Y, (float)(random.NextDouble() * Math.Tau), row)));
+            state.Blades.Enqueue((id, now + lands, now + lasts));
+            while (state.Blades.Count > most) removed.Add(state.Blades.Dequeue().Id);
         }
-        foreach (uint id in removed) await Send(conn, InstanceProtocol.RemoveObject(id), null);
+        foreach (uint id in removed) await Send(player, InstanceProtocol.RemoveObject(id), null);
         foreach (var (id, blade) in created)
-            await Send(conn, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(BladefallVolleys.GroundBlade), blade.Blob()),
+            await Send(player, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(BladefallVolleys.GroundBlade), blade.Blob()),
                 null);
     }
 }

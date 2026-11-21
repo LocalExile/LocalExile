@@ -9,20 +9,17 @@ public static partial class Game
 {
     public static readonly Store<Player, FortificationSession> FortificationSessions = new();
     public static readonly ConcurrentDictionary<uint, (DateTime At, FortificationState.Transfer State)> CarriedFortification = new();
-    public static FortificationSession FortificationOf(Player conn) =>
-        FortificationSessions.GetValue(conn, c => new()
+    public static FortificationSession FortificationOf(Player player) =>
+        FortificationSessions.GetValue(player, c => new()
         {
             Changed = () => MarkPlayerStats(c, PlayerStatStep.TimedRecovery),
         });
 
-    public static void EnsureFortificationPools(Player conn)
+    public static void EnsureFortificationPools(Player player)
     {
-        lock (conn.Monsters)
-        {
-            var session = FortificationOf(conn);
-            session.Read(AreaTime(conn));
-            if (conn.Pools.FortificationRevision != session.Revision) conn.Pools = PoolsFor(conn, conn.Pools.Level);
-        }
+        var session = FortificationOf(player);
+        session.Read(AreaTime(player));
+        if (player.Pools.FortificationRevision != session.Revision) player.Pools = PoolsFor(player, player.Pools.Level);
     }
 
     public static decimal RawFortificationDamage(DamagePacket rolled, bool critical, int multiplier)
@@ -31,23 +28,20 @@ public static partial class Game
         return Math.Max(0, total) * (critical ? Math.Max(0, multiplier) / 100m : 1m);
     }
 
-    public static Dictionary<uint, int> WithFortification(Player conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithFortification(Player player, Dictionary<uint, int> sources)
     {
-        lock (conn.Monsters)
+        int Get(uint key) => sources.GetValueOrDefault(key);
+        var session = FortificationOf(player);
+        if (player.PlayerLife == 0 && session.Value.Uncapped > 0) session.Clear();
+        var value = session.Observe(AreaTime(player), Get);
+        void Add(uint name, int added)
         {
-            int Get(uint key) => sources.GetValueOrDefault(key);
-            var session = FortificationOf(conn);
-            if (conn.PlayerLife == 0 && session.Value.Uncapped > 0) session.Clear();
-            var value = session.Observe(AreaTime(conn), Get);
-            void Add(uint name, int added)
-            {
-                if (name is var key)
-                    sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + added, int.MinValue, int.MaxValue);
-            }
-            Add(FortificationSession.AttackSpeed, value.IncreasedAttackSpeedPercent(session.SpeedPerStack));
-            AddFortificationCounts(new PlainStatMap(sources), value);
-            return sources;
+            if (name is var key)
+                sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + added, int.MinValue, int.MaxValue);
         }
+        Add(FortificationSession.AttackSpeed, value.IncreasedAttackSpeedPercent(session.SpeedPerStack));
+        AddFortificationCounts(new PlainStatMap(sources), value);
+        return sources;
     }
 
     public static void AddFortificationCounts(StatMap stats, FortificationState.Value value)
@@ -60,123 +54,108 @@ public static partial class Game
     }
 
     // Called only at an accepted melee damage commit, before any notification can yield to another action/area.
-    public static bool FortificationOnHitLocked(Player conn, SpawnedMonster target, decimal rawDamage,
-        bool melee, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null)
+    public static bool FortificationOnHitLocked(Player player, SpawnedMonster target, decimal rawDamage,
+        bool melee, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null)
     {
-        if (!melee || !target.Hostile || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
+        if (!melee || !target.Hostile || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return false;
         int Get(uint name)
         {
             if (!(name is var key)) return 0;
-            return (int)Math.Clamp((long)player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
+            return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }
-        return FortificationOf(conn).Hit(AreaTime(conn), rawDamage, target.MaxLife,
-            target.Rarity, Get, random ?? AreaRng(conn));
+        return FortificationOf(player).Hit(AreaTime(player), rawDamage, target.MaxLife,
+            target.Rarity, Get, random ?? AreaRng(player));
     }
 
     /// <summary>A successful melee stun (HitReaction.TryFlinch): roll the character's chance to Fortify and grant the
     /// hit's damage-based stacks. Called under the owner's Monsters lock.</summary>
-    internal static bool FortificationFromMeleeStun(Player conn, decimal rawDamage, decimal maximumLife,
+    internal static bool FortificationFromMeleeStun(Player player, decimal rawDamage, decimal maximumLife,
         MonsterRarity rarity, Random? random = null)
     {
-        if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
-        var player = CharacterPlayerStats(conn);
-        int Get(uint key) => player.GetValueOrDefault(key);
-        return FortificationOf(conn).FortifyFromStun(AreaTime(conn), rawDamage, maximumLife, rarity,
-            Get, random ?? AreaRng(conn));
+        if (player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return false;
+        var playerStats = CharacterPlayerStats(player);
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
+        return FortificationOf(player).FortifyFromStun(AreaTime(player), rawDamage, maximumLife, rarity,
+            Get, random ?? AreaRng(player));
     }
 
-    public static int FortificationDamageTaken(Player conn, int damage)
+    public static int FortificationDamageTaken(Player player, int damage)
     {
-        lock (conn.Monsters)
-        {
-            var value = FortificationOf(conn).Read(AreaTime(conn));
-            return (int)((long)Math.Max(0, damage) * (100 - Math.Min(100, value.Current)) / 100);
-        }
+        var value = FortificationOf(player).Read(AreaTime(player));
+        return (int)((long)Math.Max(0, damage) * (100 - Math.Min(100, value.Current)) / 100);
     }
 
-    public static void ConfigureFortificationRecovery(Player conn, uint maximumLife,
+    public static void ConfigureFortificationRecovery(Player player, uint maximumLife,
         IReadOnlyDictionary<uint, int> sources)
     {
         var recovery = new Dictionary<uint, int>(sources);
         AddItemUtilityFlaskRawStats(new PlainStatMap(recovery),
-            conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
-        ConfigureFortificationRecovery(conn, maximumLife,
+            player.UtilityFlaskEffects.Stats().Concat(player.FlaskGrounds.PlayerStats()), Stats);
+        ConfigureFortificationRecovery(player, maximumLife,
             name => name is var key ? recovery.GetValueOrDefault(key) : 0);
     }
 
-    public static void ConfigureFortificationRecovery(Player conn, uint maximumLife, Func<uint, int> get)
+    public static void ConfigureFortificationRecovery(Player player, uint maximumLife, Func<uint, int> get)
     {
-        lock (conn.Monsters)
-        {
-            FortificationOf(conn).ConfigureRecovery(AreaTime(conn), maximumLife,
-                false,
-                PanelStats.LifeRegenerationMultiplier(get));
-        }
+        FortificationOf(player).ConfigureRecovery(AreaTime(player), maximumLife,
+            false,
+            PanelStats.LifeRegenerationMultiplier(get));
     }
 
-    public static void CarryFortification(Player conn, uint ticket)
+    public static void CarryFortification(Player player, uint ticket)
     {
-        lock (conn.Monsters)
+        var session = FortificationOf(player);
+        if (player.PlayerLife > 0)
         {
-            var session = FortificationOf(conn);
-            if (conn.PlayerLife > 0)
-            {
-                var transfer = session.State.Carry(AreaTime(conn));
-                if (transfer.Grants.Count > 0) CarriedFortification[ticket] = (DateTime.UtcNow, transfer);
-            }
-            session.Clear();
+            var transfer = session.State.Carry(AreaTime(player));
+            if (transfer.Grants.Count > 0) CarriedFortification[ticket] = (DateTime.UtcNow, transfer);
         }
+        session.Clear();
         foreach (var (old, entry) in CarriedFortification)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedFortification.TryRemove(old, out _);
     }
 
-    public static void RestoreFortification(Player conn)
+    public static void RestoreFortification(Player player)
     {
-        lock (conn.Monsters)
-            if (CarriedFortification.TryRemove(conn.Ticket, out var entry)
-                && DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5) && conn.PlayerLife > 0)
-                FortificationOf(conn).Restore(entry.State, AreaTime(conn));
+        if (CarriedFortification.TryRemove(player.Ticket, out var entry)
+            && DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5) && player.PlayerLife > 0)
+            FortificationOf(player).Restore(entry.State, AreaTime(player));
     }
 
     // Construct buffs, stats and Actor records together inside the send gate from the current owner state. A stat
     // presentation: without Fortification shown and with nothing changed since the last presentation (every gain moves
-    // the revision) there is nothing to send, so the send gate and the Monsters lock are left alone.
-    public static Task SendFortification(Player conn) =>
-        FortificationOf(conn) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(conn, [], null, atGate: () =>
+    // the revision) there is nothing to send, so the send gate and the area's frame are left alone.
+    public static Task SendFortification(Player player) =>
+        FortificationOf(player) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(player, [], null, atGate: () =>
         {
-            using (conn.Performance.Lock(conn.Monsters, "fortification"))
             {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.Paused) return null;
-                var session = FortificationOf(conn);
-                double now = AreaTime(conn);
+                if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired || player.Paused) return null;
+                var session = FortificationOf(player);
+                double now = AreaTime(player);
                 using var snapshot = session.Capture(now);
-                if (conn.PlayerLife == 0) { if (session.Value.Uncapped > 0) session.Clear(); }
-                session.Read(AreaTime(conn));
+                if (player.PlayerLife == 0) { if (session.Value.Uncapped > 0) session.Clear(); }
+                session.Read(AreaTime(player));
                 if (session.PresentedRevision == session.Revision) return null;
-                ReconcileOwnAuras(conn);
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                return WithOwnAuraChanges(conn, () =>
+                ReconcileOwnAuras(player);
+                player.Pools = PoolsFor(player, player.Pools.Level);
+                return WithOwnAuraChanges(player, () =>
                 {
                     // Build and acknowledge the tail AFTER any aura prefix, in the same order as its wire packets.
-                    var value = session.Read(AreaTime(conn));
+                    var value = session.Read(AreaTime(player));
                     var packets = new List<byte[]>();
-                    if (session.Buff != 0) packets.Add(InstanceEntities.RemoveBuff(PlayerId, session.Buff));
-                    session.Buff = 0;
+                    session.Buff = (ushort)(value.Current > 0 ? 1 : 0);
                     if (value.Current > 0)
-                    {
-                        session.Buff = conn.NextBuff++;
-                        packets.Add(InstanceEntities.AddBuff(PlayerId, session.Buff, 1943, PlayerId,
-                            visual: BuffArtVisual(conn, "fortify_buff", Stat.VirtualFortifyArtVariation),
-                            u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0,
-                                (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
-                            stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
-                    }
+                        player.Area.Buffs.Set(player.Id, new(1943, player.Id,
+                            Visual: BuffArtVisual(player, "fortify_buff", Stat.VirtualFortifyArtVariation),
+                            U68: Buff.Seconds((value.NextExpiry!.Value - now) * session.State.ExpiryRate),
+                            Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
+                    else player.Area.Buffs.Clear(player.Id, 1943, player.Id);
                     // Fortification changes on every melee hit; rebuilding the whole skill list here held the
                     // Monsters lock and the send gate for 50-110 ms (2026-11-05), starving input and the other sends.
                     // Its stacks and attack speed are in the 0x1b3 stats; the server keeps the authoritative action
                     // timings, so the skill records are left to the next gem/equipment refresh.
-                    packets.Add(PlayerStatsOffFrames(conn));
+                    packets.Add(PlayerStatsOffFrames(player));
                     session.PresentedRevision = session.Revision;
                     return packets.SelectMany(p => p).ToArray();
                 });

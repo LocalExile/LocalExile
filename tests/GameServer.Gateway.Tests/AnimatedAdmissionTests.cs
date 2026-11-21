@@ -11,14 +11,14 @@ public sealed class AnimatedAdmissionTests
     [Fact]
     public void Equipment_admission_keeps_guardians_melee_and_weapon_variants_disjoint()
     {
-        var conn = new Player(new(1, "admission", 1000, 1000, 100, 100, null, []), 1, 1);
-        var gem = new Game.SupportedGem(0, 20, 0, [], new()
+        var player = new Player(new(1, "admission", 1000, 1000, 100, 100, null, []), 1, 1);
+        var gem = new Game.SupportedGem(0, 20, 0, [], new Dictionary<uint, int>()
             { [Stat.AnimateItemMaximumLevelRequirement] = 100 });
         var catalog = new SummonCatalog();
         Item Make(string name) => ItemCatalog.Create(Program.Items.Find(name)!);
         var sword = Make("Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1");
         var bow = Make("Crude Bow"); var wand = Make("Driftwood Wand");
-        byte Slot(string effect, Item item) => Game.AnimatedItemSlot(conn, catalog.Find(effect)!, gem, item);
+        byte Slot(string effect, Item item) => Game.AnimatedItemSlot(player, catalog.Find(effect)!, gem, item);
         Assert.Equal(2, Slot("AnimateGuardian", sword));
         Assert.Equal(1, Slot("AnimateGuardian", Make("Plate Vest")));
         Assert.Equal(0, Slot("AnimateGuardian", bow)); Assert.Equal(0, Slot("AnimateGuardian", wand));
@@ -30,8 +30,8 @@ public sealed class AnimatedAdmissionTests
         Assert.Equal(0, Slot("AnimateWeaponAltY", bow with { Sockets = six }));
         Assert.Equal(0, Slot("AnimateWeapon", sword with { Identified = false }));
         Assert.Equal(0, Slot("AnimateGuardian", sword with { Identified = false }));
-        var limited = gem with { Stats = new() { [Stat.AnimateItemMaximumLevelRequirement] = 1 } };
-        Assert.Equal(0, Game.AnimatedItemSlot(conn, catalog.Find("AnimateWeapon")!, limited, Make("Jewelled Foil")));
+        var limited = gem with { Stats = new Dictionary<uint, int>() { [Stat.AnimateItemMaximumLevelRequirement] = 1 } };
+        Assert.Equal(0, Game.AnimatedItemSlot(player, catalog.Find("AnimateWeapon")!, limited, Make("Jewelled Foil")));
     }
 
     [Fact]
@@ -46,21 +46,21 @@ public sealed class AnimatedAdmissionTests
             ("AnimateWeapon", bow), ("AnimateWeapon", sword with { Sockets = six }),
             ("AnimateWeaponAltY", bow with { Sockets = six }), ("AnimateWeapon", sword with { Identified = false }) })
         {
-            var drop = new WorldItemObject(100, 100, item); uint id = f.Conn.Instance.Ground.Add(drop);
+            var drop = new WorldItemObject(100, 100, item); uint id = f.Player.Instance.Ground.Add(drop);
             Assert.Equal(0u, await f.Summon(effect, id));
-            Assert.Same(drop, f.Conn.Instance.Ground.Get(id)); Assert.Empty(f.Conn.Summons.Fighters);
-            f.Conn.Instance.Ground.Take(id);
+            Assert.Same(drop, f.Player.Instance.Ground.Get(id)); Assert.Empty(f.Player.Summons.Fighters);
+            f.Player.Instance.Ground.Take(id);
         }
         var hidden = new WorldItemObject(100, 100, sword);
-        uint hiddenId = f.Conn.Instance.Ground.Add(hidden, new object(), shared: false);
+        uint hiddenId = f.Player.Instance.Ground.Add(hidden, new object(), shared: false);
         Assert.Equal(0u, await f.Summon("AnimateWeapon", hiddenId));
         Assert.Equal(0u, await f.Summon("AnimateWeapon", 0));
-        Assert.Same(hidden, f.Conn.Instance.Ground.Get(hiddenId));
-        var valid = new WorldItemObject(100, 100, sword); uint ground = f.Conn.Instance.Ground.Add(valid);
+        Assert.Same(hidden, f.Player.Instance.Ground.Get(hiddenId));
+        var valid = new WorldItemObject(100, 100, sword); uint ground = f.Player.Instance.Ground.Add(valid);
         uint animated = await f.Summon("AnimateWeapon", ground);
-        Assert.NotEqual(0u, animated); Assert.Null(f.Conn.Instance.Ground.Get(ground));
+        Assert.NotEqual(0u, animated); Assert.Null(f.Player.Instance.Ground.Get(ground));
         Assert.Equal(0u, await f.Summon("AnimateWeapon", ground));
-        Assert.Single(f.Conn.Summons.Fighters);
+        Assert.Single(f.Player.Summons.Fighters);
     }
 
     internal sealed class Fixture : IDisposable
@@ -74,10 +74,13 @@ public sealed class AnimatedAdmissionTests
         readonly Task drain;
         internal readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         internal NetworkStream Stream => writer.GetStream();
-        internal readonly Player Conn = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
+        internal readonly Player Player = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "Animate" + Guid.NewGuid().ToString("N"), Instance = new(), PlayerLife = 10000,
-            PlayerMana = 10000, PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = "Animate" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
+            Instance = new(),
+            PlayerLife = 10000,
+            PlayerMana = 10000,
+            Connection = { PlayerSent = true },
             Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("animate-test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
@@ -85,8 +88,8 @@ public sealed class AnimatedAdmissionTests
         {
             Saves.Open(save); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
-            Conn.Clock.Start(); Conn.Summons.Restored = Conn.Golems.Restored = true;
-            TestRequirements.Waive(Conn);
+            Player.Clock.Start(); Player.Summons.Restored = Player.Golems.Restored = true;
+            TestRequirements.Waive(Player);
             Item Gem(string name)
             {
                 var type = Program.Items.FindGem(name)!.Value;
@@ -98,23 +101,23 @@ public sealed class AnimatedAdmissionTests
                 Sockets = new[] { "Animate Weapon", "Animate Guardian", "Animate Weapon of Ranged Arms" }
                     .Select(n => new ItemSocket(SocketColour.White, Gem(n))).ToArray(), Links = [1, 1, 1]
             };
-            Game.ItemsOf(Conn).Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
+            Game.ItemsOf(Player).Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
             listener.Start(); var accept = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accept.GetAwaiter().GetResult();
-            Conn.Session = new("test", Stream, Ciphers);
+            Player.Connection.Session = new("test", Stream, Ciphers);
             drain = Task.Run(async () => { try { var bytes = new byte[65536]; while (await reader.GetStream().ReadAsync(bytes) > 0) { } }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { } });
         }
         internal Task<uint> Summon(string effect, uint target)
         {
-            ushort source = Game.GemSkillEffects(Conn).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
-            return Game.SummonFighter(Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
+            ushort source = Game.GemSkillEffects(Player).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
+            return Game.SummonFighter(Player, source, Game.SummonData.Find(effect)!, (100, 100), target);
         }
         public void Dispose()
         {
-            Conn.Closed = true; lifetime.Stop(_ => { });
-            PlayerInventories.Forget(Conn.Character!); Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previous!);
+            Player.Closed = true; lifetime.Stop(_ => { });
+            PlayerInventories.Forget(Player.Character.Name!); Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previous!);
             reader.Dispose(); writer.Dispose(); listener.Stop(); drain.GetAwaiter().GetResult(); TestEnvironment.ReleaseSaves(save);
         }
     }

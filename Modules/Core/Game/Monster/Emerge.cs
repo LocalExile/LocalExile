@@ -9,11 +9,11 @@ public static partial class Game
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.
-    public static void WatchBuried(Player conn)
+    public static void WatchBuried(Player player)
     {
         bool start;
-        lock (conn.Monsters) start = MonsterEmerge.StartWatch(conn);
-        if (start) _ = RunEmergeWatch(conn);
+        start = MonsterEmerge.StartWatch(player);
+        if (start) _ = RunEmergeWatch(player);
     }
 
     // Every 250 ms: the monsters waiting near the player, and lurking ones that were hit, rise (MonsterEmerge.RiseLocked).
@@ -23,32 +23,32 @@ public static partial class Game
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead. The watch ends with the rules that started it: what still waits is
     // the instance's (Player.EmergeGround), and after a reload the new rules' SyncInstanceMonsters watches it.
-    public static async Task RunEmergeWatch(Player conn)
+    public static async Task RunEmergeWatch(Player player)
     {
         var rules = CombatLifetime;
         try
         {
-            while (!conn.Closed && rules is not { IsActive: false })
+            while (!player.Closed && rules is not { IsActive: false })
             {
                 await (rules is null ? Task.Delay(250) : Task.Delay(250, rules.Stopping));
-                if (conn.Paused || conn.PlayerLife == 0) continue;
-                double now = AreaTime(conn);
+                if (player.Paused || player.PlayerLife == 0) continue;
+                double now = AreaTime(player);
                 List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> risen;
                 bool watching;
-                using (ProjectileMutation(conn))
+                using (ProjectileMutation(player))
                 {
-                    now = ProjectileWorldTime(conn);
+                    now = ProjectileWorldTime(player);
                     // Near any player in the instance: whoever comes near wakes them.
-                    risen = Emerges.RiseLocked(conn, conn.Walk.Position(now), now, out watching);
+                    risen = Emerges.RiseLocked(player, player.Walk.Position(now), now, out watching);
                     foreach (var other in InGame.Keys)
-                        if (!ReferenceEquals(other, conn) && ReferenceEquals(other.Instance, conn.Instance) && !other.Closed
+                        if (!ReferenceEquals(other, player) && ReferenceEquals(other.Instance, player.Instance) && !other.Closed
                             && !other.LeavingArea && other.PlayerLife > 0 && watching)
-                            risen.AddRange(Emerges.RiseLocked(conn, other.Walk.Position(now), now, out watching));
+                            risen.AddRange(Emerges.RiseLocked(player, other.Walk.Position(now), now, out watching));
                 }
                 foreach (var (id, m, at, seconds) in risen)
-                    _ = Emerge(conn, id, m, at, seconds);
+                    _ = Emerge(player, id, m, at, seconds);
                 // Emerging moves a living enemy between rosters without changing the remaining count.
-                if (risen.Count > 0) await SendRemainingMonsters(conn);
+                if (risen.Count > 0) await SendRemainingMonsters(player);
                 if (!watching) return;
             }
         }
@@ -63,7 +63,7 @@ public static partial class Game
         finally
         {
             // Whoever runs the instance next, or the next rules, watches the rest (SyncInstanceMonsters).
-            lock (conn.Monsters) MonsterEmerge.StopWatch(conn);
+            MonsterEmerge.StopWatch(player);
         }
     }
 
@@ -74,13 +74,13 @@ public static partial class Game
     // first order goes out in the next one. Tick trace 2026-11-10: a 3.333 s Emerge ordered in frame n took a chase
     // sent in n + 101 only after its walker's tick, as did a 3.533 s one for n + 107, and one sent in n + 108 at once;
     // a Sand Spitter's 0.99 s attack ended in n + 30 (LockstepCountdownFrames less the order's own frame, each time).
-    public static void EmergeStartsLocked(Player conn, SpawnedMonster m, double seconds)
+    public static void EmergeStartsLocked(Player player, SpawnedMonster m, double seconds)
     {
-        if (conn.LockstepClient && conn.LockstepFrame is { } frame && LockstepCountdownFrames((float)seconds) is { } frames)
+        if (player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame && LockstepCountdownFrames((float)seconds) is { } frames)
             m.BusyUntil = Math.Max(m.BusyUntil, frame.Start + frames * (frame.End - frame.Start));
     }
 
-    public static async Task Emerge(Player conn, uint id,
+    public static async Task Emerge(Player player, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
         if (Emerges.SkillId is not ushort skill || m.Variety is not { } v) return;
@@ -89,17 +89,17 @@ public static partial class Game
             int index = v.ComponentsOrBase.ToList().IndexOf("Transitionable");
             byte state = MonsterEmerge.RisenState(v);
             var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
-            await Send(conn, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
+            await Send(player, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
             // The others in the instance see it rise too (it is theirs to hit as well).
-            ToOthers(conn, id, [.. messages[0], .. messages[1]]);
+            ToOthers(player, id, [.. messages[0], .. messages[1]]);
             // Predictive mode waits for 0x1ac in the pending-action gate (0x141e9afc0); lockstep starts directly.
             // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e99d50).
-            bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
-            await Send(conn, [],
+            bool Still() { return !player.Closed && !m.Dead && player.Area.Monsters.GetValueOrDefault(id) == m; }
+            await Send(player, [],
                 $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",
                 still: Still, atGate: () =>
                 {
-                    lock (conn.Monsters) EmergeStartsLocked(conn, m, seconds);
+                    EmergeStartsLocked(player, m, seconds);
                     return messages[1];
                 });
         }

@@ -5,23 +5,20 @@ static partial class Game
     /// left and the skill each carries. They live in <c>Player.Totems</c> and never in
     /// <c>Player.Monsters</c> — that is the point of the separate collection (area hits, monster AI, loot,
     /// experience and the instance save must not see them) — so <c>/mobs</c> and the <c>/state</c> <c>monsters</c>
-    /// array cannot list one and this is how "was the totem summoned at all?" is answered. Read-only; the Monsters lock
+    /// array cannot list one and this is how "was the totem summoned at all?" is answered. Read-only; the area's frame
     /// guards the collection and the connection clock, as everywhere else that reads them.
     /// </summary>
-    internal static string TotemsListing(Player conn)
+    internal static string TotemsListing(Player player)
     {
         var lines = new List<string>();
-        lock (conn.Monsters)
+        double now = AreaTime(player);
+        foreach (var totem in player.Totems.Living(now).OrderBy(t => t.Id))
         {
-            double now = AreaTime(conn);
-            foreach (var totem in conn.Totems.Living(now).OrderBy(t => t.Id))
-            {
-                string variety = totem.VarietyId.Length == 0 ? "-" : totem.VarietyId;
-                double left = Math.Max(0, totem.Until - now);
-                lines.Add($"0x{totem.Id:x} {variety}#{totem.Row} lvl {totem.Level} life {totem.Life}/{totem.MaxLife} " +
-                    $"at ({totem.At.X},{totem.At.Y}) left {left:0.0}s skill {totem.SkillId} " +
-                    $"({TotemSkillLabel(conn, totem.EffectRow)}) {TotemEffect(totem)}");
-            }
+            string variety = totem.VarietyId.Length == 0 ? "-" : totem.VarietyId;
+            double left = Math.Max(0, totem.Until - now);
+            lines.Add($"0x{totem.Id:x} {variety}#{totem.Row} lvl {totem.Level} life {totem.Life}/{totem.MaxLife} " +
+                $"at ({totem.At.X},{totem.At.Y}) left {left:0.0}s skill {totem.SkillId} " +
+                $"({TotemSkillLabel(player, totem.EffectRow)}) {TotemEffect(totem)}");
         }
         if (lines.Count == 0) return "No totems.";
         lines.Add($"{lines.Count} totem(s).");
@@ -43,6 +40,6 @@ static partial class Game
     /// the totem was summoned with, else its row number. It is read from the effect stored on the totem rather than
     /// looked up among the connection's gems: a totem outlives the socket it came from and the gem list is the
     /// player's, and an adopted projectile spell's gem may not survive the summon at all.</summary>
-    internal static string TotemSkillLabel(Player conn, int effectRow) =>
-        effectRow < 0 ? "totem" : SkillsFor(conn).EffectId(effectRow) ?? $"effect {effectRow}";
+    internal static string TotemSkillLabel(Player player, int effectRow) =>
+        effectRow < 0 ? "totem" : SkillsFor(player).EffectId(effectRow) ?? $"effect {effectRow}";
 }

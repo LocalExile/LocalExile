@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 /// pays for its own 10 s. Prevented is the raw hit minus what it finally dealt: armour, reduction, Fortification, what a
 /// block keeps out, avoidance and immunity count; evasion, ward, energy shield and damage taken as another type do not
 /// (wiki Prevented damage). The recovery writer calls
-/// <see cref="Take"/> with its own step, so scheduling delays change the step, never the rate. Guarded by the Monsters lock.
+/// <see cref="Take"/> with its own step, so scheduling delays change the step, never the rate. Owned by the area's frame.
 /// shortcut: an area change leaves the past 10 s behind, as Life Recoup does, until a capture shows the regeneration
 /// carries over.</summary>
 public sealed class PreventedDamageRecovery
@@ -42,5 +42,5 @@ public static partial class Game
 {
     static readonly Store<Player, PreventedDamageRecovery> PreventedDamage = new();
 
-    public static PreventedDamageRecovery PreventedDamageOf(Player conn) => PreventedDamage.GetValue(conn, _ => new());
+    public static PreventedDamageRecovery PreventedDamageOf(Player player) => PreventedDamage.GetValue(player, _ => new());
 }

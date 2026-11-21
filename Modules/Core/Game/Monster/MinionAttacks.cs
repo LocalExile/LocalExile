@@ -16,20 +16,20 @@ public static partial class Game
     /// <summary>
     /// The monster a fighting minion goes for this AI step: the living hostile one nearest it within its aggro range, of it
     /// and of the player (it does not leave him for a distant pack), not lurking unrisen. Null when there is none or the
-    /// player is dead; it then follows him. Under the Monsters lock.
+    /// player is dead; it then follows him. In the area's frame.
     /// </summary>
-    public static MinionTarget? MinionTargetLocked(Player conn, uint id, SpawnedMonster m, (int X, int Y) at,
-        (int X, int Y) player, double now)
+    public static MinionTarget? MinionTargetLocked(Player player, uint id, SpawnedMonster m, (int X, int Y) at,
+        (int X, int Y) playerAt, double now)
     {
-        if (m.Attack is not { } a || conn.PlayerLife == 0) return null;
+        if (m.Attack is not { } a || player.PlayerLife == 0) return null;
         MinionTarget? best = null;
         double nearest = double.MaxValue;
-        foreach (var (targetId, t) in conn.Monsters)
+        foreach (var (targetId, t) in player.Area.Monsters)
         {
             if (targetId == id || !t.Hostile || t.Dead || t.Life == 0 || double.IsPositiveInfinity(t.BusyUntil)) continue;
             var to = t.Walk.Position(now);
             double d = Dist(to, at);
-            if (d >= nearest || d > m.AggroRange || Dist(to, player) > m.AggroRange) continue;
+            if (d >= nearest || d > m.AggroRange || Dist(to, playerAt) > m.AggroRange) continue;
             nearest = d;
             double reach = MinionReach(a, t), f = d > 0 ? Math.Max(0, reach - 1) / d : 0;
             best = new(targetId, t, to, d <= reach,
@@ -39,65 +39,62 @@ public static partial class Game
     }
 
     /// <summary>
-    /// A fighting minion's hit at its swing's contact, under the Monsters lock: both still there and the target in reach,
+    /// A fighting minion's hit at its swing's contact, in the area's frame: both still there and the target in reach,
     /// the minion's accuracy (DefaultMonsterStats at its level) against the target's evasion, the target's block
     /// (Stalwart), then the attack's damage (the minion's own, with the player's minion modifiers it was summoned with)
     /// mitigated by the target as any hit. It is the minion's hit, not the player's (no hit-recently). Null when it did not
     /// land.
     /// </summary>
-    public static (MonsterHit Hit, int Damage)? MinionHitLocked(Player conn, uint id, SpawnedMonster m, MinionTarget target,
+    public static (MonsterHit Hit, int Damage)? MinionHitLocked(Player player, uint id, SpawnedMonster m, MinionTarget target,
         double now, Random random) =>
-        MinionHitTargetLocked(conn, id, m, target.Id, target.Monster, now, random, checkReach: true);
+        MinionHitTargetLocked(player, id, m, target.Id, target.Monster, now, random, checkReach: true);
 
-    static (MonsterHit Hit, int Damage)? MinionHitTargetLocked(Player conn, uint id, SpawnedMonster m,
+    static (MonsterHit Hit, int Damage)? MinionHitTargetLocked(Player player, uint id, SpawnedMonster m,
         uint targetId, SpawnedMonster targetMonster, double now, Random random, bool checkReach,
         MonsterAttack? attack = null, int? accuracy = null)
     {
         var t = targetMonster;
-        if (!CurrentGameWork || (attack ?? m.Attack) is not { } a || m.Dead || !conn.Minions.Fights(id) && !m.AlliedFighter || !conn.Monsters.TryGetValue(id, out var self)
+        if (!CurrentGameWork || (attack ?? m.Attack) is not { } a || m.Dead || !player.Minions.Fights(id) && !m.AlliedFighter || !player.Area.Monsters.TryGetValue(id, out var self)
             || !ReferenceEquals(self, m) || t.Dead || t.Life == 0 || !t.Hostile
-            || !conn.Monsters.TryGetValue(targetId, out var current) || !ReferenceEquals(current, t)) return null;
+            || !player.Area.Monsters.TryGetValue(targetId, out var current) || !ReferenceEquals(current, t)) return null;
         var at = m.Walk.Position(now);
         if (checkReach && Dist(at, t.Walk.Position(now)) > MinionReach(a, t) + 2) return null;
         int hitAccuracy = accuracy ?? m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
-        int evasion = UnderBlind(conn, targetId, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
+        int evasion = UnderBlind(player, targetId, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
         if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, hitAccuracy), random.Next(100)) || MonsterBlocks(t, random, spell: false))
             return null;
-        var supported = BeastSupportedAttack(conn, id, m, a, now);
+        var supported = BeastSupportedAttack(player, id, m, a, now);
         var offense = supported?.Attack.Damage ?? a.Damage;
         // A minion the player summoned takes his minion modifiers; a shrine's ally is not his to scale (GGG: "You are not
         // considered to be summoning them").
-        int Flat(string bound) => conn.Minions.Owns(id) && Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key
-            ? conn.Golems.OwnerStats.GetValueOrDefault(key) : 0;
+        int Flat(string bound) => player.Minions.Owns(id) && Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key
+            ? player.Golems.OwnerStats.GetValueOrDefault(key) : 0;
         if (supported is null && Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
             new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects[Stat.DamagePlusPct] / 100.0)));
         int damage = MonsterTakesRolled(t, offense.Roll(random), spell: false, now: now);
-        return ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is { } hit ? (hit, damage) : null;
+        return ApplyMonsterHitLocked(player, t, damage, allyAt: at) is { } hit ? (hit, damage) : null;
     }
 
     // A fighting minion attacks its target: its skill aimed at it (0x1ab with the target's id, as a monster's swing at the
     // player), and at the contact point (half the attack time) the hit lands (MinionHitLocked): 0x1af from the minion, then
     // the target's hit and death as for the player's hits. Its kills give the player their experience, items and quest
     // progress, but are not his for his on-kill effects.
-    static void StartMinionSwing(Player conn,
+    static void StartMinionSwing(Player player,
         PlayerMinions.Attack attack)
     {
         var updates = AreaUpdateContext.Value;
-        lock (conn.Monsters)
-        {
-            if (!CurrentGameWork || updates is null || !PlayerUpdatesCurrent(conn, updates)
-                || !updates.MinionAttacks.Add(attack)) return;
-        }
+        if (!CurrentGameWork || updates is null || !PlayerUpdatesCurrent(player, updates)
+            || !updates.MinionAttacks.Add(attack)) return;
         _ = Continue();
         async Task Continue()
         {
-            try { await MinionSwing(conn, attack); }
+            try { await MinionSwing(player, attack); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
-            finally { lock (conn.Monsters) updates.MinionAttacks.Remove(attack); }
+            finally { updates.MinionAttacks.Remove(attack); }
         }
     }
 
-    public static async Task MinionSwing(Player conn,
+    public static async Task MinionSwing(Player player,
         PlayerMinions.Attack attack)
     {
         uint id = attack.Id;
@@ -106,34 +103,28 @@ public static partial class Game
         var rules = CombatLifetime;
         var (_, m, from, targetId, targetMonster, toAt, contactAt) = attack;
         var target = new MinionTarget(targetId, targetMonster, toAt, true, toAt);
-        bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !conn.Closed && !conn.LeavingArea
-            && (conn.Minions.Fights(id) || m.AlliedFighter)
-            && conn.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead
-            && conn.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack);
-        lock (conn.Monsters) if (!Current()) return;
+        bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !player.Closed && !player.LeavingArea
+            && (player.Minions.Fights(id) || m.AlliedFighter)
+            && player.Area.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead
+            && player.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack);
+        if (!Current()) return;
         var a = m.Attack!;
         if (!attack.Started)
-            await Send(conn, [],
+            await Send(player, [],
                 $"0x01ab minion 0x{id:x} ({m.Label}) attacks monster 0x{target.Id:x}, attack time {a.Seconds:0.00} s", atGate: () =>
                 {
-                    lock (conn.Monsters)
-                    {
-                        if (!Current() || attack.Started) return null;
-                        attack.Started = true;
-                        return a.InPlace
-                            ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, conn.MonsterOrderFlags, targetObjectId: target.Id)
-                            : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, conn.MonsterOrderFlags, target.Id);
-                    }
+                    if (!Current() || attack.Started) return null;
+                    attack.Started = true;
+                    return a.InPlace
+                        ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, player.MonsterOrderFlags, targetObjectId: target.Id)
+                        : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, player.MonsterOrderFlags, target.Id);
                 });
         while (true)
         {
             int wait;
-            lock (conn.Monsters)
-            {
-                if (!Current()) return;
-                double left = contactAt - AreaTime(conn);
-                wait = !conn.Paused && left <= 0 ? 0 : (int)Math.Clamp(Math.Ceiling(left * 1000), 1, 1000);
-            }
+            if (!Current()) return;
+            double left = contactAt - AreaTime(player);
+            wait = !player.Paused && left <= 0 ? 0 : (int)Math.Clamp(Math.Ceiling(left * 1000), 1, 1000);
             if (wait == 0) break;
             await AreaWait(PlayerUpdateRole.MonsterAction, wait);
         }
@@ -141,31 +132,31 @@ public static partial class Game
         (int X, int Y) at, to;
         while (true)
         {
-            using (ProjectileMutation(conn))
+            using (ProjectileMutation(player))
             {
                 if (!Current()) return;
-                if (!conn.Paused)
+                if (!player.Paused)
                 {
-                    double now = ProjectileWorldTime(conn);
+                    double now = ProjectileWorldTime(player);
                     (at, to) = (m.Walk.Position(now), target.Monster.Walk.Position(now));
                     if (a.Projectile is { } projectile)
                     {
-                        ReleaseMinionProjectile(conn, attack, projectile, now);
+                        ReleaseMinionProjectile(player, attack, projectile, now);
                         return;
                     }
-                    conn.Minions.Attacks.Remove(id);
-                    landed = MinionHitLocked(conn, id, m, target, now, AreaRng(conn));
+                    player.Minions.Attacks.Remove(id);
+                    landed = MinionHitLocked(player, id, m, target, now, AreaRng(player));
                     if (landed is { Hit.StageStarts: true } staged)
                     {
-                        CommitBossStage(conn, target.Id, target.Monster, now);
+                        CommitBossStage(player, target.Id, target.Monster, now);
                         landed = staged with { Hit = staged.Hit with { StageStarts = false } };
                     }
                     if (landed is { } accepted)
                     {
-                        conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(id, 0xffff, target.Id, flags: 0x4601, kind: 0x02,
+                        player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(id, 0xffff, target.Id, flags: 0x4601, kind: 0x02,
                             u34: 450, angle: HitAngle(to.X - at.X, to.Y - at.Y)),
                             $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster, WorldId: id));
-                        CommitMinionHitLocked(conn, target.Id, target.Monster, accepted.Hit, accepted.Damage, now, $"minion 0x{id:x} ({m.Label})");
+                        CommitMinionHitLocked(player, target.Id, target.Monster, accepted.Hit, accepted.Damage, now, $"minion 0x{id:x} ({m.Label})");
                     }
                     break;
                 }
@@ -174,16 +165,15 @@ public static partial class Game
         }
         if (landed is not { } hit)
         {
-            Console.WriteLine($"[gateway] {conn.Remote} minion 0x{id:x} ({m.Label}) missed monster 0x{target.Id:x}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} minion 0x{id:x} ({m.Label}) missed monster 0x{target.Id:x}");
             return;
         }
-        await PublishMinionOutcomesFor(conn, rules);
+        await PublishMinionOutcomesFor(player, rules);
         }
         finally
         {
-            lock (conn.Monsters)
-                if (conn.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack))
-                    conn.Minions.Attacks.Remove(id);
+            if (player.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack))
+                player.Minions.Attacks.Remove(id);
         }
     }
 }

@@ -152,25 +152,25 @@ public class InflictedAilmentTests
     [Fact]
     public void Chill_freeze_and_shock_spread_by_their_own_proliferation_radius()
     {
-        static int Radius(MonsterElementalAilments.Kind kind, Func<uint, int> player) =>
-            MonsterElementalAilments.ProliferationRadius(kind, player);
+        static int Radius(MonsterElementalAilments.Kind kind, Func<uint, int> playerStats) =>
+            MonsterElementalAilments.ProliferationRadius(kind, playerStats);
         var spreading = With(("elemental_status_effect_aura_radius", 15), ("gloves_freeze_proliferation_radius", 20));
         Assert.Equal((15, 20, 15), (Radius(Chill, spreading), Radius(Freeze, spreading), Radius(Shock, spreading)));
         Assert.Equal(0, Radius(Chill, With(("gloves_freeze_proliferation_radius", 20))));
         Assert.Equal(12, Radius(Freeze, With(("spread_freeze_to_nearby_enemies", 1))));
         Assert.Equal(21, MonsterElementalAilments.SpreadRadius(Chill, spreading, area: 2));   // 15 × 1.41
 
-        var conn = new Player(new(1, "spread", 300, 300, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "spread", 300, 300, 100, 100, null, []), 1, 1);
         // Speed 1, as NewMonsterWalk's floor: a chill re-times the walk.
         SpawnedMonster At(int x, params (string, int)[] stats) => new($"at {x}", new(x, 100, 1), 0, 0, 100)
             { Mods = new([], [], new(stats.ToDictionary(s => Stat.Of(s.Item1), s => s.Item2))) };
         var (source, near, mid, far, immune) = (At(100), At(112), At(118), At(125), At(105, ("immune_to_chill", 1)));
         uint id = 0;
-        foreach (var m in new[] { source, near, mid, far, immune }) conn.Monsters[++id] = m;
+        foreach (var m in new[] { source, near, mid, far, immune }) player.Area.Monsters[++id] = m;
         // A 10% cold critical strike: a 19% chill and a 0.6 s freeze.
         source.Ailments.Inflict(Taken(cold: 10), critical: true, threshold: 100, now: 0, spreading, With(),
             new Random(1));
-        Game.MonsterAilmentChangesLocked(conn, now: .1);
+        Game.MonsterAilmentChangesLocked(player, now: .1);
         Assert.Equal((19.0, 100.0), (near.Ailments.Magnitude(Chill, .1), near.Ailments.Magnitude(Freeze, .1)));
         Assert.Equal((0.0, 100.0), (mid.Ailments.Magnitude(Chill, .1), mid.Ailments.Magnitude(Freeze, .1)));
         Assert.Equal((0.0, 0.0), (far.Ailments.Magnitude(Chill, .1), far.Ailments.Magnitude(Freeze, .1)));
@@ -190,7 +190,7 @@ public class InflictedAilmentTests
         var area = new Player(new(1, "berek", 300, 300, 100, 100, null, []), 1, 1);
         var (killed, close, away) = (At(200), At(220), At(221));
         id = 0;
-        foreach (var m in new[] { killed, close, away }) area.Monsters[++id] = m;
+        foreach (var m in new[] { killed, close, away }) area.Area.Monsters[++id] = m;
         // A 10% lightning critical strike: a 19% shock for 2 s that spreads 15 cells.
         killed.Ailments.Inflict(Taken(lightning: 10), critical: true, threshold: 100, now: 0,
             With(("gloves_shock_proliferation_radius", 15)), With(), new Random(1));
@@ -200,7 +200,7 @@ public class InflictedAilmentTests
         Assert.Equal(0, away.Ailments.Magnitude(Shock, .5));
         Assert.Empty(close.Ailments.Spreading(.5));
         // The freeze copy ends with its source; the chill's lasts.
-        Game.MonsterAilmentChangesLocked(conn, now: .7);
+        Game.MonsterAilmentChangesLocked(player, now: .7);
         Assert.Equal((19.0, 0.0), (near.Ailments.Magnitude(Chill, .7), near.Ailments.Magnitude(Freeze, .7)));
 
         // Reflected and ordinary ailments enter the same player lifecycle: newly applied ailments trigger flasks,
@@ -216,81 +216,78 @@ public class InflictedAilmentTests
                 { PlayerLife = 1000, Pools = new(10, 1000, 100, 1, 0) };
             const double now = 0;
             MonsterElementalAilments.Effect[] incoming = [new(Freeze, 0, 1, 100), new(Shock, 0, 2, 20)];
-            lock (reflected.Monsters)
+            Game.ReflectAilmentsLocked(reflected, incoming, now, Raw(), new Random(1));
+            Assert.True(reflected.ElementalAilments.Snapshot(now).Freeze);
+            Assert.True(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now));
+            Assert.Equal(new[] { FlaskEnchantments.Trigger.Freeze, FlaskEnchantments.Trigger.Shock },
+                reflected.FlaskAutomation.Events.Select(e => e.Trigger).ToArray());
+            reflected.FlaskAutomation.Discard();
+            Game.ReflectAilmentsLocked(reflected, incoming, now + .1, Raw(), new Random(1));
+            Assert.Empty(reflected.FlaskAutomation.Events);
+
+            reflected.ElementalAilments.Clear();
+            var pending = new List<MonsterElementalAilments.Effect>(incoming);
+            Game.ReflectPendingAilmentsLocked(reflected, pending, now, Raw(), new Random(1));
+            Assert.Empty(pending);
+            Game.ReflectPendingAilmentsLocked(reflected, pending, now + .1, Raw(), new Random(1));
+            Assert.False(reflected.ElementalAilments.Snapshot(now + 1.05).Freeze);
+            reflected.FlaskAutomation.Discard();
+            reflected.ElementalAilments.Clear(); reflected.RecentEvents.Clear();
+            Game.ReflectAilmentsLocked(reflected, incoming, now + .2,
+                Raw(("cannot_be_frozen", 1), ("cannot_be_shocked", 1)), new Random(1));
+            Assert.False(reflected.ElementalAilments.HasEffects);
+            Assert.False(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now + .2));
+            Assert.Empty(reflected.FlaskAutomation.Events);
+
+            var ordinary = Taken(cold: 100, lightning: 100);
+            Game.ApplyPlayerAilmentsLocked(reflected, ordinary, ordinary, true, false, now + .3, Raw());
+            Assert.True(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now + .3));
+            Assert.Equal(new[] { FlaskEnchantments.Trigger.Chill, FlaskEnchantments.Trigger.Freeze, FlaskEnchantments.Trigger.Shock },
+                reflected.FlaskAutomation.Events.Select(e => e.Trigger).ToArray());
+            reflected.FlaskAutomation.Discard(); reflected.ElementalAilments.Clear();
+
+            // The Oversoul's non-critical laser supplies its own guaranteed shock, but uses the same events.
+            var oversoul = new SpawnedMonster("Vaal Oversoul", new(100, 100, 0), 0, 0, 1000)
+                { Variety = Game.Monsters.Find(VaalOversoul.Boss)!, Level = 23 };
+            var lightning = Taken(lightning: 100);
+            var attack = VaalOversoul.Attack(reflected, oversoul.Variety!, 23, VaalOversoul.Laser);
+            Assert.Equal(100, attack.Ailments.ShockChance);
+            Assert.Equal(100, attack.Ailments.ShockDurationFinalPct);
+            void Laser(bool critical, bool blocked, double at, IReadOnlyDictionary<uint, int> stats) =>
+                Game.ApplyPlayerAilmentsLocked(reflected, lightning, lightning, critical, blocked, at, stats, attack.Ailments);
+            Laser(false, true, now + .4, Raw());
+            Assert.False(reflected.ElementalAilments.HasEffects);
+            Assert.Empty(reflected.FlaskAutomation.Events);
+            Laser(false, false, now + .4, Raw());
+            Assert.True(reflected.ElementalAilments.Snapshot(now + .4).Shock > 0);
+            Assert.Equal(FlaskEnchantments.Trigger.Shock, Assert.Single(reflected.FlaskAutomation.Events).Trigger);
+            reflected.FlaskAutomation.Discard();
+            Laser(false, false, now + .5, Raw());
+            Assert.Empty(reflected.FlaskAutomation.Events);
+            reflected.ElementalAilments.Clear();
+            Laser(false, false, now + .6, Raw(("cannot_be_shocked", 1)));
+            Assert.False(reflected.ElementalAilments.HasEffects);
+            Assert.Empty(reflected.FlaskAutomation.Events);
+            foreach (bool critical in new[] { false, true })
             {
-                Game.ReflectAilmentsLocked(reflected, incoming, now, Raw(), new Random(1));
-                Assert.True(reflected.ElementalAilments.Snapshot(now).Freeze);
-                Assert.True(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now));
-                Assert.Equal(new[] { FlaskEnchantments.Trigger.Freeze, FlaskEnchantments.Trigger.Shock },
-                    reflected.FlaskAutomation.Events.Select(e => e.Trigger).ToArray());
-                reflected.FlaskAutomation.Discard();
-                Game.ReflectAilmentsLocked(reflected, incoming, now + .1, Raw(), new Random(1));
-                Assert.Empty(reflected.FlaskAutomation.Events);
-
-                reflected.ElementalAilments.Clear();
-                var pending = new List<MonsterElementalAilments.Effect>(incoming);
-                Game.ReflectPendingAilmentsLocked(reflected, pending, now, Raw(), new Random(1));
-                Assert.Empty(pending);
-                Game.ReflectPendingAilmentsLocked(reflected, pending, now + .1, Raw(), new Random(1));
-                Assert.False(reflected.ElementalAilments.Snapshot(now + 1.05).Freeze);
-                reflected.FlaskAutomation.Discard();
-                reflected.ElementalAilments.Clear(); reflected.RecentEvents.Clear();
-                Game.ReflectAilmentsLocked(reflected, incoming, now + .2,
-                    Raw(("cannot_be_frozen", 1), ("cannot_be_shocked", 1)), new Random(1));
-                Assert.False(reflected.ElementalAilments.HasEffects);
-                Assert.False(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now + .2));
-                Assert.Empty(reflected.FlaskAutomation.Events);
-
-                var ordinary = Taken(cold: 100, lightning: 100);
-                Game.ApplyPlayerAilmentsLocked(reflected, ordinary, ordinary, true, false, now + .3, Raw());
-                Assert.True(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now + .3));
-                Assert.Equal(new[] { FlaskEnchantments.Trigger.Chill, FlaskEnchantments.Trigger.Freeze, FlaskEnchantments.Trigger.Shock },
-                    reflected.FlaskAutomation.Events.Select(e => e.Trigger).ToArray());
-                reflected.FlaskAutomation.Discard(); reflected.ElementalAilments.Clear();
-
-                // The Oversoul's non-critical laser supplies its own guaranteed shock, but uses the same events.
-                var oversoul = new SpawnedMonster("Vaal Oversoul", new(100, 100, 0), 0, 0, 1000)
-                    { Variety = Game.Monsters.Find(VaalOversoul.Boss)!, Level = 23 };
-                var lightning = Taken(lightning: 100);
-                var attack = VaalOversoul.Attack(reflected, oversoul.Variety!, 23, VaalOversoul.Laser);
-                Assert.Equal(100, attack.Ailments.ShockChance);
-                Assert.Equal(100, attack.Ailments.ShockDurationFinalPct);
-                void Laser(bool critical, bool blocked, double at, IReadOnlyDictionary<uint, int> stats) =>
-                    Game.ApplyPlayerAilmentsLocked(reflected, lightning, lightning, critical, blocked, at, stats, attack.Ailments);
-                Laser(false, true, now + .4, Raw());
-                Assert.False(reflected.ElementalAilments.HasEffects);
-                Assert.Empty(reflected.FlaskAutomation.Events);
-                Laser(false, false, now + .4, Raw());
-                Assert.True(reflected.ElementalAilments.Snapshot(now + .4).Shock > 0);
+                var accepted = new AilmentRolls(99); reflected.IncomingHitRandom = accepted;
+                Laser(critical, false, now + 1, Raw(("avoid_shock_%", 50)));
+                Assert.Equal(1, accepted.ChanceRolls);
+                Assert.True(reflected.ElementalAilments.Snapshot(now + 4.99).Shock > 0);
+                Assert.Equal(0, reflected.ElementalAilments.Snapshot(now + 5).Shock); // Native +100%: four seconds.
                 Assert.Equal(FlaskEnchantments.Trigger.Shock, Assert.Single(reflected.FlaskAutomation.Events).Trigger);
-                reflected.FlaskAutomation.Discard();
-                Laser(false, false, now + .5, Raw());
-                Assert.Empty(reflected.FlaskAutomation.Events);
-                reflected.ElementalAilments.Clear();
-                Laser(false, false, now + .6, Raw(("cannot_be_shocked", 1)));
-                Assert.False(reflected.ElementalAilments.HasEffects);
-                Assert.Empty(reflected.FlaskAutomation.Events);
-                foreach (bool critical in new[] { false, true })
-                {
-                    var accepted = new AilmentRolls(99); reflected.IncomingHitRandom = accepted;
-                    Laser(critical, false, now + 1, Raw(("avoid_shock_%", 50)));
-                    Assert.Equal(1, accepted.ChanceRolls);
-                    Assert.True(reflected.ElementalAilments.Snapshot(now + 4.99).Shock > 0);
-                    Assert.Equal(0, reflected.ElementalAilments.Snapshot(now + 5).Shock); // Native +100%: four seconds.
-                    Assert.Equal(FlaskEnchantments.Trigger.Shock, Assert.Single(reflected.FlaskAutomation.Events).Trigger);
-                    reflected.FlaskAutomation.Discard(); reflected.ElementalAilments.Clear();
-                    var avoided = new AilmentRolls(0); reflected.IncomingHitRandom = avoided;
-                    Laser(critical, false, now + 1, Raw(("avoid_shock_%", 50)));
-                    Assert.Equal(1, avoided.ChanceRolls);
-                    Assert.False(reflected.ElementalAilments.HasEffects);
-                    Assert.Empty(reflected.FlaskAutomation.Events);
-                }
-
-                reflected.Closed = true;
-                Game.ReflectAilmentsLocked(reflected, incoming, now + .7, Raw(), new Random(1));
+                reflected.FlaskAutomation.Discard(); reflected.ElementalAilments.Clear();
+                var avoided = new AilmentRolls(0); reflected.IncomingHitRandom = avoided;
+                Laser(critical, false, now + 1, Raw(("avoid_shock_%", 50)));
+                Assert.Equal(1, avoided.ChanceRolls);
                 Assert.False(reflected.ElementalAilments.HasEffects);
                 Assert.Empty(reflected.FlaskAutomation.Events);
             }
+
+            reflected.Closed = true;
+            Game.ReflectAilmentsLocked(reflected, incoming, now + .7, Raw(), new Random(1));
+            Assert.False(reflected.ElementalAilments.HasEffects);
+            Assert.Empty(reflected.FlaskAutomation.Events);
         }
         finally
         {

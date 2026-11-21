@@ -8,65 +8,6 @@ public static partial class Game
     // How far around the player GGG lists monsters in a resync (23.4 cells at most).
     public const int ResyncRadius = 24;
 
-    // GGG wakes only what is near the player, and a monster out of the zone stops ticking on the client: without this a
-    // chase the server has given up goes on there for as long as the player stays away. One that comes back is put where
-    // the server has it.
-    const int WakeZoneRadius = 171, WakeZoneReturn = 163;
-    const double WakeZoneSeconds = .5;
-
-    public static async Task KeepWakeZone(Player conn)
-    {
-        double checkedAt = AreaTime(conn);
-        if (checkedAt < conn.NextWakeZoneAt || !conn.PlayerSent) return;
-        conn.NextWakeZoneAt = checkedAt + WakeZoneSeconds;
-        await Send(conn, [], null, atGate: () =>
-        {
-            lock (conn.Monsters)
-            {
-                if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
-                double now = AreaTime(conn);
-                var player = conn.Walk.Position(now);
-                var packets = new List<byte>();
-                List<(uint Id, int X, int Y)> back = [];
-                // Each client's own wake zone (Player.AsleepMonsters), of the instance's monsters it was shown.
-                var others = InGame.Keys.Where(c => !ReferenceEquals(c, conn) && ReferenceEquals(c.Instance, conn.Instance)
-                    && !c.Closed && !c.LeavingArea && c.PlayerSent).ToArray();
-                foreach (var (id, m) in conn.Monsters)
-                {
-                    if (m.Dead || m.Life <= 0 || m.OwnerId is not null || !conn.MonsterViews.ContainsKey(id)) continue;
-                    var at = m.Walk.Position(now);
-                    double d = Dist(at, player);
-                    bool sleeping = conn.AsleepMonsters.Contains(id);
-                    if (!sleeping && d > WakeZoneRadius)
-                    {
-                        conn.AsleepMonsters.Add(id);
-                        packets.AddRange(InstanceProtocol.LeaveWakeZone(id));
-                        // Out of every client's: the estimate stands where it is too, and the AI leaves it until it is
-                        // back (Game.PlanMonsterAi), as GGG's does.
-                        if (!m.Asleep && others.All(c => c.AsleepMonsters.Contains(id) || !c.MonsterViews.ContainsKey(id)))
-                        {
-                            m.Asleep = true;
-                            m.Walk.StopAt(now);
-                            m.Leg = null;
-                        }
-                    }
-                    else if (sleeping && d <= WakeZoneReturn)
-                    {
-                        conn.AsleepMonsters.Remove(id);
-                        m.Asleep = false;
-                        packets.AddRange(InstanceProtocol.EnterWakeZone(id));
-                        back.Add((id, at.X, at.Y));
-                    }
-                }
-                if (conn.LockstepClient) packets.AddRange(LockstepPlace(back));
-                else foreach (var (id, x, y) in back) packets.AddRange(InstanceProtocol.Teleport(id, x, y, 0x7fffffff));
-                foreach (var (id, _, _) in back)
-                    if (Arakaali.StanceUpdateLocked(conn, id, now) is { } stance) packets.AddRange(stance);
-                return packets.Count == 0 ? null : [.. packets];
-            }
-        });
-    }
-
     // The monsters around the player where the server has them, each by its own teleport (S→C 0x1b7, terrain height).
     // The player is not among them: the client's position is the truth and the server's walk only estimates it, so S→C
     // 0x128 (whose first record the client puts the player on) snapped the player back to the estimate at every stun,
@@ -75,16 +16,16 @@ public static partial class Game
     // A lockstep client gets none. GGG's resync is S→C 0x128, which that client skips (07 §6), and its monsters already
     // stand where the orders put them. A teleport there zeroes each walker's step accumulator (0x141e34b40) while the
     // server's walk keeps its fraction of a step, so every later order of those walks found the client a cell behind.
-    public static byte[] ResyncPacketLocked(Player conn, double now)
+    public static byte[] ResyncPacketLocked(Player player, double now)
     {
-        if (conn.LockstepClient) return [];
-        var player = conn.Walk.Position(now);
+        if (player.Connection.LockstepClient) return [];
+        var playerAt = player.Walk.Position(now);
         var bytes = new List<byte>();
-        foreach (var (id, m) in conn.Monsters)
+        foreach (var (id, m) in player.Area.Monsters)
         {
-            if (m.Dead || m.Life <= 0 || conn.AsleepMonsters.Contains(id) || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) continue;
+            if (m.Dead || m.Life <= 0 || m.Asleep) continue;
             var at = m.Walk.Position(now);
-            if (Dist(at, player) <= ResyncRadius) bytes.AddRange(InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff));
+            if (Dist(at, playerAt) <= ResyncRadius) bytes.AddRange(InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff));
         }
         return [.. bytes];
     }
@@ -95,25 +36,25 @@ public static partial class Game
     static readonly string[] MovementInPlace = ["MirrorArrow", "SmokeMine", "PhaseRun", "ChainHook", "WitheringStep", "Ambush"];
 
     /// <summary>Whether a skill immediately puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
-    public static bool LandsAtAim(Player conn, int effect) =>
-        SkillsFor(conn).IsMovement(effect) && !SkillsFor(conn).IsChannelled(effect)
-        && !(SkillsFor(conn).EffectId(effect) is { } id && (id == "LightningWarp" || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
+    public static bool LandsAtAim(Player player, int effect) =>
+        SkillsFor(player).IsMovement(effect) && !SkillsFor(player).IsChannelled(effect)
+        && !(SkillsFor(player).EffectId(effect) is { } id && (id == "LightningWarp" || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
             || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
 
-    public static (int X, int Y) MovementLanding(Player conn, int effect, (int X, int Y) from, (int X, int Y) aim) =>
-        MovementLanding(conn, effect, from, aim, 0, 0);
+    public static (int X, int Y) MovementLanding(Player player, int effect, (int X, int Y) from, (int X, int Y) aim) =>
+        MovementLanding(player, effect, from, aim, 0, 0);
 
-    static (int X, int Y) MovementLanding(Player conn, int effect, (int X, int Y) from, (int X, int Y) aim, ushort skill, ushort flags)
+    static (int X, int Y) MovementLanding(Player player, int effect, (int X, int Y) from, (int X, int Y) aim, ushort skill, ushort flags)
     {
-        if (conn.Layout.Walkable is not { } floor) return aim;
-        bool walkable(int x, int y) => floor(x, y) && !conn.Barrier.Contains((x, y));
-        string? id = SkillsFor(conn).EffectId(effect);
+        if (player.Layout.Walkable is not { } floor) return aim;
+        bool walkable(int x, int y) => floor(x, y) && !player.Barrier.Contains((x, y));
+        string? id = SkillsFor(player).EffectId(effect);
         if (id is "Dash" or "DashHardMode")
         {
             const uint distanceStat = Stat.SkillTravelDistancePlusPct;
-            int travel = GolemStat(CharacterPlayerStats(conn), distanceStat);
-            if (skill != 0) travel += GolemStat(SupportedSkill(conn, skill).Stats, distanceStat);
-            return DashLanding(conn.Layout, conn.Barrier, from, aim, travel, (flags & 1) != 0);
+            int travel = GolemStat(CharacterPlayerStats(player), distanceStat);
+            if (skill != 0) travel += GolemStat(SupportedSkill(player, skill).Stats, distanceStat);
+            return DashLanding(player.Layout, player.Barrier, from, aim, travel, (flags & 1) != 0);
         }
         if (id?.StartsWith("WhirlingBlades", StringComparison.Ordinal) == true && aim != from)
         {
@@ -177,28 +118,28 @@ public static partial class Game
 
     // Resolve Dash through the current terrain-aware landing before payment and commit it in the same
     // admission transaction: a blocked endpoint or a stale action cannot displace the player without a paid use.
-    public static bool TryDashLanding(Player conn, int effect, (int X, int Y) aim,
+    public static bool TryDashLanding(Player player, int effect, (int X, int Y) aim,
         out (int X, int Y) from, out (int X, int Y) to, double? acceptedAt = null, ushort skill = 0, ushort flags = 0)
     {
         to = from = default;
-        if (!IsDashEffect(SkillsFor(conn).EffectId(effect)) || !SkillsFor(conn).IsTravel(effect)
-            || !SkillsFor(conn).IsMovement(effect) || !conn.ProjectileActive(conn.ProjectileEpoch)
-            || !conn.PlayerSent || conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea
-            || conn.RageRetired || conn.PendingTransfer is not null || InTown(conn)
-            || conn.Layout.Walkable is not { } walkable || conn.Layout.GridW <= 0 || conn.Layout.GridH <= 0)
+        if (!IsDashEffect(SkillsFor(player).EffectId(effect)) || !SkillsFor(player).IsTravel(effect)
+            || !SkillsFor(player).IsMovement(effect) || !player.ProjectileActive(player.ProjectileEpoch)
+            || !player.Connection.PlayerSent || player.PlayerLife == 0 || player.Paused || player.Closed || player.LeavingArea
+            || player.RageRetired || player.PendingTransfer is not null || InTown(player)
+            || player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
             return false;
-        double now = acceptedAt ?? ProjectileWorldTime(conn);
-        from = conn.Walk.Position(now);
+        double now = acceptedAt ?? ProjectileWorldTime(player);
+        from = player.Walk.Position(now);
         // Bound the raw client aim before MovementLanding subtracts coordinates or projects the native distance.
-        if (aim == from || aim.X < 0 || aim.Y < 0 || aim.X >= conn.Layout.GridW || aim.Y >= conn.Layout.GridH
-            || from.X < 0 || from.Y < 0 || from.X >= conn.Layout.GridW || from.Y >= conn.Layout.GridH
-            || !walkable(from.X, from.Y) || conn.Barrier.Contains(from)) return false;
-        var landing = MovementLanding(conn, effect, from, aim, skill, flags);
+        if (aim == from || aim.X < 0 || aim.Y < 0 || aim.X >= player.Layout.GridW || aim.Y >= player.Layout.GridH
+            || from.X < 0 || from.Y < 0 || from.X >= player.Layout.GridW || from.Y >= player.Layout.GridH
+            || !walkable(from.X, from.Y) || player.Barrier.Contains(from)) return false;
+        var landing = MovementLanding(player, effect, from, aim, skill, flags);
         to = landing;
-        if (landing == from || landing.X < 0 || landing.Y < 0 || landing.X >= conn.Layout.GridW
-            || landing.Y >= conn.Layout.GridH || !walkable(landing.X, landing.Y) || conn.Barrier.Contains(landing))
+        if (landing == from || landing.X < 0 || landing.Y < 0 || landing.X >= player.Layout.GridW
+            || landing.Y >= player.Layout.GridH || !walkable(landing.X, landing.Y) || player.Barrier.Contains(landing))
             return false;
-        return !conn.Blockers.Any(b => Math.Max(Math.Abs((long)landing.X - b.X), Math.Abs((long)landing.Y - b.Y))
+        return !player.Blockers.Any(b => Math.Max(Math.Abs((long)landing.X - b.X), Math.Abs((long)landing.Y - b.Y))
             - b.Size < 2);
     }
 
@@ -206,31 +147,30 @@ public static partial class Game
     const double MovementResyncSeconds = .5;
 
     /// <summary>How long a movement skill's action lasts on the client: its attack time, or its cast time.</summary>
-    public static double MovementSeconds(Player conn, int effect, int level, ushort skillId = 0) =>
-        SkillsFor(conn).IsAttack(effect) ? skillId == 0 ? SkillAttackSeconds(conn, effect, level) : SupportedAttackSeconds(conn, skillId)
-            : Math.Max(MovementResyncSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / PlayerActionFactor(conn));
+    public static double MovementSeconds(Player player, int effect, int level, ushort skillId = 0) =>
+        SkillsFor(player).IsAttack(effect) ? skillId == 0 ? SkillAttackSeconds(player, effect, level) : SupportedAttackSeconds(player, skillId)
+            : Math.Max(MovementResyncSeconds, SkillsFor(player).CastTimeMs(effect) / 1000.0 / PlayerActionFactor(player));
 
     // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.
-    public static void ResyncAfter(Player conn, double seconds, string why)
+    public static void ResyncAfter(Player player, double seconds, string why)
     {
-        conn.LandingUntil = Math.Max(conn.LandingUntil, AreaTime(conn) + seconds);
-        SendAfter(seconds, () => SendResync(conn, why));
+        player.LandingUntil = Math.Max(player.LandingUntil, AreaTime(player) + seconds);
+        SendAfter(seconds, () => SendResync(player, why));
     }
 
     // Something to send later, on its own: the connection may be gone by then.
     public static void SendAfter(double seconds, Func<Task> send) =>
-        _ = Task.Run(async () =>
+        _ = AreaFrames.Start(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(seconds));
             try { await send(); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });
 
-    public static Task SendResync(Player conn, string why) =>
-        Send(conn, [], $"0x0128 resync ({why})", atGate: () =>
+    public static Task SendResync(Player player, string why) =>
+        Send(player, [], $"0x0128 resync ({why})", atGate: () =>
         {
-            lock (conn.Monsters)
-                return conn.Closed || conn.LeavingArea || conn.LockstepClient || AreaTime(conn) < conn.LandingUntil ? null
-                    : ResyncPacketLocked(conn, AreaTime(conn));
+            return player.Closed || player.LeavingArea || player.Connection.LockstepClient || AreaTime(player) < player.LandingUntil ? null
+                : ResyncPacketLocked(player, AreaTime(player));
         });
 }

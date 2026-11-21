@@ -277,7 +277,7 @@ public sealed class MapDevice
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstanceState, InstanceMap> InstanceMaps = new();
 
     /// <summary>The entered instance's rules and return route survive spending the last portal or replacing the device's run.</summary>
-    public static OpenMap? ForInstance(Player conn) => ForInstance(conn.Layout.Hash, conn.InstanceNumber, conn.Instance);
+    public static OpenMap? ForInstance(Player player) => ForInstance(player.Layout.Hash, player.InstanceNumber, player.Instance);
 
     public static OpenMap? ForInstance(ushort area, ulong number, InstanceState? state)
     {

@@ -27,7 +27,7 @@ public sealed class FlaskAutomationState
     public readonly ConcurrentQueue<FlaskAutomationStep> Events = new();
     readonly HashSet<FlaskAutomationEvent> roots = [];
     public readonly SemaphoreSlim UseGate = new(1, 1);
-    // Presentation receipts and revisions are accessed under Monsters, including at the send gate.
+    // Presentation receipts and revisions are accessed in the area's frame, including at the send gate.
     public readonly List<FlaskOutput> Packets = [];
     /// <summary>One publisher drains Packets at a time: several loops publish them (recovery, the projectile output,
     /// flask use), and two that took the same create each reserved its object id.</summary>

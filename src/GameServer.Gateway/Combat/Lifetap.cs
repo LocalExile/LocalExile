@@ -11,18 +11,12 @@ public sealed class LifetapState
     public int Spent;
     /// <summary>The buff instance allocated for the next add; 0 before one is needed.</summary>
     public ushort Buff;
-    /// <summary>The buff instance this connection actually sent; 0 while none is presented.</summary>
-    public ushort PresentedBuff;
-    /// <summary>A refresh reached the threshold while the buff was already shown: replace its instance with the new
-    /// duration rather than leaving the client's older countdown running.</summary>
-    public bool RefreshPresented;
 
     public bool ActiveAt(double now) => Until > now;
 
     public void Gain(double now, double seconds)
     {
         Until = Math.Max(Until, now + Math.Max(.1, seconds));
-        if (PresentedBuff != 0) RefreshPresented = true;
     }
 
     /// <summary>Death drops the buff and the counter. The presented instance stays until Presence removes it.</summary>
@@ -30,7 +24,6 @@ public sealed class LifetapState
     {
         Until = 0;
         Spent = 0;
-        RefreshPresented = false;
     }
 }
 
@@ -68,20 +61,20 @@ public static class Lifetap
     public static int LifeCost(IReadOnlyDictionary<uint, int> stats, int manaCost) =>
         ConvertsCostToLife(stats) ? Math.Max(0, manaCost) : 0;
 
-    public static bool ActiveAt(Player conn, double now) => conn.Lifetap.ActiveAt(now);
+    public static bool ActiveAt(Player player, double now) => player.Lifetap.ActiveAt(now);
 
     /// <summary>The flask Life recovery increase while the buff runs, 0 otherwise.</summary>
-    public static int FlaskRecovery(Player conn) =>
-        ActiveAt(conn, conn.Clock.Elapsed.TotalSeconds) ? FlaskRecoveryPct : 0;
+    public static int FlaskRecovery(Player player) =>
+        ActiveAt(player, player.Clock.Elapsed.TotalSeconds) ? FlaskRecoveryPct : 0;
 
     /// <summary>
     /// One supported skill's upfront Life cost: adds it to the spent-Life counter and grants or refreshes Lifetap
     /// when the counter reaches the skill's threshold. The counter keeps the remainder, so a large cost is not lost.
     /// </summary>
-    public static void Spend(Player conn, IReadOnlyDictionary<uint, int> stats, int life, double now)
+    public static void Spend(Player player, IReadOnlyDictionary<uint, int> stats, int life, double now)
     {
         if (life <= 0 || !Supported(stats)) return;
-        var state = conn.Lifetap;
+        var state = player.Lifetap;
         int threshold = Value(stats, ThresholdStat);
         if (threshold <= 0) return;
         state.Spent = (int)Math.Min(int.MaxValue, (long)state.Spent + life);
@@ -90,6 +83,7 @@ public static class Lifetap
         state.Spent = Math.Max(0, state.Spent - threshold);
         double seconds = DurationSeconds(stats);
         state.Gain(now, seconds);
+        player.Area.Buffs.Set(player.Id, new(BuffRow, player.Id, U68: Buff.Seconds(state.Until - now)));
         Console.WriteLine($"[gateway] Lifetap: buff for {seconds:0.##} s after {life} Life spent " +
             $"(threshold {threshold}, {state.Spent} toward the next)");
     }
@@ -102,28 +96,13 @@ public static class Lifetap
     /// The buff instance the client must add or remove since the previous call. Called under the send gate and the
     /// Monsters lock, after the cost that granted it, and by the player tick that ends it.
     /// </summary>
-    public static byte[]? Presentation(Player conn) =>
-        PresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
+    public static byte[]? Presentation(Player player) =>
+        PresentationRecords(player) is { } records ? [.. records.SelectMany(p => p)] : null;
 
-    public static byte[][]? PresentationRecords(Player conn)
+    // The Lifetap buff while it lasts; its countdown is set when it is gained (Spend).
+    public static byte[][]? PresentationRecords(Player player)
     {
-        var state = conn.Lifetap;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        bool active = state.ActiveAt(now);
-        var packets = new List<byte[]>();
-        if (state.PresentedBuff != 0 && (!active || state.RefreshPresented))
-        {
-            packets.Add(InstanceEntities.RemoveBuff(Program.PlayerId, state.PresentedBuff));
-            state.PresentedBuff = 0;
-        }
-        state.RefreshPresented = false;
-        if (active && state.PresentedBuff == 0)
-        {
-            state.Buff = conn.NextBuff++;
-            packets.Add(InstanceEntities.AddBuff(Program.PlayerId, state.Buff, BuffRow, Program.PlayerId,
-                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.Until - now))));
-            state.PresentedBuff = state.Buff;
-        }
-        return packets.Count == 0 ? null : [.. packets];
+        if (!player.Lifetap.ActiveAt(player.Clock.Elapsed.TotalSeconds)) player.Area.Buffs.Clear(player.Id, BuffRow, player.Id);
+        return null;
     }
 }

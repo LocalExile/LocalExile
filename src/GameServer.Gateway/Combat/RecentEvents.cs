@@ -3,7 +3,7 @@
 /// "recently" is a fixed four-second window, the same one <see cref="RecentEnemyHits"/> already uses for the hits
 /// taken: a stat whose id says <c>if you have crit recently</c> holds while the last such event is inside it.
 /// <para>
-/// Owned by one area connection; use under its Monsters lock, like the rest of the per-area combat state. The keys are
+/// Owned by one area connection; use in the area's frame, like the rest of the per-area combat state. The keys are
 /// <see cref="StatConditions"/>'s (<c>hit_enemy</c>, <c>killed_enemy</c>, …), so the stat layer can ask for exactly the
 /// ones it names and answer <c>NotModelled</c> for anything it does not carry.
 /// </para>

@@ -45,27 +45,27 @@ public class AbyssJewelTests
         var path = Path.Combine(Path.GetTempPath(), $"abyss-stats-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         var items = Program.Items;
-        var conn = new Player(new(1, "abyss", 100, 100, 100, 100, null, []), 1, 1) { Character = "AbyssStats" };
+        var player = new Player(new(1, "abyss", 100, 100, 100, 100, null, []), 1, 1) { Character = { Name = "AbyssStats" } };
         try
         {
             var eye = ItemCatalog.Create(items.Find("Murderous Eye Jewel")!) with
                 { Rarity = ItemRarity.Magic, Mods = [new(ModSection.Explicit, items.Mods.ById("FireResist1")!.Hash, [10])] };
             var socket = Program.Passives.JewelNodeForSlot(1)!.Value;
-            conn.Passives.Add(socket);
-            Assert.Null(Game.PassiveJewelRefusal(conn, 1, 0, eye));
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(99, 1, 0, eye));
+            player.Character.Passives.Add(socket);
+            Assert.Null(Game.PassiveJewelRefusal(player, 1, 0, eye));
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(99, 1, 0, eye));
             var belt = new UniqueCatalog(items).Create("Darkness Enthroned", new Random(15))!;
             Assert.Equal(2, belt.Sockets.Count);
             Assert.All(belt.Sockets, s => Assert.Equal(SocketColour.Abyss, s.Colour));
             belt = belt with { Sockets = [belt.Sockets[0] with { Gem = eye }, belt.Sockets[1]] };
-            var stats = Game.EquipmentStatSources(conn, [(10, new(105, 0, 0, belt))], [socket], 100).Sources;
+            var stats = Game.EquipmentStatSources(player, [(10, new(105, 0, 0, belt))], [socket], 100).Sources;
             int effect = ItemModStats.Local(belt, items.Mods)[Stat.LocalSocketedAbyssJewelEffectPlusPct];
             Assert.Equal(10 + RadiusJewelCatalogue.ScaleEffect(10, effect), stats[Stat.BaseFireDamageResistancePct]);
             Assert.Equal(2, stats[Stat.NumberOfMeleeAbyssJewels]);
             Assert.Equal(1, stats[Stat.NumberOfAbyssJewelTypes]);
-            var removed = Game.EquipmentStatSources(conn, [], [], 100).Sources;
+            var removed = Game.EquipmentStatSources(player, [], [], 100).Sources;
             Assert.Equal(0, removed.GetValueOrDefault(Stat.NumberOfAbyssJewels));
         }
-        finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
+        finally { PlayerInventories.Forget(player.Character.Name!); TestEnvironment.ReleaseSaves(path); }
     }
 }

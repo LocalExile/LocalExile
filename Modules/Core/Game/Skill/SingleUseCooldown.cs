@@ -12,34 +12,28 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     public (uint Mana, uint Life)? Paid { get; init; }
     /// <summary>The attack window reserved with this use, before movement or the native action echo.</summary>
     public (ushort Skill, double At, double Seconds)? Attack { get; init; }
-    public bool Current(Player conn)
+    public bool Current(Player player)
     {
-        lock (conn.Monsters) return conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0
-            && (Instant || conn.ActionCount == ActionToken && conn.ElementalAilments.ActionFactor(Game.AreaTime(conn)) > 0 && !conn.HitRecovery.Active(Game.AreaTime(conn)))
+        return player.ProjectileActive(ProjectileEpoch) && player.PlayerLife > 0
+            && (Instant || player.ActionCount == ActionToken && player.ElementalAilments.ActionFactor(Game.AreaTime(player)) > 0 && !player.HitRecovery.Active(Game.AreaTime(player)))
             && (State is null || !Reserved || State.Uses > 1 || State.UseVersion == UseVersion)
-            && (Stance is null || Stance.CurrentLocked(conn));
+            && (Stance is null || Stance.CurrentLocked(player));
     }
-    public bool CommitNativeUse(Player conn, ushort skillId)
+    public bool CommitNativeUse(Player player, ushort skillId)
     {
-        lock (conn.Monsters)
+        if (!Current(player)) return false;
+        if (Reserved)
         {
-            if (!Current(conn)) return false;
-            if (Reserved)
-            {
-                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !conn.LockstepClient);
-                foreach (var (state, version, skill) in SharedUses)
-                    state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
-            }
-            return true;
+            State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !player.Connection.LockstepClient);
+            foreach (var (state, version, skill) in SharedUses)
+                state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
         }
+        return true;
     }
-    public bool TryExecute(Player conn, int effect)
+    public bool TryExecute(Player player, int effect)
     {
-        lock (conn.Monsters)
-        {
-            if (!Reserved || consumed || Effect != effect || !Current(conn)) return false;
-            consumed = true;
-            return true;
-        }
+        if (!Reserved || consumed || Effect != effect || !Current(player)) return false;
+        consumed = true;
+        return true;
     }
 }

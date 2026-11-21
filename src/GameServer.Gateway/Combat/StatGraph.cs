@@ -61,6 +61,19 @@ public sealed class StatGraph
     /// them takes no lock.</summary>
     public IReadOnlyDictionary<uint, int> Values => values;
 
+    /// <summary>The values the rule <paramref name="rule"/> saw in the last step: the layers' sums with the earlier rules'
+    /// writes (a panel's sources, the stats before its tail).</summary>
+    public Dictionary<uint, int> ValuesBefore(int rule)
+    {
+        lock (this)
+        {
+            var before = new Dictionary<uint, int>();
+            foreach (uint id in VisibleIds(rule))
+                if (Visible(rule, id, out int value)) before[id] = value;
+            return before;
+        }
+    }
+
     /// <summary>The ids whose value the last step changed (added, removed or a new value).</summary>
     public IReadOnlyCollection<uint> Changed { get; private set; } = [];
 
@@ -106,6 +119,9 @@ public sealed class StatGraph
 
     /// <summary>An input changed: the rules that read it run in the next step.</summary>
     public void MarkInput(int input) => markedInputs.Enqueue(input);
+
+    /// <summary>Whether a rule runs on this thread now (its reads are recorded).</summary>
+    public static bool InRule => reading is not null;
 
     /// <summary>An input's accessor: the rule running on this thread (if any) reads it.</summary>
     public static void ReadInput(int input)

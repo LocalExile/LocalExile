@@ -29,12 +29,12 @@ public static partial class Game
 
     /// <summary>The items' global mod stats together: with no subject, or, given the recent events, with the stats
     /// that depend on them decided and folded onto their plain names (as SelfCurseConditionInputs sums its gear).</summary>
-    static IReadOnlyDictionary<uint, int> WornItemSum(Player conn, IEnumerable<Item> items, IReadOnlySet<string>? recent = null)
+    static IReadOnlyDictionary<uint, int> WornItemSum(Player player, IEnumerable<Item> items, IReadOnlySet<string>? recent = null)
     {
         var list = items as Item[] ?? [.. items];
-        var mods = ItemsFor(conn).Mods;
+        var mods = ItemsFor(player).Mods;
         var rules = Program.GameLogicOrNull;
-        var memo = WornSumsOf.GetOrCreateValue(conn);
+        var memo = WornSumsOf.GetOrCreateValue(player);
         foreach (var kept in memo.Kept)
             if (kept is not null && ReferenceEquals(kept.Mods, mods) && ReferenceEquals(kept.Rules, rules)
                 && ReferenceEquals(kept.Stats, Stats) && SameItems(kept.Items, list)
@@ -61,13 +61,13 @@ public static partial class Game
     sealed record WornGrants(WornGrantedSkills Owner, (byte Row, InventoryItem Item)[] Equipment, IReadOnlyList<WornGrantedSkills.Grant> Grants);
     static readonly Store<Player, WornGrants> WornGrantsOf = new();
 
-    static IReadOnlyList<WornGrantedSkills.Grant> WornGrantsFor(Player conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment)
+    static IReadOnlyList<WornGrantedSkills.Grant> WornGrantsFor(Player player, IReadOnlyList<(byte Row, InventoryItem Item)> equipment)
     {
-        var owner = WornGrantedSkillOwner(conn);
-        if (WornGrantsOf.TryGetValue(conn, out var known) && ReferenceEquals(known.Owner, owner) && Same(known.Equipment, equipment))
+        var owner = WornGrantedSkillOwner(player);
+        if (WornGrantsOf.TryGetValue(player, out var known) && ReferenceEquals(known.Owner, owner) && Same(known.Equipment, equipment))
             return known.Grants;
         WornGrantedSkills.Grant[] grants = [.. owner.For(equipment)];
-        WornGrantsOf.AddOrUpdate(conn, new(owner, [.. equipment], grants));
+        WornGrantsOf.AddOrUpdate(player, new(owner, [.. equipment], grants));
         return grants;
 
         // An inventory item is a new record whenever its place, its id or its item changes.

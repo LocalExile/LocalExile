@@ -17,17 +17,14 @@ public sealed partial class Player
 
     public void RetireResourceEffects()
     {
-        lock (Monsters)
+        ResourceEffectsLease.Retire();
+        foreach (ushort buff in PhysicalAegis.Retire()) RetiredPhysicalAegisBuffs.Add(buff);
+        if (Unhinged.Retire() is ushort unhingedBuff and not 0) RetiredUnhingedBuffs.Add(unhingedBuff);
+        if (ResourceEffectsState is { } state)
         {
-            ResourceEffectsLease.Retire();
-            foreach (ushort buff in PhysicalAegis.Retire()) RetiredPhysicalAegisBuffs.Add(buff);
-            if (Unhinged.Retire() is ushort unhingedBuff and not 0) RetiredUnhingedBuffs.Add(unhingedBuff);
-            if (ResourceEffectsState is { } state)
-            {
-                state.Clear();
-                RetiredResourceBuffs.UnionWith(state.RetiredBuffs);
-            }
-            ResourceEffectsState = null;
+            state.Clear();
+            RetiredResourceBuffs.UnionWith(state.RetiredBuffs);
         }
+        ResourceEffectsState = null;
     }
 }

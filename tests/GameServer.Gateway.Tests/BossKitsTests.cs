@@ -13,10 +13,10 @@ public sealed class BossKitsTests
     [InlineData("OriathanCitizenZombieMale4Boss", 5197)]
     public void The_living_Strand_zombies_cannot_select_their_death_explosion(string id, int explosion)
     {
-        InGame(conn =>
+        InGame(player =>
         {
             var variety = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/OriathanCitizen/" + id));
-            var catalog = Game.SkillsFor(conn);
+            var catalog = Game.SkillsFor(player);
             Assert.Equal(1995, variety.AttackMs);
             Assert.Equal(406, Game.MavenNucleus.CombatEffect(catalog, variety));
             Assert.DoesNotContain(explosion, BossKits.Effects(catalog, variety));
@@ -27,7 +27,7 @@ public sealed class BossKitsTests
     [Fact]
     public void A_campaign_boss_has_its_whole_kit_and_a_plain_monster_has_none()
     {
-        InGame(conn =>
+        InGame(player =>
         {
             // Brutus, Lord Incarcerator (The Upper Prison): a bar of his own, six effects, three the client plays as a
             // hit of his own, then his Spiked Ground, a ground the server lays (shaped by its skill types). The other two
@@ -38,7 +38,7 @@ public sealed class BossKitsTests
             Assert.True(brutus.BossHealthBar);
             Assert.True(BossKits.IsCampaignBoss(brutus));
             int defaultEffect = brutus.GrantedEffects![0];
-            var kit = BossKits.Kit(conn, brutus, 9, defaultEffect);
+            var kit = BossKits.Kit(player, brutus, 9, defaultEffect);
             Assert.Equal([2395, 4003, 491, 9282, 3971], kit.Select(k => k.Effect));
             // The effect his default attack already used stays first: a kit adds the rest of the list, it does not
             // replace the attack he had (Dominus' LightningSlam is live-verified).
@@ -48,7 +48,7 @@ public sealed class BossKitsTests
             Assert.Equal<ushort>(slots, ids);
             Assert.Equal(kit.Count, kit.Select(k => k.Effect).Distinct().Count());
             // Each of them reaches the actor under the id the order will name: what 0x1ab can point at.
-            ushort[] granted = [.. BossKits.SkillsOf(conn, brutus, 9, kit).Select(s => s.Id)];
+            ushort[] granted = [.. BossKits.SkillsOf(player, brutus, 9, kit).Select(s => s.Id)];
             Assert.Equal<ushort>(ids, granted);
             // The specials the tables give a cooldown keep it: the hook and the ground slam before the swings.
             Assert.Equal([6d, 6d], kit.Take(2).Select(k => k.CooldownSeconds));
@@ -60,27 +60,27 @@ public sealed class BossKitsTests
             Assert.NotNull(fury);
             Assert.False(fury.BossHealthBar);
             Assert.True(BossKits.IsCampaignBoss(fury));
-            Assert.True(BossKits.Kit(conn, fury, 2).Count > 1);
+            Assert.True(BossKits.Kit(player, fury, 2).Count > 1);
 
             // A plain monster: no list of its own, and not a boss of any area.
             var corpse = Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite");
             Assert.NotNull(corpse);
             Assert.False(BossKits.IsCampaignBoss(corpse));
-            Assert.Empty(BossKits.Kit(conn, corpse, 1, 406));
+            Assert.Empty(BossKits.Kit(player, corpse, 1, 406));
 
             // Arakaali's arena-laser activators need the encounter's turret objects. Generic AI has none; calling
             // the activator with an empty turret list crashes the native client, even while the boss is at full life.
             var arakaali = Assert.IsType<MonsterCatalog.Variety>(
                 Game.Monsters.Find("Metadata/Monsters/VaalSpiderGod/Arakaali"));
-            var catalog = Game.SkillsFor(conn);
+            var catalog = Game.SkillsFor(player);
             int[] laserDrivers = [6879, 7802, 7805];
             Assert.All(laserDrivers, effect => Assert.Contains(effect, arakaali.GrantedEffects!));
-            var arakaaliKit = BossKits.Kit(conn, arakaali, 55, Game.MavenNucleus.CombatEffect(catalog, arakaali));
+            var arakaaliKit = BossKits.Kit(player, arakaali, 55, Game.MavenNucleus.CombatEffect(catalog, arakaali));
             Assert.DoesNotContain(arakaaliKit, entry => laserDrivers.Contains(entry.Effect));
             // Standalone mortar and melee attacks remain playable; this does not disable the encounter or its actor.
             Assert.Contains(arakaaliKit, entry => entry.Effect == 4438);
             Assert.Contains(arakaaliKit, entry => entry.Effect == 208);
-            var arakaaliSkills = BossKits.SkillsOf(conn, arakaali, 55, arakaaliKit);
+            var arakaaliSkills = BossKits.SkillsOf(player, arakaali, 55, arakaaliKit);
             uint artKey = Stat.SkillArtVariation;
             foreach (var (effect, art) in new[] { (4259, 1), (4260, 2), (4261, 3) })
             {
@@ -98,13 +98,13 @@ public sealed class BossKitsTests
             Assert.Equal(EmergeKind.None, emerge.Kind(brutus,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Unique));
             var waiting = new SpawnedMonster("Yugul", new(20, 20, 1), 60, 2, maxLife: 100) { Variety = yugul };
-            Assert.True(MonsterEmerge.AddLocked(conn, 0x3050, waiting, kind, unrisen: true));
-            Assert.DoesNotContain(0x3050u, conn.Monsters.Keys);
+            Assert.True(MonsterEmerge.AddLocked(player, 0x3050, waiting, kind, unrisen: true));
+            Assert.DoesNotContain(0x3050u, player.Area.Monsters.Keys);
             Assert.Equal(1, MonsterEmerge.CreateState(yugul, kind, unrisen: true));
-            var risen = Assert.Single(emerge.RiseLocked(conn, (20, 20), 10, out bool watching));
+            var risen = Assert.Single(emerge.RiseLocked(player, (20, 20), 10, out bool watching));
             Assert.Same(waiting, risen.Monster);
             Assert.False(watching);
-            Assert.Same(waiting, conn.Monsters[0x3050]);
+            Assert.Same(waiting, player.Area.Monsters[0x3050]);
             Assert.True(waiting.BusyUntil > 10);
             Assert.Equal(2, MonsterEmerge.CreateState(yugul, kind, unrisen: false));
         });

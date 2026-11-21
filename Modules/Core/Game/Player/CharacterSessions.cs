@@ -10,28 +10,28 @@ public static partial class Game
     /// first: the one it takes the character from, and one the map does not know (a module reload between the two) still
     /// in game. The caller ends them (Program.EndAsync) and only then loads the character.
     /// </summary>
-    public static IReadOnlyList<Player> ClaimCharacter(Player conn)
+    public static IReadOnlyList<Player> ClaimCharacter(Player player)
     {
-        if (conn.CharacterId is not { } id) return [];
+        if (player.Character.Id is not { } id) return [];
         var displaced = new List<Player>();
         lock (CharacterHolder)
         {
-            if (CharacterHolder.TryGetValue(id, out var previous) && !ReferenceEquals(previous, conn)) displaced.Add(previous);
-            CharacterHolder[id] = conn;
+            if (CharacterHolder.TryGetValue(id, out var previous) && !ReferenceEquals(previous, player)) displaced.Add(previous);
+            CharacterHolder[id] = player;
         }
         foreach (var other in Program.InGame.Keys)
-            if (!ReferenceEquals(other, conn) && !other.Controlled && other.CharacterId == id
+            if (!ReferenceEquals(other, player) && !other.Controlled && other.Character.Id == id
                 && !displaced.Contains(other))
                 displaced.Add(other);
         return displaced;
     }
 
     /// <summary>Forgets the connection's hold, if it still has it: a newer login may have taken the character already.</summary>
-    public static void ReleaseCharacter(Player conn)
+    public static void ReleaseCharacter(Player player)
     {
-        if (conn.CharacterId is not { } id) return;
+        if (player.Character.Id is not { } id) return;
         lock (CharacterHolder)
-            if (CharacterHolder.TryGetValue(id, out var holder) && ReferenceEquals(holder, conn)) CharacterHolder.Remove(id);
+            if (CharacterHolder.TryGetValue(id, out var holder) && ReferenceEquals(holder, player)) CharacterHolder.Remove(id);
     }
 
     /// <summary>Drops every hold (the module unloading: its claims die with it, and the next generation takes them from the

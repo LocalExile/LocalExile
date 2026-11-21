@@ -31,196 +31,182 @@ public static partial class Game
 
     static WornGrantedSkills.Grant BeastSourceIdentity(WornGrantedSkills.Grant grant) => grant;
 
-    static bool BeastSourceEligible(Player conn, WornGrantedSkills.Grant grant) =>
+    static bool BeastSourceEligible(Player player, WornGrantedSkills.Grant grant) =>
         CurrentGameWork
         && grant.Host != 0
         && IsSummonBeastialCompanionEffect(grant.EffectId)
-        && LeagueFor(conn).Rules.AllowsGemEffect(grant.EffectId)
-        && !IsInactive(conn, grant.Host);
+        && LeagueFor(player).Rules.AllowsGemEffect(grant.EffectId)
+        && !IsInactive(player, grant.Host);
 
     /// <summary>
     /// Reconciles the live worn grants without building CharacterPlayerStats or SupportedSkill. A missing eligible grant
     /// retires its generation irrevocably and drops pending/active ownership in the same observation.
     /// </summary>
-    public static void ReconcileBeastCompanionsLocked(Player conn)
+    public static void ReconcileBeastCompanionsLocked(Player player)
     {
-        var live = AllWornGrantedSkillsOf(conn).Where(g => BeastSourceEligible(conn, g)).ToArray();
+        var live = AllWornGrantedSkillsOf(player).Where(g => BeastSourceEligible(player, g)).ToArray();
         var identities = live.Select(BeastSourceIdentity).ToHashSet();
-        foreach (var stale in conn.Beasts.SourceGenerations.Where(s => !identities.Contains(s.Key)).ToArray())
+        foreach (var stale in player.Beasts.SourceGenerations.Where(s => !identities.Contains(s.Key)).ToArray())
         {
             stale.Value.Retired = true;
-            conn.Beasts.SourceGenerations.Remove(stale.Key);
+            player.Beasts.SourceGenerations.Remove(stale.Key);
         }
         foreach (var grant in live)
         {
             var identity = BeastSourceIdentity(grant);
-            if (!conn.Beasts.SourceGenerations.TryGetValue(identity, out var owner) || owner.Retired)
-                conn.Beasts.SourceGenerations[identity] = new(grant);
+            if (!player.Beasts.SourceGenerations.TryGetValue(identity, out var owner) || owner.Retired)
+                player.Beasts.SourceGenerations[identity] = new(grant);
         }
 
-        if (conn.Beasts.Active is { } active
-            && (!BeastSourceGenerationCurrentLocked(conn, active.Source)
-                || !conn.Minions.Owns(active.Id, active.Monster)
-                || !conn.Monsters.TryGetValue(active.Id, out var held)
+        if (player.Beasts.Active is { } active
+            && (!BeastSourceGenerationCurrentLocked(player, active.Source)
+                || !player.Minions.Owns(active.Id, active.Monster)
+                || !player.Area.Monsters.TryGetValue(active.Id, out var held)
                 || !ReferenceEquals(held, active.Monster)))
-            RetireBeastCompanionLocked(conn, active, AreaTime(conn),
-                output: ReferenceEquals(active.Area, conn.Instance) && ReferenceEquals(active.Lifetime, CombatLifetime));
-        if (conn.Beasts.Pending is { } pending && !BeastSourceGenerationCurrentLocked(conn, pending.Source))
-            conn.Beasts.Pending = null;
+            RetireBeastCompanionLocked(player, active, AreaTime(player),
+                output: ReferenceEquals(active.Area, player.Instance) && ReferenceEquals(active.Lifetime, CombatLifetime));
+        if (player.Beasts.Pending is { } pending && !BeastSourceGenerationCurrentLocked(player, pending.Source))
+            player.Beasts.Pending = null;
     }
 
-    static BeastCompanions.SourceGeneration? CurrentBeastSourceLocked(Player conn, WornGrantedSkills.Grant grant)
+    static BeastCompanions.SourceGeneration? CurrentBeastSourceLocked(Player player, WornGrantedSkills.Grant grant)
     {
-        ReconcileBeastCompanionsLocked(conn);
-        return conn.Beasts.SourceGenerations.TryGetValue(BeastSourceIdentity(grant), out var owner)
+        ReconcileBeastCompanionsLocked(player);
+        return player.Beasts.SourceGenerations.TryGetValue(BeastSourceIdentity(grant), out var owner)
             && !owner.Retired ? owner : null;
     }
 
-    static bool BeastSourceGenerationCurrentLocked(Player conn, BeastCompanions.Source source)
+    static bool BeastSourceGenerationCurrentLocked(Player player, BeastCompanions.Source source)
     {
         if (!CurrentGameWork || source.Owner.Retired) return false;
-        return conn.Beasts.SourceGenerations.TryGetValue(BeastSourceIdentity(source.Grant), out var owner)
+        return player.Beasts.SourceGenerations.TryGetValue(BeastSourceIdentity(source.Grant), out var owner)
             && ReferenceEquals(owner, source.Owner);
     }
 
     /// <summary>The actual worn source generation remains current, without rebuilding player stats.</summary>
-    static bool BeastSourceCurrent(Player conn, BeastCompanions.Source source)
+    static bool BeastSourceCurrent(Player player, BeastCompanions.Source source)
     {
-        lock (conn.Monsters)
-        {
-            ReconcileBeastCompanionsLocked(conn);
-            return BeastSourceGenerationCurrentLocked(conn, source);
-        }
+        ReconcileBeastCompanionsLocked(player);
+        return BeastSourceGenerationCurrentLocked(player, source);
     }
 
-    static bool BeastGrantCurrent(Player conn, WornGrantedSkills.Grant grant)
+    static bool BeastGrantCurrent(Player player, WornGrantedSkills.Grant grant)
     {
-        lock (conn.Monsters) return CurrentBeastSourceLocked(conn, grant) is not null;
+        return CurrentBeastSourceLocked(player, grant) is not null;
     }
 
-    public static bool HasSourceValidBeastMinion(Player conn)
+    public static bool HasSourceValidBeastMinion(Player player)
     {
-        lock (conn.Monsters)
-        {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-                || conn.Beasts.Active is not { } active) return false;
-            ReconcileBeastCompanionsLocked(conn);
-            return ReferenceEquals(conn.Beasts.Active, active)
-                && ReferenceEquals(active.Lifetime, CombatLifetime)
-                && ReferenceEquals(active.Area, conn.Instance)
-                && conn.Minions.Owns(active.Id, active.Monster)
-                && conn.Monsters.TryGetValue(active.Id, out var held)
-                && ReferenceEquals(held, active.Monster)
-                && !active.Monster.Dead && active.Monster.Life > 0
-                && BeastSourceGenerationCurrentLocked(conn, active.Source);
-        }
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
+            || player.Beasts.Active is not { } active) return false;
+        ReconcileBeastCompanionsLocked(player);
+        return ReferenceEquals(player.Beasts.Active, active)
+            && ReferenceEquals(active.Lifetime, CombatLifetime)
+            && ReferenceEquals(active.Area, player.Instance)
+            && player.Minions.Owns(active.Id, active.Monster)
+            && player.Area.Monsters.TryGetValue(active.Id, out var held)
+            && ReferenceEquals(held, active.Monster)
+            && !active.Monster.Dead && active.Monster.Life > 0
+            && BeastSourceGenerationCurrentLocked(player, active.Source);
     }
 
     /// <summary>Rejects a stale worn-host activation before cooldown or resource payment.</summary>
-    public static bool BeastCompanionAdmissionCurrent(Player conn, SupportedGem gem, ushort skillId) =>
+    public static bool BeastCompanionAdmissionCurrent(Player player, SupportedGem gem, ushort skillId) =>
         gem.WornGrant is { } grant
         && gem.RequirementsMet
-        && BeastGrantCurrent(conn, grant)
-        && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
+        && BeastGrantCurrent(player, grant)
+        && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
 
     /// <summary>Captures accepted work under the same Monsters lock that paid for it.</summary>
-    public static void QueueBeastCompanionLocked(Player conn, SupportedGem gem, ushort skillId, int? actionToken)
+    public static void QueueBeastCompanionLocked(Player player, SupportedGem gem, ushort skillId, int? actionToken)
     {
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
             || gem.WornGrant is not { } grant
             || BeastKindFor(grant.EffectId) is not { } kind
-            || CurrentBeastSourceLocked(conn, grant) is not { } owner) return;
+            || CurrentBeastSourceLocked(player, grant) is not { } owner) return;
         int Stat(uint key) => gem.Stats.GetValueOrDefault(key);
         int level = Stat(global::Stat.BaseDisplayMinionActorLevel);
         int limit = Stat(global::Stat.BaseNumberOfBeastMinionsAllowed);
         if (level <= 0 || limit <= 0) return;
-        conn.Beasts.Pending = new(new(owner), skillId, grant.EffectId, kind.Variety, kind.MinionKind,
+        player.Beasts.Pending = new(new(owner), skillId, grant.EffectId, kind.Variety, kind.MinionKind,
             (byte)Math.Clamp(level, 1, 100),
-            Stat(global::Stat.MinionMaximumLifePlusPct), limit, CombatLifetime, conn.Instance, actionToken)
+            Stat(global::Stat.MinionMaximumLifePlusPct), limit, CombatLifetime, player.Instance, actionToken)
             { SkillStats = new Dictionary<uint, int>(gem.Stats) };
     }
 
-    public static async Task TickBeastCompanions(Player conn, double now, object? rules)
+    public static async Task TickBeastCompanions(Player player, double now, object? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
-        if (!Current() || conn.Closed || conn.LeavingArea) return;
+        if (!Current() || player.Closed || player.LeavingArea) return;
 
-        lock (conn.Monsters)
+        if (!Current() || player.Closed || player.LeavingArea) return;
+        ReconcileBeastCompanionsLocked(player);
+        if (player.Beasts.Active is { } active)
         {
-            if (!Current() || conn.Closed || conn.LeavingArea) return;
-            ReconcileBeastCompanionsLocked(conn);
-            if (conn.Beasts.Active is { } active)
-            {
-                bool present = conn.Minions.Owns(active.Id, active.Monster)
-                    && ReferenceEquals(active.Area, conn.Instance) && ReferenceEquals(active.Lifetime, rules)
-                    && conn.Monsters.TryGetValue(active.Id, out var held) && ReferenceEquals(held, active.Monster);
-                bool keep = present && conn.PlayerLife > 0 && !active.Monster.Dead && active.Monster.Life > 0
-                    && BeastSourceGenerationCurrentLocked(conn, active.Source);
-                if (!keep) RetireBeastCompanionLocked(conn, active, now,
-                    output: ReferenceEquals(active.Area, conn.Instance) && ReferenceEquals(active.Lifetime, rules));
-            }
-
-            var pending = conn.Beasts.Pending;
-            if (pending is not null && !BeastPendingCurrentLocked(conn, pending, rules))
-            {
-                conn.Beasts.Pending = null;
-                pending = null;
-            }
-            if (pending is not null)
-            {
-                var owned = conn.Minions.All.Where(m => IsBeastCompanionKind(m.Kind)).ToArray();
-                for (int i = pending.BeastLimit - 1; i < owned.Length; i++)
-                    RetireOwnedMinionLocked(conn, owned[i], now);
-            }
+            bool present = player.Minions.Owns(active.Id, active.Monster)
+                && ReferenceEquals(active.Area, player.Instance) && ReferenceEquals(active.Lifetime, rules)
+                && player.Area.Monsters.TryGetValue(active.Id, out var held) && ReferenceEquals(held, active.Monster);
+            bool keep = present && player.PlayerLife > 0 && !active.Monster.Dead && active.Monster.Life > 0
+                && BeastSourceGenerationCurrentLocked(player, active.Source);
+            if (!keep) RetireBeastCompanionLocked(player, active, now,
+                output: ReferenceEquals(active.Area, player.Instance) && ReferenceEquals(active.Lifetime, rules));
         }
 
-        if (conn.Beasts.Pending is not { } summon || !Current()) return;
+        var pending = player.Beasts.Pending;
+        if (pending is not null && !BeastPendingCurrentLocked(player, pending, rules))
+        {
+            player.Beasts.Pending = null;
+            pending = null;
+        }
+        if (pending is not null)
+        {
+            var owned = player.Minions.All.Where(m => IsBeastCompanionKind(m.Kind)).ToArray();
+            for (int i = pending.BeastLimit - 1; i < owned.Length; i++)
+                RetireOwnedMinionLocked(player, owned[i], now);
+        }
+
+        if (player.Beasts.Pending is not { } summon || !Current()) return;
         if (Monsters.Find(summon.Variety) is not { Supported: true } variety)
         {
-            lock (conn.Monsters)
-                if (ReferenceEquals(conn.Beasts.Pending, summon)) conn.Beasts.Pending = null;
-            Console.WriteLine($"[gateway] {conn.Remote} {summon.Skill}: {summon.Variety} cannot be created");
+            if (ReferenceEquals(player.Beasts.Pending, summon)) player.Beasts.Pending = null;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {summon.Skill}: {summon.Variety} cannot be created");
             return;
         }
 
         (int X, int Y) at;
-        lock (conn.Monsters)
-        {
-            if (!Current() || !BeastPendingCurrentLocked(conn, summon, rules)) return;
-            at = NextToPlayer(conn);
-        }
+        if (!Current() || !BeastPendingCurrentLocked(player, summon, rules)) return;
+        at = NextToPlayer(player);
         var native = MonsterModRolls.Create(
-            MonsterModRolls.Species(variety.SpeciesModsOrEmpty, AreaRng(conn)), [], MonsterRarity.Normal, summon.MinionLevel);
+            MonsterModRolls.Species(variety.SpeciesModsOrEmpty, AreaRng(player)), [], MonsterRarity.Normal, summon.MinionLevel);
         var prepared = BeastCombatInputs(summon.Source, summon.SkillId, summon.MinionKind, summon.Variety,
             summon.SkillStats, native.Effects);
-        var mods = GolemModifiers(conn, prepared, CharacterPlayerStats(conn), AreaTime(conn));
+        var mods = GolemModifiers(player, prepared, CharacterPlayerStats(player), AreaTime(player));
         mods = mods with { Mods = native.Mods };
-        uint spawned = await SpawnMonster(conn, variety, summon.MinionLevel,
+        uint spawned = await SpawnMonster(player, variety, summon.MinionLevel,
             MonsterRarity.Normal, at.X, at.Y, friendly: true, mods: mods, extraStats: MinionStats,
             owned: (id, m) =>
             {
-                if (!Current() || !BeastPendingCurrentLocked(conn, summon, rules))
+                if (!Current() || !BeastPendingCurrentLocked(player, summon, rules))
                 {
-                    if (ReferenceEquals(conn.Beasts.Pending, summon)) conn.Beasts.Pending = null;
+                    if (ReferenceEquals(player.Beasts.Pending, summon)) player.Beasts.Pending = null;
                     return;
                 }
-                conn.Beasts.Pending = null;
+                player.Beasts.Pending = null;
                 m.Aggro = true;
-                conn.Minions.Add(new(id, m, summon.Skill, summon.MinionKind)
+                player.Minions.Add(new(id, m, summon.Skill, summon.MinionKind)
                     { Until = double.PositiveInfinity, Fights = true });
-                conn.Beasts.Active = new(id, m, summon.Source, summon.Skill, summon.Variety, summon.MinionKind,
+                player.Beasts.Active = new(id, m, summon.Source, summon.Skill, summon.Variety, summon.MinionKind,
                     summon.Lifetime, summon.Area)
                     { SourceSkill = summon.SkillId, SkillStats = summon.SkillStats, Intrinsic = native.Effects };
-            }, ownedCurrent: () => Current() && BeastPendingCurrentLocked(conn, summon, rules));
+            }, ownedCurrent: () => Current() && BeastPendingCurrentLocked(player, summon, rules));
         if (Current())
         {
-            lock (conn.Monsters)
-                if (ReferenceEquals(conn.Beasts.Pending, summon)
-                    && (spawned == 0 || !BeastPendingCurrentLocked(conn, summon, rules)))
-                    conn.Beasts.Pending = null;
+            if (ReferenceEquals(player.Beasts.Pending, summon)
+                && (spawned == 0 || !BeastPendingCurrentLocked(player, summon, rules)))
+                player.Beasts.Pending = null;
         }
         if (spawned != 0 && Current())
-            Console.WriteLine($"[gateway] {conn.Remote} {summon.Skill} summoned {summon.MinionKind} " +
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {summon.Skill} summoned {summon.MinionKind} " +
                 $"0x{spawned:x} at level {summon.MinionLevel}");
     }
 
@@ -232,61 +218,60 @@ public static partial class Game
             Own = new(stats), Gear = new(intrinsic.Stats), GemLevel = source.Level,
         };
 
-    static GolemState.Ability? BeastSupportedAttack(Player conn, uint id, SpawnedMonster monster,
+    static GolemState.Ability? BeastSupportedAttack(Player player, uint id, SpawnedMonster monster,
         MonsterAttack attack, double now)
     {
-        if (conn.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, monster)
+        if (player.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, monster)
             || monster.Variety is not { } variety) return null;
         var combat = BeastCombatInputs(active.Source, active.SourceSkill, active.MinionKind,
             active.Variety, active.SkillStats, active.Intrinsic, id, monster);
-        var abilities = GolemAbilities(conn, variety, monster.Level, combat, CharacterPlayerStats(conn), now);
+        var abilities = GolemAbilities(player, variety, monster.Level, combat, CharacterPlayerStats(player), now);
         return abilities.FirstOrDefault(a => a.Skill == attack.SkillId)
             ?? abilities.FirstOrDefault(a => a.Attack.Spell == attack.Spell);
     }
 
-    static bool BeastPendingCurrentLocked(Player conn, BeastCompanions.PendingSummon pending, object? rules)
+    static bool BeastPendingCurrentLocked(Player player, BeastCompanions.PendingSummon pending, object? rules)
     {
         // The paid create may resume after equipment inventory outputs. Observe the live worn source again under the
         // Monsters lock so the retained generation map cannot admit a source that is already no longer equipped.
-        ReconcileBeastCompanionsLocked(conn);
+        ReconcileBeastCompanionsLocked(player);
         return CurrentGameWork
-            && !conn.Closed
-            && !conn.LeavingArea
-            && ReferenceEquals(conn.Beasts.Pending, pending)
+            && !player.Closed
+            && !player.LeavingArea
+            && ReferenceEquals(player.Beasts.Pending, pending)
             && ReferenceEquals(pending.Lifetime, rules)
-            && ReferenceEquals(pending.Area, conn.Instance)
-            && conn.PlayerLife > 0
-            && (pending.ActionToken is not int action || PlayerActionCurrent(conn, action))
-            && BeastSourceGenerationCurrentLocked(conn, pending.Source);
+            && ReferenceEquals(pending.Area, player.Instance)
+            && player.PlayerLife > 0
+            && (pending.ActionToken is not int action || PlayerActionCurrent(player, action))
+            && BeastSourceGenerationCurrentLocked(player, pending.Source);
     }
 
-    static void RetireBeastCompanionLocked(Player conn, BeastCompanions.ActiveBeast active, double now, bool output)
+    static void RetireBeastCompanionLocked(Player player, BeastCompanions.ActiveBeast active, double now, bool output)
     {
-        if (ReferenceEquals(conn.Beasts.Active, active)) conn.Beasts.Active = null;
-        if (conn.Minions.All.FirstOrDefault(m => m.Id == active.Id
+        if (ReferenceEquals(player.Beasts.Active, active)) player.Beasts.Active = null;
+        if (player.Minions.All.FirstOrDefault(m => m.Id == active.Id
                 && ReferenceEquals(m.Monster, active.Monster)) is { } owned)
-            conn.Minions.Remove(owned.Id);
-        RetireBeastMonsterLocked(conn, active.Id, active.Monster, now, output);
+            player.Minions.Remove(owned.Id);
+        RetireBeastMonsterLocked(player, active.Id, active.Monster, now, output);
     }
 
-    static void RetireOwnedMinionLocked(Player conn, PlayerMinions.Minion owned, double now, bool output = true)
+    static void RetireOwnedMinionLocked(Player player, PlayerMinions.Minion owned, double now, bool output = true)
     {
         var m = owned.Monster;
-        bool current = conn.Monsters.TryGetValue(owned.Id, out var held) && ReferenceEquals(held, m);
-        conn.Minions.Remove(owned.Id);
+        bool current = player.Area.Monsters.TryGetValue(owned.Id, out var held) && ReferenceEquals(held, m);
+        player.Minions.Remove(owned.Id);
         if (!current) return;
-        RetireBeastMonsterLocked(conn, owned.Id, m, now, output);
+        RetireBeastMonsterLocked(player, owned.Id, m, now, output);
     }
 
-    static void RetireBeastMonsterLocked(Player conn, uint id, SpawnedMonster m, double now, bool output)
+    static void RetireBeastMonsterLocked(Player player, uint id, SpawnedMonster m, double now, bool output)
     {
         m.Aggro = false;
         m.Dead = true;
         m.Life = 0;
-        conn.Minions.Bodies.Add((id, m, now + 1));
+        player.Minions.Bodies.Add((id, m, now + 1));
         if (!output) return;
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]),
-            "beast companion ends", id, m));
-        conn.Minions.OutputQueue.Add(new([], "beast companion life 0", id, m, PlayerMinions.OutputKind.Life));
+        SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+        player.Minions.OutputQueue.Add(new([], "beast companion life 0", id, m, PlayerMinions.OutputKind.Life));
     }
 }

@@ -9,22 +9,18 @@ public static class MonsterRegeneration
 {
     const int EveryFrames = 15;
 
-    public static void Start(GameArea area, Player conn, object source)
+    public static void Start(GameArea area, Player player, object source)
     {
         // The instance's monster table (its lock too, while the rest of the game still takes it).
-        var monsters = conn.Monsters;
-        var instance = conn.Instance;
+        var monsters = player.Area.Monsters;
+        var instance = player.Instance;
         double last = double.NaN;
         area.Systems.Add("monster regeneration", AreaPhase.Recovery, a =>
         {
             double now = a.Time, seconds = double.IsNaN(last) ? 0 : now - last;
             last = now;
             if (seconds <= 0) return;
-            List<(uint Id, uint Life)> changed;
-            lock (monsters)
-                changed = Game.RegenerateMonstersLocked(monsters, seconds, now, OnHitPct(instance, conn, now, seconds));
-            foreach (var (id, life) in changed)
-                a.Output.ToAll(a, InstanceProtocol.LifeUpdate(id, life), null, about: id);
+            Game.RegenerateMonstersLocked(monsters, seconds, now, OnHitPct(instance, player, now, seconds));
         }, every: EveryFrames, source: source);
     }
 

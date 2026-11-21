@@ -16,7 +16,7 @@ public enum ChargeType { Endurance, Frenzy, Power }
 /// <c>frenzy_charge</c>, <c>power_charge</c>).</item>
 /// </list>
 /// Times are the connection's game clock in seconds (it stops while the game is paused). The state is not thread-safe:
-/// the Gateway keeps it under the connection's Monsters lock.
+/// the Gateway keeps it in the area's frame.
 /// </summary>
 public static class Charges
 {

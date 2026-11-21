@@ -83,8 +83,8 @@ static class KitavaActFive
     }
     public static async Task Tick(Player c)
     {
-        if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
-        if (c.HasQuestFlag(Complete) && AreaTime(c) >= Docks.GetOrCreateValue(c).Next)
+        if (c.Layout.Id != Area || !CurrentGameWork || !c.Connection.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
+        if (c.Character.HasQuestFlag(Complete) && AreaTime(c) >= Docks.GetOrCreateValue(c).Next)
         {
             Docks.GetOrCreateValue(c).Next = AreaTime(c) + 1;
             await ClearDock(c);
@@ -92,7 +92,7 @@ static class KitavaActFive
         if (!Fights.TryGetValue(c.Instance, out var f))
         {
             KeyValuePair<uint, SpawnedMonster> found;
-            lock (c.Monsters) found = c.Monsters.FirstOrDefault(p => IsBody(p.Value.Variety) && !p.Value.Dead);
+            found = c.Area.Monsters.FirstOrDefault(p => IsBody(p.Value.Variety) && !p.Value.Dead);
             if (found.Value is null) return;
             f = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         }
@@ -105,31 +105,28 @@ static class KitavaActFive
         var points = c.Layout.Level?.RoomObjects.Where(o => o.Type is "Metadata/Terrain/Act5/Area8/Objects/LandingZone"
             or "Metadata/NPC/Act5/SinKitava" or "Metadata/NPC/Act5/Lilly").Select(o => (o.X, o.Y)).ToArray() ?? [];
         if (points.Length == 0) return [];
-        lock (c.Monsters)
+        double now = AreaTime(c);
+        bool Safe((int X, int Y) at) => points.Any(a => points.Any(b => Fight.LineDistance(at, a, b) < 75));
+        var gone = c.Area.Monsters.Where(m => m.Value.Hostile && m.Value.OwnerId is null && !m.Value.Dead
+            && m.Value.Rarity != MonsterRarity.Unique && Safe(m.Value.Walk.Position(now))).ToArray();
+        foreach (var (id, m) in gone)
         {
-            double now = AreaTime(c);
-            bool Safe((int X, int Y) at) => points.Any(a => points.Any(b => Fight.LineDistance(at, a, b) < 75));
-            var gone = c.Monsters.Where(m => m.Value.Hostile && m.Value.OwnerId is null && !m.Value.Dead
-                && m.Value.Rarity != MonsterRarity.Unique && Safe(m.Value.Walk.Position(now))).ToArray();
-            foreach (var (id, m) in gone)
-            {
-                m.Dead = true; m.Life = 0; m.ActionGeneration++;
-                c.Monsters.Remove(id); c.Instance.World.MonsterOrigins.TryRemove(id, out _);
-            }
-            return [.. gone.Select(m => m.Key)];
+            m.Dead = true; m.Life = 0; m.ActionGeneration++;
+            c.Area.Monsters.Remove(id); c.Instance.World.MonsterOrigins.TryRemove(id, out _);
         }
+        return [.. gone.Select(m => m.Key)];
     }
     static async Task ClearDock(Player c)
     {
         foreach (uint id in RetireDockCreatures(c))
         {
-            c.MonsterViews.Remove(id); c.AsleepMonsters.Remove(id); c.BossBarsSeen.Remove(id);
+ BossBars(c).Remove(id);
             await SendWorldRemoval(c, id, "[Kitava A5] dock creature retired without rewards");
         }
     }
     public static Task Leaving(Player c)
     {
-        if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.Degens[e] = 0; e.Dps = 0; }
+        if (Exposures.TryGetValue(c, out var e)) { c.Degens[e] = 0; e.Dps = 0; }
         return Task.CompletedTask;
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -144,7 +141,7 @@ static class KitavaActFive
         if (t.SourceType?.Contains("PortalToggleable", StringComparison.Ordinal) == true
             || t.Model?.Contains("Town_Portals/steam_portals/", StringComparison.OrdinalIgnoreCase) == true) return false;
         if (t.SourceType?.Contains("CathedralKitavaLadder", StringComparison.Ordinal) == true
-            || AreaTransitionCatalog.IdOf(t.DestinationHash16) == "2_6_town") return c.HasQuestFlag(Complete);
+            || AreaTransitionCatalog.IdOf(t.DestinationHash16) == "2_6_town") return c.Character.HasQuestFlag(Complete);
         return null;
     }
     sealed record Hit(double At, int Generation, int Effect, (int X, int Y) Aim, double Radius, (int X, int Y)? End = null);
@@ -178,21 +175,18 @@ static class KitavaActFive
             var sign = c.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == Sign);
             signAt = sign is null ? (anchor.X, anchor.Y - 100) : (sign.X, sign.Y);
             heartAt = c.Layout.Near(((anchor.X + signAt.X) / 2, (anchor.Y + signAt.Y) / 2));
-            lock (c.Monsters)
-            {
-                var h = c.Monsters.FirstOrDefault(p => p.Value.Variety?.Id == Heart && !p.Value.Dead);
-                heartId = h.Key; heart = h.Value;
-                foreach (var add in c.Monsters.Where(m => m.Value.SummonerId == objectId && !m.Value.Dead)) adds.Add(add.Key);
-                championSpawned = c.Monsters.Values.Any(m => (m.Variety?.Id == Root + "KitavaMinionBoss1" || m.Variety?.Id == Root + "KitavaMinionBoss2") && !m.Dead);
-                body.LifePhases ??= Phases(body.Variety!);
-                if (body.Variety?.Id == First && body.LifePhases?.Active == true) stage = 2;
-                if (body.Variety?.Id == Second) stage = body.LifePhases?.Active == true ? heart?.LifePhases?.Active == true ? 6 : heart is not null ? 5 : 4 : 3;
-                if (body.Variety?.Id == Last) stage = 7;
-                if (c.Instance.HasState(Flag("Complete"))) stage = 10;
-            }
+            var h = c.Area.Monsters.FirstOrDefault(p => p.Value.Variety?.Id == Heart && !p.Value.Dead);
+            heartId = h.Key; heart = h.Value;
+            foreach (var add in c.Area.Monsters.Where(m => m.Value.SummonerId == objectId && !m.Value.Dead)) adds.Add(add.Key);
+            championSpawned = c.Area.Monsters.Values.Any(m => (m.Variety?.Id == Root + "KitavaMinionBoss1" || m.Variety?.Id == Root + "KitavaMinionBoss2") && !m.Dead);
+            body.LifePhases ??= Phases(body.Variety!);
+            if (body.Variety?.Id == First && body.LifePhases?.Active == true) stage = 2;
+            if (body.Variety?.Id == Second) stage = body.LifePhases?.Active == true ? heart?.LifePhases?.Active == true ? 6 : heart is not null ? 5 : 4 : 3;
+            if (body.Variety?.Id == Last) stage = 7;
+            if (c.Instance.HasState(Flag("Complete"))) stage = 10;
         }
         IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
-        bool Awake(Player p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
+        bool Awake(Player p) => MonsterShown(p, id) && !MonsterAsleep(p, id);
         public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
@@ -205,18 +199,18 @@ static class KitavaActFive
         Task All(uint target, byte[] bytes, bool actor = false) => All(target, new[] { bytes }, actor);
         async Task All(uint target, byte[][] records, bool actor = false)
         {
-            foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
+            if ((Present.Where(p => !actor || Awake(p)).ToArray()).FirstOrDefault() is { } p)
             { await SendWorldRecords(p, target, () => records.Select(r => r.ToArray()).ToArray(), null,
                 still: () => !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
         }
         async Task AllRemoval(uint target)
         {
-            foreach (var p in Present.ToArray())
+            if ((Present.ToArray()).FirstOrDefault() is { } p)
             { await SendWorldRemoval(p, target); }
         }
         async Task Basic(Player c, ushort skill, double now, double seconds, uint? target = null)
         {
-            lock (c.Monsters) { body.ActionGeneration++; body.SwingGeneration = null; body.BusyUntil = now + seconds; }
+            body.ActionGeneration++; body.SwingGeneration = null; body.BusyUntil = now + seconds;
             await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, signAt.X, signAt.Y, skill, c.NextActionSequence(), 0x0408, targetObjectId: target), InstanceProtocol.ActionEnded(id)], true);
         }
         async Task Bar(bool shown)
@@ -224,30 +218,26 @@ static class KitavaActFive
             body.BossBarShown = shown;
             if (body.States is not { } states) return;
             body.States = states.Set("boss_life_bar", shown ? 1 : 0).Set("disable_life_bar", shown ? 0 : 1);
-            foreach (var p in Present)
+            if ((Present).FirstOrDefault() is { } p)
             {
-                lock (p.Monsters) if (p.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+                if (p.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                     p.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = body.States } };
-                if (!Awake(p)) continue;
+                if (shown) BossBars(p).Add(id); else BossBars(p).Remove(id);
                 int component = body.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
-                if (component >= 0) { await SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
-                if (shown) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id);
+                if (Awake(p) && component >= 0) { await SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
             }
         }
         async Task Swap(Player c, string type, double now)
         {
             uint previous = id;
-            lock (c.Monsters)
-            {
-                body.Dead = true; body.ActionGeneration++; c.Monsters.Remove(previous); c.Instance.World.MonsterOrigins.TryRemove(previous, out _);
-            }
+            body.Dead = true; body.ActionGeneration++; c.Area.Monsters.Remove(previous); c.Instance.World.MonsterOrigins.TryRemove(previous, out _);
             await AllRemoval(previous);
-            foreach (var p in Present) { p.MonsterViews.Remove(previous); p.AsleepMonsters.Remove(previous); p.BossBarsSeen.Remove(previous); }
+            foreach (var p in Present) { BossBars(p).Remove(previous); }
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing campaign Kitava form");
             id = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
                 anchor.X, anchor.Y, rotation: anchor.Rotation, scripted: true, placement: MonsterPlacement.Established);
             if (id == 0) throw new InvalidOperationException("Could not create campaign Kitava form");
-            body = c.Monsters[id]; body.EntranceGrace = true; bound.Clear();
+            body = c.Area.Monsters[id]; body.EntranceGrace = true; bound.Clear();
             await Bar(false);
             Console.WriteLine($"[Kitava A5] form {type.Split('/')[^1]} at ({anchor.X}, {anchor.Y})");
         }
@@ -259,7 +249,7 @@ static class KitavaActFive
             await Ground(c, now);
             if (stage == 10)
             {
-                foreach (var p in Present.Where(p => !p.HasQuestFlag(Complete) && p.PlayerLife > 0 && Distance(p.Walk.Position(now), signAt) < 155)) await Finish(p, now);
+                foreach (var p in Present.Where(p => !p.Character.HasQuestFlag(Complete) && p.PlayerLife > 0 && Distance(p.Walk.Position(now), signAt) < 155)) await Finish(p, now);
                 return;
             }
             var target = Present.FirstOrDefault(p => p.PlayerLife > 0 && !p.Paused && Awake(p) && Distance(p.Walk.Position(now), signAt) < 155);
@@ -273,7 +263,7 @@ static class KitavaActFive
                 {
                     body.EntranceGrace = true;
                     await All(id, InstanceProtocol.Teleport(id, anchor.X, anchor.Y), true);
-                    lock (c.Monsters) body.Walk.Teleport(anchor.X, anchor.Y, now);
+                    body.Walk.Teleport(anchor.X, anchor.Y, now);
                     if (body.Variety!.ComponentsOrBase.Contains("Transitionable"))
                         await All(id, InstanceEntities.TransitionableUpdate(id, (byte)body.Variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), 2), true);
                     await Basic(c, 16641, now, 7.333); deadline = now + 7.333;
@@ -303,12 +293,11 @@ static class KitavaActFive
                     heartId = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
                         heartAt.X, heartAt.Y, rotation: anchor.Rotation, scripted: true, placement: MonsterPlacement.Established);
                     if (heartId == 0) throw new InvalidOperationException("Could not create Kitava's Heart");
-                    heart = c.Monsters[heartId];
+                    heart = c.Area.Monsters[heartId];
                     if (body.LifePhases!.Completed > 0)
                     {
                         heart.Life = heart.MaxLife / 2;
                         heart.LifePhases!.Begin(heart.Life, heart.MaxLife); heart.LifePhases.Finish();
-                        await All(heartId, InstanceProtocol.LifeUpdate(heartId, heart.Life, 0));
                     }
                 }
                 heart.EntranceGrace = false; heart.LifePhases ??= Phases(heart.Variety!);
@@ -331,8 +320,8 @@ static class KitavaActFive
             if (stage == 6 && now >= deadline)
             {
                 await AllRemoval(heartId);
-                lock (c.Monsters) { c.Monsters.Remove(heartId); c.Instance.World.MonsterOrigins.TryRemove(heartId, out _); }
-                foreach (var p in Present) { p.MonsterViews.Remove(heartId); p.AsleepMonsters.Remove(heartId); }
+                c.Area.Monsters.Remove(heartId); c.Instance.World.MonsterOrigins.TryRemove(heartId, out _);
+                foreach (var p in Present) { }
                 heart = null;
                 if (body.LifePhases!.Completed == 1)
                 {
@@ -388,7 +377,7 @@ static class KitavaActFive
         {
             // The heart's guards are real monsters: their attacks and deaths use the ordinary monster rules.
             string[] types = ["Metadata/Monsters/RaisedSkeletons/KitavaSkeleton", "Metadata/Monster/KitavaDemon/KitavaDemon"];
-            if (adds.Count(a => c.Monsters.TryGetValue(a, out var m) && !m.Dead) > 12) { nextAdds = now + 3; return; }
+            if (adds.Count(a => c.Area.Monsters.TryGetValue(a, out var m) && !m.Dead) > 12) { nextAdds = now + 3; return; }
             for (int i = 0; i < 6; i++)
             {
                 bool champion = i == 0 && !championSpawned;
@@ -399,7 +388,7 @@ static class KitavaActFive
                 uint add = await SpawnMonster(c, v, body.Level, champion ? MonsterRarity.Unique : MonsterRarity.Normal, at.X, at.Y);
                 if (add != 0)
                 {
-                    adds.Add(add); lock (c.Monsters) if (c.Monsters.TryGetValue(add, out var m)) m.SummonerId = id;
+                    adds.Add(add); if (c.Area.Monsters.TryGetValue(add, out var m)) m.SummonerId = id;
                     if (champion) championSpawned = true;
                 }
             }
@@ -409,8 +398,7 @@ static class KitavaActFive
         {
             foreach (uint add in adds)
             {
-                lock (c.Monsters)
-                    if (c.Monsters.TryGetValue(add, out var m)) { m.ActionGeneration++; m.Dead = true; m.Life = 0; c.Monsters.Remove(add); c.Instance.World.MonsterOrigins.TryRemove(add, out _); }
+                if (c.Area.Monsters.TryGetValue(add, out var m)) { m.ActionGeneration++; m.Dead = true; m.Life = 0; c.Area.Monsters.Remove(add); c.Instance.World.MonsterOrigins.TryRemove(add, out _); }
                 await AllRemoval(add);
             }
             adds.Clear();
@@ -423,14 +411,14 @@ static class KitavaActFive
             var point = p.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == "Metadata/Terrain/Act5/Area8/Objects/LandingZone");
             if (point is null) return;
             var to = p.Layout.Near((point.X, point.Y));
-            lock (p.Monsters) { Interlocked.Increment(ref p.ActionCount); p.Walk.Teleport(to.X, to.Y, now); }
-            await SendWorldRecord(p, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Kitava A5] rescued {CharacterName(p)} to Sin and Lilly at {to}");
+            Interlocked.Increment(ref p.ActionCount); p.Walk.Teleport(to.X, to.Y, now);
+            await SendWorldRecord(p, p.Id, InstanceProtocol.Teleport(p.Id, to.X, to.Y), $"[Kitava A5] rescued {CharacterName(p)} to Sin and Lilly at {to}");
         }
         async Task Cast(Player c, int effect, double now)
         {
             var aim = c.Walk.Position(now); var attack = Attack(c, body.Variety!, body.Level, effect); int generation;
             struckPlayers.Clear(); struckMinions.Clear();
-            lock (c.Monsters) { generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .3; }
+            generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .3;
             await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(id)], true);
             double contact = now + attack.Seconds * (effect is 6590 or 6594 ? .5 : effect is 6636 or 6638 ? .62 : .41);
             if (effect is 6619 or 6622)
@@ -486,17 +474,14 @@ static class KitavaActFive
                 : hit.End is { } end ? LineDistance(at, hit.Aim, end) <= hit.Radius : Distance(at, hit.Aim) <= hit.Radius;
             await SendWorldRecord(p, id, [], null, atGate: () =>
             {
-                lock (p.Monsters)
-                {
-                    now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
-                    if (stopped || !CurrentGameWork || stage is not (1 or 3) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                    var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
-                    foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                        if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struckMinions.Add((p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
-                    if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struckPlayers.Add(p)) return null;
-                    outcome = CommitMonsterHitLocked(p, id, body, attack, now, p.Walk.Position(now), (anchor.X, anchor.Y), false, p.NextActionSequence());
-                    return outcome?.HitPacket;
-                }
+                now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
+                if (stopped || !CurrentGameWork || stage is not (1 or 3) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
+                var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
+                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
+                    if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struckMinions.Add((p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
+                if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struckPlayers.Add(p)) return null;
+                outcome = CommitMonsterHitLocked(p, id, body, attack, now, p.Walk.Position(now), (anchor.X, anchor.Y), false, p.NextActionSequence());
+                return outcome?.HitPacket;
             });
             if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
@@ -507,30 +492,27 @@ static class KitavaActFive
             lastGround = now;
             foreach (var p in Present)
             {
-                lock (p.Monsters)
+                var e = Exposures.GetValue(p, _ => new());
+                var patch = p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p) && stage is 1 or 3
+                    ? patches.FirstOrDefault(g => now >= g.From && Distance(g.At, p.Walk.Position(now)) <= g.Radius) : null;
+                double dps = patch is null || p.Immune || PlayerImmunities(p).Contains(DamageType.Physical) ? 0
+                    : Stat(c, patch.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d;
+                p.Degens[e] = dps; e.Dps = dps;
+                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                 {
-                    var e = Exposures.GetValue(p, _ => new());
-                    var patch = p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p) && stage is 1 or 3
-                        ? patches.FirstOrDefault(g => now >= g.From && Distance(g.At, p.Walk.Position(now)) <= g.Radius) : null;
-                    double dps = patch is null || p.Immune || PlayerImmunities(p).Contains(DamageType.Physical) ? 0
-                        : Stat(c, patch.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d;
-                    p.Degens[e] = dps; e.Dps = dps;
-                    foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                    {
-                        var m = g.Monster;
-                        if (!GolemCurrent(p, g) || m.Dead || m.Invulnerable || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
-                        var ground = stage is 1 or 3 ? patches.FirstOrDefault(h => now >= h.From && Distance(h.At, m.Walk.Position(now)) <= h.Radius) : null;
-                        if (ground is null) continue;
-                        double rate = Stat(c, ground.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d;
-                        rate *= Math.Max(0, 1 + Stat(c, ground.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
-                        double value = rate * seconds * Math.Max(0, 1 + (m.Effects[global::Stat.BaseDamageTakenPlusPct] + m.Effects[global::Stat.PhysicalDamageTakenPlusPct]) / 100d) + carry.GetValueOrDefault((p, g.Id));
-                        int amount = (int)Math.Floor(value); carry[(p, g.Id)] = value - amount;
-                        amount = g.ShieldPool.Damage(amount, bypass: false, now);
-                        PublishEnergyShieldLocked(p, g);
-                        m.Life = (uint)Math.Max(0, (long)m.Life - amount);
-                        p.Minions.OutputQueue.Add(new([], "Kitava devouring darkness damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
-                        if (m.Life == 0) GolemDieLocked(p, g, now);
-                    }
+                    var m = g.Monster;
+                    if (!GolemCurrent(p, g) || m.Dead || m.Invulnerable || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
+                    var ground = stage is 1 or 3 ? patches.FirstOrDefault(h => now >= h.From && Distance(h.At, m.Walk.Position(now)) <= h.Radius) : null;
+                    if (ground is null) continue;
+                    double rate = Stat(c, ground.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d;
+                    rate *= Math.Max(0, 1 + Stat(c, ground.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
+                    double value = rate * seconds * Math.Max(0, 1 + (m.Effects[global::Stat.BaseDamageTakenPlusPct] + m.Effects[global::Stat.PhysicalDamageTakenPlusPct]) / 100d) + carry.GetValueOrDefault((p, g.Id));
+                    int amount = (int)Math.Floor(value); carry[(p, g.Id)] = value - amount;
+                    amount = g.ShieldPool.Damage(amount, bypass: false, now);
+                    PublishEnergyShieldLocked(p, g);
+                    m.Life = (uint)Math.Max(0, (long)m.Life - amount);
+                    p.Minions.OutputQueue.Add(new([], "Kitava devouring darkness damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
+                    if (m.Life == 0) GolemDieLocked(p, g, now);
                 }
             }
             await Task.CompletedTask;
@@ -538,7 +520,7 @@ static class KitavaActFive
         async Task Fx(Player c, (int X, int Y) at, string model, uint clip, double until)
         {
             var fx = new Visual(c.TakeObjectId(), at, model, clip, until); visuals.Add(fx);
-            foreach (var p in Present) await CreateFx(p, fx);
+            if (Present.FirstOrDefault() is { } p) await CreateFx(p, fx);
         }
         static async Task CreateFx(Player p, Visual fx)
         {
@@ -550,11 +532,10 @@ static class KitavaActFive
         public void Stop()
         {
             stopped = true;
-            foreach (var p in Present.ToArray())
-            {
-                _ = Leaving(p);
-                foreach (var fx in visuals) _ = SendWorldRemoval(p, fx.Id);
-            }
+            foreach (var p in Present.ToArray()) _ = Leaving(p);
+            // The effects go once, for every client (the area's records).
+            if (Present.FirstOrDefault() is { } any)
+                foreach (var fx in visuals) _ = SendWorldRemoval(any, fx.Id);
         }
         static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
         internal static double LineDistance((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)

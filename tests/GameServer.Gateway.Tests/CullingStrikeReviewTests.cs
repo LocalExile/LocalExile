@@ -23,8 +23,8 @@ public sealed class CullingStrikeReviewTests
     public void Conditional_culling_reaches_every_area_victim_and_righteous_fire_burning_enemies()
     {
         {
-            var conn = Player();
-            conn.PlayerLife = 500; conn.PlayerMana = 500;
+            var player = Player();
+            player.PlayerLife = 500; player.PlayerMana = 500;
             var stats = With(("culling_strike_vs_cursed_enemies", 1), ("life_gained_on_cull", 50), ("mana_gained_on_cull", 50));
             SpawnedMonster cursed(string label)
             {
@@ -34,24 +34,24 @@ public sealed class CullingStrikeReviewTests
             }
 
             // The first target has a freshly built snapshot; later ones pass null for Rampage but keep the attack's stats.
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, cursed("first"), 900, Plain, player: stats, cullPlayer: stats).Life);
-            Assert.Equal(550u, conn.PlayerLife);
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, cursed("second"), 900, Plain, player: null, cullPlayer: stats).Life);
-            Assert.Equal(600u, conn.PlayerLife);
-            Assert.Equal(600u, conn.PlayerMana);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, cursed("first"), 900, Plain, playerStats: stats, cullPlayer: stats).Life);
+            Assert.Equal(550u, player.PlayerLife);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, cursed("second"), 900, Plain, playerStats: null, cullPlayer: stats).Life);
+            Assert.Equal(600u, player.PlayerLife);
+            Assert.Equal(600u, player.PlayerMana);
         }
         {
-            var conn = Player();
+            var player = Player();
             var monster = Target("rf burn");
-            conn.Monsters[42] = monster;
+            player.Area.Monsters[42] = monster;
             var rf = new RighteousFireState(1, 2, 3, 0, 0) { Radius = 10 };
             rf.Auras[42] = 4;
-            conn.RighteousFire = rf;
+            player.RighteousFire = rf;
             var stats = With(("culling_strike_on_burning_enemies", 1));
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, monster, 900, Plain, cullPlayer: stats).Life);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, monster, 900, Plain, cullPlayer: stats).Life);
             // The DoT tick itself never goes through this hit path; only a hit against the burning enemy culls.
-            conn.Monsters.Clear(); conn.RighteousFire = null;
-            Assert.Equal(100u, Game.TakeOwnerHitLocked(conn, Target("no longer burning"), 900, Plain, cullPlayer: stats).Life);
+            player.Area.Monsters.Clear(); player.RighteousFire = null;
+            Assert.Equal(100u, Game.TakeOwnerHitLocked(player, Target("no longer burning"), 900, Plain, cullPlayer: stats).Life);
         }
     }
 
@@ -61,33 +61,33 @@ public sealed class CullingStrikeReviewTests
         var gain = With(("life_gained_on_cull", 150));
         var cull = new Game.Cull(10, 0);
         {
-            var conn = Player(); conn.PlayerLife = 490;
-            conn.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
+            var player = Player(); player.PlayerLife = 490;
+            player.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
                 manaPercent: 3500, lowLifeThresholdPct: 50, buff: 7, now: 0);
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, Target("cull"), 900, cull, cullPlayer: gain).Life);
-            Assert.Equal(500u, conn.PlayerLife); // shared recovery stops at Low Life
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, Target("cull"), 900, cull, cullPlayer: gain).Life);
+            Assert.Equal(500u, player.PlayerLife); // shared recovery stops at Low Life
         }
         {
-            var conn = Player(); conn.PlayerLife = 590;
-            conn.Auras[1] = new AuraCatalog.Aura(1, 1, "Arrogance", "Arrogance", 1, 1, 0, 4000, ReservesLife: true);
-            Assert.Equal(600u, conn.PlayerUnreservedLife);
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, Target("cull"), 900, cull, cullPlayer: gain).Life);
-            Assert.Equal(600u, conn.PlayerLife); // a gain cannot cross reserved Life
+            var player = Player(); player.PlayerLife = 590;
+            player.Auras[1] = new AuraCatalog.Aura(1, 1, "Arrogance", "Arrogance", 1, 1, 0, 4000, ReservesLife: true);
+            Assert.Equal(600u, player.PlayerUnreservedLife);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, Target("cull"), 900, cull, cullPlayer: gain).Life);
+            Assert.Equal(600u, player.PlayerLife); // a gain cannot cross reserved Life
         }
         {
-            var conn = Player(); conn.PlayerLife = 490;
+            var player = Player(); player.PlayerLife = 490;
             var blocked = With(("life_gained_on_cull", 150), ("cannot_recover_life", 1));
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, Target("cull"), 900, cull, cullPlayer: blocked).Life);
-            Assert.Equal(490u, conn.PlayerLife);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, Target("cull"), 900, cull, cullPlayer: blocked).Life);
+            Assert.Equal(490u, player.PlayerLife);
         }
         {
             // Mana reaching full still signals the client, so later regeneration cannot hide a missing update.
-            var conn = Player(); conn.PlayerMana = 950;
-            var leech = Game.LeechOf(conn);
+            var player = Player(); player.PlayerMana = 950;
+            var leech = Game.LeechOf(player);
             leech.InstantManaChanged = false;
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, Target("cull"), 900, cull,
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, Target("cull"), 900, cull,
                 cullPlayer: With(("mana_gained_on_cull", 100))).Life);
-            Assert.Equal(1000u, conn.PlayerMana);
+            Assert.Equal(1000u, player.PlayerMana);
             Assert.True(leech.InstantManaChanged);
         }
     }

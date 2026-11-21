@@ -44,19 +44,19 @@ public class MapStashPageTests : IDisposable
         Assert.True(stash.PageKeyOf(next) != stash.PageKeyOf(page0));
         Assert.True(stash.PageKeyOf(next) == AccountStash.MapPageKey(1, tierOne.Hash));
 
-        var conn = new Player(new(ushort.MaxValue, "MapStashTest", 128, 128, 32, 32, null, []), 0, 1)
-            { Account = account, Character = account, League = "Standard" };
+        var player = new Player(new(ushort.MaxValue, "MapStashTest", 128, 128, 32, 32, null, []), 0, 1)
+            { Character = { Account = account, Name = account, League = "Standard" } };
         var items = PlayerInventories.For(account, catalog);
-        conn.StashTabsSent.UnionWith([mapTab, next]);
+        player.Connection.StashTabsSent.UnionWith([mapTab, next]);
         using var wire = new Wire();
-        conn.Session = new("stash-test", wire.Stream, wire.Ciphers);
+        player.Connection.Session = new("stash-test", wire.Stream, wire.Ciphers);
         try
         {
             // Parent-tab drops must use a free cell and publish the child inventory, including the second drop.
             for (int i = 1; i <= 2; i++)
             {
                 var held = items.Add(PlayerInventories.Cursor, 0, 0, map with { Quality = (byte)i });
-                await Game.PlaceInStash(conn, mapTab,
+                await Game.PlaceInStash(player, mapTab,
                     new InstanceItems.PlaceItem(stash.InventoryOf(mapTab), 0, 0, 0, 0, 0, 0));
                 Assert.Empty(items.Items(PlayerInventories.Cursor));
                 Assert.Equal(i, stash.Inventory(next).Items.Count);

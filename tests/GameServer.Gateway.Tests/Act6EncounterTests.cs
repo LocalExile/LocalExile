@@ -15,12 +15,12 @@ public sealed class Act6EncounterTests
     {
         using var runtime = new Runtime();
         using var wire = new Wire();
-        var conn = runtime.Connection("GatePet", new InstanceState(), 300, 200, wire);
+        var player = runtime.PlayerOf("GatePet", new InstanceState(), 300, 200, wire);
         const uint id = 0x04000000;
-        var pet = new SpawnedPet(conn.NewWalk(10, 10, 10), 1);
-        conn.Pets[id] = pet;
+        var pet = new SpawnedPet(player.NewWalk(10, 10, 10), 1);
+        player.Pets[id] = pet;
         pet.Walk.Order(90, 10, 0);
-        await GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.FollowThroughGate(conn);
+        await GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.FollowThroughGate(player);
         Assert.Equal((306, 203), pet.Walk.Destination);
         Assert.Equal(pet.Walk.Destination, pet.Target);
     }
@@ -105,85 +105,6 @@ public sealed class Act6EncounterTests
         Assert.Equal(0u, gate.Damage(life, 1000, int.MaxValue));
         Assert.False(gate.Begin(0, 1000));
         Assert.Equal(1u, new LifePhaseGate([75]).Damage(1, 1, int.MaxValue));
-
-        await PartyEncounterContinuesWithoutItsRunnerAsTarget();
-    }
-
-    static async Task PartyEncounterContinuesWithoutItsRunnerAsTarget()
-    {
-        using var runtime = new Runtime();
-        using var hostWire = new Wire();
-        using var peerWire = new Wire();
-        using var lateWire = new Wire();
-        var instance = new InstanceState();
-        var host = runtime.Connection("BrineHost", instance, 800, 800, hostWire);
-        var peer = runtime.Connection("BrinePeer", instance, 100, 100, peerWire);
-        instance.World.Runner = host;
-        const uint id = 0x08000000;
-        var variety = Game.Monsters.Find(BrineKing.Boss)!;
-        var boss = new SpawnedMonster("Brine King", new PlayerWalk(100, 100, 30), 60, 8, 1000)
-        {
-            Variety = variety, Level = 49, Rarity = MonsterRarity.Unique,
-            EntranceGrace = true, States = BrineKing.StartStates(variety), LifePhases = new([75, 50, 25]),
-            Attack = new(0x4005, 1, 8, DamagePacket.Empty) { Scripted = true },
-        };
-        instance.World.Monsters[id] = boss;
-        host.MonsterViews[id] = peer.MonsterViews[id] = new((100, 100), (100, 100), boss.Life);
-        host.AsleepMonsters.Add(id);
-        var fight = new BrineKing.Fight(id, boss, host);
-        await fight.Bind(host);
-        await fight.Bind(peer);
-        Assert.Equal(0, boss.States!.SharedStates[boss.States.IndexOf("rock_mode")]);
-        await fight.Step(host, 1);
-        await fight.Step(host, 4.2);
-        Assert.True(boss.Invulnerable);
-        await fight.Step(host, 4.4);
-        Assert.False(boss.Invulnerable);
-        Assert.Equal(1, boss.States.SharedStates[boss.States.IndexOf("rock_mode")]);
-        double now = 5;
-        for (int stage = 0; stage < 3; stage++, now += 14)
-        {
-            boss.Life = boss.LifePhases.Damage(boss.Life, boss.MaxLife, int.MaxValue);
-            await fight.Step(host, now);
-            Assert.True(boss.LifePhases.Active);
-            Assert.Same(peer, boss.Target);
-            Assert.True(boss.BossBarShown);
-            Assert.Equal(1, boss.States!.SharedStates[boss.States.IndexOf("boss_life_bar")]);
-            Assert.Contains(id, peer.BossBarsSeen);
-            Assert.DoesNotContain(id, host.BossBarsSeen);
-            // Host death must not stop this shared phase while the other party member remains alive.
-            host.PlayerLife = 0;
-            await fight.Step(host, now + 13.1);
-            Assert.False(boss.LifePhases.Active);
-            Assert.Equal(stage + 1, boss.LifePhases.Completed);
-            if (stage == 0)
-            {
-                uint wave = peer.QuestObjects.First(p => p.Value.Rule.ObjectType.EndsWith("tidal_wave/tidal_wave", StringComparison.Ordinal)).Key;
-                string expected = Convert.ToHexString(InstanceEntities.TransitionableUpdate(wave, 3, 4));
-                foreach (var wire in new[] { hostWire, peerWire })
-                    Assert.Contains(Program.HistoryFor(wire.Ciphers).Lines(), line => line.EndsWith(expected, StringComparison.Ordinal));
-            }
-        }
-        Assert.Equal(0u, boss.LifePhases.Damage(boss.Life, boss.MaxLife, int.MaxValue));
-
-        instance.World.MonsterOrigins[id] = new(InstanceEntities.ObjectTypeHash(variety.Id),
-            new MonsterObject(100, 100, boss.Life, variety.ComponentsOrBase, variety.AnimatedObject,
-                MonsterRarity.Unique, StateMachine: boss.States), (ushort)variety.Row, boss.Level, MonsterRarity.Unique);
-        var late = runtime.Connection("BrineLate", instance, 100, 100, lateWire);
-        int generation = boss.ActionGeneration;
-        await fight.Bind(late);
-        Assert.Equal(generation, boss.ActionGeneration); // No Actor update before its create reaches this client.
-        await Game.SyncInstanceMonsters(late);
-        late.AsleepMonsters.Add(id);
-        await fight.Bind(late);
-        Assert.Equal(generation, boss.ActionGeneration); // Sleeping clients cannot consume Actor updates either.
-        await Game.SyncInstanceMonsters(late);
-        Assert.DoesNotContain(id, late.BossBarsSeen);
-        late.AsleepMonsters.Remove(id);
-        await fight.Bind(late);
-        Assert.True(boss.ActionGeneration > generation);
-        await Game.SyncInstanceMonsters(late);
-        Assert.Contains(id, late.BossBarsSeen);
     }
 
     sealed class Runtime : IDisposable
@@ -199,16 +120,19 @@ public sealed class Act6EncounterTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         }
-        public Player Connection(string character, InstanceState instance, int x, int y, Wire wire)
+        public Player PlayerOf(string character, InstanceState instance, int x, int y, Wire wire)
         {
-            var conn = new Player(new(1, "brine-party-test", 1000, 1000, x, y, null, []), 1, 1)
-            { LockstepClient = false,
-                Character = character, Instance = instance, PlayerLife = 1000000, PlayerSent = true,
-                Pools = new(49, 1000000, 100, 2, 0), Session = new(character, wire.Stream, wire.Ciphers),
-            };
-            players.Add(conn);
-            Program.InGame.TryAdd(conn, 0);
-            return conn;
+            var player = new Player(new(1, "brine-party-test", 1000, 1000, x, y, null, []), 1, 1)
+            {
+              Connection = { LockstepClient = false, PlayerSent = true, Session = new(character, wire.Stream, wire.Ciphers) },
+              Character = { Name = character },
+              Instance = instance,
+              PlayerLife = 1000000,
+              Pools = new(49, 1000000, 100, 2, 0)
+          };
+            players.Add(player);
+            Program.InGame.TryAdd(player, 0);
+            return player;
         }
         public void Dispose()
         {

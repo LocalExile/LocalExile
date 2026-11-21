@@ -71,33 +71,33 @@ public static partial class Game
     /// <summary>Game_STAT_SNAPSHOT_VERIFY=1 (or a test): a reused result is also computed again and compared.</summary>
     public static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";
     // Reads the tail's inputs. Called where the tail starts, after the head; stats is the head's (not copied).
-    public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(Player conn, StatMap stats,
+    public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(Player player, StatMap stats,
         Dictionary<uint, int> mainLocal, Dictionary<uint, int> offLocal,
         double lifeRegenerationToEnergyShield, bool moving)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var mainRow = items.Items(PlayerInventories.Weapon1);
         var offRow = items.Items(PlayerInventories.Offhand1);
-        var (bloodHeld, bloodShown) = BloodChargePanelInputs(conn);
+        var (bloodHeld, bloodShown) = BloodChargePanelInputs(player);
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
-            name => name is var key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+            name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
         uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
-            Stats = stats, Pools = conn.Pools with { Evasion = PlayerEvasion(conn, stats) },
-            Skills = SkillsFor(conn), Items = ItemsFor(conn), ClassRow = conn.ClassRow,
+            Stats = stats, Pools = player.Pools with { Evasion = PlayerEvasion(player, stats) },
+            Skills = SkillsFor(player), Items = ItemsFor(player), ClassRow = player.Character.ClassRow,
             MainRow = mainRow, OffRow = offRow,
-            MainInactive = [.. mainRow.Select(i => IsInactive(conn, i.Id))], OffInactive = [.. offRow.Select(i => IsInactive(conn, i.Id))],
+            MainInactive = [.. mainRow.Select(i => IsInactive(player, i.Id))], OffInactive = [.. offRow.Select(i => IsInactive(player, i.Id))],
             MainLocal = mainLocal, OffLocal = offLocal,
-            PlayerLife = conn.PlayerLife, PlayerMaxLife = conn.PlayerMaxLife,
-            EnergyShieldRecharging = conn.EnergyShield.Recharging,
-            PetrifiedBloodRecoveryCapped = conn.PetrifiedBlood.Active && conn.PlayerLife > 0
-                && (long)conn.PlayerLife + recoveryMargin
-                    >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
-            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving, BlindLess = PlayerBlindValue(conn, stats).Less,
+            PlayerLife = player.PlayerLife, PlayerMaxLife = player.PlayerMaxLife,
+            EnergyShieldRecharging = player.EnergyShield.Recharging,
+            PetrifiedBloodRecoveryCapped = player.PetrifiedBlood.Active && player.PlayerLife > 0
+                && (long)player.PlayerLife + recoveryMargin
+                    >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
+            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving, BlindLess = PlayerBlindValue(player, stats).Less,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
-            AttackEffectId = SkillEffectId(conn, SkillCatalog.FirstSkillId),
+            AttackEffectId = SkillEffectId(player, SkillCatalog.FirstSkillId),
         };
     }
 

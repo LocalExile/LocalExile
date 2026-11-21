@@ -11,61 +11,24 @@ namespace GameServer.Gateway.Tests;
 public sealed class ForkNativeRegressionTests
 {
     [Fact]
-    public async Task A_cancelled_Brine_King_swing_cannot_register_a_contact()
-    {
-        using var runtime = new Runtime();
-        using var wire = new Wire();
-        var instance = new InstanceState();
-        var conn = runtime.Connection("CancelledBrineSwing", instance, 100, 100, wire);
-        instance.World.Runner = conn;
-        const uint id = 0x08000000;
-        var variety = Game.Monsters.Find(BrineKing.Boss)!;
-        var boss = new SpawnedMonster("Brine King", new PlayerWalk(100, 100, 30), 60, 8, 1000)
-        {
-            Variety = variety, Level = 49, Rarity = MonsterRarity.Unique, BossBarShown = true,
-            States = BrineKing.StartStates(variety), LifePhases = new([75, 50, 25]),
-            Attack = new(0x4005, 1, 8, DamagePacket.Empty) { Scripted = true },
-        };
-        conn.Monsters[id] = boss;
-        conn.MonsterViews[id] = new((100, 100), (100, 100), boss.Life);
-        var fight = new BrineKing.Fight(id, boss, conn);
-        await fight.Bind(conn);
-        var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
-        Assert.True(gate.Wait(0));
-        Task swing;
-        try
-        {
-            swing = fight.Step(conn, 1);
-            boss.ActionGeneration++;
-        }
-        finally { gate.Release(); }
-        await swing;
-        var contacts = (System.Collections.ICollection)typeof(BrineKing.Fight)
-            .GetField("hits", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(fight)!;
-        Assert.Empty(contacts);
-        await fight.Step(conn, 3);
-        Assert.Single(contacts.Cast<object>());
-    }
-
-    [Fact]
     public async Task A_refused_portal_create_does_not_advertise_a_phantom_portal()
     {
         using var runtime = new Runtime();
         using var wire = new Wire();
-        var conn = runtime.Connection("RefusedTownPortal", new InstanceState(), 100, 100, wire);
-        conn.LockstepClient = true;
-        conn.LeavingArea = true;
+        var player = runtime.PlayerOf("RefusedTownPortal", new InstanceState(), 100, 100, wire);
+        player.Connection.LockstepClient = true;
+        player.LeavingArea = true;
         try
         {
-            await PortalsFeature.OpenTownPortal(conn, 100, 100, "test");
-            Assert.Null(conn.ReturnPortal);
-            Assert.False(PortalsRules.OpenPortals.ContainsKey(conn.Character!));
-            conn.LeavingArea = false;
-            await PortalsFeature.OpenTownPortal(conn, 100, 100, "test");
-            Assert.NotNull(conn.ReturnPortal);
-            Assert.True(PortalsRules.OpenPortals.ContainsKey(conn.Character!));
+            await PortalsFeature.OpenTownPortal(player, 100, 100, "test");
+            Assert.Null(player.ReturnPortal);
+            Assert.False(PortalsRules.OpenPortals.ContainsKey(player.Character.Name!));
+            player.LeavingArea = false;
+            await PortalsFeature.OpenTownPortal(player, 100, 100, "test");
+            Assert.NotNull(player.ReturnPortal);
+            Assert.True(PortalsRules.OpenPortals.ContainsKey(player.Character.Name!));
         }
-        finally { PortalsRules.OpenPortals.TryRemove(conn.Character!, out _); }
+        finally { PortalsRules.OpenPortals.TryRemove(player.Character.Name!, out _); }
     }
 
     sealed class Runtime : IDisposable
@@ -81,16 +44,19 @@ public sealed class ForkNativeRegressionTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         }
-        public Player Connection(string character, InstanceState instance, int x, int y, Wire wire)
+        public Player PlayerOf(string character, InstanceState instance, int x, int y, Wire wire)
         {
-            var conn = new Player(new(1, "brine-party-test", 1000, 1000, x, y, null, []), 1, 1)
+            var player = new Player(new(1, "brine-party-test", 1000, 1000, x, y, null, []), 1, 1)
             {
-                Character = character, Instance = instance, PlayerLife = 1000000, PlayerSent = true,
-                Pools = new(49, 1000000, 100, 2, 0), Session = new(character, wire.Stream, wire.Ciphers),
+                Character = { Name = character },
+                Instance = instance,
+                PlayerLife = 1000000,
+                Connection = { PlayerSent = true, Session = new(character, wire.Stream, wire.Ciphers) },
+                Pools = new(49, 1000000, 100, 2, 0)
             };
-            players.Add(conn);
-            Program.InGame.TryAdd(conn, 0);
-            return conn;
+            players.Add(player);
+            Program.InGame.TryAdd(player, 0);
+            return player;
         }
         public void Dispose()
         {

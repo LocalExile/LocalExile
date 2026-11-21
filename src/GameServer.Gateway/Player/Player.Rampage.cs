@@ -5,14 +5,11 @@ public sealed partial class Player
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
     public double PhysicalImmunityUntil;
     public double PhasingUntil;
-    public ushort PhasingBuff;
-    public double PhasingSentUntil;
     // Elusive: the buff starts at 100% + elusive effect and loses 20% of base effect per second; it cannot be
     // refreshed while running.
     public double ElusiveStart;
     public double ElusiveUntil;
     public double ElusiveEffectMultiplier = 1;
-    public ushort ElusiveBuff;
     public bool ElusiveCritPending;
     // The movement speed the last sent movement stat held, so the decaying effect rebuilds the pools only when it changes.
     public int ElusiveMovementPct;
@@ -24,7 +21,6 @@ public sealed partial class Player
     public ITransientCombatState? OwnedCombatState;
     public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     public HashSet<uint> RetiredCombatObjects { get; } = [];
-    public HashSet<(uint Actor, ushort Buff)> RetiredCombatBuffs { get; } = [];
     public RampageState.Value SentRampage { get; set; }
     // The stat-driving part of the last published streak: the full stats go out only when one of these changes,
     // while current_rampage_stacks (every kill) goes as one partial stat update.
@@ -52,60 +48,53 @@ public sealed partial class Player
 
     public void RetireOwnedCombat()
     {
-        lock (Monsters)
+        OwnedCombatWorker.Retire();
+        if (OwnedCombatState is { } old)
         {
-            OwnedCombatWorker.Retire();
-            if (OwnedCombatState is { } old)
+            old.Clear();
+            RetiredCombatObjects.UnionWith(old.RetiredObjects);
+            foreach (uint actor in old.RetiredObjects)
+                if (Area.Monsters.Remove(actor, out var removed)) removed.Dead = true;
+            // Its blinds end (Blinded, row 179, on the monsters it blinded).
+            foreach (var (actor, _) in old.RetiredBuffs)
             {
-                old.Clear();
-                RetiredCombatObjects.UnionWith(old.RetiredObjects);
-                RetiredCombatBuffs.UnionWith(old.RetiredBuffs);
-                foreach (uint actor in old.RetiredObjects)
-                    if (Monsters.Remove(actor, out var removed)) removed.Dead = true;
-                foreach (var (actor, _) in old.RetiredBuffs)
-                    if (Monsters.TryGetValue(actor, out var monster)) monster.RampageBlindUntil = 0;
+                if (Area.Monsters.TryGetValue(actor, out var monster)) monster.RampageBlindUntil = 0;
+                Area.Buffs.ClearRow(actor, 179);
             }
-            OwnedCombatState = null;
-            SourcePhasing = false;
-            VaalUseState = null;
-            // Winter Orb's orb ends with the area, the death or the load that retires the connection's combat work.
-            WinterOrbState = null;
-            CombatRushUntil = 0;
-            CombatRushAttackSpeed = 0;
-            CombatRushUse = null;
-            if (RampageBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, RampageBuff));
-            RampageBuff = 0;
-            if (PhasingBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, PhasingBuff));
-            PhasingBuff = 0;
-            PhasingSentUntil = 0;
-            if (ElusiveBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, ElusiveBuff));
-            ElusiveBuff = 0;
-            ElusiveUntil = 0;
-            ElusiveStart = 0;
-            ElusiveMovementPct = 0;
-            ElusiveEffectPercent = -1;
-            SentRampage = default;
-            SentRampageStat = null;
-            SentRampageStacks = 0;
-            ExplosionArtWindow = 0;
-            ExplosionArtCount = 0;
-            // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
-            if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));
-            if (SoulEater.AuraBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.AuraBuff));
-            SoulEater.Buff = 0;
-            SoulEater.AuraBuff = 0;
-            SoulEater.SentStacks = 0;
-            SoulEater.Souls.Clear();
-            SoulEater.Clear();
         }
+        OwnedCombatState = null;
+        // The buffs the Buffs component shows on the player end with it (each system states its own again).
+        Frames.Area?.Buffs.ClearAll(Id);
+        SourcePhasing = false;
+        VaalUseState = null;
+        // Winter Orb's orb ends with the area, the death or the load that retires the connection's combat work.
+        WinterOrbState = null;
+        CombatRushUntil = 0;
+        CombatRushAttackSpeed = 0;
+        CombatRushUse = null;
+        RampageBuff = 0;
+        ElusiveUntil = 0;
+        ElusiveStart = 0;
+        ElusiveMovementPct = 0;
+        ElusiveEffectPercent = -1;
+        SentRampage = default;
+        SentRampageStat = null;
+        SentRampageStacks = 0;
+        ExplosionArtWindow = 0;
+        ExplosionArtCount = 0;
+        // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
+        SoulEater.Buff = 0;
+        SoulEater.AuraBuff = 0;
+        SoulEater.SentStacks = 0;
+        SoulEater.Souls.Clear();
+        SoulEater.Clear();
     }
 
     public void ApplyMovementSpeedAt(double at)
     {
-        lock (Monsters)
-            Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + Pools.MovementVelocityPct
-                + Rampage.Current.MovementPercent) / 100.0 * (Program.GameLogicOrNull?.PlayerActionFactor(this)
-                    ?? ElementalAilments.ActionFactor(at))
-                * (ChannelMovement.Skill != 0 && ChannelMovement.Skill == ChannelSkill ? (100.0 + ChannelMovement.Percent) / 100 : 1)), at);
+        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + Pools.MovementVelocityPct
+            + Rampage.Current.MovementPercent) / 100.0 * (Program.GameLogicOrNull?.PlayerActionFactor(this)
+                ?? ElementalAilments.ActionFactor(at))
+            * (ChannelMovement.Skill != 0 && ChannelMovement.Skill == ChannelSkill ? (100.0 + ChannelMovement.Percent) / 100 : 1)), at);
     }
 }

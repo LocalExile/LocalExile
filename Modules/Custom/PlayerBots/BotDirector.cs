@@ -285,7 +285,7 @@ sealed partial class BotDirector
         town ??= "1_1_town";
         var range = LevelsForTown(town);
         int level = _random.Next(range.Min, range.Max + 1);
-        var character = new Character(Guid.NewGuid(), account.Id, name, cls, level, _settings.League, town, now, now, town);
+        var character = new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, name, cls, level, _settings.League, town, now, now, town);
         _accounts.AddCharacter(character);
         var bot = new Bot
         {
@@ -575,11 +575,11 @@ sealed partial class BotDirector
     static Dictionary<string, List<Player>> LiveTowns()
     {
         var towns = new Dictionary<string, List<Player>>();
-        foreach (var conn in Program.InGame.Keys)
+        foreach (var player in Program.InGame.Keys)
         {
-            if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Instance is null) continue;
-            if (!conn.Layout.Id.Contains("_town", StringComparison.Ordinal)) continue;
-            (towns.TryGetValue(conn.Layout.Id, out var list) ? list : towns[conn.Layout.Id] = []).Add(conn);
+            if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent || player.Instance is null) continue;
+            if (!player.Layout.Id.Contains("_town", StringComparison.Ordinal)) continue;
+            (towns.TryGetValue(player.Layout.Id, out var list) ? list : towns[player.Layout.Id] = []).Add(player);
         }
         return towns;
     }
@@ -668,7 +668,7 @@ sealed partial class BotDirector
     {
         lock (_bots) ExpireControl(bot);
         var leader = bot.Leader;
-        if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, PlayerSent: true }
+        if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, Connection.PlayerSent: true }
             || leader.LeavingArea || Program.GameLogicOrNull is not IControlledPlayerRules rules)
         { StopCombat(bot); return; }
         if (bot.Combat is null || bot.Combat.Closed || !ReferenceEquals(bot.Combat.Instance, leader.Instance))
@@ -684,7 +684,7 @@ sealed partial class BotDirector
             await rules.InitializeControlled(player, leader);
             if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Leader, leader))
             { StopCombat(bot); return; }
-            bot.PeerId = player.PeerId;
+            bot.PeerId = player.Id;
         }
         var current = bot.Combat;
         if (current is null) return;

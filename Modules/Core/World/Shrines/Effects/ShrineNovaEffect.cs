@@ -52,15 +52,15 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
 
     public async Task Tick(ShrineContext ctx, ShrineInstance shrine)
     {
-        var conn = ctx.Conn;
-        if (conn.Closed || conn.LeavingArea) return;
+        var player = ctx.Player;
+        if (player.Closed || player.LeavingArea) return;
         bool standing = shrine.State == ShrineState.Inactive;
-        var spell = profile ??= ShrineNovaRules.Describe(SkillsFor(conn), cold, !standing);
+        var spell = profile ??= ShrineNovaRules.Describe(SkillsFor(player), cold, !standing);
         double now = ctx.Now;
         if (now >= nextCast)
         {
-            var at = standing ? shrine.At : conn.Walk.Position(now);
-            if (await Start(conn, shrine, spell, at, now))
+            var at = standing ? shrine.At : player.Walk.Position(now);
+            if (await Start(player, shrine, spell, at, now))
             {
                 casts.Add(new(at, now));
                 nextCast = now + spell.Interval;
@@ -74,48 +74,43 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
             if (!cast.Ground)
             {
                 cast.Ground = true;
-                PlaceGround(conn, spell, cast.At, cast.Began + spell.CastSeconds);
+                PlaceGround(player, spell, cast.At, cast.Began + spell.CastSeconds);
             }
             double radius = cold ? spell.Radius * Math.Clamp((elapsed - spell.CastSeconds) / IceNovaRing.Seconds(0), 0, 1) : spell.Radius;
             var variety = Monsters.Find(spell.Daemon);
-            if (variety is not null && Monsters.BaseDamage(variety, ShrineManager.AreaLevel(conn)) is { } damage)
+            if (variety is not null && Monsters.BaseDamage(variety, ShrineManager.AreaLevel(player)) is { } damage)
             {
                 var packet = DamagePacket.Of(spell.Element, damage.Item1, damage.Item2);
                 if (standing)
-                    await ShrineManager.HitPlayers(conn, cast.At, radius, spell.Element, packet,
-                        player => cast.HitPlayers.Add(player));
+                    await ShrineManager.HitPlayers(player, cast.At, radius, spell.Element, packet,
+                        peer => cast.HitPlayers.Add(peer));
                 else
                 {
                     (uint Id, SpawnedMonster Monster)[] targets;
-                    lock (conn.Monsters)
-                        targets = [.. conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
-                            && Dist(p.Value.Walk.Position(now), cast.At) <= radius && cast.HitMonsters.Add(p.Key))
-                            .Select(p => (p.Key, p.Value))];
+                    targets = [.. player.Area.MonstersNear(cast.At, radius).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+                        && Dist(p.Value.Walk.Position(now), cast.At) <= radius && cast.HitMonsters.Add(p.Key))
+                        .Select(p => (p.Key, p.Value))];
                     foreach (var (id, monster) in targets)
                     {
                         int dealt;
-                        lock (conn.Monsters)
-                        {
-                            if (monster.Dead || monster.Invulnerable) continue;
-                            var mitigated = DamageModel.Mitigate(packet.Roll(AreaRng(conn)), type => MonsterHitResistance(monster, type, default));
-                            dealt = MonsterTakesMitigated(monster, mitigated, spell: true);
-                        }
-                        if (dealt <= 0 || !await HitMonster(conn, id, monster, dealt, cold ? "shrine Ice Nova" : "shrine Shock Nova", log: false)) continue;
-                        lock (conn.Monsters)
-                            if (!monster.Dead && monster.Life > 0)
-                                monster.Ailments.Inflict(DamagePacket.Of(spell.Element, dealt, dealt), false,
-                                    monster.MaxLife, now, _ => 0, name => monster.Effects[name], AreaRng(conn));
+                        if (monster.Dead || monster.Invulnerable) continue;
+                        var mitigated = DamageModel.Mitigate(packet.Roll(AreaRng(player)), type => MonsterHitResistance(monster, type, default));
+                        dealt = MonsterTakesMitigated(monster, mitigated, spell: true);
+                        if (dealt <= 0 || !await HitMonster(player, id, monster, dealt, cold ? "shrine Ice Nova" : "shrine Shock Nova", log: false)) continue;
+                        if (!monster.Dead && monster.Life > 0)
+                            monster.Ailments.Inflict(DamagePacket.Of(spell.Element, dealt, dealt), false,
+                                monster.MaxLife, now, _ => 0, name => monster.Effects[name], AreaRng(player));
                     }
                 }
             }
             if (elapsed >= spell.CastSeconds + (cold ? IceNovaRing.Seconds(0) : 0)) casts.Remove(cast);
         }
-        MaintainGround(conn, standing, now);
+        MaintainGround(player, standing, now);
     }
 
-    async Task<bool> Start(Player conn, ShrineInstance shrine, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
+    async Task<bool> Start(Player player, ShrineInstance shrine, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
     {
-        var catalog = SkillsFor(conn);
+        var catalog = SkillsFor(player);
         ushort skillId = (ushort)(catalog.ActionHash(spell.Effect)!.Value & 0x3fff);
         if (daemon == 0)
         {
@@ -128,8 +123,8 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
             Set(Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal, spell.RadiusPercent);
             var skill = catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]);
             if (skill is null) return false;
-            daemon = await SpawnMonster(conn, variety,
-                ShrineManager.AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y, friendly: true, log: false, alone: false, scripted: true,
+            daemon = await SpawnMonster(player, variety,
+                ShrineManager.AreaLevel(player), MonsterRarity.Normal, at.X, at.Y, friendly: true, log: false, alone: false, scripted: true,
                 ownedSkills: [skill], placement: MonsterPlacement.Established,
                 owned: (_, m) =>
                 {
@@ -140,95 +135,82 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                 });
             if (daemon == 0) return false;
         }
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(daemon, out var monster)) { daemon = 0; return false; }
-            monster.Walk.Teleport(at.X, at.Y, now);
-        }
-        await SendWorldRecord(conn, daemon,
-            [.. InstanceProtocol.ActionStarted(daemon, at.X, at.Y, at.X, at.Y, skillId, 0xffff, conn.MonsterOrderFlags),
+        if (!player.Area.Monsters.TryGetValue(daemon, out var monster)) { daemon = 0; return false; }
+        monster.Walk.Teleport(at.X, at.Y, now);
+        await SendWorldRecord(player, daemon,
+            [.. InstanceProtocol.ActionStarted(daemon, at.X, at.Y, at.X, at.Y, skillId, 0xffff, player.MonsterOrderFlags),
                 .. InstanceProtocol.ActionEnded(daemon)], $"shrine nova {spell.Effect}, radius {spell.Radius}");
         return true;
     }
 
-    void PlaceGround(Player conn, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
+    void PlaceGround(Player player, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
     {
-        lock (conn.Monsters)
-        for (int i = 0; i < spell.GroundCount; i++)
-        {
-            // The claimed lightning daemon leaves ONE patch, underneath its caster. The standing one scatters five.
-            double angle = i * Math.PI * 2 / Math.Max(1, spell.GroundCount);
-            int ring = spell.GroundCount == 1 ? 0 : spell.Radius / 2;
-            var spot = (X: at.X + (int)Math.Round(Math.Cos(angle) * ring), Y: at.Y + (int)Math.Round(Math.Sin(angle) * ring));
-            if (conn.Layout.Walkable is { } walk && !walk(spot.X, spot.Y)) continue;
-            int existing = grounds.FindIndex(g => g.At == spot && g.Until > now);
-            if (existing >= 0) { grounds[existing] = grounds[existing] with { Until = now + spell.GroundSeconds }; continue; }
-            uint id = conn.TakeObjectId();
-            string art = cold ? "Metadata/Effects/Spells/ground_effects/ice/ice.ao"
-                : "Metadata/Effects/Spells/ground_effects/lightning/lightning_ground_01.ao";
-            var obj = new EffectObject(spot.X, spot.Y, art)
-                { Flags0 = EffectObject.FixedRotation, Scale = spell.GroundRadius / (cold ? 4f : 6f) };
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                obj.Blob()), null, WorldId: id, CreatesObject: true));
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
-            grounds.Add(new(spot, spell.GroundRadius, now + spell.GroundSeconds, id));
-        }
+    for (int i = 0; i < spell.GroundCount; i++)
+    {
+        // The claimed lightning daemon leaves ONE patch, underneath its caster. The standing one scatters five.
+        double angle = i * Math.PI * 2 / Math.Max(1, spell.GroundCount);
+        int ring = spell.GroundCount == 1 ? 0 : spell.Radius / 2;
+        var spot = (X: at.X + (int)Math.Round(Math.Cos(angle) * ring), Y: at.Y + (int)Math.Round(Math.Sin(angle) * ring));
+        if (player.Layout.Walkable is { } walk && !walk(spot.X, spot.Y)) continue;
+        int existing = grounds.FindIndex(g => g.At == spot && g.Until > now);
+        if (existing >= 0) { grounds[existing] = grounds[existing] with { Until = now + spell.GroundSeconds }; continue; }
+        uint id = player.TakeObjectId();
+        string art = cold ? "Metadata/Effects/Spells/ground_effects/ice/ice.ao"
+            : "Metadata/Effects/Spells/ground_effects/lightning/lightning_ground_01.ao";
+        var obj = new EffectObject(spot.X, spot.Y, art)
+            { Flags0 = EffectObject.FixedRotation, Scale = spell.GroundRadius / (cold ? 4f : 6f) };
+        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            obj.Blob()), null, WorldId: id, CreatesObject: true));
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+        grounds.Add(new(spot, spell.GroundRadius, now + spell.GroundSeconds, id));
+    }
     }
 
-    void MaintainGround(Player conn, bool standing, double now)
+    void MaintainGround(Player player, bool standing, double now)
     {
         var kind = cold ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock;
         int magnitude = cold ? 10 : 15;
-        lock (conn.Monsters)
+        foreach (var ground in grounds.Where(g => g.Until <= now).ToArray())
         {
-            foreach (var ground in grounds.Where(g => g.Until <= now).ToArray())
-            {
-                grounds.Remove(ground);
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(ground.Object), null, WorldId: ground.Object, RemovesObject: true));
-            }
-            if (!standing)
-                foreach (var monster in conn.Monsters.Values)
-                    if (monster is { Hostile: true, Dead: false, Life: > 0 } && grounds.Any(g => Dist(g.At, monster.Walk.Position(now)) <= g.Radius)
-                        && (monster.Ailments.Magnitude(kind, now) < magnitude || monster.Ailments.Remaining(kind, now) < .15))
-                        monster.Ailments.WithoutDamage(kind, .3, now, _ => 0, name => monster.Effects[name], 1, magnitude);
+            grounds.Remove(ground);
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(ground.Object), null, WorldId: ground.Object, RemovesObject: true));
         }
+        if (!standing)
+            foreach (var monster in player.Area.Monsters.Values)
+                if (monster is { Hostile: true, Dead: false, Life: > 0 } && grounds.Any(g => Dist(g.At, monster.Walk.Position(now)) <= g.Radius)
+                    && (monster.Ailments.Magnitude(kind, now) < magnitude || monster.Ailments.Remaining(kind, now) < .15))
+                    monster.Ailments.WithoutDamage(kind, .3, now, _ => 0, name => monster.Effects[name], 1, magnitude);
         if (standing)
-            foreach (var player in ShrineManager.NearbyPlayers(conn, (0, 0), double.MaxValue))
+            foreach (var peer in ShrineManager.NearbyPlayers(player, (0, 0), double.MaxValue))
             {
                 // Each player's ailments and walk run on that player's own clock.
-                double at = AreaTime(player);
-                if (!grounds.Any(g => Dist(g.At, player.Walk.Position(at)) <= g.Radius)) continue;
-                var stats = CharacterPlayerStats(player);
+                double at = AreaTime(peer);
+                if (!grounds.Any(g => Dist(g.At, peer.Walk.Position(at)) <= g.Radius)) continue;
+                var stats = CharacterPlayerStats(peer);
                 var playerKind = cold ? PlayerElementalAilments.Kind.Chill : PlayerElementalAilments.Kind.Shock;
-                lock (player.Monsters)
-                {
-                    if (player.ElementalAilments.Magnitude(playerKind, at) >= magnitude) continue;
-                    ApplyPlayerAilmentsLocked(player, at, ailments => ailments.Inflict(playerKind, magnitude, .3, at,
-                        name => stats.GetValueOrDefault(name), player.IncomingHitRandom));
-                }
+                if (peer.ElementalAilments.Magnitude(playerKind, at) >= magnitude) continue;
+                ApplyPlayerAilmentsLocked(peer, at, ailments => ailments.Inflict(playerKind, magnitude, .3, at,
+                    name => stats.GetValueOrDefault(name), peer.IncomingHitRandom));
             }
     }
 
-    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
-    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
+    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
 
-    Task Clear(Player conn)
+    Task Clear(Player player)
     {
-        lock (conn.Monsters)
+        foreach (var ground in grounds)
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(ground.Object), null, WorldId: ground.Object, RemovesObject: true));
+        grounds.Clear(); casts.Clear(); nextCast = 0;
+        if (daemon != 0 && player.Area.Monsters.Remove(daemon, out var monster))
         {
-            foreach (var ground in grounds)
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(ground.Object), null, WorldId: ground.Object, RemovesObject: true));
-            grounds.Clear(); casts.Clear(); nextCast = 0;
-            if (daemon != 0 && conn.Monsters.Remove(daemon, out var monster))
-            {
-                monster.Dead = true; monster.Life = 0; monster.ActionGeneration++;
-                conn.MonsterViews.Remove(daemon); conn.AsleepMonsters.Remove(daemon);
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(daemon), "shrine daemon ends", daemon, monster,
-                    PlayerMinions.OutputKind.Remove, WorldId: daemon, RemovesObject: true));
-            }
-            daemon = 0;
+            monster.Dead = true; monster.Life = 0; monster.ActionGeneration++;
+
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(daemon), "shrine daemon ends", daemon, monster,
+                PlayerMinions.OutputKind.Remove, WorldId: daemon, RemovesObject: true));
         }
+        daemon = 0;
         return Task.CompletedTask;
     }
 }

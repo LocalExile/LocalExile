@@ -19,25 +19,24 @@ public static partial class Game
         public void Dispose() { if (Player.StatsChanged == mark) Player.StatsChanged = null; }
     }
 
-    public static void StartStats(GameArea area, Player conn, object source)
+    public static void StartStats(GameArea area, Player player, object source)
     {
-        var monsters = conn.Monsters;
-        var frames = conn.Frames;
+        var monsters = player.Area.Monsters;
+        var frames = player.Frames;
         area.Events.On<StatBuffsChanged>(e =>
         {
-            foreach (var player in frames.Players())
-                if (player.PeerId == e.Entity.Value) PlayerStatBuffsChanged(player);
+            foreach (var peer in frames.Players())
+                if (peer.Id == e.Entity.Value) PlayerStatBuffsChanged(peer);
         }, source);
         area.Systems.Add("stats", AreaPhase.Stats, _ =>
         {
             // Players first, in the order they joined; then the monsters.
-            foreach (var player in frames.Players()) StepPlayerStats(player);
-            lock (monsters)
-                foreach (var m in monsters.TakeMarked())
-                {
-                    m.StatsByFrame = true;
-                    if (m.StatsDirty) m.RebuildStats();
-                }
+            foreach (var peer in frames.Players()) StepPlayerStats(peer);
+            foreach (var m in monsters.TakeMarked())
+            {
+                m.StatsByFrame = true;
+                if (m.StatsDirty) m.RebuildStats();
+            }
         }, source: source);
     }
 }

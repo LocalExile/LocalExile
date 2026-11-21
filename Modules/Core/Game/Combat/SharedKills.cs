@@ -8,7 +8,7 @@ using Progression = GameServer.Core.World.Progression;
 public static partial class Game
 {
     /// <summary>One member's share of a party kill's experience (<see cref="Progression.PartyMultiplier"/>).</summary>
-    public sealed record PartyExperienceShare(Player Conn, double Multiplier);
+    public sealed record PartyExperienceShare(Player Player, double Multiplier);
 
     /// <summary>
     /// The living players in the instance near enough to the kill (the presence: a private area is entered as the
@@ -22,9 +22,9 @@ public static partial class Game
         if (host.PlayerLife > 0 && Dist(at, host.Walk.Position(AreaTime(host))) <= ExperienceRange)
             members.Add(host);
         var seen = new HashSet<Player> { host };
-        foreach (var peer in host.Instance?.Presence.PlayersExcept(host.PeerId) ?? [])
+        foreach (var peer in host.Instance?.Presence.PlayersExcept(host.Id) ?? [])
         {
-            if (peer.Owner is not { } other || !seen.Add(other) || other.Closed || other.LeavingArea || !other.PlayerSent
+            if (peer.Owner is not { } other || !seen.Add(other) || other.Closed || other.LeavingArea || !other.Connection.PlayerSent
                 || peer.Life == 0 || Dist(at, (peer.X, peer.Y)) > ExperienceRange) continue;
             members.Add(other);
         }
@@ -34,8 +34,8 @@ public static partial class Game
         return [.. members.Select((m, i) => new PartyExperienceShare(m, Progression.PartyMultiplier(levels, i)))];
     }
 
-    public static double PartyExperienceShareOf(IReadOnlyList<PartyExperienceShare> shares, Player conn) =>
-        shares.FirstOrDefault(s => ReferenceEquals(s.Conn, conn))?.Multiplier ?? 1;
+    public static double PartyExperienceShareOf(IReadOnlyList<PartyExperienceShare> shares, Player player) =>
+        shares.FirstOrDefault(s => ReferenceEquals(s.Player, player))?.Multiplier ?? 1;
 
     public static void ShareKill(Player host, uint id, SpawnedMonster m, MonsterCatalog.Variety variety,
         (int X, int Y) at, IReadOnlyList<PartyExperienceShare> shares)
@@ -44,8 +44,8 @@ public static partial class Game
         var monster = ModMonster(m, at);
         foreach (var share in shares)
         {
-            if (ReferenceEquals(share.Conn, host)) continue;
-            var other = share.Conn;
+            if (ReferenceEquals(share.Player, host)) continue;
+            var other = share.Player;
             other.KillShares.Enqueue(async _ =>
             {
                 if (HardcoreProgressBlocked(other)) return;
@@ -62,7 +62,7 @@ public static partial class Game
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
                 {
                     uint needed = CharacterStats.LevelStarts[level - 1], have;
-                    lock (other.Monsters) have = other.Experience;
+                    have = other.Character.Experience;
                     if (have < needed) await GainExperience(other, needed - have, $"quest: {m.Label} killed, level {level}");
                 }
             });
@@ -71,33 +71,34 @@ public static partial class Game
 
     // An ignite, bleed or poison killed the monster on the runner's tick: the kill is the one's whose hit landed last,
     // on their own connection (their client gets the corpse, their kill effects and rewards; the others their shares).
-    public static async Task DotKilled(Player conn, uint id,
+    public static async Task DotKilled(Player player, uint id,
         SpawnedMonster m)
     {
-        if (m.LastHitBy is { } by && !ReferenceEquals(by, conn) && !by.Closed && !by.LeavingArea && ReferenceEquals(by.Instance, conn.Instance))
+        if (m.LastHitBy is { } by && !ReferenceEquals(by, player) && !by.Closed && !by.LeavingArea && ReferenceEquals(by.Instance, player.Instance))
         {
             by.KillShares.Enqueue(_ => MonsterKilled(by, id, m, byHit: false));
             return;
         }
-        await MonsterKilled(conn, id, m, byHit: false);
+        await MonsterKilled(player, id, m, byHit: false);
     }
 
     // To every other client in the instance that has the object (and has it awake), through its own send gate. A
     // client without it cannot read a message about it: an object's component update (0x2bc) is read by the object's
     // components, and a buried Gravel Eater's rise (0x2bc Transitionable) sent to a client it was never created on broke
     // its stream ("Unable to deserialise packet", live 2026-11-05 01:15:27). SyncInstanceMonsters creates it there.
-    public static void ToOthers(Player conn, uint id, byte[] bytes)
+    public static void ToOthers(Player player, uint id, byte[] bytes)
     {
-        foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
-            if (peer.Owner is { Outbox: { } outbox } other && !other.Closed && !other.LeavingArea
-                && Array.BinarySearch(other.AwakeMonsters, id) >= 0)
+        // In the area's frame the kill's records are the area's already (AreaDelta): every client has them.
+        if (player.Area.Owned) return;
+        foreach (var peer in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
+            if (peer.Owner is { Connection.Outbox: { } outbox } other && !other.Closed && !other.LeavingArea)
                 // Each send encrypts in place, potentially after waiting for its recipient's gate.
                 _ = outbox((byte[])bytes.Clone(), null);
     }
 
     // This player's frame: the shares of the host's kills.
-    public static async Task ApplyKillShares(Player conn)
+    public static async Task ApplyKillShares(Player player)
     {
-        while (conn.KillShares.TryDequeue(out var share)) await share(conn);
+        while (player.KillShares.TryDequeue(out var share)) await share(player);
     }
 }

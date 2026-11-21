@@ -50,10 +50,10 @@ public sealed class CurrencyExchangeModule : IModule
         {
             if (!talk.Script.Contains("CurrencyExchangeWindow", StringComparison.Ordinal)) return false;
             await WorldOf(talk.Player).NpcClose("0x0084 close NPC dialogue for the Currency Exchange");
-            await Open(talk.Player);
+            await Open(talk.ModPlayer);
             return true;
         });
-        GameEvents.Command(module.Manifest.Id, "exchange", "/exchange (opens the Currency Exchange)", (conn, args) => Open(PlayerOf(conn)));
+        GameEvents.Command(module.Manifest.Id, "exchange", "/exchange (opens the Currency Exchange)", (player, args) => Open(PlayerOf(player)));
         Handle(Wire.RequestOrdersId, (player, _) => SendOrders(player));
         Handle(Wire.RequestFeeId, (player, m) => SendFee(player, Wire.ReadU32(m.Span)));
         Handle(Wire.RequestPartnersId, (player, m) => SendPartners(player, Wire.ReadU32(m.Span)));
@@ -61,25 +61,25 @@ public sealed class CurrencyExchangeModule : IModule
         Handle(Wire.PlaceOrderId, (player, m) => Place(player, Wire.ReadPlaceOrder(m.Span)));
         Handle(Wire.CloseOrderId, (player, m) => Close(player, Wire.ReadU32(m.Span)));
         Handle(Wire.ClaimId, (player, m) => Claim(player, Wire.ReadClaim(m.Span)));
-        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (conn, seconds) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, seconds) =>
         {
-            var player = PlayerOf(conn);
-            var timer = _timers.GetOrCreateValue(player);
+            var modPlayer = PlayerOf(player);
+            var timer = _timers.GetOrCreateValue(modPlayer);
             if ((timer.Seconds += seconds) < SettleEverySeconds) return;
             timer.Seconds = 0;
-            await Settle(player);
+            await Settle(modPlayer);
             // Faustus's bag does not outlast an area: it is lit again on arriving, if anything waits.
-            if (timer.Arrived || !WorldOf(player).PlayerReady) return;
+            if (timer.Arrived || !WorldOf(modPlayer).PlayerReady) return;
             timer.Arrived = true;
-            if (!BookOf(player).HasClaims) return;
-            await SendOrders(player);
-            await Light(player);
+            if (!BookOf(modPlayer).HasClaims) return;
+            await SendOrders(modPlayer);
+            await Light(modPlayer);
         }));
     }
 
-    void Handle(ushort opcode, Func<IPlayer, ReadOnlyMemory<byte>, Task> run) => GameEvents.Packet(opcode).Add(_module.Manifest.Id, async (conn, bytes) =>
+    void Handle(ushort opcode, Func<IPlayer, ReadOnlyMemory<byte>, Task> run) => GameEvents.Packet(opcode).Add(_module.Manifest.Id, async (player, bytes) =>
     {
-        await run(PlayerOf(conn), bytes);
+        await run(PlayerOf(player), bytes);
         return true;
     });
 

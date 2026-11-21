@@ -17,36 +17,30 @@ public static partial class Game
             flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 3, code: code, angle: angle,
             orderKey: orderKey, checkpoint: checkpoint);
 
-    static async Task PresentMeleeImpact(Player conn, string art, (int X, int Y) from, (int X, int Y) at)
+    static async Task PresentMeleeImpact(Player player, string art, (int X, int Y) from, (int X, int Y) at)
     {
-        var session = ProjectilesFor(conn);
+        var session = ProjectilesFor(player);
         uint id;
-        lock (conn.Monsters)
-        {
-            if (!session.Active || conn.LeavingArea) return;
-            id = conn.TakeObjectId();
-            conn.ProjectileObjects.Add(id);
-        }
+        if (!session.Active || player.LeavingArea) return;
+        id = player.TakeObjectId();
+        player.ProjectileObjects.Add(id);
         var effect = new EffectObject(at.X, at.Y, art)
         {
             AnimatedFlags = 9, Flags0 = EffectObject.FixedRotation,
             Rotation = (float)Math.Atan2(at.X - from.X, from.Y - at.Y)
         };
-        bool created = await SendWorldCreate(conn, id,
+        bool created = await SendWorldCreate(player, id,
             () => session.Active ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()) : null,
             "native melee impact", wake: true);
-        lock (conn.Monsters)
+        if (!created) { player.ProjectileObjects.Remove(id); return; }
+        if (!session.Active) return;
+        // Existing connection scheduler/outbox: no per-hit task, timer or worker.
+        long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(player)))
+            + ProjectileRuntime.Time(2);
+        session.Runtime.Schedule(until, () => session.WorldRecords(id, () =>
         {
-            if (!created) { conn.ProjectileObjects.Remove(id); return; }
-            if (!session.Active) return;
-            // Existing connection scheduler/outbox: no per-hit task, timer or worker.
-            long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(conn)))
-                + ProjectileRuntime.Time(2);
-            session.Runtime.Schedule(until, () => session.WorldRecords(id, () =>
-            {
-                conn.ProjectileObjects.Remove(id);
-                return [InstanceProtocol.RemoveObject(id)];
-            }, remove: true));
-        }
+            player.ProjectileObjects.Remove(id);
+            return [InstanceProtocol.RemoveObject(id)];
+        }, remove: true));
     }
 }

@@ -5,18 +5,18 @@
 /// </summary>
 public static partial class Game
 {
-    public static bool AreaRunsGame(Player conn) => AreaSetup.Runs(conn);
+    public static bool AreaRunsGame(Player player) => AreaSetup.Runs(player);
 
-    public static void StartMonsterDamageOverTime(GameArea area, Player conn, object source)
+    public static void StartMonsterDamageOverTime(GameArea area, Player player, object source)
     {
-        var frames = conn.Frames;
+        var frames = player.Frames;
         Task pass = Task.CompletedTask;
         area.Systems.Add("monster damage over time", AreaPhase.Ailments, a =>
         {
             if (!pass.IsCompleted || !CurrentGameWork || frames.View is not { } view || view.Closed || view.LeavingArea
-                || view.Paused || !view.PlayerSent || view.PlayerUpdatesState is not PlayerUpdatesState updates
+                || view.Paused || !view.Connection.PlayerSent || view.PlayerUpdatesState is not PlayerUpdatesState updates
                 || !PlayerUpdatesCurrent(view, updates)) return;
-            var conn = view;
+            var player = view;
             pass = AsPlayer(view, updates, async () =>
             {
                 await BurnIgnited(view);

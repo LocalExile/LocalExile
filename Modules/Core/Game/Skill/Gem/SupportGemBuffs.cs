@@ -19,11 +19,11 @@ public static partial class Game
     // otherwise send a remove and an add for each).
     const double ArcaneSurgeRepresentSeconds = .25;
 
-    /// <summary>Gain or refresh the one Arcane Surge buff (under the Monsters lock). Its values are captured at the gain,
+    /// <summary>Gain or refresh the one Arcane Surge buff (in the area's frame). Its values are captured at the gain,
     /// at least those already running.</summary>
-    public static void GainArcaneSurgeLocked(Player conn, double now, int durationMs, int castSpeedPct, int manaRegenPct)
+    public static void GainArcaneSurgeLocked(Player player, double now, int durationMs, int castSpeedPct, int manaRegenPct)
     {
-        var state = conn.SupportGems;
+        var state = player.SupportGems;
         bool running = state.ArcaneSurgeActiveAt(now);
         double until = now + durationMs / 1000.0;
         bool stronger = !running || castSpeedPct > state.ArcaneSurgeCastSpeedPct || manaRegenPct > state.ArcaneSurgeManaRegenPct;
@@ -32,7 +32,7 @@ public static partial class Game
         state.ArcaneSurgeCastSpeedPct = running ? Math.Max(state.ArcaneSurgeCastSpeedPct, castSpeedPct) : castSpeedPct;
         state.ArcaneSurgeManaRegenPct = running ? Math.Max(state.ArcaneSurgeManaRegenPct, manaRegenPct) : manaRegenPct;
         state.ArcaneSurgeUntil = running ? Math.Max(state.ArcaneSurgeUntil, until) : until;
-        PresentStats(conn);
+        PresentStats(player);
         if (stronger || state.ArcaneSurgeUntil - state.ArcaneSurgeShownUntil >= ArcaneSurgeRepresentSeconds)
         {
             state.ArcaneSurgeRefresh = true;
@@ -43,21 +43,21 @@ public static partial class Game
     /// <summary>Arcane Blessing, "Gain Arcane Surge when you or your Totems Hit an Enemy with a Spell": a spell hit that
     /// landed on a hostile monster (the area and projectile executors, a totem's shots included; under the Monsters
     /// lock). <paramref name="player"/> is the hit's caster stats (a totem's are its owner's).</summary>
-    public static void ArcaneSurgeOnSpellHitLocked(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target)
+    public static void ArcaneSurgeOnSpellHitLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster target)
     {
-        if (!target.Hostile || conn.LeavingArea || conn.PlayerLife == 0
+        if (!target.Hostile || player.LeavingArea || player.PlayerLife == 0
             || !(Stat.GainArcaneSurgeOnSpellHitByYouOrYourTotems is var key)
-            || player.GetValueOrDefault(key) == 0) return;
-        GainArcaneSurgeLocked(conn, AreaTime(conn), ArcaneSurgeDurationMs, ArcaneSurgeCastSpeedPct,
+            || playerStats.GetValueOrDefault(key) == 0) return;
+        GainArcaneSurgeLocked(player, AreaTime(player), ArcaneSurgeDurationMs, ArcaneSurgeCastSpeedPct,
             ArcaneSurgeManaRegenPct);
     }
 
-    /// <summary>Arcane Surge and Inspiration bookkeeping for one paid supported skill. Called under the Monsters lock,
+    /// <summary>Arcane Surge and Inspiration bookkeeping for one paid supported skill. Called in the area's frame,
     /// after the skill's cost has been paid and before the cast starts.</summary>
-    public static void SupportManaSpentLocked(Player conn, ushort skillId, IReadOnlyDictionary<uint, int> stats,
+    public static void SupportManaSpentLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> stats,
         uint cost, double now)
     {
-        if (cost == 0 || conn.LeavingArea || conn.PlayerLife == 0) return;
+        if (cost == 0 || player.LeavingArea || player.PlayerLife == 0) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
 
         // Arcane Surge: "each supported spell tracks how much mana you spend on it, granting a buff when the total
@@ -67,15 +67,15 @@ public static partial class Game
             threshold = 1;
         if (threshold > 0)
         {
-            long spent = conn.SupportGems.ArcaneSurgeSpent.GetValueOrDefault(skillId) + cost;
+            long spent = player.SupportGems.ArcaneSurgeSpent.GetValueOrDefault(skillId) + cost;
             if (spent >= threshold)
             {
                 int durationMs = Get(Stat.SupportArcaneSurgeBaseDurationMs);
-                GainArcaneSurgeLocked(conn, now, durationMs > 0 ? durationMs : ArcaneSurgeDurationMs,
+                GainArcaneSurgeLocked(player, now, durationMs > 0 ? durationMs : ArcaneSurgeDurationMs,
                     Get(Stat.SupportArcaneSurgeCastSpeedPlusPct), Get(Stat.SupportArcaneSurgeManaRegenerationRatePlusPct));
                 spent = 0;
             }
-            conn.SupportGems.ArcaneSurgeSpent[skillId] = spent;
+            player.SupportGems.ArcaneSurgeSpent[skillId] = spent;
         }
 
         // Inspiration: one shared mana counter for every skill linked to the support. A use that pushes it to the
@@ -86,28 +86,28 @@ public static partial class Game
             || Get(Stat.ElementalDamagePlusPctFinalPerRighteousCharge) != 0)) gain = 100;
         if (gain > 0)
         {
-            conn.SupportGems.InspirationSpent += cost;
+            player.SupportGems.InspirationSpent += cost;
             int lose = Get(Stat.LoseAllRighteousChargesOnManaUseThreshold);
-            if (lose > 0 && conn.SupportGems.InspirationSpent >= lose)
+            if (lose > 0 && player.SupportGems.InspirationSpent >= lose)
             {
-                conn.SupportGems.InspirationSpent = 0;
-                if (conn.SupportGems.InspirationCharges != 0) conn.SupportGems.PendingStats = true;
-                conn.SupportGems.InspirationCharges = 0;
-                PresentStats(conn);
+                player.SupportGems.InspirationSpent = 0;
+                if (player.SupportGems.InspirationCharges != 0) player.SupportGems.PendingStats = true;
+                player.SupportGems.InspirationCharges = 0;
+                PresentStats(player);
             }
             else
             {
-                int before = conn.SupportGems.InspirationCharges;
-                if (gain >= 100 || AreaRng(conn).Next(100) < gain)
+                int before = player.SupportGems.InspirationCharges;
+                if (gain >= 100 || AreaRng(player).Next(100) < gain)
                 {
                     int durationPct = Get(Stat.InspirationChargeDurationPlusPct);
-                    conn.SupportGems.InspirationUntil = now + 10 * Math.Max(0, 1 + durationPct / 100.0);
-                    conn.SupportGems.InspirationRefresh = true;
-                    conn.SupportGems.InspirationCharges = Math.Min(InspirationMaxCharges,
-                        conn.SupportGems.InspirationCharges + 1);
+                    player.SupportGems.InspirationUntil = now + 10 * Math.Max(0, 1 + durationPct / 100.0);
+                    player.SupportGems.InspirationRefresh = true;
+                    player.SupportGems.InspirationCharges = Math.Min(InspirationMaxCharges,
+                        player.SupportGems.InspirationCharges + 1);
                 }
-                if (conn.SupportGems.InspirationCharges != before) conn.SupportGems.PendingStats = true;
-                if (conn.SupportGems.InspirationRefresh || conn.SupportGems.PendingStats) PresentStats(conn);
+                if (player.SupportGems.InspirationCharges != before) player.SupportGems.PendingStats = true;
+                if (player.SupportGems.InspirationRefresh || player.SupportGems.PendingStats) PresentStats(player);
             }
         }
     }
@@ -118,36 +118,33 @@ public static partial class Game
     /// sources while it runs. The support's own more Spell Damage is applied per supported hit in
     /// ConditionalSupportDamage; the buff's spell_damage_+%_final_from_arcane_surge is Arcane Blessing's "Arcane Surge
     /// also grants 20% more Spell Damage to you".</summary>
-    public static Dictionary<uint, int> WithSupportGemBuffs(Player conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> WithSupportGemBuffs(Player player, Dictionary<uint, int> stats)
     {
-        lock (conn.Monsters)
+        stats = WithTriggeredGuard(player, stats);
+        if (!player.SupportGems.ArcaneSurgeActiveAt(AreaTime(player))) return stats;
+        StatsChangeIn(player.SupportGems.ArcaneSurgeUntil - AreaTime(player));
+        int Get(uint k) => stats.GetValueOrDefault(k);
+        void Add(uint name, long value)
         {
-            stats = WithTriggeredGuard(conn, stats);
-            if (!conn.SupportGems.ArcaneSurgeActiveAt(AreaTime(conn))) return stats;
-            StatsChangeIn(conn.SupportGems.ArcaneSurgeUntil - AreaTime(conn));
-            int Get(uint k) => stats.GetValueOrDefault(k);
-            void Add(uint name, long value)
-            {
-                if (value != 0 && name is var key)
-                    stats[key] = (int)Math.Clamp(stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
-            }
-            long effect = Math.Max(0, 100L + Get(Stat.ArcaneSurgeEffectPlusPct));
-            long Buff(int value) => value * effect / 100;
-            Add(Stat.HasArcaneSurge, 1);
-            Add(Stat.ArcaneSurgeCastSpeedPlusPct, Buff(conn.SupportGems.ArcaneSurgeCastSpeedPct));
-            Add(Stat.ManaRegenerationRatePlusPct, Buff(conn.SupportGems.ArcaneSurgeManaRegenPct));
-            Add(ArcaneSurgeSpellMore, Buff(Get(Stat.ArcaneSurgeOnYouSpellDamagePlusPctFinalFromHierophant)));
-            Add(SkillArea.BaseIncreased, Get(Stat.AreaOfEffectPlusPctWhileYouHaveArcaneSurge));
-            Add(Stat.BaseLifeLeechFromSpellDamagePermyriad, Get(Stat.LifeLeechFromSpellDamagePermyriadWhileYouHaveArcaneSurge));
-            Add(Stat.NonDamagingAilmentEffectPlusPctOnSelf, Get(Stat.NonDamagingAilmentEffectPlusPctOnSelfWhileYouHaveArcaneSurge));
+            if (value != 0 && name is var key)
+                stats[key] = (int)Math.Clamp(stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
         }
+        long effect = Math.Max(0, 100L + Get(Stat.ArcaneSurgeEffectPlusPct));
+        long Buff(int value) => value * effect / 100;
+        Add(Stat.HasArcaneSurge, 1);
+        Add(Stat.ArcaneSurgeCastSpeedPlusPct, Buff(player.SupportGems.ArcaneSurgeCastSpeedPct));
+        Add(Stat.ManaRegenerationRatePlusPct, Buff(player.SupportGems.ArcaneSurgeManaRegenPct));
+        Add(ArcaneSurgeSpellMore, Buff(Get(Stat.ArcaneSurgeOnYouSpellDamagePlusPctFinalFromHierophant)));
+        Add(SkillArea.BaseIncreased, Get(Stat.AreaOfEffectPlusPctWhileYouHaveArcaneSurge));
+        Add(Stat.BaseLifeLeechFromSpellDamagePermyriad, Get(Stat.LifeLeechFromSpellDamagePermyriadWhileYouHaveArcaneSurge));
+        Add(Stat.NonDamagingAilmentEffectPlusPctOnSelf, Get(Stat.NonDamagingAilmentEffectPlusPctOnSelfWhileYouHaveArcaneSurge));
         return stats;
     }
 
     /// <summary>The Arcane Surge buff's more Spell Damage on the player (PlayerHitDamage's spell more).</summary>
     public const uint ArcaneSurgeSpellMore = Stat.SpellDamagePlusPctFinalFromArcaneSurge;
 
-    public static bool ArcaneSurgeActive(Player conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
+    public static bool ArcaneSurgeActive(Player player, double now) => player.SupportGems.ArcaneSurgeActiveAt(now);
 
     // A generic Arcane Surge source (equipment, passives, tattoos; not the support gem's per-spell threshold): the buff
     // is the same one Arcane Surge Support grants - 20% increased Cast Speed, 30% increased Mana Regeneration Rate for
@@ -160,40 +157,39 @@ public static partial class Game
     /// Spells"): the same helper as the support's gain, so both share the 0.25 s refresh limit, the shown deadline and
     /// the strongest running values, and an expired surge's values are not carried into this one. Under the Monsters
     /// lock; the stat presentations show it.</summary>
-    public static void GainArcaneSurgeLocked(Player conn, double now) =>
-        GainArcaneSurgeLocked(conn, now, ArcaneSurgeDurationMs, ArcaneSurgeCastSpeed, ArcaneSurgeManaRegen);
+    public static void GainArcaneSurgeLocked(Player player, double now) =>
+        GainArcaneSurgeLocked(player, now, ArcaneSurgeDurationMs, ArcaneSurgeCastSpeed, ArcaneSurgeManaRegen);
 
     /// <summary>"X% chance to Gain Arcane Surge on Hit with Spells" (the Honoured Flood tattoo and other sources): one
-    /// roll per spell hit that landed. Under the Monsters lock, after the hit's damage.</summary>
-    public static void ArcaneSurgeOnSpellHitLocked(Player conn, IReadOnlyDictionary<uint, int> player, double now,
+    /// roll per spell hit that landed. In the area's frame, after the hit's damage.</summary>
+    public static void ArcaneSurgeOnSpellHitLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, double now,
         Random random)
     {
         uint key = Stat.GainArcaneSurgeOnHitPctChance;
-        if (RandomRolls.Chance(player.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(conn, now);
+        if (RandomRolls.Chance(playerStats.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(player, now);
     }
 
-    static List<byte[]> PresentationLocked(Player conn)
+    static List<byte[]> PresentationLocked(Player player)
     {
-        var state = conn.SupportGems;
-        double now = AreaTime(conn);
+        var state = player.SupportGems;
+        double now = AreaTime(player);
         var packets = new List<byte[]>();
         foreach (double ends in state.CrueltyInstances.Values.Append(state.ArcaneSurgeUntil)
             .Append(state.InspirationCharges > 0 ? state.InspirationUntil : 0))
-            if (ends > now) PresentIn(conn, ends - now);
+            if (ends > now) PresentIn(player, ends - now);
         bool arcane = state.ArcaneSurgeActiveAt(now);
         if (state.PresentedArcaneSurge != 0 && (!arcane || state.ArcaneSurgeRefresh))
         {
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedArcaneSurge));
+            player.Area.Buffs.Clear(player.Id, ArcaneSurgeBuffRow, player.Id);
             state.PresentedArcaneSurge = 0;
             state.PendingStats = true;
         }
         state.ArcaneSurgeRefresh = false;
         if (arcane && state.PresentedArcaneSurge == 0)
         {
-            state.ArcaneSurgeBuff = conn.NextBuff++;
+            state.ArcaneSurgeBuff = player.NextBuff++;
             state.PresentedArcaneSurge = state.ArcaneSurgeBuff;
-            packets.Add(InstanceEntities.AddBuff(PlayerId, state.ArcaneSurgeBuff, ArcaneSurgeBuffRow, PlayerId,
-                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.ArcaneSurgeUntil - now))));
+            player.Area.Buffs.Set(player.Id, new(ArcaneSurgeBuffRow, player.Id, U68: Buff.Seconds(state.ArcaneSurgeUntil - now)));
             state.PendingStats = true;
         }
 
@@ -207,7 +203,7 @@ public static partial class Game
         if (state.PresentedCruelty != 0 && (crueltyPct == 0 || crueltyChanged
             || crueltyUntil - state.CrueltyShownUntil >= ArcaneSurgeRepresentSeconds))
         {
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCruelty));
+            player.Area.Buffs.Clear(player.Id, CrueltyBuffRow, player.Id);
             state.PresentedCruelty = 0;
             state.PresentedCrueltyPct = 0;
         }
@@ -216,13 +212,12 @@ public static partial class Game
         if (crueltyChanged) state.PendingStats = true;
         if (crueltyPct > 0 && state.PresentedCruelty == 0)
         {
-            state.CrueltyBuff = conn.NextBuff++;
+            state.CrueltyBuff = player.NextBuff++;
             state.PresentedCruelty = state.CrueltyBuff;
             state.PresentedCrueltyPct = crueltyPct;
             state.CrueltyShownUntil = crueltyUntil;
-            packets.Add(InstanceEntities.AddBuff(PlayerId, state.CrueltyBuff, CrueltyBuffRow, PlayerId,
-                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, crueltyUntil - now)),
-                u82: 0, values: [(uint)crueltyPct]));
+            player.Area.Buffs.Set(player.Id, new(CrueltyBuffRow, player.Id, U68: Buff.Seconds(crueltyUntil - now),
+                U82: 0, Values: [(uint)crueltyPct]));
         }
 
         // Inspiration charges last ten seconds (longer with the support's quality) and all of them expire together.
@@ -234,7 +229,7 @@ public static partial class Game
         int charges = state.InspirationCharges;
         if (state.PresentedInspiration != 0 && charges == 0)
         {
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedInspiration));
+            player.Area.Buffs.Clear(player.Id, RighteousChargeBuffRow, player.Id);
             state.PresentedInspiration = 0;
             state.PresentedInspirationCharges = 0;
             state.InspirationRefresh = false;
@@ -242,33 +237,27 @@ public static partial class Game
         if (charges > 0 && (state.PresentedInspiration == 0 || state.PresentedInspirationCharges != charges
             || state.InspirationRefresh))
         {
-            if (state.PresentedInspiration != 0)
-                packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedInspiration));
-            state.InspirationBuff = conn.NextBuff++;
+            state.InspirationBuff = player.NextBuff++;
             state.PresentedInspiration = state.InspirationBuff;
             state.PresentedInspirationCharges = charges;
-            packets.Add(InstanceEntities.AddBuff(PlayerId, state.InspirationBuff, RighteousChargeBuffRow, PlayerId,
-                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.InspirationUntil - now)),
-                stacks: (ushort)charges));
+            player.Area.Buffs.Set(player.Id, new(RighteousChargeBuffRow, player.Id, U68: Buff.Seconds(state.InspirationUntil - now),
+                Stacks: (ushort)charges));
             state.InspirationRefresh = false;
         }
         return packets;
     }
 
     /// <summary>The Arcane Surge, Cruelty and Inspiration buff instances and their stat refresh: a stat presentation.</summary>
-    public static async Task SendSupportGemBuffs(Player conn)
+    public static async Task SendSupportGemBuffs(Player player)
     {
         List<byte[]> packets;
         bool stats;
-        lock (conn.Monsters)
-        {
-            if (conn.Closed || conn.LeavingArea || conn.RageRetired
-                || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return;
-            packets = PresentationLocked(conn);
-            stats = conn.SupportGems.PendingStats;
-            conn.SupportGems.PendingStats = false;
-        }
-        foreach (var packet in packets) await Send(conn, packet, null);
-        if (stats) await SendCharacterStats(conn, PlayerStatChange.Sources);
+        if (player.Closed || player.LeavingArea || player.RageRetired
+            || (!player.Connection.PlayerObjectCreated && !player.Connection.PlayerSent)) return;
+        packets = PresentationLocked(player);
+        stats = player.SupportGems.PendingStats;
+        player.SupportGems.PendingStats = false;
+        foreach (var packet in packets) await Send(player, packet, null);
+        if (stats) await SendCharacterStats(player, PlayerStatChange.Sources);
     }
 }

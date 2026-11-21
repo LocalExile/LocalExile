@@ -127,25 +127,25 @@ public sealed class ScarabEncounterTests
         using var sources = GameEvents.PlayerStatSources.Add("scarab-regression", ShrineManager.AddStats);
         try
         {
-            await ShrineManager.SpawnArea(owner.Conn);
+            await ShrineManager.SpawnArea(owner.Player);
             string[] Ids() => instance.ContentState.Where(p => p.Key.StartsWith("Shrines/id/"))
                 .Select(p => p.Value).Order().ToArray();
             var ids = Ids();
             Assert.Equal(requested, ids.Length);
-            await ShrineManager.SpawnArea(peer.Conn);
+            await ShrineManager.SpawnArea(peer.Player);
             Assert.Equal(ids, Ids());
             var first = plan[0];
             uint id = uint.Parse(instance.ContentState[$"Shrines/id/{first.X}/{first.Y}"]);
-            owner.Conn.Walk.Teleport(first.X, first.Y, 0);
-            Assert.True(await ShrineManager.Use(owner.Conn, new(id, 0, 1, 0), 0));
+            owner.Player.Walk.Teleport(first.X, first.Y, 0);
+            Assert.True(await ShrineManager.Use(owner.Player, new(id, 0, 1, 0), 0));
             string claimed = $"Shrines/used/{first.X}/{first.Y}";
             Assert.True(instance.HasState(claimed));
-            await ShrineManager.LeaveArea(owner.Conn);
-            await ShrineManager.LeaveArea(peer.Conn);
-            await ShrineManager.SpawnArea(owner.Conn);
+            await ShrineManager.LeaveArea(owner.Player);
+            await ShrineManager.LeaveArea(peer.Player);
+            await ShrineManager.SpawnArea(owner.Player);
             Assert.Equal(ids, Ids());
             Assert.True(instance.HasState(claimed));
-            Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
+            Assert.Empty(ShrineManager.AddStats(owner.Player, []));
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var ambushMods = catalog.Of([ambushSlot], Program.Items.Mods);
             Assert.Equal(4, ambushMods.Get(MapStrongboxes.CountStat));
@@ -154,33 +154,32 @@ public sealed class ScarabEncounterTests
             boxInstance.AreaStats(() => Compose(ambushMods));
             await using var boxOwner = await Wire.Open(boxInstance, layout, seed);
             await using var boxPeer = await Wire.Open(boxInstance, layout, seed);
-            await MapStrongboxes.Enter(boxOwner.Conn);
+            await MapStrongboxes.Enter(boxOwner.Player);
             MapStrongboxes.Box[] Boxes() => System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(boxInstance.ContentState["Ambush/boxes"])!;
             var boxes = Boxes();
             Assert.Equal(4, boxes.Length);
-            await MapStrongboxes.Enter(boxPeer.Conn);
+            await MapStrongboxes.Enter(boxPeer.Player);
             Assert.Equal(boxes.Select(b => b.Id), Boxes().Select(b => b.Id));
             Assert.All(boxes, b => Assert.True(layout.Walkable!(b.X, b.Y)));
             var firstBox = boxes[0];
-            boxOwner.Conn.Walk.Teleport(firstBox.X, firstBox.Y, 0);
-            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(firstBox.Id, 0, 1, 0), 0));
+            boxOwner.Player.Walk.Teleport(firstBox.X, firstBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Player, new(firstBox.Id, 0, 1, 0), 0));
             var active = Boxes()[0];
             Assert.Equal(1, active.Phase);
             Assert.NotEmpty(active.Guards);
             Assert.Empty(active.Pending);
-            int guardCount = boxOwner.Conn.Monsters.Count;
-            Assert.True(await MapStrongboxes.Use(boxPeer.Conn, new(firstBox.Id, 0, 1, 0), 0));
-            Assert.Equal(guardCount, boxOwner.Conn.Monsters.Count);
-            lock (boxOwner.Conn.Monsters)
-                foreach (uint guard in active.Guards) { boxOwner.Conn.Monsters[guard].Dead = true; boxOwner.Conn.Monsters[guard].Life = 0; }
-            await MapStrongboxes.Tick(boxOwner.Conn);
+            int guardCount = boxOwner.Player.Area.Monsters.Count;
+            Assert.True(await MapStrongboxes.Use(boxPeer.Player, new(firstBox.Id, 0, 1, 0), 0));
+            Assert.Equal(guardCount, boxOwner.Player.Area.Monsters.Count);
+            foreach (uint guard in active.Guards) { boxOwner.Player.Area.Monsters[guard].Dead = true; boxOwner.Player.Area.Monsters[guard].Life = 0; }
+            await MapStrongboxes.Tick(boxOwner.Player);
             Assert.Equal(2, Boxes()[0].Phase);
             int rewardCount = boxInstance.Ground.All().Count();
             Assert.True(rewardCount > 0);
-            await MapStrongboxes.Tick(boxPeer.Conn);
+            await MapStrongboxes.Tick(boxPeer.Player);
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
-            MapStrongboxes.Leave(boxOwner.Conn);
-            await MapStrongboxes.Enter(boxOwner.Conn);
+            MapStrongboxes.Leave(boxOwner.Player);
+            await MapStrongboxes.Enter(boxOwner.Player);
             Assert.Equal(firstBox.Id, Boxes()[0].Id);
             Assert.Equal(2, Boxes()[0].Phase);
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
@@ -192,54 +191,54 @@ public sealed class ScarabEncounterTests
             essenceInstance.AreaStats(() => Compose(essenceMods));
             await using var essenceOwner = await Wire.Open(essenceInstance, layout, seed);
             await using var essencePeer = await Wire.Open(essenceInstance, layout, seed);
-            Assert.True(MapEssences.Count(essenceOwner.Conn) >= 3);
-            await MapEssences.Enter(essenceOwner.Conn);
+            Assert.True(MapEssences.Count(essenceOwner.Player) >= 3);
+            await MapEssences.Enter(essenceOwner.Player);
             MapEssences.Monolith[] Monoliths() => System.Text.Json.JsonSerializer.Deserialize<MapEssences.Monolith[]>(
                 essenceInstance.ContentState["Essence/monoliths"])!;
             var sealedMonoliths = Monoliths();
-            Assert.Equal(MapEssences.Count(essenceOwner.Conn), sealedMonoliths.Length);
-            await MapEssences.Enter(essencePeer.Conn);
+            Assert.Equal(MapEssences.Count(essenceOwner.Player), sealedMonoliths.Length);
+            await MapEssences.Enter(essencePeer.Player);
             Assert.Equal(sealedMonoliths.Select(m => m.Id), Monoliths().Select(m => m.Id));
             var firstMonolith = sealedMonoliths[0];
             var naturalRare = extra.First(s => s.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Rare
                 && ordinary.Scattered.Any(p => p.Pack.Id == s.Pack));
-            Assert.True(await MapEssences.Imprison(essenceOwner.Conn, naturalRare));
+            Assert.True(await MapEssences.Imprison(essenceOwner.Player, naturalRare));
             Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
             var converted = Monoliths()[^1];
             Assert.Equal(Game.Monsters.Find(naturalRare.Variety.ToString())!.Id, converted.Variety);
-            Assert.Empty(essenceOwner.Conn.Monsters);
-            Assert.True(await MapEssences.Imprison(essencePeer.Conn, naturalRare));
+            Assert.Empty(essenceOwner.Player.Area.Monsters);
+            Assert.True(await MapEssences.Imprison(essencePeer.Player, naturalRare));
             Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
-            Assert.False(await MapEssences.Imprison(essenceOwner.Conn, naturalRare with { Rarity = GameServer.Core.Protocol.Instance.MonsterRarity.Unique }));
-            Assert.False(await MapEssences.Imprison(essenceOwner.Conn, naturalRare with { Pack = MapScarabPacks.Packs[0].Id }));
-            essenceOwner.Conn.Walk.Teleport(firstMonolith.X + 8, firstMonolith.Y, 0);
+            Assert.False(await MapEssences.Imprison(essenceOwner.Player, naturalRare with { Rarity = GameServer.Core.Protocol.Instance.MonsterRarity.Unique }));
+            Assert.False(await MapEssences.Imprison(essenceOwner.Player, naturalRare with { Pack = MapScarabPacks.Packs[0].Id }));
+            essenceOwner.Player.Walk.Teleport(firstMonolith.X + 8, firstMonolith.Y, 0);
             for (byte stage = 2; stage <= 4; stage++)
             {
-                Assert.True(await MapEssences.Use(essenceOwner.Conn, new(firstMonolith.Id, 0, stage, 0), 0));
+                Assert.True(await MapEssences.Use(essenceOwner.Player, new(firstMonolith.Id, 0, stage, 0), 0));
                 Assert.Equal(stage, Monoliths()[0].Stage);
-                Assert.Equal(stage == 4 ? 1 : 0, essenceOwner.Conn.Monsters.Count);
+                Assert.Equal(stage == 4 ? 1 : 0, essenceOwner.Player.Area.Monsters.Count);
             }
             var released = Monoliths()[0];
             Assert.True(released.Monster > 0);
-            var monster = essenceOwner.Conn.Monsters[released.Monster];
+            var monster = essenceOwner.Player.Area.Monsters[released.Monster];
             Assert.Equal(released.Monster, monster.ObjectId);
             Assert.Equal(GameServer.Core.Protocol.Instance.MonsterRarity.Rare, monster.Rarity);
             Assert.Contains(monster.Mods.Mods, m => firstMonolith.Essences.Select(MapEssenceCatalog.Find)
                 .OfType<MapEssenceCatalog.Essence>().SelectMany(e => e.MonsterMods)
                 .Any(row => Program.Items.Mods.Row(row)!.Hash == m.Hash));
-            var wrongMonster = new DropRoll(essenceOwner.Conn, Game.ModMonster(monster, (released.X, released.Y)) with { ObjectId = released.Monster + 1 });
+            var wrongMonster = new DropRoll(essenceOwner.Player, Game.ModMonster(monster, (released.X, released.Y)) with { ObjectId = released.Monster + 1 });
             MapEssences.Drops(wrongMonster);
             Assert.Empty(wrongMonster.Items);
-            var rewards = new DropRoll(essenceOwner.Conn, Game.ModMonster(monster, (released.X, released.Y)));
+            var rewards = new DropRoll(essenceOwner.Player, Game.ModMonster(monster, (released.X, released.Y)));
             MapEssences.Drops(rewards);
             Assert.Equal(released.Essences.Select(e => MapEssenceCatalog.Find(e)!.Item), rewards.Items);
-            var duplicate = new DropRoll(essencePeer.Conn, rewards.Monster);
+            var duplicate = new DropRoll(essencePeer.Player, rewards.Monster);
             MapEssences.Drops(duplicate);
             Assert.Empty(duplicate.Items);
-            await MapEssences.Use(essencePeer.Conn, new(firstMonolith.Id, 0, 5, 0), 0);
-            Assert.Single(essenceOwner.Conn.Monsters);
-            MapEssences.Leave(essenceOwner.Conn);
-            await MapEssences.Enter(essenceOwner.Conn);
+            await MapEssences.Use(essencePeer.Player, new(firstMonolith.Id, 0, 5, 0), 0);
+            Assert.Single(essenceOwner.Player.Area.Monsters);
+            MapEssences.Leave(essenceOwner.Player);
+            await MapEssences.Enter(essenceOwner.Player);
             Assert.Equal((released.Id, released.Stage, released.Monster), (Monoliths()[0].Id, Monoliths()[0].Stage, Monoliths()[0].Monster));
             Assert.Equal(released.Essences, Monoliths()[0].Essences);
             var terrorStats = new Dictionary<uint, int>(catalog.Of([slot, Slot("ScarabDomination4")], Program.Items.Mods).Stats)
@@ -252,7 +251,7 @@ public sealed class ScarabEncounterTests
             terrorInstance.OpenedWith(new("TerrorsOwner", new(layout.Hash, area.Id, "Strand", 3) { Level = 70 }, terrorMods));
             terrorInstance.AreaStats(() => Compose(terrorMods));
             await using var terrors = await Wire.Open(terrorInstance, layout, seed);
-            var terrorGuards = MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []);
+            var terrorGuards = MapScarabBosses.Guards(terrors.Player, [.. plan.Select(p => (p.X, p.Y))], []);
             Assert.Equal(plan.Count, terrorGuards.Count);
             Assert.All(terrorGuards, s =>
             {
@@ -260,27 +259,27 @@ public sealed class ScarabEncounterTests
                 Assert.Equal(MapScarabBosses.PackId, s.Pack);
                 Assert.Contains("Standalone", Game.Monsters.Find(s.Variety.ToString())!.Id);
             });
-            Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []));
+            Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Player, [.. plan.Select(p => (p.X, p.Y))], []));
             var guardPlan = terrorGuards[0];
             var guardVariety = Game.Monsters.Find(guardPlan.Variety.ToString())!;
-            uint bossId = await Game.SpawnMonster(terrors.Conn, guardVariety, 70, guardPlan.Rarity, guardPlan.X, guardPlan.Y, unrisen: false);
-            var boss = terrors.Conn.Monsters[bossId];
+            uint bossId = await Game.SpawnMonster(terrors.Player, guardVariety, 70, guardPlan.Rarity, guardPlan.X, guardPlan.Y, unrisen: false);
+            var boss = terrors.Player.Area.Monsters[bossId];
             Assert.Equal(40, boss.Mods.Effects[Stat.MaximumLifePlusPct]);
             Assert.Equal(30, boss.Mods.Effects[Stat.DamagePlusPct]);
             Assert.Equal(20, boss.Mods.Effects[Stat.AttackSpeedPlusPct]);
             Assert.Equal(20, boss.Mods.Effects[Stat.BaseCastSpeedPlusPct]);
-            PlayerInventories.Forget(terrors.Conn.Character!);
-            PlayerInventories.Forget(essenceOwner.Conn.Character!);
-            PlayerInventories.Forget(essencePeer.Conn.Character!);
-            PlayerInventories.Forget(boxOwner.Conn.Character!);
-            PlayerInventories.Forget(boxPeer.Conn.Character!);
+            PlayerInventories.Forget(terrors.Player.Character.Name!);
+            PlayerInventories.Forget(essenceOwner.Player.Character.Name!);
+            PlayerInventories.Forget(essencePeer.Player.Character.Name!);
+            PlayerInventories.Forget(boxOwner.Player.Character.Name!);
+            PlayerInventories.Forget(boxPeer.Player.Character.Name!);
         }
         finally
         {
-            await ShrineManager.LeaveArea(owner.Conn);
-            await ShrineManager.LeaveArea(peer.Conn);
-            PlayerInventories.Forget(owner.Conn.Character!);
-            PlayerInventories.Forget(peer.Conn.Character!);
+            await ShrineManager.LeaveArea(owner.Player);
+            await ShrineManager.LeaveArea(peer.Player);
+            PlayerInventories.Forget(owner.Player.Character.Name!);
+            PlayerInventories.Forget(peer.Player.Character.Name!);
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
@@ -291,10 +290,10 @@ public sealed class ScarabEncounterTests
     [Fact]
     public void Named_content_diagnostics_keep_item_provenance_and_allow_enabled_providers_in_either_order()
     {
-        var conn = new Player(new(1, "scarab-diagnostics", 100, 100, 10, 10, null, []), 1, 1)
-            { Character = "ScarabDiagnostics" };
+        var player = new Player(new(1, "scarab-diagnostics", 100, 100, 10, 10, null, []), 1, 1)
+            { Character = { Name = "ScarabDiagnostics" } };
         var opening = new MapDevice.Opening(new(1, "MapWorldsStrand", "Strand Map", 3), MapMods.None);
-        MapOpening Request(params string[] names) => new(conn, names.Select(Slot).ToArray(), false, opening, "");
+        MapOpening Request(params string[] names) => new(player, names.Select(Slot).ToArray(), false, opening, "");
         var unsupported = Request("ScarabBreachNew3", "ScarabLegionNew1");
         MapScarabContent.Describe(unsupported);
         Assert.Equal(2, unsupported.UnhandledContent.Count());
@@ -351,9 +350,9 @@ public sealed class ScarabEncounterTests
         Assert.Empty(terrors.UnhandledContent);
     }
 
-    sealed class Wire(TcpClient writer, TcpClient reader, Player conn, Task drain) : IAsyncDisposable
+    sealed class Wire(TcpClient writer, TcpClient reader, Player player, Task drain) : IAsyncDisposable
     {
-        public Player Conn => conn;
+        public Player Player => player;
         public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -362,23 +361,23 @@ public sealed class ScarabEncounterTests
             var writer = new TcpClient();
             await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             var reader = await accepting;
-            var conn = new Player(layout, 1, seed)
+            var player = new Player(layout, 1, seed)
             {
-                // A predictive client: the test leaves and re-enters on one connection, whose world output (a lockstep
-                // client's) would still hold the shrines published at the first entry.
-                LockstepClient = false,
-                Character = "ScarabMap" + Guid.NewGuid().ToString("N"), Instance = instance,
-                PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true, Pools = new(70, 1000, 1000, 1000, 0),
+                Connection = { LockstepClient = false, PlayerSent = true, Session = new("scarab-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)) },
+                Character = { Name = "ScarabMap" + Guid.NewGuid().ToString("N") },
+                Instance = instance,
+                PlayerLife = 1000,
+                PlayerMana = 1000,
+                Pools = new(70, 1000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("scarab-test", "Standard", false, false),
-                    new HashSet<string>(["Game", "scarab-regression"])),
-                Session = new("scarab-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
+                    new HashSet<string>(["Game", "scarab-regression"]))
             };
-            conn.Clock.Stop();
-            return new(writer, reader, conn, reader.GetStream().CopyToAsync(Stream.Null));
+            player.Clock.Stop();
+            return new(writer, reader, player, reader.GetStream().CopyToAsync(Stream.Null));
         }
         public async ValueTask DisposeAsync()
         {
-            Conn.Closed = true;
+            Player.Closed = true;
             writer.Dispose();
             await drain;
             reader.Dispose();

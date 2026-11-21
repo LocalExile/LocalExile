@@ -1,4 +1,4 @@
-/// <summary>LocalExile incoming-contact model v1. Owned by one area connection; use under its Monsters lock.</summary>
+/// <summary>LocalExile incoming-contact model v1. Owned by one area connection; use in the area's frame.</summary>
 public sealed class RecentEnemyHits
 {
     public const uint Counter = Stat.NumberOfTimesHaveBeenHitByEnemyRecently;

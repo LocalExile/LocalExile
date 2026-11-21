@@ -9,58 +9,58 @@ static partial class Game
 
     // One paid use has a single melee contact and a volley. Both start at the strike's contact keyframe;
     // the client already draws the bolts. A melee victim is excluded from this volley's contacts.
-    internal static Task ScheduleLightningStrike(Player conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    internal static Task ScheduleLightningStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
         CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
     {
-        var session = ProjectilesFor(conn);
+        var session = ProjectilesFor(player);
         session.Advance();
-        double acceptedAt = swingAt ?? ProjectileWorldTime(conn);
-        double duration = SupportedAttackSeconds(conn, skillId);
-        double contact = GemAttackContactDelay(conn, gem.Effect, duration, out _, out _);
-        int repeats = MeleeAttackRepeats(conn, skillId);
-        int action = conn.ActionCount;
-        var stats = SupportedSkill(conn, skillId).Stats;
-        double ruthless = RuthlessBlowMore(conn, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
-        bool Valid() => session.Active && conn.ActionInterruptionGeneration == recoveryGeneration
-            && (ticket?.Current(conn) ?? PlayerStateAllowsAction(conn))
-            && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
+        double acceptedAt = swingAt ?? ProjectileWorldTime(player);
+        double duration = SupportedAttackSeconds(player, skillId);
+        double contact = GemAttackContactDelay(player, gem.Effect, duration, out _, out _);
+        int repeats = MeleeAttackRepeats(player, skillId);
+        int action = player.ActionCount;
+        var stats = SupportedSkill(player, skillId).Stats;
+        double ruthless = RuthlessBlowMore(player, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
+        bool Valid() => session.Active && player.ActionInterruptionGeneration == recoveryGeneration
+            && (ticket?.Current(player) ?? PlayerStateAllowsAction(player))
+            && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
         for (int repeat = 0; repeat <= repeats; repeat++)
         {
             int index = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
-                () => Valid() && (index == 0 || conn.ActionCount == action), () =>
-                ReleaseLightningStrike(conn, session, skillId, gem, from, aim, targetId,
+                () => Valid() && (index == 0 || player.ActionCount == action), () =>
+                ReleaseLightningStrike(player, session, skillId, gem, from, aim, targetId,
                     criticalRoll, sequence, index, cryExerted, ruthless));
         }
         return Task.CompletedTask;
     }
 
-    internal static ProjectileUse ReleaseLightningStrike(Player conn, ProjectileSession session, ushort skillId,
+    internal static ProjectileUse ReleaseLightningStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0,
         bool cryExerted = false, double? ruthlessMore = null)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        uint primary = LightningStrikeTarget(conn, from, aim, targetId, now);
+        uint primary = LightningStrikeTarget(player, from, aim, targetId, now);
         bool hit = false;
         ProjectileActorKey? excluded = null;
-        double more = MeleeRepeatDamageMore(conn, skillId, repeat);
-        if (primary != 0 && conn.Monsters.TryGetValue(primary, out var monster))
+        double more = MeleeRepeatDamageMore(player, skillId, repeat);
+        if (primary != 0 && player.Area.Monsters.TryGetValue(primary, out var monster))
         {
             excluded = session.ActorKey(primary, monster);
             var at = monster.Walk.Position(now);
             // Immediate means the scheduler already waited for contact. Selection is one strike, not the
             // generic area approximation, and its success is known before presentation can await network IO.
-            var melee = AreaSkillHitForUse(ruthlessMore, conn, skillId, gem, from, at,
+            var melee = AreaSkillHitForUse(ruthlessMore, player, skillId, gem, from, at,
                 immediate: true, sequence: sequence, criticalRoll: criticalRoll, targetId: primary,
-                radiusOverride: WeaponFor(conn).Range + monster.StopRange, damageMore: more,
+                radiusOverride: WeaponFor(player).Range + monster.StopRange, damageMore: more,
                 singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session, cryExerted: cryExerted, repeat: repeat);
             if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled Lightning Strike contact must not yield.");
             melee.GetAwaiter().GetResult();
         }
-        var use = ClientDrawnVolley(conn, session, skillId, gem,
-            CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted), sequence, 0);
+        var use = ClientDrawnVolley(player, session, skillId, gem,
+            CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted), sequence, 0);
         var shot = (ProjectileOffense)use.Payload!;
         return use with
         {
@@ -77,13 +77,13 @@ static partial class Game
         };
     }
 
-    internal static uint LightningStrikeTarget(Player conn, (int X, int Y) from, (int X, int Y) aim,
+    internal static uint LightningStrikeTarget(Player player, (int X, int Y) from, (int X, int Y) aim,
         uint targetId, double now)
     {
-        var weapon = WeaponFor(conn);
-        return conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
+        var weapon = WeaponFor(player);
+        return player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                 && (targetId == 0 || e.Key == targetId)
-                && SwingInReach(conn, e.Value, from, e.Value.Walk.Position(now), weapon.Range + 2)
+                && SwingInReach(player, e.Value, from, e.Value.Walk.Position(now), weapon.Range + 2)
                 && (targetId != 0 || Dist(e.Value.Walk.Position(now), aim) <= weapon.Range + e.Value.StopRange))
             .OrderBy(e => Dist(e.Value.Walk.Position(now), aim)).ThenBy(e => e.Key)
             .Select(e => e.Key).FirstOrDefault();
@@ -94,26 +94,25 @@ static partial class Game
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
         MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true)
     {
-        var conn = session.Conn;
+        var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        if (hit.Life == 0) session.Packet(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]));
-        if (HitReaction.TryFlinch(monster, stun, now, AreaRng(conn)))
+        if (hit.Life == 0) SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+        if (HitReaction.TryFlinch(monster, stun, now, AreaRng(player)))
         {
             double until = monster.FlinchUntil;
-            session.Packet(() => TakeHitPacket(conn, id, monster, until, now));
+            session.Packet(() => TakeHitPacket(player, id, monster, until, now));
         }
-        var player = conn.Walk.Position(now);
+        var playerAt = player.Walk.Position(now);
         var target = monster.Walk.Position(now);
-        session.Packet(InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
-            kind: 3, angle: HitAngle(target.X - player.X, target.Y - player.Y)));
-        session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
-            $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
+        session.Packet(InstanceProtocol.ActionHit(player.Id, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
+            kind: 3, angle: HitAngle(target.X - playerAt.X, target.Y - playerAt.Y)));
+        Note($"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {
-            CommitProjectileCritFlasks(session, now, AreaRng(conn));
-            session.Enqueue(() => MaybeCreateProfaneGround(conn, target));
+            CommitProjectileCritFlasks(session, now, AreaRng(player));
+            session.Enqueue(() => MaybeCreateProfaneGround(player, target));
         }
-        if (settleKill && hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, AreaRng(conn));
-        if (monster.ThresholdReached) session.Enqueue(() => QuestThreshold(conn, id, monster));
+        if (settleKill && hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, AreaRng(player));
+        if (monster.ThresholdReached) session.Enqueue(() => QuestThreshold(player, id, monster));
     }
 }

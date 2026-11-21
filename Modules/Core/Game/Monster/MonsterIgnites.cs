@@ -43,28 +43,38 @@ public static partial class Game
             ? ignite with { DamagePerSecond = ignite.DamagePerSecond * faster, RemainingSeconds = seconds } : null;
     }
 
-    /// <summary>Puts a worked-out ignite on a living monster (under the Monsters lock): the packets that show it
+    /// <summary>Puts a worked-out ignite on a living monster (in the area's frame): the packets that show it
     /// (<see cref="ShowIgnitedLocked"/>), or null when nothing was added.</summary>
-    public static List<byte[]>? IgniteLocked(Player conn, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
+    public static List<byte[]>? IgniteLocked(Player player, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
     {
         if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
-                aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
-        return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
+                aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+        return ShowDotBuffLocked(player, id, m.Ignites, IgnitedBuffRow, now);
     }
 
     // The ignited (or bleeding) buff's timer runs to the monster's last ignite's (bleed's) end: every new one sends it
-    // again (the old instance off first). Under the Monsters lock.
-    static List<byte[]> ShowDotBuffLocked(Player conn, uint id, MonsterIgnites set, ushort row, double now)
+    // again (the old instance off first). In the area's frame.
+    static List<byte[]> ShowDotBuffLocked(Player player, uint id, MonsterIgnites set, ushort row, double now)
     {
-        var packets = new List<byte[]>();
-        if (set.Buff is ushort old) packets.Add(InstanceEntities.RemoveBuff(id, old));
-        ushort buff = conn.NextBuff++;
-        set.Buff = buff;
-        packets.Add(InstanceEntities.AddBuff(id, buff, row, PlayerId,
-            u68: BitConverter.SingleToUInt32Bits((float)set.RemainingBase(now)),
-            visual: row == IgnitedBuffRow ? AilmentArtVisual(conn, "ignite")
-                : row == LabyrinthTrials.BleedingBuffRow ? AilmentArtVisual(conn, "bleed") : null));
-        return packets;
+        ShowDot(player, id, ref set.Buff, ref set.BuffSource, new(row, player.Id, U68: Buff.Seconds(set.RemainingBase(now)),
+            Visual: row == IgnitedBuffRow ? AilmentArtVisual(player, "ignite")
+                : row == LabyrinthTrials.BleedingBuffRow ? AilmentArtVisual(player, "bleed") : null));
+        return [];
+    }
+
+    // A damage-over-time set's buff on an entity: one row from one source (the set keeps its key), set when it starts or
+    // its end moves; another source's or row's goes first.
+    internal static void ShowDot(Player player, uint id, ref ushort? row, ref uint source, Buff buff)
+    {
+        if (row is ushort shown && (shown != buff.Row || source != buff.Source)) player.Area.Buffs.Clear(id, shown, source);
+        player.Area.Buffs.Set(id, buff);
+        (row, source) = (buff.Row, buff.Source);
+    }
+
+    internal static void EndDot(Player player, uint id, ref ushort? row, uint source)
+    {
+        if (row is ushort shown) player.Area.Buffs.Clear(id, shown, source);
+        row = null;
     }
 
     // The art of the ailments the player causes: BuffVisualsArtVariations' Id and the derived stat SkillArtVariations
@@ -78,51 +88,51 @@ public static partial class Game
 
     /// <summary>Notes the art of the ailments this skill's use can cause (AilmentArt), where its ignite is worked out:
     /// its gem's worn Skill Gem Effect's stats and the character's cosmetics, by the client's rules (DerivedArt).</summary>
-    public static void NoteIgniteArt(Player conn, ushort skillId)
+    public static void NoteIgniteArt(Player player, ushort skillId)
     {
         var worn = new Dictionary<uint, int>();
-        uint gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
+        uint gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId).Gem;
         if (gem != 0)
-            foreach (var (key, cosmetic) in CharacterSaves.SkillCosmetics(CharacterName(conn)))
+            foreach (var (key, cosmetic) in CharacterSaves.SkillCosmetics(CharacterName(player)))
                 if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Resolve(cosmetic) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                     foreach (var (k, v) in fx.Stats) worn[k] = v;
-        var derived = SkillCosmeticDerivedStats(conn, worn).ToDictionary(s => s.Stat, s => s.Value);
-        var noted = AilmentArt.GetOrCreateValue(conn);
+        var derived = SkillCosmeticDerivedStats(player, worn).ToDictionary(s => s.Stat, s => s.Value);
+        var noted = AilmentArt.GetOrCreateValue(player);
         foreach (var (buff, stat) in AilmentArtStats)
             noted[buff] = stat is var key ? derived.GetValueOrDefault(key) : 0;
     }
 
     /// <summary>The settings as given, with the skill's ignite art noted (for an object initializer).</summary>
-    public static MonsterIgnites.Settings NotedIgnite(Player conn, ushort skillId, MonsterIgnites.Settings settings)
+    public static MonsterIgnites.Settings NotedIgnite(Player player, ushort skillId, MonsterIgnites.Settings settings)
     {
-        NoteIgniteArt(conn, skillId);
+        NoteIgniteArt(player, skillId);
         return settings;
     }
 
     /// <summary>The BuffVisuals row an ailment's buff shows ("ignite", "poison", "bleed"), null for the buff's own.</summary>
-    public static ushort? AilmentArtVisual(Player conn, string buff) =>
-        AilmentArt.TryGetValue(conn, out var art) && art.GetValueOrDefault(buff) is int variation and not 0
+    public static ushort? AilmentArtVisual(Player player, string buff) =>
+        AilmentArt.TryGetValue(player, out var art) && art.GetValueOrDefault(buff) is int variation and not 0
             ? Art.BuffVisual(buff, variation) : null;
 
     /// <summary>What a skill's hit can ignite with, as a projectile captures it at release: the skill's ignite rows in the
     /// main hand for an attack (the spell's for a spell; <paramref name="weapon"/>: a shield skill's shield) and the
     /// chance from <paramref name="player"/> and the skill's stats.</summary>
-    public static MonsterIgnites.Settings SupportedIgnite(Player conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
+    public static MonsterIgnites.Settings SupportedIgnite(Player player, ushort skillId, bool spell,
+        IReadOnlyDictionary<uint, int> playerStats, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null)
     {
         Func<uint, int> get;
         if (capturedInputs is null)
         {
-            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            var merged = MergeSkillStats(playerStats, SupportedSkill(player, skillId).Stats);
             get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
         }
         else
             get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
-        NoteIgniteArt(conn, skillId);
+        NoteIgniteArt(player, skillId);
         var rows = capturedInputs is null
-            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased)
+            ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
         var settings = MonsterIgnites.Settings.From(rows, hand, get);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
@@ -130,14 +140,14 @@ public static partial class Game
         if (per > 0)
         {
             int cap = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
-            int recent = RecentlyIgnitedCount(conn, ProjectileWorldTime(conn));
+            int recent = RecentlyIgnitedCount(player, ProjectileWorldTime(player));
             long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
             double more = Math.Max(0, 1 + added / 100.0);
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }
-        return WithOverheat(conn, skillId,
-            WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand));
+        return WithOverheat(player, skillId,
+            WithIgniteSpread(settings, playerStats, SupportedSkill(player, skillId).Stats, spell, hand));
     }
 
     /// <summary>The attacker's ignite proliferation radius in cells, the largest of its sources: Ignite Proliferation
@@ -169,33 +179,32 @@ public static partial class Game
     }
 
     /// <summary>How many enemies were ignited in the last four seconds (Controlled Blaze).</summary>
-    public static int RecentlyIgnitedCount(Player conn, double now)
+    public static int RecentlyIgnitedCount(Player player, double now)
     {
-        lock (conn.Monsters)
-            return conn.Monsters.Values.Count(m => m.Ignites.LastApplied > 0 && m.Ignites.LastApplied >= now - 4);
+        return player.Area.Monsters.Values.Count(m => m.Ignites.LastApplied > 0 && m.Ignites.LastApplied >= now - 4);
     }
 
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
     /// main-hand rows from the weapon's raw packet and the character's conversion.</summary>
-    public static MonsterIgnites.Settings DefaultAttackIgnite(Player conn, IReadOnlyDictionary<uint, int> player,
+    public static MonsterIgnites.Settings DefaultAttackIgnite(Player player, IReadOnlyDictionary<uint, int> playerStats,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
-        int Get(uint key) => player.GetValueOrDefault(key);
-        var sourceWeapon = weapon ?? WeaponFor(conn);
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
+        var sourceWeapon = weapon ?? WeaponFor(player);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
             Get, additionalIncreased),
-            "main_hand", Get), player, null, spell: false, "main_hand");
+            "main_hand", Get), playerStats, null, spell: false, "main_hand");
     }
 
     // Called under the combat lock at an accepted hit that dealt fire damage and left the monster alive: the hit's ignite
     // (MonsterIgnites.TryApply, its duration less by the target's base_self_ignite_duration_-%), and the packets of the
     // monster's ignited buff, or null when it did not ignite.
-    public static List<byte[]>? IgniteOnHitLocked(Player conn, uint id, SpawnedMonster target,
+    public static List<byte[]>? IgniteOnHitLocked(Player player, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool playerIgnite = true) =>
-        IgniteOnHitLocked(conn, id, target, settings, critical, now, default(AttackAilmentGains), playerIgnite);
+        IgniteOnHitLocked(player, id, target, settings, critical, now, default(AttackAilmentGains), playerIgnite);
 
-    public static List<byte[]>? IgniteOnHitLocked(Player conn, uint id, SpawnedMonster target,
+    public static List<byte[]>? IgniteOnHitLocked(Player player, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
         bool playerIgnite = true)
     {
@@ -203,8 +212,8 @@ public static partial class Game
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e[Stat.AvoidIgnitePct],
-                e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, conn.IgniteRandom,
-                UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+                e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, player.IgniteRandom,
+                UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {
@@ -215,11 +224,11 @@ public static partial class Game
         }
         if (playerIgnite && target.Hostile)
         {
-            conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
-            HerEmbraceOnIgniteLocked(conn, now);
-            GainFromAttackAilmentLocked(conn, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
+            player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+            HerEmbraceOnIgniteLocked(player, now);
+            GainFromAttackAilmentLocked(player, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
         }
-        return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
+        return ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
     }
 
     public static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>
@@ -235,7 +244,7 @@ public static partial class Game
         bool playerIgnite = true)
     {
         // The log is built only for a hit that ignited: formatting it for every hit of an explosion was its own cost.
-        if (IgniteOnHitLocked(session.Conn, id, target, settings, critical, now, attackGains, playerIgnite) is { Count: > 0 } packets)
+        if (IgniteOnHitLocked(session.Player, id, target, settings, critical, now, attackGains, playerIgnite) is { Count: > 0 } packets)
             QueueDotBuff(session, packets, IgnitedLog(id, target, critical, now));
     }
 
@@ -247,37 +256,36 @@ public static partial class Game
     }
 
     // Sends a hit's ignited or bleeding buff packets (IgniteOnHitLocked, BleedOnHitLocked) after the lock.
-    static async Task SendDotBuff(Player conn, List<byte[]>? packets,
+    static async Task SendDotBuff(Player player, List<byte[]>? packets,
         string log)
     {
         if (packets is null) return;
         for (int i = 0; i < packets.Count; i++)
-            await Send(conn, packets[i], i < packets.Count - 1 ? null : "0x01c1 " + log);
+            await Send(player, packets[i], i < packets.Count - 1 ? null : "0x01c1 " + log);
     }
 
     // One tick of the ignited monsters (the area's monster damage over time): the strongest ignite's fire damage through the monster's
     // resistance and damage taken (MonsterDotTaken), the buff off when the last ignite ends, and kills, as Righteous
     // Fire's burn (BurnAround) commits them. They burn on while the player is dead (the kill then gives no experience,
     // MonsterKilled).
-    public static Task BurnIgnited(Player conn) =>
-        TickStrongestDots(conn, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
+    public static Task BurnIgnited(Player player) =>
+        TickStrongestDots(player, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
             "burnt to death by ignite");
 
     // One tick of a strongest-only set (ignites, bleeds: <paramref name="of"/>), <paramref name="factor"/> the monster's
     // mitigation of it, <paramref name="aggravated"/> the strongest aggravated bleed's extra share (MonsterIgnites.Advance).
-    static async Task TickStrongestDots(Player conn,
+    static async Task TickStrongestDots(Player player,
         Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died,
         Func<SpawnedMonster, double, double>? aggravated = null, Action<SpawnedMonster, double>? settle = null)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
-        var ended = new List<(uint Id, ushort Buff)>();
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(player))
         {
-            if (conn.Closed || conn.LeavingArea) return;
-            double now = ProjectileWorldTime(conn);
-            foreach (var (id, m) in conn.Monsters)
+            if (player.Closed || player.LeavingArea) return;
+            double now = ProjectileWorldTime(player);
+            foreach (var (id, m) in player.Area.Monsters)
             {
-                if (OwnedGolemActor(conn, id, m)) continue;
+                if (OwnedGolemActor(player, id, m)) continue;
                 var set = of(m);
                 if (set.Idle) continue;
                 int damage = 0;
@@ -287,41 +295,30 @@ public static partial class Game
                     settle?.Invoke(m, now);
                     damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
                 }
-                if (!set.Burning && set.Buff is ushort gone) { ended.Add((id, gone)); set.Buff = null; }
+                if (!set.Burning) EndDot(player, id, ref set.Buff, set.BuffSource);
                 if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
                     m.Dead = true;
-                    CollectVaalSoulAtDeathLocked(conn, m);
+                    CollectVaalSoulAtDeathLocked(player, m);
+                    EndDot(player, id, ref set.Buff, set.BuffSource);
                     set.Clear(burnt: true);
-                    if (set.Buff is ushort buff) { ended.Add((id, buff)); set.Buff = null; }
                 }
                 hits.Add((id, m, m.Life, damage));
-                if (stageStarts) CommitBossStage(conn, id, m, now);
+                if (stageStarts) CommitBossStage(player, id, m, now);
             }
-        }
-        foreach (var (id, buff) in ended)
-        {
-            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
-            // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
-            ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
         }
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
             {
-                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]), null);
-                if (m.Poisons.Buff is ushort pbuff)
-                {
-                    await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, pbuff), null);
-                    m.Poisons.Buff = null;
-                }
+                SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+                EndDot(player, id, ref m.Poisons.Buff, m.Poisons.BuffSource);
             }
-            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
-                life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
-            if (life == 0) await DotKilled(conn, id, m);
+            Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
+            if (life == 0) await DotKilled(player, id, m);
         }
     }
 }

@@ -36,7 +36,7 @@ public sealed class HitAndKillRecoveryTests
 
         // A hit that leaves the enemy at the threshold kills it.
         {
-            var conn = new Player(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500,
             };
@@ -45,38 +45,38 @@ public sealed class HitAndKillRecoveryTests
                 { Mods = mods ?? MonsterModSet.None };
 
             var above = Monster();
-            Assert.Equal(101u, Game.TakeOwnerHitLocked(conn, above, 899, cull).Life);
-            Assert.Equal(500u, conn.PlayerLife);
+            Assert.Equal(101u, Game.TakeOwnerHitLocked(player, above, 899, cull).Life);
+            Assert.Equal(500u, player.PlayerLife);
 
             var at = Monster();
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, at, 900, cull).Life);
-            Assert.Equal(520u, conn.PlayerLife);   // 2% of 1000 maximum Life
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, at, 900, cull).Life);
+            Assert.Equal(520u, player.PlayerLife);   // 2% of 1000 maximum Life
 
             var immune = Monster(new([], [], new(new Dictionary<uint, int> { [Stat.ImmuneToCullingStrike] = 1 })));
-            Assert.Equal(100u, Game.TakeOwnerHitLocked(conn, immune, 900, cull).Life);
-            Assert.Equal(100u, Game.TakeOwnerHitLocked(conn, Monster(), 900, default).Life);
+            Assert.Equal(100u, Game.TakeOwnerHitLocked(player, immune, 900, cull).Life);
+            Assert.Equal(100u, Game.TakeOwnerHitLocked(player, Monster(), 900, default).Life);
 
             // The default melee producer calls this shared hit commit directly; generic area/projectile consumers
             // additionally call ApplyMonsterHitLocked. Both must record only the direct hit's excess Life damage.
             var genericOverkill = Monster();
-            Assert.NotNull(Game.ApplyMonsterHitLocked(conn, genericOverkill, 1500));
+            Assert.NotNull(Game.ApplyMonsterHitLocked(player, genericOverkill, 1500));
             Assert.Equal(500, genericOverkill.Overkill);
             var meleeOverkill = Monster();
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, meleeOverkill, 1500, default).Life);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, meleeOverkill, 1500, default).Life);
             Console.WriteLine($"#504 shared hit overkill generic={genericOverkill.Overkill} defaultMelee={meleeOverkill.Overkill} expected=500");
             Assert.Equal(500, meleeOverkill.Overkill);
             var exactKill = Monster();
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, exactKill, 1000, default).Life);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, exactKill, 1000, default).Life);
             Assert.Equal(0, exactKill.Overkill);
             var culled = Monster();
-            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, culled, 900, cull).Life);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(player, culled, 900, cull).Life);
             Assert.Equal(0, culled.Overkill);
             var pacifist = Monster();
-            Assert.Equal(1u, Game.TakeOwnerHitLocked(conn, pacifist, 5000, new(0, 0, CannotKill: true)).Life);
+            Assert.Equal(1u, Game.TakeOwnerHitLocked(player, pacifist, 5000, new(0, 0, CannotKill: true)).Life);
             Assert.Equal(0, pacifist.Overkill);
             var protectedTarget = Monster();
             protectedTarget.KingGrace = true;
-            Assert.Equal(1000u, Game.TakeOwnerHitLocked(conn, protectedTarget, 5000, default).Life);
+            Assert.Equal(1000u, Game.TakeOwnerHitLocked(player, protectedTarget, 5000, default).Life);
             Assert.Equal(0, protectedTarget.Overkill);
         }
 
@@ -87,7 +87,7 @@ public sealed class HitAndKillRecoveryTests
 
         // Every enemy hit grants its gain at once.
         {
-            var conn = new Player(new(1, "gain", 300, 300, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "gain", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900, PlayerMana = 50,
             };
@@ -95,13 +95,13 @@ public sealed class HitAndKillRecoveryTests
             var first = new SpawnedMonster("first", new(100, 100, 0), 0, 0, 100);
             var second = new SpawnedMonster("second", new(100, 100, 0), 0, 0, 100);
             // A hit that deals no damage still hits: the gain does not scale with damage.
-            Game.LeechOnHitLocked(conn, first, DamagePacket.Empty, 0, sources);
-            Game.LeechOnHitLocked(conn, second, DamagePacket.Empty, 0, sources);
-            Assert.Equal(1000u, conn.PlayerLife);   // 900 + 2 × 59, capped at maximum Life
-            Assert.Equal(78u, conn.PlayerMana);
-            Assert.True(Game.LeechOf(conn).InstantLifeChanged && Game.LeechOf(conn).InstantManaChanged);
-            Game.LeechOnHitLocked(conn, new("dead", new(100, 100, 0), 0, 0, 100) { Dead = true }, DamagePacket.Empty, 0, sources);
-            Assert.Equal(78u, conn.PlayerMana);
+            Game.LeechOnHitLocked(player, first, DamagePacket.Empty, 0, sources);
+            Game.LeechOnHitLocked(player, second, DamagePacket.Empty, 0, sources);
+            Assert.Equal(1000u, player.PlayerLife);   // 900 + 2 × 59, capped at maximum Life
+            Assert.Equal(78u, player.PlayerMana);
+            Assert.True(Game.LeechOf(player).InstantLifeChanged && Game.LeechOf(player).InstantManaChanged);
+            Game.LeechOnHitLocked(player, new("dead", new(100, 100, 0), 0, 0, 100) { Dead = true }, DamagePacket.Empty, 0, sources);
+            Assert.Equal(78u, player.PlayerMana);
         }
 
         // Life Recoup: a share of each hit's damage taken, raised by the Life recovery rate, recovered evenly over the
@@ -158,28 +158,28 @@ public sealed class HitAndKillRecoveryTests
 
         // A kill recovers at once by the corpse's ailments, and a dead player gains nothing.
         {
-            var conn = new Player(new(1, "kill", 300, 300, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "kill", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(10, 1000, 200, 2, 0), PlayerLife = 500, PlayerMana = 50,
             };
-            Game.LeechOf(conn).OnKill = new KillRecovery(10, 2, 5, 3, 0, 0) { When = new(IgnitedLife: 7, 0, 0, FrozenMana: 4) };
+            Game.LeechOf(player).OnKill = new KillRecovery(10, 2, 5, 3, 0, 0) { When = new(IgnitedLife: 7, 0, 0, FrozenMana: 4) };
             var corpse = new SpawnedMonster("kill", new(100, 100, 0), 0, 0, 100);
-            Game.RecoverOnKill(conn, corpse);
-            Assert.Equal(530u, conn.PlayerLife);   // 10 + 2% of 1000
-            Assert.Equal(61u, conn.PlayerMana);    // floor(5 + 3% of 200); it was not frozen
-            Assert.True(Game.LeechOf(conn).InstantLifeChanged && Game.LeechOf(conn).InstantManaChanged);
+            Game.RecoverOnKill(player, corpse);
+            Assert.Equal(530u, player.PlayerLife);   // 10 + 2% of 1000
+            Assert.Equal(61u, player.PlayerMana);    // floor(5 + 3% of 200); it was not frozen
+            Assert.True(Game.LeechOf(player).InstantLifeChanged && Game.LeechOf(player).InstantManaChanged);
             corpse.Ailments.ShockOnKill(0, _ => 0, _ => 0);   // Within the Tempest shocks the corpse after the death
             Assert.True(corpse.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 1) > 0);
             Assert.False(corpse.Ailments.ShockedAtDeath(1));
             corpse.Ailments.Shatter();             // a shattered kill was of a frozen enemy
             corpse.Ignites.Clear(burnt: true);     // and its ignite's last tick killed it
-            Game.RecoverOnKill(conn, corpse);
-            Assert.Equal(567u, conn.PlayerLife);   // 530 + 10 + 7 + 2% of 1000
-            Assert.Equal(76u, conn.PlayerMana);    // floor(5 + 4 + 3% of 200)
-            conn.PlayerLife = 0;
-            Game.RecoverOnKill(conn, corpse);
-            Assert.Equal(0u, conn.PlayerLife);
-            Assert.Equal(76u, conn.PlayerMana);
+            Game.RecoverOnKill(player, corpse);
+            Assert.Equal(567u, player.PlayerLife);   // 530 + 10 + 7 + 2% of 1000
+            Assert.Equal(76u, player.PlayerMana);    // floor(5 + 4 + 3% of 200)
+            player.PlayerLife = 0;
+            Game.RecoverOnKill(player, corpse);
+            Assert.Equal(0u, player.PlayerLife);
+            Assert.Equal(76u, player.PlayerMana);
         }
 
         // Each Onslaught-on-kill stat rolls its own duration, and a gain never shortens a longer one.
@@ -207,20 +207,20 @@ public sealed class HitAndKillRecoveryTests
 
         // A kill's Onslaught applies once the client is told, and counts once with a flask's.
         {
-            var conn = new Player(new(1, "onslaught", 300, 300, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "onslaught", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(10, 1000, 200, 2, 0), PlayerLife = 500,
             };
-            Game.KillOnslaughtOf(conn).Rolls = [(100, 4.0)];
-            Assert.True(Game.OnslaughtOnKill(conn));
-            Assert.Empty(Game.KillOnslaughtSources(conn, _ => 0));    // not until the client has the buff
-            var o = Game.KillOnslaughtOf(conn);
+            Game.KillOnslaughtOf(player).Rolls = [(100, 4.0)];
+            Assert.True(Game.OnslaughtOnKill(player));
+            Assert.Empty(Game.KillOnslaughtSources(player, _ => 0));    // not until the client has the buff
+            var o = Game.KillOnslaughtOf(player);
             double now = o.Until - 4;                                // granted for 4 s at the kill
             Assert.Equal(((ushort)0, (double?)4, true), o.Present(now, alive: true, hidden: false));
             o.Buff = 9;
             Assert.Null(o.Present(now + 1, alive: true, hidden: false));               // nothing new to send
             Assert.Equal(((ushort)9, (double?)null, false), o.Present(now + 1, alive: true, hidden: true)); // a flask's shows
-            var kill = Game.KillOnslaughtSources(conn, name => name == Stat.OnslaughtEffectPlusPct ? 50 : 0).ToList();
+            var kill = Game.KillOnslaughtSources(player, name => name == Stat.OnslaughtEffectPlusPct ? 50 : 0).ToList();
             Assert.Equal(["attack_speed_+%", "base_cast_speed_+%", "base_movement_velocity_+%"], kill.Select(s => Program.Stats.Name(s.Stat)));
             Assert.All(kill, s => Assert.Equal(30, s.Value));      // 20% at 50% increased effect
             // A Silver Flask's Onslaught at 80% more flask effect is the same buff: the stronger counts, once.
@@ -229,7 +229,7 @@ public sealed class HitAndKillRecoveryTests
             Assert.Equal(3, UtilityFlasks.Strongest(kill.Concat(flask)).Count);
             Assert.Equal(((ushort)0, (double?)null, true), o.Present(now + 2, alive: false, hidden: true)); // death ends it
             Assert.False(o.Applied);
-            Assert.Empty(Game.KillOnslaughtSources(conn, _ => 0));
+            Assert.Empty(Game.KillOnslaughtSources(player, _ => 0));
         }
     }
 }

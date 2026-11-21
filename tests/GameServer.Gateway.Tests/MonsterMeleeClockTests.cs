@@ -47,36 +47,36 @@ public sealed class MonsterMeleeClockTests
 
         foreach (bool lockstep in new[] { false, true })
         {
-            var conn = new Player(new(1, "melee-clock", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = lockstep };
+            var player = new Player(new(1, "melee-clock", 300, 300, 100, 100, null, []), 1, 1) { Connection = { LockstepClient = lockstep } };
             var clock = new ActionTimeClock(10, 1);
             var monster = new SpawnedMonster("clock", new(105, 100, 1), 60, 2, 100)
             {
-                ActionGeneration = 1, SwingGeneration = 1, MeleeClock = (1, clock, 1.099, 2.4, conn.LockstepActionTail),
-                BusyUntil = 12.4 + conn.LockstepActionTail,
+                ActionGeneration = 1, SwingGeneration = 1, MeleeClock = (1, clock, 1.099, 2.4, player.LockstepActionTail),
+                BusyUntil = 12.4 + player.LockstepActionTail,
             };
-            conn.Monsters[1] = monster;
+            player.Area.Monsters[1] = monster;
             Assert.NotNull(monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 1, 10.4, _ => 0, _ => 0, stated: 30));
-            Game.MonsterAilmentChangesLocked(conn, 10.4);
+            Game.MonsterAilmentChangesLocked(player, 10.4);
             Assert.Equal(-30, monster.Ailments.SentActionSpeed);
             Assert.Equal(.7, clock.Rate, 9);
-            Assert.Equal(10.4 + 2 / .7 + conn.LockstepActionTail, monster.BusyUntil, 9);
+            Assert.Equal(10.4 + 2 / .7 + player.LockstepActionTail, monster.BusyUntil, 9);
             Assert.Equal(10.4 + .699 / .7, clock.Deadline(1.099), 9);
             Assert.True(clock.Elapsed(11.39) < 1.099);
 
             // Freeze remains a separate admission/contact cancellation rule. It must neither publish -100 nor
             // overwrite the ongoing clock's chill rate; expiry returns admission to the still-active chill.
             Assert.NotNull(monster.Ailments.Freeze(.5, 10.6, _ => 0, _ => 0));
-            Game.MonsterAilmentChangesLocked(conn, 10.6);
+            Game.MonsterAilmentChangesLocked(player, 10.6);
             Assert.Equal(0, Game.MonsterActionFactor(monster, 10.6));
             Assert.Equal(.7, clock.Rate, 9);
-            Game.MonsterAilmentChangesLocked(conn, 11.1);
+            Game.MonsterAilmentChangesLocked(player, 11.1);
             Assert.Equal(.7, Game.MonsterActionFactor(monster, 11.1), 9);
 
             // Chill expiry settles one second at .7 before restoring 1, including the remaining recovery.
-            Game.MonsterAilmentChangesLocked(conn, 11.4);
+            Game.MonsterAilmentChangesLocked(player, 11.4);
             Assert.Equal(0, monster.Ailments.SentActionSpeed);
             Assert.Equal(1.1, clock.Elapsed(11.4), 9);
-            Assert.Equal(12.7 + conn.LockstepActionTail, monster.BusyUntil, 9);
+            Assert.Equal(12.7 + player.LockstepActionTail, monster.BusyUntil, 9);
             Assert.True(clock.Elapsed(11.4) >= 1.099);
             // A canceled generation cannot retime a successor's recovery (including a boss or flinch action).
             monster.ActionGeneration = 2;
@@ -85,7 +85,7 @@ public sealed class MonsterMeleeClockTests
             Game.RetimeMonsterMeleeClockLocked(monster, 11.5, -50);
             Assert.Equal(99, monster.BusyUntil);
             Assert.Equal(1, clock.Rate);
-            Assert.False(Game.BeginMonsterMeleeClockLocked(conn, monster, 1, 0x8000, 10, 11.5));
+            Assert.False(Game.BeginMonsterMeleeClockLocked(player, monster, 1, 0x8000, 10, 11.5));
             Assert.Same(clock, monster.MeleeClock!.Value.Clock);
             Assert.Equal(99, monster.BusyUntil);
         }

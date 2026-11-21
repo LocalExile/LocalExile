@@ -72,9 +72,9 @@ internal sealed class HarbingerSession(HarbingerRoster roster, Guid lease, DateT
 
     /// <summary>Invoke inside the cipher writer's atGate factory with a fresh frame. A queued observation is
     /// only a token, never permission to publish. Stats precede the native remaining-BASE duration.</summary>
-    internal byte[]? BuffPacket(HarbingerRoster.Active token, int epoch, Frame current, DateTimeOffset now,
+    internal byte[]? BuffPacket(uint owner, HarbingerRoster.Active token, int epoch, Frame current, DateTimeOffset now,
         ushort instance, ushort skill, Func<uint, bool> actorCurrent, Func<byte[]> recipientStats,
-        Func<(Frame Frame, DateTimeOffset Now)> refresh, Action? presented = null)
+        Func<(Frame Frame, DateTimeOffset Now)> refresh, Action? presented = null, Action<Buff>? show = null)
     {
         if (retired || current.Epoch != epoch || !current.Alive || current.Paused || current.Leaving
             || !current.Nodes.Contains(token.Owner.Source.Node)
@@ -97,8 +97,9 @@ internal sealed class HarbingerSession(HarbingerRoster roster, Guid lease, DateT
             && b.Buff.Skill.Effect == token.Buff.Skill.Effect && b.Buff.StartedAt == token.Buff.StartedAt);
         if (live is null || live.RemainingBase <= 0) return prefix;
         presented?.Invoke();
-        return [.. prefix, .. InstanceEntities.AddBuff(PlayerId, instance, live.Buff.Skill.Definition,
-            actor, skill, u68: BitConverter.SingleToUInt32Bits((float)live.RemainingBase))];
+        // The companion's buff, its instance number its tag.
+        show?.Invoke(new(live.Buff.Skill.Definition, actor, skill, U68: Buff.Seconds(live.RemainingBase), Tag: instance));
+        return prefix;
     }
 
     internal IReadOnlyDictionary<uint, int> RecipientStats(Frame current, DateTimeOffset now)

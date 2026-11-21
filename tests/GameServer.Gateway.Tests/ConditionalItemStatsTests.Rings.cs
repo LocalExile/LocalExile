@@ -23,24 +23,26 @@ public partial class ConditionalItemStatsTests
         try
         {
             PlayerInventories.SetClass(character, 1);
-            var conn = new Player(AreaLayouts.For(AreaLayouts.TheCoast, 1), 1, 1)
+            var player = new Player(AreaLayouts.For(AreaLayouts.TheCoast, 1), 1, 1)
             {
-                Character = character, ClassRow = 1, Instance = new(), PlayerLife = 1000,
-                PlayerSent = true, PlayerObjectCreated = true, Pools = new(100, 1000, 1000, 0, 0),
-                Experience = CharacterStats.ExperienceFor(100),
+                Character = { Name = character, ClassRow = 1, Experience = CharacterStats.ExperienceFor(100) },
+                Instance = new(),
+                PlayerLife = 1000,
+                Connection = { PlayerSent = true, PlayerObjectCreated = true },
+                Pools = new(100, 1000, 1000, 0, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false),
-                    new HashSet<string>(["Game"])),
+                    new HashSet<string>(["Game"]))
             };
-            var inventory = Game.ItemsOf(conn);
+            var inventory = Game.ItemsOf(player);
             foreach (var (row, item) in inventory.EquipmentSnapshot()) inventory.Remove(row, item.Id);
             var uniques = new UniqueCatalog(Program.Items);
             var astramentis = inventory.Add(5, 0, 0, uniques.Create("Astramentis", new Random(504))!);
             var elder = inventory.Add(6, 0, 0, uniques.Create("Mark of the Elder", new Random(504))!);
             var shaper = inventory.Add(7, 0, 0, uniques.Create("Mark of the Shaper", new Random(504))!);
-            int Stat(string n) => Game.CharacterPlayerStats(conn).GetValueOrDefault(Program.Stats.Key(n)!.Value);
+            int Stat(string n) => Game.CharacterPlayerStats(player).GetValueOrDefault(Program.Stats.Key(n)!.Value);
             Assert.Equal(ItemInfluence.Elder, elder.Item.Influences);
             Assert.Equal(ItemInfluence.Shaper, shaper.Item.Influences);
-            conn.Pools = Game.PoolsFor(conn, 100);
+            player.Pools = Game.PoolsFor(player, 100);
             Assert.Equal(75, Stat("attack_damage_+%"));
             Assert.Equal(75, Stat("spell_damage_+%"));
             inventory.Remove(7, shaper.Id);
@@ -55,11 +57,11 @@ public partial class ConditionalItemStatsTests
                 ItemCatalog.Create(Program.Items.Find("Metadata/Items/Rings/Ring1")!) with { Rarity = ItemRarity.Magic });
             Assert.Equal(1, Stat("self_take_no_extra_damage_from_critical_strikes"));
             Assert.Equal(0, Stat("hexproof"));
-            var before = conn.StatSourcesCache;
+            var before = player.StatSourcesCache;
             inventory.Remove(6, magic.Id); inventory.Put(7, magic);
             Assert.Equal(0, Stat("self_take_no_extra_damage_from_critical_strikes"));
             Assert.Equal(1, Stat("hexproof"));
-            Assert.NotSame(before, conn.StatSourcesCache);
+            Assert.NotSame(before, player.StatSourcesCache);
             inventory.Remove(7, magic.Id);
             Assert.Equal(0, Stat("hexproof"));
             ItemMod Attribute(string id) => Program.Items.Mods.ById(id)!.Roll(ModSection.Explicit, new Random(504)) with { Values = [43] };
@@ -75,12 +77,12 @@ public partial class ConditionalItemStatsTests
                 with { Rarity = ItemRarity.Magic, Sockets = [new(SocketColour.Blue, fireball)] });
             Assert.Equal(1, Stat("hexproof"));
             Assert.Equal(-1, Stat("base_enemy_extra_damage_rolls"));
-            Assert.False(Game.IsInactive(conn, socketed.Id));
+            Assert.False(Game.IsInactive(player, socketed.Id));
             inventory.Remove(5, astramentis.Id);
             Assert.Equal(0, Stat("hexproof"));
             Assert.Equal(0, Stat("base_enemy_extra_damage_rolls"));
-            Assert.True(Game.IsInactive(conn, socketed.Id));
-            Assert.False(Game.IsInactive(conn, helmet.Id));
+            Assert.True(Game.IsInactive(player, socketed.Id));
+            Assert.False(Game.IsInactive(player, helmet.Id));
             inventory.Put(5, astramentis);
             Assert.Equal(1, Stat("hexproof"));
             Assert.Equal(-1, Stat("base_enemy_extra_damage_rolls"));

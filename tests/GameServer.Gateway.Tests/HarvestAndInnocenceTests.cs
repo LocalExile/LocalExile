@@ -40,24 +40,24 @@ public class HarvestAndInnocenceTests
     {
         using var registration = Quests.Register("shortcut-test", QuestObjectsModule.Acts());
         var layout = new AreaLayout(1, Act5Areas.ChamberOfInnocence, 100, 100, 5, 5, null, []);
-        var conn = new Player(layout, 1, 1) { Instance = new() };
-        conn.LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string> { "shortcut-test" });
-        conn.QuestFlags.Add("a5q4-KilledBoss");
+        var player = new Player(layout, 1, 1) { Instance = new() };
+        player.LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string> { "shortcut-test" });
+        player.Character.QuestFlags.Add("a5q4-KilledBoss");
         var normal = new GameServer.Core.Protocol.Instance.AreaTransitionObject(8, 8, 1) { TeleportTo = (30, 30) };
         var shortcut = normal with { LayoutDisabled = true };
-        Assert.True(Game.TransitionShown(conn, 1, normal));
-        Assert.False(Game.TransitionShown(conn, 2, shortcut));
-        conn.Instance.SetState(Act5Objects.ShortcutOpen);
-        Assert.True(Game.TransitionShown(conn, 2, shortcut));
+        Assert.True(Game.TransitionShown(player, 1, normal));
+        Assert.False(Game.TransitionShown(player, 2, shortcut));
+        player.Instance.SetState(Act5Objects.ShortcutOpen);
+        Assert.True(Game.TransitionShown(player, 2, shortcut));
         Assert.Contains(Act10Objects.ShortcutOpen, Quests.For(new HashSet<string> { "shortcut-test" }).OnMonsterKilled(Act10Areas.DesecratedChambers, Act10Monsters.Avarius));
         var desecrated = new Player(layout with { Id = Act10Areas.DesecratedChambers }, 1, 1)
-        { Instance = new(), LeagueModule = conn.LeagueModule };
-        desecrated.QuestFlags.Add("a10q2-KilledBoss");
+        { Instance = new(), LeagueModule = player.LeagueModule };
+        desecrated.Character.QuestFlags.Add("a10q2-KilledBoss");
         Assert.True(Game.TransitionShown(desecrated, 1, normal));
         Assert.False(Game.TransitionShown(desecrated, 2, shortcut));
         desecrated.Instance.SetState(Act10Objects.ShortcutOpen);
         Assert.True(Game.TransitionShown(desecrated, 2, shortcut));
         Assert.False(Game.TransitionShown(new Player(desecrated.Layout, 1, 1)
-        { Instance = new(), LeagueModule = conn.LeagueModule }, 2, shortcut));
+        { Instance = new(), LeagueModule = player.LeagueModule }, 2, shortcut));
     }
 }

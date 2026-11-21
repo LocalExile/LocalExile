@@ -30,11 +30,11 @@ public static class PartyRoster
     static uint nextId = 0x100;
 
     static bool Same(Player a, Player b) => ReferenceEquals(a, b)
-        || a.Account is not null && string.Equals(a.Account, b.Account, StringComparison.OrdinalIgnoreCase)
+        || a.Character.Account is not null && string.Equals(a.Character.Account, b.Character.Account, StringComparison.OrdinalIgnoreCase)
             && string.Equals(CharacterName(a), CharacterName(b), StringComparison.Ordinal);
-    static bool Available(Player c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Ssf;
-    static bool SameLeague(Player a, Player b) => a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
-        && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase);
+    static bool Available(Player c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Character.Ssf;
+    static bool SameLeague(Player a, Player b) => a.Character.Hardcore == b.Character.Hardcore && a.Character.LeagueForm == b.Character.LeagueForm
+        && string.Equals(a.Character.League, b.Character.League, StringComparison.OrdinalIgnoreCase);
     static bool Compatible(Player a, Player b) => Available(a) && Available(b) && SameLeague(a, b)
         && ReferenceEquals(a.Instance.Presence, b.Instance.Presence);
     static uint Find(Player c) => Humans.FirstOrDefault(p => p.Value.Any(m => Same(m, c))).Key;
@@ -70,11 +70,11 @@ public static class PartyRoster
     {
         lock (Gate)
         {
-            if (!Available(actor) || !actor.PlayerSent || actor.PlayerLife == 0 || actor.HardcoreDeathRecorded
+            if (!Available(actor) || !actor.Connection.PlayerSent || actor.PlayerLife == 0 || actor.Character.HardcoreDeathRecorded
                 || !InGame.ContainsKey(actor) || !Humans.TryGetValue(Find(actor), out var members)
                 || !members.Any(c => ReferenceEquals(c, actor))) return null;
             return members.FirstOrDefault(c => !ReferenceEquals(c, actor) && Available(c) && SameLeague(actor, c)
-                && c.PlayerSent && c.PlayerLife > 0 && !c.HardcoreDeathRecorded && InGame.ContainsKey(c)
+                && c.Connection.PlayerSent && c.PlayerLife > 0 && !c.Character.HardcoreDeathRecorded && InGame.ContainsKey(c)
                 && string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
         }
     }
@@ -135,13 +135,13 @@ public static class PartyRoster
 
     // The wire encrypts a packet in place (Program.Write), so a kept one (a companion's Known) is sent as a copy:
     // sent again as it was, it reached the client as noise and ended its stream ("Unable to deserialise packet").
-    static Task Send(Player c, byte[] packet) => !c.Closed && c.Outbox is { } send
+    static Task Send(Player c, byte[] packet) => !c.Closed && c.Connection.Outbox is { } send
         ? send(packet, null) : Task.CompletedTask;
     // The third field is the player's own area as a WorldAreas HASH16 (0xa7 +0xa8), not their level: the party panel's row
     // resolves it for the member's area name and offers the travel button only for an area, so a level shows
     // "Travelling..." with the button disabled (#715).
-    static byte[] Known(Player c) => InstanceSocial.KnownPlayer(c.Account ?? CharacterName(c), CharacterName(c),
-        c.Layout.Hash, PackedClass(c), c.PortraitFrame, WornPortrait(c));
+    static byte[] Known(Player c) => InstanceSocial.KnownPlayer(c.Character.Account ?? CharacterName(c), CharacterName(c),
+        c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c));
 
     /// <summary>Serialize roster output: a leave/kick cannot be followed by an older in-flight roster.</summary>
     public static async Task Publish(uint party)
@@ -161,7 +161,7 @@ public static class PartyRoster
                 await Deliver(c, async () => { await Send(c, InstanceSocial.PartyRemove(party)); await SetPartySize(c, 1); });
             if (humans.Length == 0) return;
             var leader = humans[0];
-            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
+            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
                 .. guests.Select(m => (m.Account, (byte)1))];
             for (int i = 0; i < humans.Length; i++)
             {
@@ -172,7 +172,7 @@ public static class PartyRoster
                     foreach (var human in humans) await Send(to, Known(human));
                     foreach (var guest in guests) await Send(to, [.. guest.Known]);
                     await SetPartySize(to, entries.Length);
-                    await Send(to, InstanceSocial.PartyInfo(party, CharacterName(leader), leader.Account ?? CharacterName(leader),
+                    await Send(to, InstanceSocial.PartyInfo(party, CharacterName(leader), leader.Character.Account ?? CharacterName(leader),
                         ownIndex, 0, 0, 0, entries));
                 });
             }
@@ -190,7 +190,7 @@ public static class PartyRoster
     {
         var to = InGame.Keys.FirstOrDefault(c => !c.Controlled && !ReferenceEquals(c, from) && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(c.Account, name, StringComparison.OrdinalIgnoreCase)));
+                || string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
         if (to is null) return false; // Another module may own this character's name.
         uint party;
         Player[] humans;
@@ -210,9 +210,9 @@ public static class PartyRoster
         foreach (var human in humans) await Send(to, Known(human));
         foreach (var guest in guests) await Send(to, [.. guest.Known]);
         await Send(to, Known(to));
-        (string, byte)[] entries = [.. humans.Select((c, i) => (c.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
-            .. guests.Select(m => (m.Account, (byte)1)), (to.Account ?? CharacterName(to), (byte)0)];
-        await Send(to, InstanceSocial.PartyInfo(party, CharacterName(from), from.Account ?? CharacterName(from),
+        (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
+            .. guests.Select(m => (m.Account, (byte)1)), (to.Character.Account ?? CharacterName(to), (byte)0)];
+        await Send(to, InstanceSocial.PartyInfo(party, CharacterName(from), from.Character.Account ?? CharacterName(from),
             (byte)(entries.Length - 1), 0, 1, 0, entries));
         return true;
     }
@@ -267,7 +267,7 @@ public static class PartyRoster
             // 0x94 also cancels an invitation this participant sent; the target has not joined yet.
             var pending = Invites.FirstOrDefault(p => Same(p.Value.From, actor)
                 && (string.Equals(CharacterName(p.Value.To), name, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(p.Value.To.Account, name, StringComparison.OrdinalIgnoreCase)));
+                    || string.Equals(p.Value.To.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
             if (pending.Key.Party != 0)
             {
                 party = pending.Key.Party;
@@ -280,7 +280,7 @@ public static class PartyRoster
                 party = Find(actor);
                 if (party == 0) return false;
                 if (!Same(Humans[party][0], actor)) return true;
-                var human = Humans[party].Skip(1).FirstOrDefault(c => string.Equals(c.Account, name, StringComparison.OrdinalIgnoreCase)
+                var human = Humans[party].Skip(1).FirstOrDefault(c => string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
                 if (human is not null) RemoveHuman(human, party);
                 else if (Companions.GetValueOrDefault(party)?.RemoveAll(m =>

@@ -19,9 +19,9 @@ public static partial class Game
         public Func<ProjectileEntity, ProjectilePresentation>? Presentation { get; init; }
     }
 
-    public sealed record ProjectileReleaseContext(Player Conn, ProjectileSession Session, ushort SkillId,
+    public sealed record ProjectileReleaseContext(Player Player, ProjectileSession Session, ushort SkillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
-        int Variation, Func<uint, int> Get, Func<uint, int> Player, Func<uint, int> Own);
+        int Variation, Func<uint, int> Get, Func<uint, int> PlayerStat, Func<uint, int> Own);
 
     public sealed record ProjectilePresentation
     {

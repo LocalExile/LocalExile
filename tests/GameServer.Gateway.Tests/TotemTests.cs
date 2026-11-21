@@ -24,7 +24,7 @@ public sealed class TotemTests
     public void EveryTotemSkillCarriesSummonsTotemAndResolvesToASupportedVariety()
     {
         var skills = new SkillCatalog(); var monsters = new MonsterCatalog();
-        var conn = new Player(new(1, "totem-catalog", 1000, 1000, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "totem-catalog", 1000, 1000, 100, 100, null, []), 1, 1);
         int rejuvenation = skills.EffectRow("RejuvenationTotem");
         Assert.True(rejuvenation >= 0);
         // The old gate's only key: TotemAuras held RejuvenationTotem and nothing else.
@@ -34,13 +34,13 @@ public sealed class TotemTests
             int row = skills.EffectRow(effectId);
             Assert.True(row >= 0, $"missing GrantedEffects row: {effectId}");
             Assert.True(skills.HasType(row, Game.TotemSkillType), $"{effectId} (row {row}) is not {Game.TotemSkillType}");
-            var variety = Game.TotemVariety(conn, row);
+            var variety = Game.TotemVariety(player, row);
             Assert.True(variety is not null, $"{effectId} (row {row}) summons no totem variety");
             Assert.True(variety!.Supported, $"{effectId} variety {variety.Id} ({variety.Row}) is not supported");
             Assert.NotNull(monsters.Find(variety.Row.ToString()));
         }
         // Rejuvenation Totem keeps working, so the fix is a widening of the gate rather than a replacement.
-        Assert.NotNull(Game.TotemVariety(conn, rejuvenation));
+        Assert.NotNull(Game.TotemVariety(player, rejuvenation));
     }
 
     [Fact]
@@ -52,26 +52,29 @@ public sealed class TotemTests
         using var wire = new Wire();
         Saves.Open(path); Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new Player(new(1, "totem-runtime", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "totem-runtime", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TotemRuntime", Session = new("totem-test", wire.Stream, wire.Ciphers), Instance = new(), PlayerLife = 10000, PlayerMana = 10000, PlayerSent = true,
-            Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = "TotemRuntime", Experience = CharacterStats.ExperienceFor(100) },
+            Connection = { Session = new("totem-test", wire.Stream, wire.Ciphers), PlayerSent = true },
+            Instance = new(),
+            PlayerLife = 10000,
+            PlayerMana = 10000,
             Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("totem-test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("totem-test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         try
         {
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemShockwaveTotem")!);
             var weapon = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with
             { Sockets = [new(SocketColour.White, gem)] };
-            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon);
-            var source = Game.GemSkillEffects(conn).Single(g => g.Name == "Shockwave Totem");
-            var variety = Game.TotemVariety(conn, source.Effect);
+            Game.ItemsOf(player).Add(PlayerInventories.Weapon1, 0, 0, weapon);
+            var source = Game.GemSkillEffects(player).Single(g => g.Name == "Shockwave Totem");
+            var variety = Game.TotemVariety(player, source.Effect);
             Assert.NotNull(variety);
-            uint? placed = await Game.CreateTotem(conn, source.Id, source.Effect,
+            uint? placed = await Game.CreateTotem(player, source.Id, source.Effect,
                 source.Level, variety!, (50, 50));
             Assert.NotNull(placed);
-            var totem = conn.Totems.All.Single();
+            var totem = player.Totems.All.Single();
             // The hybrid boundary: this is a dedicated totem skill, not an adopted projectile spell, so it keeps the
             // local contact path (a Strike) and is never ticked by the spell executor (Effect stays -1). The lab reads
             // the effect row it was summoned from through EffectRow, which is the deliberately different fact.
@@ -81,22 +84,22 @@ public sealed class TotemTests
             Assert.NotNull(totem.Strike);
 
             // A hostile outside its totem range (base_totem_range 80) starts no cast.
-            conn.Monsters[0x08000002] = new SpawnedMonster("far", new(50, 140, 0), 100, 8, 1000);
-            Game.TickTotemUses(conn);
+            player.Area.Monsters[0x08000002] = new SpawnedMonster("far", new(50, 140, 0), 100, 8, 1000);
+            Game.TickTotemUses(player);
             Assert.Equal(0, totem.Strike!.NextCast);
 
             // One inside the range starts it; at the contact only what stands within the radius of the totem is hit.
             var target = new SpawnedMonster("near", new(55, 50, 0), 100, 8, 100000);
             var outside = new SpawnedMonster("outside", new(50, 90, 0), 100, 8, 100000);
-            conn.Monsters[0x08000001] = target; conn.Monsters[0x08000003] = outside;
+            player.Area.Monsters[0x08000001] = target; player.Area.Monsters[0x08000003] = outside;
             uint before = target.Life, outsideBefore = outside.Life;
-            Game.TickTotemUses(conn);
+            Game.TickTotemUses(player);
             Assert.True(totem.Strike.NextCast > 0);
 
-            // The contact is on the projectile runtime (a kill takes the XP gate before the Monsters lock): advance it to
+            // The contact is on the projectile runtime (a kill takes the XP gate before the area's frame): advance it to
             // the end of the cast instead of waiting on real time.
-            var session = Game.ProjectilesFor(conn);
-            using (Game.ProjectileMutation(conn, advance: false))
+            var session = Game.ProjectilesFor(player);
+            using (Game.ProjectileMutation(player, advance: false))
                 session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(totem.Strike.NextCast));
             Assert.True(target.Life < before, $"the nova dealt no damage: {target.Life} of {target.MaxLife}");
             Assert.Equal(outsideBefore, outside.Life);
@@ -104,7 +107,7 @@ public sealed class TotemTests
             // /totems reads the same collection through the same call the command makes, so the listing carries the
             // fields the task needs — a totem the lab can see at all. (The Monsters array of /state cannot list one:
             // a totem never enters Player.Monsters.)
-            string listing = Game.TotemsListing(conn);
+            string listing = Game.TotemsListing(player);
             Assert.Contains("0x", listing);
             Assert.Contains(variety!.Id, listing);
             Assert.Contains($"life {totem.Life}/{totem.MaxLife}", listing);
@@ -115,7 +118,7 @@ public sealed class TotemTests
         }
         finally
         {
-            conn.Closed = true; PlayerInventories.Forget(conn.Character!);
+            player.Closed = true; PlayerInventories.Forget(player.Character.Name!);
             lifetime.Stop(ex => throw ex); Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!); TestEnvironment.ReleaseSaves(path);
         }

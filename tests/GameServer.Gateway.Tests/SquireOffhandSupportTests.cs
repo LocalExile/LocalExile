@@ -8,16 +8,18 @@ namespace GameServer.Gateway.Tests;
 // supports the main hand's gems; the same gems in a shield without the mod do not.
 public sealed class SquireOffhandSupportTests
 {
-    static Player Connection(string name)
+    static Player PlayerOf(string name)
     {
-        var conn = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = name, PlayerLife = 2000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = name, Experience = CharacterStats.ExperienceFor(100) },
+            PlayerLife = 2000,
+            PlayerMana = 1000,
+            Instance = new(),
             Pools = new(100, 2000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
-        return conn;
+        return player;
     }
 
     static Item Gem(string name)
@@ -36,20 +38,20 @@ public sealed class SquireOffhandSupportTests
         string path = Path.Combine(Path.GetTempPath(), $"squire-{Guid.NewGuid():N}.db");
         var previous = Program.GameLogicOrNull;
         Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SquireAcceptance");
+        var player = PlayerOf("SquireAcceptance");
         try
         {
-            var items = Game.ItemsOf(conn);
+            var items = Game.ItemsOf(player);
             var sword = ItemCatalog.Create(Program.Items.Find(
                 "Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1")!);
             items.Add(PlayerInventories.Weapon1, 0, 0, sword with
             {
                 Sockets = [new(SocketColour.White, Gem("Cleave"))], Links = [1],
             });
-            ushort cleave = Game.GemSkillEffects(conn).Single().Id;
+            ushort cleave = Game.GemSkillEffects(player).Single().Id;
             ItemSocket[] sockets = [new(SocketColour.White, Gem("Increased Area of Effect")),
                 new(SocketColour.White, Gem("Melee Physical Damage")), new(SocketColour.White, null)];
-            string[] Supports() => [.. Game.SupportedSkillAt(conn, cleave, null).Supports.Select(s => s.Effect.Id).Order()];
+            string[] Supports() => [.. Game.SupportedSkillAt(player, cleave, null).Supports.Select(s => s.Effect.Id).Order()];
 
             var squire = Assert.IsType<Item>(Game.Uniques.Create("The Squire", new Random(17)));
             var shield = items.Add(PlayerInventories.Offhand1, 0, 0, squire with { Sockets = sockets, Links = [1, 1, 1] });
@@ -65,7 +67,7 @@ public sealed class SquireOffhandSupportTests
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+            PlayerInventories.Forget(player.Character.Name!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
 }

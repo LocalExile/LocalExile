@@ -23,6 +23,8 @@ public static class MapStrongboxes
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
+        // Each box as the area's clients were last shown it (its object is the area's, created once per change).
+        public readonly Dictionary<uint, Box> Shown = [];
     }
     static readonly Store<InstanceState, Area> Areas = new();
     static readonly Store<Player, HashSet<uint>> Presented = new();
@@ -30,7 +32,7 @@ public static class MapStrongboxes
     public static void Opening(MapOpening request)
     {
         if (request.Campaign || request.Opening is not { } opening
-            || !StrongboxCatalog.All.Any(t => StrongboxCatalog.Weight(t, opening.Area.Level, LeagueFor(request.Conn).HardMode, opening.Mods) > 0)) return;
+            || !StrongboxCatalog.All.Any(t => StrongboxCatalog.Weight(t, opening.Area.Level, LeagueFor(request.Player).HardMode, opening.Mods) > 0)) return;
         request.HandledContent.UnionWith([Content, Reopen, Discernment, Containment]);
         MapScarabPacks.RollFragmentCount(request, CountStat, Random.Shared);
         if (opening.Mods.Get(CountStat) > 0)
@@ -65,80 +67,86 @@ public static class MapStrongboxes
         return result;
     }
 
-    static void Keep(Player conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
+    static void Keep(Player player, Area area) => player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
 
-    static IEnumerable<Player> Members(Player conn) => conn.Instance.PlayersExcept(conn.PeerId)
-        .Select(p => p.Owner).OfType<Player>().Prepend(conn)
-        .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
+    static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
+        .Select(p => p.Owner).OfType<Player>().Prepend(player)
+        .Where(p => !p.Closed && !p.LeavingArea && p.Instance == player.Instance).Distinct();
 
-    public static async Task Enter(Player conn)
+    public static async Task Enter(Player player)
     {
-        if (MapModsOf(conn) is not { } mods || mods.Get(CountStat) <= 0) return;
-        var area = Areas.GetOrCreateValue(conn.Instance);
+        if (MapModsOf(player) is not { } mods || mods.Get(CountStat) <= 0) return;
+        var area = Areas.GetOrCreateValue(player.Instance);
         await area.Gate.WaitAsync();
         try
         {
             if (area.Boxes is null)
             {
-                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                if (player.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
                     area.Boxes = JsonSerializer.Deserialize<List<Box>>(saved) ?? [];
                 else
                 {
                     area.Boxes = [];
-                    var random = new Random(unchecked((int)(conn.Seed ^ 0x53544258)));
-                    int level = MapRunOf(conn)!.Area.Level;
-                    foreach (var (x, y) in Positions(conn.Layout, conn.Seed, mods.Get(CountStat)))
-                        if (StrongboxCatalog.Roll(level, LeagueFor(conn).HardMode, mods, random) is { } type)
-                            area.Boxes.Add(new(conn.Instance.World.NewMonsterId(), area.Boxes.Count, x, y, type.Id));
-                    Keep(conn, area);
-                    Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id}: placed {area.Boxes.Count}/{mods.Get(CountStat)}");
+                    var random = new Random(unchecked((int)(player.Seed ^ 0x53544258)));
+                    int level = MapRunOf(player)!.Area.Level;
+                    foreach (var (x, y) in Positions(player.Layout, player.Seed, mods.Get(CountStat)))
+                        if (StrongboxCatalog.Roll(level, LeagueFor(player).HardMode, mods, random) is { } type)
+                            area.Boxes.Add(new(player.Instance.World.NewMonsterId(), area.Boxes.Count, x, y, type.Id));
+                    Keep(player, area);
+                    Console.WriteLine($"[map-content] strongboxes area={player.Layout.Id}: placed {area.Boxes.Count}/{mods.Get(CountStat)}");
                 }
             }
-            foreach (var box in area.Boxes) await Present(conn, box);
+            foreach (var box in area.Boxes) await Present(player, box);
         }
         finally { area.Gate.Release(); }
     }
 
-    static async Task Present(Player conn, Box box, bool replace = false)
+    static async Task Present(Player player, Box box, bool replace = false)
     {
-        var shown = Presented.GetOrCreateValue(conn);
+        var shown = Presented.GetOrCreateValue(player);
         if (!replace && shown.Contains(box.Id)) return;
         if (StrongboxCatalog.Find(box.Type) is not { } type) return;
-        if (shown.Contains(box.Id)) await SendWorldRemoval(conn, box.Id, null);
-        await SendWorldCreate(conn, box.Id,
-            InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
-                StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase == 2)),
-            $"strongbox 0x{box.Id:x} {type.Id} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
-        await SendWorldRecord(conn, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
-        conn.SetBlocker(box.Id, box.X, box.Y, 1);
+        var area = Areas.GetOrCreateValue(player.Instance);
+        if (!area.Shown.TryGetValue(box.Id, out var was) || !ReferenceEquals(was, box))
+        {
+            if (was is not null) await SendWorldRemoval(player, box.Id, null);
+            await SendWorldCreate(player, box.Id,
+                InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
+                    StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase == 2)),
+                $"strongbox 0x{box.Id:x} {type.Id} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
+            await SendWorldRecord(player, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
+            area.Shown[box.Id] = box;
+        }
+        // The box blocks each player's own walk.
+        player.SetBlocker(box.Id, box.X, box.Y, 1);
         shown.Add(box.Id);
     }
 
-    public static async Task<bool> Use(Player conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetId) is not { } box) return false;
-        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
+        if (!Areas.TryGetValue(player.Instance, out var area) || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetId) is not { } box) return false;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
         if (box.Phase != 0)
         {
-            int current = conn.ActionCount;
-            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
-                still: () => PlayerActionCurrent(conn, current));
+            int current = player.ActionCount;
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
+                still: () => PlayerActionCurrent(player, current));
             return true;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, box.X, box.Y, 1, out var walk)) return true;
+        if (!TryBeginObjectWalk(player, requestedAt, box.X, box.Y, 1, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
-            await SendWorldRecord(conn, PlayerId,
-                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, box.X, box.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: box.Id), null,
-                still: () => PlayerActionCurrent(conn, action));
+            await SendWorldRecord(player, player.Id,
+                InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, box.X, box.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: box.Id), null,
+                still: () => PlayerActionCurrent(player, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         await area.Gate.WaitAsync();
         try
         {
             box = area.Boxes!.First(b => b.Id == use.TargetId);
-            if (box.Phase != 0 || !PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
-                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(AreaTime(conn)), (box.X, box.Y), 1)) return true;
-            var guards = Guards(conn, box);
+            if (box.Phase != 0 || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
+                || !PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (box.X, box.Y), 1)) return true;
+            var guards = Guards(player, box);
             if (guards.Count == 0)
             {
                 Console.WriteLine($"[map-content] strongbox {box.Type}: no supported guards or free cells; remains closed");
@@ -146,28 +154,28 @@ public static class MapStrongboxes
             }
             box = box with { Phase = 1, Pending = guards };
             area.Boxes[box.Index] = box;
-            Keep(conn, area);
-            foreach (var member in Members(conn)) await Present(member, box, true);
-            await SpawnPending(conn, area, box);
+            Keep(player, area);
+            foreach (var member in Members(player)) await Present(member, box, true);
+            await SpawnPending(player, area, box);
         }
         finally
         {
             area.Gate.Release();
-            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
-                still: () => PlayerActionCurrent(conn, action));
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
+                still: () => PlayerActionCurrent(player, action));
         }
         return true;
     }
 
-    public static List<AreaPopulation.Spawn> Guards(Player conn, Box box)
+    public static List<AreaPopulation.Spawn> Guards(Player player, Box box)
     {
-        if (Packs.For(conn.Layout.Id) is not { } packs || StrongboxCatalog.Find(box.Type) is not { } type) return [];
+        if (Packs.For(player.Layout.Id) is not { } packs || StrongboxCatalog.Find(box.Type) is not { } type) return [];
         var pool = packs.Scattered.Where(p => p.Pack.Entries.Count > 0
             && p.Pack.Entries.All(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })).ToList();
         if (pool.Count == 0) return [];
         var values = ItemModStats.Sum([new Item(0, [], 0) { Mods = type.Mods }], Items.Mods);
         int count = values.GetValueOrDefault(Stat.NumberOfPacksToSummon, 3);
-        var random = new Random(unchecked((int)conn.Seed ^ box.Index * 397 ^ box.Cycle * 7919));
+        var random = new Random(unchecked((int)player.Seed ^ box.Index * 397 ^ box.Cycle * 7919));
         var plans = new List<(PackCatalog.Pack, int, int, MonsterRarity)>();
         for (int i = 0; i < count; i++)
         {
@@ -177,53 +185,52 @@ public static class MapStrongboxes
             double angle = i * Math.Tau / Math.Max(1, count);
             plans.Add((picked, box.X + (int)Math.Round(Math.Cos(angle) * 10), box.Y + (int)Math.Round(Math.Sin(angle) * 10), MonsterRarity.Normal));
         }
-        var occupied = conn.Monsters.Values.Where(m => !m.Dead).Select(m => m.Walk.Position(AreaTime(conn))).Append((box.X, box.Y));
-        return AreaPopulation.AtPacks(plans, (x, y) => conn.Layout.WalkableFor(x, y, 1),
-            row => Monsters.Find(row.ToString()) is { Supported: true }, random.Next(), MapModsOf(conn)?.PackSizeFactor ?? 1, occupied);
+        var occupied = player.Area.Monsters.Values.Where(m => !m.Dead).Select(m => m.Walk.Position(AreaTime(player))).Append((box.X, box.Y));
+        return AreaPopulation.AtPacks(plans, (x, y) => player.Layout.WalkableFor(x, y, 1),
+            row => Monsters.Find(row.ToString()) is { Supported: true }, random.Next(), MapModsOf(player)?.PackSizeFactor ?? 1, occupied);
     }
 
     public static bool ClosesAgain(int chance, Random random) => random.Next(100) < chance;
 
-    static async Task SpawnPending(Player conn, Area area, Box box)
+    static async Task SpawnPending(Player player, Area area, Box box)
     {
-        byte level = (byte)Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
-        while (box.Pending.Count > 0 && !conn.Closed && !conn.LeavingArea)
+        byte level = (byte)Math.Clamp(MapRunOf(player)!.Area.Level, 1, 100);
+        while (box.Pending.Count > 0 && !player.Closed && !player.LeavingArea)
         {
             var spawn = box.Pending[0];
             if (Monsters.Find(spawn.Variety.ToString()) is not { } variety) return;
-            uint id = await SpawnMonster(conn, variety, level, spawn.Rarity, spawn.X, spawn.Y,
+            uint id = await SpawnMonster(player, variety, level, spawn.Rarity, spawn.X, spawn.Y,
                 unrisen: false, alone: false);
             if (id == 0) return;
             box.Guards.Add(id);
             box.Pending.RemoveAt(0);
-            Keep(conn, area);
+            Keep(player, area);
         }
     }
 
-    public static async Task Tick(Player conn)
+    public static async Task Tick(Player player)
     {
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is null || conn.Closed || conn.LeavingArea) return;
+        if (!Areas.TryGetValue(player.Instance, out var area) || area.Boxes is null || player.Closed || player.LeavingArea) return;
         await area.Gate.WaitAsync();
         try
         {
             foreach (var prior in area.Boxes.Where(b => b.Phase == 1).ToArray())
             {
-                if (prior.Pending.Count > 0) await SpawnPending(conn, area, prior);
+                if (prior.Pending.Count > 0) await SpawnPending(player, area, prior);
                 if (prior.Pending.Count > 0 || prior.Guards.Count == 0) continue;
-                lock (conn.Monsters)
-                    if (prior.Guards.Any(id => conn.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
-                if (!conn.Instance.SetState($"Ambush/rewards/{prior.Index}/{prior.Cycle}")) continue;
+                if (prior.Guards.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
+                if (!player.Instance.SetState($"Ambush/rewards/{prior.Index}/{prior.Cycle}")) continue;
                 var opened = prior with { Phase = 2 };
                 area.Boxes[prior.Index] = opened;
-                Keep(conn, area);
-                foreach (var member in Members(conn)) await Present(member, opened, true);
-                await Rewards(conn, opened);
-                if (ClosesAgain(MapModsOf(conn)?.Get(Stat.MapStrongboxCloseAfterOpeningChancePct) ?? 0, AreaRng(conn)))
+                Keep(player, area);
+                foreach (var member in Members(player)) await Present(member, opened, true);
+                await Rewards(player, opened);
+                if (ClosesAgain(MapModsOf(player)?.Get(Stat.MapStrongboxCloseAfterOpeningChancePct) ?? 0, AreaRng(player)))
                 {
                     var closed = opened with { Phase = 0, Cycle = opened.Cycle + 1, Guards = [] };
                     area.Boxes[prior.Index] = closed;
-                    Keep(conn, area);
-                    foreach (var member in Members(conn)) await Present(member, closed, true);
+                    Keep(player, area);
+                    foreach (var member in Members(player)) await Present(member, closed, true);
                 }
             }
         }
@@ -243,40 +250,40 @@ public static class MapStrongboxes
         _ => true,
     };
 
-    static async Task Rewards(Player conn, Box box)
+    static async Task Rewards(Player player, Box box)
     {
-        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(conn)) return;
-        int level = Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
-        var drops = DropsFor(conn);
+        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return;
+        int level = Math.Clamp(MapRunOf(player)!.Area.Level, 1, 100);
+        var drops = DropsFor(player);
         // The replica's ordinary container budget; the official server's quantity distribution is not in client tables.
         int count = box.Type.EndsWith("Large", StringComparison.Ordinal) || box.Type.EndsWith("Ornate", StringComparison.Ordinal) ? 10 : 5;
         var result = new List<ItemDrops.Drop>();
         for (int i = 0; i < count; i++)
         {
-            ItemDrops.Drop? item = box.Type.Contains("Divination", StringComparison.Ordinal) ? drops.Card(AreaRng(conn), level)
-                : box.Type.Contains("Scarab", StringComparison.Ordinal) ? drops.Scarab(AreaRng(conn), level) : null;
+            ItemDrops.Drop? item = box.Type.Contains("Divination", StringComparison.Ordinal) ? drops.Card(AreaRng(player), level)
+                : box.Type.Contains("Scarab", StringComparison.Ordinal) ? drops.Scarab(AreaRng(player), level) : null;
             if (item is not null) result.Add(item);
         }
         if (box.Type.Contains("Cartographer", StringComparison.Ordinal))
             for (int i = 0; result.Count < count && i < count * 64; i++)
-                if (drops.Map(level, MonsterRarity.Unique, MapRunOf(conn)!.Area.Tier, AreaRng(conn)) is { } map) result.Add(map);
+                if (drops.Map(level, MonsterRarity.Unique, MapRunOf(player)!.Area.Tier, AreaRng(player)) is { } map) result.Add(map);
         if (result.Count == 0 && !box.Type.Contains("Cartographer", StringComparison.Ordinal)
             && !box.Type.Contains("Divination", StringComparison.Ordinal) && !box.Type.Contains("Scarab", StringComparison.Ordinal))
-            result.AddRange(drops.Container(level, count, 0, AreaRng(conn), item => Accepts(box.Type, item)));
+            result.AddRange(drops.Container(level, count, 0, AreaRng(player), item => Accepts(box.Type, item)));
         foreach (var drop in ItemDrops.Stacked(result))
         {
-            var at = conn.Layout.Near((box.X + AreaRng(conn).Next(-5, 6), box.Y + AreaRng(conn).Next(-5, 6)));
+            var at = player.Layout.Near((box.X + AreaRng(player).Next(-5, 6), box.Y + AreaRng(player).Next(-5, 6)));
             var ground = new WorldItemObject(at.X, at.Y, drop.Item);
-            uint id = conn.Instance.Ground.Add(ground, conn);
-            await SendGroundItem(conn, id, ground, $"strongbox 0x{box.Id:x} drops {drop.Type.Name}", justDropped: true);
+            uint id = player.Instance.Ground.Add(ground, player);
+            await SendGroundItem(player, id, ground, $"strongbox 0x{box.Id:x} drops {drop.Type.Name}", justDropped: true);
         }
     }
 
-    public static void Describe(Player conn, JsonObject state)
+    public static void Describe(Player player, JsonObject state)
     {
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is null) return;
+        if (!Areas.TryGetValue(player.Instance, out var area) || area.Boxes is null) return;
         state["strongboxes"] = JsonSerializer.SerializeToNode(area.Boxes);
     }
 
-    public static void Leave(Player conn) => Presented.Remove(conn);
+    public static void Leave(Player player) => Presented.Remove(player);
 }

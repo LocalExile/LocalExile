@@ -272,6 +272,28 @@ public sealed class WorldOutput
         }
     }
 
+    /// <summary>A batch that goes to the area's frame (AreaDelta) instead of this output: its births and removals are
+    /// done here at once (the area writes them to every connection in order), so nothing waits on them.</summary>
+    public void Shared(OutputBatch batch, WorldAdmission admission)
+    {
+        var born = new List<WorldObject>();
+        var removed = new List<WorldObject>();
+        lock (sync)
+        {
+            ObjectDisposedException.ThrowIf(closed, this);
+            foreach (var birth in admission.Births) { birth.State = WorldObject.BirthState.Ready; born.Add(birth); }
+            foreach (var record in batch.Records)
+                if (record.Kind == OutputRecord.RecordKind.Remove && record.Object is { } target && ReferenceEquals(target.Owner, this))
+                {
+                    target.State = WorldObject.BirthState.Retired;
+                    if (objects.GetValueOrDefault(target.Id) == target) objects.Remove(target.Id);
+                    removed.Add(target);
+                }
+        }
+        foreach (var birth in born) birth.Birth.TrySetResult(true);
+        foreach (var target in removed) { target.Invalidated.TrySetResult(false); target.Removal.TrySetResult(true); }
+    }
+
     // Called under SendGate. Validate the complete batch before admitting any of it.
     public IReadOnlyList<Packet> Admit(OutputBatch batch, WorldAdmission admission, bool framed)
     {

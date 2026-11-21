@@ -6,14 +6,14 @@ public static partial class Game
     // Nearby-allies policy pending retail range measurement, kept separate from ordinary aura area/effect scaling.
     public const int AvianSharingRadius = 40;
 
-    public static SharedAura[] SharedAvianAuras(Player conn)
+    public static SharedAura[] SharedAvianAuras(Player player)
     {
-        if (conn.Closed || conn.LeavingArea || InTown(conn) || !AvianActive(conn) || AvianRoot(conn) is not { } root) return [];
-        var raw = CharacterStatSources(conn).Stats;
-        int Get(uint n) => AspectInput(conn, raw, n);
+        if (player.Closed || player.LeavingArea || InTown(player) || !AvianActive(player) || AvianRoot(player) is not { } root) return [];
+        var raw = StatSourceValues(player);
+        int Get(uint n) => AspectInput(player, raw, n);
         if (Get(Stat.AspectOfTheAvianGrantsAviansMightAndAviansFlightToNearbyAllies) == 0) return [];
-        bool might = conn.Reservations.Avian == ReservationState.AvianPhase.Might;
-        var rows = root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
+        bool might = player.Reservations.Avian == ReservationState.AvianPhase.Might;
+        var rows = root.SkillStats ?? SkillsFor(player).EffectStats(root.Effect, root.Level, root.Quality);
         var names = might ? new[] { Stat.ChanceToDealDoubleDamagePct, Stat.MinionChanceToDealDoubleDamagePct }
             : new[] { Stat.BaseMovementVelocityPlusPct, Stat.MinionMovementSpeedPlusPct };
         var frozen = names.Select(key =>
@@ -27,43 +27,42 @@ public static partial class Game
             BuffRow = might ? (ushort)1040 : (ushort)1041, SourceBuff = null, SkillStats = frozen,
             ExternalEffectPct = 0, SupportEffectPct = 0, AffectsSelf = true }, AvianSharingRadius, 0)];
     }
-    static AuraCatalog.Aura? AvianRoot(Player conn) => conn.PlayerLife > 0
-        ? conn.Auras.Values.FirstOrDefault(a => a.EffectId == AvianAspect) : null;
+    static AuraCatalog.Aura? AvianRoot(Player player) => player.PlayerLife > 0
+        ? player.Auras.Values.FirstOrDefault(a => a.EffectId == AvianAspect) : null;
 
-    public static bool AvianActive(Player conn) => AvianRoot(conn) is { } root
-        && conn.Reservations.AvianOwner == new ReservationState.CatAspectOwner(root.SkillId, root.Buff)
-        && conn.Reservations.Avian != ReservationState.AvianPhase.None;
+    public static bool AvianActive(Player player) => AvianRoot(player) is { } root
+        && player.Reservations.AvianOwner == new ReservationState.CatAspectOwner(root.SkillId, root.Buff)
+        && player.Reservations.Avian != ReservationState.AvianPhase.None;
 
-    static int AspectInput(Player conn, IReadOnlyDictionary<uint, int> raw, uint name) =>
+    static int AspectInput(Player player, IReadOnlyDictionary<uint, int> raw, uint name) =>
         name is var key ? raw.GetValueOrDefault(key) : 0;
 
-    static void EndAvianAspectLocked(Player conn, AuraCatalog.Aura root)
+    static void EndAvianAspectLocked(Player player, AuraCatalog.Aura root)
     {
-        var state = conn.Reservations;
+        var state = player.Reservations;
         if (state.AvianOwner != new ReservationState.CatAspectOwner(root.SkillId, root.Buff)) return;
         state.AvianOwner = null;
         state.Avian = ReservationState.AvianPhase.None;
         state.AvianStartedAt = state.AvianDeadline = 0;
-        state.AvianBuff = 0;
-        conn.AuraStatsDirty = true;
-        conn.Minions.StatRevision++;
+        player.AuraStatsDirty = true;
+        player.Minions.StatRevision++;
     }
 
-    public static bool AvianReconcileLocked(Player conn, double now,
+    public static bool AvianReconcileLocked(Player player, double now,
         IReadOnlyDictionary<uint, int>? raw = null)
     {
-        var state = conn.Reservations;
-        var root = AvianRoot(conn);
-        ReconcileTwisterSourcesLocked(conn);
+        var state = player.Reservations;
+        var root = AvianRoot(player);
+        ReconcileTwisterSourcesLocked(player);
         if (root is null)
         {
             if (state.AvianOwner is not { } owner) return false;
-            EndAvianAspectLocked(conn, new(owner.Skill, 0, AvianAspect, "", owner.RootBuff, 1039, 0, 0));
+            EndAvianAspectLocked(player, new(owner.Skill, 0, AvianAspect, "", owner.RootBuff, 1039, 0, 0));
             return true;
         }
-        raw ??= CharacterStatSources(conn).Stats;
-        int Get(uint name) => AspectInput(conn, raw, name);
-        var rows = root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
+        raw ??= StatSourceValues(player);
+        int Get(uint name) => AspectInput(player, raw, name);
+        var rows = root.SkillStats ?? SkillsFor(player).EffectStats(root.Effect, root.Level, root.Quality);
         int Own(uint key) => rows.FirstOrDefault(p => p.Key == key).Value;
         double Duration(uint source, uint modifier) => Math.Max(.001,
             SkillDurationModifiers.Seconds(Math.Max(0, Own(source) + Get(modifier)), Get, Own));
@@ -93,25 +92,25 @@ public static partial class Game
         state.AvianStartedAt = settled.Started;
         state.AvianDeadline = settled.Deadline;
         if (previousOwner != wanted || previousPhase != phase || Math.Abs(previousStart - settled.Started) > 1e-9)
-            QueueTwisterGainLocked(conn);
+            QueueTwisterGainLocked(player);
         if (changed)
         {
-            state.AvianBuff = conn.NextBuff++;
-            conn.AuraStatsDirty = true;
-            conn.Minions.StatRevision++;
+            PresentAvianPhaseLocked(player, moved: true);
+            player.AuraStatsDirty = true;
+            player.Minions.StatRevision++;
         }
         return changed;
     }
 
-    public static IReadOnlyList<(uint Key, int Value)> AvianRawStatsLocked(Player conn,
+    public static IReadOnlyList<(uint Key, int Value)> AvianRawStatsLocked(Player player,
         IReadOnlyDictionary<uint, int> raw, bool includeReceived = false)
     {
-        var root = AvianRoot(conn);
-        bool own = AvianActive(conn) && root is not null;
-        var received = conn.ReceivedAuras.Values.Where(a => a.EffectId is "AvianMightShared" or "AvianFlightShared").ToArray();
+        var root = AvianRoot(player);
+        bool own = AvianActive(player) && root is not null;
+        var received = player.ReceivedAuras.Values.Where(a => a.EffectId is "AvianMightShared" or "AvianFlightShared").ToArray();
         if (!own && received.Length == 0) return [];
-        int Get(uint name) => AspectInput(conn, raw, name);
-        var rows = root is null ? [] : root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
+        int Get(uint name) => AspectInput(player, raw, name);
+        var rows = root is null ? [] : root.SkillStats ?? SkillsFor(player).EffectStats(root.Effect, root.Level, root.Quality);
         var result = new List<(uint, int)>();
         void Add(uint name, int value)
         {
@@ -128,8 +127,8 @@ public static partial class Game
             int external = Received(name);
             Add(name, Math.Max(scaled, external) - (includeReceived ? 0 : external));
         }
-        bool ownMight = own && conn.Reservations.Avian == ReservationState.AvianPhase.Might;
-        bool ownFlight = own && conn.Reservations.Avian == ReservationState.AvianPhase.Flight;
+        bool ownMight = own && player.Reservations.Avian == ReservationState.AvianPhase.Might;
+        bool ownFlight = own && player.Reservations.Avian == ReservationState.AvianPhase.Flight;
         bool receivedMight = received.Any(a => a.EffectId == "AvianMightShared");
         bool receivedFlight = received.Any(a => a.EffectId == "AvianFlightShared");
         Add(Stat.HasAviansMight, (ownMight || receivedMight) && (includeReceived || !receivedMight) ? 1 : 0);
@@ -155,21 +154,17 @@ public static partial class Game
         return result;
     }
 
-    static void PresentAvianPhaseLocked(Player conn, List<byte[]> packets)
+    // Avian's Might (row 1040) or Flight (1041) while its root aura runs; its countdown is set when the phase changes.
+    static void PresentAvianPhaseLocked(Player player, bool moved = false)
     {
-        var state = conn.Reservations;
-        ushort wanted = AvianActive(conn) ? state.AvianBuff : (ushort)0;
-        if (state.PresentedAvianBuff != 0 && state.PresentedAvianBuff != wanted)
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedAvianBuff));
-        if (wanted != 0 && wanted != state.PresentedAvianBuff)
-        {
-            ushort row = state.Avian == ReservationState.AvianPhase.Might ? (ushort)1040 : (ushort)1041;
-            // Both rows are non-recovery buffs. Granted stats travel in the ordinary final stat update.
-            packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, row, PlayerId, state.AvianOwner!.Value.Skill,
-                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.AvianDeadline - AreaTime(conn)))));
-            state.PresentedAvianRow = row;
-        }
-        state.PresentedAvianBuff = wanted;
-        if (wanted == 0) state.PresentedAvianRow = 0;
+        var state = player.Reservations;
+        var buffs = player.Area.Buffs;
+        ushort row = !AvianActive(player) ? (ushort)0 : state.Avian == ReservationState.AvianPhase.Might ? (ushort)1040 : (ushort)1041;
+        foreach (ushort phase in (ushort[])[1040, 1041])
+            if (phase != row) buffs.Clear(player.Id, phase, player.Id);
+        if (row == 0) return;
+        // Both rows are non-recovery buffs. Granted stats travel in the ordinary final stat update.
+        var buff = new Buff(row, player.Id, state.AvianOwner!.Value.Skill, U68: Buff.Seconds(state.AvianDeadline - AreaTime(player)));
+        if (moved) buffs.Set(player.Id, buff); else buffs.Keep(player.Id, buff);
     }
 }

@@ -70,14 +70,18 @@ public sealed class BowProjectileCountTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         Player Holding(string character, string? weapon)
         {
-            var conn = new Player(new(1, "ordinary-count", 1000, 1000, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "ordinary-count", 1000, 1000, 100, 100, null, []), 1, 1)
             {
-                Character = character, PlayerLife = 1000, PlayerMana = 1000, Instance = new(), LockstepClient = true,
+                Character = { Name = character },
+                PlayerLife = 1000,
+                PlayerMana = 1000,
+                Instance = new(),
+                Connection = { LockstepClient = true },
                 Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-                LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+                LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"]))
             };
-            if (weapon is not null) Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find(weapon)!));
-            return conn;
+            if (weapon is not null) Game.ItemsOf(player).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find(weapon)!));
+            return player;
         }
         var bowConn = Holding("OrdinaryBowChar", "Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1");
         var wandConn = Holding("OrdinaryWandChar", "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1");
@@ -95,20 +99,20 @@ public sealed class BowProjectileCountTests
             foreach (uint key in new[] { Stat.TotalNumberOfProjectilesToFire, Stat.VirtualTotalNumberOfProjectiles,
                 Stat.TotalNumberOfArrowsToFire, Stat.VirtualTotalNumberOfArrows })
                 Assert.Equal(2, Assert.Single(record.Stats!, s => s.Key == key).Value);
-            Assert.True(bowConn.ClientDrawnShot == OrdinaryRangedAttack.Arrow && bowConn.DefaultAttackRecordLockstep);
+            Assert.True(bowConn.Connection.ClientDrawnShot == OrdinaryRangedAttack.Arrow && bowConn.Connection.DefaultAttackRecordLockstep);
             Game.PlayerDefaultSkills(meleeConn, [], character);
-            Assert.Null(meleeConn.ClientDrawnShot);
+            Assert.Null(meleeConn.Connection.ClientDrawnShot);
             // A drawn shot collides on the client's contact (the row's radii: DefaultArrow 1, WandProjectile 2 cells, plus
             // the target's size), not the server's 4-cell stand-in, and flies the client's 150 cells.
             int None(uint _) => 0;
             var drawn = Game.ClientDrawnProfile(bowConn, new(OrdinaryRangedAttack.Arrow), None, 0x8001, new(1, 0));
             Assert.Equal((1, 150d), (drawn.ContactCells, drawn.Range));
             Assert.Equal(2, Game.ClientDrawnProfile(wandConn, new(OrdinaryRangedAttack.Wand), None, 0x8001, new(1, 0)).ContactCells);
-            bowConn.LockstepClient = false;
+            bowConn.Connection.LockstepClient = false;
             Assert.Empty(Game.OrdinaryRangedCountStats(bowConn, character));
             Assert.DoesNotContain(Assert.Single(Game.PlayerDefaultSkills(bowConn, [], character)).Stats ?? [],
                 s => s.Key == Stat.VirtualTotalNumberOfArrows);
-            Assert.False(bowConn.ClientDrawnShot is not null || bowConn.DefaultAttackRecordLockstep);
+            Assert.False(bowConn.Connection.ClientDrawnShot is not null || bowConn.Connection.DefaultAttackRecordLockstep);
 
             // The initial predictive list is cached. Mode confirmation must rebuild it with the same equipment,
             // stats and pools, even after SendLockstepDefaultAttack has latched its refresh request.
@@ -116,21 +120,21 @@ public sealed class BowProjectileCountTests
             Assert.Same(predictive, Game.PlayerSkills(bowConn));
             Assert.DoesNotContain(Assert.Single(predictive, s => s.Id == SkillCatalog.FirstSkillId).Stats ?? [],
                 s => s.Key == Stat.VirtualTotalNumberOfArrows);
-            bowConn.LockstepClient = true;
-            bowConn.DefaultAttackRecordLockstep = true;
+            bowConn.Connection.LockstepClient = true;
+            bowConn.Connection.DefaultAttackRecordLockstep = true;
             var confirmed = Game.PlayerSkills(bowConn);
             Assert.NotSame(predictive, confirmed);
             var confirmedDefault = Assert.Single(confirmed, s => s.Id == SkillCatalog.FirstSkillId);
             foreach (uint key in new[] { Stat.TotalNumberOfProjectilesToFire, Stat.VirtualTotalNumberOfProjectiles,
                 Stat.TotalNumberOfArrowsToFire, Stat.VirtualTotalNumberOfArrows })
                 Assert.Equal(1, Assert.Single(confirmedDefault.Stats!, s => s.Key == key).Value);
-            Assert.Equal(OrdinaryRangedAttack.Arrow, bowConn.ClientDrawnShot);
-            Assert.True(bowConn.DefaultAttackRecordLockstep);
+            Assert.Equal(OrdinaryRangedAttack.Arrow, bowConn.Connection.ClientDrawnShot);
+            Assert.True(bowConn.Connection.DefaultAttackRecordLockstep);
             Assert.Same(confirmed, Game.PlayerSkills(bowConn));
         }
         finally
         {
-            foreach (var conn in new[] { bowConn, wandConn, meleeConn }) PlayerInventories.Forget(conn.Character!);
+            foreach (var player in new[] { bowConn, wandConn, meleeConn }) PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseSaves(path);
         }

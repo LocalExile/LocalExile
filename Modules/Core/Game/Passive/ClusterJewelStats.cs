@@ -79,10 +79,10 @@ public static class ClusterJewelStats
     }
 
     /// <summary>The stats of every socketed cluster jewel's allocated passives.</summary>
-    public static IEnumerable<(uint Key, int Value)> For(Player conn, IReadOnlyList<InventoryItem> jewels,
+    public static IEnumerable<(uint Key, int Value)> For(Player player, IReadOnlyList<InventoryItem> jewels,
         ModCatalog mods, StatCatalog stats)
     {
-        if (conn.ClusterPassives.Count == 0) yield break;
+        if (player.Character.ClusterPassives.Count == 0) yield break;
         // A tree socket has a mapped block: its small passives give the theme as they are taken, its sockets nothing,
         // and its notables' rows come once every passive is allocated. The ids outside every such block belong to the
         // expansion cells, which have no mapped block and count once their passives are all allocated.
@@ -91,7 +91,7 @@ public static class ClusterJewelStats
         {
             if (ClusterJewelLayout.For(item.X, item.Item) is not { } layout) continue;
             int inside = 0;
-            foreach (ushort id in conn.ClusterPassives)
+            foreach (ushort id in player.Character.ClusterPassives)
             {
                 if (id < layout.Base || id >= layout.Base + layout.Total) continue;
                 inside++;
@@ -99,7 +99,7 @@ public static class ClusterJewelStats
                 switch (layout.ByOffset.GetValueOrDefault(offset))
                 {
                     case ClusterJewelLayout.Kind.Keystone:
-                        if (Keystone(item.Item, Game.PassivesFor(conn)) is { } keystone)
+                        if (Keystone(item.Item, Game.PassivesFor(player)) is { } keystone)
                             foreach (var stat in keystone.Stats) yield return stat;
                         break;
                     case ClusterJewelLayout.Kind.Small:
@@ -114,7 +114,7 @@ public static class ClusterJewelStats
             }
             known += inside;
         }
-        int left = conn.ClusterPassives.Count - known;
+        int left = player.Character.ClusterPassives.Count - known;
         foreach (var item in jewels)
         {
             if (ClusterJewelLayout.For(item.X, item.Item) is not null) continue;

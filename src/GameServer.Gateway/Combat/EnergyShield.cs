@@ -4,7 +4,7 @@ public sealed class EnergyShield
 {
     public readonly record struct Snapshot(uint Current, double Fraction, double? InterruptedSecondsAgo);
 
-    public uint Current { get => current; private set { bool was = Full; current = value; if (Full != was) ConditionsChanged?.Invoke(); } }
+    public uint Current { get => current; private set { bool was = Full; if (current != value) { current = value; Changed?.Invoke(); } if (Full != was) ConditionsChanged?.Invoke(); } }
     public uint Maximum { get => maximum; private set { bool was = Full; maximum = value; if (Full != was) ConditionsChanged?.Invoke(); } }
     public bool Full => Maximum > 0 && Current >= Maximum;
     public bool Recharging { get => recharging; private set { if (recharging == value) return; recharging = value; ConditionsChanged?.Invoke(); } }
@@ -12,6 +12,8 @@ public sealed class EnergyShield
     bool recharging;
     /// <summary>Full or Recharging changed (what stat conditions read).</summary>
     public Action? ConditionsChanged;
+    /// <summary>Current changed (the Life component writes it: AreaLife).</summary>
+    public Action? Changed;
     double interruptedAt = double.NegativeInfinity, fraction;
     public void SetMaximum(uint maximum, bool refill = false)
     {

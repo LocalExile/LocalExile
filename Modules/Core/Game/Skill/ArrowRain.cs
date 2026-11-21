@@ -34,18 +34,18 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll critical, ushort sequence, bool mirage = false)
     {
-        var conn = session.Conn;
-        string id = SkillsFor(conn).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence);
+        var player = session.Player;
+        string id = SkillsFor(player).EffectId(gem.Effect)!;
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence);
         var shot = (ProjectileOffense)use.Payload!;
-        if (mirage) shot = MirageOffense(conn, shot);
+        if (mirage) shot = MirageOffense(player, shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };
-        var own = SupportedSkill(conn, skill).Stats;
-        var player = CharacterPlayerStats(conn);
+        var own = SupportedSkill(player, skill).Stats;
+        var playerStats = CharacterPlayerStats(player);
         int Own(uint stat) => own.GetValueOrDefault(stat);
-        int Player(uint stat) => player.GetValueOrDefault(stat);
+        int Player(uint stat) => playerStats.GetValueOrDefault(stat);
         int Get(uint key) => Own(key) + Player(key);
-        int variation = SkillArtVariation(conn, gem.Gem);
+        int variation = SkillArtVariation(player, gem.Gem);
         string? ArtOf(string key) => Art.Animated(key, variation) ?? Art.Animated(key, 0);
         bool toxic = id == "ToxicRain", blast = id == "BlastRain";
         int count = Math.Clamp(GatewayProjectileDefaults.Resolve(GroundArrow.Metadata, Get, 1000, true, true).Count
@@ -55,14 +55,14 @@ public static partial class Game
         double spread = blast ? radius * .85 : SkillArea.Radius(24, Get, false);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();
-        var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, AreaRng(conn));
+        var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, AreaRng(player));
         string? up = toxic ? ArtOf("toxic_rain_arrow_up") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_up.ao" : ArtOf("expanding_rain_of_arrows_up");
         string? down = toxic ? ArtOf("toxic_rain_arrow_down") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_drop.ao" : ArtOf("expanding_rain_of_arrows_arrow");
         string? impact = toxic ? null : blast ? "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao" : ArtOf("expanding_rain_of_arrows_explosion");
         session.RainArt(use.Origin, up, 1);
         double spacing = blast ? Math.Max(0, Get(Stat.BlastRainArrowDelayMs)) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
-        var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
+        var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? playerStats);
         double dps = toxic && !damageContext.Suppressed
             ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) : 0;
         for (int i = 0; i < landings.Count; i++)
@@ -71,7 +71,7 @@ public static partial class Game
             long land = session.Runtime.Now + ProjectileRuntime.Time(.35 + i * spacing);
             session.Runtime.Schedule(land, () =>
             {
-                if (!session.Active || conn.PlayerLife == 0) return;
+                if (!session.Active || player.PlayerLife == 0) return;
                 session.RainArt(at, down, 1);
                 session.Runtime.Impact(use, at, new(id, radius));
                 if (!toxic) session.RainArt(at, impact, 1, radius);

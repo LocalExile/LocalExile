@@ -18,47 +18,44 @@ public static partial class Game
     /// this connection-owned state. A changed owner, host/mod/GEPL identity, inactive item, mode refusal or death retires
     /// the toggle and queues its native buff for removal.
     /// </summary>
-    static UnhingedState UnhingedAt(Player conn, double now)
+    static UnhingedState UnhingedAt(Player player, double now)
     {
-        lock (conn.Monsters)
+        var state = player.Unhinged;
+        var owner = ResourceEffectsOf(player);
+        if (!ResourceEffectsCurrent(player, owner))
         {
-            var state = conn.Unhinged;
-            var owner = ResourceEffectsOf(conn);
-            if (!ResourceEffectsCurrent(conn, owner))
-            {
-                RetireUnhinged(conn);
-                return state;
-            }
-            var equipment = ItemsOf(conn).EquipmentSnapshot();
-            var grant = AllWornGrantedSkillsOf(conn, equipment)
-                .Select(g => (WornGrantedSkills.Grant?)g)
-                .FirstOrDefault(g => g is { } candidate
-                    && candidate.EffectId == UnhingeEffect && candidate.ModId == UnhingeGrant
-                    && candidate.EffectsPerLevelRow == 69315 && !candidate.Support
-                    && !IsInactive(conn, candidate.Host)
-                    && LeagueFor(conn).Rules.AllowsGemEffect(candidate.EffectId));
-            if (grant is not { } matched)
-            {
-                RetireUnhinged(conn);
-                return state;
-            }
-            if (!ReferenceEquals(state.Owner, owner) || state.Source != matched)
-            {
-                if (state.Retire() is ushort old and not 0) conn.RetiredUnhingedBuffs.Add(old);
-                state.Install(owner, matched);
-            }
+            RetireUnhinged(player);
             return state;
         }
+        var equipment = ItemsOf(player).EquipmentSnapshot();
+        var grant = AllWornGrantedSkillsOf(player, equipment)
+            .Select(g => (WornGrantedSkills.Grant?)g)
+            .FirstOrDefault(g => g is { } candidate
+                && candidate.EffectId == UnhingeEffect && candidate.ModId == UnhingeGrant
+                && candidate.EffectsPerLevelRow == 69315 && !candidate.Support
+                && !IsInactive(player, candidate.Host)
+                && LeagueFor(player).Rules.AllowsGemEffect(candidate.EffectId));
+        if (grant is not { } matched)
+        {
+            RetireUnhinged(player);
+            return state;
+        }
+        if (!ReferenceEquals(state.Owner, owner) || state.Source != matched)
+        {
+            if (state.Retire() is ushort old and not 0) player.RetiredUnhingedBuffs.Add(old);
+            state.Install(owner, matched);
+        }
+        return state;
     }
 
-    static void RetireUnhinged(Player conn)
+    static void RetireUnhinged(Player player)
     {
-        if (conn.Unhinged.Retire() is ushort buff and not 0) conn.RetiredUnhingedBuffs.Add(buff);
+        if (player.Unhinged.Retire() is ushort buff and not 0) player.RetiredUnhingedBuffs.Add(buff);
     }
 
-    public static bool Unhinged(Player conn)
+    public static bool Unhinged(Player player)
     {
-        lock (conn.Monsters) return UnhingedAt(conn, ResourceEffectsTime(conn)).Active;
+        return UnhingedAt(player, ResourceEffectsTime(player)).Active;
     }
 
     /// <summary>The exact raw sane Damage Taken final for one component. It has no effect on elemental damage.</summary>
@@ -74,119 +71,92 @@ public static partial class Game
     /// Accepted hit contact while sane starts or refreshes one non-stacking one-second regeneration contribution. This
     /// runs after block/avoidance/range admission, so a fully absorbed or blocked hit still recovers and a miss does not.
     /// </summary>
-    public static void UnhingedHitRecoveryLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static void UnhingedHitRecoveryLocked(Player player, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.PlayerLife == 0) return;
-        var state = UnhingedAt(conn, now);
+        if (player.PlayerLife == 0) return;
+        var state = UnhingedAt(player, now);
         if (!state.Exists || state.Enabled) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
         int percent = Get(SaneHitRecovery);
         if (percent <= 0) return;
-        double perSecond = conn.PlayerMaxLife * (double)percent / 100
+        double perSecond = player.PlayerMaxLife * (double)percent / 100
             * PanelStats.LifeRegenerationMultiplier(Get);
         if (perSecond > 0) state.HitRecovery.Begin(now, 1, perSecond);
     }
 
-    public static bool UnhingedCorpseDestruction(Player conn)
+    public static bool UnhingedCorpseDestruction(Player player)
     {
-        if (!Unhinged(conn)) return false;
-        var stats = CharacterPlayerStats(conn);
+        if (!Unhinged(player)) return false;
+        var stats = CharacterPlayerStats(player);
         return UnhingedCorpseDestroy is var key && stats.GetValueOrDefault(key) != 0;
     }
 
     /// <summary>Freeze the item decision as part of the lethal hit mutation, before hit notifications can yield.</summary>
-    public static void CaptureUnhingedHitKillLocked(Player conn, SpawnedMonster m, bool playerHit)
+    public static void CaptureUnhingedHitKillLocked(Player player, SpawnedMonster m, bool playerHit)
     {
         if (m.Life == 0)
-            m.UnhingedHitKill = new(conn, playerHit && UnhingedCorpseDestruction(conn));
+            m.UnhingedHitKill = new(player, playerHit && UnhingedCorpseDestruction(player));
     }
 
     /// <summary>Consume the decision for this exact monster and owner. No current-state fallback is allowed.</summary>
-    public static bool TakeUnhingedHitKillLocked(Player conn, SpawnedMonster m)
+    public static bool TakeUnhingedHitKillLocked(Player player, SpawnedMonster m)
     {
         var receipt = m.UnhingedHitKill;
-        if (receipt is null || !ReferenceEquals(receipt.Owner, conn)) return false;
+        if (receipt is null || !ReferenceEquals(receipt.Owner, player)) return false;
         m.UnhingedHitKill = null;
         return receipt.DestroyCorpse;
     }
 
-    public static Task PublishUnhingedCorpseDestruction(Player conn, uint id, SpawnedMonster m, bool committed)
+    public static Task PublishUnhingedCorpseDestruction(Player player, uint id, SpawnedMonster m, bool committed)
     {
         if (!committed) return Task.CompletedTask;
-        lock (conn.Monsters)
-        {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || m.CorpseConsumed
-                || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) return Task.CompletedTask;
-            m.CorpseConsumed = true;
-        }
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || m.CorpseConsumed
+            || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) return Task.CompletedTask;
+        m.CorpseConsumed = true;
         // Item text: "Enemies Killed by your Hits are destroyed while Insane." The extraction supplies only the boolean,
         // so remove the accepted hit's corpse without inventing damage, another kill event, loot roll or experience award.
         // `committed` is the qualification captured at the lethal hit: later source/toggle changes cannot rewrite it.
-        return SendWorldRemoval(conn, id,
+        return SendWorldRemoval(player, id,
             $"0x02bb corpse of 0x{id:x} destroyed while unhinged", still: () =>
             {
-                lock (conn.Monsters)
-                    return CurrentGameWork && !conn.Closed && !conn.LeavingArea
-                        && conn.Monsters.TryGetValue(id, out var current) && ReferenceEquals(current, m);
+                return CurrentGameWork && !player.Closed && !player.LeavingArea
+                    && player.Area.Monsters.TryGetValue(id, out var current) && ReferenceEquals(current, m);
             });
     }
 
-    public static async Task<bool> ToggleUnhinged(Player conn, ushort skillId, int effect, Func<bool> current)
+    public static async Task<bool> ToggleUnhinged(Player player, ushort skillId, int effect, Func<bool> current)
     {
         bool toggled = false;
-        await SendWorldRecord(conn, PlayerId, [], "0x01c1 player buff unhinged toggled", atGate: () =>
+        await SendWorldRecord(player, player.Id, [], "0x01c1 player buff unhinged toggled", atGate: () =>
         {
-            lock (conn.Monsters)
-            {
-                if (!current()) return null;
-                var actor = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-                if (actor.Effect != effect || SkillEffectId(conn, skillId) != UnhingeEffect) return null;
-                double now = ResourceEffectsTime(conn);
-                var state = UnhingedAt(conn, now);
-                if (!state.Exists || state.Source is not { } source || IsInactive(conn, source.Host)) return null;
-                bool enabled = state.Toggle();
-                toggled = true;
-                if (enabled)
-                {
-                    state.Buff = conn.NextBuff++;
-                    return InstanceEntities.AddBuff(PlayerId, state.Buff, UnhingedBuffRow, PlayerId);
-                }
-                ushort buff = state.Buff;
-                state.Buff = 0;
-                return buff == 0 ? [] : InstanceEntities.RemoveBuff(PlayerId, buff);
-            }
+            if (!current()) return null;
+            var actor = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
+            if (actor.Effect != effect || SkillEffectId(player, skillId) != UnhingeEffect) return null;
+            double now = ResourceEffectsTime(player);
+            var state = UnhingedAt(player, now);
+            if (!state.Exists || state.Source is not { } source || IsInactive(player, source.Host)) return null;
+            bool enabled = state.Toggle();
+            toggled = true;
+            if (enabled) player.Area.Buffs.Set(player.Id, new(UnhingedBuffRow, player.Id));
+            else player.Area.Buffs.Clear(player.Id, UnhingedBuffRow, player.Id);
+            return [];
         });
         return toggled;
     }
 
-    public static Task SendUnhinged(Player conn) =>
-        SendWorldRecords(conn, PlayerId, () => UnhingedPresentationRecords(conn));
+    public static Task SendUnhinged(Player player) =>
+        SendWorldRecords(player, player.Id, () => UnhingedPresentationRecords(player));
 
-    public static byte[]? UnhingedPresentation(Player conn) =>
-        UnhingedPresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
+    public static byte[]? UnhingedPresentation(Player player) =>
+        UnhingedPresentationRecords(player) is { } records ? [.. records.SelectMany(p => p)] : null;
 
-    static byte[][]? UnhingedPresentationRecords(Player conn)
+    static byte[][]? UnhingedPresentationRecords(Player player)
     {
-        lock (conn.Monsters)
-        {
-            var bytes = new List<byte[]>();
-            foreach (ushort buff in conn.RetiredUnhingedBuffs)
-                bytes.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
-            conn.RetiredUnhingedBuffs.Clear();
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired)
-                return bytes.Count == 0 ? null : [.. bytes];
-            double now = ResourceEffectsTime(conn);
-            var state = UnhingedAt(conn, now);
-            foreach (ushort buff in conn.RetiredUnhingedBuffs)
-                bytes.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
-            conn.RetiredUnhingedBuffs.Clear();
-            if (!state.Exists || !state.Enabled) return bytes.Count == 0 ? null : [.. bytes];
-            if (state.Buff == 0)
-            {
-                state.Buff = conn.NextBuff++;
-                bytes.Add(InstanceEntities.AddBuff(PlayerId, state.Buff, UnhingedBuffRow, PlayerId));
-            }
-            return bytes.Count == 0 ? null : [.. bytes];
-        }
+        player.RetiredUnhingedBuffs.Clear();
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired) return null;
+        var state = UnhingedAt(player, ResourceEffectsTime(player));
+        if (state.Exists && state.Enabled) player.Area.Buffs.Keep(player.Id, new(UnhingedBuffRow, player.Id));
+        else player.Area.Buffs.Clear(player.Id, UnhingedBuffRow, player.Id);
+        return null;
     }
 }

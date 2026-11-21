@@ -26,7 +26,9 @@ public sealed class MonsterContagion
     public Cast? Active => Strongest(instances, last)?.Cast;
 
     /// <summary>The native <c>contagion</c> buff instance on the monster.</summary>
+    /// <summary>The row of the buff that shows the debuff (its source: BuffSource), null while none.</summary>
     public ushort? Buff;
+    public uint BuffSource;
 
     public bool Idle => instances.Count == 0 && Buff is null;
 

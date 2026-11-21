@@ -16,7 +16,6 @@ public sealed class PhysicalAegisState
     public ushort StageBuff;
     public ushort PersistBuff;
     public ushort StageRow;
-    public int PresentedCurrent = -1;
 
     public readonly PassiveBuffAuras.BlindState Blind = new();
 
@@ -88,7 +87,6 @@ public sealed class PhysicalAegisState
         RestoresAt = double.PositiveInfinity;
         StageBuff = PersistBuff = 0;
         StageRow = 0;
-        PresentedCurrent = -1;
         return [.. buffs.Where(buff => buff != 0).Distinct()];
     }
 }

@@ -5,22 +5,22 @@ using GameServer.Core.Protocol.Login;
 /// (LocalExile-Mods).</summary>
 static class CommandsFeature
 {
-    internal static ChatCommands Register(ChatCommands commands, Player conn, GameServer.Modules.M_commands.CharacterPlaytime played)
+    internal static ChatCommands Register(ChatCommands commands, Player player, GameServer.Modules.M_commands.CharacterPlaytime played)
     {
         return commands
         .Add("played", "/played (time spent online with this character)", async _ =>
-            await conn.Commands!.Reply(GameServer.Modules.M_commands.CharacterPlaytime.Describe(played.Seconds(conn))))
+            await player.Commands!.Reply(GameServer.Modules.M_commands.CharacterPlaytime.Describe(played.Seconds(player))))
         .Add("passives", "/passives (passive skill points and the allocated passives)", async _ =>
         {
-            var (points, refundPoints, nodes, _) = PassiveState(conn);
-            int unspent = points + PassivesFor(conn).PointsGranted(nodes) + AscendancyOrdinaryPoints(conn) - nodes.Count;
-            await conn.Commands!.Reply($"Level {conn.Pools.Level}, {conn.Experience} experience: {points} passive skill point(s), {unspent} unspent, {refundPoints} refund point(s).\n" +
-                string.Join("\n", nodes.Select(n => $"{n} {PassivesFor(conn).Find(n)?.Name}").DefaultIfEmpty("No passives allocated.")));
+            var (points, refundPoints, nodes, _) = PassiveState(player);
+            int unspent = points + PassivesFor(player).PointsGranted(nodes) + AscendancyOrdinaryPoints(player) - nodes.Count;
+            await player.Commands!.Reply($"Level {player.Pools.Level}, {player.Character.Experience} experience: {points} passive skill point(s), {unspent} unspent, {refundPoints} refund point(s).\n" +
+                string.Join("\n", nodes.Select(n => $"{n} {PassivesFor(player).Find(n)?.Name}").DefaultIfEmpty("No passives allocated.")));
         })
         .Add("oos", "/oos (puts you and the monsters around you back where the server has them when you are out of sync)", async _ =>
         {
-            await SendResync(conn, "/oos");
-            await conn.Commands!.Reply("Resynced.");
+            await SendResync(player, "/oos");
+            await player.Commands!.Reply("Resynced.");
         });
     }
 }

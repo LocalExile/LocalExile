@@ -5,7 +5,6 @@ sealed class HarbingerTemporalChains(ushort instance, ushort skill, HarbingerRec
     int otherEffects, bool aura = false)
 {
     public ushort Instance { get; set; } = instance;
-    public double PresentedDeadline { get; set; } = clock.Deadline;
     public ushort Skill { get; } = skill;
     public HarbingerRecipientClock Clock { get; } = clock;
     public bool Aura { get; } = aura;

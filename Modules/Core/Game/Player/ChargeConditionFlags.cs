@@ -17,17 +17,17 @@ public static partial class Game
         flags[names.AtMaximum] = alive && !converted && maximum >= 0 && effective >= maximum;
     }
 
-    static Dictionary<string, bool> RequalifyChargeConditions(Player conn,
+    static Dictionary<string, bool> RequalifyChargeConditions(Player player,
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
         var flags = new Dictionary<string, bool>(captured);
         int Get(uint key) => sources.GetValueOrDefault(key);
-        var state = ChargesOf(conn).State;
+        var state = ChargesOf(player).State;
         foreach (var type in Charges.Types)
         {
             var limits = Charges.LimitsOf(type, Get, state.Held(type));
             SetChargeConditionFlags(flags, type, state.Effective(type, limits), limits.Maximum,
-                Get(Charges.ConversionFlag(type)) != 0, conn.PlayerLife > 0);
+                Get(Charges.ConversionFlag(type)) != 0, player.PlayerLife > 0);
         }
         return flags;
     }

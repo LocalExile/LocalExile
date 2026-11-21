@@ -30,11 +30,11 @@ public static class TutorialObjects
           ChestOpened: false, SkillClaimed: false, SupportClaimed: false };
 
     /// <summary>The exile's voice line ends when its window closes: the running scene goes on to the bite now.</summary>
-    public static void SkipDialogue(Player conn)
+    public static void SkipDialogue(Player player)
     {
         bool exile;
-        lock (conn.Npcs) exile = conn.Npcs.GetValueOrDefault(conn.TalkingTo)?.Npc.Id == Exile;
-        if (exile && conn.TutorialSceneRunning) conn.TutorialDialogueSkipped?.TrySetResult();
+        lock (player.Npcs) exile = player.Npcs.GetValueOrDefault(player.TalkingTo)?.Npc.Id == Exile;
+        if (exile && player.TutorialSceneRunning) player.TutorialDialogueSkipped?.TrySetResult();
     }
 
     public sealed record RoomPlacement(int X,int Y,int Width,int Height,int Code)

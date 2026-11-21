@@ -35,14 +35,14 @@ public sealed class CombatCacheTests
     public void A_session_lists_its_actors_in_contact_order()
     {
         // The runtime decides contacts by id, then generation, and sorts a list that comes otherwise at every step.
-        var conn = new Player(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var player = new Player(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         foreach (uint id in new[] { 0x3005u, 0x3001u, 0x3003u })
-            conn.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
-        conn.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
-        conn.Totems.Place(new TotemState.Totem(0x3002, 1, (100, 100), 100, 100, null), 2, 0);
-        var session = new Game.ProjectileSession(conn);
-        Assert.Equal([Program.PlayerId, 0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
-        conn.PlayerLife = 0;
+            player.Area.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        player.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
+        player.Totems.Place(new TotemState.Totem(0x3002, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession(player);
+        Assert.Equal(new[] { player.Id, 0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u }.Order(), session.Actors(0, 0).Select(a => a.Key.Id));
+        player.PlayerLife = 0;
         Assert.Equal([0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
     }
 
@@ -51,12 +51,12 @@ public sealed class CombatCacheTests
     {
         // The runtime asks for the actors at every simulation step, thousands of times a second in a crowd.
         const int monsters = 400;
-        var conn = new Player(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var player = new Player(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         for (uint i = 0; i < monsters; i++)
-            conn.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
-        conn.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);
-        conn.Totems.Place(new TotemState.Totem(0x3003, 1, (100, 100), 100, 100, null), 2, 0);
-        var session = new Game.ProjectileSession(conn);
+            player.Area.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        player.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);
+        player.Totems.Place(new TotemState.Totem(0x3003, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession(player);
 
         var first = session.Actors(0, 0);
         var second = session.Actors(0, 0);
@@ -64,7 +64,7 @@ public sealed class CombatCacheTests
         Assert.NotSame(first, second);   // the runtime holds one list while a hit changes the next
         for (int i = 0; i < first.Count; i++) Assert.Same(first[i], second[i]);
         // A monster whose walk was replaced gets a new record, and only that one.
-        conn.Monsters[0x3000].Walk = new(120, 100, 0);
+        player.Area.Monsters[0x3000].Walk = new(120, 100, 0);
         var third = session.Actors(0, 0);
         Assert.Equal(1, Enumerable.Range(0, first.Count).Count(i => !ReferenceEquals(first[i], third[i])));
 

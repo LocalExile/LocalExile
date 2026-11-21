@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 /// <summary>
 /// The player's poisons on one monster. Multiple poisons can stack indefinitely; each deals chaos damage concurrently
-/// and maintains its own duration (default 2 s). Guarded by the connection's Monsters lock.
+/// and maintains its own duration (default 2 s). Owned by the area's frame.
 /// </summary>
 public sealed class MonsterPoisons
 {
@@ -62,6 +62,7 @@ public sealed class MonsterPoisons
     double last, carry;
 
     /// <summary>The native <c>poison</c> buff instance on the monster (BuffDefinitions row 10).</summary>
+    /// <summary>The row of the buff that shows the set (its source: BuffSource), null while none (Game.ShowDot).</summary>
     public ushort? Buff;
 
     /// <summary>The attacking object shown as the buff source (0 for generic self-created poisons).</summary>

@@ -74,7 +74,7 @@ public sealed class SupportHitDamageTests
 
         // A hit on a low-life enemy gets Behead's more damage.
         {
-            var conn = new Player(new(1, "behead", 300, 300, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "behead", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };
@@ -83,12 +83,12 @@ public sealed class SupportHitDamageTests
             var hit = DamagePacket.Of(DamageType.Physical, 100, 100);
             var low = new SpawnedMonster("low", new(100, 100, 0), 0, 0, 1000) { Life = 500 };
             var healthy = new SpawnedMonster("healthy", new(100, 100, 0), 0, 0, 1000) { Life = 501 };
-            Assert.Equal(130, Game.WithConditionalSupportDamageLocked(conn, skill, true, low, hit, 0).MinTotal, 9);
-            Assert.Equal(900u, conn.PlayerLife);
-            Assert.Equal(1000u, conn.PlayerMaxLife);
-            Assert.Equal(100, Game.WithConditionalSupportDamageLocked(conn, skill, true, healthy, hit, 0).MinTotal, 9);
-            conn.PlayerLife = 1000;   // full Life: Damage on Full Life joins in
-            Assert.Equal(120, Game.WithConditionalSupportDamageLocked(conn, skill, true, healthy, hit, 0).MinTotal, 9);
+            Assert.Equal(130, Game.WithConditionalSupportDamageLocked(player, skill, true, low, hit, 0).MinTotal, 9);
+            Assert.Equal(900u, player.PlayerLife);
+            Assert.Equal(1000u, player.PlayerMaxLife);
+            Assert.Equal(100, Game.WithConditionalSupportDamageLocked(player, skill, true, healthy, hit, 0).MinTotal, 9);
+            player.PlayerLife = 1000;   // full Life: Damage on Full Life joins in
+            Assert.Equal(120, Game.WithConditionalSupportDamageLocked(player, skill, true, healthy, hit, 0).MinTotal, 9);
         }
 
         // Double damage: the player's chance on every hit, a spell's chance on spells, the skill's own (Heavy Strike);

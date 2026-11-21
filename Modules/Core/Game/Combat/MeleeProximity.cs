@@ -16,12 +16,12 @@ public static partial class Game
         return MeleeProximityStats.Aggregate(1.0, (more, name) => more * Math.Max(0, 1 + get(name) * ramp / 100.0));
     }
 
-    // One melee hit on this target, with the player's and the skill's proximity stats. Call under the Monsters lock.
-    public static DamagePacket WithMeleeProximityLocked(Player conn, IReadOnlyDictionary<uint, int> player,
+    // One melee hit on this target, with the player's and the skill's proximity stats. Call in the area's frame.
+    public static DamagePacket WithMeleeProximityLocked(Player player, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int>? skill, SpawnedMonster target, DamagePacket hit, double at)
     {
-        int Get(uint k) => player.GetValueOrDefault(k) + (skill?.GetValueOrDefault(k) ?? 0);
-        double more = MeleeProximityMore(Get, Dist(conn.Walk.Position(at), target.Walk.Position(at)));
+        int Get(uint k) => playerStats.GetValueOrDefault(k) + (skill?.GetValueOrDefault(k) ?? 0);
+        double more = MeleeProximityMore(Get, Dist(player.Walk.Position(at), target.Walk.Position(at)));
         return more == 1 ? hit : hit.Scale(more);
     }
 }

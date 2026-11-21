@@ -13,127 +13,110 @@ public static partial class Game
 
     // Called after raw character/utility inputs and before attack damage/panel calculations. Derived values are
     // authoritative: setting current_rage cannot create resources or bypass gain prevention.
-    public static void WithRage(Player conn, StatMap stats)
+    public static void WithRage(Player player, StatMap stats)
     {
-        lock (conn.Monsters)
-        {
-            if (!CurrentGameWork) return;
-            if (conn.RageRetired || conn.PlayerLife == 0) return;
-            var inputs = RageStats.Inputs(name => RageStat(stats, name));
-            // Stat projections must not advance Rage past an unprocessed projectile contact.
-            var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
-            if (conn.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(conn));
-            RageStats.ExpandItems(stats, value.Effective);
-            foreach (var (name, amount) in RageStats.Display(value, inputs))
-                if (name is var key) stats[key] = amount;
-        }
+        if (!CurrentGameWork) return;
+        if (player.RageRetired || player.PlayerLife == 0) return;
+        var inputs = RageStats.Inputs(name => RageStat(stats, name));
+        // Stat projections must not advance Rage past an unprocessed projectile contact.
+        var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
+        if (player.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(player));
+        RageStats.ExpandItems(stats, value.Effective);
+        foreach (var (name, amount) in RageStats.Display(value, inputs))
+            if (name is var key) stats[key] = amount;
     }
 
     // Only accepted contacts call these, in the same Monsters critical section as life mutation, before any await.
-    public static bool RageOnHitLocked(Player conn, bool attack, bool melee, bool critical,
-        IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? player = null)
+    public static bool RageOnHitLocked(Player player, bool attack, bool melee, bool critical,
+        IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? playerStats = null)
     {
-        if (conn.Character is null || conn.Closed || conn.LeavingArea || conn.RageRetired
-            || conn.Paused || conn.PlayerLife == 0) return false;
-        player ??= CharacterPlayerStats(conn);
-        int Get(uint name) => (int)Math.Clamp((long)RageStat(player, name)
+        if (player.Character.Name is null || player.Closed || player.LeavingArea || player.RageRetired
+            || player.Paused || player.PlayerLife == 0) return false;
+        playerStats ??= CharacterPlayerStats(player);
+        int Get(uint name) => (int)Math.Clamp((long)RageStat(playerStats, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);
-        return conn.Rage.Hit(ProjectileWorldTime(conn), inputs, attack, melee, critical, (random ?? AreaRng(conn)).Next(100),
+        return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0);
     }
 
-    public static void RageWhenHitLocked(Player conn)
+    public static void RageWhenHitLocked(Player player)
     {
-        if (conn.RageRetired || conn.Closed || conn.LeavingArea || conn.Paused) return;
+        if (player.RageRetired || player.Closed || player.LeavingArea || player.Paused) return;
         // The lethal hit retires combat here, before PlayerDiedAtEpoch: the orb's stage icon must be queued for removal
         // first, or RetireOwnedCombat drops the runtime and the icon keeps the charges the player died with.
-        if (conn.PlayerLife == 0) { conn.Rage.Clear(); conn.Rampage.Clear(); WinterOrbRetire(conn); conn.RetireOwnedCombat(); return; }
-        if (conn.Character is null) return;
-        var stats = CharacterPlayerStats(conn);
-        conn.Rage.EnemyHit(ProjectileWorldTime(conn), RageStats.Inputs(name => RageStat(stats, name)),
-            AreaRng(conn).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
+        if (player.PlayerLife == 0) { player.Rage.Clear(); player.Rampage.Clear(); WinterOrbRetire(player); player.RetireOwnedCombat(); return; }
+        if (player.Character.Name is null) return;
+        var stats = CharacterPlayerStats(player);
+        player.Rage.EnemyHit(ProjectileWorldTime(player), RageStats.Inputs(name => RageStat(stats, name)),
+            AreaRng(player).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
     }
 
-    public static void ClearRageOnDeath(Player conn)
+    public static void ClearRageOnDeath(Player player)
     {
-        lock (conn.Monsters) conn.Rage.Clear();
+        player.Rage.Clear();
     }
 
     // Successful Auth transfer moves count, loss fraction, activity age and shared interval exactly once. Loading time
     // is frozen by policy. The old connection is retired even when empty; it cannot mint a second carried balance.
-    public static void CarryRage(Player conn, uint ticket)
+    public static void CarryRage(Player player, uint ticket)
     {
-        lock (conn.Monsters)
-        {
-            if (conn.RageRetired || conn.Closed) return;
-            var stats = CharacterPlayerStats(conn);
-            if (conn.PlayerLife == 0) conn.Rage.Clear();
-            var state = conn.Rage.Carry(AreaTime(conn), RageStats.Inputs(name => RageStat(stats, name)));
-            conn.Retire();
-            foreach (var (old, entry) in CarriedRage)
-                if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedRage.TryRemove(old, out _);
-            CarriedRage.TryAdd(ticket, new(CharacterName(conn), DateTime.UtcNow, state));
-        }
+        if (player.RageRetired || player.Closed) return;
+        var stats = CharacterPlayerStats(player);
+        if (player.PlayerLife == 0) player.Rage.Clear();
+        var state = player.Rage.Carry(AreaTime(player), RageStats.Inputs(name => RageStat(stats, name)));
+        player.Retire();
+        foreach (var (old, entry) in CarriedRage)
+            if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedRage.TryRemove(old, out _);
+        CarriedRage.TryAdd(ticket, new(CharacterName(player), DateTime.UtcNow, state));
     }
 
-    public static void RestoreRage(Player conn)
+    public static void RestoreRage(Player player)
     {
-        lock (conn.Monsters)
-        {
-            if (conn.Closed || conn.RageRetired || !CarriedRage.TryGetValue(conn.Ticket, out var entry)
-                || entry.Character != CharacterName(conn)) return;
-            if (!CarriedRage.TryRemove(new KeyValuePair<uint, RageTransfer>(conn.Ticket, entry))) return;
-            if (DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5) && conn.PlayerLife > 0)
-                conn.Rage.Restore(entry.State, AreaTime(conn));
-        }
+        if (player.Closed || player.RageRetired || !CarriedRage.TryGetValue(player.Ticket, out var entry)
+            || entry.Character != CharacterName(player)) return;
+        if (!CarriedRage.TryRemove(new KeyValuePair<uint, RageTransfer>(player.Ticket, entry))) return;
+        if (DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5) && player.PlayerLife > 0)
+            player.Rage.Restore(entry.State, AreaTime(player));
     }
 
     // Executed inside the connection's send gate so a queued refresh cannot resurrect a dead/retired balance or buff.
-    public static byte[]? RagePresentation(Player conn, RagePrepared? prepared = null)
+    public static byte[]? RagePresentation(Player player, RagePrepared? prepared = null)
     {
         if (!CurrentGameWork) return null;
-        using (conn.Performance.Lock(conn.Monsters, "rage"))
-        {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-            // Reconcile before all Rage reads/snapshots, even when the Rage value itself has not changed.
-            var bytes = WithOwnAuraChanges(conn, () => RageSnapshot(conn, prepared));
-            return bytes.Length == 0 ? null : bytes;
-        }
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired) return null;
+        // Reconcile before all Rage reads/snapshots, even when the Rage value itself has not changed.
+        var bytes = WithOwnAuraChanges(player, () => RageSnapshot(player, prepared));
+        return bytes.Length == 0 ? null : bytes;
     }
 
     // Called only by RagePresentation under the send gate and state lock; no send or reconciliation recursion.
-    public static byte[] RageSnapshot(Player conn, RagePrepared? prepared = null)
+    public static byte[] RageSnapshot(Player player, RagePrepared? prepared = null)
     {
         if (!CurrentGameWork) return [];
-        var stats = CharacterPlayerStats(conn);
+        var stats = CharacterPlayerStats(player);
         var inputs = RageStats.Inputs(name => RageStat(stats, name));
-        var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
+        var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
         bool prevention = RageStat(stats, Stat.HasSoulGainPrevention) != 0;
         // "when you reach Maximum Rage while a Unique Enemy is in your Presence" (Loyalty Tattoo of Akoya).
         if (value.Maximum > 0 && value.Current >= value.Maximum
-            && (conn.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))
-            LoyaltyMaxRageLocked(conn, stats);
-        if (conn.SentRage == value && conn.SentVaalPrevention == prevention) return [];
+            && (player.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))
+            LoyaltyMaxRageLocked(player, stats);
+        if (player.SentRage == value && player.SentVaalPrevention == prevention) return [];
         var bytes = new List<byte>();
-        if (conn.RageBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.RageBuff));
-        conn.RageBuff = 0;
-        if (value.Current > 0)
-        {
-            conn.RageBuff = conn.NextBuff++;
-            bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.RageBuff, 1060, PlayerId,
-                stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
-        }
-        bytes.AddRange(PlayerStatsOffFrames(conn));
+        player.RageBuff = (ushort)(value.Current > 0 ? 1 : 0);
+        if (value.Current > 0) player.Area.Buffs.Set(player.Id, new(1060, player.Id, Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
+        else player.Area.Buffs.Clear(player.Id, 1060, player.Id);
+        bytes.AddRange(PlayerStatsOffFrames(player));
         // The skill list prepared before the gate for this very value, else built here (a value that moved meanwhile).
-        var skills = prepared is { } p && p.Value == value && p.Inputs?.Matches(conn, stats) == true
-            ? p.Skills : PlayerSkills(conn);
-        bytes.AddRange(PlayerSkillsIfChanged(conn, skills));
-        conn.SentRage = value;
-        conn.SentVaalPrevention = prevention;
-        Console.WriteLine($"[gateway] {CharacterName(conn)} Rage {value.Current}/{value.Maximum}, "
+        var skills = prepared is { } p && p.Value == value && p.Inputs?.Matches(player, stats) == true
+            ? p.Skills : PlayerSkills(player);
+        bytes.AddRange(PlayerSkillsIfChanged(player, skills));
+        player.SentRage = value;
+        player.SentVaalPrevention = prevention;
+        Console.WriteLine($"[gateway] {CharacterName(player)} Rage {value.Current}/{value.Maximum}, "
             + $"effective {value.Effective}, policy v{RageState.PolicyVersion} "
-            + $"(t={AreaTime(conn):0.000})");
+            + $"(t={AreaTime(player):0.000})");
         return [.. bytes];
     }
 
@@ -146,19 +129,19 @@ public static partial class Game
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
         CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
-        public static SkillSnapshotInputs Capture(Player conn, Dictionary<uint, int> stats) =>
-            new(new(stats), [.. ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item)],
-                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife, conn.LockstepClient);
+        public static SkillSnapshotInputs Capture(Player player, IReadOnlyDictionary<uint, int> stats) =>
+            new(new Dictionary<uint, int>(stats), [.. ItemsOf(player).EquipmentSnapshot().Select(e => e.Item)],
+                new(CharacterSaves.SkillCosmetics(CharacterName(player))), player.Pools, player.PlayerLife, player.Connection.LockstepClient);
 
-        public bool Matches(Player conn, Dictionary<uint, int> stats)
+        public bool Matches(Player player, IReadOnlyDictionary<uint, int> stats)
         {
-            if (LockstepClient != conn.LockstepClient || Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
+            if (LockstepClient != player.Connection.LockstepClient || Pools != player.Pools || Life != player.PlayerLife || Stats.Count != stats.Count
                 || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
-            var equipment = ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item).ToArray();
+            var equipment = ItemsOf(player).EquipmentSnapshot().Select(e => e.Item).ToArray();
             if (equipment.Length != Equipment.Length) return false;
             for (int i = 0; i < equipment.Length; i++)
-                if (equipment[i].Id != Equipment[i].Id || !SameSkillItem(equipment[i].Item, Equipment[i].Item, ItemsFor(conn))) return false;
-            var cosmetics = CharacterSaves.SkillCosmetics(CharacterName(conn));
+                if (equipment[i].Id != Equipment[i].Id || !SameSkillItem(equipment[i].Item, Equipment[i].Item, ItemsFor(player))) return false;
+            var cosmetics = CharacterSaves.SkillCosmetics(CharacterName(player));
             return cosmetics.Count == Cosmetics.Count && Cosmetics.All(kv => cosmetics.TryGetValue(kv.Key, out var value) && value == kv.Value);
         }
     }
@@ -184,19 +167,18 @@ public static partial class Game
     // The skill list is the expensive part of a Rage change (every gem's panel damage): build it before the send gate, so
     // the gate, which every hit and echo waits on, normally holds only comparison and packet assembly. Changed inputs
     // fall back to a current build rather than publishing the prepared list under the wrong owner state.
-    public static Task SendRage(Player conn)
+    public static Task SendRage(Player player)
     {
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return Task.CompletedTask;
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired) return Task.CompletedTask;
         RagePrepared? prepared = null;
         // Neither the stats nor the skill list hold the combat lock for their whole calculation; only the read does.
-        var stats = CharacterPlayerStats(conn);
+        var stats = CharacterPlayerStats(player);
         RageState.Value? changed = null;
-        lock (conn.Monsters)
-            if (CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired)
-            {
-                var value = conn.Rage.Read(AreaTime(conn), RageStats.Inputs(name => RageStat(stats, name)));
-                if (conn.SentRage != value) changed = value;
-            }
+        if (CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired)
+        {
+            var value = player.Rage.Read(AreaTime(player), RageStats.Inputs(name => RageStat(stats, name)));
+            if (player.SentRage != value) changed = value;
+        }
         // An unchanged value goes nowhere near the send gate: RagePresentation rebuilds the player's stats under it, and the
         // 10 checks a second held every hit, echo and move behind that work (live 2026-11-05: the input queue grew to 16 s,
         // the move echoes went out for clicks seconds old and put the player back where they had been).
@@ -204,11 +186,11 @@ public static partial class Game
         if (changed is { } next)
         {
             if (!CurrentGameWork) return Task.CompletedTask;
-            var inputs = SkillSnapshotInputs.Capture(conn, stats);
-            var skills = PlayerSkills(conn);
+            var inputs = SkillSnapshotInputs.Capture(player, stats);
+            var skills = PlayerSkills(player);
             // A change during the build cannot be cached under the earlier inputs.
-            if (inputs.Matches(conn, CharacterPlayerStats(conn))) prepared = new(next, skills, inputs);
+            if (inputs.Matches(player, new Dictionary<uint, int>(CharacterPlayerStats(player)))) prepared = new(next, skills, inputs);
         }
-        return Send(conn, [], null, atGate: () => RagePresentation(conn, prepared));
+        return Send(player, [], null, atGate: () => RagePresentation(player, prepared));
     }
 }

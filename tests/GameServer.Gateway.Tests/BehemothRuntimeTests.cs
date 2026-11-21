@@ -31,7 +31,7 @@ public sealed class BehemothRuntimeTests
         public void Dispose() => Environment.SetEnvironmentVariable(Name, previous);
     }
 
-    static Player Connection(params string[] modules) => new(new(1, "behemoth", 300, 300, 100, 100, null, []), 1, 1)
+    static Player PlayerOf(params string[] modules) => new(new(1, "behemoth", 300, 300, 100, 100, null, []), 1, 1)
     {
         PlayerLife = 100, PlayerMana = 80, Instance = new(),
         LeagueModule = new(new League("test", "Standard", false, false), modules.ToHashSet(StringComparer.OrdinalIgnoreCase)),
@@ -53,43 +53,42 @@ public sealed class BehemothRuntimeTests
             nonPublic: true)!;
         Assert.True(policy.Supports(identity));
         Assert.False(policy.Supports(identity with { Id = "Juggernaut" }));
-        var conn = Connection("PhreciaAscendancies");
+        var player = PlayerOf("PhreciaAscendancies");
         var game = new ModuleLifetime("Game");
         var owner = new ModuleLifetime("PhreciaAscendancies");
         using var registration = AscendancyPolicies.Register(owner, policy);
-        Assert.Null(AscendancyPolicies.SourceOwner(conn)); // Ordinary/unascended needs no optional provider.
-        conn.MainAscendancy = new(identity, [7128, 49937], ["normal"]);
-        var excluded = Connection(); excluded.MainAscendancy = conn.MainAscendancy;
+        Assert.Null(AscendancyPolicies.SourceOwner(player)); // Ordinary/unascended needs no optional provider.
+        player.Character.MainAscendancy = new(identity, [7128, 49937], ["normal"]);
+        var excluded = PlayerOf(); excluded.Character.MainAscendancy = player.Character.MainAscendancy;
         Assert.Null(AscendancyPolicies.SourceOwner(excluded));
-        Assert.Same(owner, AscendancyPolicies.SourceOwner(conn));
-        Assert.True(AscendancyPolicies.Available(conn, identity));
+        Assert.Same(owner, AscendancyPolicies.SourceOwner(player));
+        Assert.True(AscendancyPolicies.Available(player, identity));
         var rampager = definition.Nodes[49937];
-        Assert.Contains(AscendancyPolicies.NodeStats(conn, definition, rampager.Id, rampager.Stats),
+        Assert.Contains(AscendancyPolicies.NodeStats(player, definition, rampager.Id, rampager.Stats),
             stat => stat.Key == Stat.MeleeHitsGrantRampageStacks && stat.Value != 0);
         optIn.Set(false);
-        Assert.Null(AscendancyPolicies.SourceOwner(conn)); Assert.False(AscendancyPolicies.Available(conn, identity));
+        Assert.Null(AscendancyPolicies.SourceOwner(player)); Assert.False(AscendancyPolicies.Available(player, identity));
         optIn.Set(true);
-        AscendancyPolicies.SelectionChanged(conn);
-        var work = new OwnedWork(); conn.OwnedCombatState = work;
-        conn.RampageBuff = 7;
-        conn.Monsters[42] = new("owned", new(100, 100, 0), 0, 0, 100) { OwnerId = Program.PlayerId };
-        conn.Monsters[99] = new("blinded", new(105, 100, 0), 0, 0, 100) { RampageBlindUntil = 9 };
-        Assert.True(conn.OwnedCombatWorker.TryStart(conn, game, owner, work, out long oldGeneration));
-        Assert.False(conn.OwnedCombatWorker.TryStart(conn, game, owner, work, out _));
-        conn.VaalUseState = new object();
+        AscendancyPolicies.SelectionChanged(player);
+        var work = new OwnedWork(); player.OwnedCombatState = work;
+        player.RampageBuff = 7;
+        player.Area.Monsters[42] = new("owned", new(100, 100, 0), 0, 0, 100) { OwnerId = player.Id };
+        player.Area.Monsters[99] = new("blinded", new(105, 100, 0), 0, 0, 100) { RampageBlindUntil = 9 };
+        Assert.True(player.OwnedCombatWorker.TryStart(player, game, owner, work, out long oldGeneration));
+        Assert.False(player.OwnedCombatWorker.TryStart(player, game, owner, work, out _));
+        player.VaalUseState = new object();
         owner.Stop(ex => throw ex); // Independent optional module retirement; Game is still active.
-        Assert.True(game.IsActive); Assert.True(conn.Closed);
-        Assert.Equal(1, work.Clears); Assert.Null(conn.OwnedCombatState); Assert.Null(conn.VaalUseState);
-        Assert.DoesNotContain(42u, conn.Monsters.Keys); Assert.Equal(0, conn.Monsters[99].RampageBlindUntil);
-        Assert.Contains(42u, conn.RetiredCombatObjects); Assert.Contains((99u, (ushort)5), conn.RetiredCombatBuffs);
-        Assert.Contains((Program.PlayerId, (ushort)7), conn.RetiredCombatBuffs); Assert.Equal(0, conn.RampageBuff);
-        Assert.False(conn.OwnedCombatWorker.Current(game, owner, work, oldGeneration));
-        Assert.False(conn.OwnedCombatWorker.TryStart(conn, game, owner, work, out _));
-        Assert.Null(AscendancyPolicies.SourceOwner(conn)); Assert.Equal(identity, conn.MainAscendancy.Selection);
+        Assert.True(game.IsActive); Assert.True(player.Closed);
+        Assert.Equal(1, work.Clears); Assert.Null(player.OwnedCombatState); Assert.Null(player.VaalUseState);
+        Assert.DoesNotContain(42u, player.Area.Monsters.Keys); Assert.Equal(0, player.Area.Monsters[99].RampageBlindUntil);
+        Assert.Contains(42u, player.RetiredCombatObjects); Assert.Equal(0, player.RampageBuff);
+        Assert.False(player.OwnedCombatWorker.Current(game, owner, work, oldGeneration));
+        Assert.False(player.OwnedCombatWorker.TryStart(player, game, owner, work, out _));
+        Assert.Null(AscendancyPolicies.SourceOwner(player)); Assert.Equal(identity, player.Character.MainAscendancy.Selection);
 
         var nextOwner = new ModuleLifetime(owner.Id);
         using var current = AscendancyPolicies.Register(nextOwner, policy);
-        var next = Connection("PhreciaAscendancies"); next.MainAscendancy = conn.MainAscendancy;
+        var next = PlayerOf("PhreciaAscendancies"); next.Character.MainAscendancy = player.Character.MainAscendancy;
         var nextWork = new OwnedWork(); next.OwnedCombatState = nextWork;
         Assert.True(nextOwner.Generation > owner.Generation);
         Assert.True(next.OwnedCombatWorker.TryStart(next, game, nextOwner, nextWork, out long generation));
@@ -120,12 +119,12 @@ public sealed class BehemothRuntimeTests
         Assert.NotEqual(ConnectionWorker.NextEpoch(), ConnectionWorker.NextEpoch());
     }
 
-    static Task Dispatch(Player conn, ushort skill, bool ground, ushort flags, ConnectionCiphers ciphers)
+    static Task Dispatch(Player player, ushort skill, bool ground, ushort flags, ConnectionCiphers ciphers)
     {
         ushort id = ground ? InstanceProtocol.UseSkillAtLocationId : InstanceTransfer.UseSkillOnObjectId;
         var packet = new LoginWriter().U16(id);
         if (ground) packet.U32(105).U32(100); else packet.U32(43);
         byte[] bytes = packet.U16(skill).U16(1).U16(flags).ToArray();
-        return Game.OnClientMessages([(id, bytes)], [], conn);
+        return Game.OnClientMessages([(id, bytes)], [], player);
     }
 }

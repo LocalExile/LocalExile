@@ -54,25 +54,25 @@ public static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
-    public static async Task<bool> ExplodeOnKill(Player conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
+    public static async Task<bool> ExplodeOnKill(Player player, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
     {
-        var player = CharacterPlayerStats(conn);
-        int Get(uint key) => player.GetValueOrDefault(key);
+        var playerStats = CharacterPlayerStats(player);
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
         int generic = Get(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage);
         int bleedingPercent = Get(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage);
         bool bleeding;
         // The killing bleed tick clears the list before the death runs (MonsterIgnites.Clear keeps DiedBurning for this).
-        lock (conn.Monsters) bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
+        bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
         int percent = generic + (bleeding ? bleedingPercent : 0);
         int chance = Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct);
-        int chaosPercent = chance > 0 && AreaRng(conn).Next(100) < chance ? 25 : 0;
+        int chaosPercent = chance > 0 && AreaRng(player).Next(100) < chance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
         // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
         int elementalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct);
-        DamageType? element = elementalChance > 0 && AreaRng(conn).Next(100) < elementalChance
-            ? (DamageType)AreaRng(conn).Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
+        DamageType? element = elementalChance > 0 && AreaRng(player).Next(100) < elementalChance
+            ? (DamageType)AreaRng(player).Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
         int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
         int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
         int elemental = element is null ? 0 : (int)Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
@@ -80,8 +80,8 @@ public static partial class Game
         // The modifiers can trigger on the same kill; preserve each damage type through mitigation.
         var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
             .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
-        var elementalPacket = element is { } e ? OriathExplosionPacket(corpse.MaxLife, e, player) : DamagePacket.Empty;
-        var elementalPenetration = Penetration.Of(player, Stats, attack: false);
+        var elementalPacket = element is { } e ? OriathExplosionPacket(corpse.MaxLife, e, playerStats) : DamagePacket.Empty;
+        var elementalPenetration = Penetration.Of(playerStats, Stats, attack: false);
         long amount = (long)physical + chaos + elemental;
         string type = string.Join(" and ", new[] { physical > 0 ? "physical" : null, chaos > 0 ? "chaos" : null,
             element is { } t ? t.ToString().ToLowerInvariant() : null }.Where(x => x is not null));
@@ -90,40 +90,37 @@ public static partial class Game
         uint effect;
         bool showArt;
         bool removeCorpse;
-        lock (conn.Monsters)
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
+        double now = AreaTime(player);
+        foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
-            double now = AreaTime(conn);
-            foreach (var (id, m) in conn.Monsters.ToArray())
+            if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
+            if (Dist(m.Walk.Position(now), at) > radius) continue;
+            int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
+            if (element is not null)
             {
-                if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
-                if (Dist(m.Walk.Position(now), at) > radius) continue;
-                int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
-                if (element is not null)
-                {
-                    var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,
-                        type => MonsterHitResistance(m, type, elementalPenetration, now));
-                    damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
-                }
-                if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
-                hits.Add((id, m, hit));
+                var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,
+                    type => MonsterHitResistance(m, type, elementalPenetration, now));
+                damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
             }
-            // A corpse that explodes shows the explosion whether or not anyone stood in it: the art is the corpse's
-            // consumption, and skipping the empty ones left about 85 % of a pack's explosions invisible (live
-            // 2026-11-17: 63 of 432). The burst cap stays only as a bound on a pathological chain.
-            showArt = TakeExplosionArt(conn, now);
-            effect = showArt ? conn.TakeObjectId() : 0;
-            // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bd), and a
-            // warcry may not use a corpse that an explosion already took. When the killing blow already consumed it
-            // (the Kitava Heart Eater tattoo), the corpse is off the client's list and this is no second removal.
-            removeCorpse = !corpse.CorpseConsumed;
-            corpse.CorpseConsumed = true;
-            conn.Monsters.Remove(corpseId);
+            if (ApplyMonsterHitLocked(player, m, damage, allyAt: at) is not { } hit) continue;
+            hits.Add((id, m, hit));
         }
+        // A corpse that explodes shows the explosion whether or not anyone stood in it: the art is the corpse's
+        // consumption, and skipping the empty ones left about 85 % of a pack's explosions invisible (live
+        // 2026-11-17: 63 of 432). The burst cap stays only as a bound on a pathological chain.
+        showArt = TakeExplosionArt(player, now);
+        effect = showArt ? player.TakeObjectId() : 0;
+        // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bd), and a
+        // warcry may not use a corpse that an explosion already took. When the killing blow already consumed it
+        // (the Kitava Heart Eater tattoo), the corpse is off the client's list and this is no second removal.
+        removeCorpse = !corpse.CorpseConsumed;
+        corpse.CorpseConsumed = true;
+        player.Area.Monsters.Remove(corpseId);
         // Per corpse and per monster hit: a pack kill wrote about 900 lines a second from inside the combat lock
         // (2026-11-17). Only under Game_TRACE=combat.
         if (ServerTrace.Combat)
-            Console.WriteLine($"[gateway] {conn.Remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
+            Console.WriteLine($"[gateway] {player.Connection.Remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
                 $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed" +
                 (showArt ? "" : ", no art (burst budget)"));
         string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
@@ -131,27 +128,27 @@ public static partial class Game
             new EffectObject(at.X, at.Y, art).Blob()) : null;
         try
         {
-            await SendKillExplosionBatch(conn, effect, effectBytes, at, art,
+            await SendKillExplosionBatch(player, effect, effectBytes, at, art,
                 removeCorpse, corpseId, corpse.Label, hits);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             // One admission problem must not end the projectile session that queued this explosion.
-            Console.WriteLine($"[gateway] {conn.Remote} kill explosion send failed: {ServerLog.Describe(ex)}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} kill explosion send failed: {ServerLog.Describe(ex)}");
         }
-        if (removeCorpse) await SendRemainingMonsters(conn);
+        if (removeCorpse) await SendRemainingMonsters(player);
         if (showArt)
             SendAfter(ArtMs(art) / 1000.0, async () =>
             {
-                if (conn.Closed || conn.LeavingArea) return;
-                await Game.SendWorldRemoval(conn, effect, null);
+                if (player.Closed || player.LeavingArea) return;
+                await Game.SendWorldRemoval(player, effect, null);
             });
         foreach (var (id, m, hit) in hits)
         {
             if (ServerTrace.Combat)
-                Console.WriteLine($"[gateway] {conn.Remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
-            if (hit.StageStarts) _ = RunBossStage(conn, id, m);
-            if (hit.Life == 0) await MonsterKilled(conn, id, m);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
+            if (hit.StageStarts) _ = RunBossStage(player, id, m);
+            if (hit.Life == 0) await MonsterKilled(player, id, m);
         }
         return removeCorpse;
     }
@@ -162,26 +159,26 @@ public static partial class Game
     const int ExplosionArtPerWindow = 64;
     const double ExplosionArtWindowSeconds = 0.15;
 
-    static bool TakeExplosionArt(Player conn, double now)
+    static bool TakeExplosionArt(Player player, double now)
     {
-        if (now - conn.ExplosionArtWindow >= ExplosionArtWindowSeconds)
+        if (now - player.ExplosionArtWindow >= ExplosionArtWindowSeconds)
         {
-            conn.ExplosionArtWindow = now;
-            conn.ExplosionArtCount = 0;
+            player.ExplosionArtWindow = now;
+            player.ExplosionArtCount = 0;
         }
-        if (conn.ExplosionArtCount >= ExplosionArtPerWindow) return false;
-        conn.ExplosionArtCount++;
+        if (player.ExplosionArtCount >= ExplosionArtPerWindow) return false;
+        player.ExplosionArtCount++;
         return true;
     }
 
     // One gate turn for the effect's create/wake, the corpse removal and every life update. The client still reads
     // separate messages, but the server no longer waits behind four separate world sends for each corpse.
-    static async Task SendKillExplosionBatch(Player conn, uint effect, byte[]? effectBytes, (int X, int Y) at, string art, bool removeCorpse,
+    static async Task SendKillExplosionBatch(Player player, uint effect, byte[]? effectBytes, (int X, int Y) at, string art, bool removeCorpse,
         uint corpseId, string corpseLabel, IReadOnlyList<(uint Id, SpawnedMonster M, MonsterHit Hit)> hits)
     {
         string effectLog = $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})";
         string corpseLog = $"0x02bd corpse 0x{corpseId:x} ({corpseLabel}) explodes";
-        if (!conn.LockstepClient)
+        if (!player.Connection.LockstepClient)
         {
             var all = new List<byte>();
             if (effect != 0 && effectBytes is not null)
@@ -190,19 +187,18 @@ public static partial class Game
                 all.AddRange(InstanceProtocol.EnterWakeZone(effect));
             }
             if (removeCorpse) all.AddRange(InstanceProtocol.RemoveObject(corpseId));
-            foreach (var (id, _, hit) in hits) all.AddRange(InstanceProtocol.LifeUpdate(id, hit.Life));
-            await Send(conn, [.. all], "kill explosion", still: () => !conn.Closed && !conn.LeavingArea);
+            await Send(player, [.. all], "kill explosion", still: () => !player.Closed && !player.LeavingArea);
             return;
         }
         // Each object by itself, as the separate sends this batch replaces did: a target another producer has already
         // removed (a second explosion's victim) drops only its own record. As prerequisites of the whole batch, one
         // such target dropped every other victim's life update, and those monsters stayed alive on the client.
-        var output = conn.WorldOutput;
+        var output = player.Connection.WorldOutput;
         bool corpseBorn = removeCorpse && await output.AwaitBirths([output.PublishedObject(corpseId)]);
         var born = new HashSet<uint>();
         foreach (var (id, _, _) in hits)
             if (await output.AwaitBirths([output.PublishedObject(id)])) born.Add(id);
-        await SendWorldBatch(conn, [], admission =>
+        await SendWorldBatch(player, [], admission =>
         {
             var records = new List<OutputRecord>();
             if (effect != 0 && effectBytes is not null)
@@ -216,19 +212,10 @@ public static partial class Game
             }
             if (corpseBorn)
             {
-                var corpse = conn.WorldOutput.PublishedObject(corpseId);
+                var corpse = player.Connection.WorldOutput.PublishedObject(corpseId);
                 var remove = InstanceProtocol.RemoveObject(corpseId);
                 BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
                 records.Add(OutputRecord.Remove(corpse, WorldOrder.Last, remove, corpseLog));
-            }
-            foreach (var (id, _, hit) in hits)
-            {
-                var target = conn.WorldOutput.PublishedObject(id);
-                // Removed between its birth and this gate: nothing is left to update.
-                if (!born.Contains(id) || !target.IsReady) continue;
-                var life = InstanceProtocol.LifeUpdate(id, hit.Life);
-                records.Add(OutputRecord.World(target, RecordOrder(life, id), life,
-                    $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion"));
             }
             return new OutputBatch([.. records]);
         });

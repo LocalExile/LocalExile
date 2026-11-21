@@ -44,6 +44,6 @@ public sealed class BeastCompanions
 
 public sealed partial class Player
 {
-    /// <summary>The player's source-owned beasts, under the Monsters lock.</summary>
+    /// <summary>The player's source-owned beasts, in the area's frame.</summary>
     public readonly BeastCompanions Beasts = new();
 }

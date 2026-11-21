@@ -29,21 +29,18 @@ public sealed class HierophantNodesTests
         Assert.Equal(100, Hierophant.AreaFromMana(1, 9000));
 
         // Arcane Blessing: a spell hit on a hostile monster grants the 4 s Arcane Surge (20% cast speed, 30% mana regen).
-        var conn = new Player(new(1, "hierophant", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var player = new Player(new(1, "hierophant", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         var target = new SpawnedMonster("hit", new(105, 100, 0), 0, 0, 1000);
         var caster = Keyed((Stat.GainArcaneSurgeOnSpellHitByYouOrYourTotems, 1));
-        lock (conn.Monsters)
-        {
-            Game.ArcaneSurgeOnSpellHitLocked(conn, Keyed(), target);
-            Assert.False(conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds));
-            Game.ArcaneSurgeOnSpellHitLocked(conn, caster, target);
-        }
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        Assert.True(conn.SupportGems.ArcaneSurgeActiveAt(now));
-        Assert.False(conn.SupportGems.ArcaneSurgeActiveAt(now + 4.01));
+        Game.ArcaneSurgeOnSpellHitLocked(player, Keyed(), target);
+        Assert.False(player.SupportGems.ArcaneSurgeActiveAt(player.Clock.Elapsed.TotalSeconds));
+        Game.ArcaneSurgeOnSpellHitLocked(player, caster, target);
+        double now = player.Clock.Elapsed.TotalSeconds;
+        Assert.True(player.SupportGems.ArcaneSurgeActiveAt(now));
+        Assert.False(player.SupportGems.ArcaneSurgeActiveAt(now + 4.01));
 
         // With 40% increased effect the buff's values are 28 / 42 / 28% more; the "while" stats join their plain forms.
-        var stats = Game.WithSupportGemBuffs(conn, Keyed((Stat.ArcaneSurgeEffectPlusPct, 40),
+        var stats = Game.WithSupportGemBuffs(player, Keyed((Stat.ArcaneSurgeEffectPlusPct, 40),
             (Stat.ArcaneSurgeOnYouSpellDamagePlusPctFinalFromHierophant, 20),
             (Stat.AreaOfEffectPlusPctWhileYouHaveArcaneSurge, 30),
             (Stat.LifeLeechFromSpellDamagePermyriadWhileYouHaveArcaneSurge, 50),

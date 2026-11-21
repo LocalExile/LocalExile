@@ -20,65 +20,65 @@ public static class VaalOversoul
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     public static int Level(SkillCatalog catalog, int effect, int monsterLevel) => catalog.MaxLevelAt(effect, monsterLevel);
-    public static int Stat(Player conn, int effect, int level, uint name)
+    public static int Stat(Player player, int effect, int level, uint name)
     {
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         var values = SkillStats.GetValue(catalog, _ => new()).GetOrAdd((effect, level), pair =>
             catalog.EffectStats(pair.Effect, Level(catalog, pair.Effect, pair.Level)).ToDictionary(p => p.Item1, p => p.Item2));
         return name is var key ? values.GetValueOrDefault(key) : 0;
     }
-    internal static MonsterAttack Attack(Player conn, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(Player player, MonsterCatalog.Variety v, byte level, int effect)
     {
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         var damage = catalog.HitDamage(effect, Level(catalog, effect, level));
         if (effect == Slam)
         {
             var (min, max) = Monsters.BaseDamage(v, level) ?? (1, 1);
             damage = DamagePacket.Of(DamageType.Physical, min, max)
-                .Scale(Math.Max(0, 1 + Stat(conn, effect, level, global::Stat.ActiveSkillDamagePlusPctFinal) / 100d));
+                .Scale(Math.Max(0, 1 + Stat(player, effect, level, global::Stat.ActiveSkillDamagePlusPctFinal) / 100d));
             var physical = damage[DamageType.Physical];
             damage = DamagePacket.Of(DamageType.Physical, physical.Min / 2, physical.Max / 2)
                 .Add(DamageType.Fire, physical.Scale(.5));
         }
         double seconds = Math.Max(.1, catalog.CastTimeMs(effect) / 1000d);
         if (effect is Summon or Laser)
-            seconds /= 1 + Stat(conn, effect, level, global::Stat.ActiveSkillCastSpeedPlusPctFinal) / 100d;
+            seconds /= 1 + Stat(player, effect, level, global::Stat.ActiveSkillCastSpeedPlusPctFinal) / 100d;
         return new(Skill(effect), seconds, 105, effect is Travel or Ice ? DamagePacket.Empty : damage)
         {
             Spell = true, Scripted = true,
-            Ailments = IncomingAilmentSettings(name => Stat(conn, effect, level, name)),
+            Ailments = IncomingAilmentSettings(name => Stat(player, effect, level, name)),
         };
     }
-    public static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety v, byte level)
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(Player player, MonsterCatalog.Variety v, byte level)
     {
         if (!IsBoss(v)) return null;
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         return [.. Effects.Select(effect =>
         {
-            var stats = Attack(conn, v, level, effect).SkillStats().ToList();
+            var stats = Attack(player, v, level, effect).SkillStats().ToList();
             // The controller aims each of the three shots separately; the geometry must not repeat each shot again.
             if (effect == Laser) stats.Add((global::Stat.SkillRepeatCount, 0));
-            return catalog.FindByRow(Skill(effect), effect, Level(catalog, effect, level), Game.WithBehaviourVariation(conn, effect, stats));
+            return catalog.FindByRow(Skill(effect), effect, Level(catalog, effect, level), Game.WithBehaviourVariation(player, effect, stats));
         }).OfType<GrantedSkill>()];
     }
     public static bool CannotCrit(SpawnedMonster m, MonsterAttack attack) => IsBoss(m.Variety) && attack.SkillId == Skill(Slam);
 
-    public static async Task Tick(Player conn)
+    public static async Task Tick(Player player)
     {
-        if (conn.Layout.Id != Area || !conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
+        if (player.Layout.Id != Area || !player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
         (uint Id, SpawnedMonster M)? found;
-        lock (conn.Monsters) found = conn.Monsters.Where(p => IsBoss(p.Value.Variety)).Select(p => ((uint, SpawnedMonster)?)(p.Key, p.Value)).FirstOrDefault();
+        found = player.Area.Monsters.Where(p => IsBoss(p.Value.Variety)).Select(p => ((uint, SpawnedMonster)?)(p.Key, p.Value)).FirstOrDefault();
         if (found is null) return;
-        var fight = Fights.GetValue(conn.Instance, _ => new(found.Value.Id, found.Value.M, conn));
+        var fight = Fights.GetValue(player.Instance, _ => new(found.Value.Id, found.Value.M, player));
         await fight.Gate.WaitAsync();
-        try { await fight.Bind(conn); if (IsMonsterRunner(conn)) await fight.Step(conn, AreaTime(conn)); }
+        try { await fight.Bind(player); if (IsMonsterRunner(player)) await fight.Step(player, AreaTime(player)); }
         finally { fight.Gate.Release(); }
     }
-    public static Task Leaving(Player conn) { ClearExposure(conn); return Task.CompletedTask; }
-    static void ClearExposure(Player conn)
+    public static Task Leaving(Player player) { ClearExposure(player); return Task.CompletedTask; }
+    static void ClearExposure(Player player)
     {
-        if (!Exposures.TryGetValue(conn, out var exposure)) return;
-        lock (conn.Monsters) { conn.Degens[exposure] = 0; exposure.Dps = 0; }
+        if (!Exposures.TryGetValue(player, out var exposure)) return;
+        player.Degens[exposure] = 0; exposure.Dps = 0;
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
     sealed class Cleanup : IDisposable
@@ -108,27 +108,27 @@ public static class VaalOversoul
         int stance = 1, pending, laserLeft;
         bool rising, burrowing, stopped, dead, exitOpened;
         (int X, int Y) destination;
-        public Fight(uint objectId, SpawnedMonster monster, Player conn)
+        public Fight(uint objectId, SpawnedMonster monster, Player player)
         {
             (id, boss) = (objectId, monster);
-            centre = boss.Walk.Position(AreaTime(conn));
+            centre = boss.Walk.Position(AreaTime(player));
             rising = boss.EntranceGrace;
-            readyAt = rising ? double.NaN : AreaTime(conn);
+            readyAt = rising ? double.NaN : AreaTime(player);
             nextSummon = readyAt;
-            lastTick = AreaTime(conn);
+            lastTick = AreaTime(player);
         }
-        bool Awake(Player c) { lock (c.Monsters) return c.MonsterViews.ContainsKey(id) && !c.AsleepMonsters.Contains(id); }
-        public async Task Bind(Player conn)
+        bool Awake(Player c) { return MonsterShown(c, id) && !MonsterAsleep(c, id); }
+        public async Task Bind(Player player)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             bound.RemoveWhere(p => p.Closed || p.LeavingArea);
-            if (!players.Contains(conn)) players.Add(conn);
-            if (boss.Dead || !Awake(conn) || !bound.Add(conn)) return;
-            await Send(conn, InstanceEntities.PlayerSkillsChange(id, SkillsFor(conn, boss.Variety!, boss.Level)!,
+            if (!players.Contains(player)) players.Add(player);
+            if (boss.Dead || !Awake(player) || !bound.Add(player)) return;
+            await Send(player, InstanceEntities.PlayerSkillsChange(id, SkillsFor(player, boss.Variety!, boss.Level)!,
                 boss.Attack is { } attack && !Effects.Any(e => Skill(e) == attack.SkillId) ? [attack.SkillId] : []), "[Vaal Oversoul] native skill list");
-            if (!rising) await Send(conn,
+            if (!rising) await Send(player,
                 InstanceEntities.TransitionableUpdate(id, TransitionIndex(), 2), "[Vaal Oversoul] targetable actor");
-            if (!burrowing) await Send(conn, ModelScale(), "[Vaal Oversoul] model scale");
+            if (!burrowing) await Send(player, ModelScale(), "[Vaal Oversoul] model scale");
         }
         public async Task Step(Player runner, double now)
         {
@@ -190,7 +190,7 @@ public static class VaalOversoul
             {
                 if (now < surfaceAt) return;
                 burrowing = false;
-                lock (runner.Monsters) boss.Walk.Teleport(destination.X, destination.Y, now);
+                boss.Walk.Teleport(destination.X, destination.Y, now);
                 await All(InstanceProtocol.Teleport(id, destination.X, destination.Y), true);
                 await All(InstanceProtocol.AnimationUpdate(id, 0, 20, 1), true);
                 await All(ModelScale(), true);
@@ -212,7 +212,7 @@ public static class VaalOversoul
             if (pending != 0) { int effect = pending; pending = 0; if (effect == Laser) laserLeft = 2; await Cast(target, effect, now); return; }
             if (laserLeft > 0) { laserLeft--; await Cast(target, Laser, now); return; }
             int minions;
-            lock (runner.Monsters) minions = runner.Monsters.Values.Count(m => m.SummonerId == id && !m.Dead && m.Life > 0);
+            minions = runner.Area.Monsters.Values.Count(m => m.SummonerId == id && !m.Dead && m.Life > 0);
             int selected;
             if (now >= nextSummon && minions < 8) selected = Summon;
             else
@@ -233,7 +233,7 @@ public static class VaalOversoul
         async Task Basic(Player c, ushort skill, double now, double seconds)
         {
             int generation;
-            lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.BusyUntil = now + seconds; }
+            generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.BusyUntil = now + seconds;
             await SendMonsterAction(c, id, boss, generation, () =>
             { var p = boss.Walk.Position(AreaTime(c)); return [.. InstanceProtocol.ActionStarted(id, p.X, p.Y, p.X, p.Y, skill, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)]; },
                 $"[Vaal Oversoul] basic 0x{skill:x4}, stance {stance}");
@@ -243,7 +243,7 @@ public static class VaalOversoul
             var attack = Attack(c, boss.Variety!, boss.Level, effect);
             var pos = boss.Walk.Position(now); var aim = overrideAim ?? c.Walk.Position(now);
             int generation;
-            lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.BusyUntil = now + attack.Seconds + .2; boss.SwingGeneration = null; }
+            generation = ++boss.ActionGeneration; boss.BusyUntil = now + attack.Seconds + .2; boss.SwingGeneration = null;
             await SendMonsterAction(c, id, boss, generation, () =>
                 [.. InstanceProtocol.ActionStarted(id, pos.X, pos.Y, aim.X, aim.Y, Skill(effect), c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)],
                 $"[Vaal Oversoul] {Game.SkillsFor(c).EffectId(effect)}, stance {stance}");
@@ -307,7 +307,7 @@ public static class VaalOversoul
                 else if (ev.Kind == -Summon)
                 {
                     await Effect(c, ev.Aim, Art + "summon_monster_proj.ao", now + 2, 1);
-                    int living; lock (c.Monsters) living = c.Monsters.Values.Count(m => m.SummonerId == id && !m.Dead && m.Life > 0);
+                    int living; living = c.Area.Monsters.Values.Count(m => m.SummonerId == id && !m.Dead && m.Life > 0);
                     if (living >= 8) continue;
                     string kind = ev.Index % 2 == 0 ? "Metadata/Monsters/incaminion/ShadowBossMinion" : "Metadata/Monsters/Skeletons/SkeletonMeleeKnightElementalSummoned";
                     if (Monsters.Find(kind) is not { Supported: true } v) continue;
@@ -350,19 +350,16 @@ public static class VaalOversoul
             bool Contains((int X, int Y) at) => line ? LineDistance(at, from, to) <= radius : Distance(at, to) <= radius;
             await Send(p, [], null, atGate: () =>
             {
-                lock (p.Monsters)
-                {
-                    if (!CurrentGameWork || stopped || boss.Dead || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                    double now = Math.Max(ProjectileWorldTime(p), AreaTime(p));
-                    int effect = Effects[attack.SkillId - 0x4000];
-                    var minionAttack = attack with { Damage = attack.Damage.Scale(Math.Max(0,
-                        1 + Stat(p, effect, boss.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
-                    foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
-                        if (!minion.Monster.Dead && Contains(minion.Monster.Walk.Position(now))) GolemTakeHitLocked(p, minion, id, boss, minionAttack, now, area: true);
-                    if (p.PlayerLife == 0 || !Contains(p.Walk.Position(now))) return null;
-                    outcome = CommitMonsterHitLocked(p, id, boss, attack, now, p.Walk.Position(now), from, false, p.NextActionSequence());
-                    return outcome?.HitPacket;
-                }
+                if (!CurrentGameWork || stopped || boss.Dead || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
+                double now = Math.Max(ProjectileWorldTime(p), AreaTime(p));
+                int effect = Effects[attack.SkillId - 0x4000];
+                var minionAttack = attack with { Damage = attack.Damage.Scale(Math.Max(0,
+                    1 + Stat(p, effect, boss.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
+                foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
+                    if (!minion.Monster.Dead && Contains(minion.Monster.Walk.Position(now))) GolemTakeHitLocked(p, minion, id, boss, minionAttack, now, area: true);
+                if (p.PlayerLife == 0 || !Contains(p.Walk.Position(now))) return null;
+                outcome = CommitMonsterHitLocked(p, id, boss, attack, now, p.Walk.Position(now), from, false, p.NextActionSequence());
+                return outcome?.HitPacket;
             });
             if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
@@ -374,30 +371,27 @@ public static class VaalOversoul
             foreach (var p in players)
             {
                 if (p.Closed || p.LeavingArea || p.PlayerLife == 0) { ClearExposure(p); continue; }
-                lock (p.Monsters)
+                bool inside = !InGracePeriod(p) && cold.Any(g => Distance(g.At, p.Walk.Position(now)) <= 7.5);
+                var exposure = Exposures.GetValue(p, _ => new());
+                double dps = inside && !PlayerImmunities(p).Contains(DamageType.Cold)
+                    ? Stat(p, Cold, boss.Level, global::Stat.BaseColdDamageToDealPerMinute) / 60d * (1 - Math.Min(MaxResistance(p, DamageType.Cold), Resistance(p, DamageType.Cold)) / 100d) : 0;
+                p.Degens[exposure] = dps; exposure.Dps = dps;
+                if (inside)
                 {
-                    bool inside = !InGracePeriod(p) && cold.Any(g => Distance(g.At, p.Walk.Position(now)) <= 7.5);
-                    var exposure = Exposures.GetValue(p, _ => new());
-                    double dps = inside && !PlayerImmunities(p).Contains(DamageType.Cold)
-                        ? Stat(p, Cold, boss.Level, global::Stat.BaseColdDamageToDealPerMinute) / 60d * (1 - Math.Min(MaxResistance(p, DamageType.Cold), Resistance(p, DamageType.Cold)) / 100d) : 0;
-                    p.Degens[exposure] = dps; exposure.Dps = dps;
-                    if (inside)
-                    {
-                        var stats = CharacterPlayerStats(p);
-                        int Get(uint k) => stats.GetValueOrDefault(k);
-                        ApplyPlayerAilmentsLocked(p, now, ailments =>
-                            ailments.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
-                    }
-                    VaalGroundMinionsLocked(p, now, Stat(p, Cold, boss.Level, global::Stat.BaseColdDamageToDealPerMinute) / 60d,
-                        at => cold.Any(patch => Distance(patch.At, at) <= 7.5), minionDotCarry);
+                    var stats = CharacterPlayerStats(p);
+                    int Get(uint k) => stats.GetValueOrDefault(k);
+                    ApplyPlayerAilmentsLocked(p, now, ailments =>
+                        ailments.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
                 }
+                VaalGroundMinionsLocked(p, now, Stat(p, Cold, boss.Level, global::Stat.BaseColdDamageToDealPerMinute) / 60d,
+                    at => cold.Any(patch => Distance(patch.At, at) <= 7.5), minionDotCarry);
             }
             await Task.CompletedTask;
         }
         static (int X, int Y) Floor(Player c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;
         async Task<uint> Effect(Player c, (int X, int Y) at, string art, double expires, uint animation, float scale = 1)
         {
-            uint fx; lock (c.Monsters) fx = c.TakeObjectId();
+            uint fx; fx = c.TakeObjectId();
             await All(InstanceEntities.CreateObject(fx, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, art) { Scale = scale }.Blob()));
             await All(InstanceProtocol.EnterWakeZone(fx));
             await All(InstanceProtocol.AnimationUpdate(fx, 0, animation, 1));
@@ -418,7 +412,7 @@ public static class VaalOversoul
             new BlobWriter().U16(0x20).F32(1).F32(1).F32(1).ToArray());
         void UpdateOriginTransition(Player c, byte state)
         {
-            lock (c.Monsters) if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+            if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                 c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = state } };
         }
         public void Stop()
@@ -441,13 +435,13 @@ public static class VaalOversoul
 
 public static partial class Game
 {
-    public static void VaalGroundMinionsLocked(Player conn, double now, double rawDps,
+    public static void VaalGroundMinionsLocked(Player player, double now, double rawDps,
         Func<(int X, int Y), bool> inside, Dictionary<uint, double> carry)
     {
-        foreach (var g in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())
+        foreach (var g in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).ToArray())
         {
             var m = g.Monster;
-            if (!GolemCurrent(conn, g) || m.Dead || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning"
+            if (!GolemCurrent(player, g) || m.Dead || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning"
                 || !inside(m.Walk.Position(now))) continue;
             int Player(uint n) => GolemStat(g.Player, n);
             if (g.Definition.IsGolem && (Player(Stat.GolemImmunityToElementalDamage) != 0
@@ -456,11 +450,11 @@ public static partial class Game
             double damage = rawDps * .25 * Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) + carry.GetValueOrDefault(g.Id);
             int amount = (int)Math.Floor(damage); carry[g.Id] = damage - amount;
             amount = (int)Math.Min(int.MaxValue, g.ShieldPool.Damage(amount, false, now));
-            PublishEnergyShieldLocked(conn, g);
+            PublishEnergyShieldLocked(player, g);
             m.Life = (uint)Math.Max(0, (long)m.Life - amount);
             m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .5, now, _ => 0, n => m.Effects[n], stated: 30);
-            conn.Minions.OutputQueue.Add(new([], "Vaal chilled ground damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
-            if (m.Life == 0) GolemDieLocked(conn, g, now);
+            player.Minions.OutputQueue.Add(new([], "Vaal chilled ground damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
+            if (m.Life == 0) GolemDieLocked(player, g, now);
         }
     }
 }

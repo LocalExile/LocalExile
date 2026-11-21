@@ -18,20 +18,20 @@ public sealed class SurvivorsSkillsModule : IModule
         LoadData();
         SurvivorsSkills.SkillsStopping = module.Lifetime.Stopping;
         GameEvents.GrantedSkills.Add(module.Manifest.Id, SurvivorsSkills.GrantedSkills);
-        GameEvents.SkillBarBuilding.Add(module.Manifest.Id, (conn, ids) =>
+        GameEvents.SkillBarBuilding.Add(module.Manifest.Id, (player, ids) =>
         {
-            foreach (var skill in SurvivorsSkills.GrantedSkills(conn))
+            foreach (var skill in SurvivorsSkills.GrantedSkills(player))
             {
                 int free = Array.IndexOf(ids, (ushort)0, 3);
                 if (free < 3) break;
                 ids[free] = skill.Id;
             }
         });
-        GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(module.Manifest.Id, (conn, bytes) =>
-            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(conn,
+        GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(module.Manifest.Id, (player, bytes) =>
+            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(player,
                 InstanceProtocol.ReadUseSkillAtLocation(bytes.AsSpan()).SkillId)));
-        GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(module.Manifest.Id, (conn, bytes) =>
-            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(conn,
+        GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(module.Manifest.Id, (player, bytes) =>
+            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(player,
                 InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan()).SkillId)));
     }
 }
@@ -41,9 +41,9 @@ static partial class SurvivorsSkills
     internal static CancellationToken SkillsStopping, RewardsStopping;
     static readonly ConditionalWeakTable<Player, SurvivorsState> States = new();
 
-    internal static SurvivorsState StateOf(Player conn) => States.GetOrCreateValue(conn);
+    internal static SurvivorsState StateOf(Player player) => States.GetOrCreateValue(player);
 
-    internal static IReadOnlyList<GrantedSkill> GrantedSkills(Player conn) =>
-        StateOf(conn) is { Survivors: { } run, SurvivorsCatalog: { } catalog }
-            ? SurvivorsGrantedSkills(conn, run, catalog) : [];
+    internal static IReadOnlyList<GrantedSkill> GrantedSkills(Player player) =>
+        StateOf(player) is { Survivors: { } run, SurvivorsCatalog: { } catalog }
+            ? SurvivorsGrantedSkills(player, run, catalog) : [];
 }

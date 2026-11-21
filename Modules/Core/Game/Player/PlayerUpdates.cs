@@ -19,8 +19,8 @@ public static partial class Game
     // PlayerUpdateRole order, and read the boundary's time. The shared default (no connection) is the Clock.
     sealed class PlayerUpdateSchedule(Player? frames = null) : IPlayerUpdateSchedule
     {
-        public double Now(Player conn) => frames is null ? conn.Clock.Elapsed.TotalSeconds : conn.Frames.Now(conn);
-        public double ResourceNow(Player conn) => ProjectileWorldTime(conn);
+        public double Now(Player player) => frames is null ? player.Clock.Elapsed.TotalSeconds : player.Frames.Now(player);
+        public double ResourceNow(Player player) => ProjectileWorldTime(player);
         public Task Wait(int milliseconds, CancellationToken stopping) => Task.Delay(milliseconds, stopping);
         public Task Wait(PlayerUpdateRole role, int milliseconds, CancellationToken stopping) =>
             frames?.Frames.Wait(frames, role, milliseconds, stopping) ?? Task.Delay(milliseconds, stopping);
@@ -29,84 +29,81 @@ public static partial class Game
     public static bool CurrentGameWork => QuestKillCommitOutput is not null
         || CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
     /// <summary>The rules' time: the area's frame time (AreaFrames.Now), the same for everything in a frame.</summary>
-    public static double AreaTime(Player conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Frames.Now(conn);
+    public static double AreaTime(Player player) => AreaUpdateContext.Value?.Schedule.Now(player) ?? player.Frames.Now(player);
     /// <summary>The rules' randomness: the area's seeded Random (AreaFrames.Rng).</summary>
-    public static Random AreaRng(Player conn) => conn.Frames.Rng;
+    public static Random AreaRng(Player player) => player.Frames.Rng;
     public static Task AreaWait(PlayerUpdateRole role, int milliseconds) => AreaUpdateContext.Value is { } state
         ? state.Schedule.Wait(role, milliseconds, state.Stop.Token) : Task.Delay(milliseconds);
 
     public static IPlayerUpdateSchedule PlayerUpdatesSchedule = new PlayerUpdateSchedule();
 
-    public static bool PlayerUpdatesCurrent(Player conn, PlayerUpdatesState state) => CurrentGameRules
-        && !conn.Closed && !conn.RageRetired && !state.Stop.IsCancellationRequested
-        && ReferenceEquals(conn.PlayerUpdatesState, state) && ReferenceEquals(CombatLifetime, state.Rules)
-        && conn.PlayerUpdatesWorker.Current(state.Rules, null, state, state.Generation);
+    public static bool PlayerUpdatesCurrent(Player player, PlayerUpdatesState state) => CurrentGameRules
+        && !player.Closed && !player.RageRetired && !state.Stop.IsCancellationRequested
+        && ReferenceEquals(player.PlayerUpdatesState, state) && ReferenceEquals(CombatLifetime, state.Rules)
+        && player.PlayerUpdatesWorker.Current(state.Rules, null, state, state.Generation);
 
-    public static void EnsurePlayerUpdates(Player conn)
+    public static void EnsurePlayerUpdates(Player player)
     {
-        lock (conn.Monsters)
+        if (!CurrentGameRules || player.Closed || player.RageRetired || !player.Connection.PlayerSent
+            || !player.Connection.Connected) return;
+        if (player.PlayerUpdatesState is not PlayerUpdatesState state || !PlayerUpdatesCurrent(player, state))
         {
-            if (!CurrentGameRules || conn.Closed || conn.RageRetired || !conn.PlayerSent
-                || !conn.Connected) return;
-            if (conn.PlayerUpdatesState is not PlayerUpdatesState state || !PlayerUpdatesCurrent(conn, state))
-            {
-                conn.RetirePlayerUpdates();
-                // Tests swap in a schedule of their own; the game's runs on the connection's frames.
-                state = new(CombatLifetime!, PlayerUpdatesSchedule is PlayerUpdateSchedule ? new PlayerUpdateSchedule(conn) : PlayerUpdatesSchedule);
-                conn.PlayerUpdatesState = state;
-                state.PendingStages = [.. conn.Monsters.Where(p => p.Value.StageRunning).Select(p => (p.Key, p.Value))];
-            }
-            if (!conn.PlayerUpdatesWorker.TryStart(conn, state.Rules, null, state, out long generation)) return;
-            state.Generation = generation;
-            // Do not inherit an old projectile/worker's AsyncLocal output predicate into its replacement.
-            if (ExecutionContext.IsFlowSuppressed()) state.Completion = Task.Run(() => RunPlayerUpdates(conn, state));
-            else
-                using (ExecutionContext.SuppressFlow()) state.Completion = Task.Run(() => RunPlayerUpdates(conn, state));
+            player.RetirePlayerUpdates();
+            // Tests swap in a schedule of their own; the game's runs on the connection's frames.
+            state = new(CombatLifetime!, PlayerUpdatesSchedule is PlayerUpdateSchedule ? new PlayerUpdateSchedule(player) : PlayerUpdatesSchedule);
+            player.PlayerUpdatesState = state;
+            state.PendingStages = [.. player.Area.Monsters.Where(p => p.Value.StageRunning).Select(p => (p.Key, p.Value))];
         }
+        if (!player.PlayerUpdatesWorker.TryStart(player, state.Rules, null, state, out long generation)) return;
+        state.Generation = generation;
+        // Do not inherit an old projectile/worker's AsyncLocal output predicate into its replacement.
+        if (ExecutionContext.IsFlowSuppressed()) state.Completion = AreaFrames.Start(() => RunPlayerUpdates(player, state));
+        else
+            using (ExecutionContext.SuppressFlow()) state.Completion = AreaFrames.Start(() => RunPlayerUpdates(player, state));
     }
 
-    static async Task RunPlayerUpdates(Player conn, PlayerUpdatesState state)
+    static async Task RunPlayerUpdates(Player player, PlayerUpdatesState state)
     {
         var previous = Program.ProjectileOutputGuard.Value;
-        Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(conn, state);
+        Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(player, state);
         AreaUpdateContext.Value = state;
-        Program.ActingPlayer.Value = conn;
+        Program.ActingPlayer.Value = player;
         try
         {
-            StartResourceRecovery(conn, state);
-            StartMonsterAi(conn, state);
-            StartLivingCollisions(conn, state);
-            StartContentTick(conn, state);
-            StartFlaskChargeRegen(conn, state);
-            RestoreFortification(conn);
-            StartCharges(conn, state);
-            StartPlayerMinions(conn, state);
-            WakeFootsteps(conn);
+            StartResourceRecovery(player, state);
+            StartMonsterAi(player, state);
+            StartLivingCollisions(player, state);
+            StartContentTick(player, state);
+            StartFlaskChargeRegen(player, state);
+            RestoreFortification(player);
+            StartCharges(player, state);
+            StartPlayerMinions(player, state);
+            WakeFootsteps(player);
             // The periodic work runs on the area's timers; the updates hold their claim until they stop, so that no second
             // start doubles the timers.
-            await Task.WhenAll(Drive(PlayerUpdateRole.MonsterAction, () => ResumeBossStages(conn, state)),
-                Drive(PlayerUpdateRole.Tour, () => ContinueTour(conn)),
+            await Task.WhenAll(Drive(PlayerUpdateRole.MonsterAction, () => ResumeBossStages(player, state)),
+                Drive(PlayerUpdateRole.Tour, () => ContinueTour(player)),
                 Task.Delay(Timeout.Infinite, state.Stop.Token));
         }
         catch (OperationCanceledException) when (state.Stop.IsCancellationRequested) { }
-        catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Remote} player updates failed: {ServerLog.Describe(ex)}"); throw; }
+        catch (Exception ex) { Console.WriteLine($"[gateway] {player.Connection.Remote} player updates failed: {ServerLog.Describe(ex)}"); throw; }
         finally
         {
             AreaUpdateContext.Value = null;
             Program.ProjectileOutputGuard.Value = previous;
-            lock (conn.Monsters) conn.PlayerUpdatesWorker.Complete(state.Rules, null, state, state.Generation);
+            player.PlayerUpdatesWorker.Complete(state.Rules, null, state, state.Generation);
         }
         async Task Drive(PlayerUpdateRole role, Func<Task> loop)
         {
             try { await loop(); }
             catch { state.Stop.Cancel(); throw; }
-            finally { conn.Frames.Ended(role); }
+            finally { player.Frames.Ended(role); }
         }
     }
 
-    static async Task ResumeBossStages(Player conn, PlayerUpdatesState state)
+    static async Task ResumeBossStages(Player player, PlayerUpdatesState state)
     {
         foreach (var (id, monster) in state.PendingStages)
-            await RunBossStage(conn, id, monster);
+            await RunBossStage(player, id, monster);
     }
 }

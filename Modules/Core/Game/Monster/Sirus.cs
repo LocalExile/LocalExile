@@ -8,7 +8,7 @@ static partial class Sirus
     static readonly Store<InstanceState, Fight> Fights = new();
     internal static async Task Tick(Player c)
     {
-        if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
+        if (c.Layout.Id != Area || !CurrentGameWork || !c.Connection.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         var f = Fights.GetValue(c.Instance, _ => new(c));
         await f.Gate.WaitAsync();
         try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
@@ -43,18 +43,17 @@ static partial class Sirus
         internal int Stage => stage;
         internal int Round => body?.LifePhases?.Completed ?? 0;
         IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
-        bool Awake(Player p, uint actor) => p.MonsterViews.ContainsKey(actor) && !p.AsleepMonsters.Contains(actor);
+        bool Awake(Player p, uint actor) => MonsterShown(p, actor) && !MonsterAsleep(p, actor);
         (int X, int Y) Position(double now) => body?.Walk.Position(now) ?? scene.Centre;
         public Fight(Player c)
         {
             scene = SceneOf(c);
-            lock (c.Monsters)
-                foreach (var (key, m) in c.Monsters)
-                {
-                    if (m.Variety?.Id == Body) { id = key; body = m; }
-                    if (m.Variety?.Id == Throne) throne = key;
-                    if (m.Variety?.Id == Apparition) apparition = key;
-                }
+            foreach (var (key, m) in c.Area.Monsters)
+            {
+                if (m.Variety?.Id == Body) { id = key; body = m; }
+                if (m.Variety?.Id == Throne) throne = key;
+                if (m.Variety?.Id == Apparition) apparition = key;
+            }
             if (body?.LifePhases is { } phases)
                 for (int n = phases.Completed + 1; n <= 3 && c.Instance.HasState(Flag("Phase" + n)); n++)
                 { phases.Begin((uint)((ulong)body.MaxLife * (uint)phases.NextPercent / 100), body.MaxLife); phases.Finish(); }
@@ -74,7 +73,7 @@ static partial class Sirus
         async Task All(uint actor, byte[] bytes, bool awake = false) => await All(actor, new[] { bytes }, awake);
         async Task All(uint actor, byte[][] records, bool awake = false)
         {
-            foreach (var p in Present.Where(p => !awake || Awake(p, actor)).ToArray())
+            if ((Present.Where(p => !awake || Awake(p, actor)).ToArray()).FirstOrDefault() is { } p)
             {
                 await SendWorldRecords(p, actor, () => records.Select(r => r.ToArray()).ToArray(), null,
                     still: () => CurrentGameWork && !stopped && !p.Closed && !p.LeavingArea);
@@ -82,7 +81,7 @@ static partial class Sirus
         }
         async Task Remove(uint actor)
         {
-            foreach (var p in Present.ToArray()) { await SendWorldRemoval(p, actor); }
+            if (Present.FirstOrDefault() is { } p) { await SendWorldRemoval(p, actor); }
         }
         async Task Voice(ushort line, ushort speaker = 407)
         {
@@ -90,7 +89,7 @@ static partial class Sirus
         }
         async Task State(Player c, uint actor, params (string Name, int Value)[] changes)
         {
-            if (!c.Monsters.TryGetValue(actor, out var m) || m.States is not { } states) return;
+            if (!c.Area.Monsters.TryGetValue(actor, out var m) || m.States is not { } states) return;
             foreach (var (name, value) in changes) states = states.Set(name, value);
             m.States = states;
             if (c.Instance.World.MonsterOrigins.TryGetValue(actor, out var origin))
@@ -102,20 +101,20 @@ static partial class Sirus
         {
             body!.BossBarShown = show;
             await State(c, id, ("boss_life_bar", show ? 1 : 0), ("disable_life_bar", show ? 0 : 1));
-            foreach (var p in Present) { if (show) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id); }
+            foreach (var p in Present) { if (show) BossBars(p).Add(id); else BossBars(p).Remove(id); }
         }
         async Task Basic(Player c, uint actor, string action, double now, double duration)
         {
-            if (!c.Monsters.TryGetValue(actor, out var m) || Game.SkillsFor(c).ActionSkillId(action) is not { } skill) return;
+            if (!c.Area.Monsters.TryGetValue(actor, out var m) || Game.SkillsFor(c).ActionSkillId(action) is not { } skill) return;
             var from = m.Walk.Position(now);
-            lock (c.Monsters) { m.ActionGeneration++; m.SwingGeneration = null; m.BusyUntil = now + duration; }
+            m.ActionGeneration++; m.SwingGeneration = null; m.BusyUntil = now + duration;
             await All(actor, [InstanceProtocol.ActionStarted(actor, from.X, from.Y, from.X, from.Y, skill, c.NextActionSequence(), 0x0408),
                 InstanceProtocol.ActionEnded(actor)], true);
         }
         async Task Teleport(Player c, uint actor, (int X, int Y) at, double now)
         {
-            if (!c.Monsters.TryGetValue(actor, out var m)) return;
-            lock (c.Monsters) m.Walk.Teleport(at.X, at.Y, now);
+            if (!c.Area.Monsters.TryGetValue(actor, out var m)) return;
+            m.Walk.Teleport(at.X, at.Y, now);
             await All(actor, InstanceProtocol.Teleport(actor, at.X, at.Y), true);
         }
         async Task<uint> Actor(Player c, string type, (int X, int Y) at, bool rewards = false)
@@ -131,13 +130,12 @@ static partial class Sirus
             if (body is null)
             {
                 id = await Actor(c, Body, scene.Centre, rewards: true);
-                body = c.Monsters[id]; body.LifePhases ??= Phases(body.Variety!);
+                body = c.Area.Monsters[id]; body.LifePhases ??= Phases(body.Variety!);
                 await Teleport(c, id, scene.Centre, now);
             }
             body.LifePhases ??= Phases(body.Variety!);
-            lock (c.Monsters)
-                foreach (var (key, m) in c.Monsters)
-                    if (m.Variety?.Id is Storm or StationaryStorm) { m.EntranceGrace = true; m.NoRewards = true; RegisterStorm(key, m, now); }
+            foreach (var (key, m) in c.Area.Monsters)
+                if (m.Variety?.Id is Storm or StationaryStorm) { m.EntranceGrace = true; m.NoRewards = true; RegisterStorm(key, m, now); }
             if (stage == 4) { body.EntranceGrace = false; await State(c, id, ("norendering", 0)); await Bar(c, true); ready = now + 1; }
             if (stage == 6) { body.EntranceGrace = true; deadline = now + 4; }
             if (stage == 0 && Distance(c.Walk.Position(now), scene.Centre) < 220)
@@ -150,7 +148,7 @@ static partial class Sirus
                 foreach (var point in AreaPopulation.LoadPoints(Area, c.Seed, []).Where(p => p.Name == StationaryStorm))
                 {
                     uint key = await Actor(c, StationaryStorm, (point.X, point.Y));
-                    RegisterStorm(key, c.Monsters[key], now);
+                    RegisterStorm(key, c.Area.Monsters[key], now);
                 }
                 c.Instance.SetState(Flag("Storms"));
             }
@@ -194,7 +192,6 @@ static partial class Sirus
                     if (Round == 3)
                     {
                         body.Life = (uint)((ulong)body.MaxLife * 75 / 100);
-                        await All(id, InstanceProtocol.LifeUpdate(id, body.Life));
                         await State(c, id, ("apparition_merged", 1));
                         await Retire(c, apparition); apparition = 0;
                         await State(c, throne, ("visible", 0));
@@ -213,7 +210,7 @@ static partial class Sirus
             if (stage == 5 && now >= deadline)
             {
                 await State(c, id, ("norendering", 1)); stage = 6; deadline = now + 5;
-                uint storm = await Actor(c, Storm, Position(now)); RegisterStorm(storm, c.Monsters[storm], now);
+                uint storm = await Actor(c, Storm, Position(now)); RegisterStorm(storm, c.Area.Monsters[storm], now);
             }
             if (stage == 6 && now >= deadline && Distance(player, Position(now)) < 48) await Descend(c, now);
         }
@@ -253,10 +250,7 @@ static partial class Sirus
         }
         void ClearAllExposure()
         {
-            foreach (var p in players)
-                foreach (ushort buff in ClearExposure(p).Where(b => b != 0))
-                    if (!p.Closed && !p.LeavingArea)
-                        p.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, buff), null, WorldId: PlayerId));
+            foreach (var p in players) ClearExposure(p);
         }
     }
 }

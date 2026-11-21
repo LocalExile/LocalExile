@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Accounts;
+using AccountCharacter = GameServer.Core.Accounts.Character;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
 
@@ -9,14 +10,14 @@ public static class CharacterBuildImports
 {
     public const int MaxJsonLength = 8 * 1024 * 1024;
 
-    public static CharacterBuildImports.Prepared Validate(string text, Character record)
+    public static CharacterBuildImports.Prepared Validate(string text, AccountCharacter record)
     {
         if (text.Length > MaxJsonLength) throw new InvalidDataException("The external converter response is too large.");
         using var json = JsonDocument.Parse(text);
         var root = json.RootElement;
         if (root.GetProperty("Version").GetInt32() != 1)
             throw new InvalidDataException("Unsupported character build import version.");
-        var converted = root.GetProperty("Record").Deserialize<Character>()
+        var converted = root.GetProperty("Record").Deserialize<AccountCharacter>()
             ?? throw new InvalidDataException("The import result does not contain a character.");
         var save = root.GetProperty("Save").Deserialize<CharacterSaves.Save>()
             ?? throw new InvalidDataException("The import result does not contain a save.");
@@ -60,10 +61,10 @@ public static class CharacterBuildImports
     public static readonly byte[] Replaced = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 23, 102];
     public static bool IsApplying(Guid id) => Applying.ContainsKey(id);
 
-    public static void Release(Player conn)
+    public static void Release(Player player)
     {
-        if (conn.CharacterId is { } id && conn.BuildImport.Confirmed is not null) Applying.TryRemove(id, out _);
-        conn.BuildImport.Clear();
+        if (player.Character.Id is { } id && player.BuildImport.Confirmed is not null) Applying.TryRemove(id, out _);
+        player.BuildImport.Clear();
     }
 
     // Called after all old-session writers and leaving hooks, while the instance socket is still open.

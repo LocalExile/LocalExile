@@ -67,6 +67,6 @@ public static class MapScarabPacks
 
     public static void Drops(DropRoll roll)
     {
-        if (DropsDeck(Game.MapModsOf(roll.Conn), roll.Monster.VarietyId, Game.AreaRng(roll.Conn))) roll.Items.Add(Deck);
+        if (DropsDeck(Game.MapModsOf(roll.Player), roll.Monster.VarietyId, Game.AreaRng(roll.Player))) roll.Items.Add(Deck);
     }
 }

@@ -50,45 +50,45 @@ public static partial class Game
     public sealed record CarriedChargeDegeneration(uint[] Hosts, double HitSeconds, double CritSeconds,
         double[] Pending, double[] TakenCarry, double[] BypassCarry);
 
-    static void ConfigureChargeDegeneration(Player conn, IReadOnlyList<ItemModStats.Worn> worn, HashSet<uint> inactive)
+    static void ConfigureChargeDegeneration(Player player, IReadOnlyList<ItemModStats.Worn> worn, HashSet<uint> inactive)
     {
-        var session = ChargesOf(conn); var state = session.Degeneration;
-        double now = ResourceEffectsTime(conn);
+        var session = ChargesOf(player); var state = session.Degeneration;
+        double now = ResourceEffectsTime(player);
         var active = worn.Where(w => !inactive.Contains(w.Id)).ToArray();
         var items = active.Select(w => w.Item).ToArray();
-        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch
-            || !CurrentGameWork || conn.Closed || conn.RageRetired || conn.PlayerLife == 0)
+        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch
+            || !CurrentGameWork || player.Closed || player.RageRetired || player.PlayerLife == 0)
         {
-            state.Clear(now); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch;
+            state.Clear(now); state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch;
             state.Items = []; state.Hosts = []; Array.Clear(state.PerMinute);
         }
-        if (conn.LeavingArea || !CurrentGameWork || conn.Closed || conn.RageRetired || conn.PlayerLife == 0) return;
+        if (player.LeavingArea || !CurrentGameWork || player.Closed || player.RageRetired || player.PlayerLife == 0) return;
         session.SettleDegeneration(now);
         if (items.Length != state.Items.Length || items.Where((item, i) => !ReferenceEquals(item, state.Items[i])).Any())
         {
-            var raw = ItemModStats.Sum(items, ItemsFor(conn).Mods);
+            var raw = ItemModStats.Sum(items, ItemsFor(player).Mods);
             state.PerMinute = ChargeDegeneration.Coefficients.Select(n => Math.Max(0, raw.GetValueOrDefault(n))).ToArray();
             state.Items = items;
-            state.Hosts = active.Where(w => ItemModStats.Sum([w.Item], ItemsFor(conn).Mods)
+            state.Hosts = active.Where(w => ItemModStats.Sum([w.Item], ItemsFor(player).Mods)
                 .Any(s => ChargeDegeneration.Coefficients.Contains(s.Key) && s.Value > 0)).Select(w => w.Id).Order().ToArray();
         }
         state.Active = state.Hosts.Length > 0;
-        if (state.Active) ResourceEffectsOf(conn);
+        if (state.Active) ResourceEffectsOf(player);
     }
 
-    public static bool ChargeDegenerationActive(Player conn)
+    public static bool ChargeDegenerationActive(Player player)
     {
-        var session = ChargesOf(conn); var state = session.Degeneration; double now = ResourceEffectsTime(conn);
+        var session = ChargesOf(player); var state = session.Degeneration; double now = ResourceEffectsTime(player);
         return state.Active && (state.PerMinute[0] > 0 && now < state.HitUntil && !session.Converted(ChargeType.Endurance) && session.Effective(ChargeType.Endurance) > 0
-            || state.PerMinute[1] > 0 && conn.Walk.Moving(now) && !session.Converted(ChargeType.Frenzy) && session.Effective(ChargeType.Frenzy) > 0
+            || state.PerMinute[1] > 0 && player.Walk.Moving(now) && !session.Converted(ChargeType.Frenzy) && session.Effective(ChargeType.Frenzy) > 0
             || state.PerMinute[2] > 0 && now < state.CritUntil && !session.Converted(ChargeType.Power) && session.Effective(ChargeType.Power) > 0);
     }
 
-    public static int AdvanceChargeDegenerationLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static int AdvanceChargeDegenerationLocked(Player player, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        var session = ChargesOf(conn); var state = session.Degeneration;
-        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch
-            || conn.Closed || conn.LeavingArea || conn.RageRetired || !CurrentGameWork)
+        var session = ChargesOf(player); var state = session.Degeneration;
+        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch
+            || player.Closed || player.LeavingArea || player.RageRetired || !CurrentGameWork)
         { state.Clear(now); return 0; }
         if (!state.Active && !state.Pending.Any(p => p > 0)) return 0;
         session.SettleDegeneration(now);
@@ -98,33 +98,33 @@ public static partial class Game
         {
             double raw = state.Pending[i]; state.Pending[i] = 0;
             var type = ChargeDegeneration.Types[i];
-            if (raw <= 0 || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || !CurrentGameWork
-                || InGracePeriod(conn) || InTown(conn) || conn.Immune || HardcoreProgressBlocked(conn)
+            if (raw <= 0 || player.PlayerLife == 0 || player.Closed || player.LeavingArea || !CurrentGameWork
+                || InGracePeriod(player) || InTown(player) || player.Immune || HardcoreProgressBlocked(player)
                 || DamageImmunities.From(Get).Contains(type)) continue;
-            double resistance = Math.Clamp(Resistance(conn, type), -200, MaxResistance(conn, type));
+            double resistance = Math.Clamp(Resistance(player, type), -200, MaxResistance(player, type));
             int damage = IncomingResourceDefences.TakenOverTime(raw * (1 - resistance / 100d), Get, ref state.TakenCarry[i],
-                IncomingResourceDefences.LessTakenPct(conn.Pools, Get),
+                IncomingResourceDefences.LessTakenPct(player.Pools, Get),
                 typedIncreasedPct: ActorScale.Saturate((long)Get(Stat.Of($"{type.ToString().ToLowerInvariant()}_damage_taken_+%")) + Get(Stat.ElementalDamageTakenPlusPct)),
                 reductionPct: ChargeEffects.Reduction(Get).Elemental);
-            int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
+            int life = IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
                 Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry[i]);
-            conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - life);
+            player.PlayerLife = (uint)Math.Max(0, (long)player.PlayerLife - life);
             total = ActorScale.Saturate((long)total + life);
         }
-        if (conn.PlayerLife == 0) { state.Clear(now); conn.InvalidateIncomingHits(); RecordHardcoreDeath(conn); }
+        if (player.PlayerLife == 0) { state.Clear(now); player.InvalidateIncomingHits(); RecordHardcoreDeath(player); }
         return total;
     }
 
-    public static CarriedChargeDegeneration CaptureChargeDegeneration(Player conn, double at)
+    public static CarriedChargeDegeneration CaptureChargeDegeneration(Player player, double at)
     {
-        var session = ChargesOf(conn); session.SettleDegeneration(at); var state = session.Degeneration;
+        var session = ChargesOf(player); session.SettleDegeneration(at); var state = session.Degeneration;
         return new([.. state.Hosts], Math.Max(0, state.HitUntil - at), Math.Max(0, state.CritUntil - at),
             [.. state.Pending], [.. state.TakenCarry], [.. state.BypassCarry]);
     }
-    public static void RestoreChargeDegeneration(Player conn, CarriedChargeDegeneration value, double at)
+    public static void RestoreChargeDegeneration(Player player, CarriedChargeDegeneration value, double at)
     {
-        var state = ChargesOf(conn).Degeneration; state.Clear(at);
-        state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Hosts = [.. value.Hosts];
+        var state = ChargesOf(player).Degeneration; state.Clear(at);
+        state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch; state.Hosts = [.. value.Hosts];
         state.HitUntil = at + value.HitSeconds; state.CritUntil = at + value.CritSeconds;
         value.Pending.CopyTo(state.Pending, 0); value.TakenCarry.CopyTo(state.TakenCarry, 0); value.BypassCarry.CopyTo(state.BypassCarry, 0);
     }

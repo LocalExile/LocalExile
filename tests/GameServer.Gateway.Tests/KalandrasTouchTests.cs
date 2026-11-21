@@ -10,7 +10,7 @@ public class KalandrasTouchTests
         var path = Path.Combine(Path.GetTempPath(), $"kalandra-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         var items = Program.Items;
-        var conn = new Player(new(1, "kalandra", 100, 100, 100, 100, null, []), 1, 1) { Character = "KalandraStats" };
+        var player = new Player(new(1, "kalandra", 100, 100, 100, 100, null, []), 1, 1) { Character = { Name = "KalandraStats" } };
         try
         {
             var touch = new UniqueCatalog(items).Create("Kalandra's Touch", new Random(3))!;
@@ -27,7 +27,7 @@ public class KalandrasTouchTests
             (int Fire, int Dex) Worn(params (byte Row, Item Item)[] worn)
             {
                 // New item ids each time: the stat source cache compares worn items, not their rows.
-                var stats = Game.EquipmentStatSources(conn, [.. worn.Select(w => (w.Row, new InventoryItem(id++, 0, 0, w.Item)))],
+                var stats = Game.EquipmentStatSources(player, [.. worn.Select(w => (w.Row, new InventoryItem(id++, 0, 0, w.Item)))],
                     [], 100).Sources;
                 return (stats.GetValueOrDefault(fire), stats.GetValueOrDefault(dex));
             }
@@ -39,6 +39,6 @@ public class KalandrasTouchTests
             Assert.Equal((0, 0), Worn((7, touch)));
             Assert.Equal((10, 40), Worn((6, ring), (102, touch)));
         }
-        finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
+        finally { PlayerInventories.Forget(player.Character.Name!); TestEnvironment.ReleaseSaves(path); }
     }
 }

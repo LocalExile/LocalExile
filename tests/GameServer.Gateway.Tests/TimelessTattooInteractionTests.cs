@@ -13,11 +13,12 @@ public sealed class TimelessTattooInteractionTests
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-timeless-tattoo-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new Player(new(1, "timeless-tattoo", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "timeless-tattoo", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TimelessTattooChar", PlayerLife = 1000,
+            Character = { Name = "TimelessTattooChar" },
+            PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         try
         {
@@ -44,16 +45,16 @@ public sealed class TimelessTattooInteractionTests
             var chosen = JourneyMakanuiCatalogue.All.First(entry => entry.GraphId != replaced
                 && !inRadius.Contains(entry.GraphId) && tree.Find(entry.GraphId) is { Stats.Count: > 0 });
             var stat = tree.Find(chosen.GraphId)!.Stats[0].Key;
-            int Stat(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(stat);
+            int Stat(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources.GetValueOrDefault(stat);
             int AlternateStat(params ushort[] nodes) =>
-                Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(alternate.Stats[0].Key);
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(300, (byte)jewelSlot, 0, timelessJewel));
+                Game.EquipmentStatSources(player, [], nodes, 100).Sources.GetValueOrDefault(alternate.Stats[0].Key);
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(300, (byte)jewelSlot, 0, timelessJewel));
             // Control: the granted keystone counts once while no tattoo is involved.
             int own = Stat(jewelSocket, chosen.GraphId);
             Assert.True(own > 0);
-            conn.Tattoos[replaced] = "Journey Tattoo of Makanui";
-            conn.TattooKeystones[replaced] = chosen.GraphId;
-            conn.TattooRevision++;
+            player.Character.Tattoos[replaced] = "Journey Tattoo of Makanui";
+            player.Character.TattooKeystones[replaced] = chosen.GraphId;
+            player.Character.TattooRevision++;
             // Control: the tattoo really went in. Without the socket allocated the timeless jewel cannot apply, so
             // the replaced keystone shows the granted keystone's stats, not its own.
             Assert.Equal(own, Stat(replaced));
@@ -64,7 +65,7 @@ public sealed class TimelessTattooInteractionTests
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             TestEnvironment.ReleaseSaves(path);
         }
     }

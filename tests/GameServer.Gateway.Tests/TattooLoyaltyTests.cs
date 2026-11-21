@@ -41,11 +41,14 @@ public sealed class TattooLoyaltyTests
     [Fact]
     public void The_loyalty_grants_are_level_1_spirit_summons_with_leadership_and_a_presence_check()
     {
-        var conn = new Player(new(1, "tattoo-loyalty", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "tattoo-loyalty", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TattooLoyaltyChar", PlayerLife = 1000, PlayerMana = 100, Instance = new(),
+            Character = { Name = "TattooLoyaltyChar" },
+            PlayerLife = 1000,
+            PlayerMana = 100,
+            Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         string path = Path.Combine(Path.GetTempPath(), $"localexile-tattoo-loyalty-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -53,7 +56,7 @@ public sealed class TattooLoyaltyTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
-        var skills = Game.SkillsFor(conn);
+        var skills = Game.SkillsFor(player);
         foreach (var (name, _) in Rows)
         {
             var entry = TattooCatalogue.Find(name)!;
@@ -79,31 +82,31 @@ public sealed class TattooLoyaltyTests
         }
 
         // "while a Unique Enemy is in your Presence": within 80 cells of the player, hostile and alive.
-        conn.Monsters[1] = new SpawnedMonster("Spirit of Kaom", conn.NewMonsterWalk(1, 105, 100, 30, 1, false), 0, 0, 100)
+        player.Area.Monsters[1] = new SpawnedMonster("Spirit of Kaom", player.NewMonsterWalk(1, 105, 100, 30, 1, false), 0, 0, 100)
         {
             Rarity = MonsterRarity.Unique,
         };
-        Assert.True(Game.UniqueInPresenceLocked(conn, 0));
-        conn.Monsters.Clear();
-        Assert.False(Game.UniqueInPresenceLocked(conn, 0));
+        Assert.True(Game.UniqueInPresenceLocked(player, 0));
+        player.Area.Monsters.Clear();
+        Assert.False(Game.UniqueInPresenceLocked(player, 0));
 
         // The tattoo is a triggered grant: its trigger stat names it and its PassiveSkillOverrides.Effect is the
         // level 1 Summon Spirit skill the Spirit chieftain path triggers (cooldown, Leadership, chieftain).
-        conn.Passives.Add(21301);
-        conn.Tattoos = new Dictionary<ushort, string> { [21301] = "Loyalty Tattoo of Kiloava" };
+        player.Character.Passives.Add(21301);
+        player.Character.Tattoos = new Dictionary<ushort, string> { [21301] = "Loyalty Tattoo of Kiloava" };
         uint blockKey = Stat.HasTriggerOnBlockHitFromUnique;
-        var grants = Game.TattooTriggeredGrantsLocked(conn, blockKey).ToList();
+        var grants = Game.TattooTriggeredGrantsLocked(player, blockKey).ToList();
         var grant = Assert.Single(grants);
         Assert.Equal(1, grant.Level);
         Assert.StartsWith("TriggerSummonedAncestorKiloava", grant.EffectId);
-        Assert.Empty(Game.TattooTriggeredGrantsLocked(conn, Stat.HasTriggerOnCritByUniqueEnemy));
+        Assert.Empty(Game.TattooTriggeredGrantsLocked(player, Stat.HasTriggerOnCritByUniqueEnemy));
         // Tattoos are saved apart from allocation: refunding the node ends its trigger.
-        conn.Passives.Remove(21301);
-        Assert.Empty(Game.TattooTriggeredGrantsLocked(conn, blockKey));
+        player.Character.Passives.Remove(21301);
+        Assert.Empty(Game.TattooTriggeredGrantsLocked(player, blockKey));
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseSaves(path);
         }

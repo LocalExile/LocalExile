@@ -122,7 +122,7 @@ static partial class KitavaActTen
             var attack = Attack(c, body.Variety!, body.Level, effect); var aim = c.Walk.Position(now);
             cooldowns[effect] = now + Game.SkillsFor(c).CooldownMs(effect, Data(c, effect, body.Level).Level) / 1000d;
             int generation;
-            lock (c.Monsters) { generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .2; }
+            generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .2;
             int cast = ++group;
             await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(id)], true);
             Console.WriteLine($"[Kitava A10] interval {Round + 1}, {Game.SkillsFor(c).EffectId(effect)}");
@@ -212,7 +212,6 @@ static partial class KitavaActTen
             if (now < lastGround + .25) return;
             double seconds = Math.Clamp(now - lastGround, 0, 1); lastGround = now;
             foreach (var p in Present.ToArray())
-                lock (p.Monsters)
                 {
                     bool Active((int X, int Y) at, Patch g) => stage is 2 or 3 or 4 && now >= g.From && Distance(at, g.At) <= g.Radius;
                     double Dps(Patch g) => g.Type == DamageType.Physical ? Stat(c, g.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d
@@ -249,24 +248,21 @@ static partial class KitavaActTen
                 : hit.End is { } end ? LineDistance(at, hit.Aim, end) <= hit.Radius : Distance(at, hit.Aim) <= hit.Radius;
             await SendWorldRecord(p, id, [], null, atGate: () =>
             {
-                lock (p.Monsters)
-                {
-                    double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
-                    if (stopped || !CurrentGameWork || stage is not (2 or 3 or 4) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                    var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
-                    foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                        if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struck.Add((hit.Group, p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
-                    if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struck.Add((hit.Group, p, PlayerId))) return null;
-                    outcome = CommitMonsterHitLocked(p, id, body, attack, now, p.Walk.Position(now), hit.Aim, false, p.NextActionSequence());
-                    return outcome?.HitPacket;
-                }
+                double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
+                if (stopped || !CurrentGameWork || stage is not (2 or 3 or 4) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
+                var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
+                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
+                    if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struck.Add((hit.Group, p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
+                if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struck.Add((hit.Group, p, p.Id))) return null;
+                outcome = CommitMonsterHitLocked(p, id, body, attack, now, p.Walk.Position(now), hit.Aim, false, p.NextActionSequence());
+                return outcome?.HitPacket;
             });
             if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
         async Task Fx(Player c, (int X, int Y) at, string model, double until, uint? clip = 0, float rotation = 0)
         {
             var fx = new Visual(c.Instance.World.NewMonsterId(), at, model, clip ?? uint.MaxValue, until, rotation); visuals.Add(fx);
-            foreach (var p in Present.ToArray()) await CreateFx(p, fx);
+            if (Present.FirstOrDefault() is { } p) await CreateFx(p, fx);
         }
         static async Task CreateFx(Player p, Visual fx)
         {

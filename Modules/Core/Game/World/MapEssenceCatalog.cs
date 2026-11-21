@@ -61,12 +61,12 @@ public static class MapEssenceCatalog
         return [.. chosen.Select(e => e.Row)];
     }
 
-    public static MonsterModSet Mods(Player conn, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
+    public static MonsterModSet Mods(Player player, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
     {
-        var basis = Game.MonsterModsFor(conn, variety, level, MonsterRarity.Rare, null, false);
+        var basis = Game.MonsterModsFor(player, variety, level, MonsterRarity.Rare, null, false);
         var rows = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct();
         var extra = rows.Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
-            .Select(m => m.Roll(ModSection.Implicit, Game.AreaRng(conn)));
+            .Select(m => m.Roll(ModSection.Implicit, Game.AreaRng(player)));
         return Game.MonsterModRolls.Create([.. basis.Mods, .. extra], basis.NameWords, MonsterRarity.Rare, level);
     }
 }

@@ -38,20 +38,20 @@ public static class Arakaali
     // Commit its stance with the action at the send gate, under the monster lock.
     internal static byte[]? StanceUpdateLocked(Player c, uint id, double now)
     {
-        if (c.Closed || c.LeavingArea || c.AsleepMonsters.Contains(id)
-            || !c.Monsters.TryGetValue(id, out var boss) || !IsBoss(boss.Variety)
-            || !c.MonsterViews.TryGetValue(id, out var seen) || seen.ActorStance == SecondStance
+        if (c.Closed || c.LeavingArea || MonsterAsleep(c, id)
+            || !c.Area.Monsters.TryGetValue(id, out var boss) || !IsBoss(boss.Variety)
+            || StancesShown(c).Contains(id)
             || !c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin) || origin.Object.ActorStance != SecondStance) return null;
         var at = boss.Walk.Position(now);
-        c.MonsterViews[id] = seen with { ActorStance = SecondStance };
+        StancesShown(c).Add(id);
         return InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y,
             5828, c.NextActionSequence(), 0x0800, id);
     }
     public static async Task Tick(Player c)
     {
-        if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
+        if (c.Layout.Id != Area || !CurrentGameWork || !c.Connection.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         KeyValuePair<uint, SpawnedMonster> found;
-        lock (c.Monsters) found = c.Monsters.FirstOrDefault(p => p.Value.Hostile && IsBoss(p.Value.Variety));
+        found = c.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && IsBoss(p.Value.Variety));
         if (found.Value is null) return;
         var fight = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         await fight.Gate.WaitAsync();
@@ -75,13 +75,12 @@ public static class Arakaali
         {
             var observers = Present.Concat(InGame.Keys.Where(p => ReferenceEquals(p.Instance, owner.Instance)
                 && !p.Closed && !p.LeavingArea)).Distinct().ToArray();
-            foreach (var p in observers.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)))
+            if ((observers.Where(p => MonsterShown(p, id) && !MonsterAsleep(p, id))).FirstOrDefault() is { } p)
             {
                 await SendWorldRecord(p, id, [], null, atGate: () =>
                 {
-                    lock (p.Monsters)
-                        return !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea
-                            && p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id) ? message(p) : null;
+                    return !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea
+                        && MonsterShown(p, id) && !MonsterAsleep(p, id) ? message(p) : null;
                 });
             }
         }
@@ -93,34 +92,24 @@ public static class Arakaali
             if (phases.Completed > 0) return;
             if (double.IsNaN(deadline))
             {
-                if (!Present.Any(p => p.PlayerLife > 0 && p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id))) return;
-                lock (c.Monsters)
-                {
-                    if (!phases.Active && !phases.Begin(boss.Life, boss.MaxLife)) return;
-                    boss.ActionGeneration++; boss.SwingGeneration = null;
-                    boss.FlinchUntil = 0; boss.StunSerial++;
-                    boss.BusyUntil = deadline = now + SilkSeconds;
-                }
+                if (!Present.Any(p => p.PlayerLife > 0 && MonsterShown(p, id) && !MonsterAsleep(p, id))) return;
+                if (!phases.Active && !phases.Begin(boss.Life, boss.MaxLife)) return;
+                boss.ActionGeneration++; boss.SwingGeneration = null;
+                boss.FlinchUntil = 0; boss.StunSerial++;
+                boss.BusyUntil = deadline = now + SilkSeconds;
                 await All(_ => InstanceProtocol.AnimationUpdate(id, 0, SilkClip, 1));
                 Console.WriteLine("[Arakaali] consumes Silk before the second stance");
                 return;
             }
             if (now < deadline) return;
-            lock (c.Monsters)
-            {
-                c.Instance.SetState(SecondPhase);
-                boss.Life = Math.Max(boss.Life, (uint)((ulong)boss.MaxLife * 60 / 100));
-                if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
-                    c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { ActorStance = SecondStance } };
-            }
+            c.Instance.SetState(SecondPhase);
+            boss.Life = Math.Max(boss.Life, (uint)((ulong)boss.MaxLife * 60 / 100));
+            if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+                c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { ActorStance = SecondStance } };
             await All(p => StanceUpdateLocked(p, id, now));
-            await All(_ => InstanceProtocol.LifeUpdate(id, boss.Life));
             // Keep ordinary AI and damage gated until every current observer has the new stance.
-            lock (c.Monsters)
-            {
-                if (stopped || !CurrentGameWork) return;
-                phases.Finish(); boss.BusyUntil = now;
-            }
+            if (stopped || !CurrentGameWork) return;
+            phases.Finish(); boss.BusyUntil = now;
             Console.WriteLine("[Arakaali] second stance ready");
         }
         public void Stop() { stopped = true; }

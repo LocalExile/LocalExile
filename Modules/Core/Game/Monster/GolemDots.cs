@@ -4,11 +4,11 @@ using GameServer.Core.World;
 public static partial class Game
 {
     /// <summary>The owned GolemState actor for this id and exact monster lifetime, if any.</summary>
-    public static bool OwnedGolemActor(Player conn, uint id, SpawnedMonster monster)
+    public static bool OwnedGolemActor(Player player, uint id, SpawnedMonster monster)
     {
-        GolemState.Golem? golem = conn.Golems.All.GetValueOrDefault(id)
-            ?? conn.Reservations.Fighters.GetValueOrDefault(id)
-            ?? conn.Summons.Fighters.GetValueOrDefault(id);
+        GolemState.Golem? golem = player.Golems.All.GetValueOrDefault(id)
+            ?? player.Reservations.Fighters.GetValueOrDefault(id)
+            ?? player.Summons.Fighters.GetValueOrDefault(id);
         return golem is not null && ReferenceEquals(golem.Monster, monster);
     }
 
@@ -27,15 +27,15 @@ public static partial class Game
     static bool GolemHasDots(GolemState.Golem golem) =>
         !golem.Monster.Ignites.Idle || !golem.Monster.Bleeds.Idle || !golem.Monster.Poisons.Idle;
 
-    static void QueueGolemDotPacket(Player conn, GolemState.Golem golem, byte[] packet, string? log = null) =>
-        conn.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
+    static void QueueGolemDotPacket(Player player, GolemState.Golem golem, byte[] packet, string? log = null) =>
+        player.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
 
     /// <summary>Advances every owned ailment set once, applies its positive whole typed damage to ES then Life, and
     /// interrupts recharge at the latest positive subinterval end.</summary>
-    public static void GolemDotsLocked(Player conn, GolemState.Golem golem, double from, double to)
+    public static void GolemDotsLocked(Player player, GolemState.Golem golem, double from, double to)
     {
         var m = golem.Monster;
-        if (!(to > from) || !GolemCurrent(conn, golem) || m.Dead || m.Life == 0) return;
+        if (!(to > from) || !GolemCurrent(player, golem) || m.Dead || m.Life == 0) return;
         bool elementalImmune = GolemElementalImmune(golem);
         bool ignoresDots = GolemIgnoresDots(golem);
         double fireFactor = elementalImmune || ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Fire, to);
@@ -62,90 +62,64 @@ public static partial class Game
         if (lifeDamage > 0)
         {
             m.Life = (uint)Math.Max(0, (long)m.Life - lifeDamage);
-            conn.Minions.OutputQueue.Add(new([], "golem damage over time", golem.Id, m, PlayerMinions.OutputKind.Life));
+            player.Minions.OutputQueue.Add(new([], "golem damage over time", golem.Id, m, PlayerMinions.OutputKind.Life));
         }
-        if (m.Life == 0 || !GolemCurrent(conn, golem))
+        if (m.Life == 0 || !GolemCurrent(player, golem))
         {
-            if (m.Life == 0 && GolemCurrent(conn, golem)) GolemDieLocked(conn, golem, to);
+            if (m.Life == 0 && GolemCurrent(player, golem)) GolemDieLocked(player, golem, to);
             return;
         }
-        UpdateGolemDotBuffsLocked(conn, golem, to);
+        UpdateGolemDotBuffsLocked(player, golem, to);
     }
 
-    static void UpdateGolemDotBuffsLocked(Player conn, GolemState.Golem golem, double now)
+    static void UpdateGolemDotBuffsLocked(Player player, GolemState.Golem golem, double now)
     {
         var m = golem.Monster;
-        if (!m.Ignites.Burning && m.Ignites.Buff is ushort ignited)
-        {
-            QueueGolemDotPacket(conn, golem, InstanceEntities.RemoveBuff(golem.Id, ignited));
-            m.Ignites.Buff = null;
-        }
-        if (!m.Bleeds.Burning && m.Bleeds.Buff is ushort bleeding)
-        {
-            QueueGolemDotPacket(conn, golem, InstanceEntities.RemoveBuff(golem.Id, bleeding));
-            m.Bleeds.Buff = null;
-        }
-        if (!m.Poisons.Poisoned)
-        {
-            if (m.Poisons.Buff is ushort poison)
-            {
-                QueueGolemDotPacket(conn, golem, InstanceEntities.RemoveBuff(golem.Id, poison));
-                m.Poisons.Buff = null;
-            }
-            return;
-        }
-        if (m.Poisons.Buff is ushort old)
-            QueueGolemDotPacket(conn, golem, InstanceEntities.RemoveBuff(golem.Id, old));
-        ushort next = conn.NextBuff++;
-        m.Poisons.Buff = next;
-        uint source = m.Poisons.BuffSource != 0 ? m.Poisons.BuffSource : PlayerId;
-        QueueGolemDotPacket(conn, golem, InstanceEntities.AddBuff(golem.Id, next, PoisonBuffRow, source,
-            stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue),
-            u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, m.Poisons.Until - now))));
+        if (!m.Ignites.Burning) EndDot(player, golem.Id, ref m.Ignites.Buff, m.Ignites.BuffSource);
+        if (!m.Bleeds.Burning) EndDot(player, golem.Id, ref m.Bleeds.Buff, m.Bleeds.BuffSource);
+        if (!m.Poisons.Poisoned) { EndDot(player, golem.Id, ref m.Poisons.Buff, m.Poisons.BuffSource); return; }
+        uint source = m.Poisons.BuffSource != 0 ? m.Poisons.BuffSource : player.Id;
+        ShowDot(player, golem.Id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, new(PoisonBuffRow, source,
+            Stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue), U68: Buff.Seconds(m.Poisons.Until - now)));
     }
 
-    static void ShowGolemDotBuffLocked(Player conn, GolemState.Golem golem, ref ushort? shown, ushort row, uint source,
-        double seconds, ushort stacks = 1)
-    {
-        if (shown is ushort old) QueueGolemDotPacket(conn, golem, InstanceEntities.RemoveBuff(golem.Id, old));
-        shown = conn.NextBuff++;
-        QueueGolemDotPacket(conn, golem, InstanceEntities.AddBuff(golem.Id, shown.Value, row, source,
-            stacks: stacks, u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, seconds))));
-    }
+    static void ShowGolemDotBuffLocked(Player player, GolemState.Golem golem, ref ushort? shown, ref uint shownSource,
+        ushort row, uint source, double seconds, ushort stacks = 1) =>
+        ShowDot(player, golem.Id, ref shown, ref shownSource, new(row, source, Stacks: stacks, U68: Buff.Seconds(seconds)));
 
     /// <summary>Shows the moved sets once on their new actor, using only their remaining absolute lifetimes.</summary>
-    public static void PresentTransferredGolemDotBuffsLocked(Player conn, GolemState.Golem golem, double now)
+    public static void PresentTransferredGolemDotBuffsLocked(Player player, GolemState.Golem golem, double now)
     {
         var m = golem.Monster;
         if (m.Ignites.Until > now)
         {
-            uint source = m.Ignites.BuffSource != 0 ? m.Ignites.BuffSource : PlayerId;
-            ShowGolemDotBuffLocked(conn, golem, ref m.Ignites.Buff, IgnitedBuffRow, source,
+            uint source = m.Ignites.BuffSource != 0 ? m.Ignites.BuffSource : player.Id;
+            ShowGolemDotBuffLocked(player, golem, ref m.Ignites.Buff, ref m.Ignites.BuffSource, IgnitedBuffRow, source,
                 m.Ignites.Until - now);
         }
         if (m.Bleeds.Until > now && LabyrinthTrials.BleedingBuffRow is ushort bleedRow)
         {
-            uint source = m.Bleeds.BuffSource != 0 ? m.Bleeds.BuffSource : PlayerId;
-            ShowGolemDotBuffLocked(conn, golem, ref m.Bleeds.Buff, bleedRow, source, m.Bleeds.Until - now);
+            uint source = m.Bleeds.BuffSource != 0 ? m.Bleeds.BuffSource : player.Id;
+            ShowGolemDotBuffLocked(player, golem, ref m.Bleeds.Buff, ref m.Bleeds.BuffSource, bleedRow, source, m.Bleeds.Until - now);
         }
         int stacks = m.Poisons.Stacks(now);
         if (stacks > 0)
         {
-            uint source = m.Poisons.BuffSource != 0 ? m.Poisons.BuffSource : PlayerId;
-            ShowGolemDotBuffLocked(conn, golem, ref m.Poisons.Buff, PoisonBuffRow, source,
+            uint source = m.Poisons.BuffSource != 0 ? m.Poisons.BuffSource : player.Id;
+            ShowGolemDotBuffLocked(player, golem, ref m.Poisons.Buff, ref m.Poisons.BuffSource, PoisonBuffRow, source,
                 m.Poisons.Until - now, (ushort)Math.Clamp(stacks, 1, ushort.MaxValue));
         }
     }
 
     /// <summary>Admits hostile bleed and poison from an accepted contact's real source effects onto the golem's own
     /// monster ailment sets, using the player pipeline's frozen chance, damage and duration contract.</summary>
-    public static void GolemHostileAilmentsLocked(Player conn, GolemState.Golem golem, uint attacker,
+    public static void GolemHostileAilmentsLocked(Player player, GolemState.Golem golem, uint attacker,
         SpawnedMonster source, DamagePacket rolled, bool critical, bool attack, double now)
     {
         var target = golem.Monster;
         var effects = source.Mods.Effects;
         var victim = target.Mods.Effects;
-        var random = conn.IncomingHitRandom;
+        var random = player.IncomingHitRandom;
         // The hit roll carries the monster's 1.3 critical multiplier; ailments use their own ordinary 50%-more critical
         // DoT row, so remove only that hit multiplier before deriving their bases.
         var baseHit = critical ? rolled.Scale(1 / 1.3) : rolled;
@@ -164,7 +138,7 @@ public static partial class Game
                 && target.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds))
             {
                 target.Ignites.BuffSource = attacker;
-                ShowGolemDotBuffLocked(conn, golem, ref target.Ignites.Buff, IgnitedBuffRow, attacker,
+                ShowGolemDotBuffLocked(player, golem, ref target.Ignites.Buff, ref target.Ignites.BuffSource, IgnitedBuffRow, attacker,
                     ignite.RemainingSeconds);
             }
         }
@@ -190,7 +164,7 @@ public static partial class Game
                 && LabyrinthTrials.BleedingBuffRow is ushort row)
             {
                 target.Bleeds.BuffSource = attacker;
-                ShowGolemDotBuffLocked(conn, golem, ref target.Bleeds.Buff, row, attacker,
+                ShowGolemDotBuffLocked(player, golem, ref target.Bleeds.Buff, ref target.Bleeds.BuffSource, row, attacker,
                     target.Bleeds.Until - now);
             }
         }
@@ -221,7 +195,7 @@ public static partial class Game
                     victim[Stat.AvoidPoisonPct] + victim[Stat.BaseAvoidPoisonPct], immune, random))
             {
                 target.Poisons.BuffSource = attacker;
-                ShowGolemDotBuffLocked(conn, golem, ref target.Poisons.Buff, PoisonBuffRow, attacker,
+                ShowGolemDotBuffLocked(player, golem, ref target.Poisons.Buff, ref target.Poisons.BuffSource, PoisonBuffRow, attacker,
                     target.Poisons.Until - now);
             }
         }

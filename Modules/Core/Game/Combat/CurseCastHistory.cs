@@ -17,14 +17,11 @@ public static partial class Game
         .Select(effect => StatConditions.CastEventKey(CurseCastToken(effect)!, CurseCastHistorySeconds));
 
     // Only the completed manual-cast executor calls this. On-hit, aura and triggered curse application do not.
-    public static void RecordCompletedCurseCast(Player conn, string effect, double at)
+    public static void RecordCompletedCurseCast(Player player, string effect, double at)
     {
-        lock (conn.Monsters)
-        {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PendingTransfer is not null
-                || conn.PlayerLife == 0 || conn.Paused || !double.IsFinite(at) || at < 0
-                || CurseCastToken(effect) is not { } token) return;
-            conn.RecentEvents.Record(StatConditions.CastEventKey(token, CurseCastHistorySeconds), at, CurseCastHistorySeconds);
-        }
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PendingTransfer is not null
+            || player.PlayerLife == 0 || player.Paused || !double.IsFinite(at) || at < 0
+            || CurseCastToken(effect) is not { } token) return;
+        player.RecentEvents.Record(StatConditions.CastEventKey(token, CurseCastHistorySeconds), at, CurseCastHistorySeconds);
     }
 }

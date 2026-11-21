@@ -70,18 +70,20 @@ public sealed class SurvivorsAnimationTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new Player(new(1, "SurvivorsAnimation", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "SurvivorsAnimation", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "SurvivorsAnimation", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = "SurvivorsAnimation", Experience = CharacterStats.ExperienceFor(100) },
+            PlayerLife = 1000,
+            PlayerMana = 1000,
+            Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         try
         {
-            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(player);
             var contacts = new AnimationContacts();
-            string ao = Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+            string ao = Game.SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
             var unarmed = new WeaponProfile(false, false, false, false, false, Unarmed: true);
             Assert.True(catalog.Count >= 25, $"only {catalog.Count} run skills");
             foreach (var skill in catalog)
@@ -93,7 +95,7 @@ public sealed class SurvivorsAnimationTests
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }

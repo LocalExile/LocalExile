@@ -3,7 +3,7 @@
 /// overlaps, not a pass over all of them. The movement phase sets every living walker each frame (Set, then
 /// <see cref="EndPass"/>); an entity changes bucket only when it crosses into another cell. A walker's body (its
 /// radius) is kept with it, and queries widen by the largest body so a big monster's edge is found from its centre.
-/// Guarded by the instance's Monsters lock, which the movement phase holds.
+/// Owned by the area's frame. The ground's items (InstanceGround) have one too: they never move.
 /// </summary>
 public sealed class AreaGrid
 {

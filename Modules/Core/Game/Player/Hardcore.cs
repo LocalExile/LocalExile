@@ -8,43 +8,40 @@ public static partial class Game
 
     // Called synchronously inside the lethal damage mutation, before its first network write. The player sees the death screen and
     // stays connected; the character (only: stashes stay) moves to the parent league once they have left (CommitHardcoreDeath).
-    public static void RecordHardcoreDeath(Player conn)
+    public static void RecordHardcoreDeath(Player player)
     {
-        lock (conn.Monsters)
-        {
-            if (!conn.Hardcore || conn.PlayerLife != 0 || conn.HardcoreDeathRecorded) return;
-            string name = CharacterName(conn);
-            ItemsOf(conn).SaveUnsaved();
-            // Loading the save includes the pending XP total, so this saves it without consuming its retry buffer.
-            CharacterSaves.ClearActiveAuras(name);
-            CharacterSaves.ChangeModuleData(name, HardcoreDeathMark, _ => "1");
-            conn.HardcoreDeathRecorded = true;
-            conn.PendingTransfer = null;
-            Console.WriteLine($"[gateway] {name}: Hardcore death in {conn.League}: moves to the parent league when the player leaves");
-        }
+        if (!player.Character.Hardcore || player.PlayerLife != 0 || player.Character.HardcoreDeathRecorded) return;
+        string name = CharacterName(player);
+        ItemsOf(player).SaveUnsaved();
+        // Loading the save includes the pending XP total, so this saves it without consuming its retry buffer.
+        CharacterSaves.ClearActiveAuras(name);
+        CharacterSaves.ChangeModuleData(name, HardcoreDeathMark, _ => "1");
+        player.Character.HardcoreDeathRecorded = true;
+        player.PendingTransfer = null;
+        Console.WriteLine($"[gateway] {name}: Hardcore death in {player.Character.League}: moves to the parent league when the player leaves");
     }
 
     // The connection has ended (the death screen's Exit, or any other way out).
-    public static void CommitHardcoreDeath(Player conn)
+    public static void CommitHardcoreDeath(Player player)
     {
-        if (!conn.HardcoreDeathRecorded) return;
-        string name = CharacterName(conn);
-        var source = LeagueCatalog.Startup.ResolveSavedLeague(conn.League)
+        if (!player.Character.HardcoreDeathRecorded) return;
+        string name = CharacterName(player);
+        var source = LeagueCatalog.Startup.ResolveSavedLeague(player.Character.League)
             ?? throw new InvalidOperationException("Cannot resolve the dying character's Hardcore league");
         // A league's rules can make the death permanent (Ruthless's hardcoreDeathToVoid setting).
-        if (LeagueFor(conn).Rules.HardcoreDeathToVoid) source = source with { PermanentDeath = true };
-        var dead = HardcoreDeathPersistence.Commit(Saves.Db, name, source, () => ItemsOf(conn).SaveUnsaved(), expectedCharacterId: conn.CharacterId);
+        if (LeagueFor(player).Rules.HardcoreDeathToVoid) source = source with { PermanentDeath = true };
+        var dead = HardcoreDeathPersistence.Commit(Saves.Db, name, source, () => ItemsOf(player).SaveUnsaved(), expectedCharacterId: player.Character.Id);
         CharacterSaves.ChangeModuleData(name, HardcoreDeathMark, _ => "");
         Console.WriteLine($"[gateway] {name}: Hardcore death committed: {source.Name} → {dead.League}" +
             (dead.HardcoreDeath?.PermanentlyDead == true ? " (permanently dead)" : " (carried items retained)"));
     }
 
     // A connection of a character that died and whose move a crash interrupted: it moves now, and this connection does not go on.
-    public static void RefuseInterruptedHardcoreDeath(Player conn)
+    public static void RefuseInterruptedHardcoreDeath(Player player)
     {
-        if (!conn.Hardcore || CharacterSaves.ModuleData(CharacterName(conn), HardcoreDeathMark) is not { Length: > 0 }) return;
-        conn.HardcoreDeathRecorded = true;
-        CommitHardcoreDeath(conn);
-        throw new InvalidOperationException($"{CharacterName(conn)} died in {conn.League}: moved to the parent league");
+        if (!player.Character.Hardcore || CharacterSaves.ModuleData(CharacterName(player), HardcoreDeathMark) is not { Length: > 0 }) return;
+        player.Character.HardcoreDeathRecorded = true;
+        CommitHardcoreDeath(player);
+        throw new InvalidOperationException($"{CharacterName(player)} died in {player.Character.League}: moved to the parent league");
     }
 }

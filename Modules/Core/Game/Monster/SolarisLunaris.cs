@@ -28,15 +28,12 @@ public static class SolarisLunaris
     }
     public static async Task Tick(Player c)
     {
-        if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
+        if (c.Layout.Id != Area || !CurrentGameWork || !c.Connection.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         if (!Fights.TryGetValue(c.Instance, out var f))
         {
             KeyValuePair<uint, SpawnedMonster> sun, moon;
-            lock (c.Monsters)
-            {
-                sun = c.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Sun);
-                moon = c.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Moon);
-            }
+            sun = c.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Sun);
+            moon = c.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Moon);
             if (sun.Value is null || moon.Value is null) return;
             f = Fights.GetValue(c.Instance, _ => new(sun.Key, sun.Value, moon.Key, moon.Value, c));
         }
@@ -61,57 +58,40 @@ public static class SolarisLunaris
         async Task State(Player c, int index, byte state)
         {
             var (id, m) = Body(index);
-            lock (c.Monsters)
-            {
-                if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
-                    c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = state } };
-            }
+            if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+                c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = state } };
             int component = m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable");
-            foreach (var p in Present.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)).ToArray())
+            if ((Present.Where(p => MonsterShown(p, id) && !MonsterAsleep(p, id)).ToArray()).FirstOrDefault() is { } p)
             { await SendWorldRecord(p, id,
                 InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Sisters] {m.Variety.Name} state {state}"); }
-            bool wasHidden;
-            lock (c.Monsters) { wasHidden = m.WorldHidden; m.WorldHidden = state == 4; }
-            if (wasHidden != m.WorldHidden) foreach (var p in Present.ToArray())
-                await SyncInstanceMonsters(p);
+            await SetWorldHidden(c, id, m, state == 4);
         }
         static void Hold(Player c, SpawnedMonster m, bool held, double now)
         {
-            lock (c.Monsters)
-            {
-                m.EntranceGrace = held;
-                if (!held) { m.BusyUntil = now; return; }
-                m.ActionGeneration++; m.SwingGeneration = null; m.StunSerial++; m.FlinchUntil = 0;
-                m.Leg = null;
-                var at = m.Walk.Position(now); m.Walk.Teleport(at.X, at.Y, now);
-            }
+            m.EntranceGrace = held;
+            if (!held) { m.BusyUntil = now; return; }
+            m.ActionGeneration++; m.SwingGeneration = null; m.StunSerial++; m.FlinchUntil = 0;
+            m.Leg = null;
+            var at = m.Walk.Position(now); m.Walk.Teleport(at.X, at.Y, now);
         }
         async Task RemoveOrbs(Player c)
         {
             if (celestial is not null) { await celestial.Clear(); celestial.Stop(); celestial = null; }
             uint[] ids;
-            lock (c.Monsters)
-            {
-                ids = [.. c.Monsters.Where(p => IsCelestial(p.Value.Variety)).Select(p => p.Key)];
-                foreach (uint id in ids) { c.Monsters.Remove(id); c.Instance.World.MonsterOrigins.TryRemove(id, out _); }
-            }
-            foreach (var p in Present.ToArray())
-                foreach (uint id in ids)
-                {
-                    bool shown;
-                    lock (p.Monsters) { shown = p.MonsterViews.Remove(id); p.AsleepMonsters.Remove(id); }
-                    if (shown) { await SendWorldRemoval(p, id, "[Sisters] celestial form leaves"); }
-                }
+            ids = [.. c.Area.Monsters.Where(p => IsCelestial(p.Value.Variety)).Select(p => p.Key)];
+            foreach (uint id in ids) { c.Area.Monsters.Remove(id); c.Instance.World.MonsterOrigins.TryRemove(id, out _); }
+            // Once, for every client (the area's record).
+            foreach (uint id in ids) await SendWorldRemoval(c, id, "[Sisters] celestial form leaves");
         }
         async Task Orb(Player c, int index, double now)
         {
             var (_, body) = Body(index); string type = body.Variety!.Id + "CelestialForm";
-            lock (c.Monsters) if (c.Monsters.Values.Any(m => m.Variety?.Id == type && Alive(m))) return;
+            if (c.Area.Monsters.Values.Any(m => m.Variety?.Id == type && Alive(m))) return;
             var at = body.Walk.Position(now);
             uint id = await SpawnMonster(c, Monsters.Find(type)!, body.Level,
                 MonsterRarity.Normal, at.X, at.Y, scripted: true, owned: (_, m) =>
                 { m.NoRewards = true; m.EntranceGrace = true; m.Aggro = true; }, ownedCurrent: () => !stopped);
-            if (id != 0 && c.Monsters.TryGetValue(id, out var actor))
+            if (id != 0 && c.Area.Monsters.TryGetValue(id, out var actor))
             {
                 celestial = new(id, actor, c, () => !stopped && Alive(sun) && Alive(moon));
                 foreach (var p in Present.ToArray()) await celestial.Bind(p);
@@ -132,7 +112,7 @@ public static class SolarisLunaris
             if (stopped || !CurrentGameWork || c.Paused) return;
             if (celestial is not null) await celestial.Step(c, now);
             if (!Alive(sun) && !Alive(moon)) { await RemoveOrbs(c); return; }
-            if (!Present.Any(p => p.PlayerLife > 0 && (p.MonsterViews.ContainsKey(sunId) || p.MonsterViews.ContainsKey(moonId)))) return;
+            if (!Present.Any(p => p.PlayerLife > 0 && (MonsterShown(p, sunId) || MonsterShown(p, moonId)))) return;
             if (!initialized)
             {
                 initialized = true; Hold(c, sun, true, now); Hold(c, moon, true, now);
@@ -156,12 +136,12 @@ public static class SolarisLunaris
             }
             if (!Alive(Body(1 - active).Monster) || now < nextSwap) return;
             // Stop admitting new AI orders while the current action finishes, or continuous attacks can starve the handoff.
-            lock (c.Monsters) Body(active).Monster.EntranceGrace = true;
+            Body(active).Monster.EntranceGrace = true;
             if (now < Body(active).Monster.BusyUntil) return;
             var (id, body) = Body(active);
             Hold(c, body, true, now); await State(c, active, 3);
             var at = body.Walk.Position(now);
-            foreach (var p in Present.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)).ToArray())
+            if ((Present.Where(p => MonsterShown(p, id) && !MonsterAsleep(p, id)).ToArray()).FirstOrDefault() is { } p)
             { await SendWorldRecord(p, id,
                 InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, TransformSkill,
                     p.NextActionSequence(), 0x0800, id), "[Sisters] corporeal form submerges"); }

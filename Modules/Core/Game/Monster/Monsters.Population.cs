@@ -14,17 +14,17 @@ public static partial class Game
 
     /// <summary>Plans the area's packs while the client generates the area (from S→C 0x1d to C→S 0x7d, about as long as
     /// the plan takes), so its 0x7d only creates them. Nothing when the area would get no plan there either.</summary>
-    public static void PlanPopulationAhead(Player conn)
+    public static void PlanPopulationAhead(Player player)
     {
-        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0" || conn.Instance.Monsters is not null
-            || CaptureTour.Active(CharacterName(conn)) || Monsters.Error is not null) return;
-        var layout = ArrivalLayout(conn).Layout;
+        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0" || player.Instance.Monsters is not null
+            || CaptureTour.Active(CharacterName(player)) || Monsters.Error is not null) return;
+        var layout = ArrivalLayout(player).Layout;
         if (layout.Walkable is null || layout.Id == Sirus.Area
             || Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
         if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
-        PopulationsAhead.AddOrUpdate(conn, Task.Run(() =>
+        PopulationsAhead.AddOrUpdate(player, Task.Run(() =>
         {
-            try { return PlanPopulation(conn, layout, area); }
+            try { return PlanPopulation(player, layout, area); }
             catch (Exception ex)
             {
                 Console.WriteLine($"[gateway] area {layout.Id} monsters: the plan ahead failed, planned on arrival instead: {ex}");
@@ -35,25 +35,25 @@ public static partial class Game
 
     // The plan made ahead, when it was made for what the area is now: the arrival that 0x7d settled on and the quest
     // flags (a quest the entry advanced can bring or hold a boss).
-    static async Task<PopulationPlan?> PlannedPopulation(Player conn, AreaLayout layout)
+    static async Task<PopulationPlan?> PlannedPopulation(Player player, AreaLayout layout)
     {
-        if (!PopulationsAhead.TryGetValue(conn, out var ahead)) return null;
-        PopulationsAhead.Remove(conn);
+        if (!PopulationsAhead.TryGetValue(player, out var ahead)) return null;
+        PopulationsAhead.Remove(player);
         if (await ahead is not { } plan) return null;
-        if (plan.Layout == layout && plan.QuestFlags.SetEquals(conn.QuestFlagsSnapshot())) return plan;
-        Console.WriteLine($"[gateway] {conn.Remote} area {layout.Id} monsters: planned again on arrival ({(plan.Layout == layout ? "quest flags" : "arrival")} changed)");
+        if (plan.Layout == layout && plan.QuestFlags.SetEquals(player.Character.QuestFlagsSnapshot())) return plan;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} area {layout.Id} monsters: planned again on arrival ({(plan.Layout == layout ? "quest flags" : "arrival")} changed)");
         return null;
     }
 
     // Pure: reads the layout, the catalogs and the connection's quest flags, map and seed, and changes nothing, so it may
     // run on another thread while the client generates the area.
-    static PopulationPlan PlanPopulation(Player conn, AreaLayout layout, PackCatalog.AreaPacks area)
+    static PopulationPlan PlanPopulation(Player player, AreaLayout layout, PackCatalog.AreaPacks area)
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var questFlags = conn.QuestFlagsSnapshot();
+        var questFlags = player.Character.QuestFlagsSnapshot();
         var walkable = layout.Walkable!;
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
-        var quests = QuestsOf(conn);
+        var quests = QuestsOf(player);
         bool useWetlandsFallback = false;
         // A boss a quest brings (an NPC that turns into it, a second form, an object's use: Quests.QuestSpawned) is not
         // placed with the area.
@@ -63,18 +63,18 @@ public static partial class Game
         // Device-recipe phases hold the last WorldAreas boss (Maven's Nucleus, Sirus, Atziri) until the first wave is dead.
         area = MapBossFights.Current.HoldFinal(area, row => Monsters.Find(row.ToString())?.Id);
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
-        area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(conn)), row => Monsters.Find(row.ToString())?.Id);
+        area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(player)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
         var placedRooms = new List<AreaPopulation.PlacedRoom>();
-        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data", placedRooms: placedRooms);
+        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, player.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
         // A shrine the level generator placed is guarded (ShrineGuards): its own pack rows when the Shrines row names
         // them, else one of the area's packs at that pack's own count. A shrine too close to an entrance or waypoint is not
         // guarded (the 1.0.0d note). The guards are planned with the area's monsters, so an instance keeps them and a
         // re-entry or an activation never spawns them again.
-        var shrineGuards = ServerLevels.For(layout.Id, conn.Seed) is { } shrineLevel
-            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, conn.Seed)
+        var shrineGuards = ServerLevels.For(layout.Id, player.Seed) is { } shrineLevel
+            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed)
                 .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
                     [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], AreaPopulation.TransitionClearance))
                 .Select(p =>
@@ -94,7 +94,7 @@ public static partial class Game
             .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase))).SelectMany(r => r.Points);
         var trapClear = new HashSet<(int X, int Y)>();
         // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
-        var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, conn.Seed) is { } labyrinthLevel
+        var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, player.Seed) is { } labyrinthLevel
             ? labyrinthLevel.RoomObjects.Concat(labyrinthLevel.TileLabyrinthObjects).Select(o => (o.Type, o.X, o.Y))
             : [];
         foreach (var trap in trialRooms.SelectMany(r => r.Objects).Select(o => (o.Type, o.X, o.Y)).Concat(labyrinthTraps)
@@ -112,11 +112,11 @@ public static partial class Game
             else
                 useWetlandsFallback = true;
         }
-        var mapMods = MapModsOf(conn);
+        var mapMods = MapModsOf(player);
         var scale = mapMods?.Packs ?? default;
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
-            AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
+            AreaPopulation.PopulationSeed(layout.Hash, player.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
@@ -125,11 +125,11 @@ public static partial class Game
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
-        if (mapMods?.Get(Stat.MapShrinesHaveStandaloneMapBoss) > 0 && ServerLevels.For(layout.Id, conn.Seed) is { } shrineRooms)
-            spawns.AddRange(MapScarabBosses.Guards(conn,
-                [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, conn.Seed).Select(p => (p.X, p.Y))], spawns, layout));
+        if (mapMods?.Get(Stat.MapShrinesHaveStandaloneMapBoss) > 0 && ServerLevels.For(layout.Id, player.Seed) is { } shrineRooms)
+            spawns.AddRange(MapScarabBosses.Guards(player,
+                [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, player.Seed).Select(p => (p.X, p.Y))], spawns, layout));
         spawns.AddRange(nests);
-        foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
+        foreach (var chest in QuestsOf(player).Chests(layout.Id).Where(r => r.Guards is not null))
             foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))
                 foreach (var point in room.Points.Where(p => chest.Guards!.Contains(p.Name)))
                     if (Monsters.Find(point.Name) is { } guard && guard.Id == point.Name && Spawnable(guard.Row))

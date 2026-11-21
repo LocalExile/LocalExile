@@ -56,6 +56,8 @@ public static partial class Game
     public sealed class PlayerStepOutputs
     {
         public double BaselineLifePerSecond;
+        /// <summary>The raw stats of the passives and items (CharacterStatSources) as the Sources step last summed them.</summary>
+        public IReadOnlyDictionary<uint, int>? Sources;
     }
 
     static readonly Action<Player, StatMap, PlayerStepOutputs>[] PlayerSteps = BuildPlayerSteps();
@@ -68,202 +70,196 @@ public static partial class Game
         static void AddTo(StatMap stats, uint key, long value) => stats[key] = ActorScale.Saturate(stats.GetValueOrDefault(key) + value);
 
         // The character's own stats (BaseStats): every stat of the allocated passives and the active items, summed.
-        Step(PlayerStatStep.Sources, (conn, stats, _) =>
+        Step(PlayerStatStep.Sources, (player, stats, outputs) =>
         {
             List<ushort> nodes;
-            lock (conn.Monsters) nodes = [.. conn.Passives];
-            foreach (var (k, v) in CharacterStatSources(conn, nodes).Stats) stats[k] = v;
+            nodes = [.. player.Character.Passives];
+            var sources = CharacterStatSources(player, nodes).Stats;
+            outputs.Sources = sources;
+            foreach (var (k, v) in sources) stats[k] = v;
             // Their "recently" conditions change by themselves when an event ages out of its window.
-            double now = AreaTime(conn);
-            if (conn.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
-            if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
-            lock (conn.Monsters)
-                if (conn.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
-            MarkLaterStep(conn, PlayerStatStep.Onslaught);
+            double now = AreaTime(player);
+            if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
+            if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
+            if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
+            MarkLaterStep(player, PlayerStatStep.Onslaught);
         });
-        Step(PlayerStatStep.Siphoning, (conn, stats, _) =>
+        Step(PlayerStatStep.Siphoning, (player, stats, _) =>
         {
             IReadOnlyList<(uint Key, int Value)> siphoning;
-            lock (conn.Monsters) siphoning = SiphoningRawStatsLocked(conn, stats);
+            siphoning = SiphoningRawStatsLocked(player, stats);
             foreach (var (key, value) in siphoning) AddTo(stats, key, value);
         });
-        Step(PlayerStatStep.CryMovement, (conn, stats, _) =>
+        Step(PlayerStatStep.CryMovement, (player, stats, _) =>
         {
-            if (Stat.BaseMovementVelocityPlusPct is var cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(conn));
+            if (Stat.BaseMovementVelocityPlusPct is var cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(player));
         });
-        Step(PlayerStatStep.Golems, (conn, stats, _) => AddGolemStats(conn, stats));
-        Step(PlayerStatStep.Offerings, (conn, stats, _) => AddSelfOfferingStats(conn, stats));
+        Step(PlayerStatStep.Golems, (player, stats, _) => AddGolemStats(player, stats));
+        Step(PlayerStatStep.Offerings, (player, stats, _) => AddSelfOfferingStats(player, stats));
         Step(PlayerStatStep.PanelDefaults, (_, stats, _) =>
         {
             foreach (var (stat, value) in PanelStatDefaults.Compute(name => GetIn(stats, name)))
                 if (stat is var key) stats[key] = value;
         });
-        Step(PlayerStatStep.God, (conn, stats, _) =>
+        Step(PlayerStatStep.God, (player, stats, _) =>
         {
-            if (!conn.God) return;
+            if (!player.God) return;
             foreach (var (stat, value) in GodStats)
                 if (stat is var key) stats[key] = stats.GetValueOrDefault(key) + value;
             // the final value the client shows: 100% of maximum life per second, per minute
             if (Stats.Key("life_regeneration_rate_per_minute") is uint lr)
-                stats[lr] = (int)Math.Min(int.MaxValue, (long)conn.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
+                stats[lr] = (int)Math.Min(int.MaxValue, (long)player.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
         });
-        Step(PlayerStatStep.Auras, (conn, stats, _) =>
+        Step(PlayerStatStep.Auras, (player, stats, _) =>
         {
             List<AuraCatalog.Aura> auras;
-            lock (conn.Monsters) auras = AffectingAuras(conn);
+            auras = AffectingAuras(player);
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
-            foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats,
-                         heraldEffectPct).Concat(MinionAuraStats(conn, auras)).ToList())
+            foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
+                         heraldEffectPct).Concat(MinionAuraStats(player, auras)).ToList())
                 AddTo(stats, k, v);
         });
-        Step(PlayerStatStep.AuraPenetration, (conn, stats, _) =>
+        Step(PlayerStatStep.AuraPenetration, (player, stats, _) =>
         {
             List<AuraCatalog.Aura> auras;
-            lock (conn.Monsters) auras = AffectingAuras(conn);
+            auras = AffectingAuras(player);
             foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, stats, Stats).ToList()) AddTo(stats, k, v);
         });
-        Step(PlayerStatStep.CatAspect, (conn, stats, _) =>
+        Step(PlayerStatStep.CatAspect, (player, stats, _) =>
         {
             IReadOnlyList<(uint Key, int Value)> catPhase;
-            lock (conn.Monsters)
-                catPhase = CatAspectRawStatsLocked(conn, conn.Pools.AuraEffectPct,
-                    name => name is var key
-                        ? stats.GetValueOrDefault(key)
-                        : 0);
+            catPhase = CatAspectRawStatsLocked(player, player.Pools.AuraEffectPct,
+                name => name is var key
+                    ? stats.GetValueOrDefault(key)
+                    : 0);
             foreach (var (k, v) in catPhase) AddTo(stats, k, v);
-            MarkLaterStep(conn, PlayerStatStep.Onslaught);
+            MarkLaterStep(player, PlayerStatStep.Onslaught);
         });
-        Step(PlayerStatStep.AvianCrab, (conn, stats, _) =>
+        Step(PlayerStatStep.AvianCrab, (player, stats, _) =>
         {
-            foreach (var (k, v) in AvianRawStatsLocked(conn, stats).Concat(CrabRawStatsLocked(conn, stats)).ToList()) AddTo(stats, k, v);
+            foreach (var (k, v) in AvianRawStatsLocked(player, stats).Concat(CrabRawStatsLocked(player, stats)).ToList()) AddTo(stats, k, v);
         });
         // The subscribers' stats (GameEvents.Stats), added like /god's: the pools (life, mana) are not rebuilt from them.
-        Step(PlayerStatStep.Subscribers, (conn, stats, _) =>
+        Step(PlayerStatStep.Subscribers, (player, stats, _) =>
         {
             if (!GameEvents.Stats.Any) return;
-            foreach (var (stat, value) in GameEvents.RunStats(conn))
+            foreach (var (stat, value) in GameEvents.RunStats(player))
                 if (stat is var key) AddTo(stats, key, value);
         });
         // The class's attributes and the pools replace what the sources gave for those ids (the first of a repeated id).
-        Step(PlayerStatStep.ClassAttributes, (conn, stats, _) =>
+        Step(PlayerStatStep.ClassAttributes, (player, stats, _) =>
         {
             var seen = new HashSet<uint>();
-            foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with
+            foreach (var (k, v) in ClassAttributes(player.Character.ClassRow, player.Pools with
             {
-                Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn),
-                FireResistance = Resistance(conn, DamageType.Fire), ColdResistance = Resistance(conn, DamageType.Cold),
-                LightningResistance = Resistance(conn, DamageType.Lightning), ChaosResistance = Resistance(conn, DamageType.Chaos),
+                Accuracy = PlayerAccuracy(player), Evasion = PlayerEvasion(player),
+                FireResistance = Resistance(player, DamageType.Fire), ColdResistance = Resistance(player, DamageType.Cold),
+                LightningResistance = Resistance(player, DamageType.Lightning), ChaosResistance = Resistance(player, DamageType.Chaos),
             })) if (seen.Add(k)) stats[k] = v;
         });
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell consumers read
         // the raw increased stats here (SpellCriticalStrike), while the attack and panel chances already fold the same value
         // into the pools. Additive with whatever won above, as a derived stat source.
-        Step(PlayerStatStep.OvercapCrit, (conn, stats, _) =>
+        Step(PlayerStatStep.OvercapCrit, (player, stats, _) =>
         {
-            if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
+            if (player.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
-        Step(PlayerStatStep.AttackSpeed, (conn, stats, _) =>
-            stats[Stat.MainHandAttackSpeedPlusPct] = conn.Pools.AttackSpeedPct
-                + SoulEaterAttackSpeed(conn, stats) + LeechingAttackSpeed(conn, stats));
+        Step(PlayerStatStep.AttackSpeed, (player, stats, _) =>
+            stats[Stat.MainHandAttackSpeedPlusPct] = player.Pools.AttackSpeedPct
+                + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats));
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
-        Step(PlayerStatStep.UtilityFlasks, (conn, stats, _) =>
+        Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
         {
             int FlaskGet(uint name) => GetIn(stats, name);
-            AddItemUtilityFlaskRawStats(stats, UtilityStats(conn, FlaskGet)
-                .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
+            AddItemUtilityFlaskRawStats(stats, UtilityStats(player, FlaskGet)
+                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
         });
-        Step(PlayerStatStep.SelfVulnerability, (conn, stats, _) => AddSelfVulnerabilityStats(conn, stats));
-        Step(PlayerStatStep.Onslaught, (conn, stats, _) =>
+        Step(PlayerStatStep.SelfVulnerability, (player, stats, _) => AddSelfVulnerabilityStats(player, stats));
+        Step(PlayerStatStep.Onslaught, (player, stats, _) =>
         {
-            if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(conn) ? 1 : 0;
+            if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;
         });
-        Step(PlayerStatStep.VaalPrevention, (conn, stats, _) => WithVaalPrevention(conn, stats));
-        Step(PlayerStatStep.VaalAura, (conn, stats, _) => WithVaalAura(conn, stats));
-        Step(PlayerStatStep.SpiritLeadership, (conn, stats, _) => AddSpiritLeadershipStats(conn, stats));
-        Step(PlayerStatStep.TotemAura, (conn, stats, _) => AddTotemAuraStats(conn, stats));
-        Step(PlayerStatStep.Rage, (conn, stats, _) => WithRage(conn, stats));
-        Step(PlayerStatStep.Blind, (conn, stats, _) => WithBlind(conn, stats));
-        Step(PlayerStatStep.UsingFlask, (conn, stats, _) => WithUsingFlask(conn, stats));
-        Step(PlayerStatStep.SoulEater, (conn, stats, _) => WithSoulEater(conn, stats));
-        Step(PlayerStatStep.MaximumPoolItems, (conn, stats, _) =>
-            MaximumPoolItemSources.Apply(stats, Stats, conn.Pools.Life, conn.Pools.Mana));
-        Step(PlayerStatStep.ActorScale, (conn, stats, _) => ActorScale.Project(stats, CosmeticScaleSources(conn)));
+        Step(PlayerStatStep.VaalPrevention, (player, stats, _) => WithVaalPrevention(player, stats));
+        Step(PlayerStatStep.VaalAura, (player, stats, _) => WithVaalAura(player, stats));
+        Step(PlayerStatStep.SpiritLeadership, (player, stats, _) => AddSpiritLeadershipStats(player, stats));
+        Step(PlayerStatStep.TotemAura, (player, stats, _) => AddTotemAuraStats(player, stats));
+        Step(PlayerStatStep.Rage, (player, stats, _) => WithRage(player, stats));
+        Step(PlayerStatStep.Blind, (player, stats, _) => WithBlind(player, stats));
+        Step(PlayerStatStep.UsingFlask, (player, stats, _) => WithUsingFlask(player, stats));
+        Step(PlayerStatStep.SoulEater, (player, stats, _) => WithSoulEater(player, stats));
+        Step(PlayerStatStep.MaximumPoolItems, (player, stats, _) =>
+            MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana));
+        Step(PlayerStatStep.ActorScale, (player, stats, _) => ActorScale.Project(stats, CosmeticScaleSources(player)));
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below; the
         // unmodified recovery baseline.
-        Step(PlayerStatStep.Recovery, (conn, stats, outputs) =>
+        Step(PlayerStatStep.Recovery, (player, stats, outputs) =>
         {
             int Get(uint name) => GetIn(stats, name);
-            double statsAt = AreaTime(conn);
-            bool moving = conn.Walk.Moving(statsAt);
+            double statsAt = AreaTime(player);
+            bool moving = player.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
             if (Stat.EvasionRating is var evasionKey)
-                stats[evasionKey] = PlayerEvasion(conn, statsAt);
-            WithLeechConditions(conn, stats);
+                stats[evasionKey] = PlayerEvasion(player, statsAt);
+            WithLeechConditions(player, stats);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
-            outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, conn.Pools.Life) / 60;
+            outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) / 60;
         });
-        Step(PlayerStatStep.TimedRecovery, (conn, stats, _) =>
+        Step(PlayerStatStep.TimedRecovery, (player, stats, _) =>
         {
-            lock (conn.Monsters)
-            {
-                double now = AreaTime(conn);
-                if (conn.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
-                if (conn.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(conn.EnduringCryRecovery.Until - now);
-                // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
-                if (Stat.BaseLifeRegenerationRatePerMinute is var turtle)
-                    stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
-                        + (conn.Antiquarian.RecoveryPerSecond(now) + conn.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
-                var session = FortificationOf(conn);
-                var value = session.Read(now);
-                if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
-                AddFortificationCounts(stats, value);
-                if (FortificationSession.Regeneration is var regen)
-                    stats[regen] = (int)Math.Clamp((long)stats.GetValueOrDefault(regen)
-                        + value.LifeRegenerationPerMinutePercent(session.RegenPerStack), int.MinValue, int.MaxValue);
-            }
+            double now = AreaTime(player);
+            if (player.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
+            if (player.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(player.EnduringCryRecovery.Until - now);
+            // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
+            if (Stat.BaseLifeRegenerationRatePerMinute is var turtle)
+                stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
+                    + (player.Antiquarian.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
+            var session = FortificationOf(player);
+            var value = session.Read(now);
+            if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
+            AddFortificationCounts(stats, value);
+            if (FortificationSession.Regeneration is var regen)
+                stats[regen] = (int)Math.Clamp((long)stats.GetValueOrDefault(regen)
+                    + value.LifeRegenerationPerMinutePercent(session.RegenPerStack), int.MinValue, int.MaxValue);
         });
-        Step(PlayerStatStep.TailPanels, (conn, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(conn, stats), StatSnapshotStage.Panels));
-        Step(PlayerStatStep.Rampage, (conn, stats, _) => WithRampage(conn, stats));
-        Step(PlayerStatStep.TailOffence, (conn, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(conn, stats), StatSnapshotStage.Offence));
-        Step(PlayerStatStep.TailCritical, (conn, stats, _) =>
+        Step(PlayerStatStep.TailPanels, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Panels));
+        Step(PlayerStatStep.Rampage, (player, stats, _) => WithRampage(player, stats));
+        Step(PlayerStatStep.TailOffence, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence));
+        Step(PlayerStatStep.TailCritical, (player, stats, _) =>
         {
             int Get(uint name) => GetIn(stats, name);
-            double now = AreaTime(conn);
-            var ailments = conn.ElementalAilments.Snapshot(now);
-            if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
-            if (now - conn.LastEnemyHitAt <= RecentlySeconds) StatsChangeIn(conn.LastEnemyHitAt + RecentlySeconds - now + 1e-6);
-            ComputeStatSnapshotTail(PlayerTailInputs(conn, stats) with
+            double now = AreaTime(player);
+            var ailments = player.ElementalAilments.Snapshot(now);
+            if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
+            if (now - player.LastEnemyHitAt <= RecentlySeconds) StatsChangeIn(player.LastEnemyHitAt + RecentlySeconds - now + 1e-6);
+            ComputeStatSnapshotTail(PlayerTailInputs(player, stats) with
             {
                 Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
-                ActionFactor = PlayerActionFactorFrom(conn, Get),
-                SuppressionChance = Suppression(conn).Chance,
+                ActionFactor = PlayerActionFactorFrom(player, Get),
+                SuppressionChance = Suppression(player).Chance,
             }, StatSnapshotStage.Critical);
         });
-        Step(PlayerStatStep.LeechingDefences, (conn, stats, _) => WithLeechingDefences(stats));
-        Step(PlayerStatStep.AuraRestriction, (conn, stats, _) => stats[OwnAuraRestriction.Disabled] = OwnAuraRestrictionValue(conn));
+        Step(PlayerStatStep.LeechingDefences, (player, stats, _) => WithLeechingDefences(stats));
+        Step(PlayerStatStep.AuraRestriction, (player, stats, _) => stats[OwnAuraRestriction.Disabled] = OwnAuraRestrictionValue(player));
         Step(PlayerStatStep.AlwaysHit, (_, stats, _) =>
         {
             if (GetIn(stats, Stat.GlobalAlwaysHit) == 0) return;
             foreach (uint name in AlwaysHitRows)
                 if (name is var hit) stats[hit] = 100;
         });
-        Step(PlayerStatStep.RecentHits, (conn, stats, _) => { lock (conn.Monsters) AddRecentEnemyHitStatsLocked(conn, stats); });
-        Step(PlayerStatStep.Ward, (conn, stats, _) =>
+        Step(PlayerStatStep.RecentHits, (player, stats, _) => { AddRecentEnemyHitStatsLocked(player, stats); });
+        Step(PlayerStatStep.Ward, (player, stats, _) =>
         {
-            lock (conn.Monsters)
-            {
-                double now = AreaTime(conn);
-                bool brokenNow = conn.Ward.Broken && now < conn.Ward.RestoresAt;
-                if (brokenNow) StatsChangeIn(conn.Ward.RestoresAt - now);
-                if (Stat.Ward is var ward) stats[ward] = (int)conn.Ward.Maximum;
-                if (Stat.WardBroken is var broken) stats[broken] = brokenNow ? 1 : 0;
-            }
+            double now = AreaTime(player);
+            bool brokenNow = player.Ward.Broken && now < player.Ward.RestoresAt;
+            if (brokenNow) StatsChangeIn(player.Ward.RestoresAt - now);
+            if (Stat.Ward is var ward) stats[ward] = (int)player.Ward.Maximum;
+            if (Stat.WardBroken is var broken) stats[broken] = brokenNow ? 1 : 0;
         });
         for (int i = 0; i < steps.Length; i++)
             if (steps[i] is null) throw new InvalidOperationException($"player stat step {(PlayerStatStep)i} has no code");
@@ -274,28 +270,28 @@ public static partial class Game
         Stat.MainHandChanceToHitEvasiveMonstersPct, Stat.OffHandChanceToHitEvasiveMonstersPct];
 
     // The tail's inputs as a step reads them: the stats before it and the state it reads.
-    static StatSnapshotTailInputs PlayerTailInputs(Player conn, StatMap stats)
+    static StatSnapshotTailInputs PlayerTailInputs(Player player, StatMap stats)
     {
-        var (mainLocal, offLocal) = HandLocalStats(conn);
+        var (mainLocal, offLocal) = HandLocalStats(player);
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
-            name => name is var key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
-        return ReadStatSnapshotTailInputs(conn, stats, mainLocal, offLocal,
-            lifeRegenerationToEnergyShield, conn.Walk.Moving(AreaTime(conn)));
+            name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
+        return ReadStatSnapshotTailInputs(player, stats, mainLocal, offLocal,
+            lifeRegenerationToEnergyShield, player.Walk.Moving(AreaTime(player)));
     }
 
     /// <summary>Runs one step (a player stat graph rule).</summary>
-    internal static void RunPlayerStep(PlayerStatStep step, Player conn, StatMap stats, PlayerStepOutputs outputs) =>
-        PlayerSteps[(int)step](conn, stats, outputs);
+    internal static void RunPlayerStep(PlayerStatStep step, Player player, StatMap stats, PlayerStepOutputs outputs) =>
+        PlayerSteps[(int)step](player, stats, outputs);
 
     public sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw, int PlayerLevel,
         IReadOnlyDictionary<uint, int> MainHand, IReadOnlyDictionary<uint, int> OffHand, bool MainArmed, bool OffArmed);
 
-    public static Dictionary<uint, int> CharacterPlayerStatsCore(Player conn, out double baselineLifePerSecond) =>
-        CachedPlayerStats(conn, out baselineLifePerSecond);
+    public static Dictionary<uint, int> CharacterPlayerStatsCore(Player player, out double baselineLifePerSecond) =>
+        CachedPlayerStats(player, out baselineLifePerSecond);
 
     /// <summary>Every step in order on a plain map: a fresh build (outside an area's frames, or a scope that asks for one).
     /// With <paramref name="capturePanelSources"/>, the stats before the tail too, for the skill publication.</summary>
-    public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(Player conn, out double baselineLifePerSecond,
+    public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(Player player, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
         var stats = new PlainStatMap();
@@ -304,15 +300,18 @@ public static partial class Game
         for (int i = 0; i < PlayerSteps.Length; i++)
         {
             if (capturePanelSources && (PlayerStatStep)i == PlayerStatStep.TailPanels)
-            {
-                var (mainLocal, offLocal) = HandLocalStats(conn);
-                panelSources = new(stats.Stats.ToFrozenDictionary(), conn.Pools.Level,
-                    mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary(),
-                    WeaponIn(conn, ActiveMainHand(conn)) is not null, OffhandWeaponFor(conn) is not null);
-            }
-            PlayerSteps[i](conn, stats, outputs);
+                panelSources = PanelSources(player, stats.Stats.ToFrozenDictionary());
+            PlayerSteps[i](player, stats, outputs);
         }
         baselineLifePerSecond = outputs.BaselineLifePerSecond;
         return stats.Stats;
+    }
+
+    // The panel's sources: the stats before the tail, and the hands'.
+    static PanelSourceSnapshot PanelSources(Player player, IReadOnlyDictionary<uint, int> raw)
+    {
+        var (mainLocal, offLocal) = HandLocalStats(player);
+        return new(raw, player.Pools.Level, mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary(),
+            WeaponIn(player, ActiveMainHand(player)) is not null, OffhandWeaponFor(player) is not null);
     }
 }

@@ -32,12 +32,12 @@ public sealed class AnarchyModule : IModule
 
     static async Task Place(IModuleContext module, AreaPopulated area)
     {
-        var conn = area.Conn;
-        var layout = conn.Layout;
+        var player = area.Player;
+        var layout = player.Layout;
         if (layout.Walkable is not { } walkable) return;
-        var stats = AreaLeagueStats(conn);
+        var stats = AreaLeagueStats(player);
         int S(uint name) => stats.GetValueOrDefault(name);
-        var placed = PlacedExiles.GetValue(conn, _ => new());
+        var placed = PlacedExiles.GetValue(player, _ => new());
         lock (placed) { placed.Exiles.Clear(); placed.Area = layout; }
         if (S(Stat.MapNoExiles) > 0) return;
         // The encounter's own draws, apart from the packs' (the same instance gets the same exiles).
@@ -80,40 +80,39 @@ public sealed class AnarchyModule : IModule
             for (int n = 0; n < (paired ? 2 : 1); n++)
             {
                 var spot = n == 0 ? at : (at.X + 5, at.Y);
-                if (await SpawnExile(module, conn, area.Level, spot, stats, rng, used, isExceptional && n == 0, placed, "wild",
+                if (await SpawnExile(module, player, area.Level, spot, stats, rng, used, isExceptional && n == 0, placed, "wild",
                     giant: isGiant && n == 0) is null) return;
             }
         }
-        await GuardBosses(module, conn, area.Level, stats, rng, used, placed);
+        await GuardBosses(module, player, area.Level, stats, rng, used, placed);
     }
 
     /// <summary>Royal Guard and the two-exile map boss: exiles next to each map boss.</summary>
-    static async Task GuardBosses(IModuleContext module, Player conn, byte level, Dictionary<uint, int> stats, Random rng,
+    static async Task GuardBosses(IModuleContext module, Player player, byte level, Dictionary<uint, int> stats, Random rng,
         List<string> used, Placed placed)
     {
         int guards = stats.GetValueOrDefault(Stat.MapBossHasRogueExileBodyguardsChancePct);
         int two = stats.GetValueOrDefault(Stat.MapBossHasTwoRoguesExilesChancePct);
         if (guards <= 0 && two <= 0) return;
         List<(int X, int Y)> bosses = [];
-        double now = AreaTime(conn);
-        lock (conn.Monsters)
-            foreach (var m in conn.Monsters.Values)
-                if (m.Hostile && !m.Dead && m.Rarity == MonsterRarity.Unique && m.Variety is { BossHealthBar: true }
-                    && !RogueExiles.Current.IsExile(m.Variety.Id))
-                    bosses.Add(m.Walk.Position(now));
+        double now = AreaTime(player);
+        foreach (var m in player.Area.Monsters.Values)
+            if (m.Hostile && !m.Dead && m.Rarity == MonsterRarity.Unique && m.Variety is { BossHealthBar: true }
+                && !RogueExiles.Current.IsExile(m.Variety.Id))
+                bosses.Add(m.Walk.Position(now));
         foreach (var boss in bosses)
         {
             bool guarded = rng.Next(100) < guards, accompanied = rng.Next(100) < two;
             if (!guarded && !accompanied) continue;
             foreach (var offset in new[] { (-6, 3), (6, 3) })
-                if (await SpawnExile(module, conn, level, (boss.X + offset.Item1, boss.Y + offset.Item2), stats, rng, used, false, placed,
+                if (await SpawnExile(module, player, level, (boss.X + offset.Item1, boss.Y + offset.Item2), stats, rng, used, false, placed,
                     guarded ? "map boss bodyguard" : "with the map boss", bodyguard: guarded) is null) return;
         }
     }
 
     /// <summary>One exile: which (Faridun's, a gigantified one), its stats from the map, and its spawn. Null when none can
     /// spawn here (the caller places no more).</summary>
-    static async Task<uint?> SpawnExile(IModuleContext module, Player conn, byte level, (int X, int Y) at,
+    static async Task<uint?> SpawnExile(IModuleContext module, Player player, byte level, (int X, int Y) at,
         Dictionary<uint, int> stats, Random rng, List<string> used, bool exceptional, Placed placed, string kind, bool bodyguard = false,
         bool giant = false)
     {
@@ -124,7 +123,7 @@ public sealed class AnarchyModule : IModule
         exile ??= giant ? RogueExiles.Current.PickWithGiant(level, rng, anyLevel, used) : RogueExiles.Current.Pick(level, rng, anyLevel, used);
         if (exile is null)
         {
-            module.Log($"{conn.Layout.Id}: no Rogue Exile can spawn at level {level}");
+            module.Log($"{player.Layout.Id}: no Rogue Exile can spawn at level {level}");
             return null;
         }
         used.Add(exile.Id);
@@ -154,10 +153,10 @@ public sealed class AnarchyModule : IModule
         Extra(Stat.IsRogueExile, 1);
         if (exceptional) Extra(Stat.RogueExileIsExceptional, 1);
         var mods = new MonsterModSet([], [], new MonsterModEffects(effects));
-        uint id = await SpawnMonster(conn, exile, level, MonsterRarity.Unique, at.X, at.Y,
+        uint id = await SpawnMonster(player, exile, level, MonsterRarity.Unique, at.X, at.Y,
             log: true, alone: true, extraMods: mods, extraStats: extraStats);
         if (id != 0) lock (placed) placed.Exiles.Add(new(id, exile.Id, exceptional, special));
-        module.Log($"{conn.Layout.Id}: Rogue Exile {exile.Name} ({exile.Id}, {kind}{(giant ? ", gigantified" : "")}" +
+        module.Log($"{player.Layout.Id}: Rogue Exile {exile.Name} ({exile.Id}, {kind}{(giant ? ", gigantified" : "")}" +
             $"{(exceptional ? ", exceptional" : "")}{(special ? ", special reward" : "")}{(bodyguard ? ", bodyguard" : "")}) at ({at.X}, {at.Y}), " +
             $"level {level}, {(more - 1) * 100:0}% more life" + (id == 0 ? ": not created" : $", id {id}"));
         return id;
@@ -176,20 +175,20 @@ public sealed class AnarchyModule : IModule
 
     static void Drops(DropRoll roll)
     {
-        var conn = roll.Conn;
-        var stats = AreaLeagueStats(conn);
+        var player = roll.Player;
+        var stats = AreaLeagueStats(player);
         int S(uint name) => stats.GetValueOrDefault(name);
-        var rng = new Random(HashCode.Combine(roll.Monster.X, roll.Monster.Y, roll.Monster.VarietyId, conn.Seed));
+        var rng = new Random(HashCode.Combine(roll.Monster.X, roll.Monster.Y, roll.Monster.VarietyId, player.Seed));
         // Any monster: the altar's and the map's chance of an additional Anarchy scarab; a map boss its scarabs.
         if (rng.Next(100) < S(Stat.ChancePctToDropAdditionalScarabAnarchy)) roll.Items.Add(AnarchyScarab(rng));
         if (roll.Monster.Rarity == MonsterRarity.Unique && Monsters.Find(roll.Monster.VarietyId) is { BossHealthBar: true } boss
             && !RogueExiles.Current.IsExile(boss.Id))
             for (int i = S(Stat.MapBossDropsXAdditionalScarabsAnarchy); i > 0; i--) roll.Items.Add(AnarchyScarab(rng));
-        if (!PlacedExiles.TryGetValue(conn, out var placed)) return;
+        if (!PlacedExiles.TryGetValue(player, out var placed)) return;
         Exile? exile;
         lock (placed)
         {
-            if (!ReferenceEquals(placed.Area, conn.Layout)) return;
+            if (!ReferenceEquals(placed.Area, player.Layout)) return;
             exile = placed.Exiles.FirstOrDefault(e => e.VarietyId == roll.Monster.VarietyId);
             if (exile is not null) placed.Exiles.Remove(exile);
         }
@@ -205,7 +204,7 @@ public sealed class AnarchyModule : IModule
         if (exile.Special) roll.Rarity *= 2;
         if (exile.Exceptional) { roll.Quantity *= 2; roll.Rarity *= 2; }
         // The Anarchy scarabs' and leaguestones' rewards: additional jewels, rolled as the exile's own drops are.
-        var jewels = JewelBases(conn);
+        var jewels = JewelBases(player);
         for (int i = S(Stat.MapRogueExilesDropXAdditionalJewels); i > 0 && jewels.Count > 0; i--)
             roll.RolledItems.Add(jewels[rng.Next(jewels.Count)]);
         // What the exile's items drop as: fully linked, fractured, corrupted, then duplicated (a mirrored copy as well).
@@ -231,7 +230,7 @@ public sealed class AnarchyModule : IModule
 
     // The jewel bases a kill can drop: the general drop table's rule (ItemDrops.Droppable) for the Jewel and Abyss Jewel classes.
     static readonly ConditionalWeakTable<ItemCatalog, List<string>> Jewels = [];
-    static List<string> JewelBases(Player conn) => Jewels.GetValue(global::Game.ItemsFor(conn), catalog =>
+    static List<string> JewelBases(Player player) => Jewels.GetValue(global::Game.ItemsFor(player), catalog =>
         [.. catalog.All.Where(t => t.Class is "Jewel" or "AbyssJewel" && ItemDrops.Droppable(t)).Select(t => t.Id)]);
 
     static string AnarchyScarab(Random rng) => $"Metadata/Items/Scarabs/ScarabAnarchy{1 + rng.Next(4)}";

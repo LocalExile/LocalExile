@@ -34,13 +34,10 @@ static partial class Sirus
 
     static void BloodIcon(Player c, Exposure e, double now)
     {
-        if (e.BloodBuff != 0)
-            c.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, e.BloodBuff), null, WorldId: PlayerId));
-        e.BloodBuff = e.BloodStacks == 0 ? (ushort)0 : c.NextBuff++;
-        if (e.BloodBuff != 0)
-            c.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, e.BloodBuff, 238,
-                values: [0], u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, e.BloodUntil - now)), stacks: (ushort)e.BloodStacks),
-                "[Sirus] corrupted blood", WorldId: PlayerId));
+        e.BloodBuff = (ushort)(e.BloodStacks == 0 ? 0 : 1);
+        if (e.BloodStacks > 0)
+            c.Area.Buffs.Set(c.Id, new(238, Values: [0], U68: Buff.Seconds(e.BloodUntil - now), Stacks: (ushort)e.BloodStacks));
+        else c.Area.Buffs.Clear(c.Id, 238);
     }
 
     internal static DamagePacket Dot(Player c, int effect, bool minion)
@@ -75,72 +72,69 @@ static partial class Sirus
         async Task GroundDamage(Player p, double now, double seconds)
         {
             bool died = false, shieldChanged = false;
-            await SendWorldRecord(p, PlayerId, [], null, atGate: () =>
+            await SendWorldRecord(p, p.Id, [], null, atGate: () =>
             {
-                lock (p.Monsters)
+                if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused) return null;
+                var e = Exposures.GetValue(p, _ => new());
+                var stats = CharacterPlayerStats(p);
+                int Get(uint key) => stats.GetValueOrDefault(key);
+                if (e.BloodStacks > 0 && (e.BloodUntil <= now || BloodImmune(Get) || p.PlayerLife == 0))
+                { e.BloodStacks = 0; e.BloodDps = 0; BloodIcon(p, e, now); }
+                var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) > 0 || InGracePeriod(p) ? DamagePacket.Empty : Ground(p, p.Walk.Position(now), false, now);
+                if (p.PlayerLife > 0 && !p.Immune && Get(global::Stat.BaseCannotBeDamaged) == 0 && !InGracePeriod(p) && e.BloodStacks > 0)
+                    raw = raw.Add(DamageType.Physical, new(e.BloodDps * e.BloodStacks, e.BloodDps * e.BloodStacks));
+                var immune = PlayerImmunities(p);
+                double shieldBefore = p.EnergyShield.Current;
+                uint lifeBefore = p.PlayerLife;
+                int lifeDamage = 0;
+                foreach (var type in DamageTypes.ConversionOrder)
                 {
-                    if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused) return null;
-                    var e = Exposures.GetValue(p, _ => new());
-                    var stats = CharacterPlayerStats(p);
-                    int Get(uint key) => stats.GetValueOrDefault(key);
-                    if (e.BloodStacks > 0 && (e.BloodUntil <= now || BloodImmune(Get) || p.PlayerLife == 0))
-                    { e.BloodStacks = 0; e.BloodDps = 0; BloodIcon(p, e, now); }
-                    var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) > 0 || InGracePeriod(p) ? DamagePacket.Empty : Ground(p, p.Walk.Position(now), false, now);
-                    if (p.PlayerLife > 0 && !p.Immune && Get(global::Stat.BaseCannotBeDamaged) == 0 && !InGracePeriod(p) && e.BloodStacks > 0)
-                        raw = raw.Add(DamageType.Physical, new(e.BloodDps * e.BloodStacks, e.BloodDps * e.BloodStacks));
-                    var immune = PlayerImmunities(p);
-                    double shieldBefore = p.EnergyShield.Current;
-                    uint lifeBefore = p.PlayerLife;
-                    int lifeDamage = 0;
+                    int slot = (int)type;
+                    double resistance = type == DamageType.Physical ? PlayerDamageReduction(p, stats).Physical
+                        : Math.Min(Resistance(p, type), MaxResistance(p, type));
+                    double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
+                        + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
+                        * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
+                        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
+                    double earned = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.DotCarry[slot];
+                    int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
+                    bool chaosBypasses = type == DamageType.Chaos && Get(global::Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
+                        && Get(global::Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
+                        && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
+                            && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
+                        && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
+                            && (long)p.PlayerMana * 2 > p.Pools.Mana);
+                    lifeDamage += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
+                        : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
+                }
+                p.PlayerLife = (uint)Math.Max(0, (long)p.PlayerLife - lifeDamage);
+                shieldChanged = p.EnergyShield.Current != shieldBefore;
+                if (died = lifeBefore > 0 && p.PlayerLife == 0)
+                { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
+                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
+                {
+                    if (g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
+                    var hit = Ground(p, g.Monster.Walk.Position(now), true, now);
+                    int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
+                    bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) > 0
+                        || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) > 0);
+                    double total = 0;
                     foreach (var type in DamageTypes.ConversionOrder)
                     {
-                        int slot = (int)type;
-                        double resistance = type == DamageType.Physical ? PlayerDamageReduction(p, stats).Physical
-                            : Math.Min(Resistance(p, type), MaxResistance(p, type));
-                        double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
-                            + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
-                            * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
-                            * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
-                        double earned = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.DotCarry[slot];
-                        int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
-                        bool chaosBypasses = type == DamageType.Chaos && Get(global::Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
-                            && Get(global::Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
-                            && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
-                                && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
-                            && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
-                                && (long)p.PlayerMana * 2 > p.Pools.Mana);
-                        lifeDamage += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
-                            : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
+                        if (elementalImmune && DamageTypes.IsElemental(type)) continue;
+                        var res = MonsterHitResistance(g.Monster, type, default);
+                        total += DamageModel.Mitigate(hit[type].Min, res.Value, res.Maximum);
                     }
-                    p.PlayerLife = (uint)Math.Max(0, (long)p.PlayerLife - lifeDamage);
-                    shieldChanged = p.EnergyShield.Current != shieldBefore;
-                    if (died = lifeBefore > 0 && p.PlayerLife == 0)
-                    { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
-                    foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                    {
-                        if (g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
-                        var hit = Ground(p, g.Monster.Walk.Position(now), true, now);
-                        int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
-                        bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) > 0
-                            || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) > 0);
-                        double total = 0;
-                        foreach (var type in DamageTypes.ConversionOrder)
-                        {
-                            if (elementalImmune && DamageTypes.IsElemental(type)) continue;
-                            var res = MonsterHitResistance(g.Monster, type, default);
-                            total += DamageModel.Mitigate(hit[type].Min, res.Value, res.Maximum);
-                        }
-                        double amount = total * seconds + carry.GetValueOrDefault((p, g.Id));
-                        int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); carry[(p, g.Id)] = amount - damage;
-                        int incoming = damage;
-                        damage = g.ShieldPool.Damage(damage, bypass: false, now);
-                        PublishEnergyShieldLocked(p, g);
-                        g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
-                        if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
-                    }
-                    return lifeBefore == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
+                    double amount = total * seconds + carry.GetValueOrDefault((p, g.Id));
+                    int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); carry[(p, g.Id)] = amount - damage;
+                    int incoming = damage;
+                    damage = g.ShieldPool.Damage(damage, bypass: false, now);
+                    PublishEnergyShieldLocked(p, g);
+                    g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
+                    if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                    if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                 }
+                return null;
             });
             if (shieldChanged) await SendPlayerEnergyShield(p);
             if (died) await PlayerDied(p, "[Sirus] ground damage");

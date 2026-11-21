@@ -19,8 +19,8 @@ public static partial class Game
         return blow ? Math.Max(0, 1 + skill(Stat.SupportRuthlessBigHitDamagePlusPctFinal) / 100.0) : 1;
     }
 
-    public static double RuthlessBlowMore(Player conn, ushort skillId, Func<uint, int> skill)
+    public static double RuthlessBlowMore(Player player, ushort skillId, Func<uint, int> skill)
     {
-        lock (conn.Monsters) return RuthlessBlowMore(RuthlessCounts.GetValue(conn, _ => []), skillId, skill);
+        return RuthlessBlowMore(RuthlessCounts.GetValue(player, _ => []), skillId, skill);
     }
 }

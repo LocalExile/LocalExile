@@ -46,7 +46,7 @@ static partial class KitavaActTen
         foreach (uint objectId in changed)
         {
             bool shown;
-            lock (c.ShownTransitions) shown = c.ShownTransitions.Remove(objectId);
+            lock (c.Connection.ShownTransitions) shown = c.Connection.ShownTransitions.Remove(objectId);
             if (shown)
             {
                 await SendWorldRemoval(c, objectId, "Kitava portal now leads to the epilogue");
@@ -63,7 +63,7 @@ static partial class KitavaActTen
     internal static bool? GateShown(Player c, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area || t.SourceType != PortalType) return null;
-        return c.Instance.HasState(Flag("Won")) && c.HasQuestFlag(Talked);
+        return c.Instance.HasState(Flag("Won")) && c.Character.HasQuestFlag(Talked);
     }
     static Anchor AnchorOf(Player c, (int X, int Y) fallback) => Anchors.GetValue(c.Layout, _ =>
     {
@@ -73,12 +73,12 @@ static partial class KitavaActTen
     });
     public static async Task Tick(Player c)
     {
-        if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
+        if (c.Layout.Id != Area || !CurrentGameWork || !c.Connection.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         await RefreshPortal(c);
         if (!Fights.TryGetValue(c.Instance, out var f))
         {
             KeyValuePair<uint, SpawnedMonster> found;
-            lock (c.Monsters) found = c.Monsters.FirstOrDefault(m => IsBody(m.Value.Variety));
+            found = c.Area.Monsters.FirstOrDefault(m => IsBody(m.Value.Variety));
             if (found.Value is null) return;
             f = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         }
@@ -88,7 +88,7 @@ static partial class KitavaActTen
     }
     public static Task Leaving(Player c)
     {
-        if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.Degens[e] = 0; e.Dps = 0; }
+        if (Exposures.TryGetValue(c, out var e)) { c.Degens[e] = 0; e.Dps = 0; }
         return Task.CompletedTask;
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -123,24 +123,21 @@ static partial class KitavaActTen
             (int X, int Y) AllyPoint(string type, int x) => c.Layout.Level?.RoomObjects.FirstOrDefault(p => p.Type == type) is { } p
                 ? (p.X, p.Y) : c.Layout.Near((anchor.X + x, anchor.Y - 70));
             sinAt = AllyPoint(Sin, -25); innocenceAt = AllyPoint(Innocence, 33);
-            lock (c.Monsters)
+            foreach (var (key, m) in c.Area.Monsters)
             {
-                foreach (var (key, m) in c.Monsters)
-                {
-                    if (m.SummonerId == id && m.Hostile && !IsActor(m.Variety) && !m.Dead) guards.Add(key);
-                    if (m.Variety?.Id == Heart && (!m.Dead || c.Instance.HasState(Flag("Dying")))) { heartId = key; heart = m; }
-                    if (m.Variety?.Id == Sin) sinId = key;
-                    if (m.Variety?.Id == Innocence) innocenceId = key;
-                }
-                if (c.Instance.HasState(Flag("Won"))) stage = 10;
-                else if (c.Instance.HasState(Flag("Dying"))) stage = 9;
-                else if (body.LifePhases!.Active) stage = heart?.LifePhases?.Active == true ? Round == 2 ? 8 : 5 : heart is null ? 3 : 4;
-                else if (c.Instance.HasState(Flag("Started"))) stage = Round == 2 && !c.Instance.HasState(Flag("Grabbed")) ? 6 : 2;
-                while (c.Instance.HasState(Flag($"Guard-{Round}-{guardStep}"))) guardStep++;
+                if (m.SummonerId == id && m.Hostile && !IsActor(m.Variety) && !m.Dead) guards.Add(key);
+                if (m.Variety?.Id == Heart && (!m.Dead || c.Instance.HasState(Flag("Dying")))) { heartId = key; heart = m; }
+                if (m.Variety?.Id == Sin) sinId = key;
+                if (m.Variety?.Id == Innocence) innocenceId = key;
             }
+            if (c.Instance.HasState(Flag("Won"))) stage = 10;
+            else if (c.Instance.HasState(Flag("Dying"))) stage = 9;
+            else if (body.LifePhases!.Active) stage = heart?.LifePhases?.Active == true ? Round == 2 ? 8 : 5 : heart is null ? 3 : 4;
+            else if (c.Instance.HasState(Flag("Started"))) stage = Round == 2 && !c.Instance.HasState(Flag("Grabbed")) ? 6 : 2;
+            while (c.Instance.HasState(Flag($"Guard-{Round}-{guardStep}"))) guardStep++;
         }
         IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
-        bool Awake(Player p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
+        bool Awake(Player p) => MonsterShown(p, id) && !MonsterAsleep(p, id);
         public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
@@ -152,7 +149,7 @@ static partial class KitavaActTen
                 foreach (uint ally in new[] { sinId, innocenceId }.Where(ally => ally != 0))
                 {
                     KeepAllyVisible(c, ally);
-                    if (c.MonsterViews.ContainsKey(ally) && c.Monsters.TryGetValue(ally, out var m)
+                    if (MonsterShown(c, ally) && c.Area.Monsters.TryGetValue(ally, out var m)
                         && m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable") is int component and >= 0)
                     { await SendWorldRecord(c, ally,
                         InstanceEntities.TransitionableUpdate(ally, (byte)component, 2), null); }
@@ -163,18 +160,18 @@ static partial class KitavaActTen
         Task All(uint target, byte[] bytes, bool actor = false) => All(target, new[] { bytes }, actor);
         async Task All(uint target, byte[][] records, bool actor = false)
         {
-            foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
+            if ((Present.Where(p => !actor || Awake(p)).ToArray()).FirstOrDefault() is { } p)
             { await SendWorldRecords(p, target, () => records.Select(r => r.ToArray()).ToArray(), null,
                 still: () => !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
         }
         async Task AllRemoval(uint target)
         {
-            foreach (var p in Present.ToArray())
+            if ((Present.ToArray()).FirstOrDefault() is { } p)
             { await SendWorldRemoval(p, target); }
         }
         async Task Basic(Player c, uint actor, ushort action, double now, double seconds, uint? target = null)
         {
-            lock (c.Monsters) if (c.Monsters.TryGetValue(actor, out var m)) { m.ActionGeneration++; m.SwingGeneration = null; m.BusyUntil = now + seconds; }
+            if (c.Area.Monsters.TryGetValue(actor, out var m)) { m.ActionGeneration++; m.SwingGeneration = null; m.BusyUntil = now + seconds; }
             var from = actor == id ? (anchor.X, anchor.Y) : actor == sinId ? sinAt : innocenceAt;
             await All(actor, [InstanceProtocol.ActionStarted(actor, from.Item1, from.Item2, anchor.X, anchor.Y, action, c.NextActionSequence(), 0x0408, targetObjectId: target), InstanceProtocol.ActionEnded(actor)], true);
         }
@@ -183,13 +180,13 @@ static partial class KitavaActTen
             body.BossBarShown = shown;
             if (body.States is not { } states) return;
             body.States = states.Set("boss_life_bar", shown ? 1 : 0).Set("disable_life_bar", shown ? 0 : 1);
-            foreach (var p in Present)
+            if ((Present).FirstOrDefault() is { } p)
             {
-                lock (p.Monsters) if (p.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+                if (p.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                     p.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = body.States } };
                 if (Awake(p) && body.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine") is int component and >= 0)
                 { await SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
-                if (shown) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id);
+                if (shown) BossBars(p).Add(id); else BossBars(p).Remove(id);
             }
         }
         async Task<uint> Ally(Player c, string type, (int X, int Y) at)
@@ -198,10 +195,7 @@ static partial class KitavaActTen
             uint obj = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
                 at.X, at.Y, friendly: true, rotation: anchor.Rotation, scripted: true, instanceOwned: true);
             if (obj == 0) throw new InvalidOperationException("Unsupported Kitava ally");
-            lock (c.Monsters)
-            {
-                var m = c.Monsters[obj]; m.SummonerId = id; m.EntranceGrace = true;
-            }
+            var m = c.Area.Monsters[obj]; m.SummonerId = id; m.EntranceGrace = true;
             return obj;
         }
         async Task Allies(Player c, double now)
@@ -211,7 +205,7 @@ static partial class KitavaActTen
             foreach (uint obj in new[] { sinId, innocenceId })
             {
                 KeepAllyVisible(c, obj);
-                var m = c.Monsters[obj]; int index = m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable");
+                var m = c.Area.Monsters[obj]; int index = m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable");
                 if (index >= 0) await All(obj, InstanceEntities.TransitionableUpdate(obj, (byte)index, 2));
                 await Basic(c, obj, 16641, now, 4.833, id);
             }
@@ -233,7 +227,7 @@ static partial class KitavaActTen
                 initialized = true;
                 if (stage == 0)
                 {
-                    if (!c.HasQuestFlag(Started)) { initialized = false; return; }
+                    if (!c.Character.HasQuestFlag(Started)) { initialized = false; return; }
                     c.Instance.SetState(Flag("Started")); body.EntranceGrace = true;
                     foreach (var p in Present) { await UpdateQuestNpcs(p, "Kitava fight begins"); }
                     await Allies(c, now); await Bar(false); await Basic(c, id, 16641, now, 4.833); stage = 1; deadline = now + 4.833;
@@ -258,9 +252,8 @@ static partial class KitavaActTen
                     heartId = await SpawnMonster(c, Monsters.Find(Heart)!, body.Level,
                         MonsterRarity.Unique, heartAt.X, heartAt.Y, rotation: anchor.Rotation, scripted: true);
                     if (heartId == 0) throw new InvalidOperationException("Unsupported final Kitava heart");
-                    heart = c.Monsters[heartId]; heart.SummonerId = id; heart.LifePhases ??= Phases(heart.Variety!);
+                    heart = c.Area.Monsters[heartId]; heart.SummonerId = id; heart.LifePhases ??= Phases(heart.Variety!);
                     for (int i = 0; i < Round; i++) { heart.Life = (uint)((ulong)heart.MaxLife * (uint)heart.LifePhases!.NextPercent / 100); heart.LifePhases.Begin(heart.Life, heart.MaxLife); heart.LifePhases.Finish(); }
-                    await All(heartId, InstanceProtocol.LifeUpdate(heartId, heart.Life, 0));
                 }
                 heart.EntranceGrace = false; stage = 4; nextWave = now; guardAt = now; guardStep = 0;
                 while (c.Instance.HasState(Flag($"Guard-{Round}-{guardStep}"))) guardStep++;
@@ -310,8 +303,7 @@ static partial class KitavaActTen
                 foreach (uint ally in new[] { sinId, innocenceId }) await Basic(c, ally, 5775, now, 16.8, id);
                 body.Life = 0; body.Dead = true; body.ActionGeneration++;
                 if (heart is not null) { heart.Life = 0; heart.Dead = true; }
-                await Bar(false); await All(id, InstanceProtocol.LifeUpdate(id, 0, 0));
-                if (heart is not null) await All(heartId, InstanceProtocol.LifeUpdate(heartId, 0, 0));
+                await Bar(false);
                 stage = 9; deadline = now + 16.8;
                 Console.WriteLine("[Kitava A10] dark ember and native death sequence"); return;
             }
@@ -341,11 +333,11 @@ static partial class KitavaActTen
             double a = ordinal * 2.1;
             var at = c.Layout.Near((heartAt.X + (int)(Math.Cos(a) * 23), heartAt.Y + (int)(Math.Sin(a) * 23)));
             uint obj = await SpawnMonster(c, v, body.Level, rarity, at.X, at.Y);
-            if (obj != 0) { guards.Add(obj); c.Monsters[obj].SummonerId = id; }
+            if (obj != 0) { guards.Add(obj); c.Area.Monsters[obj].SummonerId = id; }
         }
         async Task Wave(Player c, double now)
         {
-            if (guards.Count(g => c.Monsters.TryGetValue(g, out var m) && !m.Dead) < 14)
+            if (guards.Count(g => c.Area.Monsters.TryGetValue(g, out var m) && !m.Dead) < 14)
                 for (int i = 0; i < 6; i++)
                     await Guard(c, (i % 3) switch
                     {
@@ -359,18 +351,18 @@ static partial class KitavaActTen
         {
             foreach (uint obj in guards.ToArray())
             {
-                lock (c.Monsters) if (c.Monsters.Remove(obj, out var m)) { m.Dead = true; m.Life = 0; m.ActionGeneration++; c.Instance.World.MonsterOrigins.TryRemove(obj, out _); }
+                if (c.Area.Monsters.Remove(obj, out var m)) { m.Dead = true; m.Life = 0; m.ActionGeneration++; c.Instance.World.MonsterOrigins.TryRemove(obj, out _); }
                 await AllRemoval(obj);
-                foreach (var p in Present) { p.MonsterViews.Remove(obj); p.AsleepMonsters.Remove(obj); p.BossBarsSeen.Remove(obj); }
+                foreach (var p in Present) { BossBars(p).Remove(obj); }
             }
             guards.Clear();
         }
         async Task RemoveHeart(Player c)
         {
             if (heartId == 0) return;
-            lock (c.Monsters) { c.Monsters.Remove(heartId); c.Instance.World.MonsterOrigins.TryRemove(heartId, out _); }
+            c.Area.Monsters.Remove(heartId); c.Instance.World.MonsterOrigins.TryRemove(heartId, out _);
             await AllRemoval(heartId);
-            foreach (var p in Present) { p.MonsterViews.Remove(heartId); p.AsleepMonsters.Remove(heartId); p.BossBarsSeen.Remove(heartId); }
+            foreach (var p in Present) { BossBars(p).Remove(heartId); }
             heart = null; heartId = 0;
         }
         void RegisterSin(Player p)
@@ -384,7 +376,7 @@ static partial class KitavaActTen
             var states = origin.Object.StateMachine?.Set("finished", 1);
             var obj = origin.Object with { StateMachine = states, HasDialogue = true, TransitionState = 2 };
             p.Instance.World.MonsterOrigins[sinId] = origin with { Object = obj };
-            if (p.Monsters.TryGetValue(sinId, out var m)) m.States = states;
+            if (p.Area.Monsters.TryGetValue(sinId, out var m)) m.States = states;
             await SendWorldRemoval(p, sinId);
             await SendWorldCreate(p, sinId, () => InstanceEntities.CreateObject(sinId, origin.Type, obj.Blob()), "[Kitava A10] Sin's post-fight dialogue");
             await SendWorldRecord(p, sinId, () => InstanceProtocol.EnterWakeZone(sinId));
@@ -393,7 +385,10 @@ static partial class KitavaActTen
         public void Stop()
         {
             stopped = true;
-            foreach (var p in Present.ToArray()) { _ = Leaving(p); foreach (var fx in visuals) _ = SendWorldRemoval(p, fx.Id); }
+            foreach (var p in Present.ToArray()) _ = Leaving(p);
+            // The effects go once, for every client (the area's records).
+            if (Present.FirstOrDefault() is { } any)
+                foreach (var fx in visuals) _ = SendWorldRemoval(any, fx.Id);
         }
     }
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));

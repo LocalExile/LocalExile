@@ -1,4 +1,5 @@
 using GameServer.Core.Accounts;
+using AccountCharacter = GameServer.Core.Accounts.Character;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
 using System.Text.Json;
@@ -32,7 +33,7 @@ public sealed class CharacterBuildImportTests
             Assert.Equal("keep", normalized.ModuleData!["PersonalSetting"]);
         }
         var cleared = CharacterBuildImports.Merge(merged, new CharacterSaves.Save([]));
-        var character = new Character(Guid.NewGuid(), Guid.NewGuid(), "ValidateOverrides", CharacterClass.Witch, 90,
+        var character = new AccountCharacter(Guid.NewGuid(), Guid.NewGuid(), "ValidateOverrides", CharacterClass.Witch, 90,
             "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         Game.ValidateImportedBuild(character, new CharacterSaves.Save([], Tattoos: new() { [21678] = "Tattoo of the Hinekora Warmonger" }));
         Assert.Throws<InvalidDataException>(() => Game.ValidateImportedBuild(character,
@@ -48,15 +49,15 @@ public sealed class CharacterBuildImportTests
         string path = Path.Combine(Path.GetTempPath(), $"mod-build-api-{Guid.NewGuid():N}.db");
         string mods = Path.Combine(Path.GetTempPath(), $"mod-build-probe-{Guid.NewGuid():N}");
         Saves.Open(path);
-        var record = new Character(Guid.NewGuid(), Guid.NewGuid(), "ModBuild", CharacterClass.Witch, 1,
+        var record = new AccountCharacter(Guid.NewGuid(), Guid.NewGuid(), "ModBuild", CharacterClass.Witch, 1,
             "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
-        var conn = new Player(new(1, "mod-build", 1000, 1000, 100, 100, null, []), 1, 1)
-        { CharacterId = record.Id, Character = record.Name, Account = record.AccountId.ToString(), PlayerLife = 1000 };
-        var player = new ImportPlayer(conn);
+        var player = new Player(new(1, "mod-build", 1000, 1000, 100, 100, null, []), 1, 1)
+        { Character = { Id = record.Id, Name = record.Name, Account = record.AccountId.ToString() }, PlayerLife = 1000 };
+        var imported = new ImportPlayer(player);
         var lifetime = new ModuleLifetime("probe");
         var clock = new Clock();
         var api = new CharacterBuildApi(lifetime, clock);
-        string Payload(Character character, int version = 1) => JsonSerializer.Serialize(new
+        string Payload(AccountCharacter character, int version = 1) => JsonSerializer.Serialize(new
         {
             Version = version, Record = character, Save = new CharacterSaves.Save([]), Summary = "Prepared", Warnings = Array.Empty<string>(),
         });
@@ -68,34 +69,34 @@ public sealed class CharacterBuildImportTests
         try
         {
             new SqliteAccountStore(Saves.Db).AddCharacter(record);
-            Assert.Equal(record, JsonSerializer.Deserialize<Character>(api.Capture(player)));
+            Assert.Equal(record, JsonSerializer.Deserialize<AccountCharacter>(api.Capture(imported)));
             foreach (var invalid in new[] { record with { Id = Guid.NewGuid() }, record with { AccountId = Guid.NewGuid() },
                 record with { Name = "Other" }, record with { League = "Other" }, record with { Level = 101 } })
-                Assert.Throws<InvalidDataException>(() => api.Prepare(player, Payload(invalid)));
-            Assert.Throws<InvalidDataException>(() => api.Prepare(player, Payload(record, 2)));
-            Assert.Throws<InvalidDataException>(() => api.Prepare(player, new string(' ', CharacterBuildImports.MaxJsonLength + 1)));
-            using (var cancelled = api.Prepare(player, Payload(record)))
+                Assert.Throws<InvalidDataException>(() => api.Prepare(imported, Payload(invalid)));
+            Assert.Throws<InvalidDataException>(() => api.Prepare(imported, Payload(record, 2)));
+            Assert.Throws<InvalidDataException>(() => api.Prepare(imported, new string(' ', CharacterBuildImports.MaxJsonLength + 1)));
+            using (var cancelled = api.Prepare(imported, Payload(record)))
             { cancelled.Dispose(); Assert.False(cancelled.Confirm()); }
-            using (var expired = api.Prepare(player, Payload(record)))
+            using (var expired = api.Prepare(imported, Payload(record)))
             { clock.Now = 300; Assert.False(expired.Confirm()); }
-            using (var dead = api.Prepare(player, Payload(record)))
-            { conn.PlayerLife = 0; Assert.False(dead.Confirm()); conn.PlayerLife = 1000; }
-            using (var moved = api.Prepare(player, Payload(record)))
-            { conn.LeavingArea = true; Assert.False(moved.Confirm()); conn.LeavingArea = false; }
-            using (var disconnected = api.Prepare(player, Payload(record)))
-            { conn.Closed = true; Assert.False(disconnected.Confirm()); conn.Closed = false; }
-            var stopped = api.Prepare(player, Payload(record));
+            using (var dead = api.Prepare(imported, Payload(record)))
+            { player.PlayerLife = 0; Assert.False(dead.Confirm()); player.PlayerLife = 1000; }
+            using (var moved = api.Prepare(imported, Payload(record)))
+            { player.LeavingArea = true; Assert.False(moved.Confirm()); player.LeavingArea = false; }
+            using (var disconnected = api.Prepare(imported, Payload(record)))
+            { player.Closed = true; Assert.False(disconnected.Confirm()); player.Closed = false; }
+            var stopped = api.Prepare(imported, Payload(record));
             lifetime.Stop(e => throw e);
             Assert.False(stopped.Confirm()); stopped.Dispose();
-            Assert.Throws<InvalidOperationException>(() => api.Capture(player));
-            Assert.Null(conn.BuildImport.Confirmed);
+            Assert.Throws<InvalidOperationException>(() => api.Capture(imported));
+            Assert.Null(player.BuildImport.Confirmed);
 
             // The probe's commands, as a connection builds them; PlayerOf(conn) is this test's player.
-            Program.ModPlayers.AddOrUpdate(conn, player);
+            Program.ModPlayers.AddOrUpdate(player, imported);
             ChatCommands Commands()
             {
-                var commands = new ChatCommands { Send = (_, _) => Task.CompletedTask, Reply = player.Tell };
-                foreach (var build in GameEvents.CommandsBuilding.All) commands = build(commands, conn);
+                var commands = new ChatCommands { Send = (_, _) => Task.CompletedTask, Reply = imported.Tell };
+                foreach (var build in GameEvents.CommandsBuilding.All) commands = build(commands, player);
                 return commands;
             }
             Directory.CreateDirectory(Path.Combine(mods, "probe"));
@@ -103,7 +104,7 @@ public sealed class CharacterBuildImportTests
                 public sealed class Probe : IMod
                 {
                     public void Load(IModContext mod) => GameEvents.Command(mod.Manifest.Id, "capture", "/capture",
-                        (conn, _) => Program.PlayerOf(conn).Tell(CharacterBuildApi.For(mod).Capture(Program.PlayerOf(conn))));
+                        (player, _) => Program.PlayerOf(player).Tell(CharacterBuildApi.For(mod).Capture(Program.PlayerOf(player))));
                 }
                 """);
             using (var host = new ModHost(mods, Console.WriteLine))
@@ -111,36 +112,36 @@ public sealed class CharacterBuildImportTests
                 host.Reload();
                 Assert.True(host.IsLoaded("probe"), string.Join("; ", host.Mods().Select(m => m.Error)));
                 Assert.True(await Commands().RunAsync("/capture"));
-                Assert.Contains(player.Messages, m => m.StartsWith('{') && JsonSerializer.Deserialize<Character>(m) == record);
+                Assert.Contains(imported.Messages, m => m.StartsWith('{') && JsonSerializer.Deserialize<AccountCharacter>(m) == record);
                 Assert.True(host.SetEnabled("probe", false));
                 Assert.False(host.IsLoaded("probe"));
                 // Unloading released its subscription: nobody answers /capture any more.
                 Assert.False(await Commands().RunAsync("/capture"));
             }
             var acceptedLifetime = new ModuleLifetime("accepted");
-            using var accepted = new CharacterBuildApi(acceptedLifetime, clock).Prepare(player, Payload(record with { Level = 90 }));
+            using var accepted = new CharacterBuildApi(acceptedLifetime, clock).Prepare(imported, Payload(record with { Level = 90 }));
             Assert.Equal("Prepared", accepted.Summary); Assert.Empty(accepted.Warnings);
             Assert.True(accepted.Confirm()); Assert.False(accepted.Confirm());
-            Assert.True(conn.Closed); Assert.True(CharacterBuildImports.IsApplying(record.Id));
-            Assert.Equal(90, conn.BuildImport.Confirmed!.Level);
+            Assert.True(player.Closed); Assert.True(CharacterBuildImports.IsApplying(record.Id));
+            Assert.Equal(90, player.BuildImport.Confirmed!.Level);
             acceptedLifetime.Stop(e => throw e); accepted.Dispose();
-            Assert.NotNull(conn.BuildImport.Confirmed); // Acceptance belongs to the server's old-session drain.
+            Assert.NotNull(player.BuildImport.Confirmed); // Acceptance belongs to the server's old-session drain.
         }
         finally
         {
             Program.SetGameLogic(previousLogic!);
-            CharacterBuildImports.Release(conn);
+            CharacterBuildImports.Release(player);
             TestEnvironment.ReleaseSaves(path);
             if (Directory.Exists(mods)) Directory.Delete(mods, recursive: true);
         }
     }
 
-    sealed class ImportPlayer(Player conn) : IConnectionPlayer
+    sealed class ImportPlayer(Player player) : IGamePlayer
     {
-        public Player Conn => conn;
+        public Player Player => player;
         public List<string> Messages { get; } = [];
-        public string Character => conn.Character!;
-        public string? Account => conn.Account;
+        public string Character => player.Character.Name!;
+        public string? Account => player.Character.Account;
         public string League => "Standard";
         public string LeagueId => "Standard";
         public bool Hardcore => false;
@@ -150,7 +151,7 @@ public sealed class CharacterBuildImportTests
         public string AreaId => "1_1_town";
         public uint Seed => 1;
         public (int X, int Y) Position => (1, 1);
-        public bool Closed => conn.Closed;
+        public bool Closed => player.Closed;
         public Task Tell(string text) { Messages.Add(text); return Task.CompletedTask; }
         public Task Send(byte[] bytes, string? log = null) => Task.CompletedTask;
     }
@@ -162,14 +163,14 @@ public sealed class CharacterBuildImportTests
         public override long GetTimestamp() => Now;
     }
 
-    static CharacterBuildImports.Prepared Plan(Character record, CharacterSaves.Save save) =>
+    static CharacterBuildImports.Prepared Plan(AccountCharacter record, CharacterSaves.Save save) =>
         new(record.Id, record.AccountId, record.League, CharacterClass.Templar, 90, save, "test", []);
 
     void Confirmation_is_single_use_expires_and_cannot_reuse_a_cancelled_or_replaced_build()
     {
         var clock = new Clock();
         var session = new CharacterBuildImports.Session(clock);
-        var record = new Character(Guid.NewGuid(), Guid.NewGuid(), "PobConfirm", CharacterClass.Witch, 1,
+        var record = new AccountCharacter(Guid.NewGuid(), Guid.NewGuid(), "PobConfirm", CharacterClass.Witch, 1,
             "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         var plan = Plan(record, new([]));
         Assert.Null(session.Confirm());
@@ -199,7 +200,7 @@ public sealed class CharacterBuildImportTests
         Confirmation_is_single_use_expires_and_cannot_reuse_a_cancelled_or_replaced_build();
         string path = Path.Combine(Path.GetTempPath(), $"pob-import-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var record = new Character(Guid.NewGuid(), Guid.NewGuid(), "PobAtomic", CharacterClass.Witch, 10,
+        var record = new AccountCharacter(Guid.NewGuid(), Guid.NewGuid(), "PobAtomic", CharacterClass.Witch, 10,
             "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         try
         {
@@ -268,8 +269,10 @@ public sealed class CharacterBuildImportTests
             CharacterBuildImports.Apply(Plan(record, ready) with { Class = CharacterClass.Witch });
             int row = Program.Skills.RowOfClass((int)CharacterClass.Witch);
             var admitted = new Player(new(1, "pob-readiness", 1000, 1000, 100, 100, null, []), 1, 1)
-            { Character = record.Name, CharacterId = record.Id, ClassRow = row,
-                Pools = CharacterStats.For(Program.Skills.ClassFor(row), 90) };
+            {
+              Character = { Name = record.Name, Id = record.Id, ClassRow = row },
+              Pools = CharacterStats.For(Program.Skills.ClassFor(row), 90)
+          };
             Game.PrepareCharacterForArea(admitted, 90);
             Assert.Empty(CharacterEquipmentState.Inactive[record.Name]);
             Assert.Equal(Program.Skills.ClassFor(row).Strength + addedStrength, (int)admitted.Pools.Strength);

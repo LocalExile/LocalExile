@@ -19,111 +19,105 @@ static partial class QuestobjectsRules
         public bool Carried => State is IzaroStatues.On or IzaroStatues.Lowered or IzaroStatues.Raising;
     }
 
-    static async Task PlaceIzaroStatues(Player conn, IzaroArena arena)
+    static async Task PlaceIzaroStatues(Player player, IzaroArena arena)
     {
         var statues = IzaroEffects.Of(IzaroStatues.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(statues.Count, arena.Lifts.Count); i++)
         {
             var (statue, lift) = (statues[i], arena.Lifts[i]);
-            uint id = conn.TakeObjectId();
-            await Send(conn, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(statue.Type),
+            uint id = player.TakeObjectId();
+            await Send(player, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(statue.Type),
                 IzaroStatues.Blob(statue, lift.At.X, lift.At.Y, FacingCentre(arena, lift.At).Angle, IzaroStatues.Lowered)), .. InstanceProtocol.EnterWakeZone(id)],
                 $"0x02bb {statue.Id} 0x{id:x} under ({lift.At.X}, {lift.At.Y})");
             arena.Statues.Add(new StatueSlot(statue, id, lift));
-            lock (conn.Monsters) conn.TrialObjects[id] = lift.At with { Type = statue.Type };
+            player.TrialObjects[id] = lift.At with { Type = statue.Type };
         }
     }
 
-    static async Task RaiseIzaroStatues(Player conn, IzaroArena arena,
+    static async Task RaiseIzaroStatues(Player player, IzaroArena arena,
         Func<bool> here)
     {
         try
         {
-            var order = arena.Statues.OrderBy(_ => AreaRng(conn).Next()).ToList();
+            var order = arena.Statues.OrderBy(_ => AreaRng(player).Next()).ToList();
             for (int k = 0; k < order.Count; k++)
             {
                 if (k > 0) await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseInterval));
                 var slot = order[k];
-                lock (conn.Monsters)
-                {
-                    if (arena.Over || !here()) return;
-                    slot.State = IzaroStatues.Raising;
-                }
-                await Send(conn, [.. LiftState(conn, slot.Lift, slot.At, IzaroFights.Raising),
+                if (arena.Over || !here()) return;
+                slot.State = IzaroStatues.Raising;
+                await Send(player, [.. LiftState(player, slot.Lift, slot.At, IzaroFights.Raising),
                     .. InstanceEntities.TransitionableUpdate(slot.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Raising)],
                     $"0x02bc {slot.Statue.Id} 0x{slot.Id:x} rises");
-                _ = StatueRisen(conn, arena, slot, here);
+                _ = StatueRisen(player, arena, slot, here);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} Izaro's statues stopped: {ServerLog.Describe(ex)}"); }
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} Izaro's statues stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static async Task StatueRisen(Player conn, IzaroArena arena,
+    static async Task StatueRisen(Player player, IzaroArena arena,
         StatueSlot slot, Func<bool> here)
     {
         await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
-        lock (conn.Monsters) if (arena.Over || !here() || slot.State != IzaroStatues.Raising) return;
-        await Send(conn, LiftState(conn, slot.Lift, slot.At, IzaroFights.Raised),
+        if (arena.Over || !here() || slot.State != IzaroStatues.Raising) return;
+        await Send(player, LiftState(player, slot.Lift, slot.At, IzaroFights.Raised),
             $"0x02bc small elevator 0x{slot.Lift:x} up");
-        await TurnIzaroStatue(conn, arena, slot, on: true);
+        await TurnIzaroStatue(player, arena, slot, on: true);
     }
 
     // A statue on (its buff on Izaro) or off.
-    static async Task TurnIzaroStatue(Player conn, IzaroArena arena,
+    static async Task TurnIzaroStatue(Player player, IzaroArena arena,
         StatueSlot slot, bool on)
     {
         ushort buff = 0, old;
-        lock (conn.Monsters)
-        {
-            if (arena.Over) return;
-            slot.State = on ? IzaroStatues.On : IzaroStatues.Off;
-            slot.Generation++;
-            old = slot.Buff;
-            if (on) slot.Buff = buff = conn.NextBuff++;
-            else slot.Buff = 0;
-            UpdateIzaroStats(arena);
-        }
+        if (arena.Over) return;
+        slot.State = on ? IzaroStatues.On : IzaroStatues.Off;
+        slot.Generation++;
+        old = slot.Buff;
+        if (on) slot.Buff = buff = player.NextBuff++;
+        else slot.Buff = 0;
+        UpdateIzaroStats(arena);
         List<byte> bytes = [.. InstanceEntities.TransitionableUpdate(slot.Id, IzaroStatues.StatueTransitionable, on ? IzaroStatues.On : IzaroStatues.Off)];
-        if (on) bytes.AddRange(InstanceEntities.AddBuff(arena.Izaro, buff, slot.Statue.Buff, slot.Id));
-        else if (old != 0) bytes.AddRange(InstanceEntities.RemoveBuff(arena.Izaro, old));
-        await Send(conn, [.. bytes], $"0x02bc {slot.Statue.Id} 0x{slot.Id:x} {(on ? "on" : "off")}");
+        if (on) player.Area.Buffs.Set(arena.Izaro, new(slot.Statue.Buff, slot.Id));
+        else if (old != 0) player.Area.Buffs.Clear(arena.Izaro, slot.Statue.Buff, slot.Id);
+        await Send(player, [.. bytes], $"0x02bc {slot.Statue.Id} 0x{slot.Id:x} {(on ? "on" : "off")}");
     }
 
     // A click on a statue (UseTrialObject): on, it goes off for IzaroStatues.OffSeconds, then on again while the trial lasts.
-    internal static async Task UseIzaroStatue(Player conn, uint id)
+    internal static async Task UseIzaroStatue(Player player, uint id)
     {
-        if (!IzaroArenas.TryGetValue(conn, out var arena) || arena.Statues.FirstOrDefault(s => s.Id == id) is not { } slot) return;
+        if (!IzaroArenas.TryGetValue(player, out var arena) || arena.Statues.FirstOrDefault(s => s.Id == id) is not { } slot) return;
         if (slot.State != IzaroStatues.On) return;
-        await TurnIzaroStatue(conn, arena, slot, on: false);
+        await TurnIzaroStatue(player, arena, slot, on: false);
         int generation = slot.Generation;
-        var layout = conn.Layout;
-        _ = Task.Run(async () =>
+        var layout = player.Layout;
+        _ = AreaFrames.Start(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.OffSeconds));
-            if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout) || slot.Generation != generation || arena.Over) return;
-            try { await TurnIzaroStatue(conn, arena, slot, on: true); }
+            if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout) || slot.Generation != generation || arena.Over) return;
+            try { await TurnIzaroStatue(player, arena, slot, on: true); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });
     }
 
     // The trial is over: the risen statues go down with their elevators.
-    static async Task LowerIzaroStatues(Player conn, List<StatueSlot> risen)
+    static async Task LowerIzaroStatues(Player player, List<StatueSlot> risen)
     {
         foreach (var s in risen)
-            await Send(conn, [.. InstanceEntities.TransitionableUpdate(s.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Lowering),
-                .. LiftState(conn, s.Lift, s.At, IzaroFights.Lowering)], $"0x02bc {s.Statue.Id} 0x{s.Id:x} goes down");
+            await Send(player, [.. InstanceEntities.TransitionableUpdate(s.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Lowering),
+                .. LiftState(player, s.Lift, s.At, IzaroFights.Lowering)], $"0x02bc {s.Statue.Id} 0x{s.Id:x} goes down");
         if (risen.Count == 0) return;
-        var layout = conn.Layout;
-        _ = Task.Run(async () =>
+        var layout = player.Layout;
+        _ = AreaFrames.Start(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.LowerSeconds));
-            if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
+            if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
             try
             {
                 foreach (var s in risen)
-                    await Send(conn, [.. InstanceEntities.TransitionableUpdate(s.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Down),
-                        .. LiftState(conn, s.Lift, s.At, IzaroFights.Down)], null);
+                    await Send(player, [.. InstanceEntities.TransitionableUpdate(s.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Down),
+                        .. LiftState(player, s.Lift, s.At, IzaroFights.Down)], null);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });

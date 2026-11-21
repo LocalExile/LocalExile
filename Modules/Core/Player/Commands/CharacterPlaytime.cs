@@ -15,19 +15,19 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
         public double At = at;
     }
 
-    public void Begin(Player conn)
+    public void Begin(Player player)
     {
         lock (sessions)
-            if (!retired && !conn.Controlled && conn.Character is { Length: > 0 } name && !conn.Closed && !conn.LeavingArea)
-                sessions.TryAdd(conn, new(name, now()));
+            if (!retired && !player.Controlled && player.Character.Name is { Length: > 0 } name && !player.Closed && !player.LeavingArea)
+                sessions.TryAdd(player, new(name, now()));
     }
 
-    public void Step(Player conn)
+    public void Step(Player player)
     {
-        if (!conn.PlayerSent) return;
-        Begin(conn);
+        if (!player.Connection.PlayerSent) return;
+        Begin(player);
         Session? session;
-        lock (sessions) sessions.TryGetValue(conn, out session);
+        lock (sessions) sessions.TryGetValue(player, out session);
         if (session is not null && now() - session.At >= 30) Save(session);
     }
 
@@ -36,12 +36,12 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
 
     static double Saved(string name) => Parse(CharacterSaves.ModuleData(name, SaveKey));
 
-    public double Seconds(Player conn)
+    public double Seconds(Player player)
     {
-        Begin(conn);
+        Begin(player);
         Session? session;
-        lock (sessions) sessions.TryGetValue(conn, out session);
-        if (session is null) return conn.Character is { } name ? Saved(name) : 0;
+        lock (sessions) sessions.TryGetValue(player, out session);
+        if (session is null) return player.Character.Name is { } name ? Saved(name) : 0;
         lock (session) return Saved(session.Character) + Math.Max(0, now() - session.At);
     }
 
@@ -58,10 +58,10 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
         }
     }
 
-    public void End(Player conn)
+    public void End(Player player)
     {
         Session? session;
-        lock (sessions) sessions.Remove(conn, out session);
+        lock (sessions) sessions.Remove(player, out session);
         if (session is not null) Save(session);
     }
 

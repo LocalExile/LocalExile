@@ -20,101 +20,95 @@ public static partial class Game
     const double DarkBargainChainSeconds = 0.1;
     const int DarkBargainArtMs = 1500;
 
-    public static bool IsDarkBargain(Player conn, int effect) =>
-        SkillsFor(conn).EffectId(effect) is "DarkPact" or "DarkPactRoyale";
+    public static bool IsDarkBargain(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "DarkPact" or "DarkPactRoyale";
 
-    static async Task DarkBargainCast(Player conn,
+    static async Task DarkBargainCast(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
         int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
         double sealDelay = 0, double reoccurrenceMore = 1)
     {
-        if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
-        bool Current() => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
-            && (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken));
+        if (CastMs(player, gem.Effect, skillId) is not int castMs) return;
+        bool Current() => !player.Closed && !player.LeavingArea && player.PlayerLife > 0
+            && (cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken));
         double delay;
-        lock (conn.Monsters)
-            delay = sealDelay + castMs / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+        delay = sealDelay + castMs / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
         await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
-        await WhilePaused(conn);
+        await WhilePaused(player);
         if (!Current())
         {
-            Console.WriteLine($"[gateway] {conn.Remote} dark bargain: cast replaced before its contact, nothing sacrificed");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} dark bargain: cast replaced before its contact, nothing sacrificed");
             return;
         }
-        var skillStats = SupportedSkill(conn, skillId).Stats;
+        var skillStats = SupportedSkill(player, skillId).Stats;
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
         int percent = Math.Max(0, Stat(global::Stat.SkeletalChainsAoePctHealthDealtAsChaosDamage));
         int chains = Math.Max(0, Stat(global::Stat.NumberOfChains));
         var blasts = new List<((int X, int Y) At, int Sacrificed, uint Skeleton)>();
         bool self = false;
-        int epoch = conn.ProjectileEpoch;
-        using (ProjectileMutation(conn))
+        int epoch = player.ProjectileEpoch;
+        using (ProjectileMutation(player))
         {
             if (!Current() || !sacrifice.Current) return;
-            double now = ProjectileWorldTime(conn);
-            var player = conn.Walk.Position(now);
-            var skeletons = conn.Summons.Fighters.Values
-                .Where(g => g.Definition.Kind == "Skeleton" && GolemCurrent(conn, g) && !g.Monster.Dead && g.Monster.Life > 0)
+            double now = ProjectileWorldTime(player);
+            var playerAt = player.Walk.Position(now);
+            var skeletons = player.Summons.Fighters.Values
+                .Where(g => g.Definition.Kind == "Skeleton" && GolemCurrent(player, g) && !g.Monster.Dead && g.Monster.Life > 0)
                 .ToDictionary(g => g.Id);
             foreach (var blast in DarkBargainChain(
                 [.. skeletons.Values.Select(g => (g.Id, g.Monster.Walk.Position(now), g.Monster.Life, g.Monster.MaxLife))],
-                to, player, percent, chains))
+                to, playerAt, percent, chains))
             {
                 var m = skeletons[blast.Skeleton].Monster;
                 if (blast.Sacrificed > 0)
                 {
                     m.Life -= (uint)blast.Sacrificed;
-                    conn.Minions.OutputQueue.Add(new([], null, blast.Skeleton, m, PlayerMinions.OutputKind.Life));
+                    player.Minions.OutputQueue.Add(new([], null, blast.Skeleton, m, PlayerMinions.OutputKind.Life));
                 }
                 blasts.Add(blast);
             }
             if (blasts.Count == 0)
             {
                 self = true;
-                int paid = DarkBargainLifePaid(conn.PlayerLife, conn.PlayerMaxLife, percent);
-                conn.PlayerLife -= (uint)paid;
-                blasts.Add((player, paid, 0));
+                int paid = DarkBargainLifePaid(player.PlayerLife, player.PlayerMaxLife, percent);
+                player.PlayerLife -= (uint)paid;
+                blasts.Add((playerAt, paid, 0));
             }
         }
-        if (self && blasts[0].Sacrificed > 0)
-            await Send(conn, [], null, atGate: () =>
-            {
-                lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
-            });
         double more = self ? Math.Max(0, 1 + Stat(global::Stat.SkeletalChainsNoMinionsDamagePlusPctFinal) / 100.0) : 1;
-        int radius = SkillRadius(conn, skillStats, true, gem.Effect);
+        int radius = SkillRadius(player, skillStats, true, gem.Effect);
         string ao = self ? DarkBargainPlayerAo : DarkBargainSkeletonAo;
-        Console.WriteLine($"[gateway] {conn.Remote} dark bargain: {(self ? "own life" : $"{blasts.Count} skeleton(s)")}, "
+        Console.WriteLine($"[gateway] {player.Connection.Remote} dark bargain: {(self ? "own life" : $"{blasts.Count} skeleton(s)")}, "
             + $"sacrificed [{string.Join(", ", blasts.Select(b => b.Sacrificed))}] ({percent}%), chains {chains}, radius {radius}, more x{more:0.##}");
         // The art is drawn at MiscAnimated __col4 world units at scale 1 (SkeletalChainsExplodePlayer 200,
         // SkeletalChainsExplode 120): scale it to the blast's radius.
         float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? (self ? 200 : 120)));
-        Console.WriteLine($"[gateway] {conn.Remote} dark bargain skin {DarkBargainSkin}: art {ao}");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} dark bargain skin {DarkBargainSkin}: art {ao}");
         var art = new List<uint>();
         for (int i = 0; i < blasts.Count; i++)
         {
             if (i > 0) await Task.Delay(TimeSpan.FromSeconds(DarkBargainChainSeconds));
-            if (conn.Closed || conn.LeavingArea || !conn.ProjectileActive(epoch)) break;
+            if (player.Closed || player.LeavingArea || !player.ProjectileActive(epoch)) break;
             var (at, paid, skeleton) = blasts[i];
             uint effect;
-            lock (conn.Monsters) effect = conn.TakeObjectId();
+            effect = player.TakeObjectId();
             art.Add(effect);
-            await Send(conn, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            await Send(player, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, ao) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
                 $"0x02bb create effect 0x{effect:x} {ao} at ({at.X}, {at.Y}) scale {scale:0.##}");
-            await Send(conn, InstanceProtocol.EnterWakeZone(effect), null);
+            await Send(player, InstanceProtocol.EnterWakeZone(effect), null);
             int addedChaos = paid;
-            Console.WriteLine($"[gateway] {conn.Remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
+            Console.WriteLine($"[gateway] {player.Connection.Remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
                 + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
-            await AreaSkillHit(conn, skillId, gem, at, at, immediate: true,
+            await AreaSkillHit(player, skillId, gem, at, at, immediate: true,
                 criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore);
         }
         if (art.Count > 0)
-            _ = Task.Run(async () =>
+            _ = AreaFrames.Start(async () =>
             {
                 await Task.Delay(DarkBargainArtMs);
                 foreach (uint effect in art)
-                    if (conn.ProjectileActive(epoch)) await Send(conn, InstanceProtocol.RemoveObject(effect), null);
+                    if (player.ProjectileActive(epoch)) await Send(player, InstanceProtocol.RemoveObject(effect), null);
             });
     }
 

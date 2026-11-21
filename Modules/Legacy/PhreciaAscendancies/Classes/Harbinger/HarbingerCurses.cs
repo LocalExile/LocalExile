@@ -87,11 +87,12 @@ internal sealed class HarbingerCurses
             ? (curse.Slow(false), curse.OtherEffects) : default;
     }
 
-    internal static byte[] Packet(uint target, HarbingerTemporalChains curse, double now)
+    // The curse's buff (row 69): its application number is its tag (HarbingerGameplay ends it by that).
+    internal static void Show(Player player, uint target, uint source, HarbingerTemporalChains curse, double now)
     {
         curse.Clock.Advance(now);
-        return InstanceEntities.AddBuff(target, curse.Instance, 69, PlayerId, curse.Skill,
-            u68: curse.Aura ? null : BitConverter.SingleToUInt32Bits((float)curse.Clock.Remaining));
+        player.Area.Buffs.Set(target, new(69, source, curse.Skill,
+            U68: curse.Aura ? null : Buff.Seconds(curse.Clock.Remaining), Tag: curse.Instance));
     }
 
     internal void Clear() { monsters.Clear(); Self = null; }

@@ -10,8 +10,8 @@ public sealed class AscendancyModuleAdmissionTests
         var identity = new AscendancyIdentity(AscendancyFamily.Phrecia, "Gladiator", "3.29.3b");
         var normal = identity with { Family = AscendancyFamily.Normal };
         var progress = new AscendancyProgress(identity, [19], ["normal"]);
-        var admitted = Connection("admitted", "PhreciaAscendancies");
-        admitted.MainAscendancy = progress;
+        var admitted = PlayerOf("admitted", "PhreciaAscendancies");
+        admitted.Character.MainAscendancy = progress;
         const string original = "{\"MainAscendancy\":{\"Selection\":{\"Family\":\"Phrecia\",\"Id\":\"Gladiator\",\"Revision\":\"3.29.3b\",\"future\":7},\"Nodes\":[19],\"Awards\":[\"normal\"]},\"Gold\":83,\"future\":{\"keep\":true}}";
         Saves.Put(SaveDatabase.Table.Characters, "admitted", original);
         string stored = Saves.Get(SaveDatabase.Table.Characters, "admitted")!;
@@ -32,7 +32,7 @@ public sealed class AscendancyModuleAdmissionTests
         var owner = new ModuleLifetime("PhreciaAscendancies");
         var policy = new Policy(identity);
         using var registration = AscendancyPolicies.Register(owner, policy);
-        var excluded = Connection("excluded");
+        var excluded = PlayerOf("excluded");
         Assert.False(AscendancyPolicies.Available(excluded, identity));
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.RequirePlayable(excluded, identity));
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.RequirePlayable(admitted, identity with { Revision = "future" }));
@@ -55,32 +55,32 @@ public sealed class AscendancyModuleAdmissionTests
 
         // Merely validating a normal candidate must not detach a failed/abandoned selection change.
         AscendancyPolicies.RequirePlayable(admitted, normal);
-        var failedChoice = Connection("failed-optional-choice", "PhreciaAscendancies");
-        failedChoice.MainAscendancy = new(normal, [41], ["normal"]);
+        var failedChoice = PlayerOf("failed-optional-choice", "PhreciaAscendancies");
+        failedChoice.Character.MainAscendancy = new(normal, [41], ["normal"]);
         // A verified candidate can still fail later selection rules or the save. No runtime choice was committed.
         AscendancyPolicies.RequirePlayable(failedChoice, identity);
         using (AscendancyPolicies.Enter(failedChoice, identity)) { }
-        var changedToNormal = Connection("normal-control", "PhreciaAscendancies");
-        changedToNormal.MainAscendancy = progress;
+        var changedToNormal = PlayerOf("normal-control", "PhreciaAscendancies");
+        changedToNormal.Character.MainAscendancy = progress;
         AscendancyPolicies.RequirePlayable(changedToNormal, identity);
         AscendancyPolicies.SelectionChanged(changedToNormal);
-        changedToNormal.MainAscendancy = new(normal);
+        changedToNormal.Character.MainAscendancy = new(normal);
         AscendancyPolicies.SelectionChanged(changedToNormal);
         owner.Stop(ex => throw ex);
         Assert.True(admitted.Closed);
         Assert.False(excluded.Closed);
         Assert.False(changedToNormal.Closed);
         Assert.False(failedChoice.Closed);
-        Assert.Equal(normal, failedChoice.MainAscendancy.Selection);
+        Assert.Equal(normal, failedChoice.Character.MainAscendancy.Selection);
         Assert.False(AscendancyPolicies.Available(admitted, identity));
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.AreaStats(admitted, identity));
-        Assert.Equal(progress, admitted.MainAscendancy);
+        Assert.Equal(progress, admitted.Character.MainAscendancy);
         Assert.Equal(stored, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
 
         var replacement = new ModuleLifetime("PhreciaAscendancies");
         using var current = AscendancyPolicies.Register(replacement, new Policy(identity));
-        var reentered = Connection("reentered", "PhreciaAscendancies");
-        reentered.MainAscendancy = progress;
+        var reentered = PlayerOf("reentered", "PhreciaAscendancies");
+        reentered.Character.MainAscendancy = progress;
         AscendancyPolicies.RequirePlayable(reentered, identity);
         AscendancyPolicies.SelectionChanged(reentered);
         registration.Dispose(); // An old handle cannot unregister or close the replacement generation.
@@ -91,10 +91,10 @@ public sealed class AscendancyModuleAdmissionTests
         replacement.Stop(ex => throw ex);
     }
 
-    static Player Connection(string name, params string[] modules) => new(new(1, "test", 1, 1, 0, 0, null, []), 1, 1)
+    static Player PlayerOf(string name, params string[] modules) => new(new(1, "test", 1, 1, 0, 0, null, []), 1, 1)
     {
-        Character = name,
-        LeagueModule = new(new League("test", "Standard", false, false), modules.ToHashSet(StringComparer.OrdinalIgnoreCase)),
+        Character = { Name = name },
+        LeagueModule = new(new League("test", "Standard", false, false), modules.ToHashSet(StringComparer.OrdinalIgnoreCase))
     };
 
     sealed class Policy(AscendancyIdentity supported) : IAscendancyFamilyPolicy

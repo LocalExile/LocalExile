@@ -47,17 +47,17 @@ public class ClusterJewelTests
         Assert.DoesNotContain("AfflictionNotablePrismaticHeart__", rolls.Pool(large, plain).Select(p => p.Mod.Id));
 
         // A small passive grants the theme's own stats and what the jewel's "also grant" adds.
-        var conn = new Player(new(1, "cluster", 100, 100, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "cluster", 100, 100, 100, 100, null, []), 1, 1);
         InventoryItem[] placed = [new(11, 20, 0, jewel)];
         var layout = ClusterJewelLayout.For(20, jewel)!;
         int small = layout.ByOffset.First(p => p.Value == ClusterJewelLayout.Kind.Small).Key;
-        conn.ClusterPassives.Add((ushort)(layout.Base + small));
-        var granted = ClusterJewelStats.For(conn, placed, items.Mods, Program.Stats).ToDictionary(s => s.Key, s => s.Value);
+        player.Character.ClusterPassives.Add((ushort)(layout.Base + small));
+        var granted = ClusterJewelStats.For(player, placed, items.Mods, Program.Stats).ToDictionary(s => s.Key, s => s.Value);
         Assert.Equal(12, granted[Stat.FireDamagePlusPct]);
         Assert.Equal(7, granted[Stat.BaseMaximumLife]);
         // A jewel from before the server wrote themes names none: only its "also grant" counts, as it did.
         InventoryItem[] old = [new(12, 20, 0, plain with { Mods = [.. plain.Mods, new ItemMod(ModSection.Enchant, items.Mods.ById("AfflictionJewelSmallPassivesGrantLife_")!.Hash, [3])] })];
-        var before = Assert.Single(ClusterJewelStats.For(conn, old, items.Mods, Program.Stats));
+        var before = Assert.Single(ClusterJewelStats.For(player, old, items.Mods, Program.Stats));
         Assert.Equal((Stat.BaseMaximumLife, 3), before);
 
         // What a tool composes: a jewel that does not say its passives keeps a new one's enchantments; one that does is

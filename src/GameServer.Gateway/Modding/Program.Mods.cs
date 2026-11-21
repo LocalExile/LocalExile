@@ -55,36 +55,36 @@ public partial class Program
     }
 
     // /mod_enable and /mod_disable.
-    public static Task SetModEnabled(Player conn, string[] args, bool enabled)
+    public static Task SetModEnabled(Player player, string[] args, bool enabled)
     {
         if (args.Length != 1) throw new ArgumentException("which mod? /mod lists them");
-        return conn.Commands!.Reply(ServerMods.SetEnabled(args[0], enabled)
+        return player.Commands!.Reply(ServerMods.SetEnabled(args[0], enabled)
             ? $"Mod {args[0]} {(enabled ? "enabled" : "disabled")} (/mod for the list)." : $"No mod \"{args[0]}\" in {ServerMods.Folder}/ (/mod for the list).");
     }
 
     /// <summary>The character's league: Standard, or its module's (Modding/ServerLeagues.cs), decided once per connection.</summary>
-    public static LeagueRuntime LeagueFor(Player conn) =>
-        conn.LeagueModule ??= ServerLeagues.Resolve(conn.LeagueForm, conn.League, LeagueCatalog.Startup);
+    public static LeagueRuntime LeagueFor(Player player) =>
+        player.LeagueModule ??= ServerLeagues.Resolve(player.Character.LeagueForm, player.Character.League, LeagueCatalog.Startup);
 
     /// <summary>The modules a connection's league lists.</summary>
-    public static IReadOnlySet<string> ModulesFor(Player conn) => LeagueFor(conn).Modules;
+    public static IReadOnlySet<string> ModulesFor(Player player) => LeagueFor(player).Modules;
 
-    public static readonly ConditionalWeakTable<Player, IConnectionPlayer> ModPlayers = new();
+    public static readonly ConditionalWeakTable<Player, IGamePlayer> ModPlayers = new();
 
     static IGameLogic? _logic;
     static readonly Lock PlayerUpdatesGate = new();
     static readonly ConditionalWeakTable<Player, object> ActivePlayerUpdates = new();
 
     // Only admitted areas register. The registry holds Gateway identities, never old game callbacks.
-    public static void ActivatePlayerUpdates(Player conn)
+    public static void ActivatePlayerUpdates(Player player)
     {
         IGameLogic? logic;
         lock (PlayerUpdatesGate)
         {
-            ActivePlayerUpdates.GetValue(conn, _ => new object());
+            ActivePlayerUpdates.GetValue(player, _ => new object());
             logic = GameLogicOrNull;
         }
-        logic?.ResumePlayerUpdates(conn);
+        logic?.ResumePlayerUpdates(player);
     }
 
     /// <summary>The game's rules, once the game module is loaded. A reload's old rules keep running until the new ones replace
@@ -102,23 +102,23 @@ public partial class Program
             active = [.. ActivePlayerUpdates.Select(p => p.Key)];
         }
         ModPlayers.Clear();
-        foreach (var conn in active)
+        foreach (var player in active)
         {
-            if (conn.Closed || conn.RageRetired) { ActivePlayerUpdates.Remove(conn); continue; }
-            logic?.ResumePlayerUpdates(conn);
+            if (player.Closed || player.RageRetired) { ActivePlayerUpdates.Remove(player); continue; }
+            logic?.ResumePlayerUpdates(player);
         }
     }
 
     /// <summary>The player as mods see it (one per connection).</summary>
     /// <summary>What a module or mod can do with this player's world: objects, walking, windows, crafting and saved data.</summary>
-    public static IPlayerWorld WorldOf(IPlayer player) => Logic.WorldFor(ConnOf(player));
+    public static IPlayerWorld WorldOf(IPlayer player) => Logic.WorldFor(PlayerOf(player));
 
     /// <summary>What a module or mod can do with this connection's world.</summary>
-    public static IPlayerWorld WorldOf(Player conn) => Logic.WorldFor(conn);
+    public static IPlayerWorld WorldOf(Player player) => Logic.WorldFor(player);
 
-    public static IPlayer PlayerOf(Player conn) =>
-        ModPlayers.TryGetValue(conn, out var player) ? player : ModPlayers.GetValue(conn, Logic.PlayerFor);
+    public static IPlayer PlayerOf(Player player) =>
+        ModPlayers.TryGetValue(player, out var modPlayer) ? modPlayer : ModPlayers.GetValue(player, Logic.PlayerFor);
 
     /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
-    public static Player ConnOf(IPlayer player) => ((IConnectionPlayer)player).Conn;
+    public static Player PlayerOf(IPlayer player) => ((IGamePlayer)player).Player;
 }

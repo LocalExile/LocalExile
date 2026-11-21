@@ -37,19 +37,19 @@ public static partial class Game
         return more;
     }
 
-    // Call under the Monsters lock, after the per-target outgoing damage hooks.
-    public static DamagePacket WithConditionalSupportDamageLocked(Player conn, IReadOnlyDictionary<uint, int>? skill,
+    // Call in the area's frame, after the per-target outgoing damage hooks.
+    public static DamagePacket WithConditionalSupportDamageLocked(Player player, IReadOnlyDictionary<uint, int>? skill,
         bool attack, SpawnedMonster target, DamagePacket rolled, double now)
     {
         int Get(uint name) => skill is not null && name is var k ? skill.GetValueOrDefault(k) : 0;
         bool fullLife = attack && Get(Stat.SupportDamageWhileOnFullLifePlusPctFinal) != 0
-            && conn.PlayerLife > 0 && conn.PlayerMaxLife > 0
-            && (conn.PlayerLife >= conn.PlayerMaxLife
-                || CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, SelfCurseConditionInputs(conn)));
+            && player.PlayerLife > 0 && player.PlayerMaxLife > 0
+            && (player.PlayerLife >= player.PlayerMaxLife
+                || CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player)));
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), fullLife,
-            Lifetap.ActiveAt(conn, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
-            ChargesOf(conn).Effective(ChargeType.Power), ArcaneSurgeActive(conn, now), RecentlyIgnitedCount(conn, now));
+            Lifetap.ActiveAt(player, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
+            ChargesOf(player).Effective(ChargeType.Power), ArcaneSurgeActive(player, now), RecentlyIgnitedCount(player, now));
         var packet = more == 1 ? rolled : rolled.Scale(more);
         // Immolate: added Fire Damage against Burning Enemies (the stat description's own wording).
         if (target.Ignites.Burning)
@@ -58,17 +58,17 @@ public static partial class Game
             int max = Get(Stat.GlobalMaximumAddedFireDamageVsBurningEnemies);
             if (min > 0 || max > 0)
             {
-                double roll = min + AreaRng(conn).NextDouble() * (Math.Max(min, max) - min);
+                double roll = min + AreaRng(player).NextDouble() * (Math.Max(min, max) - min);
                 packet = packet.Add(DamageType.Fire, new(roll, roll));
             }
         }
         // Bloodthirst: "gain X% of Maximum Life as added Physical Damage with Weapons while on Low Life".
-        if (conn.PlayerLife < conn.PlayerMaxLife * 0.35)
+        if (player.PlayerLife < player.PlayerMaxLife * 0.35)
         {
             int percent = Get(Stat.BloodPriceGainPctMaximumLifeAsAddedPhysicalDamageWithWeaponsWhileOnLowLife);
             if (percent > 0)
             {
-                double flat = conn.PlayerMaxLife * percent / 100.0;
+                double flat = player.PlayerMaxLife * percent / 100.0;
                 packet = packet.Add(DamageType.Physical, new(flat, flat));
             }
         }
@@ -77,7 +77,7 @@ public static partial class Game
         if (Get(Stat.SupportChillsAlsoGrantColdDamageTakenPlusPctEqualToSlowAmount) != 0 && chillMagnitude > 0)
             packet = packet.Select((type, range) => type == DamageType.Cold ? range.Scale(1 + chillMagnitude / 100.0) : range);
         // Inspiration: "Supported Skills deal (3-7)% more Elemental Damage per Inspiration Charge".
-        int charges = conn.SupportGems.InspirationCharges;
+        int charges = player.SupportGems.InspirationCharges;
         int perCharge = Get(Stat.ElementalDamagePlusPctFinalPerRighteousCharge);
         if (charges > 0 && perCharge > 0)
         {

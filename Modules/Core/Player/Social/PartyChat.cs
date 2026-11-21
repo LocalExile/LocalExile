@@ -9,16 +9,16 @@ namespace GameServer.Modules.Social;
 public static class PartyChat
 {
     /// <summary>Carry one party line to the party; false when the sender is in none, so nothing delivered it.</summary>
-    public static async Task<bool> Deliver(Player conn, string text, IReadOnlyList<ChatLineItem>? items)
+    public static async Task<bool> Deliver(Player player, string text, IReadOnlyList<ChatLineItem>? items)
     {
-        uint party = PartyRoster.PartyOf(conn);
+        uint party = PartyRoster.PartyOf(player);
         if (party == 0) return false;
-        string name = CharacterName(conn);
+        string name = CharacterName(player);
         string sender = InstanceChat.Sender(TypedChannel.Party, name);
         bool delivered = false;
         foreach (var member in PartyRoster.Players(party))
         {
-            if (member is not { Controlled: false, Closed: false, Outbox: { } outbox }) continue;
+            if (member is not { Controlled: false, Closed: false, Connection.Outbox: { } outbox }) continue;
             // Each member gets its own bytes, as a send encrypts them in place: a second client given the same array read
             // noise and crashed (live 2026-11-07).
             try

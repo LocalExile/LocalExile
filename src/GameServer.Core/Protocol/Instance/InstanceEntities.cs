@@ -943,10 +943,13 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// the up-cast instead of the landing.</summary>
     public uint AnimationId { get; init; }
 
+    /// <summary>Object flags 0x02: the create wakes the object itself (CreateInWakeZone), so no 0x1a9 follows it.</summary>
+    public bool Awake { get; init; }
+
     public byte[] Blob()
     {
         var w = new BlobWriter();
-        w.U8(0).U8(0);                                              // object flags, base data entry count
+        w.U8(Awake ? (byte)0x02 : (byte)0).U8(0);                   // object flags, base data entry count
         // Positioned: on the terrain; flags0 0x04's pair carries the native animation fields.
         w.Positioned(GridX, GridY, Rotation, scale: Scale, flags0: (byte)(Flags0 & 0x81),
             fixedHeight: (Flags0 & 4) != 0 ? ((int)AnimationWord, AnimationValue) : null);

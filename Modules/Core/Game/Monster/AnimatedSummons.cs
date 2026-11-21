@@ -9,49 +9,49 @@ public static partial class Game
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment,
         AnimatedGuardianGear? GuardianGear = null);
 
-    static AnimatedGuardianGear? CaptureAnimatedGuardianGearLocked(Player conn, SummonCatalog.Definition definition) =>
+    static AnimatedGuardianGear? CaptureAnimatedGuardianGearLocked(Player player, SummonCatalog.Definition definition) =>
         definition.Family == "AnimatedGuardian"
-            ? new(conn.Summons.GuardianEquipment, new(conn.Summons.GuardianEquipment))
+            ? new(player.Summons.GuardianEquipment, new(player.Summons.GuardianEquipment))
             : null;
 
-    static bool AnimatedGuardianGearCurrentLocked(Player conn, AnimatedGuardianGear gear)
+    static bool AnimatedGuardianGearCurrentLocked(Player player, AnimatedGuardianGear gear)
     {
-        var current = conn.Summons.GuardianEquipment;
+        var current = player.Summons.GuardianEquipment;
         return ReferenceEquals(current, gear.Reference) && current.Count == gear.Equipment.Count
             && current.All(pair => gear.Equipment.TryGetValue(pair.Key, out var item) && ReferenceEquals(item, pair.Value));
     }
 
-    static AnimatedSource? AnimatedItems(Player conn, SummonCatalog.Definition definition, SupportedGem gem,
+    static AnimatedSource? AnimatedItems(Player player, SummonCatalog.Definition definition, SupportedGem gem,
         (int X, int Y) aim, uint target, Dictionary<byte, Item>? restored, double radius = 15)
     {
-        var guardian = CaptureAnimatedGuardianGearLocked(conn, definition);
+        var guardian = CaptureAnimatedGuardianGearLocked(player, definition);
         if (restored is not null) return new(0, null, new(restored), guardian);
         if (definition.Id == "AnimateWeaponAltX")
         {
-            if (ActiveMainHand(conn) is not { Type: { } type } hand
-                || WeaponIn(conn, hand) is not { Melee: true }
-                || ItemModStats.LevelRequirement(hand.Item, type.DropLevel, ItemsFor(conn).Mods)
+            if (ActiveMainHand(player) is not { Type: { } type } hand
+                || WeaponIn(player, hand) is not { Melee: true }
+                || ItemModStats.LevelRequirement(hand.Item, type.DropLevel, ItemsFor(player).Mods)
                     > GolemStat(gem.Stats, Stat.AnimateItemMaximumLevelRequirement)) return null;
             return new(0, null, new() { [2] = hand.Item }, guardian);
         }
         if (definition.Family == "Clone")
         {
-            if (ActiveMainHand(conn) is not { Type.Class: "Bow" } bow) return null;
-            var equipment = ItemsOf(conn).EquipmentSnapshot().ToDictionary(p => p.Row, p => p.Item.Item);
+            if (ActiveMainHand(player) is not { Type.Class: "Bow" } bow) return null;
+            var equipment = ItemsOf(player).EquipmentSnapshot().ToDictionary(p => p.Row, p => p.Item.Item);
             return new(0, null, equipment);
         }
-        byte Slot(Item item) => AnimatedItemSlot(conn, definition, gem, item);
+        byte Slot(Item item) => AnimatedItemSlot(player, definition, gem, item);
         bool Visible(uint id)
         {
-            var origin = conn.Instance.Ground.Origin(id);
-            return origin.Shared || ReferenceEquals(origin.By, conn);
+            var origin = player.Instance.Ground.Origin(id);
+            return origin.Shared || ReferenceEquals(origin.By, player);
         }
         if (target != 0 && !Visible(target)) return null;
-        var ground = target != 0 ? conn.Instance.Ground.Get(target) : null;
+        var ground = target != 0 ? player.Instance.Ground.Get(target) : null;
         uint id = target;
         if (ground is null)
         {
-            var found = conn.Instance.Ground.Within(aim.X, aim.Y, radius, p => Slot(p.Item) != 0)
+            var found = player.Instance.Ground.Within(aim.X, aim.Y, radius, p => Slot(p.Item) != 0)
                 .Where(p => Visible(p.Id)).OrderBy(p => Dist((p.Item.GridX, p.Item.GridY), aim)).FirstOrDefault();
             id = found.Id; ground = found.Item;
         }
@@ -63,13 +63,13 @@ public static partial class Game
         return new(id, ground, gear, guardian);
     }
 
-    public static byte AnimatedItemSlot(Player conn, SummonCatalog.Definition definition, SupportedGem gem, Item item)
+    public static byte AnimatedItemSlot(Player player, SummonCatalog.Definition definition, SupportedGem gem, Item item)
     {
-        var catalog = ItemsFor(conn);
+        var catalog = ItemsFor(player);
         if (!item.Identified || catalog.ByHash(item.TypeHash) is not { } type
             || ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods)
                 > GolemStat(gem.Stats, Stat.AnimateItemMaximumLevelRequirement)) return 0;
-        if (WeaponIn(conn, (item, type)) is { } weapon)
+        if (WeaponIn(player, (item, type)) is { } weapon)
         {
             if (definition.Family == "AnimatedGuardian") return weapon.Melee ? (byte)2 : (byte)0;
             if (definition.Family != "AnimatedWeapon" || item.Sockets.Count >= 6) return 0;
@@ -86,20 +86,20 @@ public static partial class Game
     static readonly IReadOnlyDictionary<byte, byte> SummonVisibleSlots = new Dictionary<byte, byte>
         { [1] = 2, [2] = 0, [3] = 1, [4] = 4, [5] = 11, [6] = 8, [7] = 9, [8] = 5, [9] = 6, [10] = 10 };
 
-    static async Task<bool> AnimateGroundItem(Player conn,
+    static async Task<bool> AnimateGroundItem(Player player,
         WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
-        if (skill.Name is null || SummonData.Find(SkillsFor(conn).EffectId(skill.Effect)) is not { Family: "AnimatedWeapon" or "AnimatedGuardian" }) return false;
-        var here = conn.Walk.Position(AreaTime(conn)); var aim = (ground.GridX, ground.GridY);
-        if (!TryBeginSkillCooldownUse(conn, use.SkillId, skill.Effect, CooldownForSkill(conn, use.SkillId), false,
-            () => { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(here.X, here.Y, AreaTime(conn)); }, out var accepted, requestedAt: requestedAt)) return true;
+        var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == use.SkillId);
+        if (skill.Name is null || SummonData.Find(SkillsFor(player).EffectId(skill.Effect)) is not { Family: "AnimatedWeapon" or "AnimatedGuardian" }) return false;
+        var here = player.Walk.Position(AreaTime(player)); var aim = (ground.GridX, ground.GridY);
+        if (!TryBeginSkillCooldownUse(player, use.SkillId, skill.Effect, CooldownForSkill(player, use.SkillId), false,
+            () => { Interlocked.Increment(ref player.ActionCount); player.Walk.Order(here.X, here.Y, AreaTime(player)); }, out var accepted, requestedAt: requestedAt)) return true;
         bool acknowledged = false;
-        await SendWorldRecords(conn, PlayerId, () =>
-            [InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, aim.GridX, aim.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
-                InstanceProtocol.ActionEnded(PlayerId)], "animate ground equipment",
-            still: () => acknowledged = SkillAcknowledgementAllowed(conn, skill.Effect, use.SkillId, () => accepted?.CommitNativeUse(conn, use.SkillId) ?? true));
-        if (acknowledged) _ = CastGemSkill(conn, use.SkillId, here, aim, use.TargetId,
+        await SendWorldRecords(player, player.Id, () =>
+            [InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, aim.GridX, aim.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+                InstanceProtocol.ActionEnded(player.Id)], "animate ground equipment",
+            still: () => acknowledged = SkillAcknowledgementAllowed(player, skill.Effect, use.SkillId, () => accepted?.CommitNativeUse(player, use.SkillId) ?? true));
+        if (acknowledged) _ = CastGemSkill(player, use.SkillId, here, aim, use.TargetId,
             sequence: use.Sequence, actionToken: accepted?.ActionToken, cooldownUse: accepted);
         return true;
     }

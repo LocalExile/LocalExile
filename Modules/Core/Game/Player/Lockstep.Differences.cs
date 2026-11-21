@@ -9,19 +9,19 @@ public static partial class Game
 {
     // The server frames themselves (their pacing on the clock, and 0x2b8), where they differ from GGG's, are the
     // framework's: Program.RunWorldFrames. What the rules do at each frame end is here.
-    public static async Task LockstepFrameEnded(Player conn, double nextFrameStart)
+    public static async Task LockstepFrameEnded(Player player, double nextFrameStart)
     {
-        await ProbeLockstepLatency(conn);
-        SendLockstepDefaultAttack(conn);
-        await StartLockstepActions(conn, nextFrameStart);
+        await ProbeLockstepLatency(player);
+        SendLockstepDefaultAttack(player);
+        await StartLockstepActions(player, nextFrameStart);
     }
 
     // Differs from GGG: it keys a Move from its tick by the player (u16 0x9001, 3 286 of 3 492 Moves). Keys must reach the
     // client sorted or the rest of the frame waits for its end (0x14218aff0). The frame queue now enforces that order;
     // this producer retains key 0, applied before object ticks. Moving it into the player tick needs a separate
     // action-timing trace, since the server currently starts the walk at the frame start.
-    static byte[] LockstepActionStart(Player conn, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
-        InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, target.X, target.Y, conn.LockstepHold.Skill, sequence, conn.LockstepHold.Flags);
+    static byte[] LockstepActionStart(Player player, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
+        InstanceProtocol.ActionStarted(player.Id, from.X, from.Y, target.X, target.Y, player.LockstepHold.Skill, sequence, player.LockstepHold.Flags);
 
     // Differs from GGG: a monster out of its wake zone stands on its server as on the client, so nothing needs placing when
     // it comes back. Ours walks on out there, and a lockstep client skips 0x128 (case 0x50 of 0x142150ae0), so a returner
@@ -31,33 +31,33 @@ public static partial class Game
 
     // Differs from GGG: it reports the object's cell as the target. The client replaces the target with the object's own
     // position when it starts the action (0x14219aa10), and this path has no cell for every kind of object.
-    static byte[] LockstepObjectStart((int X, int Y) from, InstanceTransfer.UseSkillOnObject use, ushort sequence) =>
-        InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, from.X, from.Y, use.SkillId, sequence, use.Flags, targetObjectId: use.TargetId);
+    static byte[] LockstepObjectStart(uint id, (int X, int Y) from, InstanceTransfer.UseSkillOnObject use, ushort sequence) =>
+        InstanceProtocol.ActionStarted(id, from.X, from.Y, from.X, from.Y, use.SkillId, sequence, use.Flags, targetObjectId: use.TargetId);
 
     // Differs from GGG: it starts a held skill from the player's tick, keyed by the player (u16 0x5001). Ours goes through
     // the handlers a predictive client's request reaches, with the server's sequence in place of the client's, so their
     // echo starts the action, in key 0 as every other send here is. Those handlers hold the skills' rules; a second copy
     // for lockstep would drift from them. Beside the frames, which must not wait for a cast.
-    static void StartLockstepSkill(Player conn, ushort sequence, double at)
+    static void StartLockstepSkill(Player player, ushort sequence, double at)
     {
-        var request = conn.LockstepSkill;
+        var request = player.LockstepSkill;
         if (request.Target is { } target)
         {
-            _ = OnUseObject(conn, new(target, request.Skill, sequence, request.Flags), at);
+            _ = OnUseObject(player, new(target, request.Skill, sequence, request.Flags), at);
             return;
         }
-        if (LockstepGroundMelee(conn, request.Skill, request.Flags))
+        if (LockstepGroundMelee(player, request.Skill, request.Flags))
         {
-            _ = StartLockstepGroundMelee(conn, request.Aim, request.Skill, sequence, request.Flags);
+            _ = StartLockstepGroundMelee(player, request.Aim, request.Skill, sequence, request.Flags);
             return;
         }
         byte[] use = new LoginWriter().U16(InstanceProtocol.UseSkillAtLocationId).U32((uint)request.Aim.X).U32((uint)request.Aim.Y)
             .U16(request.Skill).U16(sequence).U16(request.Flags).ToArray();
-        _ = Task.Run(async () =>
+        _ = AreaFrames.Start(async () =>
         {
             try
             {
-                await OnClientMessages([(InstanceProtocol.UseSkillAtLocationId, use)], [], conn);
+                await OnClientMessages([(InstanceProtocol.UseSkillAtLocationId, use)], [], player);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         });
@@ -66,17 +66,17 @@ public static partial class Game
     // Differs from GGG: its server steps by frames and so can know the frame the client was on; a lockstep request carries
     // no frame here, so this estimates it. The client runs a round trip and about two frames behind the server (160 to
     // 220 ms at 100 ms, 66 to 100 ms on loopback), and its offsets are from the cell it had then. Called under conn.Monsters.
-    public static (int X, int Y) LockstepClientCell(Player conn, double now)
+    public static (int X, int Y) LockstepClientCell(Player player, double now)
     {
-        double lowest = conn.LockstepLatency.Lowest;
+        double lowest = player.Connection.LockstepLatency.Lowest;
         double when = now - ((double.IsNaN(lowest) ? 0 : lowest / 1000) + 2d * FrameMs / 1000);
         (int X, int Y)? cell = null;
-        foreach (var (at, past) in conn.LockstepTrail)
+        foreach (var (at, past) in player.Connection.LockstepTrail)
         {
             if (at > when) break;
             cell = past;
         }
-        return cell ?? conn.Walk.Position(now);
+        return cell ?? player.Walk.Position(now);
     }
 
     // Differs from GGG: 0x194 was in none of its sessions here, and the handler reads as an idle timeout (the client runs
@@ -85,28 +85,28 @@ public static partial class Game
     // shown it is in lockstep. It takes the wire alone, as
     // the 0x1c does, because a send gate held by game state would read as latency. The steps are random so that a probe
     // does not keep landing at the same point of a slow client's update.
-    static async Task ProbeLockstepLatency(Player conn)
+    static async Task ProbeLockstepLatency(Player player)
     {
-        double now = AreaTime(conn);
-        if (!conn.LockstepClient || now < conn.LockstepNextProbeAt) return;
-        conn.LockstepNextProbeAt = now + (conn.LockstepLatency.Settled ? 2 : .07)
-            + AreaRng(conn).NextDouble() * .05;
-        long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
+        double now = AreaTime(player);
+        if (!player.Connection.LockstepClient || now < player.Connection.LockstepNextProbeAt) return;
+        player.Connection.LockstepNextProbeAt = now + (player.Connection.LockstepLatency.Settled ? 2 : .07)
+            + AreaRng(player).NextDouble() * .05;
+        long sent = Interlocked.Exchange(ref player.Connection.LockstepProbeSentAt, 0);
         if (sent != 0 && Stopwatch.GetElapsedTime(sent).TotalMilliseconds < LockstepLatency.Lost)
         {
-            Interlocked.CompareExchange(ref conn.LockstepProbeSentAt, sent, 0);
+            Interlocked.CompareExchange(ref player.Connection.LockstepProbeSentAt, sent, 0);
             return;
         }
-        if (sent != 0) conn.LockstepLatency.Add(LockstepLatency.Lost);
-        Interlocked.Exchange(ref conn.LockstepProbeSentAt, Stopwatch.GetTimestamp());
-        await SendPong(conn, InstanceProtocol.AfkRequest());
+        if (sent != 0) player.Connection.LockstepLatency.Add(LockstepLatency.Lost);
+        Interlocked.Exchange(ref player.Connection.LockstepProbeSentAt, Stopwatch.GetTimestamp());
+        await SendPong(player, InstanceProtocol.AfkRequest());
     }
 
     // The client's answer to 0x194: readAt is when its bytes reached the socket, so handlers running late do not count.
-    public static void AnswerLockstepProbe(Player conn, long readAt)
+    public static void AnswerLockstepProbe(Player player, long readAt)
     {
-        long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
-        if (sent != 0) conn.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);
+        long sent = Interlocked.Exchange(ref player.Connection.LockstepProbeSentAt, 0);
+        if (sent != 0) player.Connection.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);
     }
 
     // Differs from GGG: a monster that gives up its pursuit (PlanMonsterAi, "gives up") gets no order and goes on with its

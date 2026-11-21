@@ -33,13 +33,13 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     public bool Any => !_subscribers.IsEmpty;
 
     /// <summary>The subscribers for this connection's league.</summary>
-    public IEnumerable<T> For(Player conn)
+    public IEnumerable<T> For(Player player)
     {
-        foreach (var (_, run) in Subscribers(conn)) yield return run;
+        foreach (var (_, run) in Subscribers(player)) yield return run;
     }
 
     /// <summary>The subscribers for this connection's league, with their owners (for <see cref="GameEventOwners.Guard"/>).</summary>
-    public IEnumerable<(string Owner, T Run)> Subscribers(Player conn) => Subscribers(Program.LeagueFor(conn));
+    public IEnumerable<(string Owner, T Run)> Subscribers(Player player) => Subscribers(Program.LeagueFor(player));
 
     /// <summary>The subscribers for a league, before a connection exists (an area's inputs are decided first).</summary>
     public IEnumerable<T> For(LeagueRuntime league)
@@ -141,7 +141,7 @@ public static class GameEventOwners
 /// <summary>A hostile monster died by the player's hand, inside the kill's commit. What sends messages goes in <see cref="Later"/>: it runs
 /// after the commit, in order, whichever way the kill came (a melee hit, a projectile). An atomic kill with
 /// CommittedOutput instead requires handlers to commit gameplay synchronously and append primitive output there.</summary>
-public sealed record KillContext(Player Conn, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
+public sealed record KillContext(Player Player, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
 {
     // Attributed owned kills still dispatch league content; only owner-specific triggers filter this flag.
     public bool PlayerKill { get; init; } = true;
@@ -158,12 +158,12 @@ public static class GameEvents
     /// <summary>Adjust an entity's walking speed (cells/second) before its movement is resolved and presented.</summary>
     public static readonly GameEvent<Func<Player, uint, double, double>> MovementSpeed = new();
 
-    public static double ResolveMovementSpeed(Player conn, uint entity, double speed)
+    public static double ResolveMovementSpeed(Player player, uint entity, double speed)
     {
-        foreach (var (owner, run) in MovementSpeed.Subscribers(conn))
+        foreach (var (owner, run) in MovementSpeed.Subscribers(player))
         {
             double next = speed;
-            if (GameEventOwners.Guard(owner, nameof(MovementSpeed), () => next = run(conn, entity, speed))
+            if (GameEventOwners.Guard(owner, nameof(MovementSpeed), () => next = run(player, entity, speed))
                 && double.IsFinite(next) && next > 0) speed = next;
         }
         return speed;
@@ -177,7 +177,7 @@ public static class GameEvents
 
     /// <summary>An <see cref="AreaTick"/> whose work runs only in the area <paramref name="areaId"/>.</summary>
     public static Func<Player, Func<Player, double, Task>?> InArea(string areaId, Func<Player, Task> run) =>
-        conn => conn.Layout.Id == areaId ? (c, _) => run(c) : null;
+        player => player.Layout.Id == areaId ? (c, _) => run(c) : null;
 
     /// <summary>An <see cref="AreaTick"/> whose work runs in every area.</summary>
     public static Func<Player, Func<Player, double, Task>?> Always(Func<Player, double, Task> run) => _ => run;
@@ -187,8 +187,14 @@ public static class GameEvents
     /// connection is the area's first player's, for its league and the area's data; keep nothing of it but the area's.</summary>
     public static readonly GameEvent<Action<GameArea, Player>> AreaStarted = new();
 
-    /// <summary>The player's area is ready: the client sent "area generated", and the area's monsters and objects are placed.</summary>
+    /// <summary>The area was generated: once, when its first player's client sent "area generated" and its monsters are
+    /// placed. Place the area's objects here (everyone sees them; a later player is given them as they are). The player is
+    /// the one whose entry generated it.</summary>
     public static readonly GameEvent<Func<Player, Task>> AreaGenerated = new();
+
+    /// <summary>A player entered the area (its client sent "area generated"), after the area was generated: the player's own
+    /// things and their quest view (the NPCs and quest blockers their quest state shows them).</summary>
+    public static readonly GameEvent<Func<Player, Task>> PlayerEntered = new();
 
     /// <summary>A new instance's monsters are placed (not a kept instance's, whose monsters come back as they were): place
     /// a league encounter's monsters and objects here (<see cref="LeagueChances"/> rolls how many).</summary>
@@ -214,7 +220,7 @@ public static class GameEvents
 
     public static void ResolveMapOpening(MapOpening request)
     {
-        foreach (var (owner, run) in MapOpening.Subscribers(request.Conn))
+        foreach (var (owner, run) in MapOpening.Subscribers(request.Player))
             GameEventOwners.Guard(owner, nameof(MapOpening), () => run(request));
         if (request.Opening is not null)
             foreach (string message in request.UnhandledContent)
@@ -249,64 +255,69 @@ public static class GameEvents
     /// <summary>A chat command, <c>/name args…</c>, through <see cref="CommandsBuilding"/>. The Gateway's own commands, and those added
     /// before it, keep their name. One that throws tells the player it failed, and the error is in the Gateway's log.</summary>
     public static IDisposable Command(string owner, string name, string usage, Func<Player, string[], Task> run, params string[] arguments) =>
-        CommandsBuilding.Add(owner, (commands, conn) => commands.TryAdd(name, usage, async args =>
+        CommandsBuilding.Add(owner, (commands, player) => commands.TryAdd(name, usage, async args =>
         {
-            if (!await GameEventOwners.Guard(owner, $"/{name}", () => run(conn, args)))
+            if (!await GameEventOwners.Guard(owner, $"/{name}", () => run(player, args)))
                 await commands.Reply($"/{name} failed ({owner}); the error is in the Gateway's log. Usage: {usage}");
         }, arguments));
 
     /// <summary>The content's work for the area the player just entered (<see cref="AreaTick"/>); empty when none has any.</summary>
-    public static List<(string Owner, Func<Player, double, Task> Run)> AreaTickWork(Player conn)
+    public static List<(string Owner, Func<Player, double, Task> Run)> AreaTickWork(Player player)
     {
         List<(string, Func<Player, double, Task>)> work = [];
-        foreach (var (owner, start) in AreaTick.Subscribers(conn))
-            if (start(conn) is { } run) work.Add((owner, run));
+        foreach (var (owner, start) in AreaTick.Subscribers(player))
+            if (start(player) is { } run) work.Add((owner, run));
         return work;
     }
 
-    public static async Task RunAreaTick(List<(string Owner, Func<Player, double, Task> Run)> work, Player conn, double seconds)
+    public static async Task RunAreaTick(List<(string Owner, Func<Player, double, Task> Run)> work, Player player, double seconds)
     {
-        foreach (var (owner, run) in work) await GameEventOwners.Guard(owner, nameof(AreaTick), () => run(conn, seconds));
+        foreach (var (owner, run) in work) await GameEventOwners.Guard(owner, nameof(AreaTick), () => run(player, seconds));
     }
 
-    public static async Task RunAreaGenerated(Player conn)
+    public static async Task RunAreaGenerated(Player player)
     {
-        foreach (var (owner, run) in AreaGenerated.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(AreaGenerated), () => run(conn));
+        foreach (var (owner, run) in AreaGenerated.Subscribers(player)) await GameEventOwners.Guard(owner, nameof(AreaGenerated), () => run(player));
+    }
+
+    public static async Task RunPlayerEntered(Player player)
+    {
+        foreach (var (owner, run) in PlayerEntered.Subscribers(player)) await GameEventOwners.Guard(owner, nameof(PlayerEntered), () => run(player));
     }
 
     public static async Task RunAreaPopulated(AreaPopulated area)
     {
-        foreach (var (owner, run) in AreaPopulated.Subscribers(area.Conn)) await GameEventOwners.Guard(owner, nameof(AreaPopulated), () => run(area));
+        foreach (var (owner, run) in AreaPopulated.Subscribers(area.Player)) await GameEventOwners.Guard(owner, nameof(AreaPopulated), () => run(area));
     }
 
-    public static async Task RunLocalGateUsed(Player conn)
+    public static async Task RunLocalGateUsed(Player player)
     {
-        foreach (var (owner, run) in LocalGateUsed.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(LocalGateUsed), () => run(conn));
+        foreach (var (owner, run) in LocalGateUsed.Subscribers(player)) await GameEventOwners.Guard(owner, nameof(LocalGateUsed), () => run(player));
     }
 
-    public static async Task RunPlayerLeaving(Player conn, string why)
+    public static async Task RunPlayerLeaving(Player player, string why)
     {
-        foreach (var (owner, run) in PlayerLeaving.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(PlayerLeaving), () => run(conn, why));
+        foreach (var (owner, run) in PlayerLeaving.Subscribers(player)) await GameEventOwners.Guard(owner, nameof(PlayerLeaving), () => run(player, why));
     }
 
-    public static async Task RunHideoutReady(Player conn)
+    public static async Task RunHideoutReady(Player player)
     {
-        foreach (var (owner, run) in HideoutReady.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(HideoutReady), () => run(conn));
+        foreach (var (owner, run) in HideoutReady.Subscribers(player)) await GameEventOwners.Guard(owner, nameof(HideoutReady), () => run(player));
     }
 
-    public static List<(string Log, byte[] Message)> RunEnterMessages(Player conn)
+    public static List<(string Log, byte[] Message)> RunEnterMessages(Player player)
     {
         var messages = new List<(string, byte[])>();
-        foreach (var (owner, run) in EnterMessages.Subscribers(conn)) GameEventOwners.Guard(owner, nameof(EnterMessages), () => messages.AddRange(run(conn)));
+        foreach (var (owner, run) in EnterMessages.Subscribers(player)) GameEventOwners.Guard(owner, nameof(EnterMessages), () => messages.AddRange(run(player)));
         return messages;
     }
 
-    public static AreaHeader? RunAreaHeader(Player conn)
+    public static AreaHeader? RunAreaHeader(Player player)
     {
         AreaHeader? header = null;
-        foreach (var (owner, run) in AreaHeader.Subscribers(conn))
+        foreach (var (owner, run) in AreaHeader.Subscribers(player))
         {
-            GameEventOwners.Guard(owner, nameof(AreaHeader), () => header = run(conn));
+            GameEventOwners.Guard(owner, nameof(AreaHeader), () => header = run(player));
             if (header is not null) break;
         }
         return header;
@@ -314,13 +325,13 @@ public static class GameEvents
 
     public static async Task RunMonsterKilled(MonsterKill kill)
     {
-        foreach (var (owner, run) in MonsterKilled.Subscribers(kill.Conn)) await GameEventOwners.Guard(owner, nameof(MonsterKilled), () => run(kill));
+        foreach (var (owner, run) in MonsterKilled.Subscribers(kill.Player)) await GameEventOwners.Guard(owner, nameof(MonsterKilled), () => run(kill));
     }
 
     /// <summary>True when a subscriber answered the option.</summary>
     public static async Task<bool> AnyNpcOption(NpcOption option)
     {
-        foreach (var (owner, run) in NpcOption.Subscribers(option.Conn))
+        foreach (var (owner, run) in NpcOption.Subscribers(option.Player))
         {
             bool taken = false;
             if (await GameEventOwners.Guard(owner, nameof(NpcOption), async () => taken = await run(option)) && taken) return true;
@@ -329,43 +340,43 @@ public static class GameEvents
     }
 
     /// <summary>True when a subscriber took the message.</summary>
-    public static async Task<bool> AnyPacket(Player conn, ushort opcode, byte[] bytes)
+    public static async Task<bool> AnyPacket(Player player, ushort opcode, byte[] bytes)
     {
         if (!Packets.TryGetValue(opcode, out var packet)) return false;
-        foreach (var (owner, run) in packet.Subscribers(conn))
+        foreach (var (owner, run) in packet.Subscribers(player))
         {
             bool taken = false;
-            if (await GameEventOwners.Guard(owner, $"Packet 0x{opcode:x4}", async () => taken = await run(conn, bytes)) && taken) return true;
+            if (await GameEventOwners.Guard(owner, $"Packet 0x{opcode:x4}", async () => taken = await run(player, bytes)) && taken) return true;
         }
         return false;
     }
 
     /// <summary>The subscribers' changes to a kill's drops; null when none of this league's changes drops.</summary>
-    public static DropRoll? RunDrops(Player conn, MonsterInfo monster)
+    public static DropRoll? RunDrops(Player player, MonsterInfo monster)
     {
         if (!Drops.Any) return null;
         DropRoll? roll = null;
-        foreach (var (owner, run) in Drops.Subscribers(conn))
+        foreach (var (owner, run) in Drops.Subscribers(player))
         {
-            roll ??= new DropRoll(conn, monster);
+            roll ??= new DropRoll(player, monster);
             GameEventOwners.Guard(owner, nameof(Drops), () => run(roll));
         }
         return roll;
     }
 
-    public static uint RunExperience(Player conn, MonsterInfo monster, uint experience)
+    public static uint RunExperience(Player player, MonsterInfo monster, uint experience)
     {
         if (!Experience.Any) return experience;
-        var gain = new ExperienceGain(conn, monster, experience);
-        foreach (var (owner, run) in Experience.Subscribers(conn)) GameEventOwners.Guard(owner, nameof(Experience), () => run(gain));
+        var gain = new ExperienceGain(player, monster, experience);
+        foreach (var (owner, run) in Experience.Subscribers(player)) GameEventOwners.Guard(owner, nameof(Experience), () => run(gain));
         return gain.Experience;
     }
 
-    public static IReadOnlyDictionary<uint, int> RunStats(Player conn)
+    public static IReadOnlyDictionary<uint, int> RunStats(Player player)
     {
         if (!Stats.Any) return ImmutableDictionary<uint, int>.Empty;
-        var sheet = new StatSheet(conn);
-        foreach (var (owner, run) in Stats.Subscribers(conn)) GameEventOwners.Guard(owner, nameof(Stats), () => run(sheet));
+        var sheet = new StatSheet(player);
+        foreach (var (owner, run) in Stats.Subscribers(player)) GameEventOwners.Guard(owner, nameof(Stats), () => run(sheet));
         return sheet.Added;
     }
 
@@ -396,29 +407,29 @@ public static class GameEvents
     /// <summary>The player came back at a checkpoint or in town: a league encounter may restart its run.</summary>
     public static readonly GameEvent<Func<Player, Task>> Resurrected = new();
 
-    public static IReadOnlyList<GrantedSkill> ExtraSkills(Player conn) =>
-        [.. GrantedSkills.For(conn).SelectMany(run => run(conn))];
+    public static IReadOnlyList<GrantedSkill> ExtraSkills(Player player) =>
+        [.. GrantedSkills.For(player).SelectMany(run => run(player))];
 
-    public static HashSet<uint> ExemptItems(Player conn) =>
-        [.. RequirementExemptions.For(conn).SelectMany(run => run(conn))];
+    public static HashSet<uint> ExemptItems(Player player) =>
+        [.. RequirementExemptions.For(player).SelectMany(run => run(player))];
 
-    public static int AdjustIncomingDamage(Player conn, int damage)
+    public static int AdjustIncomingDamage(Player player, int damage)
     {
-        foreach (var run in IncomingDamage.For(conn)) damage = run(conn, damage);
+        foreach (var run in IncomingDamage.For(player)) damage = run(player, damage);
         return damage;
     }
 
-    public static bool AllowsLoot(Player conn) => LootAllowed.For(conn).All(run => run(conn));
+    public static bool AllowsLoot(Player player) => LootAllowed.For(player).All(run => run(player));
 
-    public static async Task<bool> AnyRewardClosing(Player conn)
+    public static async Task<bool> AnyRewardClosing(Player player)
     {
-        foreach (var run in RewardClosing.For(conn)) if (await run(conn)) return true;
+        foreach (var run in RewardClosing.For(player)) if (await run(player)) return true;
         return false;
     }
 
-    public static async Task RunResurrected(Player conn)
+    public static async Task RunResurrected(Player player)
     {
-        foreach (var run in Resurrected.For(conn)) await run(conn);
+        foreach (var run in Resurrected.For(player)) await run(player);
     }
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
     public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
@@ -450,102 +461,102 @@ public static class GameEvents
     /// the module delivered it to the party.</summary>
     public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
 
-    public static async Task<bool> AnyNpcTalk(Player conn, uint id, SpawnedNpc npc)
+    public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
-        foreach (var run in NpcTalk.For(conn)) if (await run(conn, id, npc)) return true;
+        foreach (var run in NpcTalk.For(player)) if (await run(player, id, npc)) return true;
         return false;
     }
 
-    public static ChatCommands RunCommandsBuilding(Player conn, ChatCommands commands)
+    public static ChatCommands RunCommandsBuilding(Player player, ChatCommands commands)
     {
         // With no connection, for the list tools read: every module's commands.
-        foreach (var run in conn is null ? CommandsBuilding.All : CommandsBuilding.For(conn)) commands = run(commands, conn!);
+        foreach (var run in player is null ? CommandsBuilding.All : CommandsBuilding.For(player)) commands = run(commands, player!);
         return commands;
     }
 
-    public static void RunStateBuilding(Player conn, System.Text.Json.Nodes.JsonObject state)
+    public static void RunStateBuilding(Player player, System.Text.Json.Nodes.JsonObject state)
     {
-        foreach (var run in StateBuilding.For(conn)) run(conn, state);
+        foreach (var run in StateBuilding.For(player)) run(player, state);
     }
 
     public static async Task RunKill(KillContext kill)
     {
-        foreach (var run in Kill.For(kill.Conn)) run(kill);
+        foreach (var run in Kill.For(kill.Player)) run(kill);
         foreach (var send in kill.Afterwards) await send();
     }
 
-    public static Dictionary<uint, int> WithPlayerStatSources(Player conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithPlayerStatSources(Player player, Dictionary<uint, int> sources)
     {
-        foreach (var run in PlayerStatSources.For(conn)) sources = run(conn, sources);
+        foreach (var run in PlayerStatSources.For(player)) sources = run(player, sources);
         return sources;
     }
 
-    public static DamagePacket WithOutgoingDamage(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster monster, DamagePacket rolled)
+    public static DamagePacket WithOutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster monster, DamagePacket rolled)
     {
-        foreach (var run in OutgoingDamage.For(conn)) rolled = run(conn, player, monster, rolled);
+        foreach (var run in OutgoingDamage.For(player)) rolled = run(player, playerStats, monster, rolled);
         return rolled;
     }
 
-    public static async Task<bool> AnyObjectUse(Player conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> AnyObjectUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        foreach (var run in ObjectUse.For(conn)) if (await run(conn, use, requestedAt)) return true;
+        foreach (var run in ObjectUse.For(player)) if (await run(player, use, requestedAt)) return true;
         return false;
     }
 
-    public static async Task<bool> AnyGroundItemUse(Player conn, uint id, WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> AnyGroundItemUse(Player player, uint id, WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        foreach (var run in GroundItemUse.For(conn)) if (await run(conn, id, ground, use, requestedAt)) return true;
+        foreach (var run in GroundItemUse.For(player)) if (await run(player, id, ground, use, requestedAt)) return true;
         return false;
     }
 
-    public static async Task<bool> AllowNpcOption(Player conn, NpcCatalog.Talk talk)
+    public static async Task<bool> AllowNpcOption(Player player, NpcCatalog.Talk talk)
     {
-        foreach (var run in NpcOptionPicked.For(conn)) if (!await run(conn, talk)) return false;
+        foreach (var run in NpcOptionPicked.For(player)) if (!await run(player, talk)) return false;
         return true;
     }
 
-    public static async Task RunMessagesHandled(Player conn, IReadOnlyList<ushort> ids)
+    public static async Task RunMessagesHandled(Player player, IReadOnlyList<ushort> ids)
     {
-        foreach (var run in MessagesHandled.For(conn)) await run(conn, ids);
+        foreach (var run in MessagesHandled.For(player)) await run(player, ids);
     }
 
-    public static async Task<bool> AnyInventoryPick(Player conn, InstanceItems.PickUpItem pick)
+    public static async Task<bool> AnyInventoryPick(Player player, InstanceItems.PickUpItem pick)
     {
-        foreach (var run in InventoryPick.For(conn)) if (await run(conn, pick)) return true;
+        foreach (var run in InventoryPick.For(player)) if (await run(player, pick)) return true;
         return false;
     }
 
-    public static async Task<bool> AnyInventoryPlace(Player conn, InstanceItems.PlaceItem place)
+    public static async Task<bool> AnyInventoryPlace(Player player, InstanceItems.PlaceItem place)
     {
-        foreach (var run in InventoryPlace.For(conn)) if (await run(conn, place)) return true;
+        foreach (var run in InventoryPlace.For(player)) if (await run(player, place)) return true;
         return false;
     }
 
-    public static async Task RunChestsOpened(Player conn, (int X, int Y) at, int radius)
+    public static async Task RunChestsOpened(Player player, (int X, int Y) at, int radius)
     {
-        foreach (var run in ChestsOpened.For(conn)) await run(conn, at, radius);
+        foreach (var run in ChestsOpened.For(player)) await run(player, at, radius);
     }
 
-    public static async Task RunNpcDialogueClosing(Player conn)
+    public static async Task RunNpcDialogueClosing(Player player)
     {
-        foreach (var run in NpcDialogueClosing.For(conn)) await run(conn);
+        foreach (var run in NpcDialogueClosing.For(player)) await run(player);
     }
 
-    public static bool? RunSkillCast(Player conn, string? effect, ushort skillId, (int X, int Y) from, Func<bool> current)
+    public static bool? RunSkillCast(Player player, string? effect, ushort skillId, (int X, int Y) from, Func<bool> current)
     {
-        foreach (var run in SkillCast.For(conn)) if (run(conn, effect, skillId, from, current) is { } taken) return taken;
+        foreach (var run in SkillCast.For(player)) if (run(player, effect, skillId, from, current) is { } taken) return taken;
         return null;
     }
 
-    public static async Task<bool> AnyItemUse(Player conn, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    public static async Task<bool> AnyItemUse(Player player, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
-        foreach (var run in ItemUse.For(conn)) if (await run(conn, row, item, type)) return true;
+        foreach (var run in ItemUse.For(player)) if (await run(player, row, item, type)) return true;
         return false;
     }
 
-    public static async Task<bool> RunPartyChat(Player conn, string text, IReadOnlyList<ChatLineItem>? items)
+    public static async Task<bool> RunPartyChat(Player player, string text, IReadOnlyList<ChatLineItem>? items)
     {
-        foreach (var run in PartyChat.For(conn)) if (await run(conn, text, items)) return true;
+        foreach (var run in PartyChat.For(player)) if (await run(player, text, items)) return true;
         return false;
     }
 }

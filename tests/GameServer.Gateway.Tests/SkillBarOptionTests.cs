@@ -21,11 +21,11 @@ public class SkillBarOptionTests
         var previous = Program.GameLogicOrNull;
         var outgoing = Program.Outgoing;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = SpellTotemExecutionTests.Connection(character);
+        var player = SpellTotemExecutionTests.PlayerOf(character);
         using var wire = new SpellTotemExecutionTests.Wire();
-        conn.Session = new("skill-bar-test", wire.Stream, wire.Ciphers);
+        player.Connection.Session = new("skill-bar-test", wire.Stream, wire.Ciphers);
         var packets = new List<byte[]>();
-        Program.Outgoing = (player, bytes) => { if (ReferenceEquals(player, conn)) packets.Add(bytes.ToArray()); };
+        Program.Outgoing = (peer, bytes) => { if (ReferenceEquals(peer, player)) packets.Add(bytes.ToArray()); };
         var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
         try
         {
@@ -34,7 +34,7 @@ public class SkillBarOptionTests
             Task refresh;
             try
             {
-                refresh = Game.SendSkillBar(conn);
+                refresh = Game.SendSkillBar(player);
                 Assert.False(refresh.IsCompleted);
                 SkillBarLayout.Bind(character, 2, "");
             }

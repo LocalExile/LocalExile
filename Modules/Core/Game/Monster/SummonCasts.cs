@@ -2,26 +2,23 @@ static partial class Game
 {
     /// <summary>A triggered summon is released at once and never repeats: it has no cast time, and a trigger support
     /// adds the Triggered type, which Spell Echo excludes.</summary>
-    static async Task<bool> RepeatSummonCast(Player conn, ushort source, int recovery,
+    static async Task<bool> RepeatSummonCast(Player player, ushort source, int recovery,
         Func<bool> current, bool triggered, Func<Task<bool>> release)
     {
-        var gem = SupportedSkill(conn, source);
-        int repeats = triggered ? 0 : SpellRepeats(conn, source, gem.Effect);
-        int seals = triggered ? 0 : UnleashSeals(conn, source, gem, ProjectileWorldTime(conn), spend: true);
-        double interval = Math.Max(.001, (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d);
-        double due = AreaTime(conn) + (triggered ? 0 : interval);
+        var gem = SupportedSkill(player, source);
+        int repeats = triggered ? 0 : SpellRepeats(player, source, gem.Effect);
+        int seals = triggered ? 0 : UnleashSeals(player, source, gem, ProjectileWorldTime(player), spend: true);
+        double interval = Math.Max(.001, (CastMs(player, gem.Effect, source) ?? 1000) / 1000d);
+        double due = AreaTime(player) + (triggered ? 0 : interval);
         var lifetime = CombatLifetime;
         for (int releaseIndex = 0; releaseIndex <= repeats + seals; releaseIndex++)
         {
             while (true)
             {
-                lock (conn.Monsters)
-                {
-                    if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || conn.Closed
-                        || conn.LeavingArea || conn.PlayerLife == 0 || !triggered && recovery != conn.ActionInterruptionGeneration
-                        || !SameTriggerSource(gem, SupportedSkill(conn, source))) return false;
-                    if (!conn.Paused && AreaTime(conn) >= due) break;
-                }
+                if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || player.Closed
+                    || player.LeavingArea || player.PlayerLife == 0 || !triggered && recovery != player.ActionInterruptionGeneration
+                    || !SameTriggerSource(gem, SupportedSkill(player, source))) return false;
+                if (!player.Paused && AreaTime(player) >= due) break;
                 await AreaWait(PlayerUpdateRole.Minions, 25);
             }
             if (!await release()) return false;

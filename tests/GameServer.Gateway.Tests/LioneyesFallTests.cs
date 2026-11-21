@@ -10,7 +10,7 @@ public class LioneyesFallTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"lioneyes-fall-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new Player(new(1, "bow", 100, 100, 100, 100, null, []), 1, 1) { Character = "BowConversion" };
+        var player = new Player(new(1, "bow", 100, 100, 100, 100, null, []), 1, 1) { Character = { Name = "BowConversion" } };
         try
         {
             var tree = Program.Passives;
@@ -30,17 +30,17 @@ public class LioneyesFallTests
             var point = location.Node;
             var source = location.Move.From;
             var target = location.Move.To;
-            Dictionary<uint, int> Read(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources;
+            Dictionary<uint, int> Read(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources;
             var before = Read(point, location.Socket);
             int original = before.GetValueOrDefault(source);
             Assert.True(original > 0);
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(11, (byte)location.Slot, 0, jewel));
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(11, (byte)location.Slot, 0, jewel));
             var converted = Read(point, location.Socket);
             Assert.Equal(0, converted.GetValueOrDefault(source));
             Assert.True(converted.GetValueOrDefault(target) >= before.GetValueOrDefault(target) + original);
             Assert.Equal(original, Read(point).GetValueOrDefault(source));
         }
-        finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
+        finally { PlayerInventories.Forget(player.Character.Name!); TestEnvironment.ReleaseSaves(path); }
     }
 
     [Fact]

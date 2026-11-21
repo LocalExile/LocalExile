@@ -18,8 +18,8 @@ public static class AuraCatalog
     }
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
-    // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
-    public static IEnumerable<byte[]> StartPackets(Aura aura, uint player, ushort? action, byte? receivedDisplayState = null)
+    // Both are the aura's (one row, one source), told apart by the source flag; they end together.
+    public static IEnumerable<Buff> Buffs(Aura aura, uint player, ushort? action, byte? receivedDisplayState = null)
     {
         // Both source and received buffs instantiate these native behaviours, which read two words unchecked.
         uint[]? behaviourData = aura.EffectId switch
@@ -28,25 +28,19 @@ public static class AuraCatalog
             "TemporalRift" => [42u, 100u],
             _ => null,
         };
-        if (aura.SourceBuff is ushort source)
-            yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
-                player, aura.SkillId, auraSource: true, displayState: 0, list: behaviourData);
+        if (aura.SourceBuff is not null)
+            yield return new(aura.BuffRow, player, aura.SkillId, AuraSource: true, DisplayState: 0, List: behaviourData);
         // An enemy hex aura has a source on its caster, never a received self curse.
         if (!CurseCatalog.Hex(aura.EffectId))
-            yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
-                player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
-                displayState: receivedDisplayState,
-                // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
-                // from the first two list entries without checking its length (0x1417a9410).
-                list: behaviourData);
+            // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag from the first two
+            // list entries without checking its length (0x1417a9410).
+            yield return new(aura.BuffRow, player, aura.SkillId, ActiveSkill: action is ushort hash ? (aura.SkillId, hash) : null,
+                DisplayState: receivedDisplayState, List: behaviourData);
     }
 
-    public static IEnumerable<byte[]> EndPackets(Aura aura, uint player)
-    {
-        yield return GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(player, aura.Buff);
-        if (aura.SourceBuff is ushort source)
-            yield return GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(player, source);
-    }
+    /// <summary>Whether a buff row is one of the auras' (a player's own aura buffs are replaced as one group).</summary>
+    public static bool IsAuraRow(ushort row) => (auraRows ??= [.. BuffRows.Values]).Contains(row);
+    static HashSet<ushort>? auraRows;
 
     /// <summary>The BuffDefinitions row that draws each aura's visual and buff icon.</summary>
     private static readonly Dictionary<string, ushort> BuffRows = new()

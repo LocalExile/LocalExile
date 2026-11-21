@@ -51,14 +51,14 @@ public static class BuffRows
     /// <summary>S→C 0x1c1 for the row on <paramref name="objectId"/>: its GrantedStats values from <paramref name="stats"/>
     /// (0 for one it does not name) when the row is IsRecovery, the +0x82 u16 (0) when it has one, and its time as the
     /// countdown (none: until 0x1c2 ends it).</summary>
-    public static byte[] Add(uint objectId, ushort instance, ushort row, uint source, IReadOnlyDictionary<uint, int>? stats,
-        double? seconds = null)
+    /// <summary>A row's buff with the fields its definition reads: GrantedStats values on a recovery row, +0x82 where the
+    /// row has it. <paramref name="tag"/> tells apart instances of a row that stacks.</summary>
+    public static Buff Spec(ushort row, uint source, IReadOnlyDictionary<uint, int>? stats, double? seconds = null, ushort tag = 0)
     {
         var info = Of(row);
         IReadOnlyList<uint>? values = info is { IsRecovery: true }
             ? [.. info.GrantedStats.Select(name => unchecked((uint)(stats?.GetValueOrDefault(name) ?? 0)))] : null;
-        return InstanceEntities.AddBuff(objectId, instance, row, source, values: values,
-            u68: seconds is double s && double.IsFinite(s) ? BitConverter.SingleToUInt32Bits((float)s) : null,
-            u82: info is { HasU82: true } ? (ushort)0 : null);
+        return new(row, source, Values: values, U68: seconds is double s && double.IsFinite(s) ? Buff.Seconds(s) : null,
+            U82: info is { HasU82: true } ? (ushort)0 : null, Tag: tag);
     }
 }

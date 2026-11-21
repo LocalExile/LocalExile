@@ -9,34 +9,34 @@ public static partial class Game
     public const ushort PoisonBuffRow = 10;
 
     /// <summary>A skill's poison damage and duration, as <see cref="SupportedIgnite"/>: its panel poison rows.</summary>
-    public static MonsterPoisons.Settings SupportedPoison(Player conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
+    public static MonsterPoisons.Settings SupportedPoison(Player player, ushort skillId, bool spell,
+        IReadOnlyDictionary<uint, int> playerStats, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null, int addedChaos = 0)
     {
         Func<uint, int> get;
         if (capturedInputs is null)
         {
-            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            var merged = MergeSkillStats(playerStats, SupportedSkill(player, skillId).Stats);
             get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
         }
         else
             get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
         var rows = capturedInputs is null
-            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
+            ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
-        return WithOverheat(conn, skillId, MonsterPoisons.Settings.From(rows, hand, get,
-            spell || weapon is not null ? null : MainHandLocalSources(conn)));
+        return WithOverheat(player, skillId, MonsterPoisons.Settings.From(rows, hand, get,
+            spell || weapon is not null ? null : MainHandLocalSources(player)));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    public static MonsterPoisons.Settings DefaultAttackPoison(Player conn, IReadOnlyDictionary<uint, int> player,
+    public static MonsterPoisons.Settings DefaultAttackPoison(Player player, IReadOnlyDictionary<uint, int> playerStats,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
-        int Get(uint key) => player.GetValueOrDefault(key);
-        var sourceWeapon = weapon ?? WeaponFor(conn);
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
+        var sourceWeapon = weapon ?? WeaponFor(player);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get, sourceWeapon.LocalSources);
     }
@@ -46,14 +46,14 @@ public static partial class Game
     // per second (an independent roll in the non-critical or critical range) and duration come from the hit's panel poison
     // rows (<paramref name="settings"/>, captured with the hit as its ignite's are), so a poison deals what the panel shows:
     // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
-    public static void PoisonOnHitLocked(Player conn, SpawnedMonster target, DamagePacket mitigated,
-        bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
+    public static void PoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         MonsterPoisons.Settings settings, double now, Random random) =>
-        TryPoisonOnHitLocked(conn, target, mitigated, spell, critical, player, skill, settings, now, random,
+        TryPoisonOnHitLocked(player, target, mitigated, spell, critical, playerStats, skill, settings, now, random,
             out _, out _);
 
-    public static bool TryPoisonOnHitLocked(Player conn, SpawnedMonster target, DamagePacket mitigated,
-        bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
+    public static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds)
     {
         perSecond = seconds = 0;
@@ -61,7 +61,7 @@ public static partial class Game
         double phys = mitigated[DamageType.Physical].Min;
         double chaos = mitigated[DamageType.Chaos].Min;
 
-        int Player(uint key) => player.GetValueOrDefault(key);
+        int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int Get(uint name) => Player(name) + Skill(name);
         if ((Get(Stat.AllDamageCanPoison) != 0 ? mitigated.MinTotal : phys + chaos) <= 0) return false;
@@ -90,73 +90,56 @@ public static partial class Game
         for (int i = 0; i < stacks; i++)
             if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
         if (accepted == 0) return false;
-        ReservationPoisonLocked(conn, now);
+        ReservationPoisonLocked(player, now);
         return true;
     }
 
-    public static async Task TickPoisons(Player conn)
+    public static async Task TickPoisons(Player player)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
-        var ended = new List<(uint Id, ushort Buff)>();
-        var updated = new List<(uint Id, ushort Buff, int Stacks, double Remaining)>();
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(player))
         {
-            if (conn.Closed || conn.LeavingArea) return;
-            double now = ProjectileWorldTime(conn);
-            foreach (var (id, m) in conn.Monsters)
+            if (player.Closed || player.LeavingArea) return;
+            double now = ProjectileWorldTime(player);
+            foreach (var (id, m) in player.Area.Monsters)
             {
-                if (OwnedGolemActor(conn, id, m)) continue;
+                if (OwnedGolemActor(player, id, m)) continue;
                 if (m.Poisons.Idle) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
                 else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
                 if (damage > 0)
                 {
-                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
-                        CollectVaalSoulAtDeathLocked(conn, m);
+                        CollectVaalSoulAtDeathLocked(player, m);
                         m.Poisons.ClearAtDeath(now, poisonDeath: true);
                     }
                     hits.Add((id, m, m.Life, damage));
-                    if (stageStarts) CommitBossStage(conn, id, m, now);
+                    if (stageStarts) CommitBossStage(player, id, m, now);
                 }
                 if (m.Dead || m.Life == 0 || !m.Poisons.Poisoned)
                 {
-                    if (m.Poisons.Buff is ushort gone)
-                    {
-                        ended.Add((id, gone));
-                        m.Poisons.Buff = null;
-                    }
+                    EndDot(player, id, ref m.Poisons.Buff, m.Poisons.BuffSource);
                 }
                 else
                 {
-                    if (m.Poisons.Buff is ushort old) ended.Add((id, old));
-                    int stacks = m.Poisons.Stacks(now);
-                    ushort next = conn.NextBuff++;
-                    m.Poisons.Buff = next;
-                    updated.Add((id, next, stacks, m.Poisons.Until - now));
+                    // The stacks and the countdown to the last poison's end; a new poison moves both.
+                    ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, new(PoisonBuffRow, player.Id,
+                        Stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue),
+                        U68: Buff.Seconds(m.Poisons.Until - now), Visual: AilmentArtVisual(player, "poison")));
                 }
             }
         }
-        foreach (var (id, buff) in ended)
-        {
-            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
-            // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
-            ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
-        }
-        foreach (var (id, buff, stacks, remaining) in updated)
-            await SendWorldRecord(conn, id, InstanceEntities.AddBuff(id, buff, PoisonBuffRow, PlayerId, stacks: (ushort)Math.Clamp(stacks, 1, ushort.MaxValue),
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining)), visual: AilmentArtVisual(conn, "poison")), null);
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
-                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
-                life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of poison" : null);
-            if (life == 0) await DotKilled(conn, id, m);
+                SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+            Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of poison" : null);
+            if (life == 0) await DotKilled(player, id, m);
         }
     }
 }

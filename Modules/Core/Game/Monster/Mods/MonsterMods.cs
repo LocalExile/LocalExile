@@ -26,14 +26,14 @@ public static partial class Game
     /// <summary>The mods a new monster gets: <paramref name="kept"/> (a monster of a kept instance, a /mob_mods
     /// choice) when it has any, else freshly rolled for its rarity. Area packs pass <paramref name="alone"/> false;
     /// their magic monsters share one roll per monster name in the instance.</summary>
-    public static MonsterModSet MonsterModsFor(Player conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
+    public static MonsterModSet MonsterModsFor(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
         MonsterModSet? kept, bool alone)
     {
         if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
         var rolls = MonsterModRolls;
-        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, AreaRng(conn), alone);
-        var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
-        lock (shared) return rolls.SharedMagic(shared, variety, level, AreaRng(conn));
+        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, AreaRng(player), alone);
+        var shared = MagicModsOf.GetValue(player.Instance, _ => []);
+        lock (shared) return rolls.SharedMagic(shared, variety, level, AreaRng(player));
     }
 
     /// <summary>The stats the client needs for the mods (it applies no modifier of its own to a monster, 14 §2): the
@@ -54,7 +54,7 @@ public static partial class Game
     /// <summary>The monster's own part of its hit on the player, after the roll and before the player's defences: its
     /// critical strike (only with a chance from its mods: of Deadliness; × Monster.ot's 130% multiplier less the
     /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
-    /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
+    /// and the increased damage per 10% of the player's missing life (Executioner's). Call in the area's frame.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false)
     {
@@ -145,9 +145,9 @@ public static partial class Game
             .Scale(m.Effects.DamageTaken(spell));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
-    public static int SelfCriticalReduction(Player conn)
+    public static int SelfCriticalReduction(Player player)
     {
-        var stats = CharacterPlayerStats(conn);
+        var stats = CharacterPlayerStats(player);
         return SelfCriticalReduction(name => name is var key ? stats.GetValueOrDefault(key) : 0);
     }
 
@@ -181,9 +181,9 @@ public static partial class Game
     public const int Evaded = -2;
 
     /// <summary>A contact's hit unless blocked or evaded; rejected contacts have no life or on-hit mutation.
-    /// The caller holds the Monsters lock.</summary>
-    public static MonsterHit? HitUnlessBlockedLocked(Player conn, SpawnedMonster m, int damage) =>
-        damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(conn, m, damage);
+    /// The caller holds the area's frame.</summary>
+    public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
+        damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
     /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no
     /// extra damage from critical strikes (of Toughness).</summary>
@@ -225,7 +225,7 @@ public static partial class Game
 
     public const uint EnemyRegenerationOnHit = Stat.EnemyLifeRegenerationRatePlusPctFor4SecondsOnHit;
 
-    /// <summary>One regeneration step over the living, damaged monsters (under the Monsters lock): the ones whose life
+    /// <summary>One regeneration step over the living, damaged monsters (in the area's frame): the ones whose life
     /// changed, with their new life. The part of the step within 4 s of the player's last hit on a monster regenerates at
     /// (1 + <paramref name="onHitPct"/> / 100) of its rate, at least 0.</summary>
     public static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double seconds,

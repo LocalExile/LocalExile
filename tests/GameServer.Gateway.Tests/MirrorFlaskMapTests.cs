@@ -50,7 +50,7 @@ public class MirrorFlaskMapTests
         using var runtime = new PartyFollowerTests.Runtime();
         using var wire = new PartyFollowerTests.Wire();
         string name = "MirrorFlaskMap" + Guid.NewGuid().ToString("N");
-        var c = runtime.Connection(new(), wire, name);
+        var c = runtime.PlayerOf(new(), wire, name);
         var items = Game.ItemsOf(c);
         const byte main = PlayerInventories.MainInventory;
         uint inventory = PlayerInventories.InventoryId(main);

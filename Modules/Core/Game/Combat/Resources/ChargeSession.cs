@@ -8,7 +8,7 @@ using System.Collections.Concurrent;
 /// The limits (maximum, minimum, duration) and the periodic stats are not polled: <see cref="Observe"/> takes them
 /// whenever the character's stats are worked out (an item, a passive, an aura, /set_stat, a level all do that).
 /// <see cref="Die"/> takes every gained charge at once. <see cref="Presentation"/> says which charge buffs the client
-/// must get or lose. Not thread-safe: the Gateway calls it under the connection's Monsters lock.
+/// must get or lose. Not thread-safe: the Gateway calls it in the area's frame.
 /// </summary>
 public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType, double>? gained = null,
     Func<double>? clock = null, Func<double, double, double>? movingSeconds = null)

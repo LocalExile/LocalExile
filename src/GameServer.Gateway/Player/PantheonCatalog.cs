@@ -53,11 +53,11 @@ public sealed class PantheonCatalog
     /// EndGameAvailable. Every character is given that flag at login for the Atlas (Quests.EveryCharacter; until earned
     /// only in a hideout and the maps, Quests.EndgameOnly): it counts once a quest set it
     /// (<see cref="Player.EarnedQuestFlag"/>, as Kitava's Act 10 resistance penalty).</summary>
-    public List<(uint Key, int Value)> ChosenStats(Player conn, Func<string, bool> has)
+    public List<(uint Key, int Value)> ChosenStats(Player player, Func<string, bool> has)
     {
-        bool endgame = conn.EarnedQuestFlag(Quests.EndGameAvailable);
+        bool endgame = player.Character.EarnedQuestFlag(Quests.EndGameAvailable);
         string? major, minor;
-        lock (conn.Monsters) (major, minor) = (conn.PantheonMajor, conn.PantheonMinor);
+        (major, minor) = (player.Character.PantheonMajor, player.Character.PantheonMinor);
         return [.. new[] { ById(major), ById(minor) }.OfType<God>().Where(g => Unlocked(g, has)).SelectMany(g => Stats(g, has, endgame))];
     }
 
