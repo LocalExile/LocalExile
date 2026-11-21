@@ -82,9 +82,7 @@ public static partial class Game
     }
 
     static double ResourceDamageTakenFactor(ClientState conn, Func<string, int> get) =>
-        get("base_cannot_be_damaged") > 0 ? 0 : Math.Max(0, 1 + get(IncomingResourceDefences.TakenStat) / 100.0)
-        * Math.Max(0, 1 + get(IncomingResourceDefences.ConditionalTakenStat) / 100.0)
-        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, get) / 100.0);
+        get("base_cannot_be_damaged") > 0 ? 0 : IncomingResourceDefences.FinalTakenFactor(conn.Pools, get);
 
     static double RighteousFireSelfDps(ClientState conn, RighteousFireState rf) =>
         DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute
