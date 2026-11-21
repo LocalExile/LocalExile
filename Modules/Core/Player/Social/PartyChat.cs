@@ -19,6 +19,7 @@ public static class PartyChat
         foreach (var member in PartyRoster.Players(party))
         {
             if (member is not { Controlled: false, Closed: false, Outbox: { } outbox }) continue;
+            if (!ReferenceEquals(member, conn) && FriendsFeature.IsIgnoring(member.Account, conn.Account ?? name)) continue;
             // Each member gets its own bytes, as a send encrypts them in place: a second client given the same array read
             // noise and crashed (live 2026-11-07).
             try

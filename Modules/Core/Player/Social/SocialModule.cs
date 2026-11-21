@@ -21,12 +21,45 @@ public sealed class SocialModule : IModule
             await FriendsFeature.AfterEntry(c);
         });
         InstanceEvents.TransferInstance.Add(module.Manifest.Id, PartyRoster.SharedInstance);
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => FriendsFeature.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, async (conn, why) =>
+        {
+            await PartyRoster.DisconnectHuman(conn, why);
+            await FriendsFeature.Leaving(conn);
+        });
         GameEvents.Packet(InstanceSocial.FriendAddId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             await FriendsFeature.Change(conn, InstanceSocial.ReadFriendAdd(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceSocial.SocialStatusId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            await FriendsFeature.SetStatus(conn, InstanceSocial.ReadSocialStatus(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.PublicPartyId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var (desc, flag) = InstanceSocial.ReadPublicParty(bytes);
+            await PartyRoster.SetPublicParty(conn, desc, flag);
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.HideoutInviteId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            await FriendsFeature.InviteToHideout(conn, InstanceSocial.ReadHideoutInvite(bytes).Name);
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.DuelChallengeId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            await FriendsFeature.ChallengeDuel(conn, InstanceSocial.ReadDuelChallenge(bytes));
+            return true;
+        });
+        // Expose BCL-only hooks for Commands, Chat and Game without holding collectible delegates after unload.
+        Func<ClientState, string, Task<bool>> inviteHook = PartyRoster.InviteHuman;
+        Func<string?, string?, bool> ignoreHook = FriendsFeature.IsIgnoring;
+        Func<ClientState, ClientState, bool> hideoutAccessHook = FriendsFeature.CanVisitHideout;
+        AppContext.SetData("LocalExile.Social.InviteHook", inviteHook);
+        AppContext.SetData("LocalExile.Social.IgnoreHook", ignoreHook);
+        AppContext.SetData("LocalExile.Social.HideoutAccessHook", hideoutAccessHook);
+        module.Lifetime.Own(new HookCleanup(inviteHook, ignoreHook, hideoutAccessHook));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => SocialFeature.CancelPlayerTrade(conn, why));
         GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
@@ -104,6 +137,19 @@ public sealed class SocialModule : IModule
         // A "%…" line: only this module knows the party, so it carries the line to the members.
         GameEvents.PartyChat.Add(module.Manifest.Id, PartyChat.Deliver);
     }
+
+    sealed class HookCleanup(object invite, object ignore, object hideout) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (ReferenceEquals(AppContext.GetData("LocalExile.Social.InviteHook"), invite))
+                AppContext.SetData("LocalExile.Social.InviteHook", null);
+            if (ReferenceEquals(AppContext.GetData("LocalExile.Social.IgnoreHook"), ignore))
+                AppContext.SetData("LocalExile.Social.IgnoreHook", null);
+            if (ReferenceEquals(AppContext.GetData("LocalExile.Social.HideoutAccessHook"), hideout))
+                AppContext.SetData("LocalExile.Social.HideoutAccessHook", null);
+        }
+    }
 }
 
 static class SocialFeature
@@ -131,7 +177,7 @@ static class SocialFeature
     // third field is the player's area as a WorldAreas HASH16 (+0xa8), not the character's level (#715).
     internal static async Task Introduce(ClientState to, ClientState about) =>
         await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Layout.Hash,
-            PackedClass(about), about.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
+            PackedClass(about), about.PortraitFrame, WornPortrait(about), FriendsFeature.StatusOf(about.Account)), $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
     // inventories must exist (inventory 0 crashed both clients at 0x1402d1029 through the grid 0x140317a44). A fresh
@@ -149,7 +195,8 @@ static class SocialFeature
     internal static async Task RequestTrade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint target)
     {
         if (conn.Instance.Player(target) is not { Owner: { Outbox: not null } other } || !PlayerTradeAllowed(conn, other)
-            || other.Trade is not null || conn.Trade is not null)
+            || other.Trade is not null || conn.Trade is not null
+            || FriendsFeature.IsIgnoring(other.Account, conn.Account ?? CharacterName(conn)))
         {
             Console.WriteLine($"[gateway] {remote} <= 0x00ba trade request to 0x{target:x}: not available");
             return;

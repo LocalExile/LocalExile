@@ -10,6 +10,39 @@ public static class InstanceSocial
     public const ushort TradeRequestId = 0xba, TradeRequestAcceptId = 0xb0, PartyInviteId = 0x93, FriendAddId = 0x80;
     public const int TradeRequestLength = 6, TradeRequestAcceptLength = 6;
 
+    /// <summary>C→S 0x98 (writer 0x141f9baf0, sender 0x14216f9e0): create or rename a public party (empty description
+    /// makes the party private). Wire: wstr description, u8 flag.</summary>
+    public const ushort PublicPartyId = 0x98;
+    public static (string Description, byte Flag) ReadPublicParty(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return (r.WStr(), r.U8());
+    }
+
+    /// <summary>C→S 0xca (writer 0x141f98140, sender 0x14216d6f0): set the account's social status message shown in
+    /// S→C 0xa7's second wstr. Wire: wstr status.</summary>
+    public const ushort SocialStatusId = 0xca;
+    public static string ReadSocialStatus(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
+
+    /// <summary>C→S 0x155 (writer 0x141f98140, sender 0x140ab9e50): challenge a player to a duel. Wire: wstr name.</summary>
+    public const ushort DuelChallengeId = 0x155;
+    public static string ReadDuelChallenge(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
+
+    /// <summary>S→C 0x157 (class 0x1435ca710, read 0x141f9bb70): duel challenge popup ("{name} challenges you to PvP").
+    /// Wire: wstr challenger, u8 partyFlag.</summary>
+    public const ushort DuelChallengeNotifyId = 0x157;
+    public static byte[] DuelChallengeNotify(string challenger, byte party = 0) =>
+        new LoginWriter().U16(DuelChallengeNotifyId).WStr(challenger).U8(party).ToArray();
+
+    /// <summary>C→S 0x179 (writer 0x141f9baf0, sender 0x142171660): invite a player to visit your hideout. Wire: wstr
+    /// target name, u8 flag.</summary>
+    public const ushort HideoutInviteId = 0x179;
+    public static (string Name, byte Flag) ReadHideoutInvite(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return (r.WStr(), r.U8());
+    }
+
     /// <summary>C→S 0x95 (6 bytes): the party invite notification's Accept: u32 BE the party id from S→C 0xa9 (live
     /// 2026-10-29: 0x103, 0x104 for the invites sent).</summary>
     public const ushort PartyAcceptId = 0x95;
@@ -68,8 +101,8 @@ public static class InstanceSocial
         new LoginWriter().U16(0xc9).U8((byte)(remove ? 4 : accepted ? 1 : 0)).WStr(account).WStr("").ToArray();
 
     /// <summary>A known account without an active character: flags zero followed by its offline timestamp.</summary>
-    public static byte[] OfflinePlayer(string account) =>
-        new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8(0).RawU64(0).ToArray();
+    public static byte[] OfflinePlayer(string account, string status = "") =>
+        new LoginWriter().U16(KnownPlayerId).WStr(account).WStr(status).U8(0).RawU64(0).ToArray();
 
     /// <summary>Bytes of a 0x93 at the start of <paramref name="m"/>, or null if it is not complete yet (or invalid).</summary>
     public static int? PartyInviteLength(ReadOnlySpan<byte> m) =>
@@ -144,10 +177,10 @@ public static class InstanceSocial
     /// frame (+0xb0) and the portrait (+0xb2), which the party portraits (0x14020b5a0) and social rows (0x140af7970) draw;
     /// the client's own writer leaves the pair out when both are 0.
     /// </summary>
-    public static byte[] KnownPlayer(string account, string character, ushort area, byte packedClass = 0, ushort frame = 0, ushort portrait = 0)
+    public static byte[] KnownPlayer(string account, string character, ushort area, byte packedClass = 0, ushort frame = 0, ushort portrait = 0, string status = "")
     {
         bool look = frame != 0 || portrait != 0;
-        var w = new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8((byte)(look ? 0x06 : 0x04))
+        var w = new LoginWriter().U16(KnownPlayerId).WStr(account).WStr(status).U8((byte)(look ? 0x06 : 0x04))
             .WStr(character).U8(0).U8(packedClass).U16(area).U16(0).WStr("").U8(0);
         if (look) w.U16(frame).U16(portrait);
         return w.ToArray();

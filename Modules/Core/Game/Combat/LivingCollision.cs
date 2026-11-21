@@ -200,6 +200,7 @@ public static partial class Game
                     // the client drew every other player in its combat stance there.
                     if (InTown(conn))
                         player = player with { Stats = [.. (player.Stats ?? []).Where(s => s.Key != TownStanceStat), (TownStanceStat, 1)] };
+                    Console.WriteLine($"[gateway] {remote} => 0x02bb create peer player 0x{peer.Id:x} ({peer.Template.Name}) at ({peer.X}, {peer.Y})");
                     packets.Create(peer.Id, InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
                     // A lockstep client runs the player's copy itself from here on: so does its estimate (PeerWalks).
                     if (conn.LockstepClient)

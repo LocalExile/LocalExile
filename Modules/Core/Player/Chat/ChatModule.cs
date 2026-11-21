@@ -269,12 +269,17 @@ sealed class ChatService : IDisposable
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }
     }
 
+    internal static bool IsIgnored(ClientState viewer, string? senderAccountOrChar) =>
+        AppContext.GetData("LocalExile.Social.IgnoreHook") is Func<string?, string?, bool> ignored
+        && ignored(viewer.Account, senderAccountOrChar);
+
     // Not through a chat server: who is in the area is this Gateway's to know. Each gets its own bytes, as a send encrypts
     // them in place: a second client given the same array read noise and crashed (live 2026-11-07).
     static async Task SayLocally(ClientState conn, string text, string name, IReadOnlyList<ChatLineItem> items)
     {
         foreach (var other in InGame.Keys)
-            if (other is { Controlled: false, Closed: false, Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, conn.Instance.Presence))
+            if (other is { Controlled: false, Closed: false, Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, conn.Instance.Presence)
+                && (ReferenceEquals(other, conn) || !IsIgnored(other, conn.Account ?? name)))
             {
                 try { await outbox(InstanceChat.ChatLine(text, name, items: items), $"0x0017 chat line from {name}"); }
                 catch (Exception e) when (e is IOException or ObjectDisposedException) { }

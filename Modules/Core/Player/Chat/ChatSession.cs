@@ -154,9 +154,10 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
         return frame.Type switch
         {
             ChatFrame.Line when named && frame.Kind is ChatChannelKind.Global or ChatChannelKind.Trade && text.Length > 0 =>
-                Deliver(InstanceChat.ChatLine(text, InstanceChat.Sender(frame.Kind == ChatChannelKind.Global ? TypedChannel.Global : TypedChannel.Trade, frame.Name!),
-                    items: chat.LineItems(Conn, text, frame.Items)),
-                    $"0x0017 {frame.Kind} chat line from {frame.Name}"),
+                ChatService.IsIgnored(Conn, frame.Name) ? Task.CompletedTask
+                    : Deliver(InstanceChat.ChatLine(text, InstanceChat.Sender(frame.Kind == ChatChannelKind.Global ? TypedChannel.Global : TypedChannel.Trade, frame.Name!),
+                        items: chat.LineItems(Conn, text, frame.Items)),
+                        $"0x0017 {frame.Kind} chat line from {frame.Name}"),
             ChatFrame.Whisper when named && text.Length > 0 =>
                 ReceiveWhisper(frame.Name!, text, frame.Items),
             ChatFrame.Whispered when named && text.Length > 0 =>
@@ -169,6 +170,7 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
 
     async Task ReceiveWhisper(string from, string text, IReadOnlyList<ChatFrameItem>? items)
     {
+        if (ChatService.IsIgnored(Conn, from)) return;
         var status = ChatService.StatusOf(name);
         if (status.Dnd)
         {
