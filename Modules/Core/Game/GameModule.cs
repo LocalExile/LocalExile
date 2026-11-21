@@ -25,6 +25,7 @@ public sealed class GameModule : IModule, IDisposable
             Rules.GolemData.Warm();
             AreaPopulation.Warm();
             _ = HideoutCatalog.Hideouts;
+            _ = CharacterAudioCatalog.Default.Value;
         }
         catch (Exception e) when (e is IOException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or KeyNotFoundException or InvalidOperationException)
         {
@@ -81,12 +82,14 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Kill.Add(module.Manifest.Id, MapTorment.Kill);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
+        GameEvents.BuffCancel.Add(module.Manifest.Id, MapTorment.CancelBuff);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapHarbinger.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapHarbinger.Enter);
         GameEvents.Tick.Add(module.Manifest.Id, MapHarbinger.Tick);
         GameEvents.Kill.Add(module.Manifest.Id, MapHarbinger.Kill);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapHarbinger.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapHarbinger.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapHarbinger.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapBeyond.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapBeyond.Enter);
@@ -96,8 +99,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Experience.Add(module.Manifest.Id, MapBeyond.Experience);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapBeyond.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapBeyond.PlayerStats);
-        GameEvents.IncomingDamage.Add(module.Manifest.Id, MapBeyond.IncomingDamage);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapBeyond.Describe);
+        module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat]));
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat, MapBeyond.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
@@ -158,6 +161,15 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
+        GameEvents.CompanionTick.Add(id, Rules.TickBrands);
+        GameEvents.PlayerStatSources.Add(id, Rules.BrandPlayerStats);
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => { Rules.ClearBrands(conn); return Task.CompletedTask; });
+        GameEvents.TransientClosing.Add(id, Rules.ClearBrands);
+        GameEvents.GrantedSkillExecutable.Add(id, (_, effectId) => Rules.IsBrandsurgeEffect(effectId));
+        GameEvents.Kill.Add(id, Rules.BrandOnMonsterKill);
+        module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
+        GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
+        GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
     }
 }
 
@@ -243,6 +255,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
         conn.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(conn);
+        Rules.ClearCorruptedBlood(conn);
         Rules.ClearEssenceAuraExposure(conn);
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();

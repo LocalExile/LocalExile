@@ -6,7 +6,7 @@ static class Act1Areas
 {
     public const string Strand = "1_1_1", LioneyesWatch = "1_1_town", Coast = "1_1_2", TidalIsland = "1_1_2a", MudFlats = "1_1_3",
         FetidPool = "1_1_3a", FloodedDepths = "1_1_4_0", SubmergedPassage = "1_1_4_1", UpperPrison = "1_1_7_2", PrisonersGate = "1_1_8",
-        ShipGraveyard = "1_1_9", ShipGraveyardCave = "1_1_9a", CavernOfAnger = "1_1_11_2", SouthernForest = "1_2_1", WesternForest = "1_2_9";
+        ShipGraveyard = "1_1_9", ShipGraveyardCave = "1_1_9a", CavernOfWrath = "1_1_11_1", CavernOfAnger = "1_1_11_2", SouthernForest = "1_2_1", WesternForest = "1_2_9";
 }
 
 /// <summary>MonsterVarieties Ids of Act 1's quest monsters (rows in brackets).</summary>
@@ -19,8 +19,17 @@ static class Act1Monsters
     public const string Dweller = "Metadata/Monsters/ShieldCrabs/ShieldCrabBossSlowAura";        // 541
     public const string Brutus = "Metadata/Monsters/Brute/BossBrute";                            // 150 Brutus, Lord Incarcerator
     public const string Fairgraves = "Metadata/Monsters/Skeletons/SkeletonBossFairgraves";       // 550
+    public const string Amarissa = "Metadata/Monsters/Seawitch/SeaWitchBossSpark";               // 520 Amarissa, Daughter of Merveil
+    public const string Ambrosia = "Metadata/Monsters/Seawitch/SeaWitchBossFirestorm";           // 518 Ambrosia, Daughter of Merveil
     public const string Merveil = "Metadata/Monsters/seawitchillusion/BossMerveil";              // 162 Merveil, the Siren
     public const string MerveilTwisted = "Metadata/Monsters/Seawitch/BossMerveil2";              // 164 Merveil, the Twisted
+}
+
+/// <summary>Object and chest types for Act 1 encounters.</summary>
+static class Act1Objects
+{
+    public const string AmarissaTrickChest = "Metadata/Chests/AmarissaTrickChest";
+    public const string AmbrosiaTrickChest = "Metadata/Chests/AmbrosiaTrickChest";
 }
 
 /// <summary>BaseItemTypes Ids of Act 1's quest items dropped by rules (the glyphs are GlyphQuest's).</summary>
@@ -87,6 +96,7 @@ sealed class Act1 : Act
             // in Act1Complete). Tarkleigh's "Brutus Reward" is offer 7, Nessa's "Prison Reward" offer 8 (magic armour).
             new Quest("a1q2")
             {
+                On.Object(UpperPrison, "Metadata/NPC/Act1/PietyPrison", "SeenPietyPrison"),
                 On.Near(UpperPrison, "Metadata/NPC/Act1/PietyPrison", "SeenPietyPrison"),
                 On.Seen(UpperPrison, Act1Monsters.Brutus, "a1q2-SeenBrutus"),
                 On.Killed(UpperPrison, Act1Monsters.Brutus, "a1q2-KilledBrutus"),
@@ -107,8 +117,11 @@ sealed class Act1 : Act
             // a1q3 "The Siren's Cadence" (§9): Merveil, the Siren (no drops, a second form) becomes Merveil, the Twisted, whose
             // death sets KilledSeaWitch: the six MerveilExitBlockers before the exit stop blocking (object_size 5,
             // unblock_quest_flag) and the way into Act 2 opens. Nessa's "Merveil Reward" is offer 10.
+            // Amarissa (1_1_11_1) and Ambrosia (1_1_11_2) spring from their Trick Chests (Rules.TrickChests.cs).
             new Quest("a1q3")
             {
+                On.Spawns(CavernOfWrath, Act1Objects.AmarissaTrickChest, Act1Monsters.Amarissa),
+                On.Spawns(CavernOfAnger, Act1Objects.AmbrosiaTrickChest, Act1Monsters.Ambrosia),
                 On.Seen(CavernOfAnger, Act1Monsters.Merveil, "a1q3-SeenMerveil"),
                 On.SecondForm(CavernOfAnger, Act1Monsters.Merveil, Act1Monsters.MerveilTwisted),
                 On.Killed(CavernOfAnger, Act1Monsters.MerveilTwisted, "a1q3-KilledSeaWitch"),
@@ -121,6 +134,9 @@ sealed class Act1 : Act
             // opens in Act 2 (the Thaumetic Emblem), so the quest ends there.
             new Quest("a1q9")
             {
+                On.Object(PrisonersGate, "Metadata/NPC/Act1/PietyBlockage", "a1q9-RoadBlocked"),
+                On.Object(PrisonersGate, "Metadata/QuestObjects/Spikes/SpikeBlockage", "a1q9-RoadBlocked", "a1q9-RoadOpened"),
+                On.Object(PrisonersGate, "Metadata/QuestObjects/Spikes/SpikeBlockage2", "a1q9-RoadBlocked", "a1q9-RoadOpened"),
                 On.Near(PrisonersGate, "Metadata/NPC/Act1/PietyBlockage", "a1q9-SeenBlockage", "a1q9-RoadBlocked"),
                 On.Exit(PrisonersGate, WesternForest, "a1q9-RoadOpened"),
                 On.Blocker(PrisonersGate, "Metadata/QuestObjects/Spikes/SpikeBlockageBlocker", 4, "a1q9-RoadOpened"),

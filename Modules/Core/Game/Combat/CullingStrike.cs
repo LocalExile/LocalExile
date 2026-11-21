@@ -117,6 +117,13 @@ public static partial class Game
     static bool BurningTarget(ClientState conn, SpawnedMonster m)
     {
         if (m.Ignites.Burning || m.HeraldBurns.Burning) return true;
+        if (conn.Placed.Grounds.Count > 0)
+        {
+            double now = AreaTime(conn);
+            var at = m.Walk.Position(now);
+            foreach (var ground in conn.Placed.Grounds)
+                if (now < ground.Until && Dist(at, ground.At) <= ground.Radius) return true;
+        }
         return conn.RighteousFire is { } rf && conn.Monsters.Any(pair =>
             pair.Value == m && rf.Auras.ContainsKey(pair.Key));
     }

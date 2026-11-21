@@ -5,9 +5,9 @@ using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Gateway.Tests;
 
-/// <summary>A stash tab that a tab switch unloaded is loaded again before a change to it goes out (#710): the panel shows a
-/// tab it has shown before without asking for it, and a 0xbf for an inventory the client no longer has aborts the
-/// game.</summary>
+/// <summary>Visited stash tabs stay registered in the client's inventory manager across tab switches so revisiting a tab
+/// does not leave its cached UI page (+0x58) with a missing inventory (which blocks manual placement with a red overlay);
+/// any change to a still-unopened tab still loads it first via SendTabChange (#605, #710).</summary>
 public class StashTabReloadTests : IDisposable
 {
     public void Dispose() => TestEnvironment.ReleaseOwnSaves();
@@ -20,7 +20,7 @@ public class StashTabReloadTests : IDisposable
         string account = "StashReload" + Guid.NewGuid().ToString("N");
         var stash = AccountStash.For(account, catalog);
         var items = PlayerInventories.For(account, catalog);
-        // A stack that is not shop currency: a tab holding that is never unloaded (Game.PreloadsForPrices).
+        // A stack that is not shop currency (not preloaded by Game.PreloadsForPrices).
         var card = catalog.All.First(t => t.Class == "DivinationCard" && t.MaxStack >= 2);
         Assert.NotNull(stash.Place(0, 0, 0, new InventoryItem(1, 0, 0, ItemCatalog.Create(card) with { StackSize = 2 }),
             i => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null, out _));
@@ -31,18 +31,18 @@ public class StashTabReloadTests : IDisposable
         using var wire = new Wire();
         try
         {
-            // The panel shows tab 0, then tab 1, which unloads tab 0 (0xc1) and marks it not loaded in the tab list.
+            // Showing tab 0 then tab 1 keeps tab 0 registered (no 0xc1 RemoveInventory and no 0x136 TabList).
             await Game.SendStashTab("stash-reload-test", wire.Stream, wire.Ciphers, conn, 0, InstanceStash.Personal);
             wire.Expect(InstanceInventories.AddInventory(inventory, stash.Inventory(0).Slot, 0, stash.Inventory(0).Items));
             wire.Expect(InstanceStash.TabLoaded(0, inventory));
             await Game.SendStashTab("stash-reload-test", wire.Stream, wire.Ciphers, conn, 1, InstanceStash.Personal);
-            wire.Expect(InstanceInventories.RemoveInventory(inventory));
             wire.Expect(InstanceInventories.AddInventory(stash.InventoryOf(1), stash.Inventory(1).Slot, 0, stash.Inventory(1).Items));
-            wire.Expect(InstanceStash.TabList(stash.Records(null, conn.StashTabsSent)));
             wire.Expect(InstanceStash.TabLoaded(1, stash.InventoryOf(1)));
-            Assert.DoesNotContain(0, conn.StashTabsSent);
+            Assert.Contains(0, conn.StashTabsSent);
+            Assert.Contains(1, conn.StashTabsSent);
 
-            // The player goes back to tab 0, which the client shows from the page it kept, and splits the stack there.
+            // A change to a tab not yet sent for this connection (e.g. an affinity deposit or hidden child) still loads before 0xbf.
+            conn.StashTabsSent.Remove(0);
             await Game.SplitStack("stash-reload-test", wire.Stream, wire.Ciphers, conn, new InstanceItems.SplitStack(inventory, stack, 1, 3), "");
             var left = stash.Inventory(0).Items.Single();
             var held = items.Items(PlayerInventories.Cursor).Single();
@@ -61,7 +61,7 @@ public class StashTabReloadTests : IDisposable
     }
 
     [Fact]
-    public async Task A_repeated_unique_parent_request_keeps_its_categories_registered_until_switching_away()
+    public async Task Unique_collection_categories_remain_registered_after_another_tab_loads()
     {
         var catalog = new ItemCatalog("data");
         TestEnvironment.OpenOwnSaves("uniquereopen");
@@ -93,7 +93,7 @@ public class StashTabReloadTests : IDisposable
             };
             using var wire = new Wire();
 
-            // The initial window protects queued requests; a hidden Map page is a different family's control.
+            // Load tabs 0, 1, currency, one map page, and the Unique collection with its hidden categories.
             foreach (ushort tab in new ushort[] { 0, 1, currencyTab, mapChild, parent })
             {
                 await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, tab, InstanceStash.Personal);
@@ -105,13 +105,18 @@ public class StashTabReloadTests : IDisposable
             Assert.Contains(0, conn.StashTabsSent);
             Assert.Contains(1, conn.StashTabsSent);
 
-            // Replay the parent's request after the first-open window, without sleeping or a native panel.
+            var reopen = stash.Records(null, conn.StashTabsSent, catalog);
+            Assert.False(reopen[1].Loaded);
+            Assert.Equal(0u, reopen[1].Inventory);
+            foreach (int tab in new int[] { 0, currencyTab, parent, mapChild }.Concat(children))
+            {
+                Assert.True(reopen[tab].Loaded);
+                Assert.Equal(stash.InventoryOf(tab), reopen[tab].Inventory);
+            }
+
+            // Replaying the parent's request after the first-open window keeps all visited tabs and categories registered.
             conn.StashForcedUntil = double.NegativeInfinity;
-            var otherTabs = conn.StashTabsSent.Where(t => t == 1 || t == mapChild).ToArray();
-            Assert.Equal(2, otherTabs.Length);
             await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, parent, InstanceStash.Personal);
-            foreach (int tab in otherTabs) wire.Expect(InstanceInventories.RemoveInventory(stash.InventoryOf(tab)));
-            wire.Expect(InstanceStash.TabList(stash.Records(null, conn.StashTabsSent)));
             ExpectLoaded(wire, stash, parent, register: false);
             foreach (int child in children) ExpectLoaded(wire, stash, child, register: false);
             foreach (var (tab, payment) in payments)
@@ -120,23 +125,27 @@ public class StashTabReloadTests : IDisposable
                 Assert.Equal(payment, stash.Inventory(tab).Items.Single());
                 Assert.True(Game.PreloadsForPrices(stash.TabType(tab), stash.Inventory(tab).Items, catalog));
             }
-            Assert.DoesNotContain(1, conn.StashTabsSent);
-            Assert.DoesNotContain((int)mapChild, conn.StashTabsSent);
-            Assert.Equal(0u, stash.Records(null, conn.StashTabsSent)[mapChild].Inventory);
+            Assert.Contains(1, conn.StashTabsSent);
+            Assert.Contains((int)mapChild, conn.StashTabsSent);
             foreach (var row in stash.Records(null, conn.StashTabsSent).Where(r => inventories.ContainsKey(r.Index)))
             {
                 Assert.True(row.Loaded);
                 Assert.Equal(inventories[row.Index], row.Inventory);
             }
 
-            // Leaving the collection still unloads the whole old family, while retaining shop currency.
-            var leaving = conn.StashTabsSent.Where(t => !payments.ContainsKey(t)).ToArray();
+            // The native panel can receive a delayed request for its old tab while still displaying Unique.
             await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, 1, InstanceStash.Personal);
-            foreach (int tab in leaving) wire.Expect(InstanceInventories.RemoveInventory(stash.InventoryOf(tab)));
-            wire.Expect(InstanceInventories.AddInventory(stash.InventoryOf(1), stash.Inventory(1).Slot, 0, stash.Inventory(1).Items));
-            wire.Expect(InstanceStash.TabList(stash.Records(null, conn.StashTabsSent)));
             ExpectLoaded(wire, stash, 1, register: false);
-            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab]));
+            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab, mapChild, parent, .. children]));
+            var afterOtherTab = stash.Records(null, conn.StashTabsSent);
+            Assert.All(children, child =>
+            {
+                var row = afterOtherTab[child];
+                Assert.True(row.Loaded);
+                Assert.Equal(inventories[child], row.Inventory);
+            });
+            await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, (ushort)children[0], InstanceStash.Personal);
+            ExpectLoaded(wire, stash, children[0], register: false);
             Assert.Equal(4, stash.CountOf(currency.Hash));
 
             // A payment can still change both retained inventories directly, without another C0/C8 registration.
@@ -152,7 +161,7 @@ public class StashTabReloadTests : IDisposable
                 wire.Expect(InstanceItems.InventoryChange(stash.InventoryOf(tab), 1, [payment.Id], []));
             }
             Assert.Equal(0, stash.CountOf(currency.Hash));
-            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab]));
+            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab, mapChild, parent, .. children]));
         }
         finally
         {

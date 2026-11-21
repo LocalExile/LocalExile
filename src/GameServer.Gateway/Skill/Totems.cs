@@ -67,6 +67,13 @@ public sealed class TotemState
         public ushort GrantedId => grantedId;
         /// <summary>Its corpse meal; null unless it is a Devouring Totem.</summary>
         public Devour? Devour => devour;
+        public double DecoyRadius { get; init; }
+        public int BodySize { get; init; }
+        public double? TauntAt;
+        /// <summary>A Decoy Totem's chasers: the cell each was last sent to and where it stood then, and the cells an
+        /// order never moved a chaser toward (walled in by other bodies), which no chaser is given again.</summary>
+        public readonly Dictionary<uint, ((int X, int Y) Slot, (int X, int Y) From)> DecoyOrders = [];
+        public readonly HashSet<(int X, int Y)> DecoyUnreachable = [];
         public int Effect = -1;
         public uint SourceGem;
         public uint SourceHost;

@@ -60,10 +60,16 @@ The panel binds to the inventory object of the row's first S→C 0xc0 in an area
   They reach the instance's area stats (S→C 0x1d) and whatever reads a map's stats; a stat the server has no consumer
   for does nothing yet, as on a map item.
 - **Drops.** Monsters in maps drop Idols unidentified, magic or rare, of a base whose drop level they reach
-  (`GameEvents.Drops`). GGG does not publish the rates: the module's are its own (`IdolRules`), scaled by a setting.
+  (`GameEvents.Drops`), scaled by the map's item quantity (`MapMods.QuantityFactor`) and the module's `dropRate` setting.
+  GGG does not publish the rates: the module's are its own (`IdolRules`).
 - **Rolls.** Idols have the jewels' affix caps, two a side and three or four on a rare (`ItemRolls`).
 - **Unique Idols.** One Idol drop in 50 is a unique one, each as likely as the next, and the Idol inventory takes one
   of each (`UniqueMapRelicLimits`; the client's tooltip says "Limited to: 1" by itself).
+- **Gambling.** Faustus's gamble window (Kingsmarch and the hideout; [17](../protocol/17-npcs.md) §5) has an Idols
+  tab: the client's six `…Gamble` Idol rows ("Random Minor Idol" …), each offered once the character reaches its base's
+  drop level. A purchase gives an identified Idol: one in 50 a unique of that base (only the Minor Idol has any), else two
+  in three rare. The price is the 3.29 ring gamble price at the window's pricing level (respecting the league's alt price
+  floor) times the size's `GoldPriceMultiFromTag` multiplier (1.2 to 2.5): 4,926 to 10,263 gold at level 83 and above.
 - **Settings** (`settings.json`): `enableAtlasTree` (off, the default: the league stat is sent and the client hides the
   Atlas passive tree, as in the real league; on: Idols and the tree together) and `dropRate`.
 
@@ -91,7 +97,8 @@ The client data is enough to tell them, because **a unique Idol is an Atlas pass
 - **20 Idol cells instead of 32, and none of them gated.** The real league's Idol inventory has 32 cells, 12 of them
   unlocked by Atlas objectives, and three loadouts; the side panel has one loadout of 20 cells, all open from the start.
 - Ctrl + click does not move an Idol: pick it up and put it down.
-- Kingsmarch's Idol gambling is not there, nor the two Ruthless versions of unique Idols (`UniqueMapRelicHardMode…`).
+- The two Ruthless versions of unique Idols (`UniqueMapRelicHardMode…`) are not there.
+- Gambling prices and odds for Idols are the server's own: GGG does not publish them.
 - How often an Idol is unique is the server's own number, like the other drop rates.
 - Hiding the tree does not switch it off on the server: Atlas passives allocated while the tree was enabled, or
   allocated through a dev command, can still affect maps after the tree is disabled.

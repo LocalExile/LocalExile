@@ -58,12 +58,22 @@ public static partial class Game
     // The extracted "if bleeding/poisoned" suffixes remove an ailment that exists when the paid use is accepted and
     // then protect against new applications for the rolled seconds. Neither suffix grants protection if its trigger
     // ailment was absent. Both live in the shared incoming-ailment owner.
-    static void ApplyConditionalFlaskAilmentProtectionLocked(ClientState conn,
+    static int BleedFlaskProtection(IReadOnlyDictionary<string, int> local) =>
+        Math.Max(local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s"),
+            local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood") != 0 ? 4 : 0);
+
+    internal static void ApplyConditionalFlaskAilmentProtectionLocked(ClientState conn,
         IReadOnlyDictionary<string, int> local, double now)
     {
-        if (local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") is int bleed
-            && bleed > 0 && conn.IncomingAilments.RemoveOrProtectBleeding(now, bleed))
+        int bleed = BleedFlaskProtection(local);
+        if (bleed > 0 && conn.IncomingAilments.RemoveOrProtectBleeding(now, bleed))
             Console.WriteLine($"[gateway] flask removed bleeding and protects for {bleed} s");
+        if (CorruptedBloodStacks(conn, now) > 0)
+        {
+            if (bleed > 0 || Stats.Key("remove_corrupted_blood_when_you_use_a_flask") is uint key
+                && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0)
+                RemoveCorruptedBlood(conn, now, bleed);
+        }
         if (local.GetValueOrDefault("local_flask_poison_immunity_if_poisoned_s") is int poison
             && poison > 0 && conn.IncomingAilments.RemoveOrProtectPoison(now, poison))
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
@@ -71,8 +81,8 @@ public static partial class Game
 
     static bool ConditionalFlaskAilmentProtectionTriggered(ClientState conn,
         IReadOnlyDictionary<string, int> local, double now) =>
-        local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") > 0
-            && conn.IncomingAilments.Bleeding(now)
+        BleedFlaskProtection(local) > 0
+            && (conn.IncomingAilments.Bleeding(now) || CorruptedBloodStacks(conn, now) > 0)
         || local.GetValueOrDefault("local_flask_poison_immunity_if_poisoned_s") > 0
             && conn.IncomingAilments.PoisonStacks(now) > 0;
 }

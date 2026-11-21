@@ -26,7 +26,7 @@ public sealed class VendorsModule : IModule
         {
             var conn = ConnOf(kill.Player);
             if (kill.Monster.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Unique
-                && global::Game.MapRunOf(conn) is { } map && map.Owner.Equals(CharacterName(conn), StringComparison.OrdinalIgnoreCase))
+                && global::Game.MapRunOf(conn) is { Atlas: true } map && map.Owner.Equals(CharacterName(conn), StringComparison.OrdinalIgnoreCase))
                 KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
         });
@@ -117,6 +117,12 @@ public sealed class VendorsModule : IModule
         {
             var (remote, stream, ciphers) = conn.Wire;
             await CtrlBuyFromShop(remote, stream, ciphers, conn, InstanceNpcs.ReadCtrlBuy(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceNpcs.TakeAllRewardsId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await ClaimAllNpcRewards(remote, stream, ciphers, conn);
             return true;
         });
     }

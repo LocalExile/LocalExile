@@ -31,6 +31,7 @@ public static class PlayerHitDamage
         double common = (double)get("damage_+%") + (secondary ? 0 : get(spell ? "spell_damage_+%" : "attack_damage_+%"))
             + (melee ? get("melee_damage_+%") : 0) + (area ? get("area_damage_+%") : 0)
             + (projectile ? get("projectile_damage_+%") : 0)
+            + (supportTypes.Contains(64) || get("skill_gets_brand_damage_crit_modifiers") != 0 ? get("sigil_damage_+%") : 0)
             + (spell || secondary ? 0 : DamageStats.SpellAttackIncrease(get, wieldingWand, retaliation))
             + additionalIncreased;
         // Iron Will: Strength's damage bonus applies to spell damage.

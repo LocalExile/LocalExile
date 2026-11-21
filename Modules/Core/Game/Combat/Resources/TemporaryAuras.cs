@@ -76,10 +76,13 @@ public static partial class Game
             if (other == id || blessing && entry.Blessing || entry.Aura.EffectId == family)
                 RemoveTemporaryAura(conn, state, other);
         var support = AuraSupport(conn, id);
+        var (artVariation, hideVisual, sourceVisual, buffVisual) =
+            ReservationCosmeticVisuals(conn, id, family, hasSource: true);
         var aura = new AuraCatalog.Aura(id, source.Effect, family, family,
             conn.NextBuff++, row, 0, 0, source.Level, source.Quality, SourceBuff: conn.NextBuff++,
             SkillStats: [.. source.Stats.Select(p => (p.Key, p.Value))],
-            SupportEffectPct: support.EffectPct, AffectsSelf: support.AffectsSelf);
+            SupportEffectPct: support.EffectPct, AffectsSelf: support.AffectsSelf,
+            ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
         state.Active[id] = new(aura, AreaTime(conn) + seconds, source, blessing);
         state.StatsPending = false; // The activation publishes its new character snapshot itself.
         conn.Auras[id] = aura;

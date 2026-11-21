@@ -114,6 +114,20 @@ itself: an area is reachable only when its WorldAreas `EndQuestFlags` are set (`
 lists, sets or clears them (dev). Session flags (`SessionQuestFlags.dat`, e.g. `a1q6-FairgravesAggro`) are kept in
 memory only: never saved, gone on the next area.
 
+**Player character voice lines (`CharacterAudioEvents`).** There is no dedicated S→C voice-line message in 3.29.3c
+(S→C `0x1c7` is `NPCTextAudio`, S→C `0x1c8` is `NPCConversations`). Server-driven voice lines (261 of 291 rows in
+`Data/CharacterAudioEvents.dat`, 0x52-byte rows) bind their `Event` column (+0x08) to a `QuestFlags` row and fire
+automatically in `CharacterAudioController` (`0x14010bd30`, vtable `0x143027020` +0x10) whenever S→C `0x2bc`
+`PlayerQuestFlagsUpdate` transitions that flag `0 → 1` relative to the baseline snapshotted on player creation
+(`0x140108c80`). Per `0x2bc` update, `0x14010bd30` scans `CharacterAudioEvents` in row order and plays only the
+**first** matching newly-set row via `0x14010cad0` (respecting row `+0x18` delay ms and `+0x1c` cooldown ms, skipped
+when `IsPVPOnlyCharacter` HASH32 `0x24270667` is set). Because `0x140108c80` snapshots the `0x2bb` creation flags and
+checks `WorldAreas.StartQuestFlags` against them, a new area's visit flags (`Visited-*`) must be sent in `0x2bc`
+*after* `0x2bb` `PlayerObject` (`RecordVisit` after `SendPlayer`) so `Enter*` voice lines play once on first entry.
+Level-up milestones (`LevelUp2/3/5/10/15/20/30/50/70/90`) fire locally from `PlayerExperienceUpdate` (`0x140d5b2f0`);
+`NoMana`, `NoLife`, `Cooldown`, `InvFull`, `SkillTown`, `QuestItem`, `KillRare`, `KillRogueExile`, `LowSTR/INT/DEX`,
+`Flask*` and `EventJack*` fire locally in the client via `0x14010c960`.
+
 **One table per quest**, one file per act (`Modules/Core/World/QuestObjects/Acts/Act<n>.cs`, a class deriving
 `Quests.Act`): a `Quests.Quest` with its rules. The QuestObjects module registers every act of its assembly while it is
 loaded (`Quests.Register`); the Gateway and the Game module ask the tables (`Quests.OnMonsterKilled`, `FlagToEnter` …,
@@ -182,6 +196,26 @@ each object once, where the client has it.
   MinimapIcon flags `0x06` explicitly hide its marker (`0x02` override present, `0x04` hidden). Its component update
   does not refresh the marker in the client: recreate the source object with those flags after its item is collected,
   retaining its opened state. A marker is personal to the character, including on area re-entry and after hand-in.
+  Buffs writes `u16 0`; Functions and ControlZone have no data.
+- **Object tasks** (GameObjectTasks): the blob ends with the tasks (`0x141ee6950`): `u8 n`, per task the `u16` HASH16
+  little-endian, then the task's own data, which its reader consumes. Later the world group (reader `0x141fe6e90`,
+  handler `0x14218ddf0`) changes them: S→C 0x2c2 adds and 0x2c3 replaces one, both `u16 id, u32 entity BE (0 = the
+  world), u32 0, u16 0, u16 task BE, blob16 data`; 0x2c5 removes one (the same header, `u16 task`). An id without a
+  factory in 0x2c2 is fatal ("Unrecognised task serialised by server"), an unknown one in 0x2c3 logs "Client task not
+  found for server task update" (Core `InstanceEntities.AddTask`/`UpdateTask`/`RemoveTask`).
+  - `DeepwaterLantern` (row 149, 0xc4df) is an Allflame lantern's light: `f32 a, rate_a, b, rate_b`. Each frame a and b
+    fall by their rates per second (b stops at 0) and the task ends at a ≤ 0. The radius (`0x141ebe600`) is
+    `10 + (BaseLanternRadius − 10) · clamp01(a) · (0.6 + 0.4 · clamp01(b))` grid cells (110 at a = b = 1, 70 at b = 0),
+    tested `dx² + dy² ≤ r²` against the entity's grid position (`0x141684a00`). The server keeps the same floats, so its
+    light test follows the client's circle without per-frame messages.
+  - `DeepwaterBathysphereDrop` (row 155, 0x2387, ctor `0x141640fd0`): `u32 stages, u32 stage` on a descending
+    `ExtractionObject` (`landed` 0); the height is (1 − stage/(stages − 1)) · 1500, and stage ≥ stages plays `land_01`
+    and ends the task (`0x141641310`).
+- **League quest flags and areas in QuestStates** (H): `__col13` lists league quest flags a state needs, `__col14` those
+  it needs missing, and `Area` restricts a state to listed `WorldAreas` rows (empty matches anywhere). Allflame's quests
+  (209–211) use these columns (1821 first Chart, 1822 four charted, 1823 first Voyage, 1859 Vesper awakened, 1888 Vesper
+  revived, 1881–1883 failed-first-chart path); `QuestStates.State.Matches` evaluates them when league flags or an area row
+  are supplied.
 - **Rewards nothing can build**: an offer none of whose items the server can build (magic or rare jewellery) sets its
   taken flag without an item, so its quest completes (a3q4, a3q13).
 - **Dialogue** ([17](17-npcs.md)): `QuestFlag4` set on choosing, `QuestFlag5` when the talk ends, and the scripts'

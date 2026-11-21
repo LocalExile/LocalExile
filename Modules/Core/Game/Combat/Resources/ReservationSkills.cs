@@ -264,7 +264,8 @@ public static partial class Game
                 m.LastHitBy = conn;
                 if (m.HeraldBurns.Buff is not null) continue;
                 m.HeraldBurns.Buff = conn.NextBuff++;
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId), "Herald of Ash burn", id, m, WorldId: id));
+                ushort? burnVisual = aura.ArtVariation != 0 ? Art.BuffVisual("herald_of_ash_burning_buff", aura.ArtVariation) : null;
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId, visual: burnVisual), "Herald of Ash burn", id, m, WorldId: id));
             }
     }
 

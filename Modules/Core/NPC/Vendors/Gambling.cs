@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using GameServer.Storage;
 using static Program;
 
 /// <summary>
@@ -128,14 +130,43 @@ static class Gambling
         return Math.Min(excluded, tiers - 1);
     }
 
-    /// <summary>The core offers of a window at this level, in their tabs' order.</summary>
-    public static List<GambleOffer> CoreOffers(ClientState conn, int characterLevel)
+    /// <summary>
+    /// The effective pricing level for a character of <paramref name="characterLevel"/> in a league whose highest-level
+    /// character on the same account is <paramref name="highestLeagueLevel"/> (poewiki "Analysis of gold gambling", 3.29):
+    /// at least <c>min(highestLeagueLevel − 20, 68)</c>, taking effect once the highest character reaches level 25 (level 5
+    /// price) and stopping at the level 68 price at level 88.
+    /// </summary>
+    public static int PriceLevel(int characterLevel, int highestLeagueLevel) =>
+        Math.Max(characterLevel, Math.Min(highestLeagueLevel - 20, 68));
+
+    /// <summary>The highest level among this account's characters in the same league (at least this connection's level).</summary>
+    public static int HighestLeagueLevel(ClientState conn)
     {
+        int highest = conn.Pools.Level;
+        if (conn.Account is not { } accountName || conn.League is not { } league) return highest;
+        var store = new SqliteAccountStore(Saves.Db);
+        if (store.FindAccount(accountName) is not { } account) return highest;
+        foreach (var character in store.CharactersOf(account.Id))
+        {
+            if (!string.Equals(character.League, league, StringComparison.OrdinalIgnoreCase)) continue;
+            int level = CharacterSaves.Experience(character.Name) is uint xp
+                ? Progression.LevelFor(xp, CharacterStats.LevelStarts)
+                : Math.Clamp(character.Level, 1, Progression.MaxLevel);
+            if (level > highest) highest = level;
+        }
+        return highest;
+    }
+
+    /// <summary>The core offers of a window at this character level, priced at <paramref name="priceLevel"/> (defaulting to
+    /// <paramref name="characterLevel"/>), in their tabs' order.</summary>
+    public static List<GambleOffer> CoreOffers(ClientState conn, int characterLevel, int? priceLevel = null)
+    {
+        int pricing = Math.Max(characterLevel, priceLevel ?? characterLevel);
         var items = ItemsFor(conn);
         var offers = new List<GambleOffer>();
         foreach (var kind in Kinds)
             if (items.Find(kind.Shown) is { Supported: true } shown && shown.Id == kind.Shown)
-                offers.Add(new(shown, Price(kind.Group, characterLevel), random => Roll(conn, kind, characterLevel, random), kind.Tab));
+                offers.Add(new(shown, Price(kind.Group, pricing), random => Roll(conn, kind, characterLevel, random), kind.Tab));
         return offers;
     }
 
@@ -243,8 +274,9 @@ static class Gambling
     {
         var items = ItemsFor(conn);
         int level = conn.Pools.Level;
-        var window = new GambleWindow(conn, npc, level);
-        window.Offers.AddRange(CoreOffers(conn, level));
+        int priceLevel = PriceLevel(level, HighestLeagueLevel(conn));
+        var window = new GambleWindow(conn, npc, level, priceLevel);
+        window.Offers.AddRange(CoreOffers(conn, level, priceLevel));
         GameEvents.RunGambles(window);
         var gold = items.Find(ItemDrops.GoldId);
         var tabs = new List<NpcShops.ShopTab>();
