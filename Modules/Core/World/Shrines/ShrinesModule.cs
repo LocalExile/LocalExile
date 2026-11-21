@@ -23,6 +23,7 @@ public sealed class ShrinesModule : IModule
         GameEvents.CompanionTick.Add(id, (_, _, _, conn, _) => ShrineManager.Tick(conn));
         GameEvents.Kill.Add(id, LesserShrines.OnKill);
         GameEvents.MapOpening.Add(id, ShrineMapAdmission.Check);
+        GameEvents.BuffCancel.Add(id, ShrineManager.CancelBuff);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => ShrineManager.LeaveArea(conn));
         // The claimed shrines' buff stats join the character's own sum, so the hit, crit, armour and resistance paths
         // reading it see them; the buff's expiry takes them out again.
