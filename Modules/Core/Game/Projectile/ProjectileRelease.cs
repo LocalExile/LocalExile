@@ -131,9 +131,14 @@ public static partial class Game
         if (Get("projectiles_rain") != 0) return at;
         // Both action start and ordinary contact write this point back. The root's derived byte and chain count are zero.
         uint remaining = (uint)(repeatsLeft ?? SpellRepeats(conn, effect, Get));
-        var random = new AnimationVariantSelector.NativeRandom([sequence, 0, 0, remaining, PlayerId]);
-        float angle = random.Range(0, 6.28318f);
-        return (at.X + (int)(60 * MathF.Sin(angle)), at.Y + (int)(60 * MathF.Cos(angle)));
+        var (sin, cos) = MathF.SinCos(CoincidentProjectileAngle(sequence, 0, remaining, PlayerId));
+        return (at.X + (int)(60 * sin), at.Y + (int)(60 * cos));
+    }
+
+    internal static float CoincidentProjectileAngle(ushort sequence, uint derived, uint repeats, uint owner)
+    {
+        var random = new AnimationVariantSelector.NativeRandom([sequence, derived, 0, repeats, owner]);
+        return random.Range(0, 6.28318f);
     }
 
     public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

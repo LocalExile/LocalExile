@@ -81,6 +81,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Verify the ordinary Fork fan on both clients, including off-axis contacts and the two fork-angle passives.
   Check Slivertongue with Fork and Chain Support on both clients. For Tornado Shot, verify the secondary hits and
   remaining chains after the primary chains off terrain, with an ordinary bow and with Slivertongue.
+  Check ordinary Tornado Shot with Arrow Nova on both clients, including the primary endpoints near walls and
+  the secondary hits between successive Barrage releases.
   Verify Cloudburst's landing time, spread and flight range on both clients, including a linked multi-projectile support.
   Check Ballista Barrage playback on both supported clients, including its muzzle and changes to arrow count between attacks.
   Check Power Siphon target selection on both clients, especially crowded cells, sight at terrain edges and special projectile modifiers.

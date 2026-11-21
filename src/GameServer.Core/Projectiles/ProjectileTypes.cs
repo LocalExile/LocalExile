@@ -56,6 +56,8 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 /// <summary>Emit one independent shot per heading, including both ends of the signed sweep.</summary>
 public sealed record ProjectileSweep(long Duration, double Radians, Func<ProjectileEntity, ProjectileVector> StartDirection);
+public readonly record struct ProjectileFlightPath(ProjectileVector Origin, ProjectileVector Aim);
+public delegate ProjectileFlightPath ProjectileFlightLayout(int index, int spawnOrdinal);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {
@@ -64,6 +66,8 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
     public ProjectileSweep? Sweep { get; init; }
+    /// <summary>Prepare a layout at the terminal position. Each child gets its path and creation ordinal when due.</summary>
+    public Func<ProjectileEntity, int, ProjectileFlightLayout>? FlightLayout { get; init; }
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
@@ -286,12 +290,19 @@ internal struct ProjectileBranchState
     public int FiringPointChains;
 }
 
+internal sealed class ProjectileReleaseState(long id)
+{
+    public long Id { get; } = id;
+    public int Spawned;
+}
+
 public sealed class ProjectileEntity
 {
-    internal ProjectileEntity(long id, long useId, long emissionId, long parent, ProjectileUse use,
+    internal ProjectileEntity(long id, ProjectileReleaseState release, long emissionId, long parent, ProjectileUse use,
         ProjectileVector position, ProjectileVector direction, long at)
     {
-        Id = id; UseId = useId; EmissionId = emissionId; ParentId = parent; Use = use;
+        Id = id; Release = release; EmissionId = emissionId; ParentId = parent; Use = use;
+        SpawnOrdinal = release.Spawned++;
         Position = position; Direction = direction.Unit; CreatedAt = at;
         Remaining = use.Profile.Range; Pierce = use.Profile.Pierce;
         Fork = use.Profile.Fork; Split = use.Profile.Split;
@@ -312,7 +323,8 @@ public sealed class ProjectileEntity
         ExpiresAt = at + use.Profile.Lifetime;
     }
     public long Id { get; }
-    public long UseId { get; }
+    internal ProjectileReleaseState Release { get; }
+    public long UseId => Release.Id;
     public long EmissionId { get; }
     public long ParentId { get; }
     public ProjectileUse Use { get; }
@@ -320,7 +332,9 @@ public sealed class ProjectileEntity
     public ProjectileVector Position { get; internal set; }
     public ProjectileVector Direction { get; internal set; }
     public long CreatedAt { get; }
-    /// <summary>The arrow's index in its release volley; the terminal RNG's mother-derived byte is 2 + this.</summary>
+    /// <summary>Zero-based creation order across all flights of this release, including later child stages.</summary>
+    public int SpawnOrdinal { get; }
+    /// <summary>The initial arrow's index in its release volley.</summary>
     public int VolleyIndex { get; internal set; }
     public long ExpiresAt { get; internal set; }
     public int Phase { get; internal set; }

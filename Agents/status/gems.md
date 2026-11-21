@@ -82,6 +82,8 @@ Nothing yet.
   extra endpoint volleys. Gateway tests follow both fourth-point arrows through two targets outside their original lanes.
   Slivertongue arrows pierce after a fork or a completed chain. Tornado Shot's secondary arrows inherit the primary's
   completed chains. The group can hit a target the primary hit, and each arrow spends its own remaining chains.
+  With Arrow Nova Support, ordinary Tornado Shot fires its piercing primary arrows from the landing point.
+  Each primary fires its own secondary group. Barrage Support spaces the primary releases over 400 ms.
   Tornado Shot of Cloudburst lands one payload and fires nine damaging arrows at zero quality, or thirteen at 20%
   quality. Arrow and projectile count bonuses apply to the landing volley and appear in the skill panel.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).

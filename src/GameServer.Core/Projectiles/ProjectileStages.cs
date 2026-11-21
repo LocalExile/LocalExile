@@ -61,6 +61,7 @@ public sealed partial class ProjectileRuntime
     {
         var child = recipe.Child;
         Validate(child);
+        var layout = recipe.FlightLayout?.Invoke(parent, child.Count);
         var branches = recipe.InheritForkOrChain ? parent.Branches : default;
         // A single clone keeps its firing point. A group receives new positions at the child origin.
         if (child.Count > 1) branches.FiringPointChains = 0;
@@ -73,7 +74,9 @@ public sealed partial class ProjectileRuntime
             {
                 double fraction = i / (double)(child.Count - 1);
                 var direction = startDirection.Rotate(sweep.Radians * fraction);
-                void Emit() => SpawnChild(parent, child, ++sequence, origin, direction, distance, branches);
+                int index = i;
+                void Emit() => SpawnChild(parent, child, ++sequence, origin, direction, distance, branches,
+                    layout?.Invoke(index, parent.Release.Spawned));
                 if (i == 0) Emit();
                 else Schedule(Now + (long)Math.Round(sweep.Duration * fraction), Emit);
             }
@@ -87,16 +90,23 @@ public sealed partial class ProjectileRuntime
                 : recipe.Radial ? Math.Tau * i / child.Count + parent.EmissionNumber * 2.399963229728653
                 : child.Count <= 1 ? 0 : child.SpreadRadians * (i / (double)(child.Count - 1) - .5);
             var direction = recipe.RandomDirections ? parent.Direction.Rotate(angle) : baseDirection.Rotate(angle);
-            SpawnChild(parent, child, parent.ChildEmission, parent.Position, direction, parent.Distance, branches);
+            SpawnChild(parent, child, parent.ChildEmission, parent.Position, direction, parent.Distance, branches,
+                layout?.Invoke(i, parent.Release.Spawned));
         }
         parent.EmissionNumber++;
     }
 
     void SpawnChild(ProjectileEntity parent, ProjectileProfile child, long emission,
-        ProjectileVector origin, ProjectileVector direction, double distance, ProjectileBranchState branches)
+        ProjectileVector origin, ProjectileVector direction, double distance, ProjectileBranchState branches, ProjectileFlightPath? path)
     {
-        var use = parent.Use with { Profile = child, Origin = origin, Aim = origin + direction * child.Range };
-        var spawned = Spawn(use, parent.UseId, emission, parent.Id, origin, direction, branches: branches);
+        if (path is { } flight)
+        {
+            origin = flight.Origin;
+            direction = flight.Aim - origin;
+            child = child with { Range = direction.Length };
+        }
+        var use = parent.Use with { Profile = child, Origin = origin, Aim = path?.Aim ?? origin + direction * child.Range };
+        var spawned = Spawn(use, parent.Release, emission, parent.Id, origin, direction, branches: branches);
         // Point Blank/Far Shot measure the whole continuation from the original release.
         spawned.Distance = distance;
     }
@@ -114,7 +124,7 @@ public sealed partial class ProjectileRuntime
     public void Impact(ProjectileUse use, ProjectileVector centre, ProjectileAreaRecipe area)
     {
         long id = ++sequence;
-        var impact = new ProjectileEntity(id, id, id, 0, use, centre, centre - use.Origin, Now)
+        var impact = new ProjectileEntity(id, new(id), id, 0, use, centre, centre - use.Origin, Now)
             { Distance = (centre - use.Origin).Length };
         Area(impact, area);
     }

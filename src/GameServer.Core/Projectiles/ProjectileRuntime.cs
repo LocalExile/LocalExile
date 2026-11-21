@@ -37,6 +37,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                     throw new ArgumentOutOfRangeException(nameof(use), "Per-projectile speed must be finite and positive.");
         }
         long useId = ++sequence, emission = ++sequence;
+        var release = new ProjectileReleaseState(useId);
         // One sample per released use, independent of spread, damage and child RNG streams.
         int returnRoll = new Random(unchecked(use.Seed * 397 ^ (int)useId ^ 0x3172c85d)).Next(100);
         var unresolved = use.Profile;
@@ -104,7 +105,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             {
                 if (sharedSeries && last) pendingEmissions.Remove(emission);
                 if (clear && use.CanEmit?.Invoke() != false)
-                    Spawn(projectileUse, useId, group, 0, origin, direction, index: index,
+                    Spawn(projectileUse, release, group, 0, origin, direction, index: index,
                         piercesAll: piercesAll, additionalForks: additionalForks,
                         branches: new() { FiringPointChains = additionalChains });
             }
@@ -136,11 +137,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         TravelEmission = profile.TravelEmission is { } travel ? travel with { Child = ResolveReturn(travel.Child, roll) } : null
     };
 
-    ProjectileEntity Spawn(ProjectileUse use, long useId, long emission, long parent,
+    ProjectileEntity Spawn(ProjectileUse use, ProjectileReleaseState release, long emission, long parent,
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
         int index = 0, bool piercesAll = false, int additionalForks = 0, ProjectileBranchState branches = default)
     {
-        var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
+        var p = new ProjectileEntity(++sequence, release, emission, parent, use, position, direction, Now)
         {
             VolleyIndex = index,
             PiercesAllFromLaunch = continuing?.PiercesAllFromLaunch ?? piercesAll,
@@ -471,7 +472,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 Origin = p.Position,
                 Aim = p.Position + secondaryDir * secondaryProfile.Range
             };
-            var secondary = Spawn(secondaryUse, p.UseId, p.EmissionId, p.Id, p.Position, secondaryDir, continuing: p);
+            var secondary = Spawn(secondaryUse, p.Release, p.EmissionId, p.Id, p.Position, secondaryDir, continuing: p);
             secondary.Split = p.Split;
         }
         StartLeg(p, turn.Leg);
@@ -567,13 +568,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             .Take(p.Split).ToArray();
         if (targets.Length == 0 && terrainNormal is null && !p.Profile.SplitWithoutTargets) return false;
         foreach (var other in targets)
-            Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position, (other.Position(Now) - p.Position).Unit,
+            Spawn(p.Use, p.Release, p.EmissionId, p.Id, p.Position, (other.Position(Now) - p.Position).Unit,
                 continuing: p, split: true);
         if (terrainNormal is not null || p.Profile.SplitWithoutTargets)
             // LocalExile provisional geometry for unclaimed slots: seeded azimuths after enemy hits,
             // incident hemisphere after terrain hits. The split count does not depend on this geometry.
             for (int i = targets.Length; i < p.Split; i++)
-                Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position,
+                Spawn(p.Use, p.Release, p.EmissionId, p.Id, p.Position,
                     terrainNormal is { } normal ? normal.Unit.Rotate((p.Random.NextDouble() - .5) * Math.PI)
                         : p.Direction.Rotate(p.Random.NextDouble() * Math.Tau), continuing: p, split: true);
         End(p, ProjectileEndReason.Split, allowReturn: false);
@@ -601,7 +602,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             var (sin, cos) = MathF.SinCos(angle);
             var aim = new ProjectileVector(cell.X + (int)MathF.Floor(100 * sin + .5f),
                 cell.Y + (int)MathF.Floor(-100 * cos + .5f));
-            Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position, aim - p.Position, continuing: p);
+            Spawn(p.Use, p.Release, p.EmissionId, p.Id, p.Position, aim - p.Position, continuing: p);
         }
         End(p, ProjectileEndReason.Fork, allowReturn: false);
     }

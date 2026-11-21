@@ -29,8 +29,8 @@ public static partial class Game
     public static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats) =>
         ApplyProjectilePanelStats(effect, stats, stats, ArrowsForSkill(effect));
 
-    static int FiredProjectiles(ProjectileProfile profile, Func<string, int> get) =>
-        get("projectiles_rain") != 0 && profile.EndEmission is { } rain ? rain.Child.Count : profile.Count;
+    static ProjectileProfile FiredProjectiles(ProjectileProfile profile, Func<string, int> get) =>
+        get("projectiles_rain") != 0 && profile.EndEmission is { } rain ? rain.Child : profile;
 
     static int BarrageTimePercent(ClientState conn, int effect, Func<string, int> get, int perProjectile)
     {
@@ -38,7 +38,7 @@ public static partial class Game
         var groundRain = ArrowRainDefinition(SkillsFor(conn).EffectId(effect));
         if ((groundRain?.Parameters ?? ResolveProjectilePanelParameters(effect)) is not { } parameters) return 0;
         var profile = parameters.Resolve(get, 1, groundRain is not null || ArrowsFor(conn, effect));
-        return perProjectile * FiredProjectiles(profile, get);
+        return perProjectile * FiredProjectiles(profile, get).Count;
     }
 
     static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats, IReadOnlyDictionary<uint, int> inputs, bool bow)
@@ -58,7 +58,8 @@ public static partial class Game
         // Arrow Nova's record describes the volley that leaves the landing cell, not its single payload arrow: the
         // client builds that volley from total_number_of_projectiles_to_fire, and 1 left it with one arrow
         // (live 2026-11-04: one SplitArrowDefault child instead of the nine the stats resolve to).
-        int total = FiredProjectiles(profile, Get);
+        profile = FiredProjectiles(profile, Get);
+        int total = profile.Count;
         int throwTime = Get("support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired");
         if (throwTime != 0) Put("virtual_trap_and_mine_throwing_time_+%_final", throwTime * total);
         Put("total_number_of_projectiles_to_fire", total);

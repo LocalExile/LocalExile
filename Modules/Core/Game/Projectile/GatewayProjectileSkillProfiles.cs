@@ -179,7 +179,18 @@ public static class GatewayProjectileSkillProfiles
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         if (effect == "Twister") p = p with { Pierce = -1 };
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
-        if (effect is "TornadoShot" or "TornadoShotAltY") p = TornadoShotChildren(p, get);
+        if (effect is "TornadoShot" or "TornadoShotAltY")
+        {
+            // Arrow Nova releases the resolved primary arrows at the landing cell. Each of those arrows
+            // still pierces and releases its own secondary group at the end of its flight.
+            if (p.EndEmission is { } rain)
+            {
+                var primary = TornadoShotChildren(rain.Child, get);
+                p = p with { EndEmission = rain with { Child = primary,
+                    FlightLayout = TornadoShotNova.LandingLayout(get, rain.Sweep) } };
+            }
+            else p = TornadoShotChildren(p, get);
+        }
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
@@ -260,7 +271,7 @@ public static class GatewayProjectileSkillProfiles
     }
 
     // The client's terminal RNG (0x1419c73c0) seeds [sequence, mother-derived byte, owner, repeats left,
-    // secondary-release byte, 0, 0, 0]. A fresh mother's derived byte is 2, and each arrow of a volley adds its index.
+    // secondary-release byte, 0, 0, 0]. The shared allocator assigns 2..255 in creation order, then restarts at 2.
     // The radial emitter then spaces children around that sampled base ray with no extra phase.
     public static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
     {
@@ -271,8 +282,10 @@ public static class GatewayProjectileSkillProfiles
     }
 
     static ProjectileVector TornadoShotBaseDirection(ProjectileEntity parent) =>
-        TornadoShotBaseDirection(parent.Use.Sequence, (uint)(2 + parent.VolleyIndex), parent.Use.Owner.Id,
+        TornadoShotBaseDirection(parent.Use.Sequence, DerivedByte(parent.SpawnOrdinal), parent.Use.Owner.Id,
             parent.Use.RepeatsLeft);
+
+    internal static uint DerivedByte(int ordinal) => 2u + (uint)ordinal % 254;
 
     // The native bounded draw (0x1404d0990): reject the incomplete top bucket, then take the remainder.
     static uint TornadoBounded(ref AnimationVariantSelector.NativeRandom random, uint exclusiveMax)

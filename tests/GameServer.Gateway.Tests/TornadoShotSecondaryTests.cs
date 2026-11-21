@@ -9,6 +9,7 @@ public sealed class TornadoShotSecondaryTests
         public readonly List<ProjectileActor> Targets = [];
         public readonly List<(long Arrow, uint Target)> Hits = [];
         public readonly List<long> Redirects = [];
+        public readonly List<ProjectileEntity> Flights = [];
         public IReadOnlyList<ProjectileActor> Actors(long from, long until) => Targets;
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
             wall && from.X < 60 && to.X >= 60 ? new((60 - from.X) / (to.X - from.X), new(-1, 0)) : null;
@@ -20,6 +21,7 @@ public sealed class TornadoShotSecondaryTests
         public void Publish(ProjectileEvent value)
         {
             if (value.Kind == ProjectileEventKind.Redirect) Redirects.Add(value.Projectile.Id);
+            if (value.Kind == ProjectileEventKind.Spawn) Flights.Add(value.Projectile);
         }
     }
 
@@ -86,6 +88,62 @@ public sealed class TornadoShotSecondaryTests
             Assert.Equal(9 + extra, arena.Hits.Select(hit => hit.Target).Distinct().Count());
             Assert.Equal(9 + extra, arena.Hits.Select(hit => hit.Arrow).Distinct().Count());
         }
+        CheckArrowNovaPrimaries(sweep: false);
+        CheckArrowNovaPrimaries(sweep: true);
+    }
+
+    static void CheckArrowNovaPrimaries(bool sweep)
+    {
+        int Get(string key) => key switch
+        {
+            "projectiles_rain" or "projectiles_nova" => 1,
+            "projectiles_barrage" => sweep ? 1 : 0,
+            "number_of_additional_projectiles" => 4,
+            "tornado_shot_num_of_secondary_projectiles" => 2,
+            _ => 0
+        };
+        var profile = GatewayProjectileSkillProfiles.Resolve("TornadoShot",
+            "Metadata/Projectiles/TornadoShotArrow", Get, 200, attack: true, arrows: true);
+        var arena = new Arena(false);
+        // Clear-ground 3.29.3c launch and destination cells for sequence 1, owner 4096, landing (147,100).
+        ProjectileVector[] origins = sweep
+            ? [new(150, 100), new(147, 97), new(144, 100), new(147, 103), new(150, 100)]
+            : Enumerable.Repeat(new ProjectileVector(148, 97), 5).ToArray();
+        ProjectileVector[] ends = sweep
+            ? [new(208, 101), new(148, 40), new(88, 101), new(148, 161), new(208, 101)]
+            : [new(163, 43), new(204, 95), new(167, 150), new(103, 132), new(101, 66)];
+        for (int i = 0; i < ends.Length; i++)
+        {
+            var target = origins[i] + (ends[i] - origins[i]) * .4;
+            arena.Targets.Add(new(new((uint)(10 + i)), 2, _ => target, 0));
+        }
+        var runtime = new ProjectileRuntime(arena);
+        runtime.Release(new ProjectileUse(profile, new(4096), new(4096), 1, new(100, 100), new(147, 100))
+            { Sequence = 1 });
+        runtime.AdvanceTo(ProjectileRuntime.Time(2));
+        var carrier = Assert.Single(arena.Flights, p => p.ParentId == 0);
+        Assert.DoesNotContain(arena.Hits, hit => hit.Arrow == carrier.Id);
+        var primaries = arena.Flights.Where(p => p.ParentId == carrier.Id).ToArray();
+        Assert.Equal(origins, primaries.Select(p => p.Use.Origin));
+        Assert.Equal(ends, primaries.Select(p => p.Use.Aim));
+        Assert.Equal(sweep ? 5 : 1, primaries.Select(p => p.EmissionId).Distinct().Count());
+        Assert.Equal(ProjectileRuntime.Time(sweep ? .4 : 0), primaries[^1].CreatedAt - primaries[0].CreatedAt);
+        int[] ordinals = sweep ? [1, 2, 3, 6, 9] : [1, 2, 3, 4, 5];
+        Assert.Equal(ordinals, primaries.Select(p => p.SpawnOrdinal));
+        foreach (var primary in primaries)
+        {
+            Assert.Contains(arena.Hits, hit => hit.Arrow == primary.Id);
+            var group = arena.Flights.Where(p => p.ParentId == primary.Id).ToArray();
+            Assert.Equal(2, group.Length);
+            var baseRay = GatewayProjectileSkillProfiles.TornadoShotBaseDirection(1, (uint)(2 + primary.SpawnOrdinal), 4096, 0);
+            Assert.InRange((group[0].Direction - baseRay).Length, 0, .000001);
+            Assert.All(group, arrow =>
+            {
+                Assert.InRange((arrow.Use.Origin - primary.Use.Aim).Length, 0, .002);
+                Assert.Null(arrow.Profile.EndEmission);
+            });
+        }
+        Assert.Equal(16, arena.Flights.Count);
     }
 
     // Point Blank/Far Shot measure the whole continuation: a child starts with the primary's travelled distance and
