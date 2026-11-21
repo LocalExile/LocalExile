@@ -137,6 +137,10 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
     }
 
+    /// <summary>Draw a single card from the eligible weighted bases supplied by a reward source.</summary>
+    public static Drop? WeightedCard(List<(ItemCatalog.BaseType Type, double Weight)> cards, Random rng) =>
+        Pick(cards, rng) is { } type ? new(ItemCatalog.Create(type) with { StackSize = 1 }, type) : null;
+
     /// <summary>The published weights for a category, by BaseItemTypes Id. Empty when the database has not been seeded.</summary>
     static Dictionary<string, double> PublishedWeights(string category) =>
         DropDataProvider.Default.Current.ItemWeights

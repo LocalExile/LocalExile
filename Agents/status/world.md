@@ -139,7 +139,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   drawn from the level-eligible vessel pool. *Of Thaumaturgy* adds one level 20 Vaal gem with its own experience
   threshold. *Of Chiselling* adds a corrupted gem with 23% quality from the
   league's ordinary gem drop pool. *Of the Facetor* adds one corrupted level 21 gem from bases that can reach
-  that level. An area modifier for additional Vaal monsters supplies a count of packs.
+  that level. *Of Divination* adds one to three level-eligible cards that redeem for corrupted items outside
+  Ruthless. Their relative weights use a 3.29 Stacked Deck sample. The vessel's own rates are unknown.
+  An area modifier for additional Vaal monsters supplies a count of packs.
   The 3.29.3c pack row contains three Vaal cultist varieties and a wraith. The category and fragment weights use Chris Wilson's
   [2014 account](https://www.reddit.com/r/pathofexile/comments/26vxhn/comment/chv7xio/). Current server weights,
   natural entrance modifier rolls, other bonus loot, the exit portal and original client presentation are unverified.

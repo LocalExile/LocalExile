@@ -163,7 +163,7 @@ public sealed class ScarabEncounterTests
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselVaalOrbDrop_",
                 "MapCorruptedSideAreaVesselVaalGemDrop", "MapCorruptedSideAreaVesselLevelledGemDrop");
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselQuality23GemDrop",
-                "MapCorruptedSideAreaVesselLevel21GemDrop");
+                "MapCorruptedSideAreaVesselLevel21GemDrop", "MapCorruptedSideAreaVesselDivinationCardDrop");
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
             var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
@@ -539,8 +539,17 @@ public sealed class ScarabEncounterTests
                 Assert.InRange(type.DropLevel, 1, level);
                 Assert.True(item.Corrupted);
             });
+            var cards = drops.Where(item => Program.Items.ByHash(item.TypeHash)!.Class == "DivinationCard").ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVesselDivinationCardDrop", 3), cards.Sum(item => (int)item.StackSize));
+            foreach (var card in cards)
+            {
+                var type = Program.Items.ByHash(card.TypeHash)!;
+                Assert.InRange(type.DropLevel, 1, level);
+                Assert.False(card.Corrupted);
+                Assert.True(DivinationRewards.Find(type.Id) is { Enabled: true, Corrupted: true });
+            }
             var rewards = drops.Where(item => item.TypeHash != vaalOrb && item.Quality != 23
-                && Program.Items.GemLevel(item) != 21).ToArray();
+                && Program.Items.GemLevel(item) != 21 && Program.Items.ByHash(item.TypeHash)!.Class != "DivinationCard").ToArray();
             int levelledGems = Count("MapCorruptedSideAreaVesselLevelledGemDrop");
             int gems = Count("MapCorruptedSideAreaVesselVaalGemDrop", 2) + levelledGems;
             Assert.Equal(gems + 1, rewards.Length);

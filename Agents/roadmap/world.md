@@ -149,6 +149,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Its *of Experimentation* modifier adds the Vaal Orb count carried by the area. *Of the Gemcutter* adds Vaal gems
   and *of Thaumaturgy* adds a level 20 Vaal gem.
   *Of Chiselling* adds a corrupted gem with 23% quality and *of the Facetor* adds a level 21 corrupted gem.
+  *Of Divination* adds one to three cards for corrupted items outside Ruthless. The individual vessel rates
+  still need a direct sample.
   A rolled additional Vaal pack count feeds the area population alongside ordinary packs.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
 - **Next.** Measure Blade Vortex targeting, movement and presentation in the client. Measure the fissure daemon's release, turns,

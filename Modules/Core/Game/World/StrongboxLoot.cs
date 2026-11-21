@@ -54,12 +54,16 @@ public static class StrongboxLoot
     ];
 
     /// <summary>A divination card's reward as world.db's divination_card_rewards gives it.</summary>
-    public sealed record CardReward(string Card, string Kind, bool Corrupted);
+    public sealed record CardReward(string Card, string Kind, bool Corrupted)
+    {
+        public int VaalVesselWeight { get; init; }
+    }
 
-    static IReadOnlyList<CardReward> CardRewards() => GameData.Store is not { } store ? [] :
+    internal static IReadOnlyList<CardReward> CardRewards() => GameData.Store is not { } store ? [] :
         [.. store.LoadRows("divination_card_rewards", "card_id")
             .Where(r => Convert.ToInt64(r["enabled"]) != 0)
-            .Select(r => new CardReward((string)r["card_id"]!, (string)r["reward_kind"]!, Convert.ToInt64(r["corrupted"]) != 0))];
+            .Select(r => new CardReward((string)r["card_id"]!, (string)r["reward_kind"]!, Convert.ToInt64(r["corrupted"]) != 0)
+                { VaalVesselWeight = Convert.ToInt32(r["vaal_vessel_weight"]) })];
 
     /// <param name="corrupted">The box is corrupted (a Vaal Orb, <c>map_strongboxes_are_corrupted</c>): its contents drop
     /// corrupted where they can be (poewiki, Strongbox: "Corrupted strongboxes (e.g. from using a Vaal Orb) will cause all of the

@@ -201,6 +201,10 @@ public static class SideAreaVessels
                 rewards.Add(new(ItemCatalog.Create(type) with { ItemLevel = 1, Corrupted = true, GemExperience = experience }, type));
             }
 
+        int cards = Count("map_vaal_vessel_drop_X_divination_cards");
+        if (cards > 0 && !LeagueFor(conn).HardMode)
+            rewards.AddRange(DivinationCards(catalog, level, cards, Random.Shared));
+
         int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
         if (orbs <= 0) return rewards;
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;
@@ -212,6 +216,18 @@ public static class SideAreaVessels
     // The 3.29 client records the Apex recipe and eligible gem variants, but has no current server weights.
     static readonly (int Number, int Weight)[] Fragments = [(1, 1), (2, 3), (3, 2), (4, 4)];
     static readonly RuleTable<ItemCatalog, ItemCatalog.BaseType[]> VaalGems = new();
+    static readonly RuleTable<GameData.Snapshot, StrongboxLoot.CardReward[]> VesselCards = new();
+
+    internal static IEnumerable<ItemDrops.Drop> DivinationCards(ItemCatalog catalog, int level, int count, Random random)
+    {
+        var rows = VesselCards.GetValue(GameData.Current, _ =>
+            [.. StrongboxLoot.CardRewards().Where(r => r.Corrupted && r.VaalVesselWeight > 0)]);
+        var pool = rows.Select(r => (Type: catalog.Find(r.Card)!, Weight: (double)r.VaalVesselWeight))
+            .Where(p => p.Type.Supported && p.Type.DropLevel <= level).ToList();
+        for (int i = 0; i < count; i++)
+            yield return ItemDrops.WeightedCard(pool, random)
+                ?? throw new InvalidOperationException($"No Vaal vessel divination cards at area level {level}");
+    }
 
     internal static ItemDrops.Drop Reward(ItemCatalog items, int level, Random random)
     {
