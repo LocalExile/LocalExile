@@ -1292,17 +1292,18 @@ public static partial class Game
                     double antiquarianLife = conn.Antiquarian.TakeRecovery(now);
                     if (convertLifeRegen) conn.EnergyShield.Gain(antiquarianLife);
                     double enduringCryLife = conn.EnduringCryRecovery.Take(now);
-                    double unhingedHitLife = conn.Unhinged.HitRecovery.Take(now);
+                    double hitLifeRegen = conn.Unhinged.HitRecovery.Take(now)
+                        + ResourceEffectsOf(conn).VitalityHitRecovery.Take(now);
                     if (convertLifeRegen) conn.EnergyShield.Gain(enduringCryLife);
                     double preventedLife = PreventedDamageOf(conn).Take(recoveryFrom, now, preventedPerSecond);
                     if (convertLifeRegen) conn.EnergyShield.Gain(preventedLife);
-                    if (convertLifeRegen) conn.EnergyShield.Gain(unhingedHitLife);
+                    if (convertLifeRegen) conn.EnergyShield.Gain(hitLifeRegen);
                     double recoupLife = conn.LifeRecoup.Take(now);
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
                         + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
-                    if (!zealotsOath) nonFlaskLife += unhingedHitLife;
+                    if (!zealotsOath) nonFlaskLife += hitLifeRegen;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
@@ -1410,6 +1411,7 @@ public static partial class Game
         conn.Antiquarian.TakeRecovery(now);
         conn.EnduringCryRecovery.Take(now);
         conn.Unhinged.HitRecovery.Take(now);
+        ResourceEffectsOf(conn).VitalityHitRecovery.Take(now);
         conn.LifeRecoup.Take(now);
         DiscardResourceLoadingRecovery(conn, now);
     }

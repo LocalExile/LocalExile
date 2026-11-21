@@ -9,6 +9,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public long Generation;
     public readonly ManaRecoupState Mana = new();
     public readonly TimedBlind PlayerBlind = new();
+    public readonly TimedLifeRecovery VitalityHitRecovery = new();
     public readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
     public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
@@ -100,7 +101,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
             || connection.Closed || connection.RageRetired))
             foreach (var effect in connection.FlaskEffects.End(e => e.CopyManaToLife))
                 if (effect.Buff != 0) retired.Add((Program.PlayerId, effect.Buff));
-        Mana.Clear(); PlayerBlind.Clear(); Targets.Clear(); TransferCheckpoint = null;
+        Mana.Clear(); PlayerBlind.Clear(); VitalityHitRecovery.Clear(); Targets.Clear(); TransferCheckpoint = null;
     }
 }
 
