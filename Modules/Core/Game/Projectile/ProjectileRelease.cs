@@ -131,14 +131,14 @@ public static partial class Game
         if (Get("projectiles_rain") != 0) return at;
         // Both action start and ordinary contact write this point back. The root's derived byte and chain count are zero.
         uint remaining = (uint)(repeatsLeft ?? SpellRepeats(conn, effect, Get));
-        var (sin, cos) = MathF.SinCos(CoincidentProjectileAngle(sequence, 0, remaining, PlayerId));
+        var (sin, cos) = MathF.SinCos(ProjectileActionAngle(sequence, 0, remaining, PlayerId, 6.28318f));
         return (at.X + (int)(60 * sin), at.Y + (int)(60 * cos));
     }
 
-    internal static float CoincidentProjectileAngle(ushort sequence, uint derived, uint repeats, uint owner)
+    internal static float ProjectileActionAngle(ushort sequence, uint derived, uint repeats, uint owner, float fullTurn)
     {
         var random = new AnimationVariantSelector.NativeRandom([sequence, derived, 0, repeats, owner]);
-        return random.Range(0, 6.28318f);
+        return random.Range(0, fullTurn);
     }
 
     public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -392,7 +392,7 @@ public static partial class Game
         const float Tau = 6.2831855f;
         if (count == 1)
         {
-            float a = new AnimationVariantSelector.NativeRandom([sequence, 2, 0, repeatsLeft, owner]).Range(0, Tau);
+            float a = ProjectileActionAngle(sequence, 2, repeatsLeft, owner, Tau);
             return [Math.Atan2(MathF.Cos(a), MathF.Sin(a)) - Math.Atan2(aim.Y, aim.X)];
         }
         var random = new AnimationVariantSelector.NativeRandom([sequence, 0, repeatsLeft, 0, owner, 0, 0]);

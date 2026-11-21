@@ -307,6 +307,7 @@ public static class GatewayProjectileSkillProfiles
         var sweep = nova && get("projectiles_barrage") != 0 ? PlayerArrowNovaSweep : null;
         // The Barrage actor issues one shot per contact. Cloudburst's secondary action always selects zero side points.
         var points = nova && sweep is null && effect != "TornadoShotAltX" ? Game.ParallelFiringPoints.From(get) : null;
+        bool random = nova && get("random_projectile_direction") != 0;
         bool tornado = effect is "TornadoShot" or "TornadoShotAltY";
         var child = arrows with
         {
@@ -336,8 +337,8 @@ public static class GatewayProjectileSkillProfiles
             {
                 Delay = ProjectileRuntime.Time(.221),
                 Sweep = sweep,
-                FlightLayout = tornado || points is not null
-                    ? ArrowNovaLayout.Create(get, sweep, points, tornado, tornado || Program.Skills.ProjectileUsesTargetLocation(arrows.Id))
+                FlightLayout = tornado || points is not null || random
+                    ? ArrowNovaLayout.Create(get, sweep, points, tornado, random, tornado || Program.Skills.ProjectileUsesTargetLocation(arrows.Id))
                     : null
             }
         };

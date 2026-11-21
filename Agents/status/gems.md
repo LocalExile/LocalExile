@@ -85,6 +85,8 @@ Nothing yet.
   completed chains. The group can hit a target the primary hit, and each arrow spends its own remaining chains.
   With Arrow Nova Support, ordinary Tornado Shot fires its piercing primary arrows from the landing point.
   Each primary fires its own secondary group. Barrage Support spaces the primary releases over 400 ms.
+  With Nimis, each landing arrow in a simultaneous group turns by a separate seeded angle. A lone arrow or a
+  single release in a Barrage sweep takes its heading from that arrow's own action. This also applies to Cloudburst.
   Tornado Shot of Cloudburst lands one payload and fires nine damaging arrows at zero quality, or thirteen at 20%
   quality. Arrow and projectile count bonuses apply to the landing volley and appear in the skill panel.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).

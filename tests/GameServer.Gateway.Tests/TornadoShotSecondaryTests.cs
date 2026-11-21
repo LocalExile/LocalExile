@@ -93,6 +93,36 @@ public sealed class TornadoShotSecondaryTests
         CheckArrowNovaPrimaries(sweep: false);
         CheckArrowNovaPrimaries(sweep: true);
         CheckVolleyLandingPoints();
+        CheckRandomLandingDirections();
+    }
+
+    static void CheckRandomLandingDirections()
+    {
+        // Split Arrow extends the sampled ray to its configured range. A lone arrow uses its own action byte.
+        foreach (ProjectileVector[] ends in new ProjectileVector[][]
+        {
+            [new(24, 11)],
+            [new(23, 12), new(281, 163), new(104, 241), new(201, 237), new(37, -6)]
+        })
+        {
+            int Get(string key) => key switch
+            {
+                "projectiles_rain" or "projectiles_nova" or "random_projectile_direction" => 1,
+                "number_of_additional_projectiles" => ends.Length - 1,
+                _ => 0
+            };
+            var profile = GatewayProjectileSkillProfiles.Resolve("SplitArrow", "Metadata/Projectiles/SplitArrowDefault",
+                Get, 200, attack: true, arrows: true);
+            var arena = new Arena(false);
+            var runtime = new ProjectileRuntime(arena);
+            runtime.Release(new ProjectileUse(profile, new(4096), new(4096), 1, new(100, 100), new(147, 100)) { Sequence = 19 });
+            runtime.AdvanceTo(ProjectileRuntime.Time(2));
+            var carrier = Assert.Single(arena.Flights, p => p.ParentId == 0);
+            var arrows = arena.Flights.Where(p => p.ParentId == carrier.Id).ToArray();
+            Assert.Equal(new ProjectileVector(147, 100), carrier.Use.Aim);
+            Assert.All(arrows, p => Assert.Equal(new ProjectileVector(146, 97), p.Use.Origin));
+            Assert.Equal(ends, arrows.Select(p => p.Use.Aim));
+        }
     }
 
     static void CheckVolleyLandingPoints()
