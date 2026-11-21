@@ -215,6 +215,29 @@ allocation, not JIT code quality).
 - **One Oodle decoder per machine** was not done: worktrees may run different code and tables, so a shared decoder would
   have to be stateless and version-agnostic. The per-stack worker now runs only around generations instead.
 
+## Kill path, predictive movement, and save latency (2026-11-21)
+
+Measured in Release against `origin/main` (`bc02dcf30`) on the same machine (`PerfBench` and targeted in-process probes):
+
+| Measure | Before | After |
+|---|---|---|
+| Unchanged `CharacterStatSources` lookup (`StatSnapshotTailTests`) | 66 752 B | 36 056 B |
+| `sweep`: `CharacterPlayerStats` / call | 1 443 µs, 372 KB | 675 µs, 130 KB |
+| `sweep`: 100 / 300 / 500 monsters (median, alloc) | 6.20 / 5.44 / 6.06 ms, 1.55 MB | 4.01 / 3.60 / 3.90 ms, 0.70 MB |
+| `planner`: `PlanMonsterAi` / step (blocker frame) | 1 097 µs, 404 KB (71.5 µs) | 691 µs, 350 KB (50.7 µs) |
+| `busy`: process CPU / alloc per game second | 329 ms/s, 20.5 MB/s | 260 ms/s, 15.0 MB/s |
+| Warm `MonsterKilled` (20-kill average) | 4.87 ms, 1 261 KB/kill | 1.20 ms, 196 KB/kill |
+| Cold `BossMods` + `TickPassiveAuras` (60 monsters) | 1 740 ms cold / 2 443 µs warm | 15.7 ms cold / 237 µs warm |
+| `SendSoulEater` / `SendRecentEnemyHits` warm tick | 2 044 / 3 327 µs (386 KB each) | 4.1 / 2.3 µs (1.1 / 0.5 KB) |
+| Predictive `0x0025` Move (short / held-walk 60 ticks) | 539 µs, 128 KB / 305 µs, 55 KB/tick | 177 µs, 6.7 KB / 225 µs, 0.6 KB/tick |
+| Stash Ctrl-click `InventoryToStash` (233 tabs, median) | 5.56 ms, 1 283 KB/click | 1.04 ms, 255 KB/click |
+| `CharacterSaves.SaveExperience` SQLite write | 1.24 ms | 0.07 ms |
+
+What changed:
+- **Stat building & kill path**: `CharacterPlayerStatsSnapshot` reuses its prepared `EquipmentStatSources` once instead of running five lookups; `ItemConditionFlags` reuses the caller's equipment, recent events and auras without copying stat dictionaries; kill and player-tick checks (`GainPhasingOnKill`, `ExplodeOnKill`, `SendSoulEater`, `SendRecentEnemyHits`, `SendKillOnslaught`, `SendAntiquarian`, `PassiveBuffAuras`) fast-reject from cached static sources; `BossMods.Parse` reads only the monster-referenced mod rows; `CursesTickLocked` skips uncursed/unmodified monsters; `MonsterKilledBy`, `SendPlayerTickBatch`, and `ProjectileSession` wrap bursts in a keyed `PlayerStatsScope`; multi-kill projectile batches coalesce gem XP, flask bar, and remaining-monster packets and flush level-up XP outside `conn.Monsters`; `ItemRolls` indexes mods by domain once.
+- **Predictive `0x0025` & pathing**: `ClientState.Blockers` caches an immutable `BlockerSet` until stationary, monster, or peer bodies move (ignoring local player motion); `BlockerSet` stores intrusive bucket chains with bounding-box pruning; `ClientPathfinder` skips redundant `walkable`/`BlockerSet`/heuristic work on already-opened nodes and removes per-search heap allocations; `0x0025` skips `SkillAcknowledgementAllowed` (`CharacterStatSources`) and ranged-weapon lookup on `Move`.
+- **Saves, stash, and vendor init**: `SaveRows` caches `stash_tab_headers` and `stash_module_data` fingerprints per `SaveDatabase` (synced to SQLite `data_version` and cleared on rollback), partitions character items by inventory row, updates inventories without reloading the whole character save (`WriteCharacterInventories`), and flushes experience with a single-row `UPDATE` (`WriteCharacterExperience`); `VendorRecipes` precomputes `ModType` tables and indexes essences and base types once.
+
 ## Where the remaining cost is
 
 - **Generated tables.** The client tables and the generated ones (object types, room points, ...) are read as columnar
