@@ -87,6 +87,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   stays gone); a click on a run whose instance has expired (six minutes after its last player left) closes the run and
   its remaining portals and says so in chat, instead of spending a portal on a transfer that cannot arrive (2026-11-18);
   guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
+  A lone Sacrifice or Mortal fragment stays in the device and the current portals stay open. The complete sets
+  open the Apex of Sacrifice and the Alluring Abyss respectively (Gateway verified).
   Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
   The instance keeps the map's level and mods for its whole life (after its last portal or another
   activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates

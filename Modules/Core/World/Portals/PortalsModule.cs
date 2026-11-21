@@ -14,6 +14,7 @@ public sealed class PortalsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        GameEvents.MapOpening.Add(module.Manifest.Id, CheckVaalFragmentRecipe);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
             var (remote, stream, ciphers) = conn.Wire;

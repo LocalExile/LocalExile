@@ -101,6 +101,14 @@ static class PortalsFeature
         map.Instance != 0 && MapTownPortals.TryGetValue(character, out var own)
         && own.Area == map.Area.Hash16 && own.Instance == map.Instance ? (own.X, own.Y) : null;
 
+    internal static void CheckVaalFragmentRecipe(MapOpening request)
+    {
+        // MapDeviceRecipes still lists eight single-fragment recipes for this retired destination.
+        if (request.Opening?.Area.Id != "AnyCorruptedSideArea") return;
+        request.Opening = null;
+        request.Reason = "Place this fragment with a map or use the complete fragment set.";
+    }
+
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): one map (its affixes and the scarabs/fragments)
     // or a MapDeviceRecipes set with no map. Then one item from each slot's stack is consumed, the area opens (the first
     // portal taken makes its instance) and its portals appear around the device, replacing any open before. Otherwise the chat says why.

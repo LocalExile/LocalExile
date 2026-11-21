@@ -55,5 +55,22 @@ public sealed class MapDeviceRecipeTests
             Assert.Null(device.Check([extra, blossom], null, catalog.Mods, out why));
             Assert.NotEmpty(why);
         }
+
+        var conn = new ClientState(new(1, "recipe", 64, 64, 32, 32, null, []), 1, 1);
+        foreach (var (family, area) in new[] { (1, "MapAtziri1"), (2, "MapAtziri2") })
+        {
+            var set = Enumerable.Range(1, 4).Select(n => Slot($"Metadata/Items/MapFragments/CurrencyVaalFragment{family}_{n}")).ToArray();
+            foreach (var fragment in set)
+            {
+                var single = new MapOpening(conn, [fragment], false, device.Check([fragment], null, catalog.Mods, out why), why);
+                PortalsFeature.CheckVaalFragmentRecipe(single);
+                Assert.Null(single.Opening);
+                Assert.NotEmpty(single.Reason);
+            }
+            var complete = new MapOpening(conn, set, false, device.Check(set, null, catalog.Mods, out why), why);
+            PortalsFeature.CheckVaalFragmentRecipe(complete);
+            Assert.Equal(area, complete.Opening!.Area.Id);
+            Assert.Empty(complete.Reason);
+        }
     }
 }

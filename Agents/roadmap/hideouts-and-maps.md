@@ -52,6 +52,7 @@ bench.
 
 - **Known:** the Lush Hideout works: travel, waypoint, stash, Nessa, the Edit button and the map device: slots,
   Activate and six portals into the map ([21](../docs/protocol/21-hideouts.md) §5).
+  Gateway checks cover standalone Sacrifice and Mortal fragment refusal. Client presentation remains to be checked.
   Its decoration (`data/hideouts.json`) lists every doodad with its type and model.
   The Heist Locker is placed and opens its native storage window; contract/blueprint transfers need separate work.
   Moving/rotating installed furniture and NPCs now saves per character/template through C→S 0x5b.
