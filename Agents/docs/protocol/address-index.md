@@ -619,3 +619,23 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x140d60630` | Fn | 0xb8 listener on the UI state: flags bit 0 → +0x984 = other party, +0x988 = 1 (the active trade) |
 | `0x14030e970` | Fn | Ctrl + click on an inventory item: with +0x988 set sends 0xb2 x = y = 0xff (`0x14216d010`), else the other panels' checks |
 | `0x140dc5fe0` | Fn | S→C 0x7b kind 0x5f: the character's passive tree (UI +0x650); u32 ≠ 0 → mode 2 (`0x1409df890`) |
+
+## HUD signals, timers, PvP queue, and votes ([30](30-hud-signals-and-timers.md))
+
+| Address | Kind | What |
+|---|---|---|
+| `0x1435e6968` (write `0x1421acac0`, read `0x1421acb70`) | Cls | S→C 0x126 achievement/challenge per-set bitset (case `0x4e` at `0x142155774` → instance `+0x7cf8`) |
+| `0x1435ca200` (write `0x141f99160`, read `0x141f991c0`) | Cls | S→C 0x124 / 0x125 / 0x127 achievement completed / item completed / item failed (cases `0x4c` / `0x4d` / `0x4f` at `0x1421557f1`, `0x142155794`, `0x14215584e` → instance `+0x7df8` / `+0x7d78` / `+0x7e78`) |
+| `0x142361330` / `0x14223f970` | Fn | 0-based `Achievements.dat` (stride `0x4a`) / `AchievementItems.dat` (stride `0x30`) row lookup used by 0x124 / 0x125 / 0x127 |
+| `0x140dd2d70` / `0x140d835a0` → `0x1402a4320` | Fn | PC / Console `+0x7df8` listeners → `HUDNotificationDisplay::AchievementCompleteNotification` (HUD `+0x5b8` vtable `+0x398`; Console also `0x1402afa00`) |
+| `0x140dd29a0` / `0x140dd2dd0` | Fn | PC `+0x7d78` / `+0x7e78` listeners (item complete + `AchievementItemRewards` `0x14024d5d0`; item failed; Console `0x140d832d0` / `0x140d83660`) |
+| `0x1435ca870` (write `0x141f99580`, read `0x141fa67c0`) | Cls | S→C 0x163 mission timer: u8 1-based `MissionTimerTypes` + u32 BE seconds (case `0x6a` at `0x142156ba8` → `+0x91f8`, or pre-`0x21` queue `instance +0xce80` drained at `0x14215dcf0`) |
+| `0x140dce320` / `0x140d7fc60` → `0x1402296e0` | Fn | PC / Console `+0x91f8` listeners: id 8 → Heist lockdown `0x1404c3ad0`, else `MissionTimerManager::Start` (PC `HUD +0x4e0`, Console `+0x880`); Ultimatum id 9 also handled by `0x14069f510` → `0x14069f730` |
+| `0x1435cae30` (write `0x141f9a710`, read `0x141f9a790`) | Cls | S→C 0x162 countdown timer: u32 BE count + u32 LE 1-based `CountdownTimers` row (case `0x69` at `0x142156bfa` → `+0x9278`) |
+| `0x140dabd9c` → `0x140dd9120` / `0x140d8e080` → `0x14071e470` | Fn | `+0x9278` virtual thunk (`jmp [vt+0xbf8]`) → PC `HUD +0x508` / Console `HUD +0x878` → `CountdownTimers::Start` |
+| `0x1435e7120` (write `0x1421ac250`, read `0x1421ac320`) | Cls | S→C 0x118 PvP queue status (case `0x45` at `0x14215551a` → `+0x8cf8` → PC `0x140dccbc0` / Console `0x140d7e400` → `0x140abcc50`, `HUD +0x4b0`) |
+| `0x1431768d8` (write `0x140911160`) | Cls | S→C 0x119 PvP queue cancelled (case `0x46` at `0x142155612` → `+0x8d78` → `0x140dccce0`); C→S 0x11a Leave Queue (`0x140ac1750`, `0x1408e7070`) and C→S 0x18d Withdraw (`0x140ac1700`) |
+| `0x1435e6d40` (write `0x1421a9f80`, read `0x1421aa0d0` → `0x141fe35f0`) | Cls | S→C 0xbe party/solo bandit vote (case `0x33` at `0x142153f84` → `+0x82f8` → `0x14026fdb0` → `0x14026e690`, `HUD +0x4e8` `0x14026e170`) |
+| `0x1435ca088` (write `0x140e27920`) | Cls | C→S 0xbd bandit vote cast (`0x14026ff10`: u8 1 Help / 0 Kill) |
+| `0x140723fa0` / `0x1407354f0` | Fn | PC / Console `NPCTalk` option click handler (divides `NPCTalkCategory` by 9; only 1-based `0x06`/`0x1a`/`0x27` local, all others send C→S `0x82`) |
+| `0x141e7bb90` | Fn | `NPCTalk` availability filter (checks `+0x124`/`+0x138` vs `world +0xd0`, 64-entry `NPCTalkCategory` switch `0x141e7cf18`) |
