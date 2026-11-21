@@ -159,6 +159,12 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
+        GameEvents.Packet(InstanceEntities.ResetAllPassivesId).Add(module.Manifest.Id, async (conn, _) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await Rules.ResetPassivesFree(remote, stream, ciphers, conn);
+            return true;
+        });
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
     }
 }

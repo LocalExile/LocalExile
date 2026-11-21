@@ -47,9 +47,12 @@ public static class InstanceEntities
         return h ^ h >> 15;
     }
 
+    /// <summary>Bit 0 of 0x33/0x3d flags: character has an unused one-off free full passive tree reset (0x14215404c / 0x142154374).</summary>
+    public const byte PassiveFreeResetFlag = 0x01;
+
     /// <summary>
     /// S→C 0x3d (dispatcher case 0x11, class 0x1435e6708, write 0x1421a54b0): the three **Atlas** passive tree presets.
-    /// u16 +0x28, u16 +0x2a, flags (bit0 +0x2c, bit1 +0x2d = no list, bits 2/3/4 → create or update preset 0/1/2 via
+    /// u16 +0x28, u16 +0x2a, flags (bit0 +0x2c free reset, bit1 +0x2d = no list, bits 2/3/4 → create or update preset 0/1/2 via
     /// 0x14215c540), then unless bit1 a vec16 of raw (little-endian) u16 node ids. Each flagged preset gets the list and
     /// the two u16 (0x141ef3040): +0x28 → +0x468, +0x2a → +0x46c, its points (0x141ef3860: "atlas passive skills
     /// allocated but only allowed"). The presets at instance+0xc2f8 (active index +0xc2f0) are read when the area UI is
@@ -63,6 +66,26 @@ public static class InstanceEntities
         return w.ToArray();
     }
 
+    /// <summary>S→C 0x3c (vtable 0x1435e72b0, write 0x1421a52c0, read 0x1421a53e0; dispatcher case 0x10):
+    /// the three Atlas passive tree preset names as narrow UTF-8 strings (u16 BE byte length + bytes, converted to UTF-16 at 0x1421542ec).</summary>
+    public const ushort AtlasTreeNamesId = 0x3c, AtlasTreeRenameId = 0x2a7;
+
+    public static byte[] AtlasTreeNames(string name0, string name1, string name2) =>
+        new LoginWriter().U16(AtlasTreeNamesId).Str(name0).Str(name1).Str(name2).ToArray();
+
+    /// <summary>C→S 0x2a7 (2 + u8 + WStr, writer 0x141fa5e60): rename one Atlas passive tree preset (0..2).</summary>
+    public static (byte Preset, string Name) ReadAtlasTreeRename(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[3..]);
+        return (m[2], r.WStr());
+    }
+
+    /// <summary>C→S 0x129 (2 bytes, AtlasWindow::Show 0x1407b2ea0) and S→C 0x91 (read 0x1421a77b0, dispatcher case 0x23):
+    /// CompactUInt count followed by count × (WStr, 8 raw bytes). Empty list is [0x00, 0x91, 0x00].</summary>
+    public const ushort AtlasWindowRequestId = 0x129, AtlasWindowReplyId = 0x91;
+
+    public static byte[] AtlasWindowReply() => [0x00, 0x91, 0x00];
+
     /// <summary>
     /// C→S 0x3e (7 bytes): the Atlas tree's allocate click. u8 preset index (0..2), u32 BE PassiveSkillGraphId. The
     /// client's active preset is at Atlas tree +0xc2f0 (sender 0x1403cc9a0).
@@ -73,13 +96,13 @@ public static class InstanceEntities
     public const ushort AtlasAllocateId = 0x03e, AtlasRefundId = 0x03f;
     public const int AtlasAllocateLength = 7, AtlasRefundLength = 8;
 
-    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 flag (0 seen).</summary>
+    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 gold flag (1 when gold-respec mode).</summary>
     public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
         (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
     /// <summary>C→S 0x2a8 (3 bytes): an Atlas tree tab picked; u8 the tab's AtlasTrees row, the preset to make active.
-    /// C→S 0x40 and 0x41 (3 bytes, u8 the active preset) are the Atlas tree's analogues of 0x37 and 0x38.</summary>
-    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41;
+    /// C→S 0x40 (Refund All for gold) and 0x41 (one-off free Reset All) carry u8 the active preset, analogues of 0x37 and 0x38.</summary>
+    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41, AtlasResetAllId = AtlasTreeWidgetId;
     public const int AtlasTreeTabLength = 3;
 
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
@@ -164,7 +187,7 @@ public static class InstanceEntities
     public static (ushort Node, ushort Effect) ReadMasteryEffect(ReadOnlySpan<byte> m) =>
         ((ushort)(m[2] << 8 | m[3]), (ushort)(m[4] << 8 | m[5]));
 
-    public const ushort RefundPassiveId = 0x36, RefundAllPassivesId = 0x37;
+    public const ushort RefundPassiveId = 0x36, RefundAllPassivesId = 0x37, ResetAllPassivesId = 0x38;
     public const int RefundPassiveLength = 8;
 
     /// <summary>
@@ -194,10 +217,11 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0,
+        bool freeReset = false)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8((byte)(freeReset ? PassiveFreeResetFlag : 0)).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.

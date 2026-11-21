@@ -29,6 +29,12 @@ public sealed class NpcDialogueModule : IModule
                 world.NpcEndTalk();
                 await talk.Player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.PassiveTreeUi, 1), "0x007b open the passive tree (respec)");
                 return true;
+            // Kirac's Atlas Respecialisation (script: SendOpenScreen( AtlasPassiveTreeScreen, 1 )): the Atlas passive tree
+            // in gold-respec mode, S→C 0x7b kind 0x11 with 1. Refunds come back as C→S 0x3f (gold flag) and 0x40 (Refund All).
+            case "RespecAtlasPassivePointsForGold":
+                world.NpcEndTalk();
+                await talk.Player.Send(InstanceWaypoints.OpenUi(InstanceWaypoints.AtlasUi, 1), "0x007b open the Atlas passive tree (respec)");
+                return true;
             // Nessa's Identify Items (script: triggerer.IdentifyItems(), then the IdentifyAll sound): every unidentified item
             // in the main inventory, free. The sound effect is not sent (its message is not mapped).
             case "IdentifyItems":

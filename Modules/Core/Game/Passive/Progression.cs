@@ -1862,6 +1862,37 @@ public static partial class Game
     /// below the PassiveSkillGraphId range of the tree's nodes.</summary>
     public const ushort MaxClusterNodeId = 0xFFF;
 
+    /// <summary>Module data key for an unused one-off free full passive skill tree reset (S→C 0x33 flags bit 0, C→S 0x38).</summary>
+    public const string PassiveFreeResetKey = "passives.free_reset";
+
+    public static bool HasPassiveFreeReset(ClientState conn) =>
+        CharacterSaves.ModuleData(CharacterName(conn), PassiveFreeResetKey) == "1";
+
+    public static void SetPassiveFreeReset(ClientState conn, bool available) =>
+        CharacterSaves.ChangeModuleData(CharacterName(conn), PassiveFreeResetKey, _ => available ? "1" : "");
+
+    /// <summary>C→S 0x38: consumes an unused one-off free passive tree reset to refund all ordinary passives free.</summary>
+    public static async Task ResetPassivesFree(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (!HasPassiveFreeReset(conn))
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0038 free passive reset refused: none available");
+            await SendPassives(remote, stream, ciphers, conn);
+            return;
+        }
+        var nodes = PassiveState(conn).Nodes.Where(n => PassivesFor(conn).Find(n) is not { IsAscendancy: true }).ToList();
+        Console.WriteLine($"[gateway] {remote} <= 0x0038 free passive reset ({nodes.Count})");
+        if (nodes.Count == 0)
+        {
+            SetPassiveFreeReset(conn, false);
+            await SendPassives(remote, stream, ciphers, conn);
+            return;
+        }
+        string? error = await ChangePassives(remote, stream, ciphers, conn, nodes, allocate: false, "Free passive reset",
+            consumeFreeReset: true);
+        if (error is not null) await conn.Commands!.Reply(error);
+    }
+
     public static (byte[] Bytes, string Label) PassivesMessage(ClientState conn)
     {
         lock (conn.Monsters)
@@ -1894,7 +1925,8 @@ public static partial class Game
             return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated, .. conn.DescendancyNodes],
                     questPoints: clientExtra, refundPoints: refundPoints,
                     ascendancyPoints: (ushort)(conn.MainAscendancy.EarnedPoints + descendancyPoints), masteryEffects: masteries,
-                    clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos, descendancy: conn.DescendancyRow),
+                    clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos, descendancy: conn.DescendancyRow,
+                    freeReset: HasPassiveFreeReset(conn)),
                 $"0x0033 passive skill tree: level {conn.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
                 $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
                 $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes" +
@@ -1922,7 +1954,7 @@ public static partial class Game
     // refund-point refund (refundPoints) spends one saved point per node. /reset_passives sets neither.
     public static async Task<string?> ChangePassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         IReadOnlyList<ushort> nodes, bool allocate, string why, ushort? masteryEffect = null, bool goldRespec = false,
-        bool refundPoints = false)
+        bool refundPoints = false, bool consumeFreeReset = false)
     {
         string? error = null;
         List<ushort> now;
@@ -2054,6 +2086,8 @@ public static partial class Game
                     if (conn.DescendancyRow != 0 || descendancyNext.Count > 0)
                         CharacterSaves.SetDescendancy(CharacterName(conn), conn.DescendancyRow, descendancyNext,
                             expectedRow: conn.DescendancyRow, expectedNodes: conn.DescendancyNodes);
+                    if ((consumeFreeReset || allocate) && HasPassiveFreeReset(conn))
+                        SetPassiveFreeReset(conn, false);
                     return null;
                 });
             if (error is null)

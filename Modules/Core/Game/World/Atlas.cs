@@ -8,8 +8,37 @@ public static partial class Game
     /// maps here so the client's HUD is not up yet and does not announce them.</summary>
     public static Func<ClientState, IEnumerable<(string Log, byte[] Message)>>? ExtraPlayerMessages;
 
-    /// <summary>Module data keys: the active Atlas preset (0..2) and the Atlas passive respec points.</summary>
-    public const string AtlasActiveKey = "atlas.active", AtlasRespecKey = "atlas.respec";
+    /// <summary>Module data keys: the active Atlas preset (0..2), respec points, one-off free reset flag, and preset names.</summary>
+    public const string AtlasActiveKey = "atlas.active", AtlasRespecKey = "atlas.respec",
+        AtlasFreeResetKey = "atlas.free_reset";
+
+    public static string AtlasTreeNameKey(int preset) => $"atlas.name.{preset}";
+
+    public static string[] AtlasTreeNames(ClientState conn)
+    {
+        string character = CharacterName(conn);
+        return
+        [
+            CharacterSaves.ModuleData(character, AtlasTreeNameKey(0)) ?? "",
+            CharacterSaves.ModuleData(character, AtlasTreeNameKey(1)) ?? "",
+            CharacterSaves.ModuleData(character, AtlasTreeNameKey(2)) ?? "",
+        ];
+    }
+
+    public static void SetAtlasTreeName(ClientState conn, int preset, string name) =>
+        CharacterSaves.ChangeModuleData(CharacterName(conn), AtlasTreeNameKey(preset), _ => name);
+
+    public static byte[] AtlasTreeNamesMessage(ClientState conn)
+    {
+        var names = AtlasTreeNames(conn);
+        return InstanceEntities.AtlasTreeNames(names[0], names[1], names[2]);
+    }
+
+    public static bool HasAtlasFreeReset(ClientState conn) =>
+        CharacterSaves.ModuleData(CharacterName(conn), AtlasFreeResetKey) == "1";
+
+    public static void SetAtlasFreeReset(ClientState conn, bool available) =>
+        CharacterSaves.ChangeModuleData(CharacterName(conn), AtlasFreeResetKey, _ => available ? "1" : "");
 
     /// <summary>The preset the client's tree shows and allocates into (C→S 0x2a8 picks it).</summary>
     public static int AtlasActivePreset(ClientState conn) => AtlasActivePreset(CharacterName(conn), conn.AtlasPassives);
@@ -37,9 +66,10 @@ public static partial class Game
         CharacterSaves.ChangeModuleData(CharacterName(conn), AtlasRespecKey, _ => points.ToString());
 
     // One Atlas preset, sorted (the client diffs and binary-searches the list): u28 the respec points, u2a the points
-    // before what allocated nodes grant.
+    // before what allocated nodes grant. Bit 0 is set only when the character has an unused free full reset.
     public static byte[] AtlasSlots(ClientState conn, int preset) =>
-        InstanceEntities.PassiveSlots(AtlasRespecPoints(conn), conn.AtlasPassivePoints, (byte)(1 << (2 + preset)),
+        InstanceEntities.PassiveSlots(AtlasRespecPoints(conn), conn.AtlasPassivePoints,
+            (byte)((1 << (2 + preset)) | (HasAtlasFreeReset(conn) ? InstanceEntities.PassiveFreeResetFlag : 0)),
             [.. conn.AtlasPassives[preset].Order()]);
 
     /// <summary>The three presets, the active one last: a single-preset 0x3d also makes that preset the client's active
