@@ -305,6 +305,13 @@ The ballista's `0x4000` skill record carries the projectile totals used by this 
 at 83/200 ms. Extra `effect` tracks on the same ACT entry leave that body contact intact. The area Gateway
 sends a changed skill record before the next attack and retains the in-flight attack's count.
 
+The active gems use the `barrage_bow` and `barrage_wand` projectile art groups in 3.29.3c.
+Barrage has six firing contacts at level 1 with zero quality. Barrage of Volley Fire has four.
+Its endpoint stat adds six projectiles to the first and last contacts. The resulting groups contain 7, 1, 1 and 7
+projectiles. Members of a group share a hit limit per target. A later contact starts a fresh group.
+When projectile count modifiers apply to splitting, the endpoint bonus increases the split count once.
+The stock gem and projectile tables establish the counts and art. Rendered playback still needs a client check.
+
 A trap or mine throw uses a separate Barrage modifier. The 3.29.3c stat calculator multiplies the resolved
 arrow or projectile count by `support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired`
 and publishes `virtual_trap_and_mine_throwing_time_+%_final`. Each resolved shot adds 10% to the throwing

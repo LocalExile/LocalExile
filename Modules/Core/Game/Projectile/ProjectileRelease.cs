@@ -271,6 +271,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, ProjectileUse use,
         ushort sequence, uint repeatsLeft, BarrageAttack? barrage, Func<bool> firing)
     {
+        var fan = use.Profile.NativeVolley;
         if (barrage is not null)
             use = use with { Profile = use.Profile with { SequentialDelay = ProjectileRuntime.Time(barrage.Interval) }, CanEmit = firing };
         // Kinetic Bolt chooses its zig-zag legs from the shot ordinal of a sequential attack.
@@ -278,8 +279,11 @@ public static partial class Game
         if (barrage is null) return use;
         string effect = SkillsFor(conn).EffectId(gem.Effect)!;
         bool atCursor = ProjectileEndsAtAim(effect) || GatewayProjectileSkillProfiles.IsKineticBolt(effect);
-        return use with { Profile = use.Profile with { NativeVolley = new()
-            { Layout = shot => barrage.Launches(shot.Aim - shot.LaunchSource, sequence, shot.Profile.Count, atCursor) } } };
+        var rolls = use.Profile.ReturnRolls;
+        if (barrage.ExtraAtEnds > 0 && rolls is not null)
+            rolls = ReturnRolls(sequence, barrage.RootCount(use.Profile.Count), PlayerId, repeatsLeft);
+        return use with { Profile = use.Profile with { ReturnRolls = rolls, NativeVolley = new()
+            { Layout = shot => barrage.Launches(shot, sequence, atCursor, fan) } } };
     }
 
     // A spell's projectiles are the client's own (ClientPredicted): the server spreads them as the client's volley
@@ -428,7 +432,9 @@ public static partial class Game
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
-        var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, gem.Effect));
+        bool bowProjectiles = ArrowsFor(conn, gem.Effect);
+        bool barrageGem = IsBarrageGem(SkillsFor(conn).EffectId(gem.Effect));
+        var profile = definition.Parameters.Resolve(Get, speed, bowProjectiles);
         var at = totem?.At ?? from ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
@@ -462,7 +468,8 @@ public static partial class Game
         }
         if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
-        profile = profile with { Id = Art.Projectile(profile.Id, variation) };
+        profile = profile with { Id = barrageGem && !rain && variation != 0 ? Art.ProjectileByArt(BarrageProjectileArt(bowProjectiles), variation)
+            : Art.Projectile(profile.Id, variation) };
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
         // modifiers, accuracy and critical chance. A totem's own use swings the main hand.
         var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(conn, skillId, sequence);
@@ -540,7 +547,7 @@ public static partial class Game
             // its payload arrow is not, so the server still sends that one object.
             // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
             // Molten Strike's action spawns its local chunks on melee hit (0x141a6a4b0 -> 0x141ba7c30); server objects would duplicate them.
-            ClientPredicted = totem is not null || spell
+            ClientPredicted = totem is not null || spell || barrageGem && !rain && from is null
                 || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)),
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).

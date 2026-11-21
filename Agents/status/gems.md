@@ -63,6 +63,9 @@ Nothing yet.
   not reachable); gem drops are in (above).
   (`GemVendorStock`, `NpcShops.Tabs`; [17](../docs/protocol/17-npcs.md) §5, [19](../docs/protocol/19-gems.md) §5).
 
+- **Barrage and Barrage of Volley Fire.** Bows and wands use their own projectiles. Volley Fire's first and last
+  volleys can each hit one target once. Later firing contacts can hit it again. Client playback still needs checking.
+
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.

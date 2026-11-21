@@ -84,7 +84,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Compare the displayed and fired counts for Locus bow and wand mines, including split targets and Kinetic Blast clusters.
   Compare Barrage throw duration, firing cadence and muzzle for mines and ordinary traps on both clients.
   Verify the firing roles of the remaining trap actors separately.
-  Other proxy Barrage sequences, simultaneous jewel endpoint volleys and panel DPS still need verification.
+  Check both active Barrage gems' bow and wand playback, including Volley Fire's first and last volleys.
+  Verify the Volley Fire threshold jewel, first-and-last return modifiers, other proxy sequences and panel DPS.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
   Check Spellblade's panel and per-hand rounding live; Varunastra's off-hand support selection is open.

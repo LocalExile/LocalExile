@@ -2810,6 +2810,48 @@ public class ArrowRainAndMirageTests
         }
         else VerifyPowerSiphonBallista();
         await VerifyPlacedBarrage(skill == "Split Arrow" ? "Locus Mine Support" : "Blastchain Mine Support");
+        await VerifyActiveBarrage(weapon, "Barrage", [1, 1, 1, 1, 1, 1]);
+        await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [7, 1, 1, 7]);
+    }
+
+    static async Task VerifyActiveBarrage(string weapon, string skill, int[] expectedGroups)
+    {
+        using var b = new Battle(skill);
+        var items = Game.ItemsOf(b.Conn);
+        var slot = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, slot.Id, item => ItemCatalog.Create(Program.Items.Find(weapon)!) with
+        { Sockets = item.Sockets, Links = item.Links });
+        var gem = Game.GemSkillEffects(b.Conn).Single();
+        b.Enemy.Walk.Teleport(135, 100, 0);
+        b.Conn.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
+        b.Conn.PlayerStats[Program.Stats.Key("projectile_remove_default_spread")!.Value] = 1;
+        double start = 10, duration = Game.SupportedAttackSeconds(b.Conn, gem.Id);
+        b.Conn.Clock.Start();
+        Assert.True(await Game.CastGemSkill("active-barrage", b.Stream, b.Ciphers, b.Conn, gem.Id, (100, 100), (175, 100),
+            sequence: 19, actionToken: b.Conn.ActionCount, swingAt: start));
+        b.Conn.Clock.Stop();
+        string projectile = weapon == "Crude Bow" ? "Metadata/Projectiles/DefaultArrow" : "Metadata/Projectiles/BarrageWand";
+        var shots = new Dictionary<long, ProjectileEntity>();
+        uint life = b.Enemy.Life;
+        int hits = 0;
+        for (int step = 0; step <= (duration + 1) * 200; step++)
+        {
+            b.Session.AdvanceTo(ProjectileRuntime.Time(start + step / 200d));
+            foreach (var shot in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0))
+                shots.TryAdd(shot.Id, shot);
+            if (b.Enemy.Life < life) hits++;
+            life = b.Enemy.Life;
+        }
+        var contacts = shots.Values.GroupBy(p => p.CreatedAt).OrderBy(g => g.Key).ToArray();
+        Assert.Equal(expectedGroups, contacts.Select(g => g.Count()));
+        Assert.All(shots.Values, p => Assert.Equal(projectile, p.Profile.Id));
+        Assert.Single(shots.Values.Select(p => p.UseId).Distinct());
+        Assert.Equal(expectedGroups.Length, contacts.Select(g => Assert.Single(g.Select(p => p.EmissionId).Distinct())).Distinct().Count());
+        double clip = duration * .6 / expectedGroups.Length;
+        long first = ProjectileRuntime.Time(start + duration * .4 + clip * 66 / 200);
+        Assert.Equal(Enumerable.Range(0, expectedGroups.Length).Select(i => first + i * ProjectileRuntime.Time(clip)),
+            contacts.Select(g => g.Key));
+        Assert.Equal(expectedGroups.Length, hits);
     }
 
     static async Task VerifyPlacedBarrage(string support)

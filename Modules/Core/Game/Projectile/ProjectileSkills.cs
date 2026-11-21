@@ -9,6 +9,12 @@ public static partial class Game
             if (Skills.ProjectileFor(Skills.EffectRow(effect)) is { } projectile)
                 definitions.Add(effect, SkillProjectileDefinition(effect, projectile.Id,
                     SkillProjectileParameters(effect, projectile.Id)));
+        foreach (string effect in new[] { "Barrage", "BarrageAltX" })
+        {
+            var parameters = new ProjectileSkillParameters((get, speed, bow) => GatewayProjectileSkillProfiles.Resolve(
+                effect, Art.ProjectileByArt(BarrageProjectileArt(bow), 0), get, speed, attack: true, arrows: bow));
+            definitions.Add(effect, SkillProjectileDefinition(effect, OrdinaryRangedAttack.Arrow, parameters));
+        }
         const string holyFlameProjectile = "Metadata/Projectiles/TotemHolyFireSpray";
         definitions["HolyFlameTotem"] = SkillProjectileDefinition("HolyFlameTotem", holyFlameProjectile,
             SkillProjectileParameters("HolyFlameTotem", holyFlameProjectile));
@@ -16,6 +22,9 @@ public static partial class Game
         definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
             SkillProjectileParameters("VolcanicFissure", fissureProjectile));
     }
+
+    static bool IsBarrageGem(string? effect) => effect is "Barrage" or "BarrageAltX";
+    static string BarrageProjectileArt(bool bow) => bow ? "barrage_bow" : "barrage_wand";
 
     static partial void ConfigureCatalogProjectileDefinition(int effect, ref ProjectileSkillDefinition? definition)
     {

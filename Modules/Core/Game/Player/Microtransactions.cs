@@ -279,6 +279,13 @@ public sealed class SkillArt
         return projectile;
     }
 
+    /// <summary>Resolve an action's named projectile art, including its own default when the variation has no row.</summary>
+    public string ProjectileByArt(string art, int variation)
+    {
+        var rows = _data.Value.Projectiles;
+        return rows.TryGetValue((art, variation), out var projectile) ? projectile : rows[(art, 0)];
+    }
+
     /// <summary>The .ao a variation draws in place of <paramref name="ao"/>, an art's default (variant 0) .ao, e.g.
     /// Fireball's explosion (<c>fireball_standard</c>); the default itself when the variation has no row there.</summary>
     public string AnimatedInPlaceOf(string ao, int variation)

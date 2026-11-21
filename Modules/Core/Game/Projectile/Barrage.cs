@@ -3,7 +3,8 @@ using GameServer.Core.Projectiles;
 public static partial class Game
 {
     sealed record BarrageAttack(int Action, double Start, double Duration, int Count, AnimationClip Fire,
-        bool CannotCancelBeforeContact, int SpreadPercent, bool NoSpread, ParallelFiringPoints? Points, bool ExtraEndVolleys)
+        bool CannotCancelBeforeContact, int SpreadPercent, bool NoSpread, ParallelFiringPoints? Points,
+        bool CentreEnds, int ExtraAtEnds, bool RandomDirections)
     {
         public double Windup => Duration * .4;
         public double Interval => Duration * .6 / Count;
@@ -22,18 +23,23 @@ public static partial class Game
                 || fraction >= (double)(Fire.Cancel ?? Fire.Contact) / Fire.Length;
         }
 
+        public int RootCount(int contacts) => checked(contacts + Math.Min(contacts, 2) * ExtraAtEnds);
+
         // Each fire clip samples three pairs of offsets around a point 100 cells along the aim (0x141bae62c).
         // The new aim is an integer grid point 150 cells out, or at cursor distance for ground-targeted shots.
-        public ProjectileLaunch[] Launches(ProjectileVector aim, ushort sequence, int count, bool atCursor)
+        public ProjectileLaunch[] Launches(ProjectileUse use, ushort sequence, bool atCursor, ProjectileNativeVolley? fan)
         {
-            var launches = new ProjectileLaunch[count];
+            var aim = use.Aim - use.LaunchSource;
+            int count = use.Profile.Count;
+            var launches = new ProjectileLaunch[RootCount(count)];
+            int next = 0;
             var sideStep = Points?.GridStep(aim) ?? default;
             double heading = Math.Atan2(aim.Y, aim.X);
             float distance = atCursor ? (float)aim.Length : 150;
             float width = NoSpread ? 0 : (100 + SpreadPercent) / 100f * 120;
             for (int i = 0; i < count; i++)
             {
-                int slot = Points?.SweepSlot(i, count, ExtraEndVolleys) ?? 0;
+                int slot = Points?.SweepSlot(i, count, CentreEnds) ?? 0;
                 var offset = sideStep * slot;
                 var forward = (aim + offset).Unit * 100;
                 var random = new AnimationVariantSelector.NativeRandom([sequence, 0, 0, (uint)i + 1]);
@@ -47,7 +53,27 @@ public static partial class Game
                 float dx = MathF.Floor((float)forward.X + .5f) + Offset(x, width);
                 float dy = MathF.Floor((float)forward.Y + .5f) + Offset(y, width);
                 float scale = distance / MathF.Sqrt(dx * dx + dy * dy);
-                launches[i] = new(offset, Math.Atan2((int)(dy * scale), (int)(dx * scale)) - heading);
+                var ray = new ProjectileVector((int)(dx * scale), (int)(dy * scale));
+                double angle = Math.Atan2(ray.Y, ray.X) - heading;
+                if (ExtraAtEnds == 0 || i != 0 && i != count - 1)
+                    launches[next++] = new(offset, angle);
+                else
+                {
+                    // Barrage's action sends 1 + the endpoint stat to the ordinary simultaneous volley.
+                    // Its fan or parallel firing points use the aim already picked for this firing clip.
+                    int size = 1 + ExtraAtEnds;
+                    var origin = use.LaunchSource + offset;
+                    var groupUse = use with { Origin = origin, Aim = origin + ray, Profile = use.Profile with { Count = size } };
+                    var members = fan!.Layout?.Invoke(groupUse);
+                    var angles = members is null && RandomDirections
+                        ? RandomVolleyAngles(sequence, size, use.Emitter.Id, ray, use.RepeatsLeft) : null;
+                    for (int j = 0; j < size; j++)
+                    {
+                        var member = members?[j] ?? new(default, angles?[j] ?? fan.Angle(j, size, ray.Length));
+                        launches[next++] = member with { Offset = offset + member.Offset,
+                            Angle = angle + member.Angle, SimultaneousWithPrevious = j != 0 };
+                    }
+                }
             }
             return launches;
         }
@@ -88,10 +114,12 @@ public static partial class Game
                 throw new InvalidOperationException($"Missing Barrage fire contact for {totem.VarietyId}.");
             fire = new(clip.LengthMs, contact, clip.Point, clip.Index);
         }
+        int ends = Get("barrage_final_volley_fires_x_additional_projectiles_simultaneously");
+        bool firesEnds = IsBarrageGem(SkillsFor(conn).EffectId(effect)) && Get("modifiers_to_number_of_projectiles_instead_apply_to_splitting") == 0;
         return new(action, start, seconds, count, fire,
             Get("cannot_cancel_skill_before_contact_point") != 0, Get("barrage_support_projectile_spread_+%"),
             Get("no_barrage_projectile_spread") != 0, ParallelFiringPoints.From(Get),
-            Get("barrage_final_volley_fires_x_additional_projectiles_simultaneously") != 0);
+            ends != 0, firesEnds ? ends : 0, Get("random_projectile_direction") != 0);
     }
 
     static bool? BarrageAllowsMove(ClientState conn, double at)

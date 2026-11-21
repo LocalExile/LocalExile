@@ -49,14 +49,26 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 / Math.Max(.001, (use.Aim - use.Origin).Length));
         var volley = use.Profile.NativeVolley;
         var launches = use.ProjectileTargets is null ? volley?.Layout?.Invoke(use) : null;
-        if (launches is not null && launches.Length != count)
-            throw new ArgumentException("Launch count must match initial projectile count.", nameof(use));
+        if (launches is not null && (launches.Length == 0 || launches[0].SimultaneousWithPrevious
+            || launches.Count(l => !l.SimultaneousWithPrevious) != count))
+            throw new ArgumentException("Launch layout must cover each firing contact in order.", nameof(use));
+        int roots = launches?.Length ?? count;
+        if (unresolved.ReturnRolls is { } perProjectile && perProjectile.Count < roots)
+            throw new ArgumentException("Return rolls must cover the launch layout.", nameof(use));
         int admitted = 0;
+        int contact = -1;
+        long contactGroup = emission;
         bool sharedSeries = use.Profile.SequentialDelay > 0 && use.Profile.ShareSequentialHits && count > 1;
         if (sharedSeries) pendingEmissions.Add(emission);
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < roots; i++)
         {
             var launch = launches?[i] ?? default;
+            if (!launch.SimultaneousWithPrevious)
+            {
+                contact++;
+                if (contact > 0 && use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits)
+                    contactGroup = ++sequence;
+            }
             var origin = use.Origin + launch.Offset;
             bool clear = !launch.CheckSourcePath || world.TraceTerrain(use.LaunchSource, origin) is null;
             int index = admitted;
@@ -65,31 +77,31 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 : random is not null ? spread * (random.NextDouble() - .5) : count <= 1 ? 0 : spread *
                 (i / (double)((use.Profile.CircularSpread ?? spread >= Math.Tau) ? count : count - 1) - .5);
             var direction = (use.Aim - use.Origin).Unit.Rotate(angle);
-            long group = use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits && i > 0 ? ++sequence : emission;
+            long group = contactGroup;
             var projectileUse = use.ProjectilePayloads is { } snapshots
-                ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
+                ? use with { Payload = snapshots[contact], ProjectilePayloads = null } : use;
             if (launch.Offset != default)
                 projectileUse = projectileUse with { Origin = origin, Aim = use.Aim + launch.Offset };
             if (unresolved.ReturnRolls is { } rolls)
                 projectileUse = projectileUse with { Profile = ResolveReturn(unresolved, rolls[index]) };
             if (use.ProjectileTargets is { } destinations)
             {
-                var target = destinations[i];
+                var target = destinations[contact];
                 direction = (target - use.Origin).Unit;
                 projectileUse = projectileUse with { Aim = target, ProjectileTargets = null,
                     Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - use.Origin).Length) } };
             }
             if (use.ProjectileSpeeds is { } projectileSpeeds)
                 projectileUse = projectileUse with { ProjectileSpeeds = null,
-                    Profile = projectileUse.Profile with { Speed = projectileSpeeds[i] } };
-            bool last = i == count - 1;
+                    Profile = projectileUse.Profile with { Speed = projectileSpeeds[contact] } };
+            bool last = i == roots - 1;
             void Emit()
             {
                 if (sharedSeries && last) pendingEmissions.Remove(emission);
                 if (clear && use.CanEmit?.Invoke() != false)
                     Spawn(projectileUse, useId, group, 0, origin, direction, index: index);
             }
-            if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
+            if (use.Profile.SequentialDelay > 0 && contact > 0) Schedule(Now + contact * use.Profile.SequentialDelay, Emit);
             else Emit();
         }
         return useId;

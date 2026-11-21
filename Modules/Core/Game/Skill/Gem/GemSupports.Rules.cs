@@ -489,7 +489,9 @@ public static partial class Game
         {
             var profile = WeaponProfileFor(conn);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
-            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
+            int attackSpeed = gem.Stats.GetValueOrDefault(raw);
+            if (IsBarrageGem(SkillsFor(conn).EffectId(gem.Effect))) attackSpeed += Get("barrage_attack_speed_+%");
+            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(attackSpeed * factor);
             // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)

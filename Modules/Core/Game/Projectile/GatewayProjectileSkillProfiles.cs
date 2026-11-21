@@ -129,6 +129,7 @@ public static class GatewayProjectileSkillProfiles
         // These player stats belong to a particular active skill, including its transfigured variants.
         int extraProjectiles = effect switch
         {
+            "Barrage" or "BarrageAltX" => get("barrage_num_of_additional_projectiles"),
             "SplitArrow" or "SplitArrowAltX" or "SplitArrowAltY" or "VaalSplitArrow"
                 => get("split_arrow_num_of_additional_projectiles"),
             "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark"
@@ -151,6 +152,9 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get("support_parallel_projectile_number_of_points_per_side") == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        // The Barrage action moves its endpoint bonus into the split result once when count modifiers apply to splitting.
+        if (effect is ("Barrage" or "BarrageAltX") && get("modifiers_to_number_of_projectiles_instead_apply_to_splitting") != 0)
+            p = p with { Split = p.Split + get("barrage_final_volley_fires_x_additional_projectiles_simultaneously") };
         if (IsMoltenStrike(effect))
         {
             bool groundChains = get("molten_strike_projectiles_chain_when_impacting_ground") != 0;

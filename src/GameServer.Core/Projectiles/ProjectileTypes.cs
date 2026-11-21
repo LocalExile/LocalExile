@@ -235,7 +235,11 @@ public sealed record ProjectileProfile(string Id)
     public bool HidePredictedVisual { get; init; }
 }
 
-public readonly record struct ProjectileLaunch(ProjectileVector Offset, double Angle, bool CheckSourcePath = false);
+public readonly record struct ProjectileLaunch(ProjectileVector Offset, double Angle, bool CheckSourcePath = false)
+{
+    /// <summary>Release with the preceding projectile on the same firing contact and share its hit group.</summary>
+    public bool SimultaneousWithPrevious { get; init; }
+}
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,
     int Team, ProjectileVector Origin, ProjectileVector Aim)
