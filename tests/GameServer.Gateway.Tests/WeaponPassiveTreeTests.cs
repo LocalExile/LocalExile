@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Modules.Crucible;
 
 namespace GameServer.Gateway.Tests;
 
@@ -230,6 +231,85 @@ public class WeaponPassiveTreeTests : IDisposable
             }
             Assert.NotNull(applied);
             Assert.Equal(17, applied!.Quality);
+
+            // Crucible rules. Bars are cumulative totals: the second column needs Bar2, not Bar1 + Bar2.
+            var mods = catalog.Mods;
+            var bars = CrucibleTables.Current.BalanceFor(84);
+            Assert.Equal(0, CrucibleTreeTopology.UnlockedDepth((uint)bars.Bar1 - 1, bars));
+            Assert.Equal(2, CrucibleTreeTopology.UnlockedDepth((uint)bars.Bar2, bars));
+            Assert.Equal(5, CrucibleTreeTopology.UnlockedDepth((uint)bars.Bar5, bars));
+
+            // (0,0) -> (1,0), which ends there, and (1,1) -> (2,1).
+            int c10 = WeaponPassiveTreeState.BitIndex(1, 0), c11 = WeaponPassiveTreeState.BitIndex(1, 1), c21 = WeaponPassiveTreeState.BitIndex(2, 1);
+            var path = new WeaponPassiveTreeState(
+                BalanceItemLevel: 84, Experience: (uint)bars.Bar1, HasTree: true,
+                Layout: (ushort)(1 | (1 << c10) | (1 << c11) | (1 << c21)), Allocation: 1,
+                LeftParentConnections: (ushort)(1 << c11), RightParentConnections: (ushort)((1 << c10) | (1 << c21)),
+                Nodes: [.. Enumerable.Repeat(new WeaponPassiveTreeNode(physMod.Hash, [2, 6]), 4)]);
+
+            // A pending row in a locked column is allocated when its bar is reached, and then cleared.
+            var chosen = CrucibleTreeEngine.SelectOrAllocateNode(path, 1, 0)!;
+            Assert.Equal(0, chosen.PendingRow(1));
+            Assert.Equal(1, chosen.Allocation);
+            Assert.Null(CrucibleTreeEngine.SelectOrAllocateNode(chosen, 2, 1));
+            var reached = CrucibleTreeEngine.AwardExperience(bow with { WeaponPassiveTree = chosen }, bowType, mods,
+                (uint)(bars.Bar2 - bars.Bar1), new Random(1), out bool revealed, out int allocated).WeaponPassiveTree!;
+            Assert.False(revealed);
+            Assert.Equal(1, allocated);
+            Assert.True(reached.IsAllocated(1, 0));
+            Assert.Equal(-1, reached.PendingRow(1));
+            Assert.Null(CrucibleTreeEngine.SelectOrAllocateNode(reached, 1, 1));
+
+            // Another choice in a locked column drops the choices behind it; scouring falls back to the bar before.
+            var deep = CrucibleTreeEngine.SelectOrAllocateNode(CrucibleTreeEngine.SelectOrAllocateNode(path, 1, 1)!, 2, 1)!;
+            Assert.Equal(1, deep.PendingRow(2));
+            Assert.Equal(-1, CrucibleTreeEngine.SelectOrAllocateNode(deep, 1, 0)!.PendingRow(2));
+            var scoured = CrucibleTreeEngine.UnallocateWithScouring(bow with { WeaponPassiveTree = reached }, 1, 0)!.WeaponPassiveTree!;
+            Assert.Equal((uint)bars.Bar1, scoured.Experience);
+            Assert.Equal(1, scoured.Allocation);
+
+            // An unlocked column is never left empty: without a pending row the server takes the child that leads on.
+            var filled = CrucibleTreeEngine.AwardExperience(bow with { WeaponPassiveTree = path with { Experience = 0, Allocation = 0 } },
+                bowType, mods, (uint)bars.Bar3, new Random(1), out _, out allocated).WeaponPassiveTree!;
+            Assert.Equal(3, allocated);
+            Assert.Equal((ushort)(1 | (1 << c11) | (1 << c21)), filled.Allocation);
+            var fresh = CrucibleTreeEngine.AwardExperience(bow with { WeaponPassiveTree = null }, bowType, mods,
+                (uint)bars.Bar5, new Random(1), out revealed, out _).WeaponPassiveTree!;
+            Assert.True(revealed);
+            Assert.True(fresh.IsAllocated(0, 0));
+            Assert.True(CrucibleTreeTopology.AllocatedRowInColumn(fresh.Allocation, 1) >= 0);
+            Assert.NotEmpty((bow with { WeaponPassiveTree = fresh }).Payload());
+
+            // Magmatic Ore gives its stored experience unscaled; an empty ore and a full tree are refused.
+            var plainBow = bow with { WeaponPassiveTree = null };
+            Assert.Equal(5u, CrucibleTreeEngine.ApplyMagmaticOre(plainBow, bowType, mods, new Random(1), 5)!.WeaponPassiveTree!.Experience);
+            Assert.Null(CrucibleTreeEngine.ApplyMagmaticOre(plainBow, bowType, mods, new Random(1), 0));
+            Assert.Null(CrucibleTreeEngine.ApplyMagmaticOre(bow with { WeaponPassiveTree = fresh }, bowType, mods, new Random(1), 5));
+
+            // The Forge takes no corrupted or mirrored item and no unique without a tree; a unique needs no listed base.
+            Assert.True(CrucibleTreeEngine.CanChannelInForge(plainBow, bowType, mods));
+            Assert.False(CrucibleTreeEngine.CanChannelInForge(plainBow with { Corrupted = true }, bowType, mods));
+            Assert.False(CrucibleTreeEngine.CanChannelInForge(plainBow with { Mirrored = true }, bowType, mods));
+            var unlistedType = catalog.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow4")!;
+            Assert.DoesNotContain(unlistedType.Row, CrucibleTables.Current.SellUniqueBaseRows.Values);
+            var uniqueBow = ItemCatalog.Create(unlistedType) with { ItemLevel = 84, Rarity = ItemRarity.Unique };
+            Assert.True(CrucibleTreeEngine.CanHaveTree(uniqueBow, unlistedType, mods));
+            Assert.False(CrucibleTreeEngine.CanChannelInForge(uniqueBow, unlistedType, mods));
+            Assert.True(CrucibleTreeEngine.CanChannelInForge(uniqueBow with { WeaponPassiveTree = path }, unlistedType, mods));
+
+            // The "sells for an additional Unique" skill pays a unique of the base its value names (0: the item's own).
+            var sellMod = mods.ById("WeaponTreeSellPriceSpecificUnique")!;
+            var namedType = catalog.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow2")!;
+            int namedValue = CrucibleTables.Current.SellUniqueBaseRows.First(b => b.Value == namedType.Row).Key;
+            foreach (var (value, paid) in new[] { (namedValue, namedType), (0, bowType) })
+            {
+                var sold = bow with { WeaponPassiveTree = new(84, 0, true, Layout: 1, Allocation: 1, Nodes: [new(sellMod.Hash, [value])]) };
+                rewards.Clear();
+                CrucibleItemActions.OnVendorQuote(new VendorSaleQuote(conn, [new(50, 0, 0, sold)], rewards, recipes, basicSale: false));
+                var unique = Assert.Single(rewards);
+                Assert.Equal(ItemRarity.Unique, unique.Rarity);
+                Assert.Equal(paid.Hash, unique.TypeHash);
+            }
         }
         finally
         {

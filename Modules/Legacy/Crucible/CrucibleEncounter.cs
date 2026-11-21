@@ -319,7 +319,6 @@ public static class CrucibleEncounter
                 if (!SelectBestWeapon(conn, encounter))
                 {
                     await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
-                    await PlayerOf(conn).Tell("Equip or carry an eligible weapon or shield to forge at the Crucible.");
                     return true;
                 }
                 encounter.AutoChannel = false;
@@ -389,11 +388,7 @@ public static class CrucibleEncounter
         {
             if (encounter.Phase == Phase.Idle)
             {
-                if (!SelectBestWeapon(conn, encounter))
-                {
-                    await PlayerOf(conn).Tell("Equip or carry an eligible weapon or shield to channel at the Crucible Forge.");
-                    return true;
-                }
+                if (!SelectBestWeapon(conn, encounter)) return true;
                 encounter.AutoChannel = true;
                 await BeginChannelingLocked(conn, encounter);
                 await PlayerOf(conn).Tell($"Channeling {encounter.SelectedItemName}... Click the Forge again at any time to release at your desired difficulty (or wait for Lethal).");
@@ -713,9 +708,7 @@ public static class CrucibleEncounter
             var balance = CrucibleTables.Current.BalanceFor(ilvl);
             uint xpGrant = ComputeEncounterXp(balance, chargePct, xpMultiplier);
 
-            // Auto-queue the next connected branch node if none is pending yet so XP allocates cleanly.
-            Item prepared = EnsurePendingBranch(found.Item, Random.Shared);
-            Item awarded = CrucibleTreeEngine.AwardExperience(prepared, type, catalog.Mods, xpGrant, Random.Shared,
+            Item awarded = CrucibleTreeEngine.AwardExperience(found.Item, type, catalog.Mods, xpGrant, Random.Shared,
                 out bool revealedNow, out int newlyAllocated);
 
             if (items.Change(itemRow, itemId, _ => awarded) is { } updated)
@@ -769,41 +762,15 @@ public static class CrucibleEncounter
         return (uint)Math.Clamp(Math.Round(raw), 1, balance.Bar5);
     }
 
-    /// <summary>If the weapon has a revealed tree with no pending target for its next unallocated column, queues a valid connected child.</summary>
-    static Item EnsurePendingBranch(Item item, Random random)
-    {
-        if (item.WeaponPassiveTree is not { HasTree: true } tree) return item;
-        int deepest = CrucibleTreeTopology.DeepestAllocatedColumn(tree.Allocation);
-        int nextCol = deepest + 1;
-        if (nextCol >= CrucibleTreeTopology.Columns) return item;
-        if (tree.PendingRow(nextCol) >= 0) return item;
-
-        int chosenRow = -1;
-        if (nextCol == 0)
-        {
-            if (tree.HasNode(0, 0)) chosenRow = 0;
-        }
-        else
-        {
-            int parentRow = CrucibleTreeTopology.AllocatedRowInColumn(tree.Allocation, deepest);
-            if (parentRow >= 0)
-            {
-                var children = CrucibleTreeTopology.ConnectedChildren(tree.Layout, tree.LeftParentConnections, tree.RightParentConnections, deepest, parentRow);
-                if (children.Count > 0) chosenRow = children[random.Next(children.Count)];
-            }
-        }
-
-        return chosenRow >= 0 ? item with { WeaponPassiveTree = tree.WithPendingRow(nextCol, (sbyte)chosenRow) } : item;
-    }
-
-    /// <summary>Selects the best eligible weapon/shield from active equipment or main inventory for the Forge.</summary>
+    /// <summary>Selects the best eligible weapon/shield for the Forge. Equipped only, both weapon sets
+    /// (ClientStrings 6749: "Select an equipped item:").</summary>
     static bool SelectBestWeapon(ClientState conn, EncounterState encounter)
     {
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
         var tables = CrucibleTables.Current;
 
-        byte[] searchRows = [PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2, PlayerInventories.MainInventory];
+        byte[] searchRows = [PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2];
         (byte Row, InventoryItem Item, ItemCatalog.BaseType Type)? best = null;
 
         foreach (byte row in searchRows)
@@ -824,7 +791,7 @@ public static class CrucibleEncounter
                 }
                 best ??= (row, invItem, type);
             }
-            if (best is not null && best.Value.Item.Item.WeaponPassiveTree is not { HasTree: true } bt)
+            if (best is not null && best.Value.Item.Item.WeaponPassiveTree is not { HasTree: true })
                 break;
             if (best is not null)
             {

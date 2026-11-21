@@ -33,7 +33,7 @@ public static class CrucibleForgeOfTheTitans
         public bool Uber;
         public int Level;
         public MapMods RemnantMods = MapMods.None;
-        public CrucibleTreeEngine.CombineModifiers CombineMods = CrucibleTreeEngine.CombineModifiers.From(MapMods.None, false);
+        public CrucibleTreeEngine.CombineModifiers CombineMods = CrucibleTreeEngine.CombineModifiers.From(MapMods.None);
         public uint CombiningBenchId;
         public bool CombiningUsed;
         public uint UniqueForgeId;
@@ -105,7 +105,7 @@ public static class CrucibleForgeOfTheTitans
         var mapRun = MapRunOf(conn);
         area.Level = mapRun?.Area.Level is > 0 ? mapRun.Area.Level : (area.Uber ? 84 : 80);
         area.RemnantMods = mapRun?.Mods ?? MapMods.None;
-        area.CombineMods = CrucibleTreeEngine.CombineModifiers.From(area.RemnantMods, area.Uber);
+        area.CombineMods = CrucibleTreeEngine.CombineModifiers.From(area.RemnantMods);
 
         // 1. CrucibleCombiningBench from arena_01.tmd (TileQuestObjects) or fallback near the end arena.
         var benchPlacement = level.TileQuestObjects.FirstOrDefault(o =>
@@ -567,8 +567,7 @@ public static class CrucibleForgeOfTheTitans
         int oreChance = mods.Get("map_crucible_rare_unique_monster_drop_itemised_weapon_tree_experience_%_chance");
         if (oreChance > 0 && rng.Next(100) < oreChance && catalog.Find(CrucibleTables.MagmaticOreId) is { Supported: true } oreType)
         {
-            uint storedXp = (uint)Math.Max(1, CrucibleTables.Current.BalanceFor(area.Level).Bar2);
-            drop.Made.Add(ItemCatalog.Create(oreType) with { ItemLevel = (byte)Math.Clamp(area.Level, 1, 100), StoredExperience = storedXp });
+            drop.Made.Add(ItemCatalog.Create(oreType) with { ItemLevel = (byte)Math.Clamp(area.Level, 1, 100), StoredExperience = CrucibleTables.RemnantOreExperience });
         }
 
         var buckets = BucketsFor(catalog);

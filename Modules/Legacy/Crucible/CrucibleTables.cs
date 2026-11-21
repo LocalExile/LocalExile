@@ -7,7 +7,7 @@ namespace GameServer.Modules.Crucible;
 /// Crucible's <c>client.db</c> tables, loaded once per process: <c>WeaponPassiveSkills</c>,
 /// <c>WeaponPassiveSkillTypes</c>, <c>WeaponPassiveTreeBalancePerItemLevel</c>,
 /// <c>WeaponPassiveTreeUniqueBaseTypes</c>, <c>CrucibleDifficulty</c>, <c>CrucibleEndgameMonsterPacks</c>,
-/// <c>CrucibleLifeScalingPerLevel</c>, <c>CrucibleTags</c>, <c>Rulesets</c>, and Crucible world object types.
+/// <c>CrucibleLifeScalingPerLevel</c>, <c>Rulesets</c>, and Crucible world object types.
 /// </summary>
 public sealed class CrucibleTables
 {
@@ -17,7 +17,6 @@ public sealed class CrucibleTables
     public const string InZoneStat = "in_crucible_zone";
     public const string ChannelWeaponAnimStat = "crucible_channel_selected_weapon_animation_set";
     public const string ChannelWeaponVisualStat = "crucible_channel_selected_weapon_visual_identity_hash";
-    public const string IsCrucibleMonsterStat = "is_crucible_monster";
     public const string LevelMoreLifeStat = "crucible_level_scaling_life_+%_final";
 
     public const string MagmaticOreId = "Metadata/Items/Currency/CurrencyAddCrucibleExperience";
@@ -26,16 +25,17 @@ public sealed class CrucibleTables
     public const string PrimevalRemnantId = "Metadata/Items/MapFragments/Crucible";
     public const string PrimordialRemnantId = "Metadata/Items/MapFragments/CrucibleUber";
 
+    /// <summary>Experience in a Magmatic Ore from a Remnant modifier (poewiki, Magmatic Ore: 40,000 or 100,000).
+    /// For the ore of the sell node it is our own number, GGG never published it.</summary>
+    public const uint RemnantOreExperience = 40_000;
+
     public const string ForgeAreaId = "CrucibleLeagueArea";
     public const string ForgeUberAreaId = "CrucibleLeagueAreaUber";
-    public const string ExtraTerrainFeatureName = "Crucible";
 
     public const string DeviceType = "Metadata/Terrain/Leagues/Crucible/Objects/CrucibleDevice";
     public const string CombiningBenchType = "Metadata/Terrain/Leagues/Crucible/Objects/CrucibleCombiningBench";
     public const string UniqueForgeType = "Metadata/Terrain/Leagues/Crucible/Objects/CrucibleUniqueForge";
     public const string SpawnerBaseType = "Metadata/Terrain/Leagues/Crucible/Objects/CrucibleEndgameMonstersSpawnerBase";
-    public const string StartMarkerType = "Metadata/Terrain/Leagues/Crucible/Objects/CrucibleEndgameStartMarker";
-    public const string ScorchType = "Metadata/Terrain/Leagues/Crucible/Objects/CrucibleScorch";
     public const string FissureType = "Metadata/MiscellaneousObjects/Crucible/Fissure";
     public const string MoltenPoolType = "Metadata/MiscellaneousObjects/Crucible/MoltenPool";
 
@@ -49,9 +49,13 @@ public sealed class CrucibleTables
         int[] CrucibleTagRows,
         int Type);
 
-    /// <summary>One row of <c>WeaponPassiveTreeBalancePerItemLevel.dat</c> (XP required to unlock columns 1..5).</summary>
+    /// <summary>One row of <c>WeaponPassiveTreeBalancePerItemLevel.dat</c>. A bar is the cumulative total that unlocks
+    /// its column, not a cost: the client compares the same experience against each (<c>0x1424bcd20</c>).</summary>
     public sealed record LevelBalance(int Level, int Bar1, int Bar2, int Bar3, int Bar4, int Bar5)
     {
+        /// <summary>The total experience that unlocks the 0-based <paramref name="column0"/>.</summary>
+        public int BarToUnlock(int column0) => Bar(column0 + 1);
+
         public int Bar(int column) => column switch
         {
             1 => Bar1,
@@ -75,10 +79,11 @@ public sealed class CrucibleTables
     public IReadOnlyList<SkillRow> Skills { get; }
     public IReadOnlyDictionary<int, SkillRow> SkillByModRow { get; }
     public IReadOnlyDictionary<string, IReadOnlyList<SkillRow>> SkillsByFamilyId { get; }
-    public IReadOnlySet<int> UniqueBaseItemRows { get; }
+    /// <summary><c>WeaponPassiveTreeUniqueBaseTypes</c>: the <c>BaseItemTypes</c> row for each value (<c>__col1</c>) of the
+    /// "sells for an additional Unique {0}" stat.</summary>
+    public IReadOnlyDictionary<int, int> SellUniqueBaseRows { get; }
     public IReadOnlyList<DifficultyRow> Difficulties { get; }
     public IReadOnlyList<EndgamePackRow> EndgamePacks { get; }
-    public IReadOnlyList<string> Tags { get; }
     public byte? CrucibleRulesRow { get; }
     public byte? CrucibleMapRulesRow { get; }
     public IReadOnlyDictionary<string, ObjectTypeInfo> Objects { get; }
@@ -116,7 +121,8 @@ public sealed class CrucibleTables
         foreach (var b in balances)
             if (b.Level >= 0 && b.Level < _balance.Length) _balance[b.Level] = b;
 
-        UniqueBaseItemRows = new HashSet<int>(ClientTables.TableOrEmpty("WeaponPassiveTreeUniqueBaseTypes").Select(r => r.Int("UniqueBase")));
+        SellUniqueBaseRows = ClientTables.TableOrEmpty("WeaponPassiveTreeUniqueBaseTypes")
+            .ToDictionary(r => r.Int("__col1"), r => r.Int("UniqueBase"));
 
         Difficulties = [.. ClientTables.TableOrEmpty("CrucibleDifficulty").Select(r => new DifficultyRow(
             r.Index,
@@ -138,8 +144,6 @@ public sealed class CrucibleTables
         _moreLife = new int[maxLife + 1];
         foreach (var (level, more) in moreLife)
             if (level >= 0 && level < _moreLife.Length) _moreLife[level] = more;
-
-        Tags = [.. ClientTables.TableOrEmpty("CrucibleTags").Select(r => r.Text("Tag") ?? "")];
 
         var rulesets = ClientTables.TableOrEmpty("Rulesets");
         CrucibleRulesRow = rulesets.FirstOrDefault(r => r.Text("Id") == "CrucibleRules") is { Table: not null } cr ? (byte)cr.Index : null;

@@ -16,6 +16,22 @@ public static class CrucibleTreeTopology
 
     public readonly record struct LayoutMasks(ushort Layout, ushort LeftParents, ushort RightParents);
 
+    // Our own numbers, GGG never published them. Known bounds only: 2 to 5 columns (poewiki), and the last depths
+    // are rare and on endgame items (GGG's Crucible video, 2:02).
+    const int DepthMidItemLevel = 30, DepthEndgameItemLevel = 68;
+    // Percent chance of 2, 3 and 4 columns; the rest is 5.
+    static readonly int[] DepthChanceLow = [40, 45, 15], DepthChanceMid = [15, 45, 40], DepthChanceEndgame = [5, 30, 40];
+    // Percent chance of 1, 2 and 3 nodes in columns 1..4.
+    static readonly int[][] NodesPerColumnChance = [[15, 85, 0], [7, 38, 55], [20, 56, 24], [60, 36, 4]];
+
+    /// <summary>Index of the weight a percent roll lands in; the count of weights when it lands past them all.</summary>
+    static int Pick(int[] chances, Random random)
+    {
+        int roll = random.Next(100), i = 0;
+        while (i < chances.Length && (roll -= chances[i]) >= 0) i++;
+        return i;
+    }
+
     public static int BitIndex(int col, int row) => col * (col + 1) / 2 + row;
 
     public static bool ValidCoords(int col, int row) => (uint)col < Columns && (uint)row <= (uint)col;
@@ -33,16 +49,6 @@ public static class CrucibleTreeTopology
     public static ushort BitMask(int col, int row) => (ushort)(1 << BitIndex(col, row));
 
     public static bool HasBit(ushort mask, int col, int row) => ValidCoords(col, row) && ((mask >> BitIndex(col, row)) & 1) != 0;
-
-    public static int PopCount(ushort mask) => BitOperations.PopCount((uint)(mask & ValidLayoutMask));
-
-    /// <summary>Zero-based index in the ascending-bit-order mod list for <paramref name="bit"/>, or -1 if absent.</summary>
-    public static int ModIndexOfBit(ushort layout, int bit)
-    {
-        if ((uint)bit >= MaxSlots || ((layout >> bit) & 1) == 0) return -1;
-        ushort below = (ushort)(layout & ((1 << bit) - 1));
-        return BitOperations.PopCount(below);
-    }
 
     /// <summary>Returns the bit indices present in <paramref name="layout"/> in strictly ascending order (0..14).</summary>
     public static List<int> BitsInOrder(ushort layout)
@@ -98,7 +104,9 @@ public static class CrucibleTreeTopology
         return -1;
     }
 
-    /// <summary>Returns whether <c>(col, row)</c> can currently be allocated (mirrors <c>0x1424bcea0</c>).</summary>
+    /// <summary>Returns whether <c>(col, row)</c> can currently be allocated (the checks of <c>0x1424bcea0</c>).
+    /// The client replaces the node of a column; refusing a column that has one is our rule: an allocated skill
+    /// changes only through an Orb of Scouring (GGG's Crucible Q&amp;A).</summary>
     public static bool CanAllocate(
         ushort layout, ushort allocation, ushort leftParents, ushort rightParents,
         uint experience, CrucibleTables.LevelBalance balance, int col, int row)
@@ -133,17 +141,15 @@ public static class CrucibleTreeTopology
     /// Guarantees bit 15 is 0, root (0,0) is present, every node in col &gt; 0 has at least one connected parent in
     /// col - 1, and edge parent bits match <c>0x1424bd880</c>.
     /// </summary>
-    public static LayoutMasks GenerateLayout(int itemLevel, bool isUnique, Random random)
+    public static LayoutMasks GenerateLayout(int itemLevel, Random random)
     {
         // Column 0 always has root (0, 0).
         ushort layout = 1;
         ushort left = 0;
         ushort right = 0;
 
-        // Target max depth: higher ilvl / uniques usually have 4 or 5 columns; low ilvl can have 3-5.
-        int maxCol = (itemLevel >= 68 || isUnique)
-            ? (random.Next(100) < 75 ? 4 : 3)
-            : (itemLevel >= 30 ? (random.Next(100) < 55 ? 4 : 3) : (random.Next(100) < 40 ? 4 : (random.Next(100) < 75 ? 3 : 2)));
+        int maxCol = 1 + Pick(itemLevel >= DepthEndgameItemLevel ? DepthChanceEndgame
+            : itemLevel >= DepthMidItemLevel ? DepthChanceMid : DepthChanceLow, random);
 
         for (int col = 1; col <= maxCol; col++)
         {
@@ -161,19 +167,7 @@ public static class CrucibleTreeTopology
             }
             if (candidates.Count == 0) break;
 
-            // Typical Crucible tree width per column:
-            // col 1: 2 nodes (85%) or 1 node (15%)
-            // col 2: 2-3 nodes
-            // col 3: 2-3 nodes (occasionally 1 or 4)
-            // col 4: 1-2 nodes (rarely 3)
-            int desired = col switch
-            {
-                1 => random.Next(100) < 85 ? 2 : 1,
-                2 => random.Next(100) < 55 ? 3 : (random.Next(100) < 85 ? 2 : 1),
-                3 => random.Next(100) < 20 ? 1 : (random.Next(100) < 70 ? 2 : 3),
-                _ => random.Next(100) < 60 ? 1 : (random.Next(100) < 90 ? 2 : 3),
-            };
-            int count = Math.Clamp(desired, 1, candidates.Count);
+            int count = Math.Clamp(1 + Pick(NodesPerColumnChance[col - 1], random), 1, candidates.Count);
 
             // Shuffle candidates and pick `count`.
             for (int i = candidates.Count - 1; i > 0; i--)
@@ -199,10 +193,10 @@ public static class CrucibleTreeTopology
                 {
                     if (hasLeft && hasRight)
                     {
-                        int edgeRoll = random.Next(100);
-                        if (edgeRoll < 40) left |= (ushort)(1 << bit);
-                        else if (edgeRoll < 80) right |= (ushort)(1 << bit);
-                        else { left |= (ushort)(1 << bit); right |= (ushort)(1 << bit); }
+                        // Our own number for a fresh tree: players counted a third each (one link, the other, both) on combined trees.
+                        int edgeRoll = random.Next(3);
+                        if (edgeRoll != 1) left |= (ushort)(1 << bit);
+                        if (edgeRoll != 0) right |= (ushort)(1 << bit);
                     }
                     else if (hasLeft) left |= (ushort)(1 << bit);
                     else if (hasRight) right |= (ushort)(1 << bit);

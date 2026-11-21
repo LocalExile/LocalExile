@@ -1,4 +1,3 @@
-using System.Numerics;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Crucible;
@@ -9,6 +8,8 @@ namespace GameServer.Modules.Crucible;
 /// </summary>
 public static class CrucibleTreeEngine
 {
+    // ItemClasses rows the client's check 0x1424b1c30 lets carry a tree, typed in: its weapon-class table
+    // 0x142fe77a0 is not decoded. Shield (26) and FishingRod (37) are named in that check.
     static readonly HashSet<int> OneHandWeaponClasses = [6, 7, 8, 9, 10, 11, 12, 32, 56];
     static readonly HashSet<int> TwoHandWeaponClasses = [13, 14, 15, 16, 17, 37, 57];
     const int ShieldClass = 26;
@@ -34,29 +35,16 @@ public static class CrucibleTreeEngine
         return WeaponCategory.None;
     }
 
-    /// <summary>Whether this item can carry a Crucible Weapon Passive Tree at all.</summary>
-    public static bool CanHaveTree(Item item, ItemCatalog.BaseType type, ModCatalog mods)
-    {
-        if (!item.Components.Contains("Mods")) return false;
-        var category = CategoryOf(item, type, mods);
-        if (category == WeaponCategory.None) return false;
-        if (item.Rarity == ItemRarity.Unique)
-        {
-            if (HasModStat(item, mods, UniqueShieldTreeStat) || HasModStat(item, mods, Unique2HSwordTreeStat))
-                return true;
-            return CrucibleTables.Current.UniqueBaseItemRows.Contains(type.Row);
-        }
-        return true;
-    }
+    /// <summary>Whether this item can carry a Crucible Weapon Passive Tree at all. By class alone, uniques too
+    /// (<c>0x1424b1c30</c>): <c>WeaponPassiveTreeUniqueBaseTypes</c> only names the bases of the sell node.</summary>
+    public static bool CanHaveTree(Item item, ItemCatalog.BaseType type, ModCatalog mods) =>
+        item.Components.Contains("Mods") && CategoryOf(item, type, mods) != WeaponCategory.None;
 
-    /// <summary>Whether an item can be channeled at an in-zone Crucible Forge (uniques require an existing tree).</summary>
-    public static bool CanChannelInForge(Item item, ItemCatalog.BaseType type, ModCatalog mods)
-    {
-        if (!CanHaveTree(item, type, mods)) return false;
-        if (item.Rarity == ItemRarity.Unique && item.WeaponPassiveTree is not { HasTree: true })
-            return false;
-        return true;
-    }
+    /// <summary>Whether an item gains experience at an in-zone Crucible Forge. ClientStrings 6786: not a corrupted or
+    /// mirrored item, and a unique only with a tree forged onto it elsewhere.</summary>
+    public static bool CanChannelInForge(Item item, ItemCatalog.BaseType type, ModCatalog mods) =>
+        !item.Corrupted && !item.Mirrored && CanHaveTree(item, type, mods)
+        && (item.Rarity != ItemRarity.Unique || item.WeaponPassiveTree is { HasTree: true });
 
     /// <summary>Effective mod-rolling tag set for an item (base tags + special unique Crucible tags).</summary>
     public static HashSet<string> RollTagsFor(Item item, ItemCatalog.BaseType type, ModCatalog mods)
@@ -90,51 +78,26 @@ public static class CrucibleTreeEngine
         return false;
     }
 
-    /// <summary>Generates a fresh revealed Weapon Passive Tree for an eligible weapon or shield.</summary>
-    public static WeaponPassiveTreeState GenerateTree(
-        Item item,
-        ItemCatalog.BaseType type,
-        ModCatalog mods,
-        Random random,
-        uint initialExperience = 0,
-        bool autoAllocateRoot = false,
-        bool ensureSellNode = false)
+    /// <summary>Generates a fresh revealed Weapon Passive Tree, without experience, for an eligible weapon or shield.
+    /// Rarity changes nothing (GGG's Recently Asked Questions post).</summary>
+    public static WeaponPassiveTreeState GenerateTree(Item item, ItemCatalog.BaseType type, ModCatalog mods, Random random)
     {
         int ilvl = Math.Clamp(item.ItemLevel == 0 ? 1 : item.ItemLevel, 1, 100);
         var tables = CrucibleTables.Current;
-        var balance = tables.BalanceFor(ilvl);
         var tags = RollTagsFor(item, type, mods);
-        bool isUnique = item.Rarity == ItemRarity.Unique;
 
-        var masks = CrucibleTreeTopology.GenerateLayout(ilvl, isUnique, random);
+        var masks = CrucibleTreeTopology.GenerateLayout(ilvl, random);
         var bits = CrucibleTreeTopology.BitsInOrder(masks.Layout);
         var usedFamilies = new HashSet<int>();
         var usedSkillIds = new HashSet<string>(StringComparer.Ordinal);
         var rolledByBit = new Dictionary<int, WeaponPassiveTreeNode>(bits.Count);
 
-        // Optional guaranteed SellBonus slot (in col 2 or 3, i.e., 1-based column 3 or 4).
-        int sellBit = -1;
-        if (ensureSellNode)
-        {
-            var col34Bits = bits.Where(b => CrucibleTreeTopology.Coords(b).Col is 2 or 3).ToList();
-            if (col34Bits.Count > 0) sellBit = col34Bits[random.Next(col34Bits.Count)];
-        }
-
         ushort filledLayout = masks.Layout;
         foreach (int bit in bits)
         {
             var (col, _) = CrucibleTreeTopology.Coords(bit);
-            int spawnCol = col + 1;
-            bool forceSell = bit == sellBit;
-            var picked = PickSkillForColumn(tables, mods, tags, ilvl, spawnCol, usedFamilies, usedSkillIds,
-                allowMutations: false, forceSellBonus: forceSell, random);
-            if (picked is null && forceSell)
-                picked = PickSkillForColumn(tables, mods, tags, ilvl, spawnCol, usedFamilies, usedSkillIds,
-                    allowMutations: false, forceSellBonus: false, random);
-            if (picked is null)
-                picked = FallbackSkillForColumn(tables, mods, spawnCol, random);
-
-            if (picked is { } chosen)
+            if (PickSkillForColumn(tables, mods, tags, ilvl, col + 1, usedFamilies, usedSkillIds,
+                allowMutations: false, forceSellBonus: false, random) is { } chosen)
             {
                 usedSkillIds.Add(chosen.Skill.Id);
                 foreach (int fam in chosen.Mod.Families) usedFamilies.Add(fam);
@@ -153,16 +116,12 @@ public static class CrucibleTreeEngine
         var nodes = new List<WeaponPassiveTreeNode>(finalBits.Count);
         foreach (int bit in finalBits) nodes.Add(rolledByBit[bit]);
 
-        ushort allocation = 0;
-        if (autoAllocateRoot && initialExperience >= (uint)balance.Bar1 && (masks.Layout & 1) != 0)
-            allocation = 1;
-
         return new WeaponPassiveTreeState(
             BalanceItemLevel: (uint)ilvl,
-            Experience: initialExperience,
+            Experience: 0,
             HasTree: true,
             Layout: masks.Layout,
-            Allocation: allocation,
+            Allocation: 0,
             LeftParentConnections: masks.LeftParents,
             RightParentConnections: masks.RightParents,
             PendingCol0: -1, PendingCol1: -1, PendingCol2: -1, PendingCol3: -1, PendingCol4: -1,
@@ -170,8 +129,8 @@ public static class CrucibleTreeEngine
     }
 
     /// <summary>
-    /// Adds Crucible XP to an item. If the item has no revealed tree and crosses <c>Bar1</c>, reveals the tree and
-    /// auto-allocates column 0. If the item already has a tree, auto-allocates any pending column whose bar is met.
+    /// Adds Crucible experience to an item. An item without a tree gets one when the first bar is reached (GGG's
+    /// Crucible video, 1:41); every column the experience unlocks gets its skill.
     /// </summary>
     public static Item AwardExperience(
         Item item,
@@ -186,40 +145,29 @@ public static class CrucibleTreeEngine
         newlyAllocatedCount = 0;
         if (xpDelta == 0 || !CanHaveTree(item, type, mods)) return item;
 
-        int ilvl = Math.Clamp(item.ItemLevel == 0 ? 1 : item.ItemLevel, 1, 100);
-        var balance = CrucibleTables.Current.BalanceFor(ilvl);
-        uint maxBar = (uint)Math.Max(1, balance.Bar5);
-
         var current = item.WeaponPassiveTree;
-        uint balanceLevel = current is { BalanceItemLevel: > 0 } ? current.BalanceItemLevel : (uint)ilvl;
-        balance = CrucibleTables.Current.BalanceFor((int)balanceLevel);
-        maxBar = (uint)Math.Max(1, balance.Bar5);
+        uint balanceLevel = current is { BalanceItemLevel: > 0 }
+            ? current.BalanceItemLevel : (uint)Math.Clamp(item.ItemLevel == 0 ? 1 : item.ItemLevel, 1, 100);
+        var balance = CrucibleTables.Current.BalanceFor((int)balanceLevel);
+        uint newXp = (uint)Math.Min((ulong)Math.Max(1, balance.Bar5), (ulong)(current?.Experience ?? 0) + xpDelta);
 
-        uint prevXp = current?.Experience ?? 0;
-        uint newXp = (uint)Math.Min((ulong)maxBar, (ulong)prevXp + xpDelta);
-
-        if (current is null || !current.HasTree)
+        if (current is not { HasTree: true })
         {
             if (item.Rarity == ItemRarity.Unique) return item;
-            if (newXp >= (uint)balance.Bar1)
-            {
-                var tree = GenerateTree(item, type, mods, random, initialExperience: newXp, autoAllocateRoot: true);
-                revealedNow = true;
-                newlyAllocatedCount = tree.Allocation != 0 ? 1 : 0;
-                return item with { WeaponPassiveTree = tree };
-            }
-            return item with
-            {
-                WeaponPassiveTree = new WeaponPassiveTreeState(balanceLevel, newXp, HasTree: false),
-            };
+            if (newXp < (uint)balance.Bar1)
+                return item with { WeaponPassiveTree = new WeaponPassiveTreeState(balanceLevel, newXp, HasTree: false) };
+            current = GenerateTree(item, type, mods, random) with { BalanceItemLevel = balanceLevel };
+            revealedNow = true;
         }
 
-        var updated = current with { Experience = newXp };
-        updated = ResolvePendingAllocations(updated, balance, out newlyAllocatedCount);
-        return item with { WeaponPassiveTree = updated };
+        return item with
+        {
+            WeaponPassiveTree = ResolvePendingAllocations(current with { Experience = newXp }, balance, out newlyAllocatedCount),
+        };
     }
 
-    /// <summary>Applies any eligible <c>PendingCol0..4</c> auto-allocations whose XP threshold is reached (mirrors <c>0x1424bcd20</c>).</summary>
+    /// <summary>Allocates a skill in every unlocked column that has none: its pending row, else our default row. No
+    /// client message allocates a node, and a pending row of an unlocked column is dropped on load (<c>0x1424bcb60</c>).</summary>
     public static WeaponPassiveTreeState ResolvePendingAllocations(
         WeaponPassiveTreeState tree,
         CrucibleTables.LevelBalance balance,
@@ -229,61 +177,65 @@ public static class CrucibleTreeEngine
         if (!tree.HasTree) return tree;
 
         ushort alloc = tree.Allocation;
-        sbyte[] pending = [tree.PendingCol0, tree.PendingCol1, tree.PendingCol2, tree.PendingCol3, tree.PendingCol4];
-
-        // If column 0 is unlocked and nothing is allocated yet, auto-allocate root (0, 0).
-        if (CrucibleTreeTopology.AllocatedRowInColumn(alloc, 0) < 0
-            && CrucibleTreeTopology.CanAllocate(tree.Layout, alloc, tree.LeftParentConnections, tree.RightParentConnections,
-                tree.Experience, balance, 0, 0))
+        int depth = CrucibleTreeTopology.UnlockedDepth(tree.Experience, balance);
+        for (int col = 0; col < depth; col++)
         {
-            alloc |= 1;
-            pending[0] = -1;
+            // The client wipes the pending row of a reached bar whether or not it allocated (0x1424bce1f).
+            int row = tree.PendingRow(col);
+            tree = tree.WithPendingRow(col, -1);
+            if (CrucibleTreeTopology.AllocatedRowInColumn(alloc, col) >= 0) continue;
+            if (!CrucibleTreeTopology.CanAllocate(tree.Layout, alloc, tree.LeftParentConnections, tree.RightParentConnections,
+                tree.Experience, balance, col, row))
+                row = DefaultRow(tree, alloc, col);
+            if (row < 0) continue;
+            alloc |= CrucibleTreeTopology.BitMask(col, row);
             allocatedCount++;
         }
 
-        for (int col = 0; col < CrucibleTreeTopology.Columns; col++)
-        {
-            if (pending[col] < 0) continue;
-            int row = pending[col];
-            if (CrucibleTreeTopology.CanAllocate(tree.Layout, alloc, tree.LeftParentConnections, tree.RightParentConnections,
-                tree.Experience, balance, col, row))
-            {
-                alloc |= CrucibleTreeTopology.BitMask(col, row);
-                pending[col] = -1;
-                allocatedCount++;
-            }
-        }
-
-        return tree with
-        {
-            Allocation = alloc,
-            PendingCol0 = pending[0],
-            PendingCol1 = pending[1],
-            PendingCol2 = pending[2],
-            PendingCol3 = pending[3],
-            PendingCol4 = pending[4],
-        };
+        return tree with { Allocation = alloc };
     }
 
-    /// <summary>Allocates <c>(col, row)</c> directly if eligible, or sets <c>PendingRow(col)</c> if not yet unlocked.</summary>
+    /// <summary>The row allocated in an unlocked column without a usable pending row, -1 when the path ended before it.
+    /// Our own default: the first connected child by row that has a connected child itself, else the first.</summary>
+    static int DefaultRow(WeaponPassiveTreeState tree, ushort alloc, int col)
+    {
+        if (col == 0) return tree.HasNode(0, 0) ? 0 : -1;
+        int parent = CrucibleTreeTopology.AllocatedRowInColumn(alloc, col - 1);
+        if (parent < 0) return -1;
+        var children = CrucibleTreeTopology.ConnectedChildren(tree.Layout, tree.LeftParentConnections, tree.RightParentConnections, col - 1, parent);
+        foreach (int row in children)
+            if (CrucibleTreeTopology.ConnectedChildren(tree.Layout, tree.LeftParentConnections, tree.RightParentConnections, col, row).Count > 0)
+                return row;
+        return children.Count > 0 ? children[0] : -1;
+    }
+
+    /// <summary>Makes <c>(col, row)</c> the player's choice: allocated at once in an unlocked column without a skill,
+    /// the pending row in a locked column. Null when the node cannot be chosen.</summary>
     public static WeaponPassiveTreeState? SelectOrAllocateNode(WeaponPassiveTreeState tree, int col, int row)
     {
         if (!tree.HasTree || !CrucibleTreeTopology.ValidCoords(col, row) || !tree.HasNode(col, row))
             return null;
 
         var balance = CrucibleTables.Current.BalanceFor((int)Math.Max(1, tree.BalanceItemLevel));
-        if (CrucibleTreeTopology.CanAllocate(tree.Layout, tree.Allocation, tree.LeftParentConnections, tree.RightParentConnections,
-            tree.Experience, balance, col, row))
+        if (col < CrucibleTreeTopology.UnlockedDepth(tree.Experience, balance))
+            return CrucibleTreeTopology.CanAllocate(tree.Layout, tree.Allocation, tree.LeftParentConnections, tree.RightParentConnections,
+                tree.Experience, balance, col, row)
+                ? ResolvePendingAllocations(tree.WithPendingRow(col, (sbyte)row), balance, out _)
+                : null;
+
+        // Selectable as in the client's tree (state 3 of 0x1403f2530): linked to the row chosen in the column before.
+        if (col > 0)
         {
-            ushort alloc = (ushort)(tree.Allocation | CrucibleTreeTopology.BitMask(col, row));
-            return tree.WithPendingRow(col, -1) with { Allocation = alloc };
+            int before = CrucibleTreeTopology.AllocatedRowInColumn(tree.Allocation, col - 1);
+            if (before < 0) before = tree.PendingRow(col - 1);
+            if (before < 0 || !CrucibleTreeTopology.IsConnectedToParent(tree.Layout, tree.LeftParentConnections, tree.RightParentConnections, col, row, before))
+                return null;
         }
 
-        // If column isn't allocated yet, record pending target row so reaching the XP bar allocates it automatically.
-        if (CrucibleTreeTopology.AllocatedRowInColumn(tree.Allocation, col) < 0)
-            return tree.WithPendingRow(col, (sbyte)row);
-
-        return null;
+        // The client's press handler 0x1403f7bf0 drops the choices of the deeper columns as well.
+        for (int deeper = col + 1; deeper < CrucibleTreeTopology.Columns; deeper++)
+            tree = tree.WithPendingRow(deeper, -1);
+        return tree.WithPendingRow(col, (sbyte)row);
     }
 
     /// <summary>
@@ -297,7 +249,8 @@ public static class CrucibleTreeEngine
 
         var balance = CrucibleTables.Current.BalanceFor((int)Math.Max(1, tree.BalanceItemLevel));
         ushort newAlloc = (ushort)(tree.Allocation & ~CrucibleTreeTopology.BitMask(col, row));
-        uint newXp = col == 0 ? 0u : (uint)balance.Bar(col);
+        // Our reading of ClientStrings 6811 ("All Experience towards it will be lost"): back to the bar before it.
+        uint newXp = col == 0 ? 0u : (uint)balance.BarToUnlock(col - 1);
         if (tree.Experience < newXp) newXp = tree.Experience;
 
         var updated = tree.WithPendingRow(col, -1) with
@@ -308,26 +261,20 @@ public static class CrucibleTreeEngine
         return target with { WeaponPassiveTree = updated };
     }
 
-    /// <summary>Applies <c>Magmatic Ore</c> to a weapon or shield, granting its <c>StoredExperience</c> (or default XP if 0).</summary>
-    public static Item? ApplyMagmaticOre(Item target, ItemCatalog.BaseType type, ModCatalog mods, double multiplier, Random random, uint storedExperience = 0)
+    /// <summary>Applies a Magmatic Ore: its stored experience as it is, because the ore shows that number
+    /// (ClientStrings 5210). Null when the ore does nothing.</summary>
+    public static Item? ApplyMagmaticOre(Item target, ItemCatalog.BaseType type, ModCatalog mods, Random random, uint storedExperience)
     {
-        if (target.Mirrored || !CanChannelInForge(target, type, mods)) return null;
-        int ilvl = Math.Clamp(target.ItemLevel == 0 ? 1 : target.ItemLevel, 1, 100);
-        int balanceLevel = target.WeaponPassiveTree?.BalanceItemLevel is > 0 ? (int)target.WeaponPassiveTree.BalanceItemLevel : ilvl;
-        var balance = CrucibleTables.Current.BalanceFor(balanceLevel);
-        uint maxBar = (uint)Math.Max(1, balance.Bar5);
-        uint currentXp = target.WeaponPassiveTree?.Experience ?? 0;
-        if (currentXp >= maxBar && target.WeaponPassiveTree is { HasTree: true }) return null;
-
-        // Uses StoredExperience when present; otherwise falls back to enough XP to reveal an unrevealed tree (Bar1) or half Bar2.
-        uint baseGrant = storedExperience > 0 ? storedExperience : (uint)Math.Max(balance.Bar1, balance.Bar2 / 2);
-        uint scaled = (uint)Math.Clamp(Math.Round(baseGrant * Math.Max(0.1, multiplier)), 1, maxBar);
-        return AwardExperience(target, type, mods, scaled, random, out _, out _);
+        if (storedExperience == 0 || !CanChannelInForge(target, type, mods)) return null;
+        // ClientStrings 6797: "Crucible Passive Skill Tree is already at maximum experience".
+        if (target.WeaponPassiveTree is { HasTree: true } tree
+            && tree.Experience >= (uint)CrucibleTables.Current.BalanceFor((int)Math.Max(1, tree.BalanceItemLevel)).Bar5)
+            return null;
+        return AwardExperience(target, type, mods, storedExperience, random, out _, out _);
     }
 
     /// <summary>Remnant combining modifiers active in the current Forge of the Titans instance.</summary>
     public sealed record CombineModifiers(
-        bool Uber,
         bool CannotDowngradeTiers,
         int ExtraUpgradeTierChance,
         bool MoreLikelySkillsKept,
@@ -337,8 +284,7 @@ public static class CrucibleTreeEngine
         bool FullyLinked,
         bool RerollModValues)
     {
-        public static CombineModifiers From(MapMods mods, bool uber) => new(
-            Uber: uber,
+        public static CombineModifiers From(MapMods mods) => new(
             CannotDowngradeTiers: mods.Get("map_crucible_combining_tiers_cannot_be_downgraded") > 0,
             ExtraUpgradeTierChance: Math.Max(0, mods.Get("map_crucible_combining_+_chance_%_for_upgraded_tiers")),
             MoreLikelySkillsKept: mods.Get("map_crucible_combining_more_likely_skills_are_kept") > 0,
@@ -410,7 +356,6 @@ public static class CrucibleTreeEngine
         var tBot = bottom.WeaponPassiveTree!;
 
         int ilvl = Math.Clamp((int)Math.Max(top.ItemLevel, bottom.ItemLevel), 1, 100);
-        if (ilvl == 0) ilvl = 1;
         var tags = RollTagsFor(bottom, bottomType, mods);
 
         var slotNode = new WeaponPassiveTreeNode?[CrucibleTreeTopology.MaxSlots];
@@ -583,6 +528,7 @@ public static class CrucibleTreeEngine
 
         uint newBalanceLevel = (uint)Math.Clamp(bottom.ItemLevel == 0 ? ilvl : bottom.ItemLevel, 1, 100);
         var balance = tables.BalanceFor((int)newBalanceLevel);
+        // Our own rule, GGG never published one: the result keeps the higher experience of the two, and no unlocked column stays empty.
         uint newXp = Math.Min((uint)balance.Bar5, Math.Max(tTop.Experience, tBot.Experience));
         int unlocked = CrucibleTreeTopology.UnlockedDepth(newXp, balance);
 
@@ -612,6 +558,7 @@ public static class CrucibleTreeEngine
             RightParentConnections: clean.RightParents,
             PendingCol0: -1, PendingCol1: -1, PendingCol2: -1, PendingCol3: -1, PendingCol4: -1,
             Nodes: finalNodes);
+        combinedTree = ResolvePendingAllocations(combinedTree, balance, out _);
 
         Item result = bottom with { WeaponPassiveTree = combinedTree };
 
@@ -686,7 +633,7 @@ public static class CrucibleTreeEngine
             return null;
         }
 
-        var tree = GenerateTree(target, type, mods, random, initialExperience: 0, autoAllocateRoot: false);
+        var tree = GenerateTree(target, type, mods, random);
         return target with { WeaponPassiveTree = tree };
     }
 
@@ -723,18 +670,15 @@ public static class CrucibleTreeEngine
         {
             if (Array.IndexOf(skill.SpawnColumns, spawnCol) < 0) continue;
             if (forceSellBonus && skill.Type != CrucibleTables.SkillTypeSellBonus) continue;
-            if (usedSkillIds.Contains(skill.Id)) continue;
             if (mods.Row(skill.ModRow) is not { } mod) continue;
             if (mod.Level > ilvl) continue;
+            // GenerationType 32 is WEAPON_TREE_RECOMBINED in the schema: those skills exist only through combining.
             if (!allowMutations && mod.GenerationType == 32) continue;
-            if (mod.Families.Any(usedFamilies.Contains)) continue;
+            // Our own rule, GGG never published one: no skill and no mod family twice in a tree.
+            if (usedSkillIds.Contains(skill.Id) || mod.Families.Any(usedFamilies.Contains)) continue;
 
             int weight = mod.WeightFor(tags);
             if (weight <= 0) continue;
-
-            // Boost Notables in column 5 and combine-only mutations slightly when mutation rolls occur.
-            if (spawnCol == 5 && skill.Type == CrucibleTables.SkillTypeNotable) weight *= 2;
-            if (allowMutations && mod.GenerationType == 32) weight *= 2;
 
             pool.Add((skill, mod, weight));
             totalWeight += weight;
@@ -749,18 +693,5 @@ public static class CrucibleTreeEngine
         }
         var last = pool[^1];
         return (last.Skill, last.Mod);
-    }
-
-    static (CrucibleTables.SkillRow Skill, ModCatalog.Mod Mod)? FallbackSkillForColumn(
-        CrucibleTables tables, ModCatalog mods, int spawnCol, Random random)
-    {
-        var any = tables.Skills
-            .Where(s => Array.IndexOf(s.SpawnColumns, spawnCol) >= 0)
-            .Select(s => (Skill: s, Mod: mods.Row(s.ModRow)))
-            .Where(p => p.Mod is not null && p.Mod.GenerationType != 32)
-            .ToList();
-        if (any.Count == 0) return null;
-        var pick = any[random.Next(any.Count)];
-        return (pick.Skill, pick.Mod!);
     }
 }

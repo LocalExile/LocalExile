@@ -37,6 +37,7 @@ public static class CrucibleSellRewards
     /// </summary>
     public static List<Item> Evaluate(
         IReadOnlyList<ItemMod> allocatedMods,
+        ItemCatalog.BaseType? soldType,
         ItemCatalog catalog,
         UniqueCatalog uniques,
         Random random)
@@ -44,7 +45,7 @@ public static class CrucibleSellRewards
         if (allocatedMods.Count == 0) return [];
 
         bool doubled = false;
-        int specificUniques = 0;
+        var uniqueBases = new List<ItemCatalog.BaseType>();
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var itemMod in allocatedMods)
@@ -60,7 +61,11 @@ public static class CrucibleSellRewards
                 }
                 else if (statId == SpecificUniqueStat)
                 {
-                    specificUniques++;
+                    // Stat description 10790: 0 is "an additional Unique of this Base Type", any other value names
+                    // the base through WeaponPassiveTreeUniqueBaseTypes.
+                    var named = value == 0 ? soldType
+                        : CrucibleTables.Current.SellUniqueBaseRows.TryGetValue(value, out int baseRow) ? catalog.Row(baseRow) : null;
+                    if (named is not null) uniqueBases.Add(named);
                 }
                 else if (CurrencyByStat.TryGetValue(statId, out string? baseId) && value > 0)
                 {
@@ -69,7 +74,7 @@ public static class CrucibleSellRewards
             }
         }
 
-        if (counts.Count == 0 && specificUniques == 0) return [];
+        if (counts.Count == 0 && uniqueBases.Count == 0) return [];
 
         int multiplier = doubled ? 2 : 1;
         var rewards = new List<Item>();
@@ -84,24 +89,17 @@ public static class CrucibleSellRewards
                 int stack = Math.Min(total, maxStack);
                 var item = ItemCatalog.Create(type) with { StackSize = (ushort)stack };
                 if (baseId.Equals(CrucibleTables.MagmaticOreId, StringComparison.OrdinalIgnoreCase))
-                    item = item with { StoredExperience = (uint)Math.Max(1, CrucibleTables.Current.BalanceFor(80).Bar2) };
+                    item = item with { StoredExperience = CrucibleTables.RemnantOreExperience };
                 rewards.Add(item);
                 total -= stack;
             }
         }
 
-        if (specificUniques > 0)
+        foreach (var named in uniqueBases)
         {
-            int rolls = specificUniques * multiplier;
-            var allUniques = uniques.CollectionItems(random);
-            if (allUniques.Count > 0)
-            {
-                for (int i = 0; i < rolls; i++)
-                {
-                    var pick = allUniques[random.Next(allUniques.Count)].Item;
-                    if (pick is not null) rewards.Add(pick);
-                }
-            }
+            var ofBase = uniques.All.Where(d => d.BaseTypeId == named.Id).ToList();
+            for (int i = 0; i < multiplier && ofBase.Count > 0; i++)
+                if (uniques.Create(ofBase[random.Next(ofBase.Count)], random) is { } unique) rewards.Add(unique);
         }
 
         return rewards;

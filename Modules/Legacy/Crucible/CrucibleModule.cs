@@ -40,7 +40,7 @@ public sealed class CrucibleModule : IModule
 
         // 5. Magmatic Ore currency application (C→S 0x71 / 0x72).
         GameEvents.CurrencyApply.Add(id, (conn, target, currencyType, currencyItem, rng) =>
-            CrucibleItemActions.ApplyCurrency(conn, target, currencyType, currencyItem, rng, choices.ExperienceMultiplier));
+            CrucibleItemActions.ApplyCurrency(conn, target, currencyType, currencyItem, rng));
 
         // 6. Crucible SellBonus vendor rewards.
         GameEvents.VendorQuote.Add(id, CrucibleItemActions.OnVendorQuote);

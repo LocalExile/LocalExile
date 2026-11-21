@@ -78,7 +78,8 @@ public sealed record WeaponPassiveTreeState(
         return HasTree && (Layout & mask) != 0 && (Allocation & mask) != 0;
     }
 
-    /// <summary>Pending auto-allocation target row (-1 for none) for column 0..4.</summary>
+    /// <summary>Pending auto-allocation target row (-1 for none) for column 0..4, kept by the client only for locked
+    /// columns: on load it drops the row of a column whose bar is reached (0x1424bcb60).</summary>
     public sbyte PendingRow(int column) => column switch
     {
         0 => PendingCol0, 1 => PendingCol1, 2 => PendingCol2, 3 => PendingCol3, 4 => PendingCol4,
