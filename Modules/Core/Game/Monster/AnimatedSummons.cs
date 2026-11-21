@@ -86,6 +86,24 @@ public static partial class Game
     static readonly IReadOnlyDictionary<byte, byte> SummonVisibleSlots = new Dictionary<byte, byte>
         { [1] = 2, [2] = 0, [3] = 1, [4] = 4, [5] = 11, [6] = 8, [7] = 9, [8] = 5, [9] = 6, [10] = 10 };
 
+    static void AnimatedGuardianSmiteLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, GolemState.Golem guardian, GolemState.Action action, double now)
+    {
+        var ability = action.Ability;
+        var origin = guardian.Monster.Walk.Position(now);
+        int range = GolemStat(ability.Stats, "smite_lightning_target_range");
+        int count = GolemStat(ability.Stats, "base_smite_number_of_targets");
+        var enemies = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0,
+                Invulnerable: false, Asleep: false } && !conn.AsleepMonsters.Contains(p.Key))
+            .Select(p => (Id: p.Key, Monster: p.Value, At: p.Value.Walk.Position(now))).ToArray();
+        var centres = enemies.Where(e => Dist(origin, e.At) <= range)
+            .OrderByDescending(e => e.Id == action.Target).ThenBy(e => Dist(e.At, action.Aim)).ThenBy(e => e.Id)
+            .Take(count).Select(e => e.At).ToArray();
+        foreach (var enemy in enemies)
+            if (centres.Any(centre => Dist(centre, enemy.At) <= ability.Radius + LivingCollision.Size(enemy.Monster)))
+                GolemHitLocked(remote, stream, ciphers, conn, guardian, ability, enemy.Id, enemy.Monster, now);
+    }
+
     static async Task<bool> AnimateGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
