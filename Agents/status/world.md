@@ -192,8 +192,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Volcanic Slam action and both of its stat sets. At level 84 its 1.25 s attack converts 60% of physical damage to
   fire and has 50% more area. Each of six cracks can hit a resident once along the ground. Each eruption releases
   eleven mortars (nine base, two from the second stat set). A mortar stopped by terrain deals no damage. Overlapping
-  landing areas hit independently. Crack progress, landing positions and committed hits survive a change of runner
-  or a rules reload. The server models a straight crack from the attack midpoint, a 20-cell throw and a new target
+  landing areas hit independently. The box keeps its initial obstacle hulls, crack progress, landing positions and
+  committed hits through a change of runner or a rules reload. The server models a straight crack from the attack midpoint, a 20-cell throw and a new target
   after each flight window. It samples positions at the decision frame, prefers the nearest opponent away from the
   current endpoint within the caster's aggro range, and keeps the previous heading if nobody is in range. The
   original crack shape, repeat cadence, target selection, individual hit damage and visuals still need client measurements.

@@ -25,6 +25,7 @@ public static partial class MapStrongboxes
     {
         public HashSet<FissurePlayer> Swept { get; init; } = [];
         public FissureLeg? Repeat { get; set; }
+        public VesselTerrain? Terrain { get; set; }
         // Null while the crack travels. An empty volley means every mortar met terrain.
         public FissureLanding[]? Landings { get; set; }
         internal override (int X, int Y) Target(Box box) => (AimX, AimY);
@@ -95,7 +96,7 @@ public static partial class MapStrongboxes
         var now = c.Clock.Elapsed;
         var aim = c.Walk.Position(now.TotalSeconds);
         var end = VolcanicFissureSweep.End(c.Layout, (box.X, box.Y), aim, skill.Radius);
-        return new(now.Ticks, FissureCaster, aim.X, aim.Y, end.X, end.Y);
+        return new(now.Ticks, FissureCaster, aim.X, aim.Y, end.X, end.Y) { Terrain = new(VesselWallSnapshot(c)) };
     }
 
     static async Task TickFissures(ClientState conn, Area area, Box box, TimeSpan now)
@@ -148,7 +149,9 @@ public static partial class MapStrongboxes
             if (now < skill.Frame(cast, eruption)) return false;
             if (cast.Landings is null)
             {
-                lock (conn.Monsters) cast.Landings = FissureMortars(conn, cast.Actor, leg, eruption, skill);
+                // Casts saved before obstacle snapshots can adopt the current area hulls once on resumption.
+                cast.Terrain ??= new(VesselWallSnapshot(conn));
+                cast.Landings = FissureMortars(conn, cast.Actor, leg, eruption, skill, cast.Terrain);
                 Keep(conn, area);
             }
             while (cast.Landed - samples < cast.Landings.Length)

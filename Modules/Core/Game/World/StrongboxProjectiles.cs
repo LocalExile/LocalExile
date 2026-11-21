@@ -11,6 +11,16 @@ public static partial class MapStrongboxes
     public sealed record SparkFrame(int Step, SparkTarget[] Players);
     public sealed record SparkContact(int Flight, uint Peer, int Epoch, long At, ProjectileHitResult Result);
 
+    public sealed record VesselTerrain(SparkCell[] Walls)
+    {
+        internal readonly HashSet<(int X, int Y)> Cells = [.. Walls.Select(w => (w.X, w.Y))];
+    }
+
+    static SparkCell[] VesselWallSnapshot(ClientState c)
+    {
+        lock (c.Monsters) return [.. c.ProjectileWalls.Select(p => new SparkCell(p.X, p.Y))];
+    }
+
     public record VesselProjectileCast(long Started, string Daemon, int AimX, int AimY, SparkCell[] Walls)
         : VesselCast(Started, Daemon)
     {
@@ -35,8 +45,7 @@ public static partial class MapStrongboxes
         var now = c.Clock.Elapsed;
         var aim = c.Walk.Position(now.TotalSeconds);
         if (aim == (box.X, box.Y)) aim = (box.X + 1, box.Y);
-        lock (c.Monsters)
-            return (now.Ticks, aim.X, aim.Y, [.. c.ProjectileWalls.Select(p => new SparkCell(p.Item1, p.Item2))]);
+        return (now.Ticks, aim.X, aim.Y, VesselWallSnapshot(c));
     }
 
     // One combat simulation for the instance. All observers refer to the same flights, even after the opener leaves.
