@@ -158,13 +158,25 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
                     items: chat.LineItems(Conn, text, frame.Items)),
                     $"0x0017 {frame.Kind} chat line from {frame.Name}"),
             ChatFrame.Whisper when named && text.Length > 0 =>
-                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, items: chat.LineItems(Conn, text, frame.Items)), $"0x0017 whisper from {frame.Name}"),
+                ReceiveWhisper(frame.Name!, text, frame.Items),
             ChatFrame.Whispered when named && text.Length > 0 =>
                 Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, InstanceChat.WhisperSentFlag, chat.LineItems(Conn, text, frame.Items)), $"0x0017 whisper to {frame.Name}"),
             ChatFrame.Offline when named => Tell($"{frame.Name} is not online."),
             ChatFrame.TooFast => Tell("You are sending messages too fast."),
             _ => Task.CompletedTask,
         };
+    }
+
+    async Task ReceiveWhisper(string from, string text, IReadOnlyList<ChatFrameItem>? items)
+    {
+        var status = ChatService.StatusOf(name);
+        if (status.Dnd)
+        {
+            await chat.SendAutoReply(name, from, status.DndMessage);
+            return;
+        }
+        await Deliver(InstanceChat.ChatLine(text, "@" + from, items: chat.LineItems(Conn, text, items)), $"0x0017 whisper from {from}");
+        if (status.Afk) await chat.SendAutoReply(name, from, status.AfkMessage);
     }
 
     Task Tell(string text) => Deliver(InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");

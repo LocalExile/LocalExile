@@ -189,6 +189,7 @@ sealed class ChatService : IDisposable
         _namedLinks.TryRemove(conn, out var namedLinks);
         if (chat.IsCommand) return false;
         string name = CharacterName(conn);
+        await ClearAfkOnActivity(conn, name);
         Log($"{conn.Wire.Remote} <= 0x0015 chat \"{chat.Text}\"");
         var (channel, typed) = InstanceChat.SplitChannel(chat.Text);
         string text = ChatWire.Clean(typed);
@@ -234,6 +235,38 @@ sealed class ChatService : IDisposable
             }
         }
         return true;
+    }
+
+    static ConcurrentDictionary<string, (bool, string, bool, string)>? StatusTable() =>
+        AppContext.GetData("LocalExile.Chat.Status") as ConcurrentDictionary<string, (bool, string, bool, string)>;
+
+    internal static (bool Afk, string AfkMessage, bool Dnd, string DndMessage) StatusOf(string character) =>
+        StatusTable() is { } table && table.TryGetValue(character, out var status) ? status : default;
+
+    static async Task ClearAfkOnActivity(ClientState conn, string name)
+    {
+        if (StatusTable() is not { } table || !table.TryGetValue(name, out var status) || !status.Item1) return;
+        table[name] = (false, status.Item2, status.Item3, status.Item4);
+        if (conn is { Closed: false, Outbox: { } outbox })
+        {
+            try { await outbox(InstanceChat.ChatLine("AFK mode is now OFF."), "0x0017 AFK cleared on chat"); }
+            catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+        }
+    }
+
+    internal async Task SendAutoReply(string fromCharacter, string toCharacter, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+        var target = _sessions.TryGetValue(toCharacter, out var session) ? session.Conn
+            : InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed
+                && string.Equals(CharacterName(c), toCharacter, StringComparison.OrdinalIgnoreCase));
+        if (target is not { Closed: false, Outbox: { } outbox }) return;
+        try
+        {
+            await outbox(InstanceChat.ChatLine(message, "@" + fromCharacter, InstanceChat.AutoReplyFlag),
+                $"0x0017 autoreply from {fromCharacter} to {toCharacter}");
+        }
+        catch (Exception e) when (e is IOException or ObjectDisposedException) { }
     }
 
     // Not through a chat server: who is in the area is this Gateway's to know. Each gets its own bytes, as a send encrypts

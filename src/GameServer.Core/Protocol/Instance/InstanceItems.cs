@@ -441,8 +441,26 @@ public static class InstanceItems
         return new(r.U32(), r.U32(), r.U32());
     }
 
+    /// <summary>Commands.dat row 1 (<c>ShowTimePlayed</c>, "/played") + 1.</summary>
+    public const byte PlayedCommand = 2;
+
+    /// <summary>Commands.dat row 2 (<c>ShowCharacterAge</c>, "/age") + 1.</summary>
+    public const byte AgeCommand = 3;
+
+    /// <summary>Commands.dat row 3 (<c>ShowMonstersRemaining</c>, "/remaining") + 1.</summary>
+    public const byte RemainingCommand = 4;
+
+    /// <summary>Commands.dat row 4 (<c>ShowDeaths</c>, "/deaths") + 1.</summary>
+    public const byte DeathsCommand = 5;
+
     /// <summary>Commands.dat row 8 (DestroyCursorItem, "/destroy") + 1: what the Keep / Destroy popup's Destroy sends.</summary>
     public const byte DestroyCursorItemCommand = 9;
+
+    /// <summary>Commands.dat row 9 (<c>Whois</c>, "/whois") + 1.</summary>
+    public const byte WhoisCommand = 10;
+
+    /// <summary>Commands.dat row 34 (<c>AutoReply</c>, "/autoreply") + 1.</summary>
+    public const byte AutoReplyCommand = 35;
 
     /// <summary>Commands.dat row 44 (WarpToHideout, "/hideout") + 1: the chat command that goes to the hideout.</summary>
     public const byte WarpToHideoutCommand = 45;
@@ -452,6 +470,13 @@ public static class InstanceItems
 
     /// <summary>Commands.dat row 35 <c>SetAFK</c> + 1.</summary>
     public const byte AfkCommand = 36;
+
+    /// <summary>Commands.dat row 36 (<c>DoNotDisturb1</c>, "/dnd") + 1.</summary>
+    public const byte DndCommand = 37;
+
+    /// <summary>Commands.dat row 37 (<c>DoNotDisturb2</c>, "/donotdisturb") + 1.</summary>
+    public const byte DoNotDisturbCommand = 38;
+
     /// <summary>Commands row 7 "ForceResync" (the client's <c>oos</c>): sent by the network update 0x14214f1d0 when more than
     /// three of the player's commenced actions (Actor +0x22c, 0x141e9b500) have had no 0x1ac, one forgiven every 5 s.</summary>
     public const byte ForceResyncCommand = 8;
