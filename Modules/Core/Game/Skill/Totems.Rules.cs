@@ -197,8 +197,7 @@ public static partial class Game
             ? supportLevel : SkillsFor(conn).PlayerLevelReq(effect, gemLevel), 1, 100);
         int baseLife = Monsters.BaseLife(variety, level) ?? 1;
         bool decoy = SkillsFor(conn).EffectId(effect) == "DecoyTotem";
-        double lifeScale = decoy ? Math.Max(0, 1 + GolemStat(own, "totem_life_+%_final") / 100.0) : 1;
-        uint life = (uint)Math.Clamp(baseLife * (100L + Get("totem_life_+%")) / 100.0 * lifeScale, 1, int.MaxValue);
+        uint life = (uint)Math.Clamp((long)baseLife * (100 + Get("totem_life_+%")) / 100, 1, int.MaxValue);
         double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
         TotemState.Aura? aura = null;
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.TryGetValue(id, out var source))

@@ -17,7 +17,7 @@ public static partial class Game
     }
 
     static bool DecoyCanTaunt(SpawnedMonster monster, TotemState.Totem totem, double now) =>
-        TotemTargetable(monster) && !monster.Scripted && monster.Effects["cannot_be_taunted"] == 0
+        TotemTargetable(monster) && !monster.Scripted && !monster.EntranceGrace && monster.Effects["cannot_be_taunted"] == 0
         && Dist(monster.Walk.Position(now), totem.At) <= totem.DecoyRadius;
 
     static void DecoyTotemUseLocked(ClientState conn, TotemState.Totem totem, double now, WorldRecordBuilder bytes)
@@ -41,7 +41,10 @@ public static partial class Game
         if (!totem.Alive(now) || totem.DecoyRadius <= 0) return;
         foreach (var (id, monster) in conn.Monsters)
         {
-            if (conn.AsleepMonsters.Contains(id) || !DecoyCanTaunt(monster, totem, now)
+            // Its orders go to the owner's client, which must have been shown the monster (MonsterTargetsLocked).
+            if (conn.AsleepMonsters.Contains(id)
+                || conn.Instance is not null && !ReferenceEquals(monster.Target, conn) && !conn.MonsterViews.ContainsKey(id)
+                || !DecoyCanTaunt(monster, totem, now)
                 || monster.TauntedUntil > now
                 || DecoyTarget(monster, now) is { } previous && !ReferenceEquals(previous.Source, totem)) continue;
             monster.DecoyTaunt = (conn, totem, now + FlaskGrounds.TauntSeconds / monster.RecipientDebuffRate);
@@ -77,7 +80,8 @@ public static partial class Game
                 aim = ((int)Math.Round(totem.At.X + (from.X - totem.At.X) * fraction),
                        (int)Math.Round(totem.At.Y + (from.Y - totem.At.Y) * fraction));
             }
-            if (!cadence.TryChase(monster, aim, now, retryAfterArrival: now >= monster.Walk.ArrivesAt)) return;
+            if (!LockstepReorderDue(conn, plan, monster, cadence, now)
+                || !cadence.TryChase(monster, aim, now, retryAfterArrival: now >= monster.Walk.ArrivesAt)) return;
             monster.LastTarget = aim;
             monster.SwingGeneration = null;
             plan.Moves.Add((id, monster, NextPlannedAction(monster), PlaceMove(plan, monster, aim, now), aim, "chases Decoy Totem"));
@@ -90,23 +94,28 @@ public static partial class Game
         try
         {
             if (attacker.Attack is not { } attack) return;
-            double started = 0;
+            double contactAt = 0;
             ushort sequence = 0;
             if (!await SendMonsterAction(remote, stream, ciphers, conn, id, attacker, action, () =>
             {
-                started = AreaTime(conn);
-                if (!totem.Alive(started) || DecoyTarget(attacker, started)?.Source != totem) return null;
-                var from = attacker.Walk.Position(LockstepOrderStart(conn, started));
-                attacker.Walk.Order(from.X, from.Y, started);
-                attacker.BusyUntil = started + attack.Seconds;
-                sequence = attacker.NextSequence();
-                return attack.InPlace || attack.Projectile is not null
-                    ? InstanceProtocol.ActionStarted(id, from.X, from.Y, totem.At.X, totem.At.Y, attack.SkillId,
-                        sequence, conn.MonsterOrderFlags, targetObjectId: totem.Id)
-                    : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, totem.At.X, totem.At.Y, attack.SkillId,
-                        sequence, conn.MonsterOrderFlags, totem.Id);
+                double now = AreaTime(conn);
+                // The ordinary swing's order: its start on a lockstep frame, the chilled attack time, the busy time and
+                // a lockstep client's walk stop.
+                if (!totem.Alive(now) || DecoyTarget(attacker, now)?.Source != totem
+                    || MonsterSwingOrderLocked(conn, attacker, attack, action, true, attack.Seconds, now) is not { } order) return null;
+                sequence = conn.LockstepClient ? order.Sequence : attacker.NextSequence();
+                contactAt = order.StartedAt + order.Seconds * (attack.Release?.Fraction ?? .5);
+                var from = order.From;
+                // An in-place attack leaves a walk going under it, as the client does; a melee one stands to swing and
+                // needs the 0x1ac to begin (MonsterSwing).
+                if (attack.InPlace)
+                    return InstanceProtocol.ActionStarted(id, from.X, from.Y, totem.At.X, totem.At.Y, attack.SkillId,
+                        sequence, conn.MonsterOrderFlags, targetObjectId: totem.Id);
+                attacker.Walk.Order(from.X, from.Y, order.StartedAt);
+                return InstanceProtocol.ActionStartedNow(id, from.X, from.Y, totem.At.X, totem.At.Y, attack.SkillId,
+                    sequence, 0, totem.Id);
             }, ServerTrace.Ai ? $"Monster 0x{id:x} attacks Decoy Totem 0x{totem.Id:x}" : null)) return;
-            if (!await WaitMonsterActionTime(conn, id, attacker, action, started + attack.Seconds * (attack.Release?.Fraction ?? .5))) return;
+            if (!await WaitMonsterActionTime(conn, id, attacker, action, contactAt)) return;
             if (attack.Projectile is { } shot)
             {
                 LaunchMonsterProjectile(remote, stream, ciphers, conn, id, attacker, attack, shot, action, totem.At, sequence: sequence);
@@ -118,7 +127,7 @@ public static partial class Game
                 var from = attacker.Walk.Position(now);
                 if (Dist(from, totem.At) > attack.Range + totem.BodySize + 2
                     || !DecoyTakeHitLocked(conn, totem, attacker, attack, now, 1)) return null;
-                return InstanceProtocol.ActionHit(id, sequence, totem.Id, flags: 0, kind: 0x03,
+                return InstanceProtocol.ActionHit(id, sequence, totem.Id, flags: MonsterHitFlags(blocked: false, critical: false), kind: 0x03,
                     code: HitCode(attack.Damage), angle: HitAngle(totem.At.X - from.X, totem.At.Y - from.Y));
             });
         }
@@ -134,7 +143,8 @@ public static partial class Game
         var random = conn.IncomingHitRandom;
         var rolled = MonsterModHit(attacker, attack.Damage.Roll(random), totem.Life, totem.MaxLife, random,
             out _, now: now, cannotCrit: VaalOversoul.CannotCrit(attacker, attack)).Scale(multiplier * SappedDamageFactor(attacker, now));
-        // TauntTotem.ot has -80% inherent damage taken. Its elemental and chaos resistances are from MonsterTypes.
+        // Totems/Totem.ot (the variety's base type) has -80% inherent damage taken. Its elemental and chaos resistances
+        // are from MonsterTypes.
         var variety = Monsters.Find(totem.VarietyId);
         var resisted = variety is null ? rolled : rolled.Select((type, range) =>
             range.Scale(1 - DamageModel.Capped(Monsters.BaseResistance(variety, totem.Level, type) ?? 0) / 100.0));

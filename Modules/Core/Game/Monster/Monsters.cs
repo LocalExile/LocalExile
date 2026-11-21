@@ -955,7 +955,8 @@ public static partial class Game
                 // A swing that has only just been ordered: the client's monster has not begun it while the player is out of
                 // reach, it walks after the player until it can (07 §5), so the chase goes on and the swing is off.
                 // A lockstep client needs no 0x1ac to begin, so it can't be called off: it would stand through the swing.
-                if (!conn.LockstepClient && m.Attack is { InPlace: false } ordered && m.SwingGeneration == m.ActionGeneration
+                // Nor is a swing at a Decoy Totem: the player's distance says nothing about it.
+                if (decoy is null && !conn.LockstepClient && m.Attack is { InPlace: false } ordered && m.SwingGeneration == m.ActionGeneration
                     && now - m.SwingOrderedAt < SwingOrderSeconds && d > ordered.Range)
                 {
                     m.BusyUntil = now;
