@@ -2001,17 +2001,17 @@ public static partial class Game
             double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
             at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
         }
-        // A summoned spell-caster (an essence's Energy Locus, a totem) keeps its spell on the skill's cooldown as a kit
-        // special, instead of re-casting it every attack cycle as a default swing (a spell-only variety is not a kit boss,
-        // so without this its spell fires every cast-time seconds). Melee summons keep their default swing.
+        // A summon fights with its whole usable kit, not only its cooldown spells: a totem casts its Arc (0-cooldown) as
+        // well as its shocked ground, a spider its Viper Strike, a summoned daemon its nova / ball lightning / storm cascade.
+        // BossKits.Effects drops movement / on-death / daemon-link skills; an effect that hits for nothing, summons nothing
+        // and fires nothing is no action. A cooldown spell stays a kit special (idles between casts); a 0-cooldown one is
+        // rotated at its cast time, so a spell-only summon does not spam it every tick.
         var catalog = SkillsFor(conn);
         var kit = new List<MonsterKitSkill>();
-        foreach (int ef in variety.GrantedEffects ?? [])
+        foreach (int ef in BossKits.Effects(catalog, variety))
         {
-            if (!catalog.IsSpell(ef)) continue;
             int efLevel = catalog.MaxLevelAt(ef, m.Level);
             double cd = catalog.CooldownMs(ef, efLevel) / 1000.0;
-            if (cd <= 0) continue;
             var attack = BossKits.AttackFor(conn, variety, m.Level, ef, (ushort)(0x4000 + kit.Count));
             if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
             kit.Add(new(ef, attack, cd));
