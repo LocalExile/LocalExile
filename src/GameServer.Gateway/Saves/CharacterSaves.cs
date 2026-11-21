@@ -62,6 +62,7 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public byte? RelicStyle { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedWeaponPassiveTree? WeaponPassiveTree { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public uint StoredExperience { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
     }
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
@@ -634,7 +635,7 @@ public static class CharacterSaves
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
-            RelicStyle = i.RelicStyle,
+            RelicStyle = i.RelicStyle, Chart = i.Chart,
             WeaponPassiveTree = i.WeaponPassiveTree is null ? null : ToSaved(i.WeaponPassiveTree, mods),
             StoredExperience = i.StoredExperience };
 
@@ -658,7 +659,7 @@ public static class CharacterSaves
             SkinTransferSource = s.SkinTransferSource is not { } source ? null : source.SkinTransferSource is null
                 ? FromSaved(source, catalog) : throw new InvalidDataException("Nested skin transfers are not supported"),
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial,
-            HeistBlueprint = s.HeistBlueprint,
+            HeistBlueprint = s.HeistBlueprint, Chart = s.Chart,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
             RelicStyle = s.RelicStyle,

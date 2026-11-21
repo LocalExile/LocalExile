@@ -102,6 +102,81 @@ public static partial class MapEssences
         finally { area.Gate.Release(); }
     }
 
+    public readonly record struct MonolithRequest(int X, int Y, string VarietyId, int Level, MapMods Mods);
+
+    /// <summary>Places additional Essence monoliths at explicit coordinates with explicit monster varieties and
+    /// per-location <see cref="MapMods"/> (respecting <c>map_essences_are_1_tier_higher_chance_%</c>).</summary>
+    public static async Task<int> SpawnMonolithsAt(ClientState conn, IReadOnlyList<MonolithRequest> requests, Random random)
+    {
+        if (conn.Instance is null || requests.Count == 0) return 0;
+        var area = Areas.GetValue(conn.Instance, _ => new());
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Monoliths is null)
+            {
+                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                    area.Monoliths = JsonSerializer.Deserialize<List<Monolith>>(saved) ?? [];
+                else
+                    area.Monoliths = [];
+            }
+            var created = new List<Monolith>(requests.Count);
+            foreach (var req in requests)
+            {
+                if (Monsters.Find(req.VarietyId) is not { Supported: true } variety) continue;
+                var essences = MapEssenceCatalog.Roll(Math.Clamp(req.Level, 1, 100), req.Mods, random);
+                if (essences.Count == 0) continue;
+                var monolith = new Monolith(conn.Instance.World.NewMonsterId(), area.Monoliths.Count, req.X, req.Y, variety.Id, essences);
+                area.Monoliths.Add(monolith);
+                created.Add(monolith);
+            }
+            if (created.Count > 0)
+            {
+                Keep(conn, area);
+                foreach (var member in Members(conn))
+                    foreach (var monolith in created)
+                        await Present(member, monolith);
+            }
+            return created.Count;
+        }
+        finally { area.Gate.Release(); }
+    }
+
+    /// <summary>Imprisons a rare monster of an explicit variety in an Essence monolith (for areas whose monster
+    /// packs come from biomes rather than <c>Packs.For(Layout.Id)</c>).</summary>
+    public static async Task<bool> ImprisonVariety(ClientState conn, int x, int y, string varietyId, string source, int level,
+        MapMods mods, Random random)
+    {
+        if (conn.Instance is null || Monsters.Find(varietyId) is not { Supported: true } variety) return false;
+        var area = Areas.GetValue(conn.Instance, _ => new());
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Monoliths is null)
+            {
+                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                    area.Monoliths = JsonSerializer.Deserialize<List<Monolith>>(saved) ?? [];
+                else
+                    area.Monoliths = [];
+            }
+            if (area.Monoliths.Any(m => m.Source == source)) return true;
+            var essences = MapEssenceCatalog.Roll(Math.Clamp(level, 1, 100), mods, random);
+            if (essences.Count == 0) return false;
+            bool Floor(int cx, int cy) => conn.Layout.WalkableFor(cx, cy, 4);
+            var blockers = conn.MonsterPlacementBlockers(0);
+            (int X, int Y)? at = CollisionEscape.Clear((x, y), conn.Layout.GridW, conn.Layout.GridH, Floor, blockers, 4)
+                ? (x, y) : CollisionEscape.Find((x, y), conn.Layout.GridW, conn.Layout.GridH, Floor, blockers, moverSize: 4);
+            if (at is null) return false;
+            var monolith = new Monolith(conn.Instance.World.NewMonsterId(), area.Monoliths.Count, at.Value.X, at.Value.Y,
+                variety.Id, essences) { Source = source };
+            area.Monoliths.Add(monolith);
+            Keep(conn, area);
+            foreach (var member in Members(conn)) await Present(member, monolith);
+            return true;
+        }
+        finally { area.Gate.Release(); }
+    }
+
     public static async Task Enter(ClientState conn)
     {
         if (MapRunOf(conn) is not { } map || MapModsOf(conn) is not { } mods) return;

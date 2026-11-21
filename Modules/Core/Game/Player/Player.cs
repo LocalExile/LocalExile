@@ -181,11 +181,12 @@ public static partial class Game
         }
     }
 
-    public static Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label) =>
-        PlayerDiedAtEpoch(remote, stream, ciphers, conn, label);
+    public static Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label,
+        byte deathKind = InstanceProtocol.DeathKindNormal) =>
+        PlayerDiedAtEpoch(remote, stream, ciphers, conn, label, deathKind: deathKind);
 
     public static async Task PlayerDiedAtEpoch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        string label, int? expectedEpoch = null)
+        string label, int? expectedEpoch = null, byte deathKind = InstanceProtocol.DeathKindNormal)
     {
         int deathEpoch;
         lock (conn.Monsters)
@@ -227,17 +228,17 @@ public static partial class Game
         await SendVaalSouls(remote, stream, ciphers, conn);
         await SendRage(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
-        await SendPlayerDeathPresentation(remote, stream, ciphers, conn, label, deathEpoch);
+        await SendPlayerDeathPresentation(remote, stream, ciphers, conn, label, deathEpoch, deathKind);
     }
 
     public static Task SendPlayerDeathPresentation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string label, int deathEpoch) => SendWorldBatch(conn, [], admission =>
+        ClientState conn, string label, int deathEpoch, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(conn, [], admission =>
     {
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife != 0 || conn.IncomingHitEpoch != deathEpoch) return null;
             var records = new WorldRecordBuilder(conn, admission);
-            records.World(PlayerId, PlayerLifeUpdate(conn), label);
+            records.World(PlayerId, PlayerLifeUpdate(conn, deathKind), label);
             records.World(PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]));
             records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(conn)));
             return records.Build();
@@ -283,10 +284,11 @@ public static partial class Game
     public static uint LifeCap(ClientState conn) => (uint)LifeReservationOf(conn).Unreserved;
 
     // Every player Life pool update carries the shared owner's reserved amount.
-    public static byte[] PlayerLifeUpdate(ClientState conn)
+    public static byte[] PlayerLifeUpdate(ClientState conn, byte deathKind = InstanceProtocol.DeathKindNormal)
     {
         lock (conn.Monsters)
-            return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
+            return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife,
+                u2c: conn.PlayerLife == 0 ? deathKind : InstanceProtocol.DeathKindNormal);
     }
 
     // 0x1b1 for the mana pool: every update carries the reserved amount, or the client would clear it. The pool and the
@@ -1267,9 +1269,8 @@ public static partial class Game
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(string name) => RecoveryStat(name);
-                    double takenFactor = IncomingStat("base_cannot_be_damaged") > 0 ? 0 : Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
-                        * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.ConditionalTakenStat) / 100.0)
-                        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, IncomingStat) / 100.0);
+                    double takenFactor = IncomingStat("base_cannot_be_damaged") > 0 ? 0
+                        : IncomingResourceDefences.FinalTakenFactor(conn.Pools, IncomingStat);
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);
                     burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now))
@@ -1365,7 +1366,8 @@ public static partial class Game
             if (ailmentDeathEpoch is int lethalEpoch)
                 await PlayerDiedAtEpoch(remote, stream, ciphers, conn,
                     trapDeath ? "0x0055 lethal trap degeneration"
-                        : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal resource loss", lethalEpoch);
+                        : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal resource loss", lethalEpoch,
+                    deathKind: InstanceProtocol.DeathKindDegen);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
@@ -1549,7 +1551,7 @@ public static partial class Game
         {
             if (life == 0)
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(m, life)),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by Righteous Fire" : null);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, byHit: false);
         }
@@ -1852,6 +1854,7 @@ public static partial class Game
         if (ExtraPlayerMessages is { } extra)
             foreach (var (log, message) in extra(conn))
                 messages.Add((log, message));
+        messages.AddRange(GameEvents.RunBeforeEnterMessages(conn));
         var (passives, passivesLabel) = PassivesMessage(conn);
         messages.Add((passivesLabel, passives));
         // Area transitions. Like the player they are queued by the world and created when 0x21 activates it.
@@ -1871,8 +1874,8 @@ public static partial class Game
         {
             var tabs = PersonalStashOf(conn).Records((int)StashSelectAffinity);
             bool secondSet = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn)).WeaponSet == 1;
-            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), last {PersonalStashOf(conn).LastTab}, weapon set {(secondSet ? 2 : 1)}",
-                InstanceProtocol.EnterArea(tabs, secondSet)));
+            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), last {PersonalStashOf(conn).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms",
+                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs)));
             messages.AddRange(GameEvents.RunEnterMessages(conn));
             // The contents of every stash tab with currency in it (stackable items), as 0xc7 would send them (0xc0, no 0xc8:
             // the panel is not open). The client checks a shop price against the currency it knows of, the inventory's and

@@ -15,6 +15,7 @@ public static class InstanceMonsterStatue
     public const ushort TaskHash = 42230;
     public const byte StoneVariation = 5;
     public const ushort CreateId = 0x0209;
+    public const int CreateLength = 10;
     public const uint CreatorAction = 911988280;
 
     public static byte[] Blob(int x, int y, ushort monsterHash16, ushort scale = 100, byte variation = StoneVariation,

@@ -20,6 +20,11 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
     bool IsLabyrinthBoss = false, string? Master = null, Func<int, IReadOnlyList<TopologyInfo>?>? SubAreaRow = null,
     IReadOnlyDictionary<int, int>? Stats = null, RawDat? CoreLeagues = null, Func<string, RawDat>? Table = null)
 {
+    /// <summary>The area's own terrain plugin (WorldAreas +0x1fc → TerrainPlugins): the u16 id 0x1d's extra data names it
+    /// by (<c>__col1</c>), 0 for none, and the row's Id.</summary>
+    public ushort TerrainPlugin { get; init; }
+    public string? TerrainPluginId { get; init; }
+
     /// <summary>An area stat the server sends in 0x1d (1-based Stats ids), 0 when absent: what the generator reads through
     /// world +0x120's lookup (<c>0x142050dc0</c> and the league rolls). Without <see cref="Stats"/> every one is 0.</summary>
     public int Stat(int id) => Stats is { } s && s.TryGetValue(id, out int v) ? v : 0;
@@ -46,20 +51,33 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
         var hideouts = Dat("Hideouts");
         int hideout = hideouts.Find(h => hideouts.RefList(h, 0x1a).Contains(row));
         int claim = hideout < 0 ? -1 : hideouts.Ref(hideout, 0x2a);
+        int plugin = areas.Ref(row, 0x1fc);
+        // An older game pack has no TerrainPlugins: the area then counts as having none, which only the plugins whose
+        // generation is ported (PortsPlugin) need.
+        var plugins = plugin >= 0 && read("Data/TerrainPlugins.datc64") is { } pluginData ? new RawDat(pluginData) : null;
         return new AreaInfo(areaId, areas.Bool(row, 0x14), tops, areas.Bool(row, 0x14e), areas.U16(row, 0x2a), areas.Bool(row, 0xe4),
             areas.I32(row, 0x1e4), level, chance, hideout < 0 ? null : (hideouts.Bool(hideout, 0x42), hideouts.I32(hideout, 0x43)),
             i => (leagues.I32(i, 0x8a), leagues.Bool(i, 0x8e), leagues.Bool(i, 0xa0)),
             claim < 0 ? null : areas.String(claim, 0),
             id => areas.Find(r => areas.String(r, 0) == id) is var r and >= 0 ? Tops(r) : null, areas.Bool(row, 0x171), areas.Bool(row, 0x1bb),
             areas.String(row, 0x192) is { Length: > 0 } tsi ? tsi : null, r => r < areas.Count ? Tops(r) : null,
-            CoreLeagues: leagues, Table: Dat);
+            CoreLeagues: leagues, Table: Dat)
+        {
+            TerrainPlugin = plugins is null ? (ushort)0 : (ushort)plugins.I32(plugin, 8),
+            TerrainPluginId = plugins?.String(plugin, 0),
+        };
     }
 }
 
 /// <summary>The generated tile grid and the subgraph records (rectangle, master, placed rooms) the doodad stage
 /// (<see cref="DoodadStage"/>) runs over.</summary>
 public sealed record GenerationResult(TileGrid Grid, LevelRandom Random, TopologyInfo Topology, IReadOnlyList<string> Notes,
-    IReadOnlyList<DoodadRecord> Records);
+    IReadOnlyList<DoodadRecord> Records)
+{
+    /// <summary>The room a terrain plugin marks as the level's start (DeepwaterPlugin: cell 0's); null where no plugin
+    /// marks one (every other area).</summary>
+    public PlacedRoom? Start { get; init; }
+}
 
 /// <summary>The server's port of the client's level generator (<c>0x142054070</c>, Agents/docs/re/011-level-generation.md).
 /// Ported so far: .dgr layouts (one node: towns; several: dungeons, Agents/docs/re/011-level-generation.md §3c2) and
@@ -87,13 +105,22 @@ public static class LevelGenerator
     /// tile grid.</summary>
     public static Action<string, TileGrid>? HeightStage;
 
+    /// <summary>The terrain plugins (TerrainPlugins Id) whose generation is ported, so a state for them can be sent.</summary>
+    public static bool PortsPlugin(string? pluginId) => pluginId == DeepwaterGeneration.PluginId;
+
     /// <summary>Generates the area. Pass <paramref name="rng"/> (seeded, with the area's randomness flag) to keep its draw
     /// log when generation stops at a part that is not ported, <paramref name="notes"/> to keep its notes and
-    /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.</summary>
+    /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.
+    /// <paramref name="pluginStates"/>: the terrain plugin states 0x1d's extra data sends (TerrainPlugins <c>__col1</c> →
+    /// bytes). The client creates a plugin per state, then the area's own with an empty state (<c>0x141eca930</c>); only
+    /// the area's own plugin, when ported, can be given one.</summary>
     public static GenerationResult Generate(TerrainCache files, AreaInfo area, uint seed, int topologyVariant = 60, LevelRandom? rng = null,
         List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null,
-        byte[]? delveTerrain = null)
+        byte[]? delveTerrain = null, IReadOnlyDictionary<ushort, byte[]>? pluginStates = null)
     {
+        foreach (var id in pluginStates?.Keys ?? [])
+            if (id != area.TerrainPlugin || !PortsPlugin(area.TerrainPluginId))
+                throw new NotSupportedException($"{area.Id}: terrain plugin {id}'s state is not ported (the area's plugin is {area.TerrainPluginId ?? "none"})");
         rng ??= new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
         notes ??= [];
         var features = ExtraTerrainFeatures.Roll(area, rng);
@@ -109,7 +136,11 @@ public static class LevelGenerator
         // 0x142050dc0's adds: the rolled features' rows wait in the extra room pool (generator +0x40).
         var pool = ExtraRoomPool.Create(files.Raw, features);
         bool hideout = features.Any(f => f.Name == ExtraTerrainFeatures.DiscoverableHideout);
-        var secondaries = SubAreas(files, area, topology.Graph, hideout, topologyVariant, pool, rng, notes, delveTerrain is not null);
+        // 0x141eca930 → 0x141ecb130: the area's own plugin, with the sent state or none; +0x20 adds its sub-area.
+        var deepwater = area.TerrainPluginId == DeepwaterGeneration.PluginId
+            ? new DeepwaterGeneration(files, topology.Graph, pluginStates?.GetValueOrDefault(area.TerrainPlugin), r => area.SubAreaRow?.Invoke(r)) : null;
+        if (deepwater is not null) notes.Add($"Deepwater grid {deepwater.Size}x{deepwater.Size}: " + string.Join(", ", deepwater.Cells.Select(c => $"{c.Room}/{c.Orientation}")));
+        var secondaries = SubAreas(files, area, topology.Graph, hideout, topologyVariant, pool, rng, notes, delveTerrain is not null, deepwater is not null);
         var delve = delveTerrain is null ? null : new DelveGeneration(files, delveTerrain);
         var labyrinth = area.IsLabyrinth ? new LabyrinthPass(files.Raw, area.Id, area.IsLabyrinthBoss, labyrinthNode) : null;
         // A tile graph with sub-areas goes through the subgraph records too (0x142050560), as their primary.
@@ -120,7 +151,7 @@ public static class LevelGenerator
         {
             var tiler = new DungeonTiler(files, rng, notes, pool)
             {
-                Hideout = hideout, Labyrinth = labyrinth, Delve = delve, Secondaries = secondaries, Master = area.Master, Town = area.IsTown,
+                Hideout = hideout, Labyrinth = labyrinth, Delve = delve, Deepwater = deepwater, Secondaries = secondaries, Master = area.Master, Town = area.IsTown,
                 VaalSideArea = features.Any(f => f.Name == ExtraTerrainFeatures.VaalSideArea),
             };
             grid = tiler.Generate(topology.Graph, orientation);
@@ -133,7 +164,11 @@ public static class LevelGenerator
             grid = gen.Generate(topology.Graph, orientation);
             records = gen.Records;
         }
-        return new GenerationResult(grid, rng, topology, notes, records);
+        return new GenerationResult(grid, rng, topology, notes, records)
+        {
+            Start = deepwater is null ? null
+                : records.ElementAtOrDefault(DeepwaterGeneration.StartRecord)?.Rooms.FirstOrDefault(r => r.Descriptions.Contains("default")),
+        };
     }
 
     static List<TopologyInfo> Choices(IReadOnlyList<TopologyInfo> topologies, int variant, string areaId)
@@ -154,11 +189,13 @@ public static class LevelGenerator
     /// mask. The node filter <c>0x14203cce0</c> (league= nodes) is left to <see cref="TileGraphGenerator.Prepare"/>,
     /// which stops on them.</summary>
     static List<SubArea> SubAreas(TerrainCache files, AreaInfo area, string graphPath, bool hideout, int variant,
-        ExtraRoomPool pool, LevelRandom rng, List<string> notes, bool delve = false)
+        ExtraRoomPool pool, LevelRandom rng, List<string> notes, bool delve = false, bool deepwater = false)
     {
         var graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
         var ids = new List<string>();
         if (delve && area.Id == "Delve_Main") ids.Add("Delve_Hub");
+        // DeepwaterPlugin's +0x20 (0x141f32870 → 0x14204d8e0): the boat, before the graph's own sub-areas.
+        if (deepwater) ids.Add(DeepwaterGeneration.Hub);
         foreach (var n in graph.Nodes)
             foreach (var d in n.Descriptions)
             {
@@ -205,6 +242,7 @@ sealed record SubArea(string Graph, int Orientation, string? Feature = null, int
 sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> notes, ExtraRoomPool pool)
 {
     public DelveGeneration? Delve { get; init; }
+    public DeepwaterGeneration? Deepwater { get; init; }
     /// <summary>The discoverable hideout rolled (generator +0xb).</summary>
     public bool Hideout { get; init; }
 
@@ -302,6 +340,11 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         if (Delve is not null)
         {
             var size = Delve.Size(graphPath, graph.Width, graph.Height);
+            w = (unit - overlap) * size.W + overlap; h = (unit - overlap) * size.H + overlap;
+        }
+        if (Deepwater is not null && parent < 0)
+        {
+            var size = Deepwater.SizeOf(graphPath, graph.Width, graph.Height);
             w = (unit - overlap) * size.W + overlap; h = (unit - overlap) * size.H + overlap;
         }
         if (graphPath.EndsWith(".tgr", StringComparison.OrdinalIgnoreCase)) (w, h) = (graph.Width, graph.Height);
@@ -417,7 +460,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             }
             else
             {
-                var t = i == 0 ? this : new DungeonTiler(files, rng, notes, pool) { Hideout = Hideout, Labyrinth = Labyrinth, Delve = Delve, Town = Town, _records = records, _areaMaster = _areaMaster,
+                var t = i == 0 ? this : new DungeonTiler(files, rng, notes, pool) { Hideout = Hideout, Labyrinth = Labyrinth, Delve = Delve, Deepwater = Deepwater, Town = Town, _records = records, _areaMaster = _areaMaster,
                     _fixHeights = Delve is not null && r.Path == DelveGeneration.CellGraph ? new(false) : _fixHeights };
                 t.Tilise(r, grid, records, i);
                 store = t._store;
@@ -429,6 +472,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         }
         LevelGenerator.HeightStage?.Invoke("outer<", grid);
         Delve?.Join(grid, rng);
+        Deepwater?.Join(grid, rng, records.Select(r => new DeepwaterGeneration.CellRecord(r.X, r.Y, r.W, r.H, r.MasterPath, r.Master)).ToList());
         for (int i = records.Count - 1; i >= 0; i--) outers[i]();
         LevelGenerator.HeightStage?.Invoke("outer>", grid);
         // 0x14204b780 then: the walkability pass (0x14202f1f0) over the rectangle of each primary record (generator
@@ -638,6 +682,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     {
         var graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
         Delve?.Prepare(graph, graphPath, record, rng);
+        Deepwater?.Prepare(graph, record, rng);
         // A Sanctum floor's .dgr is one node tagged "land"; the client rebuilds the first graph (0x141f65080): 6 × 4
         // cells of 23 units, a node at cell (0, 0) with "default" for the server's first room and one at (4, 2) for its
         // second (0x141f65300: the room's .arm tag, any orientation). Without server data both are SanctumRooms row 0,

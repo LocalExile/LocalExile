@@ -105,7 +105,7 @@ public static partial class Game
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
+            if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } map) drops.Add(map);
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }
@@ -115,6 +115,7 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         drops.AddRange(MadeDrops(conn, modded));
         if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(conn, monster));
+        modded?.ApplyTransforms(drops);
         if (MapBeyond.CorruptsDrops(conn, variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
@@ -257,7 +258,8 @@ public static partial class Game
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {
-                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life),
+                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life,
+                            u2c: output.Target.Life == 0 ? output.DeathKind : InstanceProtocol.DeathKindNormal),
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action

@@ -44,6 +44,11 @@ The extra-data decoder (`0x141ecdad0`) has its own two-byte flags and little-end
 Its first flag byte's bit 5 selects the Delve terrain block (`0x141ecc7d0`).
 Bit 3 is the Labyrinth node: u32 seed, u16 LabyrinthSectionLayout row, u8 difficulty, from which `0x1424ec930` builds
 the day's layout and finds the room ([re/011](../re/011-level-generation.md), "Labyrinth pass").
+Bit 1 is Ultimatum's (`0x141eccca0`). In the second flag byte, bit 0 is the terrain plugin states: u8 count, then per
+plugin its TerrainPlugins `__col1` (u16), a u16 length and that many bytes (world +0x70). At generation start
+`0x141eca930` creates each listed plugin with its bytes (`0x141ecab90`; "Failed to create TerrainPlugin: unknown
+PluginID"), then the area's own WorldAreas `TerrainPlugin` with none unless listed (`0x141ecb130`); the Allflame
+encounter's grid is the DeepwaterPlugin's (re/011 §3c4). Bit 3 is Mercenary data (`0x141ecd3a0`).
 See [Delve](21-hideouts.md#delve-sulphite-and-the-crawler-live-2026-10-29) for the initial mine control.
 
 ### What the client does
@@ -155,6 +160,87 @@ ruleset". Nothing in 0x1d or 0x21 creates rulesets, and the WorldAreas `Ruleset`
 a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0) looks up HarvestRules (row 105) once,
 when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
 HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
+
+S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-9
+come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`
+(Core `InstanceRulesets`; the Gateway frames 0x2ca by that length). The payload's first byte is an opcode or mode, the
+rest little-endian. The sender `0x1421a1960` takes a lambda whose slot 2 writes the payload; the action `i32, i32, u8`
+with `0x141689da0` is ExpeditionRules' (row 116), not row 171's.
+
+Row 171 (ClientDeepwater, the Allflame run; `Modules/Core/Content/Deepwater/DeepwaterRuleset.cs`):
+
+| C→S 0x2ca op | payload | sent by |
+|---|---|---|
+| 0 PlaceLantern | i32 x, i32 y: the cursor cell, not the snapped spot | releasing the held key (V, league action 55, `0x140d5b970`) or a left click in mode 2 (`0x14011bd20`), when the last preview was valid |
+| 2 SendItemsToSurface | – | the capsule window's "Send to Surface" (`0x140427bf0`), which then closes the window |
+| 3 RequestExtraction | – | the capsule window's "Call Bathysphere" (`0x140427c50`) and the HUD's leave button (`0x14044c280`) |
+
+The Bathysphere (`ExtractionObject.ot`) is targetable only with QuestFlags 3562 DeepwaterCanExtract and `landed` 1 or 2;
+`landed` 0 disables it. As 3562 goes on when a called Bathysphere lands, the server sends a Voyage's start one
+(`landed` 2) `landed` 0 at the call, or it would turn usable and labelled again.
+
+| S→C 0x2c9 mode (reader `0x141683c40`) | after the mode | client effect |
+|---|---|---|
+| 0 | i32 x, i32 y, u32 | appends a lantern anchor for placement; nothing found reads the u32 (the Gateway sends the lantern's id) |
+| 1 | u32 a, u32 b | the Sulphur gauge, a/b in five steps (`0x1403fbe20`; the Gateway sends collected, the run's total) |
+| 2 | u8 placed, u8 total | the lantern counter (`0x1403fbf10`) and the client's placement gate (placed < total, QuestFlags 3550); placed + 1 == total with total > 2 shows the final-lantern banner once |
+| 3 | u8 state | 3 hides the HUD; 0 → 1 or 2 plays DeepwaterCollapseStart, 1 and 2 keep the collapse audio (`0x1403fbdb0`). The Gateway: 1 collapse, 2 first lantern out, 3 over |
+| 4 | u32 count | the CollectionChest's `amount_looted` model (≤ 8/16/32/64/more) |
+| 5 | – | the completion popup once (`0x1403fc330`), Valerie's ChartSuccess, VoyageSuccess or Tut_PlayerReturns line |
+| 6 | – | Valerie's ChartFail line |
+| 7 | – | closes the capsule window |
+
+The preview (`0x141683660`, each frame while the key is held) snaps the cursor with `0x141fc5800`: for each mode-0
+anchor (lit or not; none is ever removed) the spot exactly BaseLanternPlacementRange (115) from it towards the cursor
+(float32, rounded), kept if under 60 cells from the cursor, under 100 from the player, not behind the player when 30 or
+more away, and over 110 from every anchor; the nearest to the cursor wins and no other is tried. It must be walkable
+(layer 0 ≥ 4, else the first walkable cell on rings 1..9, rows outer) with a clear layer-1 line from the player.
+Without an anchor nothing can be placed. The module runs the same snap on the cursor cell; as its estimate of the
+player trails the client's, it retries the player tests 10 cells looser when none fits and only logs the line test.
+
+Row 172 (ClientDeepwaterHub, the deck's windows; `DeepwaterHubRuleset.cs`; op names from the lambdas' type names). There
+is no op 3. Adding a chart to the Voyage board sends nothing (`0x14041c610`): the board reaches the server only in op 0.
+
+| C→S 0x2ca op | payload | sent by |
+|---|---|---|
+| 0 OpenMission | u8 n, n × u8: per board slot the chart's x in inventory 104, 0xff empty; n 4 (2 × 2, slot i = cell i) or 9 | the Voyage window's "Set Forth!" (`0x14041b5d0`), only when its validator `0x141fbeda0` passes |
+| 1 Open1x1Mission | – | the Chart window's "Descend" (`0x14040cea0`): needs an identified chart in 103 and room in 104 (ClientStrings 8466, 8426) |
+| 2 DoCraft | u32 LE currencyInvId, u32 LE currencyItemId | Vesper's Allflame Crafting (`0x140412df0`): target item is read from inventory 105 (omitted for Changeling's Ducat); outputs go into inventory 106 and the four `GhostflameCraftingOutput` `HeistRewardDisplay` vats (`0x141eb4120`: u8 hasPrimary, u8 hasSecondary, raw Item.Payload() × present, i32 LE openAttempts) |
+| 4 MoveStoredChart | u8 from, u8 to | a drag inside 104 (`0x140414530`) |
+| 5 RotateStoredChart | u8 x in 104 | a right click on a stored chart or a board slot (`0x140413f10`, `0x14041c3b0`); the client leaves the item alone, so the server turns the chart's rotation ([13](13-items.md) §2) and resends it |
+| 6 DeleteStoredChart | u8 x in 104 | `0x140419390` from a callback (a confirm, M) |
+| 7 RerollBorderModifiers | – | the reroll button (`0x140419720`): shown only on a 3 × 3 board |
+| 8 ConfirmEnterMission | – | Yes on mode 2's popup (`0x140dea550`) |
+| 9 TakeAllLoot | – | the Loot window's Take All |
+
+| S→C 0x2c9 mode (reader `0x141683030`) | after the mode | client effect |
+|---|---|---|
+| 0 | – | nothing |
+| 1 | u32 cost, u8 k, k × (u16 Mods HASH16, a compact int per stat) | the next reroll's Dead Man's Sulphur cost (ClientStrings 8470, `<unmet>` when short; **0xFFFFFFFF disables the button**) and the 12 border mods, used only when k = 12, in segment order: cell x + 3y, y = 0 → mod[x], x = 2 → mod[3 + y], y = 2 → mod[8 − x], x = 0 → mod[11 − y] (`0x141fbe2d0`) |
+| 2 | – | the HUD's ClientStrings 8445 popup ("will remove all items from the capsule collection inventory"); Yes sends op 8 |
+
+The Voyage window's board side is 2 + a league quest flag test, `0x764` (`0x1404179e0`): 1893
+Deepwater3x3VoyagesEnabled if the test is 0-based on the row, else 1892 (open). Its area level text and the validator
+use (sum of chart levels / count) + 10, capped at the highest chart, 1..100; a boss room needs level ≥ 83, at most one.
+
+S→C 0x1e is a ruleset event by name: `u16 0x001e, u32 entity BE, u16 length BE, ASCII` (reader `0x1421a44a0`); the
+client passes it to every ruleset's slot 3. Row 171 acts only on `update_collection_chest` and
+`trigger_npc_completion_textaudio`, which its own scripts raise, so the run sends none.
+
+A row belongs to the areas whose client-side content uses it. Row 171 DeepwaterRules (ClientDeepwater) looks up the
+`DeepwaterPlugin` terrain plugin every frame (`0x1416851b0` → `0x141685030`, which returns 0x28 when it is missing, with
+no null check). Sent on The Sovereign or The Twilight Strand, the client closed about 2 s later with no log line. The
+encounter areas (WorldAreas `TerrainPlugin` DeepwaterPlugin: DeepwaterEncounter, DeepwaterEncounterVoyage) always have
+the plugin at world `+0xe0`, with or without the server's state (§1, extra data), so the Allflame module sends row 171
+there only, after 0x7d; the client keeps it there (3.29.3d, 2026-11-18). Whether the real server did is unknown. The Sovereign takes row 172
+DeepwaterHubRules alone (no per-frame code). The encounter areas take it too, and both get it before 0x21: the in-game
+UI attaches its windows to the area once (`0x140dba5d0`), and the deck's Loot window (0x7b kind 0x6f, shown by
+`0x140dac350` without attaching again) builds its grid over inventory 114 only if row 172 was there then
+(`0x1404244b0`). Sent after 0x21 the window stayed empty (3.29.3d, 2026-11-19). The Chart, Crafting and Voyage windows (0x7b
+kinds 0x67, 0x69, 0x6a) attach the same way (`0x1403feb40`, `0x14040f940`, `0x1404179e0`) and build nothing without row 172.
+The capsule window attaches again when
+shown (`0x140425400`), so row 171 after 0x21 is enough for it. Row 171's area type 53 checks are for the Sovereign that the plugin adds
+inside an encounter as a secondary area (`0x141f32870`).
 
 ## Open
 
