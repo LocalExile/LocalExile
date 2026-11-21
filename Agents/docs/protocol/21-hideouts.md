@@ -194,9 +194,11 @@ through one handler (`ItemMoves.MoveToMapDevice`), which takes the direction fro
   run in the gateway log and the map had to be dragged in. Live 2026-11-15: the click now arrives as `00E4 00000295 …` and
   the map moves.
 
-**Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c284f0` (window mode 0xd)
-calls `0x14216ce30`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
-u8 (0 seen); the writer class is `0x1435ca958`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x297 instead.
+**Activate** is **C→S 0x00d8** (5 bytes): u16 BE target, u8 primordial boss option (`AtlasPrimordialBossOptions`: 0 none,
+1 Maven, 2 Eater of Worlds, 3 Searing Exarch).
+The window's button handler `0x140c284f0` sends 0x00d8 in mode 0xd (`Map1`, row 13), **C→S 0x0297** (3 bytes: u8 boss
+option) in mode 0x5e (`MemoryLineMaps1`, row 94), and **C→S 0x0298** (3 bytes: u8 invitation slot 0..10) in mode 0x56
+(`MavenInvitations`, row 86).
 The server checks the slots itself (`MapDevice.Check`): only maps and map fragments, and exactly one map. Otherwise
 nothing is consumed and a chat line (S→C 0x17) gives the reason. Then the slots are emptied (0xbf), the map's area
 opens (Maps.dat `BaseItemTypesKey` → `Regular_WorldAreasKey`), and six portals appear on a ring of 16 cells around
