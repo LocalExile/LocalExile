@@ -295,10 +295,18 @@ static class PerfBench
         var conn = Player(town, 1);
         string[] loops = ["RunMonsterRegeneration", "RunServerFrames", "RunMonsterAi", "RunLivingCollisions", "RunPlayerTick",
             "RunResourceRecovery", "RunCharges", "RunFortification", "RunRage", "RunFlaskChargeRegen"];
-        var tasks = loops.Select(name => (Task)(typeof(Game).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)
-                ?? typeof(Program).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)
-                ?? throw new MissingMethodException("Game or Program", name))
-            .Invoke(null, ["perf", wire.Stream, wire.Ciphers, conn])!).ToList();
+        var updates = new PlayerUpdatesState(Game.CombatLifetime!, Game.PlayerUpdatesSchedule);
+        conn.PlayerUpdatesState = updates;
+        var tasks = loops.Select(name =>
+        {
+            var m = typeof(Game).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)
+                ?? typeof(Program).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)
+                ?? throw new MissingMethodException("Game or Program", name);
+            object[] callArgs = m.GetParameters().Length == 5
+                ? ["perf", wire.Stream, wire.Ciphers, conn, updates]
+                : ["perf", wire.Stream, wire.Ciphers, conn];
+            return (Task)m.Invoke(null, callArgs)!;
+        }).ToList();
         await Task.Delay(TimeSpan.FromSeconds(5));
         Record("idle player", "loops still running", tasks.Count(t => !t.IsCompleted), "");
         foreach (var (task, name) in tasks.Zip(loops).Where(t => t.First.IsFaulted))
@@ -486,7 +494,10 @@ static class PerfBench
             }
         });
         using var self = Process.GetCurrentProcess();
-        var ai = Game.RunMonsterAi("perf", wire.Stream, wire.Ciphers, conn);
+        var updates = new PlayerUpdatesState(Game.CombatLifetime!, Game.PlayerUpdatesSchedule);
+        conn.PlayerUpdatesState = updates;
+        conn.PlayerUpdatesWorker.TryStart(conn, updates.Rules, null, updates, out updates.Generation);
+        var ai = Game.RunMonsterAi("perf", wire.Stream, wire.Ciphers, conn, updates);
         // A warm-up first: the JIT's tier-1 recompilation of the hot methods is a one-time cost of a fresh process,
         // not of a running server's instance.
         await Task.Delay(TimeSpan.FromSeconds(5));
