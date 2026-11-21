@@ -7,13 +7,12 @@ Code: `src/GameServer.Core/Protocol/Instance/InstanceItems.cs` (`Item`, `Visible
 
 ## 1. Item types
 
-An item's type is a **BaseItemTypes row**. The client's `Metadata/ItemTypeRegister` files each row under its `HASH32`
-column, which is MurmurHash2 of the row's Id: the same hash as object types (`InstanceEntities.ObjectTypeHash`;
-`Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1` → 3652280879). Lookup: `0x1421f2d00` → `0x141fabcc0` (sorted array of
-0x30-byte entries keyed by the u32).
-A BaseItemTypes row added to the client's table is registered under the hash of its Id, not under its HASH32 column: an
-item sent with a column value that was not that hash closed the client as it reached the ground, and the same row with
-the Id's hash dropped and worked (live 2026-11-20, a test currency copied from the Divine Orb's rows).
+An item's type is a **BaseItemTypes row**. LE sends the row's `HASH32`. Across all 5,461 stock rows this equals
+MurmurHash2 of the Id (seed 0), the same hash as `InstanceEntities.ObjectTypeHash`. For example,
+`Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1` hashes to 3652280879. The client looks up the wire value in
+`Metadata/ItemTypeRegister` (`0x1421f2d00` → `0x141fabcc0`, a sorted array of 0x30-byte entries keyed by the u32).
+In a modified 3.29.3c client, a test currency with a mismatched hash closed the client on drop. Giving the row and
+the item on the wire the hash of the new Id let it drop and stack (2026-11-20).
 
 Components come from the `.it` files, merged like `.ot` files ([04](04-player-entity.md), `scripts/re/ot_components.py`)
 with two differences: nothing is prepended (no Positioned), and most leaf rows have no `.it` of their own, so their
@@ -216,7 +215,8 @@ What the tooltip shows (live, 2026-10-20, an Iron Ring with `/item_mod <list> In
 properties, enchant above the implicits, explicit below a separator, scourge as orange lines among the explicits
 (Hellscape), hidden not at all. Magic items get their name from the affixes (Healthy Iron Ring); a rare item shows its
 two Words.dat words above the base name (Corruption Gyre / Iron Ring; verified 2026-10-20 that the key is HASH32), or the
-base name without them. Unidentified items show "Unidentified" and their implicits only.
+base name without them. Unidentified items show "Unidentified" and their implicits. The enchant list also reaches
+the client before identification (§2f).
 
 New items roll their BaseItemTypes `Implicit_ModsKeys` (Driftwood Wand: `SpellDamageOnWeaponImplicitWand1`, 8-12%).
 Saves keep rarity, identified and each mod by Mods.dat Id, list and values; an item saved before mods gets its type's
@@ -599,26 +599,26 @@ writer `0x1421ece10` sends.
 
 Display kinds of a mod line (`0x1424e6250`): 2 crafted, 3 fractured, 4 mutated (Foulborn), 7 divergent.
 
-**The symbol beside the name** (tooltip header `0x140c99de7`, item header `0x1416d0df0`; read from the code) is picked
-from bytes of the item description the builder `0x142401e00` fills, first match wins: item kind 0x4c Archnemesis;
-`+0xf3d` Heist Stolen (`+0xf3e` Contraband instead); `+0xf36` Synthesised; `+0xf35` Fractured; `+0xf37` Breach; `+0xf38`
-VestigialUniqueItemsIcons; then veiled mods and the rest (`0x140c99e6b`). Each is a sprite name
-(`Art/2DArt/UIImages/InGame/...`) in rdx that `0x1400f2c70` turns into a sprite through `art/uiimages1.txt`
-([tooling](../re/tooling.md) §3): the tooltip draws it from `0x140c9a7e0`, the header from `0x1416d11b0`.
-Every byte `+0xf2d`..`+0xf51` of the description is a field the copy `0x1416edcb0` takes, so no flag byte is free; the
-padding `+0x1021`..`+0x1027` is not copied. Confirmed live (2026-11-20): code run at `0x142402b2c` (the item at
-`rsp+0x6718`, before the builder's two paths split) that read the enchant list and wrote an answer into that padding was
-seen by both pickers, and a sprite of a new `art/uiimages1.txt` line drawn there showed beside the name in the tooltip
-and on the ground label.
+**The symbol beside the name** comes from the item description built by `0x142401e00`. The two displays use different
+priorities. In the tooltip, selection at `0x140c99de7` checks item kind 0x4c (Archnemesis), then `+0xf3d` (Heist
+Stolen, or Contraband if `+0xf3e` is set), `+0xf36` (Synthesised), `+0xf35` (Fractured), `+0xf37` (Breach), and
+`+0xf38` (VestigialUniqueItemsIcons). Further checks begin at `0x140c99e6b`.
+In the item header, the chain at `0x1416d10d8` checks Stolen/Contraband, Synthesised and Fractured, then
+`+0xf42` (Experimented Unique), veiled mods, Breach, and finally `+0xf38` or `+0x1128` (VestigialUniqueItemsIcons).
+Both displays resolve sprite names through `0x1400f2c70` ([tooling](../re/tooling.md) §3).
+
+The description copy at `0x1416edcb0` copies the flag bytes at `+0xf2d`..`+0xf51` and skips the padding at
+`+0x1021`..`+0x1027`. In the contributor's modified client (2026-11-20), a test enchantment selected a custom
+sprite beside the name in both the tooltip and the ground label.
 
 **The Mods component's lists** (dump `0x1421e7b00`): vectors of 0x38-byte mods at `+0xc0` implicit, `+0xd8` explicit,
 `+0xf0` enchant, `+0x108` hellscape; a mod's `+0x28` points at its Mods.dat row, whose first field is the Id
-(UTF-16). The component is looked up by name with `0x14013fb60` on the item's entity.
+(UTF-16). The entity accessor `0x14013fb60` looks up the Mods component.
 
-**Loot filters and enchantments** (live 2026-11-20): an enchantment shows on an unidentified item and
-`HasEnchantment "<Name>"` matches its Mods.dat `Name`; a Mods row added to the client's table (GenerationType 10, no
-stats) in the enchant list draws no tooltip line and is matched while the item is unidentified. Explicit mods are not
-sent before identification, so `HasExplicitMod` cannot see an unidentified item.
+**Loot filters and enchantments.** In the modified-client test (2026-11-20), `HasEnchantment "<Name>"` matched the
+Mods.dat `Name` of an enchantment on an unidentified item. The test enchantment (GenerationType 10, no stats) drew
+no tooltip line. LE sends the enchant list before identification and withholds the explicit list (§2a), so filters
+can match that enchantment while the item's explicit affixes are still hidden.
 
 `/item_state [state …]` switches corrupted, mirrored, split, synthesised and each influence on the held item, and `clear`
 removes them all (`ItemStates`).
