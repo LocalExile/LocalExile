@@ -318,6 +318,39 @@ public static partial class Game
         if (moved is not null) await SendTransfer(remote, stream, ciphers, conn, items, stash, moved, tabFirst: false);
     }
 
+    // /deposit: every main-inventory item that has a tab affinity goes to its tab (AccountStash.AffinityTab), whichever tab
+    // is shown, each as one Ctrl + click (its own transaction), so a full slot stops only what doesn't fit. Only next to the
+    // personal stash; gear, items with no such tab and the keep list's names (Commands' depositKeep) stay.
+    const int DepositReach = 30;
+    public static async Task DepositAll(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlySet<string> keep)
+    {
+        var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        if (conn.StashObject == 0 || conn.GuildStashOpen
+            || Math.Abs(x - conn.StashAt.X) > DepositReach || Math.Abs(y - conn.StashAt.Y) > DepositReach)
+        {
+            await conn.Commands!.Reply("Stand at your stash to use /deposit.");
+            return;
+        }
+        var stash = PersonalStashOf(conn);
+        var items = ItemsOf(conn);
+        var plan = items.Items(PlayerInventories.MainInventory)
+            .Where(i => Items.ByHash(i.Item.TypeHash) is not { } t || !keep.Contains(t.Name))
+            .Select(i => (i.Id, Tab: stash.AffinityTab(i.Item.TypeHash))).ToList();
+        int moved = 0, stayed = 0;
+        foreach (var (id, tab) in plan)
+        {
+            if (tab is not int t) continue;
+            var done = ItemMoves.InventoryToStash(stash, items, t, id, ShapeOf, out string refused);
+            Console.WriteLine($"[gateway] {remote} <= /deposit: move item {id} to stash tab {t}" + (done is null ? $": refused ({refused})" : ""));
+            if (done is null) { stayed++; continue; }
+            await SendTransfer(remote, stream, ciphers, conn, items, stash, done, tabFirst: false);
+            if (done.LeftInInventory is null) moved++; else stayed++;
+        }
+        Console.WriteLine($"[gateway] {remote} /deposit: {moved} deposited, {stayed} didn't fit");
+        await conn.Commands!.Reply(moved + stayed == 0 ? "Nothing to deposit."
+            : $"Deposited {moved} stack(s)" + (stayed > 0 ? $", {stayed} didn't fit." : "."));
+    }
+
     // An item out of a stash tab into the main inventory (C→S 0xe3), a stack onto the inventory's stacks first
     // (ItemMoves.StashToInventory), one transaction.
     public static async Task TakeFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, bool all)

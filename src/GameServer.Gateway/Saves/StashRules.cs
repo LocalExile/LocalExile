@@ -95,6 +95,13 @@ public sealed class StashRules
         !NotShown(tabType) && (IsGrid(tabType) || !Loaded
             || (_affinities.TryGetValue(itemType, out var a) && a.Any(x => _heldBy.TryGetValue(x, out var t) && t.Contains(tabType))));
 
+    /// <summary>Whether the item type has a tab affinity (currency, essences, fragments, cards, gems, flasks …).</summary>
+    public bool HasAffinity(uint itemType) => _affinities.ContainsKey(itemType);
+
+    /// <summary>Whether a tab's affinity bits (the tab settings, C→S 0xd3) tag one of the item type's affinities.</summary>
+    public bool Tagged(uint itemType, uint tabAffinities) => tabAffinities != 0 && _affinities.TryGetValue(itemType, out var a)
+        && a.Any(x => x is > 0 and < 32 && (tabAffinities & 1u << x) != 0);
+
     /// <summary>Whether the tab type gives each item type its own slot.</summary>
     public bool Slotted(byte tabType) => _slots.ContainsKey(tabType);
 

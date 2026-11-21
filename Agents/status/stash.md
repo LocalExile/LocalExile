@@ -50,6 +50,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   divination tabs). The user confirmed in the real client (2026-10-29) that opens became much faster, with no crash.
   Gateway tests cover the unload, the price tab that stays, the first open's two requests and the 0xc1 bytes.
   See protocol/18-stash.md §3.
+- **Deposit all (`/deposit`, Commands module).** At the personal stash, with any tab shown, every main-inventory item with a tab affinity goes to a tab tagged for it in tab settings, else its special tab, each as one Ctrl + click; gear stays. The `depositKeep` setting (Waypoint: Modules → Commands → "/deposit keeps") lists item names it leaves, by default Portal Scroll and Scroll of Wisdom; `/deposit keep` shows them. Verified live (3.29.3c).
 - **Dev tab fill (`/item_tab <tab name> <count>`).** On a currency, essence, fragment, delve, blight, delirium or divination tab it
   adds up to `count` more, at most 1000 per command, of every item type that has its own slot, as far as each slot holds.
   Divination cards are filled to complete sets.

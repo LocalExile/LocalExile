@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "settings": {
+    "depositKeep": {
+      "type": "text",
+      "default": "Portal Scroll, Scroll of Wisdom",
+      "label": "/deposit keeps",
+      "description": "Item names /deposit leaves in the inventory, separated by commas (e.g. Portal Scroll, Scroll of Wisdom).",
+      "applies": "now"
+    }
+  }
+}
