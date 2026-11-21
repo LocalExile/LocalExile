@@ -125,7 +125,9 @@ static class PortalsFeature
                 Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id,
             }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
+        byte bossOption = !device.Value.Campaign && activate.Index is >= 1 and <= 3 ? activate.Index : (byte)0;
         var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
+        if (opening is not null && bossOption != 0) opening = opening with { BossOption = bossOption };
         var request = new MapOpening(conn, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
         GameEvents.ResolveMapOpening(request);
         opening = request.Opening;
@@ -142,6 +144,7 @@ static class PortalsFeature
             return;
         }
         var area = opening.Area;
+        byte resolvedBossOption = !device.Value.Campaign ? (opening.BossOption != 0 ? opening.BossOption : bossOption) : (byte)0;
         // One from each slot's stack, in one transaction: leftover stacks stay in the device (a shop scarab stack is 20).
         var consumed = Saves.Atomically(() =>
         {
@@ -163,13 +166,14 @@ static class PortalsFeature
         var entrance = conn.Layout.Near((device.Value.X, device.Value.Y));
         var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow,
             device.Value.Campaign || request.ReturnToSource ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null,
-            entrance: new(conn.Layout.Hash, conn.InstanceNumber, entrance.X, entrance.Y));
+            entrance: new(conn.Layout.Hash, conn.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption);
         if (device.Value.Campaign)
             await SetQuestFlags(remote, stream, ciphers, conn, ["a7q2-DeliveredItem"]);
         string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
             ? $", +{opening.Mods.ExtraMagicPacks} magic packs, {opening.Mods.PacksDropCards} pack(s) drop cards"
             : "";
-        Console.WriteLine($"[gateway] {remote} map device opened {area.Name} ({area.Id}, 0x{area.Hash16:x4}, tier {area.Tier}, {opening.Mods}{extra}): {open.PortalsLeft} portals");
+        string bossLabel = resolvedBossOption switch { 1 => ", boss Maven", 2 => ", boss Eater of Worlds", 3 => ", boss Searing Exarch", _ => "" };
+        Console.WriteLine($"[gateway] {remote} map device opened {area.Name} ({area.Id}, 0x{area.Hash16:x4}, tier {area.Tier}, {opening.Mods}{extra}{bossLabel}): {open.PortalsLeft} portals");
         foreach (var visitor in DeviceVisitors(conn))
         {
             try

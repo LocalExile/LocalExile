@@ -135,7 +135,11 @@ public sealed class MapDevice
 
     /// <summary>The area a successful Activate opens, the mods that instance plays with, and the first slot's
     /// BaseItemTypes row (a Maven invitation: <see cref="MapBossFights.Witnesses"/>).</summary>
-    public sealed record Opening(MapArea Area, MapMods Mods, int ItemRow = 0);
+    public sealed record Opening(MapArea Area, MapMods Mods, int ItemRow = 0)
+    {
+        /// <summary>AtlasPrimordialBossOptions selection from C→S 0xd8/0x297 (0 none, 1 Maven, 2 Eater, 3 Exarch).</summary>
+        public byte BossOption { get; init; }
+    }
 
     /// <summary>
     /// What Activate does with these slots: one map (its affixes and the scarabs/fragments' MapFragmentMods), or a
@@ -214,6 +218,8 @@ public sealed class MapDevice
         public Origin? ReturnTo { get; init; }
         /// <summary>The device's exact source instance and arrival cell, retained independently of return routing.</summary>
         public Origin? Entrance { get; init; }
+        /// <summary>Selected AtlasPrimordialBossOptions value (0 none, 1 Maven, 2 Eater of Worlds, 3 Searing Exarch).</summary>
+        public byte BossOption { get; init; }
     }
 
     public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
@@ -223,11 +229,17 @@ public sealed class MapDevice
     /// last portal is taken or the owner opens another map, and guests see the same one.</summary>
     public sealed record Run(string Owner, MapArea Area, MapMods Mods, int ItemRow = 0, Origin? ReturnTo = null)
     {
-        public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo);
+        public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo)
+        {
+            BossOption = map.BossOption,
+        };
 
         /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
         /// module starts with its own mods (only those mods' stats apply).</summary>
         public bool Atlas { get; init; } = true;
+
+        /// <summary>Selected AtlasPrimordialBossOptions value (0 none, 1 Maven, 2 Eater of Worlds, 3 Searing Exarch).</summary>
+        public byte BossOption { get; init; }
     }
 
     /// <summary>The map a transfer's ticket opens its instance with (<see cref="PendingTransfer.Map"/>), until that
@@ -256,7 +268,7 @@ public sealed class MapDevice
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
     public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null,
-        Origin? entrance = null)
+        Origin? entrance = null, byte bossOption = 0)
     {
         lock (Open)
         {
@@ -265,13 +277,13 @@ public sealed class MapDevice
                     && at.Area == origin.Area && at.Instance == origin.Instance).ToArray())
                     Open.TryRemove(other);
             return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow)
-                { Owner = character, ReturnTo = returnTo, Entrance = entrance };
+                { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption };
         }
     }
 
     // Keep the original callable signature for compiled consumers.
     public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo) =>
-        Activate(character, area, mods, itemRow, returnTo, null);
+        Activate(character, area, mods, itemRow, returnTo, null, 0);
 
     /// <summary>The run whose portals belong to this exact device instance.</summary>
     public static OpenMap? AtEntrance(ushort area, ulong instance) => instance == 0 ? null

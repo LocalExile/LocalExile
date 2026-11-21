@@ -10,8 +10,7 @@ using GameServer.Core.Protocol.Instance;
 /// + implicits (unscaled) + derived counts + the tier block + league blocks, e = AtlasStats.ModEffect. The rarity-gated
 /// pack counts and Meticulous Appraiser's quantity are resolved in the list, so its readers need no rules.
 /// Not composed: the account's constants (atlas completion bonus, voidstone, Maven, astrolabe, uber map unlocks), the
-/// activated atlas node, the boss option and the server's own rolls (Beyond, the influence type, a corrupted map's
-/// random notables).
+/// activated atlas node and the server's own rolls (Beyond, the influence type, a corrupted map's random notables).
 /// </summary>
 public static partial class Game
 {
@@ -73,11 +72,11 @@ public static partial class Game
         var nodes = preset >= 0 ? presets[preset].Distinct().Select(id => catalog.Find(id)).OfType<AtlasPassives.Node>().ToList() : [];
         var families = nodes.Select(AtlasStats.Family).Where(f => f.Length > 0).ToHashSet(StringComparer.Ordinal);
         var atlas = AtlasStats.Compose(nodes);
-        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset);
+        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, map.BossOption);
     }
 
     public static Dictionary<uint, int> ComposeMapAreaStats(MapMods? mods, int tier, IReadOnlyDictionary<uint, int> atlas,
-        IReadOnlySet<string> families, int preset)
+        IReadOnlySet<string> families, int preset, byte bossOption = 0)
     {
         var stats = new Dictionary<uint, int>();
         void Add(string name, int value)
@@ -141,6 +140,8 @@ public static partial class Game
             if (tier > 1) Set("map_hidden_monster_damage_+%_final", tier - 1);
         }
         Set("map_device_type", 1);
+        // AtlasPrimordialBossOptions: 1 Maven, 2 Eater of Worlds, 3 Searing Exarch (C→S 0xd8 / 0x297).
+        if (bossOption is >= 1 and <= 3) Set("map_atlas_primordial_boss_influence", bossOption);
         // The league blocks of the tree's families and of the families whose stats the map's own sources (Idols,
         // fragments, mods) carry; a flag set by several sources is set once.
         HashSet<string>? withMods = null;
