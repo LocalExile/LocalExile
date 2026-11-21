@@ -829,6 +829,7 @@ public static partial class Game
             // Entry protection: hostile monsters neither chase nor swing while the player stands protected on the arrival cell.
             bool protectedEntry = InGracePeriod(conn);
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
+            var decoyChasers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, TotemState.Totem Totem)>();
             var bandit = BanditChoices.In(conn);
             bool banditHeld = bandit is not null && BanditChoices.Held(conn, bandit);
             foreach (var (id, m) in conn.Monsters)
@@ -1010,7 +1011,7 @@ public static partial class Game
                 }
                 if (m.Hostile && decoy is { } targetDecoy)
                 {
-                    PlanDecoyTarget(conn, cadence, plan, id, m, targetDecoy.Source, now, (mx, my));
+                    PlanDecoyTarget(conn, cadence, plan, id, m, targetDecoy.Source, now, (mx, my), decoyChasers);
                     continue;
                 }
                 if (PlanRampageWeaponTarget(conn, cadence, plan, id, m, now, (mx, my), d)) continue;
@@ -1162,17 +1163,20 @@ public static partial class Game
                     askers.Add((new(id, mx, my, LivingCollision.Size(m), m.LastTarget,
                         m.Attack?.Range ?? double.PositiveInfinity, !blockedShot && m.Attack?.Ranged == true), m, d));
             }
+            if (askers.Count == 0 && decoyChasers.Count == 0) return plan;
+            var fixedBlockers = blockers.FixedBlockers;
+            bool Standable(int x, int y, int size) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y))
+                && !GameServer.Core.World.ClientPathfinder.ObjectBlocks(fixedBlockers, x, y, size + 1, size + 4);
+            if (decoyChasers.Count > 0)
+                PlanDecoyChasesLocked(conn, cadence, plan, now, decoyChasers, blockers.Bodies, (px, py), Standable);
             if (askers.Count == 0) return plan;
             // Every other living body near the player keeps its place: the chasers' cells go around it.
             var asking = askers.Select(a => a.Asker.Id).ToHashSet();
             var occupied = blockers.Bodies.Where(b => !asking.Contains(b.Id)
                 && Math.Max(Math.Abs(b.X - px), Math.Abs(b.Y - py)) < 64).Select(b => (b.X, b.Y, b.Size));
-            var fixedBlockers = blockers.FixedBlockers;
             long surroundAt = System.Diagnostics.Stopwatch.GetTimestamp();
             long allocationAt = GC.GetAllocatedBytesForCurrentThread();
-            var slots = MonsterSurround.Assign(askers.Select(a => a.Asker), (px, py), occupied,
-                (x, y, size) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y))
-                    && !GameServer.Core.World.ClientPathfinder.ObjectBlocks(fixedBlockers, x, y, size + 1, size + 4));
+            var slots = MonsterSurround.Assign(askers.Select(a => a.Asker), (px, py), occupied, Standable);
             conn.Performance.Elapsed(LatencyPhase.Surround, surroundAt);
             conn.Performance.SurroundAllocation(GC.GetAllocatedBytesForCurrentThread() - allocationAt);
             foreach (var (asker, m, d) in askers)

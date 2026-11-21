@@ -189,17 +189,26 @@ public sealed class TotemTests
         SpawnedMonster Enemy(int x) => new("enemy", new(x, 100, 8), 100, 2, 100) { Attack = attack, Target = conn };
         var near = Enemy(116);
         var far = Enemy(171);
+        // Two out of reach on the same side: each gets its own cell around the totem, not one on the line to it.
+        var packA = Enemy(150);
+        var packB = new SpawnedMonster("enemy", new(150, 102, 8), 100, 2, 100) { Attack = attack, Target = conn };
         conn.Monsters[0x3100] = near;
         conn.Monsters[0x3101] = far;
+        conn.Monsters[0x3102] = packA;
+        conn.Monsters[0x3103] = packB;
         Game.TickTotemUses("test", f.Stream, f.Ciphers, conn);
         Assert.NotNull(totem.TauntAt);
         double now = totem.TauntAt.Value;
         Game.ApplyDecoyTauntLocked(conn, totem, now);
         Assert.Same(totem, Game.DecoyTarget(near, now)?.Source);
         Assert.Null(Game.DecoyTarget(far, now));
-        var swing = Assert.Single(Game.PlanMonsterAi(conn, new(), now).DecoySwings);
+        var plan = Game.PlanMonsterAi(conn, new(), now);
+        var swing = Assert.Single(plan.DecoySwings);
         Assert.Same(totem, swing.Totem);
         Assert.Same(near, swing.Monster);
+        var chases = plan.Moves.Where(m => m.Monster == packA || m.Monster == packB).Select(m => m.To).ToArray();
+        Assert.Equal(2, chases.Length);
+        Assert.NotEqual(chases[0], chases[1]);
 
         uint life = conn.PlayerLife;
         Assert.True(Game.DecoyTakeHitLocked(conn, totem, near, attack, now, 100));
