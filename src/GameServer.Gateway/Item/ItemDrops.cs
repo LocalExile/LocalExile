@@ -492,7 +492,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
                 item = unique with { Identified = false };
                 type = catalog.ByHash(item.TypeHash) ?? type;
             }
-            else if (rolledUnique || rng.NextDouble() < chances.Magic + chances.Rare)
+            else
                 item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = false };
         }
         return new Drop(item, type);

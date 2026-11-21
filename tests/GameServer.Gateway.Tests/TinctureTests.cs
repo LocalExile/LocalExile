@@ -158,7 +158,7 @@ public class TinctureTests
             Assert.All(droppedTinctures, d =>
             {
                 Assert.True(items.IsNativeTincture(d.Type));
-                Assert.NotEqual(ItemRarity.Rare, d.Item.Rarity);
+                Assert.Contains(d.Item.Rarity, new[] { ItemRarity.Magic, ItemRarity.Unique });
             });
         }
         finally
