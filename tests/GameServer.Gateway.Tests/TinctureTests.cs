@@ -178,6 +178,10 @@ public class TinctureTests
         var critMultMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == "critical_strike_multiplier_+_with_tinctured_weapons"));
         var cullMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == "culling_strike_with_tinctured_weapons"));
         var baseTincture = ItemCatalog.Create(rosethorn, random: new Random(3));
+        string[] killStats = ["life_gained_on_killing_enemies_with_tinctured_weapons", "base_mana_gained_on_tinctured_weapon_kill",
+            "flask_charges_granted_from_tinctured_weapon_kills_+%"];
+        var killMods = killStats.Select(stat => items.Mods.All.First(m => m.Stats.Any(s => s.Id == stat)))
+            .Select(mod => mod.With(ModSection.Explicit, mod.MaxValues(), new Random(6)));
         var tinctureItem = baseTincture with
         {
             Rarity = ItemRarity.Magic,
@@ -185,6 +189,7 @@ public class TinctureTests
             Mods =
             [
                 .. baseTincture.Mods,
+                .. killMods,
                 critMultMod.With(ModSection.Explicit, [30], new Random(4)),
                 cullMod.With(ModSection.Explicit, [1], new Random(5)),
             ],
@@ -264,6 +269,18 @@ public class TinctureTests
             Assert.Equal(baseBonus.SpellCriticalStrikeMultiplier, activeBonus.SpellCriticalStrikeMultiplier);
             Assert.Equal(10, Game.Cull.Of(activeStats, skill: null, critical: false, spell: false).Threshold);
             Assert.Equal(0, Game.Cull.Of(activeStats, skill: null, critical: false, spell: true).Threshold);
+
+            // A spell kill uses these unconditional stats even while a tinctured sword is equipped.
+            foreach (string stat in new[] { "base_life_gained_on_enemy_death", "base_mana_gained_on_enemy_death",
+                "charges_gained_+%", "flask_charges_gained_+%" })
+                Assert.Equal(Stat(baselineStats, stat), Stat(activeStats, stat));
+            var kill = Game.TinctureKillBonusFor(conn1, activeStats, AttackHand.Main);
+            Assert.NotNull(kill);
+            Assert.All(killStats, stat => Assert.True(Stat(activeStats, stat) > 0));
+            Assert.Equal((Stat(activeStats, killStats[0]), Stat(activeStats, killStats[1]), Stat(activeStats, killStats[2])),
+                (kill.Life, kill.Mana, kill.FlaskChargesPct));
+            Assert.Null(Game.TinctureKillBonusFor(conn1, activeStats, AttackHand.Off));
+            Assert.Equal(1 + kill.FlaskChargesPct / 100.0, FlaskCharges.KillCharges(MonsterRarity.Normal, items.Mods, kill.FlaskChargesPct));
 
             // Ranged weapon gets no weapon stats without Seasoned Hunter, and gets them with it; unarmed gets none.
             var inv1 = Game.ItemsOf(conn1);

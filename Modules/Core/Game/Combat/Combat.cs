@@ -599,6 +599,7 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: weapon.Melee, critical);
+                if (life == 0) RecordTinctureKill(m, TinctureKillBonusFor(conn, player, hand));
                 if (conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
             }
             ChargesOnHit(conn, m, critical, spell: false);
@@ -2496,6 +2497,7 @@ public static partial class Game
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
+        TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<string, int>? weaponLocal = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
@@ -2550,6 +2552,8 @@ public static partial class Game
                         var sourceWeapon = shield ?? HandWeapon(conn, hand);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
                         weaponLocal = local;
+                        if (!spell && shield is null && SkillsFor(conn).IsAttack(gem.Effect))
+                            tinctureKill = TinctureKillBonusFor(conn, player, hand);
                         if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: IsSmite(gem.Effect) ? singleStrikeTarget is null : null)
                             is not { } capturedInputs) break;
                         var offInputs = shield is null && hand == AttackHand.Both && OffhandWeaponFor(conn) is { } bothOff
@@ -2701,6 +2705,7 @@ public static partial class Game
                         if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
+                        if (applied.Value.Life == 0) RecordTinctureKill(m, tinctureKill);
                         if (!spell && conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(conn, m, skillStats);
@@ -3424,10 +3429,12 @@ public static partial class Game
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill, bool byHit = true)
     {
+        TinctureKillBonus? tinctureKill;
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;
         lock (conn.Monsters)
         {
+            tinctureKill = playerKill && byHit ? TakeTinctureKill(conn, m) : null;
             destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
             if (playerKill) QueueMadnessExplosionLocked(conn, id, m);
         }
@@ -3456,7 +3463,7 @@ public static partial class Game
             await GameEvents.RunMonsterKilled(new(conn, monster));
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
-            RecoverOnKill(conn, m);
+            RecoverOnKill(conn, m, tinctureKill);
             GainPhasingOnKill(conn);
             // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
             bool corpseConsumed, devoured;
@@ -3499,7 +3506,7 @@ public static partial class Game
             lock (conn.Monsters) have = conn.Experience;
             if (have < needed) await GainExperience(remote, stream, ciphers, conn, needed - have, $"quest: {m.Label} killed, level {level}");
         }
-        await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
+        await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
         if (!m.NoRewards) await DropLoot(remote, stream, ciphers, conn, m, at);
         await PublishUnhingedCorpseDestruction(remote, stream, ciphers, conn, id, m, destroyCorpse);
     }

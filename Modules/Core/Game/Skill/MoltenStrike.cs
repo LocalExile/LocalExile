@@ -392,6 +392,7 @@ public static partial class Game
                 var applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, player,
                     cull: Cull.Of(player, skillStats, critical, spell: false));
                 if (applied is not { } hit) continue;
+                if (hit.Life == 0) RecordTinctureKill(m, TinctureKillBonusFor(conn, player, hand));
                 // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.
                 CrueltyOnHitLocked(conn, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);
 

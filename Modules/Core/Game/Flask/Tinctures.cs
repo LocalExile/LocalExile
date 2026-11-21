@@ -22,13 +22,38 @@ public static partial class Game
         ("gain_x_rage_on_hit_with_tinctured_weapons", "gain_x_rage_on_attack_hit"),
         ("life_gained_on_hitting_enemies_with_tinctured_weapons", "base_life_gain_per_target"),
         ("mana_gained_on_hitting_enemies_with_tinctured_weapons", "mana_gain_per_target"),
-        ("life_gained_on_killing_enemies_with_tinctured_weapons", "base_life_gained_on_enemy_death"),
-        ("base_mana_gained_on_tinctured_weapon_kill", "base_mana_gained_on_enemy_death"),
-        ("flask_charges_granted_from_tinctured_weapon_kills_+%", "charges_gained_+%"),
     ];
 
     static int TinctureStat(IReadOnlyDictionary<uint, int> stats, string name) =>
         Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+
+    public sealed record TinctureKillBonus(ClientState Owner, int Life, int Mana, int FlaskChargesPct);
+    static readonly RuleTable<SpawnedMonster, TinctureKillBonus> TinctureWeaponKills = new();
+
+    public static TinctureKillBonus? TinctureKillBonusFor(ClientState conn, IReadOnlyDictionary<uint, int> player, AttackHand hand)
+    {
+        if (!conn.TinctureEffects.AnyEffective) return null;
+        int Get(string stat) => TinctureStat(player, stat);
+        if (!(hand != AttackHand.Off && Get("tincture_applied_to_main_hand") != 0
+            || hand != AttackHand.Main && Get("tincture_applied_to_off_hand") != 0)) return null;
+        int life = Get("life_gained_on_killing_enemies_with_tinctured_weapons");
+        int mana = Get("base_mana_gained_on_tinctured_weapon_kill");
+        int charges = Get("flask_charges_granted_from_tinctured_weapon_kills_+%");
+        return life == 0 && mana == 0 && charges == 0 ? null : new(conn, life, mana, charges);
+    }
+
+    // The killing blow and its rewards can run on different turns. Only the killer can claim its bonus.
+    static void RecordTinctureKill(SpawnedMonster monster, TinctureKillBonus? bonus)
+    {
+        if (bonus is not null) TinctureWeaponKills.AddOrUpdate(monster, bonus);
+    }
+
+    static TinctureKillBonus? TakeTinctureKill(ClientState conn, SpawnedMonster monster)
+    {
+        if (!TinctureWeaponKills.TryGetValue(monster, out var bonus) || bonus.Owner != conn) return null;
+        TinctureWeaponKills.Remove(monster);
+        return bonus;
+    }
 
     static double TinctureLingerSeconds(IReadOnlyDictionary<uint, int> character, int stacks)
     {
@@ -36,7 +61,7 @@ public static partial class Game
         return msPerStack > 0 && stacks > 0 ? Math.Min(6.0, stacks * msPerStack / 1000.0) : 0;
     }
 
-    // C→S 0x70 on a tincture belt slot: toggles the tincture on or off, enforcing level requirements, shared cooldown,
+    // Câ†’S 0x70 on a tincture belt slot: toggles the tincture on or off, enforcing level requirements, shared cooldown,
     // resource gate, active tincture limit, wire state (Tincture component byte via 0xbf), buffs (0x1c1/0x1c2), and stats.
     public static async Task UseTincture(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint slot, InventoryItem flask, ItemCatalog.BaseType type, Tinctures.Definition definition)

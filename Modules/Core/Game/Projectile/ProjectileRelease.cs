@@ -377,6 +377,8 @@ public static partial class Game
             SupportedCriticalChanceFor(conn, skillId, release: true, weaponCritical: handCritical),
             SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
+            TinctureKill = !spell && totem is null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).RequiresShield(gem.Effect)
+                ? TinctureKillBonusFor(conn, player, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(player, own),
             // Child stages and release specialization can introduce areas after this root is resolved.
             AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
