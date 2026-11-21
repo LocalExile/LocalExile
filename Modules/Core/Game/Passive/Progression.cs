@@ -817,6 +817,7 @@ public static partial class Game
         foreach (var (name, value) in rawAttributes)
             if (Stats.Key(name) is uint key) sources[key] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
+        ApplyAbyssGaze(sources, dev);
         var attributes = AttributeInputs(rawAttributes, dev);
         var finalAttributes = attributes.Apply(c.Strength + (conn.God ? 1000 : 0),
             c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
