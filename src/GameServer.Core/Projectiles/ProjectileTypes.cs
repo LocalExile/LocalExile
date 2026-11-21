@@ -239,6 +239,8 @@ public readonly record struct ProjectileLaunch(ProjectileVector Offset, double A
 {
     /// <summary>Release with the preceding projectile on the same firing contact and share its hit group.</summary>
     public bool SimultaneousWithPrevious { get; init; }
+    /// <summary>This launch can return even when the projectile's ordinary chance roll fails.</summary>
+    public bool GrantsReturn { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,

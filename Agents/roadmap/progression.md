@@ -10,6 +10,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 - **Known:** experience, levels, S→C 0x33 and C→S 0x34 (allocate) work ([15](../docs/protocol/15-progression.md)).
 - **Known:** gold respec at Bestel (C→S 0x36 / 0x37) and masteries (0x35) work.
+- **Next:** verify off-tree anointments on a client, then trace the oil crafting interface and on-tree notables
+  in jewel radii.
 - **Known:** refunds with refund points (0x36 flag 0; 0x33's first u16) work;
   Orbs of Regret (right-click, 0x58) add them.
 - **Known:** the ordinary tree's 21 large jewel sockets accept ordinary, magic and rare jewels (pane placement,

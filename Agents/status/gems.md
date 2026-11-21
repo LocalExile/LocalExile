@@ -65,7 +65,9 @@ Nothing yet.
 
 - **Barrage and Barrage of Volley Fire.** Bows and wands use their own projectiles. Volley Fire's first and last
   volleys can each hit one target once. Later firing contacts can hit it again. The Volley Fire jewel adds its rolled
-  projectiles to both gems' first and last volleys at 40 Dexterity in radius. Client playback still needs checking.
+  projectiles to both gems' first and last volleys at 40 Dexterity in radius. With Selective Precision equipped,
+  every projectile in the first and last firing contacts of a direct Barrage sequence can return, including attacks
+  linked to Barrage Support. Other contacts keep their usual return chance. Client playback still needs checking.
 
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.

@@ -54,6 +54,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Equipped anointments grant the stats of off-tree notables once per character. Selective Precision is covered in
+  [Gems](gems.md). The oil crafting interface and on-tree notable interactions still need verification.
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).

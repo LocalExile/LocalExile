@@ -84,6 +84,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 projectileUse = projectileUse with { Origin = origin, Aim = use.Aim + launch.Offset };
             if (unresolved.ReturnRolls is { } rolls)
                 projectileUse = projectileUse with { Profile = ResolveReturn(unresolved, rolls[index]) };
+            if (launch.GrantsReturn && !projectileUse.Profile.CannotReturn && !projectileUse.Profile.Returns)
+                projectileUse = projectileUse with { Profile = projectileUse.Profile with { Returns = true } };
             if (use.ProjectileTargets is { } destinations)
             {
                 var target = destinations[contact];

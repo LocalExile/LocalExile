@@ -2814,9 +2814,12 @@ public class ArrowRainAndMirageTests
         await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [7, 1, 1, 7]);
         await VerifyActiveBarrage(weapon, "Barrage", [7, 1, 1, 1, 1, 7], volleyFire: true);
         await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [13, 1, 1, 13], volleyFire: true);
+        await VerifyActiveBarrage(weapon, "Barrage", [1, 1, 1, 1, 1, 1], selective: true);
+        await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [7, 1, 1, 7], selective: true);
     }
 
-    static async Task VerifyActiveBarrage(string weapon, string skill, int[] expectedGroups, bool volleyFire = false)
+    static async Task VerifyActiveBarrage(string weapon, string skill, int[] expectedGroups, bool volleyFire = false,
+        bool selective = false)
     {
         using var b = new Battle(skill);
         var items = Game.ItemsOf(b.Conn);
@@ -2835,6 +2838,19 @@ public class ArrowRainAndMirageTests
         }
         var gem = Game.GemSkillEffects(b.Conn).Single();
         b.Enemy.Walk.Teleport(135, 100, 0);
+        uint selectiveKey = Program.Stats.Key("first_and_final_barrage_projectiles_return")!.Value;
+        const byte amuletSlot = 5;
+        if (selective)
+        {
+            var enchant = Program.Items.Mods.ById("GrantedPassive")!.With(ModSection.Enchant, [24358], new Random(19));
+            var amulet = ItemCatalog.Create(Program.Items.Find("Paua Amulet")!);
+            items.Add(PlayerInventories.Cursor, 0, 0, amulet with { Mods = [.. amulet.Mods, enchant] });
+            await Game.PlaceItem("active-barrage", b.Stream, b.Ciphers, b.Conn,
+                new(PlayerInventories.InventoryId(amuletSlot), 0, 0, 0, 0, 0, 0));
+            Assert.Equal(1, Game.CharacterPlayerStats(b.Conn).GetValueOrDefault(selectiveKey));
+            Assert.DoesNotContain((ushort)24358, b.Conn.Passives);
+            b.Conn.Monsters.Clear(); // Every root reaches the end of its outgoing flight.
+        }
         b.Conn.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
         b.Conn.PlayerStats[Program.Stats.Key("projectile_remove_default_spread")!.Value] = 1;
         double start = 10, duration = Game.SupportedAttackSeconds(b.Conn, gem.Id);
@@ -2844,13 +2860,17 @@ public class ArrowRainAndMirageTests
         b.Conn.Clock.Stop();
         string projectile = weapon == "Crude Bow" ? "Metadata/Projectiles/DefaultArrow" : "Metadata/Projectiles/BarrageWand";
         var shots = new Dictionary<long, ProjectileEntity>();
+        HashSet<long> returning = [];
         uint life = b.Enemy.Life;
         int hits = 0;
-        for (int step = 0; step <= (duration + 1) * 200; step++)
+        for (int step = 0; step <= (duration + (selective ? 4 : 1)) * 200; step++)
         {
             b.Session.AdvanceTo(ProjectileRuntime.Time(start + step / 200d));
             foreach (var shot in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0))
+            {
                 shots.TryAdd(shot.Id, shot);
+                if (shot.Phase > 0) returning.Add(shot.Id);
+            }
             if (b.Enemy.Life < life) hits++;
             life = b.Enemy.Life;
         }
@@ -2863,13 +2883,22 @@ public class ArrowRainAndMirageTests
         long first = ProjectileRuntime.Time(start + duration * .4 + clip * 66 / 200);
         Assert.Equal(Enumerable.Range(0, expectedGroups.Length).Select(i => first + i * ProjectileRuntime.Time(clip)),
             contacts.Select(g => g.Key));
-        Assert.Equal(expectedGroups.Length, hits);
+        if (selective)
+        {
+            Assert.Equal(contacts[0].Concat(contacts[^1]).Select(p => p.Id).Order(), returning.Order());
+            var equipped = Assert.Single(items.Items(amuletSlot));
+            await Game.PickUpItem("active-barrage", b.Stream, b.Ciphers, b.Conn,
+                new(PlayerInventories.InventoryId(amuletSlot), equipped.Id, 0, 0, 0));
+            Assert.Equal(0, Game.CharacterPlayerStats(b.Conn).GetValueOrDefault(selectiveKey));
+        }
+        else Assert.Equal(expectedGroups.Length, hits);
     }
 
     static async Task VerifyPlacedBarrage(string support)
     {
         using var b = new Battle("Lightning Arrow", support, "Barrage Support");
         var conn = b.Conn;
+        conn.PlayerStats[Program.Stats.Key("first_and_final_barrage_projectiles_return")!.Value] = 1;
         var gem = Game.GemSkillEffects(conn).Single();
         var own = Game.SupportedSkill(conn, gem.Id).Stats;
         bool mine = support != "Trap Support";
@@ -2907,6 +2936,7 @@ public class ArrowRainAndMirageTests
             {
                 var shot = Assert.Single(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.VolleyIndex == i);
                 Assert.Equal(due, shot.CreatedAt);
+                Assert.Equal(i == 0 || i == count - 1, shot.Profile.Returns);
                 Assert.True(groups.Add(shot.EmissionId));
             }
             if (i == 0)
@@ -2959,6 +2989,7 @@ public class ArrowRainAndMirageTests
             using var b = new Battle(skill == "Split Arrow" ? [skill, "Ballista Totem Support", "Barrage Support"]
                 : [skill, "Barrage Support"]);
             var c = b.Conn;
+            c.PlayerStats[Program.Stats.Key("first_and_final_barrage_projectiles_return")!.Value] = 1;
             c.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
             c.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
             var gem = Game.GemSkillEffects(c).Single();
@@ -2991,7 +3022,10 @@ public class ArrowRainAndMirageTests
                 Assert.DoesNotContain(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.Use.Emitter.Id == totem.Id && p.VolleyIndex == i);
                 b.Session.AdvanceTo(due);
                 foreach (var p in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0 && p.Use.Emitter.Id == totem.Id))
+                {
+                    Assert.Equal(p.VolleyIndex == 0 || p.VolleyIndex == count - 1, p.Profile.Returns);
                     fired.TryAdd(p.EmissionId, p.CreatedAt);
+                }
                 if (i == 1) c.ActionCount++; // A new owner action does not interrupt the ballista.
                 if (i == 2 && skill == "Siege Ballista") totem.DiedAt = due / (double)ProjectileRuntime.QuantaPerSecond;
             }

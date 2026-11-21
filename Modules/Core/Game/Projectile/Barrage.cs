@@ -4,7 +4,7 @@ public static partial class Game
 {
     sealed record BarrageAttack(int Action, double Start, double Duration, int Count, AnimationClip Fire,
         bool CannotCancelBeforeContact, int SpreadPercent, bool NoSpread, ParallelFiringPoints? Points,
-        bool CentreEnds, int ExtraAtEnds, bool RandomDirections)
+        bool CentreEnds, int ExtraAtEnds, bool ReturnEnds, bool RandomDirections)
     {
         public double Windup => Duration * .4;
         public double Interval => Duration * .6 / Count;
@@ -55,8 +55,9 @@ public static partial class Game
                 float scale = distance / MathF.Sqrt(dx * dx + dy * dy);
                 var ray = new ProjectileVector((int)(dx * scale), (int)(dy * scale));
                 double angle = Math.Atan2(ray.Y, ray.X) - heading;
-                if (ExtraAtEnds == 0 || i != 0 && i != count - 1)
-                    launches[next++] = new(offset, angle);
+                bool endpoint = i == 0 || i == count - 1;
+                if (ExtraAtEnds == 0 || !endpoint)
+                    launches[next++] = new(offset, angle) { GrantsReturn = endpoint && ReturnEnds };
                 else
                 {
                     // Barrage's action sends 1 + the endpoint stat to the ordinary simultaneous volley.
@@ -71,7 +72,7 @@ public static partial class Game
                     {
                         var member = members?[j] ?? new(default, angles?[j] ?? fan.Angle(j, size, ray.Length));
                         launches[next++] = member with { Offset = offset + member.Offset,
-                            Angle = angle + member.Angle, SimultaneousWithPrevious = j != 0 };
+                            Angle = angle + member.Angle, SimultaneousWithPrevious = j != 0, GrantsReturn = ReturnEnds };
                     }
                 }
             }
@@ -120,7 +121,8 @@ public static partial class Game
         return new(action, start, seconds, count, fire,
             Get("cannot_cancel_skill_before_contact_point") != 0, Get("barrage_support_projectile_spread_+%"),
             Get("no_barrage_projectile_spread") != 0, ParallelFiringPoints.From(Get),
-            ends != 0, splitEnds ? 0 : ends, Get("random_projectile_direction") != 0);
+            ends != 0, splitEnds ? 0 : ends, Get("first_and_final_barrage_projectiles_return") != 0,
+            Get("random_projectile_direction") != 0);
     }
 
     static bool? BarrageAllowsMove(ClientState conn, double at)

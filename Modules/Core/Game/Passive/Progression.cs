@@ -680,17 +680,28 @@ public static partial class Game
                 ItemValue: ConditionalRings(equipment, activeItems).Value, NamedConditions: NamedItemConditionSuffixes);
         }
 
+        var anointments = OffTreeAnointments.Read(equipment, catalog.Mods, tree, allocated);
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
         {
             var items = active.ToArray();
+            var attributes = passiveAttributes;
+            if (anointments.Count > 0)
+            {
+                attributes = new(passiveAttributes);
+                foreach (var (key, value) in OffTreeAnointments.Stats(anointments, items))
+                {
+                    string name = Stats.Name(key);
+                    if (AttributeModifiers.IsInput(name)) attributes[name] = attributes.GetValueOrDefault(name) + value;
+                }
+            }
             var raw = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods);
-            foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
+            foreach (var (name, value) in attributes) raw[name] = raw.GetValueOrDefault(name) + value;
             // Independent equipment-count modifiers settle before comparisons that read those final attributes.
             // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
             for (int pass = 0; pass < 4; pass++)
             {
                 var next = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods, ConditionSubject(raw, items), Stats.Has);
-                foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
+                foreach (var (name, value) in attributes) next[name] = next.GetValueOrDefault(name) + value;
                 bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
                 raw = next;
                 if (same) break;
@@ -749,6 +760,9 @@ public static partial class Game
         // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
         active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
             catalog).ToArray();
+        if (anointments.Count > 0)
+            foreach (var (key, value) in OffTreeAnointments.Stats(anointments, active))
+                passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         var rawAttributes = RawAttributes(active);
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.
