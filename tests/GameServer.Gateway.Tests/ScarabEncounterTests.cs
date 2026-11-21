@@ -465,9 +465,10 @@ public sealed class ScarabEncounterTests
         var layout = AreaLayouts.For(area.Hash16, seed);
         var at = Assert.Single(new QuestObjectTypes.AreaPlacements(areaId, seed, []).Of(chest));
         var instance = new InstanceState();
-        int orbs = 0, gems = 0;
+        int orbs = 0, gems = 0, qualityGems = 0;
         if (withVesselSuffixes)
         {
+            instance.OpenedWith(new("VesselOwner", new(layout.Hash, areaId, "Secluded Canal", 16) { Level = level }, MapMods.None));
             var mod = Program.Items.Mods.ById("MapCorruptedSideAreaVesselVaalOrbDrop_")!;
             orbs = Assert.Single(mod.Roll(ModSection.Explicit, new Random(7)).Values);
             Assert.InRange(orbs, 1, 3);
@@ -476,7 +477,11 @@ public sealed class ScarabEncounterTests
             gems = Assert.Single(gemMod.Roll(ModSection.Explicit, new Random(7)).Values);
             Assert.InRange(gems, 1, 2);
             uint gemStat = Program.Stats.Key("map_vaal_vessel_drop_X_vaal_gems")!.Value;
-            instance.AreaStats(() => new Dictionary<uint, int> { [stat] = orbs, [gemStat] = gems });
+            var qualityMod = Program.Items.Mods.ById("MapCorruptedSideAreaVesselQuality23GemDrop")!;
+            qualityGems = Assert.Single(qualityMod.Roll(ModSection.Explicit, new Random(7)).Values);
+            Assert.Equal(1, qualityGems);
+            uint qualityStat = Program.Stats.Key("map_vaal_vessel_drop_X_quality_23_gems")!.Value;
+            instance.AreaStats(() => new Dictionary<uint, int> { [stat] = orbs, [gemStat] = gems, [qualityStat] = qualityGems });
         }
         await using var owner = await Wire.Open(instance, layout, seed);
         await using var peer = await Wire.Open(instance, layout, seed);
@@ -512,7 +517,18 @@ public sealed class ScarabEncounterTests
             var drops = instance.Ground.All().Select(entry => entry.Item.Item).ToArray();
             uint vaalOrb = Program.Items.Find(CurrencyEffects.VaalOrb)!.Hash;
             Assert.Equal(orbs, drops.Where(item => item.TypeHash == vaalOrb).Sum(item => (int)item.StackSize));
-            var rewards = drops.Where(item => item.TypeHash != vaalOrb).ToArray();
+            var qualityDrops = drops.Where(item => item.Quality == 23).ToArray();
+            Assert.Equal(qualityGems, qualityDrops.Length);
+            var obtainable = GemSources.DropPool(Program.Items);
+            Assert.All(qualityDrops, item =>
+            {
+                var type = Program.Items.ByHash(item.TypeHash)!;
+                Assert.Contains(type.Row, obtainable);
+                Assert.InRange(type.DropLevel, 1, level);
+                Assert.True(item.Corrupted);
+                Assert.Equal(1, Program.Items.GemLevel(item));
+            });
+            var rewards = drops.Where(item => item.TypeHash != vaalOrb && item.Quality != 23).ToArray();
             Assert.Equal(gems + 1, rewards.Length);
             var gemRows = Program.Items.All.Select(t => Program.Items.Gem(t)?.VaalBaseRow).OfType<int>().ToHashSet();
             var gemDrops = rewards.Where(item => gemRows.Contains(Program.Items.ByHash(item.TypeHash)!.Row)).ToArray();

@@ -184,6 +184,11 @@ public static class SideAreaVessels
         int gems = Count("map_vaal_vessel_drop_X_vaal_gems");
         for (int n = 0; n < gems; n++) rewards.Add(VaalGem(catalog, level, Random.Shared));
 
+        int qualityGems = Count("map_vaal_vessel_drop_X_quality_23_gems");
+        for (int n = 0; n < qualityGems; n++)
+            if (DropsFor(conn).GemBase(Random.Shared, level) is { } gem)
+                rewards.Add(new(ItemCatalog.Create(gem) with { ItemLevel = 1, Quality = 23, Corrupted = true }, gem));
+
         int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
         if (orbs <= 0) return rewards;
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;

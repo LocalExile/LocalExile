@@ -115,6 +115,13 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     readonly Lazy<Dictionary<string, double>> _cardWeights = new(() => PublishedWeights("card"));
     readonly Lazy<Dictionary<string, double>> _scarabWeights = new(() => PublishedWeights("scarab"));
 
+    /// <summary>An obtainable active or support gem from the league's ordinary drop pool at this level.</summary>
+    public ItemCatalog.BaseType? GemBase(Random rng, int level)
+    {
+        var gems = Droppable(_pools.Value.Gems, level);
+        return gems.Count == 0 ? null : gems[rng.Next(gems.Count)];
+    }
+
     /// <summary>A random divination card. When the published card weights cover cards at this level, the pick follows
     /// them; otherwise it is uniform among the client's cards. <paramref name="level"/> 0 skips the DropLevel gate.</summary>
     public Drop? Card(Random rng, int level = 0)

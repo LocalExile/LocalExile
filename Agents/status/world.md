@@ -136,7 +136,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   guards it, including both copies in a twinned area. The party shares one opening and one base reward, a corrupted
   Vaal gem or a level-eligible Sacrifice fragment. With the *of Experimentation* area modifier, the vessel also
   drops the rolled number of Vaal Orbs. The *of the Gemcutter* suffix adds one or two corrupted Vaal skill gems
-  drawn from the level-eligible vessel pool. An area modifier for additional Vaal monsters supplies a count of packs.
+  drawn from the level-eligible vessel pool. *Of Chiselling* adds a corrupted gem with 23% quality from the
+  league's ordinary gem drop pool. An area modifier for additional Vaal monsters supplies a count of packs.
   The 3.29.3c pack row contains three Vaal cultist varieties and a wraith. The category and fragment weights use Chris Wilson's
   [2014 account](https://www.reddit.com/r/pathofexile/comments/26vxhn/comment/chv7xio/). Current server weights,
   natural entrance modifier rolls, other bonus loot, the exit portal and original client presentation are unverified.
