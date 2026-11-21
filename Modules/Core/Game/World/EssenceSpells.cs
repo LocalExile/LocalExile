@@ -163,8 +163,8 @@ public static partial class MapEssences
             uint daemon = await ShowPulseDaemon(conn, spell, at, monster.ObjectId);
             if (spell.Kind is "cold" or "fire" or "lightning")
             {
-                // The pulsation wind-up: accelerating pulses (0.3 / 0.2 / 0.1 s), then the nova bursts its projectiles.
-                await Task.Delay(TimeSpan.FromSeconds(0.3));
+                // The pulsation wind-up: accelerating pulses (0.5 / 0.2 / 0.1 s), then the nova bursts its projectiles.
+                await Task.Delay(TimeSpan.FromSeconds(0.5));
                 await PlayPulse(conn, daemon, at, spell);
                 await Task.Delay(TimeSpan.FromSeconds(0.2));
                 await PlayPulse(conn, daemon, at, spell);
@@ -293,10 +293,12 @@ public static partial class MapEssences
         int count = ScaledSpellCount(spell.Effect, spell.Tier, Get("number_of_additional_projectiles") + 1);
         SkillCatalog.MonsterProjectileInfo projectile;
         if (catalog.MonsterProjectile(spell.Effect, includeWeaponAttacks: true) is { } mortar)
-            // Wrath: the skill's own lobbed mortar. A full-turn spread makes the runtime land each shell its landing
-            // distance out in its own direction — a ring of explosions around the rare. The row's speed (750) crossed the
-            // short landing in ~0.14 s, too fast to see; a slower shell arcs visibly.
-            projectile = mortar with { Count = count, SpreadRadians = Math.PI * 2, Speed = 250 };
+            // Wrath: a lightning mortar (MortarLightning, the lightning molten-projectile rig), lobbed. A full-turn spread
+            // lands each shell its landing distance out in its own direction — a ring of explosions around the rare. The
+            // row's speed 750 crossed the short landing in ~0.14 s (too fast to see) and the molten art read as fire, so the
+            // shell is slowed (~1.2 s arc) and its minimum range widened (~2x the ring) for a visible lightning volley.
+            projectile = mortar with { Metadata = "Metadata/Projectiles/MortarLightning", Count = count,
+                SpreadRadians = Math.PI * 2, Speed = 190, MinimumRange = 250 };
         else
         {
             // Hatred's Creeping Frost (ArcticBreath), or Anger's fire Creeping Frost (FlameBreath — the fire arctic breath
@@ -331,20 +333,20 @@ public static partial class MapEssences
         for (int i = 0; i < count; i++)
         {
             double angle = facing + Math.Tau * (i / (double)count - .5);
-            // A dense trail of larger crystals (the first pass was sparse and small): they overlap into a near-continuous
-            // ice path along each projectile's bearing.
-            for (double d = 8; d <= 40; d += 8)
+            // A trail of ice crystals along each projectile's bearing, reaching ~40% further than the first pass and a
+            // touch smaller; spaced so neighbouring crystals meet into a near-continuous ice path.
+            for (double d = 6; d <= 56; d += 10)
             {
                 var spot = conn.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * d), at.Y + (int)Math.Round(Math.Sin(angle) * d)));
                 uint id = conn.TakeObjectId();
                 lock (conn.Monsters)
                 {
                     conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(spot.X, spot.Y, TrailArt) { Flags0 = EffectObject.FixedRotation, Scale = 1.5f }.Blob()),
+                        new EffectObject(spot.X, spot.Y, TrailArt) { Flags0 = EffectObject.FixedRotation, Scale = 1.05f }.Blob()),
                         null, WorldId: id, CreatesObject: true));
                     conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
                 }
-                lock (area.Trail) area.Trail.Add(new(spot, 7, until, id));
+                lock (area.Trail) area.Trail.Add(new(spot, 5, until, id));
             }
         }
     }

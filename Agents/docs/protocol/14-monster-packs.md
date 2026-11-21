@@ -621,7 +621,7 @@ set (`SkillArea`, base 26 like the shrine ShockNova circle); the daemon is remov
 self-centred (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4); the grab is ActiveSkill
 373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its repeat interval (4 s).
 **The resistance nova's projectiles (`FireNova`).** The daemon first plays the `RepeatedPulse` wind-up — accelerating
-pulsations (0.3 / 0.2 / 0.1 s) — then the nova bursts; the rare is rooted (`BusyUntil`) for the cast so the pulsation and the
+pulsations (0.5 / 0.2 / 0.1 s) — then the nova bursts; the rare is rooted (`BusyUntil`) for the cast so the pulsation and the
 release stay where it stands. The pulse is self-centred with no area radius of its own and rides the shrine circle (26) —
 reading the nova effect's absent radius drew a radius-1 circle nothing could see. A daemon action alone draws no projectiles
 — the ring is fired through the monster projectile runtime (the Rampage nova pattern, `MonsterProjectileUse` + team-2
@@ -630,13 +630,14 @@ captured when the tick queued the spell, reads as the cast coming from somewhere
 returns null for all three nova effects (no `Metadata/Projectiles/<effect>` row), so the projectile is resolved by hand:
 Hatred fires `Metadata/Projectiles/ArcticBreath` (Creeping Frost, speed 844), Anger `Metadata/Projectiles/FlameBreath` (the
 fire arctic breath its `EssenceTriggeredFlameBreath` names, speed 844, flight `firearctic_loop` index 1 / impact
-`firearctic_end`), and Wrath is the skill's own `MonsterProjectile` row — `Metadata/Projectiles/MortarMolten`, **lobbed**
-(minimum range 125, spread radius 350); the row's speed 750 crossed the short landing in ~0.14 s (too fast to see), so the
-shell is slowed (250) to arc visibly. A full-turn spread makes the runtime land each shell its landing distance out in its
-own direction, a ring of explosions around the rare. Hatred's Creeping Frost also leaves a dense trail of large
-chilling-ground ice crystals (`ground_effects/ice/ice.ao`, scale 1.5) along each projectile's radial path for the skill's
-7.5 s chilling duration; a player walking over them is chilled (the strongbox ice-nova ground pattern), refreshed while they
-stay on the ice.
+`firearctic_end`), and Wrath is a **lobbed lightning mortar** — the skill's `MonsterProjectile` row is the molten
+`MortarMolten`, but its art read as fire, so the shell uses `Metadata/Projectiles/MortarLightning` (the lightning
+molten-projectile rig). The row's speed 750 crossed the short landing in ~0.14 s (too fast to see), so the shell is slowed
+(190, ~1.2 s arc) and its minimum range widened (250, ~2x the ring) for a visible lightning volley. A full-turn spread makes
+the runtime land each shell its landing distance out in its own direction, a ring of explosions around the rare. Hatred's
+Creeping Frost also leaves a trail of chilling-ground ice crystals (`ground_effects/ice/ice.ao`, scale 1.05) along each
+projectile's radial path out to ~56 cells for the skill's 7.5 s chilling duration; a player walking over them is chilled (the
+strongbox ice-nova ground pattern), refreshed while they stay on the ice.
 The stats at level: resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen
 `base_chaos_damage_to_deal_per_minute` (4989 at 83, ≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The
 resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its
