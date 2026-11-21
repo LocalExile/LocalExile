@@ -76,8 +76,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Greater and Awakened Spell Echo still need native checks, including Storm Call's impact size on successive repeats.
   Check Arrow Nova with Barrage Support on a live client, including the first and last landing arrows against one target.
   Check Volley and Greater Volley at walls on a live client, including the firing actor with Barrage Support.
-  Verify Reach of the Council's first-point pierce, second-point fork and third-point return on both clients,
-  including a blocked side, stacked fork generations and Barrage's extra endpoint volleys.
+  Verify Reach of the Council's first-point pierce, second-point fork, third-point return and fourth-point chains on
+  both clients, including a blocked side, stacked fork and chain counts and Barrage's extra endpoint volleys.
   Verify the ordinary Fork fan on both clients, including off-axis contacts and the two fork-angle passives.
   Check Ballista Barrage playback on both supported clients, including its muzzle and changes to arrow count between attacks.
   Check Power Siphon target selection on both clients, especially crowded cells, sight at terrain edges and special projectile modifiers.

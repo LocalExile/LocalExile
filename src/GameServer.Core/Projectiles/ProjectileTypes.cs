@@ -248,6 +248,8 @@ public readonly record struct ProjectileLaunch(ProjectileVector Offset, double A
     public bool PiercesAllTargets { get; init; }
     /// <summary>Added once to this launch's fork budget. Its continuation children inherit the remaining generations.</summary>
     public int AdditionalForks { get; init; }
+    /// <summary>Added to this launch's chain budget before its first flight.</summary>
+    public int AdditionalChains { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,

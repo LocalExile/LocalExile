@@ -80,6 +80,12 @@ public sealed class VolleySupportTests
                 foreach (int y in new[] { 85, 93, 107, 115 })
                     foreach (int x in new[] { 125, 157 })
                         c.Monsters[(uint)(x * 1000 + y)] = new("target", new(x, y, 0), 0, 0, 1000000) { Hostile = true };
+                foreach (int side in new[] { -1, 1 })
+                    foreach (var (x, offset) in new[] { (125, 29), (119, 39), (114, 49) })
+                    {
+                        int y = 100 + side * offset;
+                        c.Monsters[(uint)(x * 1000 + y)] = new("target", new(x, y, 0), 0, 0, 1000000) { Hostile = true };
+                    }
             }
             c.Clock.Start();
             Assert.True(await Game.CastGemSkill("volley", battle.Stream, battle.Ciphers, c, gem.Id,
@@ -134,6 +140,14 @@ public sealed class VolleySupportTests
                     int laneY = slots[i] > 0 ? 93 : 107;
                     Assert.True(c.Monsters[(uint)(125000 + laneY)].Life < 1000000);
                     Assert.Equal(unique, c.Monsters[(uint)(157000 + laneY)].Life < 1000000);
+                }
+                if (!barrage && Math.Abs(slots[i]) == 4)
+                {
+                    int side = -Math.Sign(slots[i]);
+                    // Two targets behind and outside the original flight require two successive chains.
+                    Assert.Equal(unique, (shot.Position.Y - 100) * side > 40);
+                    foreach (var (x, offset) in new[] { (119, 39), (114, 49) })
+                        Assert.Equal(unique, c.Monsters[(uint)(x * 1000 + 100 + side * offset)].Life < 1000000);
                 }
             }
         }
