@@ -76,6 +76,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   unique maps and inactive tinctures. Repeat filling does not duplicate occupied cells. Seven old catalogue names
   have no matching client collection cell and are reported as unavailable; unique Heist contracts are not generated.
   Legacy items can make the native collected count exceed its current-league denominator.
+  Loaded collection categories remain registered across tab changes. Category switching and close/reopen were
+  checked live with a populated collection on 3.29.3c.
 - `AccountStash.AddTabs` appends general tabs (normal, premium, quad) for a mod; they show in the next tab list
   (0x21, on entering an area) or after a relog. Automated test: `StashAddTabsTests`.
 
@@ -83,7 +85,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Tab folders: Create New Folder, moving tabs in and out (C→S 0xd1) and Delete Folder (0xd2) are kept with the stash; a
   deleted folder stays hidden so the later tabs keep their places (18 "C→S"). Checked offline; not yet in the real client.
-- Unique-parent requests retain registered categories in an offline source fixture; native reopen #998 is unverified.
 - Personal stash and gold are shared only within the same account and full league, including mode combinations.
   Guild stash storage is also league-scoped; Standard retains the legacy bank and other leagues use separate banks.
   SSF refuses guild opening, tab requests and inventory moves.

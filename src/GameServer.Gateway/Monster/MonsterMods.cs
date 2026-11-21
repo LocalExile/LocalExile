@@ -192,8 +192,8 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity's more speed
     /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final). Every attack-speed mod of the pool gives cast speed
     /// alike, so a casting monster's skill uses the same time.</summary>
-    public double AttackSeconds(double baseSeconds) => baseSeconds
-        / Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0)
+    public double AttackSeconds(double baseSeconds, bool spell = false) => baseSeconds
+        / Math.Max(0.1, 1 + this[spell ? "base_cast_speed_+%" : "attack_speed_+%"] / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 
     /// <summary>The attack time with a skill's own increased and more/less attack speed modifiers.</summary>

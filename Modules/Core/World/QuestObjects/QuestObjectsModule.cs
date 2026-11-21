@@ -23,6 +23,9 @@ public sealed class QuestObjectsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        GameEvents.NpcUsesLeagueFlags.Add(module.Manifest.Id, (_, npc) => npc.Id is
+            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/League/Delve/DelveMinerHub"
+            or "Metadata/NPC/League/Bestiary/EinharMenagerie");
         var acts = Acts();
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
         module.Lifetime.Own(Quests.Register(module.Manifest.Id, acts));

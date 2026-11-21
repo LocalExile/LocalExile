@@ -95,7 +95,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   rerolls".
 - **Orb of Chance** (local rule). Docs: [13](../docs/protocol/13-items.md), "Orb of Chance",
   [admission](../docs/re/chance-coe.md).
-- **Vaal Orb and corruption** (local rule). Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
+- **Vaal Orb and corruption.** Skill and support gems can change level or quality. The matching Vaal variant can
+  replace an active gem, including its transfigured base skill. Equipment and maps retain the local corruption rules.
+  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
   [admission](../docs/re/vaal-coe.md).
 - **Eldritch Ichors.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ichor-coe.md).

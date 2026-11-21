@@ -311,8 +311,12 @@ public static partial class Game
         if (MapBossFights.Current.Unlock(CharacterName(conn), variety.Id) is { } stone)
         {
             if (stone.Flag.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, [stone.Flag]);
+            var stoneType = ItemsFor(conn).Find(stone.ItemId);
+            if (stoneType is not null
+                && QuestRewardCatalog.Load().Find(111)?.Choices.FirstOrDefault(c => c.ItemRow == stoneType.Row)?.RequiredLeagueFlag is int voidstoneLqf)
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, [voidstoneLqf]);
             await DropGroundItem(remote, stream, ciphers, conn, stone.ItemId, at, m.Label);
-            string name = ItemsFor(conn).Find(stone.ItemId)?.Name ?? stone.ItemId.Split('/')[^1];
+            string name = stoneType?.Name ?? stone.ItemId.Split('/')[^1];
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Atlas: {name} unlocked."),
                 $"0x0017 Voidstone slot {stone.Slot} from {m.Label}");
         }

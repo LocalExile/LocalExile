@@ -68,7 +68,7 @@ public static partial class Game
         ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, bool applyRowRules)
     {
         if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
-        if (talk.StartLeagueFlag is int startLeague)
+        if (!applyRowRules && talk.StartLeagueFlag is int startLeague && GameEvents.UsesNpcLeagueFlags(conn, npc.Npc))
         {
             bool has;
             lock (conn.Monsters) has = conn.LeagueQuestFlags.Contains(startLeague);
@@ -90,7 +90,7 @@ public static partial class Game
         {
             conn.InNpcTalk = true;
             conn.NpcFinishFlag = page.FinishFlag;
-            conn.NpcFinishLeagueFlag = page.FinishLeagueFlag;
+            conn.NpcFinishLeagueFlag = GameEvents.UsesNpcLeagueFlags(conn, npc.Npc) ? page.FinishLeagueFlag : null;
             conn.NpcTalkScript = EndsWithScript(page) ? page : null;
             await ApplyQuestConversationStart(remote, stream, ciphers, conn, npcId, npc, page, applyRowRules: false);
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(npcId, (byte)page.Index),

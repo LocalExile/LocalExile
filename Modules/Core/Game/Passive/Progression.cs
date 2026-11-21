@@ -1777,7 +1777,7 @@ public static partial class Game
             return;
         }
         conn.OfferedDescendancyRow = 0;
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy row {row} chosen");
+        await ChangeArea(remote, stream, ciphers, conn, AscendancyReload(conn), $"descendancy row {row} chosen");
     }
 
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an

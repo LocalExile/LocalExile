@@ -13,6 +13,8 @@ public class InstanceFixedMessageFramingTests
         { "00990100", 0x0099, 4 },
         // The standing channel update, seen as an unregistered 10-byte message while Winter Orb was held.
         { "01980000000400000000", 0x0198, 10 },
+        // Retarget an active held/channelled action onto an object (writer 0x140911210, sender 0x14011ecb0).
+        { "019300003001", 0x0193, 6 },
     };
 
     [Theory]

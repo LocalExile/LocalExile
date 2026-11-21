@@ -368,7 +368,7 @@ public static partial class Game
                 ? mods.Effects.AttackSeconds(swing,
                     NativeMonsterStat(nativeStats, "attack_speed_+%"),
                     NativeMonsterStat(nativeStats, "active_skill_attack_speed_+%_final"))
-            : mods.Effects.AttackSeconds(swing);
+            : mods.Effects.AttackSeconds(swing, spell);
         double cooldownSeconds = !kingActor && !brine && !atlas && summon is null && effect >= 0 && (rangedAttack || spell)
             ? catalog.CooldownMs(effect, catalog.MonsterEffectLevel(effect, level)) / 1000.0 : 0;
         var baseDamage = !kingActor && !brine && !atlas && spell
@@ -718,6 +718,10 @@ public static partial class Game
             conn.LaterFormPoints.Clear();
             foreach (var (row, cell) in laterForms)
                 if (Monsters.Find(row.ToString()) is { } form) conn.LaterFormPoints[form.Id] = cell;
+            foreach (var form in quests.FormPlacements(layout.Id))
+                if (points.FirstOrDefault(p => p.Name.Equals(form.BossPoint, StringComparison.OrdinalIgnoreCase)) is { } point
+                    && AreaPopulation.BossCell(point, walkable) is { } cell)
+                    conn.LaterFormPoints[form.Next] = cell;
             // Recipe arenas have no captured mapboss point: the held last boss forms next to arrival.
             if (MapBossFights.Current.PhaseOf(layout.Id) is { } phase && !conn.LaterFormPoints.ContainsKey(phase.Last))
                 conn.LaterFormPoints[phase.Last] = (layout.SpawnX + 8, layout.SpawnY);
@@ -850,6 +854,7 @@ public static partial class Game
         // action is already swinging), with the start of the frame the swing began in.
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, double BegunAt)> ArrivedSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, uint Target, SpawnedMonster Weapon)> WeaponSwings = [];
+        public readonly List<(uint Id, SpawnedMonster Monster, int Action, TotemState.Totem Totem)> DecoySwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster)> BossBars = [];
         public readonly List<PlayerMinions.Attack> MinionSwings = [];
         // What changed on the monsters' chill, freeze and shock (MonsterAilmentChangesLocked), sent before the orders.
@@ -900,6 +905,7 @@ public static partial class Game
             // Entry protection: hostile monsters neither chase nor swing while the player stands protected on the arrival cell.
             bool protectedEntry = InGracePeriod(conn);
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
+            var decoyChasers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, TotemState.Totem Totem)>();
             var bandit = BanditChoices.In(conn);
             bool banditHeld = bandit is not null && BanditChoices.Held(conn, bandit);
             foreach (var (id, m) in conn.Monsters)
@@ -931,7 +937,8 @@ public static partial class Game
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
-                if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
+                var decoy = DecoyTarget(m, now);
+                if (m.Hostile && decoy is null && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
                 // A boss's kit (BossKits): the skill that is ready and reaches the player, else its chase swing. Never
                 // while a swing or arrived lockstep walk-up swing still runs: the attack an order names must stay the one
                 // its hit is applied with, and switching skills must close any open melee walk-up so StepWalkUp never
@@ -949,7 +956,7 @@ public static partial class Game
                     m.BossBarShown = true;
                     plan.BossBars.Add((id, m));
                 }
-                else if (m.Aggro && !m.Fleeing && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a flee walk is not cut short; a minion keeps following
+                else if (decoy is null && m.Aggro && !m.Fleeing && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a flee walk is not cut short; a minion keeps following
                 {
                     m.Aggro = false;
                     m.SwingGeneration = null;
@@ -1032,7 +1039,8 @@ public static partial class Game
                 // A swing that has only just been ordered: the client's monster has not begun it while the player is out of
                 // reach, it walks after the player until it can (07 §5), so the chase goes on and the swing is off.
                 // A lockstep client needs no 0x1ac to begin, so it can't be called off: it would stand through the swing.
-                if (!conn.LockstepClient && m.Attack is { InPlace: false } ordered && m.SwingGeneration == m.ActionGeneration
+                // Nor is a swing at a Decoy Totem: the player's distance says nothing about it.
+                if (decoy is null && !conn.LockstepClient && m.Attack is { InPlace: false } ordered && m.SwingGeneration == m.ActionGeneration
                     && now - m.SwingOrderedAt < SwingOrderSeconds && d > ordered.Range)
                 {
                     m.BusyUntil = now;
@@ -1082,6 +1090,11 @@ public static partial class Game
                         plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, target.Approach, now),
                             target.Approach, $"minion chases monster 0x{target.Id:x}"));
                     }
+                    continue;
+                }
+                if (m.Hostile && decoy is { } targetDecoy)
+                {
+                    PlanDecoyTarget(conn, cadence, plan, id, m, targetDecoy.Source, now, (mx, my), decoyChasers);
                     continue;
                 }
                 if (PlanRampageWeaponTarget(conn, cadence, plan, id, m, now, (mx, my), d)) continue;
@@ -1237,17 +1250,20 @@ public static partial class Game
                     askers.Add((new(id, mx, my, LivingCollision.Size(m), m.LastTarget,
                         m.Attack?.Range ?? double.PositiveInfinity, !blockedShot && m.Attack?.Ranged == true), m, d));
             }
+            if (askers.Count == 0 && decoyChasers.Count == 0) return plan;
+            var fixedBlockers = blockers.FixedBlockers;
+            bool Standable(int x, int y, int size) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y))
+                && !GameServer.Core.World.ClientPathfinder.ObjectBlocks(fixedBlockers, x, y, size + 1, size + 4);
+            if (decoyChasers.Count > 0)
+                PlanDecoyChasesLocked(conn, cadence, plan, now, decoyChasers, blockers.Bodies, (px, py), Standable);
             if (askers.Count == 0) return plan;
             // Every other living body near the player keeps its place: the chasers' cells go around it.
             var asking = askers.Select(a => a.Asker.Id).ToHashSet();
             var occupied = blockers.Bodies.Where(b => !asking.Contains(b.Id)
                 && Math.Max(Math.Abs(b.X - px), Math.Abs(b.Y - py)) < 64).Select(b => (b.X, b.Y, b.Size));
-            var fixedBlockers = blockers.FixedBlockers;
             long surroundAt = System.Diagnostics.Stopwatch.GetTimestamp();
             long allocationAt = GC.GetAllocatedBytesForCurrentThread();
-            var slots = MonsterSurround.Assign(askers.Select(a => a.Asker), (px, py), occupied,
-                (x, y, size) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y))
-                    && !GameServer.Core.World.ClientPathfinder.ObjectBlocks(fixedBlockers, x, y, size + 1, size + 4));
+            var slots = MonsterSurround.Assign(askers.Select(a => a.Asker), (px, py), occupied, Standable);
             conn.Performance.Elapsed(LatencyPhase.Surround, surroundAt);
             conn.Performance.SurroundAllocation(GC.GetAllocatedBytesForCurrentThread() - allocationAt);
             foreach (var (asker, m, d) in askers)
@@ -1401,6 +1417,8 @@ public static partial class Game
             StartMinionSwing(remote, stream, ciphers, conn, attack);
         foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
             _ = RunPlannedRampageWeaponSwing(remote, stream, ciphers, conn, cadence, id, m, action, target, weapon);
+        foreach (var (id, m, action, totem) in plan.DecoySwings)
+            _ = RunDecoySwing(remote, stream, ciphers, conn, cadence, id, m, action, totem);
         conn.Performance.MaybeLog(remote);
     }
 
@@ -2298,9 +2316,10 @@ public static partial class Game
             hitDamage = hitDamage.Scale(1 + 0.1 * conn.KingPortentStacks);
         var rolled = gambler.RollIncomingHit(hitDamage, conn.IncomingHitRandom);
         rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out bool monsterCritical,
+            () => SelfCriticalReduction(conn),
+            now: now, cannotCrit: VaalOversoul.CannotCrit(m, a), additionalCritical: PlayerBrittleCriticalChance(conn, now),
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
-            () => SelfCriticalReduction(conn) - EnemyAuraStatLocked(conn, m, here, now, "base_critical_strike_multiplier_+"),
-            now: now, cannotCrit: VaalOversoul.CannotCrit(m, a), additionalCritical: PlayerBrittleCriticalChance(conn, now));   // its crit, Executioner's
+            extraCriticalMultiplier: () => EnemyAuraStatLocked(conn, m, here, now, "base_critical_strike_multiplier_+"));   // its crit, Executioner's
         // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
@@ -2321,8 +2340,10 @@ public static partial class Game
         var shifted = PlayerDamageTaken.Shift(rolled, StatOf);
         var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided, ElusiveAvoidPct(conn), projectile: a.Projectile is not null);
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
+        int elemPen = Math.Max(0, m.Effects["reduce_enemy_elemental_resistance_%"]);
         var mitigated = gambler.MitigateIncomingHit(taken, type =>
-            new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
+            new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type),
+                Penetration: type is DamageType.Fire or DamageType.Cold or DamageType.Lightning ? elemPen : 0), conn.IncomingHitRandom);
         var immune = PlayerImmunities(conn, stats);
         // This remains the original next RNG draw when the feature is absent. Blocking never
         // consumes an armour draw; one lazy decision is shared by the whole rolled packet.
