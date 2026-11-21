@@ -117,6 +117,7 @@ public sealed class MonsterEmerge(string folder = "data")
         bool waits = unrisen && kind != EmergeKind.None;
         if (waits && kind == EmergeKind.Buried) { conn.DormantMonsters[id] = m; return true; }
         conn.Monsters[id] = m;
+        Game.EnterChillingGroundLocked(conn, id, m, Game.ProjectileWorldTime(conn));
         if (waits)
         {
             m.BusyUntil = double.PositiveInfinity;
@@ -156,6 +157,7 @@ public sealed class MonsterEmerge(string folder = "data")
         {
             conn.DormantMonsters.Remove(id);
             conn.Monsters[id] = m;
+            Game.EnterChillingGroundLocked(conn, id, m, now);
         }
         foreach (uint id in g.Lurking.ToList())
         {

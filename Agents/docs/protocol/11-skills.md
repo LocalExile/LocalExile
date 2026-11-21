@@ -1445,7 +1445,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   distance and waits for each (`IceNovaRing`); once released, the ring no longer depends on the player's action.
   Ordinary Ice Nova with level-one Spell Echo starts one ring per animation replay. Three 3.29.3c casts
   had two ring starts apiece, 542–546 ms apart, with the remaining repeat count falling from one to zero.
-  None incremented the internal ring counter. Frostbolt casting remains unverified.
+  None incremented the internal ring counter. On 3.29.3c, the IceNova release (`0x141c02310`) selects the closest
+  owned FrostBolt actions within 100 grid cells of the target, up to `ice_nova_number_of_frost_bolts_to_cast_on`.
+  It starts them 100 ms apart and clears the cast replay counter. At each ring start (`0x141c02940`) it resolves the
+  same projectile's current cell. After a ring finishes, its next expansion starts 300 ms later (`0x141c02d48`).
+  These expansions use the gem's damage when cast on Frostbolt. Ordinary repeats apply to the caster-centred cast.
 - **Cast speed (#192).** Genuine Spell/non-Attack skills keep the catalog milliseconds in both
   `base_spell_cast_time_ms` and `virtual_base_spell_cast_time_ms`. The native spell action already divides that
   virtual base by `1 + cast_speed_+% / 100`; pre-dividing it on the server applied cast speed twice.
@@ -1492,8 +1496,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `SpellRepeats` sends the count with the skill and the server repeats its releases (`ScheduleGemProjectile`) and
   area hits (`LaunchProjectile`) a cast time apart, with the use's one cost and critical roll; a new action cancels the
   rest. The ordinary Ice Nova replay uses the same timing; see “Ice Nova's ring” above.
-  Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
-  at a moving target.
+  Greater Spell Echo scales spell hits and area with the repeat index. Awakened Spell Echo's double-damage chance
+  applies on the final repeat. Whether a repeat re-aims at a moving target remains open.
   Lockstep holds a repeated use through all casts; ordinary Fireball/Freezing Pulse cancellation uses the first
   cast's early window and the last repeat's late window ([07](07-latency-visibility-movement.md) §6).
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
@@ -1745,8 +1749,74 @@ the client drew it around the player. The client's own
 action does the same: for a self-targeted skill (target types 4 and 10) it replaces the aimed point with the caster
 unless `virtual_self_targeted_skills_target_location_instead` (0x2a6e) or `virtual_nova_spells_cast_at_marked_target`
 (0x5361) is set (`FUN_1419439e0`).
-Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed, and so do
-Novas without a self target (Dark Pact, Ice Nova of Frostbolts).
+Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed.
+Dark Pact also accepts a ground target to find skeletons. Ice Nova of Frostbolts and Vortex of Projection select
+Frostbolts around the aim first. Without a bolt, the Ice Nova and Vortex actions (3.29.3c, 0x141c02838 and
+0x141bc81e9) read 0x5361 on the skill, then `has_a_marked_target` (0x4106) and `marked_target_id` (0x5363)
+on the owner. An eligible actor at that id supplies its current cell. Otherwise the caster or cursor centre stands.
+Runegraft of the Novamark grants `nova_spells_cast_at_marked_target`. Its calculator (0x14289d270) requires that
+stat, `casting_spell` and `skill_is_nova_skill` to set 0x5361.
+For ordinary Shock Nova, NewShockNova (0x141d20bd0) reads cursor targeting before the mark on each hit.
+At contact its ring spans 14–26 cells. A child action (0x141d176e0) selects again 100 ms later for a 33-cell disc.
+The three radii use the skill's radius percentage. Both edges include the victim's positioned size (0x141d2542f).
+Shock Nova of Procession uses the same action with `skill_behaviour_variation` 1 and two built-in repeats.
+The first ring and disc each read the cursor, current marked actor or caster. At action start (0x141d17740)
+the cursor supplies a terrain-checked aim, a mark supplies the actor's cell, and an ordinary cast starts at the caster.
+With Novamark and no marked actor the action keeps the requested point for the repeat path.
+The step is half the initial scaled disc radius. A distant start rounds each normalized vector component with
+`floor(x + 0.5)`. A caster-centred start takes the floored components of the actor's facing vector.
+At each animation restart (0x141d17af0) the action adds the saved step to its last accepted cell, then traces
+from the current caster. A zero in the projectile grid ends the trace. The last cell with walk layer 0 of at
+least one supplies the new centre. Both hits of that repeat use the saved cell, including after a mark moves.
+For a coincident aim the turn at `0x141e355a0` leaves Positioned rotation unchanged. The facing getter
+(`0x14015d790`) returns `(sin(angle), -cos(angle))`. An ordinary directed Procession can turn first.
+Cursor and Novamark placement preserve facing. The Gateway seeds rotation from player creation and retains
+it across walks and stops. Default attacks turn toward their target. Isolated paid Procession casts aimed
+east or west and then at the caster repeat in that previous direction.
+
+Manual Fireball, Spark, Freezing Pulse and Frostbolt share the projectile action start at `0x141ba58f0`
+(3.29.3c). When aim and source occupy the same grid cell and `projectiles_rain` is clear, it draws an angle
+from `[sequence, derived byte, chain count, outer repeats remaining, owner ID]`. The root action has zero
+derived byte and chain count. It adds the truncated components of `60 * (sin(angle), cos(angle))` to the
+source and stores that point before applying the facing gates. Targeting the player's own object skips the
+turn but still sets the projectile aim. Spell Echo restarts from the saved point with one fewer repeat when
+`spell_repeat_count_target_search_range` is zero, as on the four ordinary gems linked to level-one Spell Echo.
+A nonzero range lets the spell start (`0x1419e71c0`) search for a target before the common projectile action starts.
+For an object action, the input reader `0x14193e340` stores the resolved target's current grid. The ordinary
+contact event (`0x9b8d`) uses the stored aim. If the caster now occupies that cell, release preparation
+(`0x141ba7eb7..0x141ba7f8b`) draws with the current outer repeat count and writes back the new point.
+This release does not turn the actor. Subsequent Unleash contacts and Spell Echo starts see the updated aim.
+In loopback, a paid Lightning Warp lands on a moving enemy's original cell during Fireball windup. Both
+Fireballs then fly toward the point picked at the first contact. The four action classes' target-update slot
+(`+0x110`) is empty. A separate animation event (`0xc4a5`, base handler `0x141942838`) can refresh the aim
+from a bound target. Across the seven base player rigs, the `SpellProjectile` and `SpellProjectileUpward`
+ACT pools have only `contact` (`0x9b8d`) and, where present, `lock_cancelling` (`0xb566`) on the actor.
+The four stock gems leave `GrantedEffects.Animation` empty. Their ordinary client starts pass Animation.dat
+row 24 for Fireball (`0x1413e1c01`), 26 for Spark (`0x141248071`), and 25 for both cold spells
+(`0x141247151`). In the absence of a rain, barrage or granted-effect override, `0x14193e130` keeps that row.
+Each elemental role aliases `SpellProjectile` in the seven base character ACTs. Each stance declares or inherits
+one unqualified clip. The Marauder's bow contacts at 533 of 1000 ms and his wand at 366 of 766 ms. A Ranger
+with a wand uses `spell_projectile_unarmed`. The Templar's wand and wand/shield roles lock at 697 of 900 ms,
+even though the rig also has a `spell_projectile_wand` clip without a lock. The Witch's staff adds two
+`variation=1` candidates. The three elemental rows have no `Animation.Stat`. The ACT loader resolves
+`@SpellProjectile` to row 20 and retains it on the alias (`0x141da5f8a`, `0x141da2fe0`). When the requested
+row lacks a stat, `0x141e9f2a0` looks up the alias row's `animation_variation_spell_projectile`. Both duration
+and rate selectors compare that value with each candidate's variation. The Witch's Elemental Staff skin gives 1
+while the selected hand holds a usable staff or warstaff ([cosmetic eligibility](23-microtransactions.md) §3).
+Both eligible clips contact at 599 of 1066 ms without a cancellation lock.
+The ordinary staff clip has the same contact and locks until 754 ms. These ACT roles also name 25 distinct
+locked effect clips. Across their authored timelines there are four `contact` events and one `endtrl`.
+The Auspicious effect uses the first 1000 ms of `animate` through the `animate_01` view, with no named event.
+The standard-event reader (`0x141db8120`) hashes the case-sensitive name before `#` (`0x141db7cb0`) and
+stores the 16-bit code the action reads. Across the packaged rig clips and animated-object standard events,
+no name maps to `0xc4a5`. The 25 effect clips register particles, sounds, trails and wind through a separate
+path (`0x141db1d97`). Their particle and trail definitions reference materials and fixed meshes.
+A runtime source of the target-refresh event on these casts remains unverified.
+
+The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
+Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
+Ice Nova can use a reserved bolt. GroundEffectTypes `Maelstorm` has its own art variation and the buff
+`ground_maelstrom_chill`. The cast uses `vortex_explode` in MiscAnimatedArtVariations.
 0x2a6e is `casting_spell` AND `skill_is_nova_skill` (0x2a6c) AND the caster's `nova_spells_cast_at_target_location`
 (0x2a6d) (`FUN_14289d210`, registered by `FUN_1400dc6c0`), and the skill input handler `FUN_140121a30` reads it for the
 skill it builds a use for.
@@ -1876,6 +1946,7 @@ The 0x197 updates are dropped while the player is blocked, so an interruption lo
 **Storm Call** (`StormCall.cs`, `StormCallMarkers.cs`): each landing (the aim, a Spell Cascade area, a Spell Echo
 repeat) sets a marker that strikes its area when the skill duration ends, and that strike also calls down every other
 marker out; quality's chance strikes a new marker on cast. Marker and impact are server art from the worn skin.
+The idle marker keeps its asset size and the lightning impact scales to the hit radius at detonation.
 
 **Multi-strike** (`SkillMultiStrike.cs`, `GemAttackStrikeGap`): a gem attack whose StatSet carries
 `base_skill_number_of_additional_hits` repeats its whole sweep once per extra strike (Double Strike: 1). Each strike
@@ -1925,8 +1996,8 @@ list faulted (`0xc0000005` at offset `0x17b6067`). Three entries (first form, no
 
 **Dark Bargain**: at the cast's contact it explodes at the player's skeleton nearest the aim (else the player), paying
 12% of its maximum life (never the last point) as added base chaos damage, then chains to the nearest unused skeletons;
-with none in reach the player pays 12% of maximum life for 56% more damage. Radius 26, the default art scaled to it;
-the seek and chain ranges are estimates.
+with none in reach the player pays 12% of maximum life for 56% more damage. Each explosion uses its cast's repeat
+index. The default art scales to the effective blast radius (base 26). The seek and chain ranges are estimates.
 
 ## 10. Projectiles (experimental)
 
@@ -1967,8 +2038,10 @@ These observations describe those supplied ordinary-attack inputs.
 
 
 **Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
-ActionTypes `HASH16` (Fireball 0xaa4e, factory `0x141283b40`, vtable `0x143451950`; Spark 0x7859, constructor
-`0x141b37e20`, vtable `0x1435172b0`). Both derive from the projectile action (base vtable `0x1432452e8`) whose slot
+ActionTypes `HASH16`. Startup registers the base actions at `0x1400fee31` and the client actions at `0x1400fee36`.
+The client factories for ordinary Fireball (0xaa4e, `0x14128fd80`) and Spark (0x7859, `0x1412be410`)
+install final tables `0x143345fb0` and `0x143245f88` after construction. Factory `0x141283b40` is registered as
+`SynthesisTurretChargeProjectile` (0xe2ce). Both player spells derive from the projectile action (base vtable `0x1432452e8`) whose slot
 0x618, `0x141bb3e30`, fires the volley: it reads `number_of_additional_projectiles` and creates each projectile as a
 client object (`0x141ec47e0`, type from Projectiles.dat). Spark's slot 0x618 (`0x141b38e30`) only adjusts the count and
 calls it, so Spark's sparks are predicted like Fireball's: the server must not send them. Spark's own overrides make
@@ -2018,7 +2091,7 @@ max(min(atan(k × width / aim distance), min(2π, k × 120°) / (n − 1)), 0.14
 `total_projectile_spread_angle_override` world units, else 60 (fitted to 175 live Spark volleys). A fixed spread
 replaces that step with max(fixed, 0)° / (n − 1): it is −1, so no spread, with `projectile_remove_default_spread`, else
 `fixed_projectile_spread`. The Gateway spreads every client-predicted spell this way (`ProjectileNativeVolley`,
-`ClientDrawnVolley`); parallel is not ported yet and keeps the server's own fan.
+`ClientDrawnVolley`). The [Volley support layout](25-gem-supports.md#parallel-firing-points) spreads each firing point separately.
 
 Random directions: the setup fills a six-word key when the release asks for it (the plain release `0x141bb6a10` does)
 and `random_projectile_direction` is set: [sequence `+0x11a`, `+0x11c`, `+0x2d0`, `+0x458`, the owner's `+0x88`, slot
@@ -2099,7 +2172,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
 - **Returning projectiles.** A projectile whose stats allow it (`projectiles_return`, `attack_projectiles_return`,
   `projectile_return_%_chance`; `skill_projectiles_cannot_return` forbids) returns
   from a target/terrain collision or from maximum distance (Freezing Pulse only from a collision), flies back to the
-  caster and 15 m (150 cells) past them, and is then removed (`returned_projectile_speed_+%`). Only one return per projectile; Spark and the other self-moving/rain/tornado
+  caster and 15 m (150 cells) past them, and is then removed. In 3.29.3c the speed getter (`0x141bb6080`)
+  adds `returned_projectile_speed_+%` to the selected integer arrow or projectile speed on the return leg.
+  The final modifier has a lower bound of −99%. Only one return per projectile; Spark and the other self-moving/rain/tornado
   secondary projectiles cannot return; Fireball explodes after the return. The return leg damages every monster along
   it except the one it returned from, with Returning Projectiles Support's less Damage
   (`support_return_returning_projectiles_damage_+%_final`), and `returning_projectiles_always_pierce` lets it hit all
@@ -2149,15 +2224,21 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   quality: +40% at quality 20 adds to a player's +30%, giving 1.7 times table speed.
   The additive formula follows PoB's [ProjectileSpeed calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L1152)
   and [modifier formula](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcTools.lua#L16),
-  restricted here to additive increases/reductions. One resolved speed drives collision prediction, 0x1ba's
+  for additive increases and reductions. The 3.29.3c selected projectile and arrow callbacks
+  (`0x142714fe0` and `0x142715450`) apply the final speed factor to the ordinary increase, round the signed
+  modifier to the nearest integer with ties away from zero, then clamp at −99%. The arrow view includes
+  `base_arrow_speed_+%` before that calculation. Their shared final stat (`0x1427149b0`) multiplies the
+  Slower Projectiles factor, the active skill's own `active_skill_projectile_speed_+%_final`, and the separate
+  more and less Projectile Mastery factors before rounding to a signed integer. Ethereal Knives quality supplies
+  that skill-local factor at 1% per quality. Returning speed is added afterwards.
+  One resolved speed drives collision prediction, 0x1ba's
   duration and the server's flight delay. A finite positive `Game_PROJECTILE_SPEED` still overrides the result
   in cells/second. Invalid overrides fall back to the modified table speed. Finite positive overrides, including
   0.001 cells/second, are preserved when their flight duration is representable. Only a nonpositive speed or a
   flight exceeding [.NET's maximum Task.Delay duration](https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.task.delay?view=net-10.0)
   (4,294,967,294 ms) gets a distance-dependent lower speed bound, before collision prediction. The bound includes
   endpoint rounding and is a numeric guard, not a measured official minimum speed.
-  More/less modifiers, conditional and per-charge speed, support-gem application and special projectile speed
-  rules remain unimplemented.
+  Other final factors, conditional and per-charge sources, and action-specific variation still need their own verification.
   Live validation used a copied OfflineWitch database and three Fireball casts over the same 116-cell path.
   At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads
   carried durations 1.212375/0.606187/2.424749 seconds. Before the patch, both 0 and +100% used 95.7 cells per second.
@@ -2432,7 +2513,18 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   These observations establish projectile and impact behavior; the later captures above verify variant selection.
 - **Rows the name rules miss** (`SkillCatalog.ProjectileFallbacks`): Tornado Shot fires `TornadoShotArrow`, Split
   Arrow `SplitArrowDefault`, Kinetic Bolt `ZigZagWandProjectile` and Ice Shot `IceArrow`; before, every use was
-  refused and the server walked on while the client stopped. Ice Shot's cone splash is not modelled.
+  refused and the server walked on while the client stopped.
+- **Ordinary Ice Shot impact.** The primary arrow converts 60% of physical damage to cold. The gem describes
+  a separate fully converted cone behind the struck target. The cone excludes the object actually struck, even
+  when the player aimed at another monster beyond it. [GGG's explanation](https://www.pathofexile.com/forum/view-thread/1110694/page/1#p9378267)
+  The 3.29.3c Ice Shot action takes the impact cell from the struck object when present and orients the effect
+  from the start of the current projectile leg. Its impact reader (`0x141332e40`) selects one of three art rows
+  from `skill_area_angle_+%`: up to 15, 16–45, or above 45. Gem quality supplies four points per quality.
+  `ActiveSkills.ice_shot` maps the helmet's `ice_shot_area_angle_+%` to the same stat and `ice_shot_radius_+%`
+  to increased area. The latter scales the base radius of 24 through the usual area formula. On the local Gateway,
+  a quality-4 gem with the 30% angle enchant publishes 46, and the 24% area enchant alone publishes radius 26.
+  The three art tiers establish visual selection. The damage aperture, edge admission, overlaps on piercing
+  contacts and live rendering remain open in [#925](https://github.com/LocalExile/LocalExile/issues/925).
 - **Lightning Arrow**: each hit calls secondary strikes on up to 3 nearby enemies within 18 cells (`ContactTargets`,
   `lightning_arrow_maximum_number_of_extra_targets`), scaled by area of effect.
 - **Rolling Magma**: its base radius 14 and the 16 cells between impacts are estimates, not read from the client; its
@@ -2440,22 +2532,29 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
 - **Tornado Shot's secondaries**: each primary arrow pierces its contacts and emits three `TornadoShotSecondaryArrow`
   flights at its endpoint, spaced around the client's terminal RNG ray
   ([geometry](../re/projectiles/tornado-geometry.md)). The client predicts the primary and secondary arrows itself, so
-  the server hides both and only simulates damage; one secondary per set can hit an enemy, and the children keep
-  support Pierce/Fork/Chain. Their range uses the client's 0.3 s secondary action lifetime, so projectile speed scales
-  it, and Point Blank / Far Shot distance includes the primary leg.
+  the server hides both and simulates their hits. Each group has fresh target history, shared by default. Children
+  keep support Pierce/Fork/Chain. If the primary has returned, its children start on their radial paths in the
+  return phase. The 3.29.3c emitter calls the same copy slot for the template and each child, retaining the
+  returning byte at `+0x461`. The speed getter reads that byte before selecting `returned_projectile_speed_+%`.
+  Each secondary has its own 0.3 s lifetime. Point Blank / Far Shot distance includes the primary leg.
 - **Bow arrow counts**: `number_of_additional_arrows` and
   `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` add primary arrows on top of the generic
   projectile additions, only for a real bow (not wand, spell or melee projectiles); the selected-skill panel publishes
-  the arrow total.
+  the arrow total. Ordinary Toxic Rain, Rain of Arrows and Blast Rain publish the same projectile and arrow
+  totals they use for their landings. Each helmet enchantment for additional Toxic Rain arrows or Spark
+  projectiles has an item-local stat that names the receiving skills in `Stats.BelongsActiveSkillsKey`.
+  Equipment supplies that named input to the active skill, which adds it to its projectile count.
+  The Split Arrow helmets supply `split_arrow_num_of_additional_projectiles` through equipped stats.
+  Split Arrow adds that value to its arrows. Split Arrow of Splitting fires one arrow and adds the value
+  to its split targets, which the panel publishes as `virtual_projectile_number_to_split`.
 - **Kinetic Bolt** (`KineticBoltLegs.cs`): `virtual_projectiles_cannot_fork = 1` turns forks into zig-zags, and the
   record carries `kinetic_bolt_number_of_zig_zags`. A primary bolt travels 15 cells, then alternates ±45 deg (10 cells)
   and ±90 deg (20 cells) at a leg's end, a non-evaded hit or a wall, without spending Pierce/Chain/Return, emitting
   `ZigZagSecondaryWandProjectile` with shared hit history (`HidePredictedVisual = true` when the client predicts it);
   the remaining Pierce/Chain/Return resume afterwards.
 - **Attack and projectile speed.** Gem attacks use the supported attack speed (gem and support stats plus the GEPL
-  inherent multiplier) for both admission and the swing interval, not `SkillAttackSeconds`. Projectile speed adds the
-  player's `projectile_speed_+%` to the skill's `base_projectile_speed_+%`; the final speed is rounded to an integer
-  before the flight duration.
+  inherent multiplier) for both admission and the swing interval, not `SkillAttackSeconds`. Projectile flight uses the
+  selected speed modifier above. Descriptor speed and the final conversion to cells per second use single precision.
 - **Still wrong.** Without a surface-height model the projectile uses the captured terrain height; on a platform or
   doodad (which the terrain grid does not include) it spawns below the player (issue #182). The direction floats of
   Positioned's f1 0x04 block are not used; sending (dx, dy, 0, 0) put the fireball under the ground, so the Gateway no
@@ -2863,8 +2962,28 @@ A triggered trap or mine whose skill is a projectile spell releases it from the 
 It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
 A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
-One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
-(250) after the one before, at 10% more detonation speed per mine already in the sequence.
+One Detonate Mines use queues eligible mines in arming order. The first goes off at once, each later one
+`base_mine_detonation_time_ms` (250) after the one before, at 10% more detonation speed per mine already in the sequence.
+The 3.29.3c throw action (`0x141963f10`) reads `support_locus_mine_throw_mines_in_an_arc` for a multi-mine use.
+It spreads the cells evenly across 100° around the throw direction, at the aim distance or 20 cells, whichever is greater.
+The direction uses the centre of the displacement cell. PlayerClass base ID 5 (Templar) reverses the release order.
+For each mine it rounds the endpoint and projects it onto the segment from the thrower to the cursor.
+A sideways sweep keeps the last walkable cell visible from the thrower. If none qualifies, a second sweep starts
+at the thrower. Both stop at a projectile-blocking cell. A single mine keeps the ordinary aimed cell.
+The 3.29.3c gem stat `support_locus_mine_mines_always_target_your_location` gives a Locus mine the owner's location
+as its target. The Gateway samples that cell for each detonation and uses it for both the mine's action and the skill's
+aim. Power Siphon still selects its own visible enemies from the mine.
+The 3.29.3c total-projectile and total-arrow callbacks truncate after applying the skill and Locus final percentages
+to the base plus additions. Arrow split clamps before subtracting the original arrow. Wand split and Kinetic Blast
+of Clustering subtract the original shot before clamping. The cluster count starts at the gem's blast count plus one.
+See [count inputs](../re/projectiles/count-stat-inputs.md#4-total-counts-4b4b4b4c) and
+[split conversions](../re/projectiles/continuation-stat-inputs.md#3-arrow-split-raw-branch-and-projectile-count-conversion).
+Locus Mine Support stores `support_locus_mine_cannot_detonate_mines_within_X_units = 30` on its mines (3.29.3c).
+The 3.29.3c gem text bars detonation within three metres of the owner. The Gateway includes the boundary in this radius
+and uses the owner's current cell for the Actor availability bit, admission and detonation. A mine that is too close
+when its queued turn arrives stays armed for a later press. An expired mine cannot start a cooldown or extend the sequence.
+Check exact equality, moving across the edge during a sequence
+and Skitterbot activation against a graphical client.
 Held cadence was 5/6 of the computed throw time for both kinds (0.39 s against 0.45 s, 0.246 s against 0.275 s).
 
 ## 10i. Warcry release: timing and release effects
@@ -3156,6 +3275,12 @@ failed I/O, allocation limits, actual official values and every skill's successf
   `spell_damage_modifiers_apply_to_skill_dot`, so the enemy burn takes increased area, fire, elemental and DoT damage but
   not spell damage (as PoB); DoT multipliers add together, and linked supports' more factors multiply. Lifetap and
   Inspiration count only for the part of a tick while their buff or charges are active. Nothing outgoing scales the self-burn.
+  The server settles enemy and self-burn through the instant the gem is removed or replaced, or its host leaves active
+  equipment. This includes taking off or stashing the item, equipping a replacement and switching weapon sets.
+  Removing gear that supplies required attributes can disable a still-equipped host or its gem. The final interval uses
+  the old links, nearby monsters and player defences. Restoring those attributes makes the skill available to cast again.
+  Promoting the same weapon from off hand to main hand or changing the gem's art preserves the running burn.
+  Native timing and rounding await a client check.
   **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +
@@ -3206,7 +3331,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   unverified ([Polytheist](../game/polytheist.md)).
 - **A worn Righteous Fire effect** (its `skill_art_variation`, [23](23-microtransactions.md) §3) swaps both buffs'
   visuals through 0x1c1's BuffVisuals override and the ring's AO (`SkillArt`), also on the enemies' aura; NoRing
-  draws no ring. A pick while the fire burns lights it again with the new art (casting again while it burns does
+  draws no ring. A pick while the fire burns refreshes its art (casting again while it burns does
   nothing, so before 2026-10-23 a pick showed only after the fire ended).
 - **Righteous Fire's orbs** (MiscAnimated `RighteousFireOrb`) belong on bones and are not sent.
 - **The big burning circle** is not a buff visual: it is MiscAnimated `RighteousFireRing`

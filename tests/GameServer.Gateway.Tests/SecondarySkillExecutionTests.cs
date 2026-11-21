@@ -84,6 +84,12 @@ public sealed class SecondarySkillExecutionTests
         Assert.Equal(120,Game.MonsterTakesMitigated(victim,packet,false,2));
         Assert.Equal(145,Game.MonsterTakesTrapOrMineHit(victim,packet,false,2));
         Assert.Equal(120,Game.MonsterTakesTrapOrMineHit(victim,packet,false,5.5));
+        // The trap debuff adds to the target's cold damage taken on trap or mine hits.
+        victim.Mods = MonsterModSet.None with { Effects = new(new Dictionary<string, int> { ["cold_damage_taken_+%"] = 10 }) };
+        var cold = DamagePacket.Of(DamageType.Cold, 100, 100);
+        Assert.Equal(130, Game.MonsterTakesMitigated(victim, cold, false, 2));
+        Assert.Equal(155, Game.MonsterTakesTrapOrMineHit(victim, cold, false, 2));
+        Assert.Equal(130, Game.MonsterTakesTrapOrMineHit(victim, cold, false, 5.5));
         victim.Ignites.Add(1, 1, 6);
         Game.InflictedLocked(f.Conn, victim, Game.AilmentType.Ignite, 7);
         Game.KeepPerAilmentTypeTakenLocked(f.Conn, victim, 10);

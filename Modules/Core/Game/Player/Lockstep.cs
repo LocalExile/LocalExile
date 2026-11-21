@@ -80,6 +80,7 @@ public static partial class Game
     public static bool LockstepPlayerFree(ClientState conn, double at)
     {
         if (!MeleeRepeatAllowsMove(conn, at)) return false;
+        if (BarrageAllowsMove(conn, at) is bool barrage) return barrage;
         if (at >= conn.LockstepBusyUntil) return true;
         if (!conn.LockstepClient || conn.LockstepCastWindow is not { } cast) return false;
         if (conn.LockstepHold.Active)
@@ -346,7 +347,7 @@ public static partial class Game
         double start = spell ? frameStart : conn.LockstepFrame?.End ?? at;
         double hold = LockstepActionHold(conn, requested, sequence);
         conn.LockstepBusyUntil = start + hold;
-        if (spell) conn.LockstepCastWindow = LockstepSpellMoveWindow(conn, requested, gem.Effect, start, hold);
+        if (spell) conn.LockstepCastWindow = LockstepSpellMoveWindow(conn, requested, gem.Effect, sequence, start, hold);
     }
 
     // Whether a held skill is an attack (the default attack or an attack gem): its uses share the attack timer.
@@ -366,18 +367,21 @@ public static partial class Game
             // The repeat counter restarts the same action (0x1419e6370); hold through every cast, not just its first.
             // Reuse the cast path's skill-specific speed and action speed; a refused cast holds no action.
             if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
-                return (SpellTimingFor(conn, gem.Effect, skill)?.DurationSeconds ?? 0)
-                    * (1d + SpellRepeats(conn, skill, gem.Effect)) / PlayerActionFactor(conn);
+                return (SpellActionSeconds(conn, gem.Effect, skill) ?? 0) * (1d + SpellRepeats(conn, skill, gem.Effect));
             if (!SkillsFor(conn).IsAttack(gem.Effect)) return SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
         }
         return LockstepAttackCutIn(conn, skill, sequence) + conn.LockstepActionTail;
     }
 
-    static GameServer.Core.World.LockstepCastWindow? LockstepSpellMoveWindow(ClientState conn, ushort skill, int effect, double start, double duration)
+    static GameServer.Core.World.LockstepCastWindow? LockstepSpellMoveWindow(ClientState conn, ushort skill, int effect,
+        ushort sequence, double start, double duration)
     {
-        // These projectile actions share the clip gate (0x141942b50). Ordinary repeats allow its early window only
+        // Keep the full animation hold until the cast contact decides whether the projectiles take its repeats.
+        if (SkillsFor(conn).EffectId(effect) == "IceNovaAltX" && duration > 0)
+            return new(start, duration, null, duration, IceNovaRing.Action);
+        // These four gems share the projectile cancellation gate (0x141bad750). Ordinary repeats allow its early window only
         // on the first cast and its late window only on the final cast (0x1419e6460).
-        if (SkillsFor(conn).EffectId(effect) is not ("Fireball" or "FreezingPulse") || duration <= 0) return null;
+        if (!UsesElementalProjectileCast(SkillsFor(conn).EffectId(effect)) || duration <= 0) return null;
         int repeats = SpellRepeats(conn, skill, effect);
         var own = SupportedStats(conn, skill);
         bool Has(string name) => Stats.Key(name) is uint key && own.GetValueOrDefault(key) != 0;
@@ -386,14 +390,29 @@ public static partial class Game
             || Has("multistrike_damage_+%_final_on_second_repeat"))) return null;
         bool cannotCancelBeforeContact = Has("cannot_cancel_skill_before_contact_point");
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var window = Animations.SpellMoveWindow(ao, AnimationWeaponProfileFor(conn), CastAnimationKind.Projectile,
-            start, duration / (1d + repeats), cannotCancelBeforeContact);
+        double single = duration / (1d + repeats);
+        var clip = PlayerProjectileCastClip(conn, own);
+        var window = clip is { } actor ? actor.SpellMoveWindow(start, single, cannotCancelBeforeContact)
+            : Animations.SpellMoveWindow(ao, AnimationWeaponProfileFor(conn), CastAnimationKind.Projectile,
+                start, single, cannotCancelBeforeContact);
         return window is { } cast ? cast with
         {
             Duration = duration,
             LateFrom = duration - cast.Duration + cast.LateFrom,
             ActionHash = SkillsFor(conn).ActionHash(effect),
+            Contact = clip is { } selected ? new(skill, effect, sequence, start, single, selected.ContactFraction, repeats) : null,
         } : null;
+    }
+
+    // Once Frostbolts take the repeats, the caster finishes the current animation. Keep its original frame anchor.
+    internal static void ReleaseFrostboltNovaRepeats(ClientState conn, ushort sequence, int repeats, int repeat)
+    {
+        if (repeat == repeats || !conn.LockstepClient || sequence != (0x8000 | conn.LockstepSequence)
+            || conn.LockstepCastWindow is not { ActionHash: IceNovaRing.Action } window
+            || conn.LockstepBusyUntil != window.Start + window.Duration) return;
+        double duration = window.Duration * (repeat + 1) / (repeats + 1);
+        conn.LockstepBusyUntil = window.Start + duration;
+        conn.LockstepCastWindow = window with { Duration = duration, LateFrom = duration };
     }
 
     // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).
@@ -428,9 +447,13 @@ public static partial class Game
     public static void LockstepAttackSwings(ClientState conn, LockstepAttack attack, double start, double end)
     {
         conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil, end + attack.Hold());
+        var stand = conn.Walk.Destination;
         if (attack.GroundAttackSeconds is { } seconds)
+        {
+            FacePlayerAction(conn, stand, attack.GroundTarget, start, CharacterPlayerStats(conn));
             conn.NextAttackAt = AttackTiming.After(start, conn.NextAttackAt, seconds());
-        attack.Swings(start, end, conn.Walk.Destination);
+        }
+        attack.Swings(start, end, stand);
     }
 
     // The attack is over, swung or not: nothing more holds the held skill's next use.

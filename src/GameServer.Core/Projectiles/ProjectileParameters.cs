@@ -23,7 +23,11 @@ public sealed record ProjectileModifiers
 
 public static class ProjectileParameters
 {
-    public static ProjectileProfile Resolve(ProjectileProfile profile, ProjectileModifiers modifiers)
+    public static ProjectileProfile Resolve(ProjectileProfile profile, ProjectileModifiers modifiers) =>
+        Resolve(profile, modifiers, null);
+
+    public static ProjectileProfile Resolve(ProjectileProfile profile, ProjectileModifiers modifiers,
+        Func<int, int>? finalCount)
     {
         if (modifiers.ExclusiveConversions.Distinct(StringComparer.Ordinal).Skip(1).Any())
             throw new InvalidOperationException("Conflicting projectile conversions: "
@@ -42,7 +46,11 @@ public static class ProjectileParameters
             CannotSplit = profile.CannotSplit || modifiers.CannotSplit,
             CannotReturn = profile.CannotReturn || modifiers.CannotReturn
         };
-        int Count(int n) => Math.Clamp(n + modifiers.ExtraProjectiles, 1, 256);
+        int Count(int basis)
+        {
+            int total = basis + modifiers.ExtraProjectiles;
+            return Math.Clamp(finalCount?.Invoke(total) ?? total, 1, 256);
+        }
         return profile.CountConsumer switch
         {
             ProjectileCountConsumer.Primary => p with { Count = Count(p.Count) },

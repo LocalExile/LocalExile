@@ -406,7 +406,15 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool Fleeing;
     public (int X, int Y)? FleeTo;
     public string Label => label;
-    public PlayerWalk Walk { get; set; } = walk;
+    public PlayerWalk Walk
+    {
+        get => walk;
+        set
+        {
+            Ailments.RebindGroundWalk(walk, value);
+            walk = value;
+        }
+    }
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; set; } = maxLife;
@@ -521,6 +529,8 @@ public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? ta
 // enemies and to the player), its current radius in cells, and the aura buff instance on each monster inside it.
 public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Skill, int DamagePctPerMinute, int BurnPctPerMinute)
 {
+    /// <summary>The area time when this source started burning.</summary>
+    public double StartedAt { get; init; }
     /// <summary>The current ring object, replaced in place when the retained fire's radius changes.</summary>
     public uint? Ring { get; set; }
     /// <summary>The retained fire's current radius in cells.</summary>
@@ -1300,6 +1310,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The instance's (InstanceWorld.Monsters, also the instance's lock): every connection in it sees and hits the same ones.
     public SortedDictionary<uint, SpawnedMonster> Monsters => Instance?.World.Monsters ?? ownMonsters;
     readonly SortedDictionary<uint, SpawnedMonster> ownMonsters = [];
+    public HashSet<ClientState> ChillingTrailCasters => Instance?.World.ChillingTrailCasters ?? (ownChillingTrailCasters ??= []);
+    HashSet<ClientState>? ownChillingTrailCasters;
     /// <summary>Created, untargetable monsters shared by the instance. Their native bodies exist before emergence.
     /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
     public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;

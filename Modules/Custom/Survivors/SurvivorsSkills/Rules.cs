@@ -935,10 +935,12 @@ static partial class SurvivorsSkills
         int baseSpeed = SkillsFor(conn).Projectile(definition.Metadata)?.Speed ?? 1000;
         // Riptide's Projectiles row is a 10-unit placeholder: a projectile that slow cannot cross a cell.
         if (baseSpeed < 100) baseSpeed = 800;
-        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Get, Get,
-            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        bool arrows = ArrowsFor(conn, skill.Effect);
+        int speedPercent = ProjectileSpeed.EffectivePercent(playerKeys, name => skillStats.GetValueOrDefault(name), arrows);
+        merged[ProjectileSpeed.ModifierStat(arrows)] = speedPercent;
+        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, speedPercent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0) return null;
-        var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, skill.Effect));
+        var profile = definition.Parameters.Resolve(Get, speed, arrows);
         profile = SurvivorsMechanics(skill, Get, profile, spell);
         int count = Math.Clamp(profile.Count, 1, 32);
         // PoB's calcRadius: increased area grows the radius by its square root, never linearly.

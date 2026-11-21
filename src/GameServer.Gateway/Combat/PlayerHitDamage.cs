@@ -107,7 +107,7 @@ public static class PlayerHitDamage
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 
-    static double SpellMore(Func<string, int> get, DamageTypeHistory history) =>
+    public static double SpellMore(Func<string, int> get, DamageTypeHistory history) =>
         Math.Max(0, 1 + get("spell_damage_aura_spell_damage_+%_final") / 100.0)
         * Math.Max(0, 1 + get("righteous_fire_spell_damage_+%_final") / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.

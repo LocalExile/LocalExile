@@ -88,6 +88,13 @@ dress slot 1 and the off hand's (4 to 6) the worn quiver in slot 7: a quiver ski
 `ItemClasses` Quiver (seen live 2026-11-12, Dragon Hunter Quiver).
 
 **Stats.** The worn cosmetics' stats join the player's (0x1b3 and the player object).
+In 3.29.3c the cosmetic picker checks equipment requirements, the effect's character list and the item's
+class (`0x1424f2440`, `0x1424e3350`, `0x1424e3120`). Elemental Staff row 3013 lists the Witch and the
+Staff and Warstaff classes. With the pick saved, switching to a wand sends zero for its projectile cast
+variation in 0x1b3. Switching back sends one again. The saved pick stays in 0x1f3 through both changes.
+The picker resolves the physical item through MicrotransactionSlot.InventorySlot (`0x140cdfc40`). Weapon Skin
+slots 1 and 4 name the two hands. Rows 36, 39, 42 and 45 have no item in this lookup. Picking or clearing
+the skin also refreshes the player’s Actor skill list (0x2bc), even when the weapon stays equipped.
 
 **Derived stats.** The client keeps a calculator for every derived stat but runs none for a player the server
 describes: it shows what it is sent ([04](04-player-entity.md) §4.1a). Of the 365 stats ItemisedVisualEffect rows give,

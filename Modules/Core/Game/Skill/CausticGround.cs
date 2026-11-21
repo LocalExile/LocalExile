@@ -126,7 +126,7 @@ public static partial class Game
                     string ao = order[next++ % order.Length];
                     var clips = GroundClips(ao);
                     Effect((int)Math.Round(centre.X + offset.X), (int)Math.Round(centre.Y + offset.Y), ao,
-                        ProjectileRuntime.Time(duration), size, artRadius: art.PieceRadius, rotation: turn,
+                        ProjectileRuntime.Time(duration), size, artRadius: Art.ArtRadius(ao) ?? art.PieceRadius, rotation: turn,
                         startClip: clips?.Start,
                         thenClip: clips is { } c ? (c.Loop, ProjectileRuntime.Time(c.StartSeconds)) : null,
                         endClip: clips is { } e ? (e.End, ProjectileRuntime.Time(e.EndSeconds)) : null);

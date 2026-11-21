@@ -100,9 +100,10 @@ public static partial class Game
     {
         RefreshSingleUseCooldowns(conn);
         var stats = FinalPlayerStats(conn).ToList();
-        var now = stats.Select(s => s.Item1).ToHashSet();
         lock (conn.Monsters)
         {
+            AddMarkedTargetStatsLocked(conn, stats);
+            var now = stats.Select(s => s.Item1).ToHashSet();
             stats.AddRange(conn.SentStatKeys.Where(k => !now.Contains(k)).Select(k => (k, 0)));
             conn.SentStatKeys = now;
             RefreshPeerScale(conn, stats.Single(s => s.Item1 == ActorScale.Final).Item2);
@@ -685,13 +686,15 @@ public static partial class Game
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
                     name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
                     name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0, DurationKinds(conn, effect)));
-            // Devout of Lunaris: the client aims a self-targeted Nova at the cursor only on
-            // virtual_self_targeted_skills_target_location_instead, which its calculator (FUN_14289d210) derives from these
-            // three stats; network stats run no calculators (04 §4.1a), so without it the Nova stayed on the caster (live).
-            if (new[] { "nova_spells_cast_at_target_location", "casting_spell", "skill_is_nova_skill" }
-                    .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
-                && Stats.Key("virtual_self_targeted_skills_target_location_instead") is uint novaKey)
-                stats[novaKey] = 1;
+            // Network skill records run neither native nova targeting calculator (0x14289d210, 0x14289d270).
+            if (Get("casting_spell") != 0 && Get("skill_is_nova_skill") != 0)
+            {
+                if (Get("nova_spells_cast_at_target_location") != 0)
+                    stats[Stats.Key("virtual_self_targeted_skills_target_location_instead")!.Value] = 1;
+                // Publish marked placement for the actions whose server release follows the same target.
+                if (Get("nova_spells_cast_at_marked_target") != 0 && ManualMarkedNova(conn, id, supported))
+                    stats[Stats.Key("virtual_nova_spells_cast_at_marked_target")!.Value] = 1;
+            }
             // Parallel volley (0x141bbb460): the client reads virtual_additional_projectiles_fire_parallel_x_dist;
             // without it the distance is zero and parallel projectiles collapse onto each other.
             if (Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist") is uint virtualParallelXKey
@@ -745,6 +748,13 @@ public static partial class Game
             // A spell's tooltip DPS is its own hit (SpellDamage) × casts per second, not the default attack's values that
             // came with the player's stats.
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+            // Ice Shot's impact art reads the combined angle. Quality supplies it directly and the helmet supplies
+            // the Ice Shot input mapped to it by ActiveSkills.ice_shot.
+            if (SkillsFor(conn).EffectId(effect) == "IceShot" && Get("ice_shot_area_angle_+%") is int iceAngle and not 0)
+            {
+                uint angle = Stats.Key("skill_area_angle_+%")!.Value;
+                stats[angle] = stats.GetValueOrDefault(angle) + iceAngle;
+            }
             // The client's spell action repeats the cast this many times (SpellRepeats); the server repeats its hits as many.
             if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stats.Key("spell_repeat_count") is uint repeatKey)
                 stats[repeatKey] = repeats;
@@ -768,6 +778,13 @@ public static partial class Game
                 if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint scaleKey) stats[scaleKey] = radiusPercent;
                 if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
                 Console.WriteLine($"[gateway] Cyclone area: base {baseRadius}, radius {radius}, increased area {increased}%, radius scale {radiusPercent}%");
+            }
+            else if (IsPlayerShockNova(SkillsFor(conn).EffectId(effect)) && ManualMarkedNova(conn, id, supported))
+            {
+                stats[Stats.Key("total_skill_area_of_effect_radius_+%_including_final")!.Value] =
+                    ShockNovaRadiusPercent(Get, GolemStat(own, SkillArea.BaseIncreased));
+                if (SkillsFor(conn).BehaviourVariation(effect) is > 0 and var variation)
+                    stats[StatKeys.SkillBehaviourVariation] = variation;
             }
             // Molten Strike's client ballistic/explosion builders read 0x1591 (0x14193efd0) for both scatter range and
             // explosion radius; its StatSet omits active_skill_base_area_of_effect_radius, whose base is 9 (0x141b6baa0).
@@ -942,7 +959,7 @@ public static partial class Game
                 stats[aura] = VaalSoulInput(conn, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(conn, playerStats, own, stats);
-            ApplyProjectilePanelStats(effect, stats);
+            ApplyProjectilePanelStats(effect, stats, stats, projectileAttack && ArrowsFor(conn, effect));
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(conn, id, stats);
             // Native CanStart reads final limits, not the base inputs in the gem's stat set.

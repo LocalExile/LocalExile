@@ -539,8 +539,9 @@ Its eight-word context is
 
 Fan builder `0x141ba6380` obtains the central direction from the action's stored segment origin `+0x340/+0x344`
 to the contact's current grid position, or the projectile's current grid position if contact is absent.
-For coincident points it uses fallback Positioned fields `+0x214/+0x218/+0x21c` and flags `+0x1f1/+0x1f2`.
-Those fallback fields have not been identified sufficiently to call them a mouse aim or target search.
+For coincident points it reads the current mover's integer endpoint. Positioned `+0x214/+0x218/+0x21c`
+are the path's three endpoint components (`+0x2c/+0x30/+0x34`). Flags `+0x1f2` and `+0x1f1`
+undo the height and XY dominant-axis swaps to recover its original X and Y.
 
 ```text
 center = wrap(atan2(dy,dx)+pi/2)
@@ -816,8 +817,8 @@ The [native stat-input supplement](continuation-stat-inputs.md) recovers twelve 
 the five final-table bindings, including projectile-count conversion to Split/Chain and cannot/always-Pierce.
 These formula callbacks do not imply automatic raw-network recalculation or replace the consumers above.
 
-Remaining upstream input producers/activation and budgets, every contact guard, special objects, Split query encounter/mutation order, Fork fallback fields and
-later emission variance, Bounce visible segment count/cross-action timing, full path tests, Return in-flight target updates
+Remaining upstream input producers/activation and budgets, every contact guard, special objects, Split query encounter/mutation order,
+later Fork emission variance, Bounce visible segment count/cross-action timing, full path tests, Return in-flight target updates
 or owner-contact termination, action retirement timing, mode-specific calls and all skill overrides remain incomplete.
 Normal finite coordinate arithmetic above does not establish exceptional/overflow behavior.
 Contact history, result queues and server damage quotas must stay separate until explicit evidence connects them.

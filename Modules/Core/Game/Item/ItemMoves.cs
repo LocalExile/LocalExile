@@ -62,13 +62,19 @@ public static class ItemMoves
     /// stash id. Null with the reason (nothing changes): the tab doesn't hold it, or it is full.
     /// </summary>
     public static Transfer? InventoryToStash(AccountStash stash, PlayerInventories items, int tab,
-        uint itemId, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+        uint itemId, Func<Item, PlayerInventories.Shape?> shapeOf, out string why) =>
+        InventoryToStashFrom(stash, items, tab, itemId, items.RowOf(itemId), shapeOf, out why);
+
+    // An inventory request for a previously observed row cannot remove the item from a different row.
+    internal static Transfer? InventoryToStashFrom(AccountStash stash, PlayerInventories items, int tab,
+        uint itemId, byte? sourceRow, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
     {
         string reason = "";
         var result = Saves.Atomically(() =>
         {
             if (tab < 0 || tab >= stash.Count) { reason = "no such tab"; return null; }
-            if (items.RowOf(itemId) is not byte from || items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item)
+            if (sourceRow is not byte from || items.RowOf(itemId) != from
+                || items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item)
             { reason = "the item is not in the inventories"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             tab = stash.UniqueDestination(tab, item.Item);

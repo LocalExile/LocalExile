@@ -147,13 +147,18 @@ public static partial class Game
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
         CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
+        // A wardrobe pick replaces this list even when every inventory item and gem cosmetic stays the same.
+        IReadOnlyList<InstanceMicrotransactions.Equipped>? Wardrobe { get; init; }
+
         public static SkillSnapshotInputs Capture(ClientState conn, Dictionary<uint, int> stats) =>
             new(new(stats), [.. ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item)],
-                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife, conn.LockstepClient);
+                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife, conn.LockstepClient)
+            { Wardrobe = WornCosmetics(conn) };
 
         public bool Matches(ClientState conn, Dictionary<uint, int> stats)
         {
-            if (LockstepClient != conn.LockstepClient || Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
+            if (!ReferenceEquals(Wardrobe, conn.WornCosmetics) || LockstepClient != conn.LockstepClient
+                || Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
                 || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
             var equipment = ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item).ToArray();
             if (equipment.Length != Equipment.Length) return false;

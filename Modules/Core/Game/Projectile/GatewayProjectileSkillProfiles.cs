@@ -40,6 +40,13 @@ public static class GatewayProjectileSkillProfiles
         {
             CannotReturn = CannotReturn.Contains(effect), ReturnOnDistance = effect != "FreezingPulse"
         };
+        if (effect.StartsWith("PowerSiphon", StringComparison.Ordinal)
+            && get("power_siphon_base_fire_at_x_targets") is > 0 and var siphonBase)
+        {
+            // virtual_total_number_of_projectiles starts with the gem's targets plus base projectiles.
+            // The action's one-projectile override applies separately to each acquired enemy.
+            p = p with { Count = Math.Max(1, siphonBase + get("base_number_of_projectiles")) };
+        }
         if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";
@@ -114,13 +121,22 @@ public static class GatewayProjectileSkillProfiles
         else if (effect == "HolyFlameTotem")
             p = p with { Count = Math.Max(1, get("base_number_of_projectiles")), Pierce = -1, CannotReturn = true };
 
-        // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
-        // pass below adds the skill's and the support's extra arrows to it.
-        if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0) p = ArrowNovaChildren(p);
+        // Cloudburst starts in Tornado Shot's secondary action. Its rain payload fires the skill's full arrow
+        // count from the landing cell. Only ordinary Tornado Shot creates a separate group at each arrow's end.
+        var payload = p;
+        if (effect == "TornadoShotAltX")
+            p = p with { Id = TornadoSecondaryArrow, Lifetime = TornadoSecondaryLifetime };
+        if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0)
+            p = ArrowNovaChildren(payload, p, effect, get);
 
         // These player stats belong to a particular active skill, including its transfigured variants.
         int extraProjectiles = effect switch
         {
+            "Barrage" or "BarrageAltX" => get("barrage_num_of_additional_projectiles"),
+            "SplitArrow" or "SplitArrowAltX" or "SplitArrowAltY" or "VaalSplitArrow"
+                => get("split_arrow_num_of_additional_projectiles"),
+            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark"
+                => get("spark_num_of_additional_projectiles") + get("spark_number_of_additional_projectiles"),
             "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
                 => get("freezing_pulse_number_of_additional_projectiles"),
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
@@ -139,6 +155,9 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get("support_parallel_projectile_number_of_points_per_side") == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        // The Barrage action moves its endpoint bonus into the split result once when count modifiers apply to splitting.
+        if (effect is ("Barrage" or "BarrageAltX") && get("modifiers_to_number_of_projectiles_instead_apply_to_splitting") != 0)
+            p = p with { Split = p.Split + get("barrage_final_volley_fires_x_additional_projectiles_simultaneously") };
         if (IsMoltenStrike(effect))
         {
             bool groundChains = get("molten_strike_projectiles_chain_when_impacting_ground") != 0;
@@ -160,7 +179,17 @@ public static class GatewayProjectileSkillProfiles
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         if (effect == "Twister") p = p with { Pierce = -1 };
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
-        if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
+        if (effect is "TornadoShot" or "TornadoShotAltY")
+        {
+            // Arrow Nova releases the resolved primary arrows at the landing cell. Each of those arrows
+            // still pierces and releases its own secondary group at the end of its flight.
+            if (p.EndEmission is { } rain)
+            {
+                var primary = TornadoShotChildren(rain.Child, get);
+                p = p with { EndEmission = rain with { Child = primary } };
+            }
+            else p = TornadoShotChildren(p, get);
+        }
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
@@ -171,7 +200,7 @@ public static class GatewayProjectileSkillProfiles
         var secondary = KineticBoltSecondary(parent);
         return parent with
         {
-            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i : 0, parent.ZigZags,
+            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i + 1 : 0, parent.ZigZags,
                 parent.Speed, parent.Range, secondary),
             LegLeash = 0
         };
@@ -196,7 +225,8 @@ public static class GatewayProjectileSkillProfiles
         HidePredictedVisual = true
     };
 
-    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
+    const string TornadoSecondaryArrow = "Metadata/Projectiles/TornadoShotSecondaryArrow";
+    static readonly long TornadoSecondaryLifetime = ProjectileRuntime.Time(.3);
 
     // The client predicts the primary arrow and its terminal group itself (Frida: seven local and seven server
     // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
@@ -207,14 +237,14 @@ public static class GatewayProjectileSkillProfiles
         int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
         var child = parent with
         {
-            Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
+            Id = TornadoSecondaryArrow,
             Count = count,
             NativeVolley = null,
             SpreadRadians = 0,
             AimSpreadDistance = 0,
             Range = SystemSettings.Default.ProjectileMaximumRangeCells,
             // Client trace: the secondary action's final callback caps at 300 ms, so projectile speed sets the range.
-            Lifetime = ProjectileRuntime.Time(.3),
+            Lifetime = TornadoSecondaryLifetime,
             SequentialDelay = 0,
             CountConsumer = ProjectileCountConsumer.Primary,
             Pierce = parent.Pierce, Fork = parent.Fork, Chain = parent.Chain, Split = 0,
@@ -236,11 +266,15 @@ public static class GatewayProjectileSkillProfiles
             // The client draws its own primary arrow; a server object would be a second arrow from the bow contact.
             HideVisual = true,
             EndEmission = new(child, Radial: true, BaseDirection: TornadoShotBaseDirection)
+            {
+                InheritForkOrChain = true,
+                InheritReturnPhase = true
+            }
         };
     }
 
     // The client's terminal RNG (0x1419c73c0) seeds [sequence, mother-derived byte, owner, repeats left,
-    // secondary-release byte, 0, 0, 0]. A fresh mother's derived byte is 2, and each arrow of a volley adds its index.
+    // secondary-release byte, 0, 0, 0]. The shared allocator assigns 2..255 in creation order, then restarts at 2.
     // The radial emitter then spaces children around that sampled base ray with no extra phase.
     public static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
     {
@@ -251,8 +285,10 @@ public static class GatewayProjectileSkillProfiles
     }
 
     static ProjectileVector TornadoShotBaseDirection(ProjectileEntity parent) =>
-        TornadoShotBaseDirection(parent.Use.Sequence, (uint)(2 + parent.VolleyIndex), parent.Use.Owner.Id,
+        TornadoShotBaseDirection(parent.Use.Sequence, DerivedByte(parent.SpawnOrdinal), parent.Use.Owner.Id,
             parent.Use.RepeatsLeft);
+
+    internal static uint DerivedByte(int ordinal) => 2u + (uint)ordinal % 254;
 
     // The native bounded draw (0x1404d0990): reject the incomplete top bucket, then take the remainder.
     static uint TornadoBounded(ref AnimationVariantSelector.NativeRandom random, uint exclusiveMax)
@@ -269,9 +305,15 @@ public static class GatewayProjectileSkillProfiles
     // that lands at the aim and releases the skill's whole volley in a circle from there. Frida 2026-11-04 (Split
     // Arrow, 18 arrows): all children started on one cell and the directions were exactly 20 degrees apart, the first
     // on the aim ray; the client drew both the payload and the children, and the payload dealt no damage.
-    static ProjectileProfile ArrowNovaChildren(ProjectileProfile parent)
+    static ProjectileProfile ArrowNovaChildren(ProjectileProfile payload, ProjectileProfile arrows, string effect, Func<string, int> get)
     {
-        var child = parent with
+        bool nova = get("projectiles_nova") != 0;
+        var sweep = nova && get("projectiles_barrage") != 0 ? PlayerArrowNovaSweep : null;
+        // The Barrage actor issues one shot per contact. Cloudburst's secondary action always selects zero side points.
+        var points = nova && sweep is null && effect != "TornadoShotAltX" ? Game.ParallelFiringPoints.From(get) : null;
+        bool random = nova && get("random_projectile_direction") != 0;
+        bool tornado = effect is "TornadoShot" or "TornadoShotAltY";
+        var child = arrows with
         {
             // Keep the base count and the skill's own contact/terminal areas: these are its normal arrows.
             NativeVolley = null, SpreadRadians = 0, AimSpreadDistance = 0,
@@ -282,21 +324,42 @@ public static class GatewayProjectileSkillProfiles
             DirectDamage = true, Lobbed = false,
             EndEmission = null, TravelEmission = null, Pulse = null,
             EndAreaOnReturnTurnaround = false, Legs = null, LegLeash = 0, GroundChains = 0,
-            Returns = false, ReturnChancePercent = 0, ReturnRolls = null, CannotReturn = true,
+            OrdinalReturnRoll = get("projectile_return_%_chance") is > 0 and < 100 ? Game.EmittedReturnRoll : null,
+            ReturnOvershoot = Game.ClientProjectileRange(get),
             FormChange = null, SplitForm = null, SplitOnTerrain = false
         };
-        return parent with
+        return payload with
         {
             // One payload arrow: no hits, no contacts, and no server object (the official server sends none; the
             // parabola was ours). The rain rig and its attached arrow art carry the visual; the children stay hidden.
             Count = 1, CountConsumer = ProjectileCountConsumer.Children,
+            NativeVolley = AimedRainPayload,
             DirectDamage = false, HideVisual = true, Lobbed = true, ArcHeight = 200,
+            LandingDelay = ArrowNovaLayout.LandingDelay(0), CannotReturn = true,
             Pierce = 0, CannotPierce = true, Fork = 0, Chain = 0, Split = 0, CannotSplit = true,
             EndArea = null, EndAreaReasons = null, EndAreaOnReturnTurnaround = false,
             ContactArea = null, ContactTargets = null,
-            EndEmission = new(child, Radial: true) { Delay = ProjectileRuntime.Time(0.221) }
+            EndEmission = new(child, Radial: true)
+            {
+                Delay = ProjectileRuntime.Time(.221),
+                Sweep = sweep,
+                FlightLayout = tornado || points is not null || random
+                    ? ArrowNovaLayout.Create(get, sweep, points, tornado, random, tornado || Program.Skills.ProjectileUsesTargetLocation(arrows.Id))
+                    : null
+            }
         };
     }
+
+    // Random directions affect the damaging arrows released from the selected rain cell.
+    static readonly ProjectileNativeVolley AimedRainPayload = new() { Angles = Array.AsReadOnly<double>([0]) };
+
+    // 3.29.3c: the Barrage rain action starts at the aim relative to the landing cell. At the aimed
+    // cell this is +X. The player Positioned flags select the negative turn over 400 ms.
+    static readonly ProjectileSweep PlayerArrowNovaSweep = new(ProjectileRuntime.Time(.4), -Math.Tau, payload =>
+    {
+        var landing = new ProjectileVector(Math.Floor(payload.Position.X + .5), Math.Floor(payload.Position.Y + .5));
+        return (payload.Use.Aim - landing).Unit;
+    });
 
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)
     {

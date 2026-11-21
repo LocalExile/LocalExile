@@ -39,7 +39,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   gem (part (a)).
   Part (b): a gem's skill uses its level (from its experience) and quality, transfigured, Trarthan and Vaal gems grant
   their skills, the variant is the SkillGem data's u32, and `/gem` makes any gem ([19](../docs/protocol/19-gems.md)
-  §1, §3); not yet checked with the real client.
+  §1, §3). Level-specific damage adjustments now add to the same stat in transfigured gems. Native verification remains open.
   Part (c), the requirements, is in: the level is `PlayerLevelReq` (Haste 24 at gem level 1 … 70 at 20, as the
   client's tooltips) and the attributes are the client's own formula, fitted from `0x142476710` and checked against
   570 poedb tooltip cells with no mismatch (`trunc((3·level_req + 11)·(percent/100)^0.9·k + 0.5)`, `k` 0.5 for
@@ -69,12 +69,34 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Cyclone with Increased Area of Effect was checked with the real client.
   Item-granted support references and local socketed-gem level/quality bonuses now share the resolver and calculations.
   Item-support records, duplicate resolution, rolled levels and Delve more damage have automated coverage.
-- **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), Ice Nova's
-  repeated rings and Spell Echo's final-repeat stats (Greater and Awakened Spell Echo), projectile branching,
+- **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), projectile branching,
   remaining totem payloads (Artillery/Focused Ballista, beams, channels and pulses; monsters do not attack totems;
   [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
-  native data and live behaviour.
-  Barrage still needs sequential release, cancellation and per-projectile hit admission beyond its attack-time penalty.
+  native data and live behaviour. Verify Bonechill's displayed magnitude across overlapping chill sources.
+  Greater and Awakened Spell Echo still need native checks, including Storm Call's impact size on successive repeats.
+  Check Arrow Nova with Barrage Support on a live client, including the first and last landing arrows against one target.
+  Compare Nimis landing directions, return hits and the selected ground cell near walls on both clients for a single
+  arrow, a group and a Barrage sweep.
+  Check Volley and Greater Volley at walls on both clients, including Barrage's firing actor and the side points
+  of Arrow Nova after the player moves.
+  Verify Reach of the Council's first-point pierce, second-point fork, third-point return and fourth-point chains on
+  both clients, including a blocked side, stacked fork and chain counts and Barrage's extra endpoint volleys.
+  Verify the ordinary Fork fan on both clients, including off-axis contacts and the two fork-angle passives.
+  Check Slivertongue with Fork and Chain Support on both clients. For Tornado Shot, verify the secondary hits and
+  remaining chains after the primary chains off terrain, with an ordinary bow and with Slivertongue.
+  Check ordinary Tornado Shot with Arrow Nova on both clients, including the primary endpoints near walls and
+  the secondary hits between successive Barrage releases.
+  Verify Cloudburst's landing time, spread and flight range on both clients, including a linked multi-projectile support.
+  Check Ballista Barrage playback on both supported clients, including its muzzle and changes to arrow count between attacks.
+  Check Power Siphon target selection on both clients, especially crowded cells, sight at terrain edges and special projectile modifiers.
+  Check the Locus Mine detonation boundary at exactly three metres on both clients, including player movement during
+  the sequence and Skitterbots at the edge. Compare Locus landings and throw order for short throws, the Templar and
+  terrain near a wall. Check facing and shot direction as the owner walks between detonations on both clients.
+  Compare the displayed and fired counts for Locus bow and wand mines, including split targets and Kinetic Blast clusters.
+  Compare Barrage throw duration, firing cadence and muzzle for mines and ordinary traps on both clients.
+  Verify the firing roles of the remaining trap actors separately.
+  Check both active Barrage gems' bow and wand playback, including the Volley Fire jewel at 40 Dexterity in radius.
+  Check Selective Precision's returning first and last shots on both clients, other proxy sequences and panel DPS.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
   Check Spellblade's panel and per-hand rounding live; Varunastra's off-hand support selection is open.

@@ -207,11 +207,51 @@ public class SacrificeSupportTests
         await Game.FrostblinkAreas("stale", fixture.Stream, fixture.Ciphers, conn, gem, (0, 0), (20, 0),
             use with { ProjectileEpoch = use.ProjectileEpoch - 1 });
         Assert.Equal(2, conn.Reservations.Trail.Count);
+
+        using var supported = new Fixture();
+        supported.Equip("Frostblink", support: "SupportGemBonechill");
+        var caster = supported.Conn;
+        var blink = Game.GemSkillEffects(caster).Single(g => g.Gem != 0);
+        foreach (string stat in new[] { "spell_minimum_added_cold_damage", "spell_maximum_added_cold_damage" })
+            caster.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
+        caster.PlayerStats[Program.Stats.Key("global_cannot_crit")!.Value] = 1;
+        Assert.Equal(0, Game.SupportedCriticalChance(caster, blink.Id));
+        var range = Game.SupportedHitFor(caster, blink.Id, suppress: true)[DamageType.Cold];
+        var endpoint = caster.Monsters[103] = new("endpoint", new(160, 100, 0), 0, 0, 100000) { Hostile = true };
+        endpoint.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 10, Game.AreaTime(caster), _ => 0, _ => 0, stated: 30);
+        var entering = caster.Monsters[104] = new("outside both endpoints", new(200, 100, 0), 0, 0, 100000) { Hostile = true };
+        var ticket = new CooldownUseTicket(blink.Effect, caster.ActionCount, caster.ProjectileEpoch, Instant: true);
+        await Game.FrostblinkAreas("chilling area", supported.Stream, supported.Ciphers, caster, blink, (100, 100), (160, 100), ticket);
+        double at = Game.AreaTime(caster);
+        Assert.InRange(100000d - endpoint.Life, Math.Floor(range.Min * 1.3), Math.Ceiling(range.Max * 1.3));
+        Assert.True(range.Max < Math.Floor(range.Min * 1.3));
+        Assert.Equal(1, Game.MonsterDotTaken(entering, DamageType.Cold, at));
+        entering.Walk.Teleport(160, 100, at);
+        Assert.Equal(1.12, Game.MonsterDotTaken(entering, DamageType.Cold, at), 9);
+        var peer = new ClientState(caster.Layout, 2, 2) { Instance = caster.Instance };
+        var late = new SpawnedMonster("ground only", new(160, 100, 0), 0, 0, 1000);
+        lock (peer.Monsters) Assert.False(MonsterEmerge.AddLocked(peer, 105, late, EmergeKind.None, false));
+        at = Game.ProjectileWorldTime(peer);
+        Assert.Equal(1.12, Game.MonsterDotTaken(late, DamageType.Cold, at), 9);
+        Assert.Equal(1, Game.AilmentTypesInflicted(late, caster.PeerId, at));
+        Assert.Equal(0, Game.AilmentTypesInflicted(late, peer.PeerId, at));
+        double expires = caster.Reservations.Trail[1].Until;
+        Assert.True(expires > at + .5);
+        Assert.Equal(12, late.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, at + .5));
+        Assert.Equal(1.12, Game.MonsterDotTaken(late, DamageType.Cold, at + .5), 9);
+        // A handoff gives the same monster a new walk before the next field update.
+        late.Walk = new PlayerWalk(160, 100, at + .5);
+        late.Walk.Teleport(200, 100, at + .625);
+        Assert.Equal(1, Game.MonsterDotTaken(late, DamageType.Cold, at + .65));
+        late.Walk.Teleport(160, 100, at + .75);
+        Assert.Equal(1.12, Game.MonsterDotTaken(late, DamageType.Cold, at + .8), 9);
+        Assert.Equal(1, Game.MonsterDotTaken(late, DamageType.Cold, expires));
     }
 
     [Fact]
     public async Task Lightning_warp_moves_at_release_and_hits_both_endpoints()
     {
+        await FireballDuringWarp();
         using var fixture = new Fixture();
         fixture.Equip("LightningWarp");
         var c = fixture.Conn;
@@ -234,9 +274,53 @@ public class SacrificeSupportTests
         Assert.Equal(100000u, c.Monsters[303].Life);
     }
 
+    static async Task FireballDuringWarp()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle("Lightning Warp", "Fireball", "Spell Echo Support");
+        var conn = battle.Conn;
+        var session = battle.Session;
+        conn.Monsters.Clear();
+        session.AdvanceTo(ProjectileRuntime.Time(10));
+        conn.Walk.SetSpeed(40, 10);
+        var target = conn.Monsters[400] = new("moving target", new(160, 100, 10), 0, 0, 100000) { Hostile = true };
+        var gems = Game.GemSkillEffects(conn);
+        var warp = gems.Single(g => g.Name == "Lightning Warp");
+        var fire = gems.Single(g => g.Name == "Fireball");
+        Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, warp.Id, (100, 100), (160, 100)));
+        session.AdvanceTo(session.Runtime.Now);
+        Assert.Equal(1, session.WarpCount);
+
+        // Start Fireball on the monster half a windup before the already-paid warp lands on its old cell.
+        const double cast = .75 / 1.4, windup = cast * 599 / 1066; // Witch, bow, level-one Spell Echo.
+        session.AdvanceTo(session.LastWarpTime - ProjectileRuntime.Time(windup / 2));
+        conn.Clock.Start();
+        double start = Game.ProjectileWorldTime(conn);
+        uint mana = conn.PlayerMana;
+        await Game.OnUseObject(session.remote, battle.Stream, battle.Ciphers, conn, new(400, fire.Id, 43, 0x408), conn.Clock.Elapsed.TotalSeconds);
+        Assert.Equal(7u, mana - conn.PlayerMana);
+        target.Walk.Teleport(100, 160, start);
+        session.AdvanceTo(session.LastWarpTime);
+        await battle.FlushOutput();
+        Assert.Equal((160, 100), conn.Walk.Position(Game.ProjectileWorldTime(conn)));
+
+        foreach (double delay in new[] { windup, cast + windup })
+        {
+            session.AdvanceTo(ProjectileRuntime.Time(start + delay));
+            var shot = Assert.Single(session.Runtime.Projectiles, p => p.CreatedAt == session.Runtime.Now);
+            Assert.Equal(new ProjectileVector(184, 154), shot.Use.Aim);
+            var direction = new ProjectileVector(24, 54).Unit;
+            Assert.Equal(direction.X, shot.Direction.X, 6);
+            Assert.Equal(direction.Y, shot.Direction.Y, 6);
+        }
+    }
+
     [Fact]
     public async Task Unleash_seals_release_distinct_discounted_fireballs_and_reset_on_source_replacement()
     {
+        await FireballAtTheCastersCell(echo: false, moveToAim: false);
+        await FireballAtTheCastersCell(echo: true, moveToAim: false);
+        await FireballAtTheCastersCell(echo: true, moveToAim: true);
+        await FireballKeepsItsBowContactAcrossDispatch();
         using var fixture = new Fixture();
         var conn = fixture.Conn;
         conn.Clock.Reset();
@@ -263,6 +347,91 @@ public class SacrificeSupportTests
         fixture.Equip("Fireball", support: "SupportGemHandcastAnticipation");
         var replacement = Game.SupportedSkill(conn, skill.Id);
         Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, replacement, Game.ProjectileWorldTime(conn)));
+    }
+
+    static async Task FireballKeepsItsBowContactAcrossDispatch()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle(0, "Fireball", "Spell Echo Support");
+        var conn = battle.Conn;
+        var session = battle.Session;
+        var items = Game.ItemsOf(conn);
+        var bow = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Sockets = [], Links = [] });
+        items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Plate Vest")!) with
+        { Sockets = bow.Item.Sockets, Links = bow.Item.Links });
+        items.Add(PlayerInventories.Weapon2, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        conn.Monsters.Clear();
+        conn.Clock.Start();
+        session.AdvanceTo(ProjectileRuntime.Time(10));
+        var gem = Game.GemSkillEffects(conn).Single(g => g.Name == "Fireball");
+        conn.LockstepClient = true;
+        conn.LockstepSequence = 7;
+        conn.LockstepSkill.Press((240, 100), null, gem.Id, 0x401, repeats: true);
+        Game.HoldLockstepSkill(conn, 0x8007, 10, 10);
+        items.SwapWeaponSets();
+        Assert.Equal("Driftwood Wand", Game.ActiveMainHand(conn)?.Type?.Name);
+        session.AdvanceTo(ProjectileRuntime.Time(10.05));
+        Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, gem.Id,
+            (100, 100), (240, 100), sequence: 0x8007, actionToken: conn.ActionCount));
+        const double duration = .75 / 1.4;
+        foreach (double start in new[] { 10, 10 + duration })
+        {
+            long contact = ProjectileRuntime.Time(start + duration * 533 / 1000);
+            session.AdvanceTo(contact - 1);
+            Assert.DoesNotContain(session.Runtime.Projectiles, p => p.CreatedAt >= ProjectileRuntime.Time(start));
+            session.AdvanceTo(contact);
+            Assert.Single(session.Runtime.Projectiles, p => p.CreatedAt == contact);
+        }
+    }
+
+    static async Task FireballAtTheCastersCell(bool echo, bool moveToAim)
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle(0, echo ? ["Fireball", "Spell Echo Support"] : ["Fireball"]);
+        var conn = battle.Conn;
+        var session = battle.Session;
+        conn.Monsters.Clear();
+        session.AdvanceTo(ProjectileRuntime.Time(10));
+        conn.Clock.Start();
+        conn.PlayerMana = 300;
+        var gem = Game.GemSkillEffects(conn).Single(g => g.Name == "Fireball");
+        double start = Game.ProjectileWorldTime(conn);
+        double cast = echo ? .75 / 1.4 : .75;
+        double windup = cast * 533 / 1000; // Marauder's bow contact. His wand contacts at 366 of 766 ms.
+        Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, gem.Id,
+            (100, 100), (100, 100), sequence: 43, actionToken: conn.ActionCount));
+
+        // Root sequence 43, owner 0x1000: one outer repeat gives (+24,+54), none gives (-40,-44).
+        var origin = new ProjectileVector(100, 100);
+        var firstAim = echo ? new ProjectileVector(124, 154) : new ProjectileVector(60, 56);
+        CheckFacing(origin, firstAim);
+        session.AdvanceTo(ProjectileRuntime.Time(start + windup) - 1);
+        Assert.Empty(session.Runtime.Projectiles);
+        session.AdvanceTo(ProjectileRuntime.Time(start + windup));
+        var first = Assert.Single(session.Runtime.Projectiles);
+        CheckFlight(first, origin, firstAim);
+        if (!echo) return;
+
+        if (moveToAim) conn.Walk.Teleport(124, 154, Game.ProjectileWorldTime(conn));
+        session.AdvanceTo(ProjectileRuntime.Time(start + cast));
+        var repeatOrigin = moveToAim ? firstAim : origin;
+        var repeatAim = moveToAim ? new ProjectileVector(84, 110) : firstAim;
+        CheckFacing(repeatOrigin, repeatAim);
+        session.AdvanceTo(ProjectileRuntime.Time(start + cast + windup));
+        CheckFlight(Assert.Single(session.Runtime.Projectiles, p => p.UseId != first.UseId), repeatOrigin, repeatAim);
+
+        void CheckFacing(ProjectileVector from, ProjectileVector to)
+        {
+            float angle = MathF.Atan2((float)(to.Y - from.Y), (float)(to.X - from.X)) + MathF.PI / 2;
+            Assert.Equal(angle < 0 ? angle + MathF.Tau : angle, conn.Walk.Rotation(Game.ProjectileWorldTime(conn)), 5);
+        }
+
+        static void CheckFlight(ProjectileEntity shot, ProjectileVector from, ProjectileVector to)
+        {
+            var direction = (to - from).Unit;
+            Assert.Equal(to, shot.Use.Aim);
+            Assert.Equal(direction.X, shot.Direction.X, 6);
+            Assert.Equal(direction.Y, shot.Direction.Y, 6);
+        }
     }
 
     sealed class Fixture : IDisposable

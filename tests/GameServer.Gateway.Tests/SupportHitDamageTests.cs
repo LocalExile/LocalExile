@@ -12,6 +12,25 @@ public sealed class SupportHitDamageTests
 
     static Func<string, int> Flags(params string[] flags) => name => flags.Contains(name) ? 1 : 0;
 
+    static void CheckLocusMineLandings()
+    {
+        var clear = new AreaLayout(1, "Locus", 200, 200, 100, 100, null, []);
+        var arc = new LocusMineArc((100, 100), (150, 100), 3, reverse: false);
+        var cells = Enumerable.Range(0, 3).Select(i => arc.Landing(i, clear)).ToArray();
+        Assert.Equal(new[] { (133, 62), (150, 100), (132, 139) }, cells);
+        var templar = new LocusMineArc((100, 100), (150, 100), 3, reverse: true);
+        Assert.Equal(cells.Reverse(), Enumerable.Range(0, 3).Select(i => templar.Landing(i, clear)));
+        var close = new LocusMineArc((100, 100), (100, 100), 3, reverse: false);
+        Assert.Equal(new[] { (120, 98), (114, 114), (98, 120) },
+            Enumerable.Range(0, 3).Select(i => close.Landing(i, clear)));
+        var wall = clear with { Sight = (x, _) => x == 126 ? 0 : 3 };
+        Assert.Equal(new[] { (125, 71), (125, 100), (125, 131) },
+            Enumerable.Range(0, 3).Select(i => arc.Landing(i, wall)));
+        var water = clear with { Walkable = (x, y) => x < 119 || y > 91 };
+        Assert.Equal((133, 92), arc.Landing(0, water));
+    }
+
+
     // Hypothermia, Behead, Damage on Full Life, Awakened Increased Area of Effect, double damage, the six supports' more,
     // Point Blank, the melee proximity supports and Ruthless: each multiplies a hit only when its condition holds.
     [Fact]
@@ -227,6 +246,7 @@ public sealed class SupportHitDamageTests
         var landed = Enumerable.Range(0, 200).Select(_ => Game.Dist(Game.PlacedThrowPoint((100, 100), 3, 20, scatter), (100, 100))).ToArray();
         Assert.InRange(landed.Count(d => d <= 10.5), 95, 175);
         Assert.Contains(landed, d => d > 10.5);
+        CheckLocusMineLandings();
         // A detonation sequence speeds up: 250 ms, then 10% more detonation speed for each mine already gone off.
         Assert.Equal(new[] { .25, .25 / 1.1, .25 / 1.5, .1 }, new[] { Game.MineSequenceGap(250, 0),
             Game.MineSequenceGap(0, 1), Game.MineSequenceGap(250, 5), Game.MineSequenceGap(200, 10) });

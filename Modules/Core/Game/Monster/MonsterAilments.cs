@@ -14,8 +14,8 @@ public static partial class Game
         bool chaos = false) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0);
 
     static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
-        bool chaos, double increasedPct) =>
-        m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
+        bool chaos, double increasedPct, (int X, int Y)? cell = null) =>
+        m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now, cell)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
@@ -140,6 +140,12 @@ public static partial class Game
             InflictedLocked(conn, m, m.Ailments.WithoutDamage(Kind.Shock, 4, now, player, Target, area));
     }
 
+    static Func<string, int> SkillAilmentStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> skill)
+    {
+        int Own(string name) => GolemStat(skill, name);
+        return name => GolemStat(player, name) + PanelStats.Of(name, Own);
+    }
+
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
     /// skill_area_of_effect_+% (which holds the player's base form, so that is left out, as AreaPlayerStats does) and the
     /// skill's own stats.</summary>
@@ -152,21 +158,19 @@ public static partial class Game
     /// Under the Monsters lock.</summary>
     static void ProliferateLocked(ClientState conn, double now)
     {
-        var sources = new List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Ailment)>();
+        var sources = new List<(SpawnedMonster M, (int X, int Y) At, int Radius, MonsterElementalAilments.Effect Copy)>();
         foreach (var m in conn.Monsters.Values)
-            foreach (var ailment in m.Ailments.Spreading(now)) sources.Add((m, m.Walk.Position(now), ailment));
+            foreach (var ailment in m.Ailments.Spreading(now))
+                sources.Add((m, m.Walk.Position(now), ailment.Spread, ailment with { From = now, Spread = 0, OnKill = false }));
         foreach (var m in conn.Monsters.Values)
         {
-            bool reached = sources.Count > 0 && !m.Dead && m.Hostile;
-            var at = reached ? m.Walk.Position(now) : default;
-            for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
-            {
-                var reaching = reached ? sources.Where(s => s.Ailment.Kind == kind && !ReferenceEquals(s.M, m)
-                    && Dist(s.At, at) <= s.Ailment.Spread).ToList() : [];
-                var chosen = reaching.Count == 0 ? default : reaching.MaxBy(s => (s.Ailment.Magnitude, s.Ailment.Until));
-                m.Ailments.Proliferated(kind, chosen.M is null ? null : chosen.Ailment, name => m.Effects[name]);
-                if (chosen.M is not null) ProliferatedMarksLocked(chosen.M, m, TypeOf(kind), chosen.Ailment.Until);
-            }
+            m.Ailments.ClearProliferation(now);
+            if (sources.Count == 0 || m.Dead || !m.Hostile) continue;
+            var at = m.Walk.Position(now);
+            foreach (var (from, origin, radius, ailment) in sources)
+                if (!ReferenceEquals(from, m) && Dist(origin, at) <= radius
+                    && m.Ailments.AddProliferation(ailment, name => m.Effects[name]))
+                    ProliferatedMarksLocked(from, m, TypeOf(ailment.Kind), ailment.Until);
         }
     }
 
@@ -280,12 +284,12 @@ public static partial class Game
         if (playerHit && critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
         if (playerHit && !spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, targetId, m, now);
-        double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
+        double factor = MonsterDamageTaken(m, spell, now, hit: true);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.
-        var taken = mitigated.Select((type, range) => range.Scale(factor
-            * (type == DamageType.Physical
+        var taken = mitigated.Select((type, range) => range.Scale((type == DamageType.Cold ? MonsterColdHitTaken(m, spell, now) : factor)
+            * (critical ? criticalMultiplier / 100.0 : 1) * (type == DamageType.Physical
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         int Attacker(string name) => Player(name) + PanelStats.Of(name, Skill);
@@ -403,7 +407,7 @@ public static partial class Game
             double vines = ToxicWalkFactor(m);
             double trap = BearTrapWalkFactor(m, now);
             if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
-            bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
+            bool elementalIdle = a.IdleAt(now) && now >= m.ReceivedActionUntil;
             bool lowLifeMove = MonsterOnLowLife(m) && m.Effects["movement_velocity_+%_when_on_low_life"] != 0;
             if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) continue;

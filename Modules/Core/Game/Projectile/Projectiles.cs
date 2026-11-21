@@ -175,6 +175,7 @@ public static partial class Game
                 invalid = true;
                 lifetime?.Dispose();
                 ClearPods();
+                ClearVortex();
                 if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
@@ -470,7 +471,8 @@ public static partial class Game
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
                 bool crit = random.Next(10000) < shot.CriticalChance
                     + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
-                var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
+                var (ownedDamage, _, _) = MonsterHitDamage(target, raw, crit, !shot.Spell,
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond, default);
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
                     shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
                 var ownedHit = ApplyMonsterHitLocked(Conn, target, ownedDamage, rampageSource: true);
@@ -520,7 +522,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Conn, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
                     .ForSkill(name => Stats.Key(name) is uint k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
+                        finalRepeat: shot.FinalSpellRepeat), shot.IntimidatingCryExerted)
                     .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
@@ -740,16 +742,15 @@ public static partial class Game
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
-            float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
+            float animationValue = 0, uint animatedId = 0, double? artRadius = null, (uint Clip, long Length)? endClip = null,
             float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null)
         {
             // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
             // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
             if (startClip is uint first) (animatedFlags, animatedId) = ((byte)(animatedFlags | 9), first);
             uint id = Conn.TakeObjectId();
-            // Native area art radii are world units; simulation radii are grid cells. artRadius: the art's radius when
-            // MiscAnimated has no row for it (a GroundEffects piece).
-            float scale = radius is double r && (Art.ArtRadius(ao) ?? artRadius) is int nativeRadius
+            // Native area art radii are world units; simulation radii are grid cells.
+            float scale = radius is double r && (artRadius ?? Art.ArtRadius(ao)) is double nativeRadius
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
             var effect = new EffectObject(x, y, ao)
             {

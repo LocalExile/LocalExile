@@ -64,7 +64,7 @@ public class ArrowRainAndMirageTests
         }
     }
 
-    sealed class Battle : IDisposable
+    internal sealed class Battle : IDisposable
     {
         readonly IGameLogic? previous = Program.GameLogicOrNull;
         readonly GameServer.Modding.IModuleLifetime? previousLifetime = Game.CombatLifetime;
@@ -77,6 +77,9 @@ public class ArrowRainAndMirageTests
         public readonly SpawnedMonster Enemy = new("target", new(120, 100, 0), 0, 0, 100000) { Hostile = true };
         public readonly SpawnedMonster Ally = new("friendly", new(120, 100, 0), 0, 0, 100000) { Hostile = false };
 
+        public void AdvanceBy(double seconds) => Session.AdvanceTo(ProjectileRuntime.Time(
+            Math.Max(Conn.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(Conn)) + seconds));
+
         public async Task FlushOutput()
         {
             Assert.True(Session.Active, $"closed={Conn.Closed}, rules={Game.CurrentGameRules}, retired={Conn.RageRetired}");
@@ -87,11 +90,13 @@ public class ArrowRainAndMirageTests
             await done.Task;
         }
 
-        public Battle(params string[] gems)
+        public Battle(params string[] gems) : this(SkillCatalog.WitchRow, gems) { }
+
+        public Battle(int classRow, params string[] gems)
         {
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-            Conn = SpellTotemExecutionTests.Connection("Rain" + Guid.NewGuid().ToString("N"));
+            Conn = SpellTotemExecutionTests.Connection("Rain" + Guid.NewGuid().ToString("N"), classRow: classRow);
             Conn.Clock.Stop();
             Conn.Walk.Teleport(100, 100, 0);
             Conn.PlayerStats[Program.Stats.Key("global_always_hit")!.Value] = 1;
@@ -123,7 +128,7 @@ public class ArrowRainAndMirageTests
     }
 
     [Fact]
-    public void Rain_lands_after_release_and_toxic_pods_damage_only_enemies()
+    public async Task Rain_lands_after_release_and_toxic_pods_damage_only_enemies()
     {
         var aim = new ProjectileVector(120, 100);
         var points = Game.RainLandings("RainOfArrows", aim, 18, 24, [aim + new ProjectileVector(2, 0)], new Random(3));
@@ -131,8 +136,9 @@ public class ArrowRainAndMirageTests
         Assert.Equal(aim, points[0]);
         Assert.Equal(aim + new ProjectileVector(2, 0), points[1]);
         Assert.All(Game.RainLandings("BlastRain", aim, 6, 17, [], new Random(1)), p => Assert.InRange((p - aim).Length, 0, 20));
-        using var b = new Battle("Toxic Rain");
-        var gem = Game.GemSkillEffects(b.Conn).Single();
+        using var b = new Battle("Toxic Rain", "Split Arrow");
+        var gems = Game.GemSkillEffects(b.Conn).ToDictionary(g => g.Name);
+        var gem = gems["Toxic Rain"];
         Game.ReleaseArrowRain(b.Session, gem.Id, gem, (120, 100), new(1), 0);
         Assert.Equal(100000u, b.Enemy.Life);
         b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
@@ -149,7 +155,225 @@ public class ArrowRainAndMirageTests
         Assert.True(b.Enemy.Life < ticking);
         Assert.Equal(1, Game.ToxicWalkFactor(b.Enemy));
         Assert.Equal(100000u, b.Ally.Life);
+
+        DamagePacket Hit(ushort skill) => Game.SupportedHitFor(b.Conn, skill, suppress: false, area: true, projectile: true);
+        var basis = Hit(gem.Id);
+        double physicalBeforeConversion = basis[DamageType.Physical].Max + basis[DamageType.Chaos].Max;
+        ushort split = gems["Split Arrow"].Id;
+        var splitBase = Hit(split);
+        var items = Game.ItemsOf(b.Conn);
+        var helmet = ItemCatalog.Create(Program.Items.Find("Iron Hat")!);
+        b.Conn.PlayerStats[StatKeys.PhysicalDamageAsExtraChaosPct] = 20;
+        foreach (var (enchant, extra) in new (string?, int)[]
+        {
+            ("EnchantmentToxicRainPhysicalAddedAsChaos1", 6), ("EnchantmentToxicRainPhysicalAddedAsChaos2", 10), (null, 0)
+        })
+        {
+            if (items.Items(PlayerInventories.Helmet).SingleOrDefault() is { } worn)
+                items.Remove(PlayerInventories.Helmet, worn.Id);
+            if (enchant is not null)
+            {
+                var mod = Program.Items.Mods.ById(enchant)!;
+                items.Add(PlayerInventories.Helmet, 0, 0, helmet with { Mods = [new ItemMod(ModSection.Enchant, mod.Hash, mod.MaxValues())] });
+            }
+            await Game.SendEquipment("toxic-rain", b.Stream, b.Ciphers, b.Conn, items);
+            var hit = Hit(gem.Id);
+            Assert.Equal(basis[DamageType.Physical], hit[DamageType.Physical]);
+            Assert.Equal(basis[DamageType.Chaos].Max + physicalBeforeConversion * (20 + extra) / 100, hit[DamageType.Chaos].Max, 7);
+            Assert.Equal(splitBase[DamageType.Physical].Max * .2, Hit(split)[DamageType.Chaos].Max, 7);
+        }
+        await EquippedProjectileCounts();
+        await VortexSharesGroundAcrossCasters();
+        VortexSettlesBeforeChillReplacement();
     }
+
+    static async Task EquippedProjectileCounts()
+    {
+        using var b = new Battle("Toxic Rain", "Spark", "Split Arrow", "Split Arrow of Splitting", "Rain of Arrows", "Blast Rain");
+        var items = Game.ItemsOf(b.Conn);
+        var hat = ItemCatalog.Create(Program.Items.Find("Royal Burgonet")!);
+        var gems = Game.GemSkillEffects(b.Conn).ToDictionary(g => g.Name);
+        b.Conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
+        foreach (var (enchant, strength, rain, spark, splitBonus) in new (string?, int, int, int, int)[]
+        {
+            (null, 1000, 7, 6, 0), ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 1000, 8, 6, 0),
+            ("EnchantmentSparkNumOfAdditionalProjectiles1", 1000, 7, 8, 0), ("EnchantmentSparkNumOfAdditionalProjectiles2", 1000, 7, 9, 0),
+            ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 100, 7, 6, 0),
+            ("EnchantmentSplitArrowNumOfAdditionalProjectiles1", 1000, 7, 6, 2),
+            ("EnchantmentSplitArrowNumOfAdditionalProjectiles2", 1000, 7, 6, 3),
+            ("EnchantmentSplitArrowNumOfAdditionalProjectiles2", 100, 7, 6, 0), (null, 1000, 7, 6, 0)
+        })
+        {
+            // The Royal Burgonet needs 148 Strength. Keep the bow and its gems qualified at 100.
+            b.Conn.PlayerStats[Program.Stats.Key("virtual_strength_for_requirements")!.Value] = strength;
+            if (items.Items(PlayerInventories.Helmet).SingleOrDefault() is { } previous)
+                items.Remove(PlayerInventories.Helmet, previous.Id);
+            if (enchant is not null)
+            {
+                var mod = Program.Items.Mods.ById(enchant)!;
+                items.Add(PlayerInventories.Helmet, 0, 0, hat with
+                {
+                    Mods = [new ItemMod(ModSection.Enchant, mod.Hash, mod.MaxValues())]
+                });
+            }
+            await Game.SendEquipment("projectile-count", b.Stream, b.Ciphers, b.Conn, items);
+            var skills = Game.PlayerSkills(b.Conn);
+            foreach (var (name, count) in new[] { ("Toxic Rain", rain), ("Spark", spark), ("Split Arrow", 7 + splitBonus),
+                ("Split Arrow of Splitting", 1), ("Rain of Arrows", 20), ("Blast Rain", 8) })
+            {
+                var gem = gems[name];
+                var stats = skills.Single(row => row.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+                var profile = Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1)).Profile;
+                Assert.Equal(count, profile.Count);
+                if (name == "Split Arrow of Splitting")
+                {
+                    Assert.Equal(5 + splitBonus, profile.Split); // Three gem targets plus the two generic projectiles.
+                    Assert.Equal(profile.Split, stats[Program.Stats.Key("virtual_projectile_number_to_split")!.Value]);
+                }
+                Assert.Equal(count, stats[StatKeys.TotalProjectilesToFire]);
+                Assert.Equal(count, stats[StatKeys.VirtualTotalProjectiles]);
+                if (name == "Spark") continue;
+                Assert.Equal(count, stats[StatKeys.TotalArrowsToFire]);
+                Assert.Equal(count, stats[StatKeys.VirtualTotalArrows]);
+            }
+        }
+    }
+
+    static void VortexSettlesBeforeChillReplacement()
+    {
+        using var b = new Battle("Vortex");
+        var m = b.Enemy;
+        b.Session.AdvanceTo(ProjectileRuntime.Time(64));
+        int Supported(string name) => name == "support_chills_also_grant_cold_damage_taken_+%_equal_to_slow_amount" ? 1 : 0;
+        m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 1, 64, Supported, _ => 0, stated: 10);
+        b.Session.PlaceVortexGround((120, 100), 1, 1, 3200, _ => 0, 0);
+        m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 2, 64.03125, Supported, _ => 0, stated: 30);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(64.0625));
+        b.Session.SettleVortexGround();
+        Assert.Equal(240u, m.MaxLife - m.Life); // 110 under the first chill, 130 under the replacement.
+    }
+
+    static void VortexStartsAtMonsterEntry(Battle caster, Game.ProjectileSession peer)
+    {
+        var centre = (X: 200, Y: 200);
+        caster.Session.AdvanceTo(ProjectileRuntime.Time(8));
+        caster.Session.PlaceVortexGround(centre, 4, .25, 3200, name => name switch
+        {
+            "support_chilling_areas_also_grant_cold_damage_taken_+%_equal_to_slow_amount" => 1,
+            "virtual_chill_effect_+%" => 25,
+            _ => 0,
+        }, 0);
+        var arrived = new SpawnedMonster("arrives", new(200, 200, 0), 0, 0, 10000);
+        var buried = new SpawnedMonster("buried", new(200, 200, 0), 0, 0, 10000);
+        var lurking = new SpawnedMonster("lurking", new(200, 200, 0), 0, 0, 10000);
+        peer.AdvanceTo(ProjectileRuntime.Time(8.03125));
+        lock (peer.Conn.Monsters)
+        {
+            Assert.False(MonsterEmerge.AddLocked(peer.Conn, 209, arrived, EmergeKind.None, false));
+            Assert.True(MonsterEmerge.AddLocked(peer.Conn, 210, buried, EmergeKind.Buried, true));
+            Assert.True(MonsterEmerge.AddLocked(peer.Conn, 211, lurking, EmergeKind.Lurking, true));
+            Assert.Equal(0, arrived.Ailments.ChillColdTakenPct(8));
+            Assert.Equal(12, arrived.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal(0, buried.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal(12, lurking.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal([buried, lurking], new MonsterEmerge().RiseLocked(peer.Conn, centre, 8.0625, out _).Select(r => r.Monster));
+            Assert.Equal(0, buried.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal(12, buried.Ailments.ChillColdTakenPct(8.0625));
+        }
+        caster.Session.AdvanceTo(ProjectileRuntime.Time(8.09375));
+        caster.Session.SettleVortexGround();
+        Assert.Equal(224u, arrived.MaxLife - arrived.Life);
+        Assert.Equal(112u, buried.MaxLife - buried.Life);
+        Assert.Equal(224u, lurking.MaxLife - lurking.Life);
+        arrived.Mods = arrived.Mods with { Effects = arrived.Effects.Combine(new Dictionary<string, int> { ["cannot_be_chilled"] = 1 }) };
+        caster.Session.AdvanceTo(ProjectileRuntime.Time(8.125));
+        caster.Session.SettleVortexGround();
+        Assert.Equal(0, arrived.Ailments.ChillColdTakenPct(8.125));
+        Assert.Equal(12, lurking.Ailments.ChillColdTakenPct(8.125));
+    }
+
+    static async Task VortexSharesGroundAcrossCasters()
+    {
+        using var b = new Battle("Vortex");
+        using var wire = new SpellTotemExecutionTests.Wire();
+        var peer = SpellTotemExecutionTests.Connection("Vortex" + Guid.NewGuid().ToString("N"), b.Conn.Instance);
+        var other = new Game.ProjectileSession("vortex-peer", wire.Stream, wire.Ciphers, peer);
+        peer.ProjectileRuntimeState = other;
+        try
+        {
+            VortexStartsAtMonsterEntry(b, other);
+            var at = (X: 120, Y: 100);
+            long start = ProjectileRuntime.Time(16);
+            b.Session.AdvanceTo(start);
+            other.AdvanceTo(start);
+            var dying = b.Conn.Monsters[202] = new("credit", new(120, 100, 0), 0, 0, 20) { Hostile = true };
+            var walker = b.Conn.Monsters[203] = new("crosses", new(117, 100, 8), 0, 0, 1000) { Hostile = true };
+            walker.Walk.Order(125, 100, 16);
+            b.Session.PlaceVortexGround(at, 1, 1.375, 32, _ => 0, 0);
+            other.PlaceVortexGround(at, 1, .375, 64, name => name == "virtual_chill_effect_+%" ? 100 : 0, 0);
+            Assert.Equal(20, b.Enemy.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 16));
+            b.Session.AdvanceTo(start + ProjectileRuntime.Time(.4));
+            Assert.True(dying.Dead);
+            Assert.Same(peer, dying.LastHitBy);
+            Assert.Equal(10, b.Enemy.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 16.4));
+            b.Session.AdvanceTo(start + ProjectileRuntime.Time(1.375));
+            Assert.Equal(56u, b.Enemy.MaxLife - b.Enemy.Life);
+            Assert.Equal(16u, walker.MaxLife - walker.Life);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            Assert.Equal(0, b.Enemy.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 17.375));
+
+            // Removing the timer's caster leaves the other player's ground on the same instance clock.
+            other.AdvanceTo(b.Session.Runtime.Now);
+            var variety = Game.Monsters.Find("Cannibal")!;
+            var boundary = b.Conn.Monsters[204] = new("lethal before exit", new(120, 100, 0), 0, 0, 4)
+                { Hostile = true, Variety = variety, NoRewards = true };
+            b.Conn.Instance.World.MonsterOrigins[204] = new(InstanceEntities.ObjectTypeHash(variety.Id),
+                new MonsterObject(120, 100, 4, variety.ComponentsOrBase, variety.AnimatedObject), (ushort)variety.Row, 1, MonsterRarity.Normal);
+            peer.PlayerSent = true;
+            var pose = new PlayerObject(peer.Character!, 0, 100, 100, peer.PlayerLife, peer.PlayerMana);
+            peer.Instance.PublishPlayer(new(peer.PeerId, 1, pose, 100, 100, peer.PlayerLife, peer));
+            other.PlaceVortexGround(at, 1, .625, 32, _ => 0, 0);
+            b.Session.PlaceVortexGround(at, 1, 2, 96, _ => 0, 0);
+            b.Session.AdvanceTo(start + ProjectileRuntime.Time(1.4375));
+            Assert.True(b.Conn.TryBeginAreaChange(new(2, 1, false), out _));
+            await Game.FinishVortexGround(b.Conn);
+            Assert.True(boundary.Dead);
+            Assert.True(peer.KillShares.TryDequeue(out _));
+            await Game.FinishVortexGround(b.Conn);
+            Assert.Empty(peer.KillShares);
+            Assert.Same(b.Conn, boundary.LastHitBy);
+            other.AdvanceTo(start + ProjectileRuntime.Time(2));
+            Assert.Equal(80u, b.Enemy.MaxLife - b.Enemy.Life);
+
+            // The new caster can observe the old driver's field expiring before that driver's next pump.
+            b.Conn.ResumeAfterFailedTransfer();
+            var next = new Game.ProjectileSession("vortex-return", b.Stream, b.Ciphers, b.Conn);
+            b.Conn.ProjectileRuntimeState = next;
+            try
+            {
+                other.PlaceVortexGround(at, 1, .0625, 32, _ => 0, 0);
+                next.AdvanceTo(start + ProjectileRuntime.Time(2.125));
+                next.PlaceVortexGround(at, 1, .5, 64, _ => 0, 0);
+                other.Invalidate();
+                next.AdvanceTo(start + ProjectileRuntime.Time(3));
+                Assert.Equal(114u, b.Enemy.MaxLife - b.Enemy.Life);
+            }
+            finally
+            {
+                next.Invalidate();
+                next.OutputCompleted.GetAwaiter().GetResult();
+            }
+        }
+        finally
+        {
+            other.Invalidate();
+            peer.Closed = true;
+            await Game.FinishVortexGround(peer);
+            await other.OutputCompleted;
+            PlayerInventories.Forget(peer.Character!);
+        }
+    }
+
 
     [Fact]
     public async Task Supported_ice_arrow_hit_grants_a_temporary_autonomous_attack()
@@ -611,6 +835,7 @@ public class ArrowRainAndMirageTests
         Game.ActivateRighteousFire("elemental-dot", b.Stream, b.Ciphers, c, gem.Id,
             gem.Effect, gem.Level, gem.Quality, gem.Gem).GetAwaiter().GetResult();
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         double baseDps = (c.PlayerMaxLife + c.Pools.EnergyShield) * .7;
         void Burn(double factor)
         {
@@ -697,13 +922,16 @@ public class ArrowRainAndMirageTests
 
     sealed class ProjectileClock : IPlayerUpdateSchedule
     {
-        public readonly Queue<Action> Steps = [];
-        public double Now(ClientState conn) => Game.ProjectileWorldTime(conn);
-        public Task Wait(int milliseconds, CancellationToken stopping)
+        public readonly Queue<Func<Task>> Steps = [];
+        public void OnWait(Action step) => Steps.Enqueue(() =>
         {
-            Steps.Dequeue()();
+            step();
             return Task.CompletedTask;
-        }
+        });
+        public double ResourceLag;
+        public double Now(ClientState conn) => Game.ProjectileWorldTime(conn);
+        public double ResourceNow(ClientState conn) => Now(conn) - ResourceLag;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Steps.Dequeue()();
     }
 
     static async Task SwapRighteousFireSocket(Battle b, uint host, int index, string name, byte quality = 0)
@@ -768,6 +996,9 @@ public class ArrowRainAndMirageTests
             At(3.375);
             Pay(8, 0);
             Assert.Equal(2, c.SupportGems.InspirationCharges);
+            At(3.4375);
+            Assert.True(await Game.RelightRighteousFire("rf-time", b.Stream, b.Ciphers, c, "skill art", rf, gem.Gem));
+            rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
             await Tick(3.5, 1.1 * (.25 + .5 * 1.03 + .25 * 1.06));
 
             At(5);
@@ -810,17 +1041,23 @@ public class ArrowRainAndMirageTests
             await Tick(32.5, 1.015);
 
             At(33);
+            var retired = rf;
             await Swap(0, "Righteous Fire");
             Assert.Null(c.RighteousFire);
             gem = Game.GemSkillEffects(c).Single(g => g.Name == "Righteous Fire");
             await Game.ActivateRighteousFire("rf-time", b.Stream, b.Ciphers, c, gem.Id, gem.Effect, gem.Level, gem.Quality, gem.Gem);
             rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
-            await Tick(33.75, 1.03); // The new source starts while an existing Inspiration charge is active.
+            uint beforeStale = b.Enemy.Life;
+            await Game.BurnAround("rf-time", b.Stream, b.Ciphers, c, retired, .5);
+            Assert.Equal(beforeStale, b.Enemy.Life);
+            Assert.Same(rf, c.RighteousFire);
+            await Tick(33.25, .5 * 1.03); // Only the new source's quarter second, with its existing Inspiration charge.
+            await Tick(33.75, 1.03);
 
             // A payment arrives after the player tick sampled [43, 43.5] but before its queued publications finish.
             At(43);
-            clock.Steps.Enqueue(() => At(43.5));
-            clock.Steps.Enqueue(updates.Stop.Cancel);
+            clock.OnWait(() => At(43.5));
+            clock.OnWait(updates.Stop.Cancel);
             uint laterMana = 0;
             using var paidDuringTick = GameEvents.Tick.Add("Game", (actor, elapsed) =>
             {
@@ -844,6 +1081,414 @@ public class ArrowRainAndMirageTests
         }
         finally
         {
+            Game.AreaUpdateContext.Value = previous;
+            if (ReferenceEquals(c.PlayerUpdatesState, updates)) c.RetirePlayerUpdates();
+            updates.Stop.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Righteous_fire_burns_only_between_activation_and_source_retirement(bool recovery)
+    {
+        await RighteousFireSocketIntervals(recovery);
+        foreach (string move in new[] { "pickup", "place", "onto", "weapon swap", "promotion", "stash", "vendor",
+            "loses qualification", "cascading qualification", "keeps qualification", "gem qualification" })
+        {
+            var (atWrite, atTick, running, lease, rate) = await RighteousFireHostInterval(recovery, move);
+            bool retained = move is "promotion" or "keeps qualification";
+            Assert.Equal((move, (int)(rate * (retained ? .5 : .75)), (int)(rate * (retained ? 1 : .75)), retained, retained),
+                (move, atWrite, atTick, running, lease));
+        }
+    }
+
+    static async Task RighteousFireSocketIntervals(bool recovery)
+    {
+        using var b = new Battle("Righteous Fire", "Faster Attacks Support");
+        var c = b.Conn;
+        c.Pools = Game.PoolsFor(c, 100);
+        c.PlayerLife = c.PlayerMaxLife;
+        Assert.Equal(0u, c.Pools.EnergyShield);
+        b.Enemy.Walk.Teleport(105, 100, 0);
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { ItemLevel = 80 });
+        var socket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 0);
+        var clock = new ProjectileClock();
+        var updates = new PlayerUpdatesState(Game.CombatLifetime!, clock);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            double origin = Math.Ceiling(Math.Max(c.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(c))) + 1;
+            void At(double time) => b.Session.AdvanceTo(ProjectileRuntime.Time(origin + time));
+            Task Ignite() => Game.OnUseObject("rf-start", b.Stream, b.Ciphers, c,
+                new(Program.PlayerId, gem.Id, 1, 0), c.Clock.Elapsed.TotalSeconds);
+            uint startingLife = recovery ? c.PlayerLife : b.Enemy.Life;
+            var late = new SpawnedMonster("late target", new(105, 100, 0), 0, 0, 100000);
+            async Task RemoveFirst()
+            {
+                // This monster enters just after the 1.5 sample, in time for the last 1/16 second.
+                c.Monsters[202] = late;
+                var doomed = new SpawnedMonster("former occupant", new(105, 100, 0), 0, 0, 1);
+                if (!recovery)
+                {
+                    doomed.Contagion.Apply(clock.Now(c), new(5, 10, 18));
+                    c.Monsters[203] = doomed;
+                }
+                At(1.5625);
+                clock.ResourceLag = recovery ? .03125 : 0;
+                uint lifeBeforeRemoval = c.PlayerLife;
+                var old = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                var gate = Program.SendGates.GetValue(b.Ciphers, _ => new(1, 1));
+                Assert.True(gate.Wait(0));
+                Task replacing;
+                try
+                {
+                    replacing = SwapRighteousFireSocket(b, host.Id, 0, "Righteous Fire");
+                    Assert.False(replacing.IsCompleted);
+                    Assert.Null(c.RighteousFire);
+                    Assert.False(c.GemSourceLifetimes.IsCurrent(old.SourceLifetime!));
+                    if (recovery) Assert.True(c.PlayerLife < lifeBeforeRemoval);
+                    else
+                    {
+                        Assert.Equal((uint)(c.PlayerMaxLife * old.DamagePctPerMinute / 6000d * .0625), late.MaxLife - late.Life);
+                        Assert.True(doomed.Dead);
+                        c.Monsters[203] = new("replacement", new(200, 100, 0), 0, 0, 200);
+                    }
+                }
+                finally { gate.Release(); }
+                await replacing;
+                if (recovery) c.EnergyShield.SetMaximum(125, refill: true);
+                Assert.True(late.Contagion.Idle);
+                clock.ResourceLag = 0;
+                await Game.BurnAround("rf-start", b.Stream, b.Ciphers, c, old, .5);
+                late.Walk.Teleport(200, 100, 0);
+            }
+            var losses = new List<int>();
+            void Observe()
+            {
+                if (!recovery && losses.Count == 0)
+                    Assert.DoesNotContain(200u, Assert.IsType<RighteousFireState>(c.RighteousFire).Auras.Keys);
+                losses.Add((int)(startingLife - (recovery ? c.PlayerLife : b.Enemy.Life)));
+            }
+
+            // The player loop samples 0.5, then admits RF at 0.75 while publishing that tick.
+            // Recovery samples under the actor lock and first sees the new owner at 1.0.
+            At(0);
+            bool activatedInPlayerTick = false;
+            using var afterSample = GameEvents.Tick.Add("Game", async (actor, elapsed) =>
+            {
+                if (!ReferenceEquals(actor, c)) return;
+                if (!activatedInPlayerTick)
+                {
+                    activatedInPlayerTick = true;
+                    At(.75);
+                    await Ignite();
+                }
+                else if (clock.Now(c) == origin + 1.5)
+                {
+                    Observe();
+                    await RemoveFirst();
+                }
+            });
+            clock.OnWait(() => At(.5));
+            clock.Steps.Enqueue(async () =>
+            {
+                Observe();
+                if (recovery)
+                {
+                    At(.75);
+                    await Ignite();
+                }
+                At(1);
+            });
+            clock.Steps.Enqueue(async () =>
+            {
+                Observe();
+                At(1.25);
+                var original = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                var gate = Program.SendGates.GetValue(b.Ciphers, _ => new(1, 1));
+                Assert.True(gate.Wait(0));
+                Task<bool> restyle;
+                RighteousFireState? duringOutput;
+                bool waiting;
+                try
+                {
+                    restyle = Game.RelightRighteousFire("rf-start", b.Stream, b.Ciphers, c,
+                        "restyled by the skill pick", original, gem.Gem);
+                    waiting = !restyle.IsCompleted;
+                    duringOutput = c.RighteousFire;
+                }
+                finally { gate.Release(); }
+                Assert.True(await restyle);
+                Assert.True(waiting);
+                var restyled = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                Assert.Same(duringOutput, restyled);
+                Assert.NotSame(original, restyled);
+                Assert.Same(original.SourceLifetime, restyled.SourceLifetime);
+                At(1.5);
+            });
+            clock.Steps.Enqueue(async () =>
+            {
+                if (recovery) { Observe(); await RemoveFirst(); }
+                At(1.625);
+            });
+            clock.Steps.Enqueue(async () =>
+            {
+                Observe();
+                if (recovery)
+                {
+                    Assert.Equal(125u, c.EnergyShield.Current);
+                    c.EnergyShield.SetMaximum(0);
+                }
+                await SwapRighteousFireSocket(b, host.Id, 1, "Burning Damage Support");
+                await Game.ActivateRighteousFire("rf-start", b.Stream, b.Ciphers, c, gem.Id,
+                    gem.Effect, gem.Level, gem.Quality, Assert.Single(Game.GemSkillEffects(c)).Gem);
+                var linked = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                uint burning = Program.Stats.Key("support_burning_damage_+%_final")!.Value;
+                Assert.Equal(20, Game.SupportedSkill(c, gem.Id).Stats[burning]);
+                At(1.6875);
+                var held = items.Add(PlayerInventories.Cursor, 0, 0,
+                    Assert.Single(items.Items(PlayerInventories.Weapon1)).Item.Sockets[0].Gem!);
+                await Game.UnsocketGem("rf-start", b.Stream, b.Ciphers, c, socket);
+                Assert.Same(linked, c.RighteousFire);
+                Assert.Equal(held.Id, Assert.Single(items.Items(PlayerInventories.Cursor)).Id);
+                items.Remove(PlayerInventories.Cursor, held.Id);
+                At(1.75);
+                await Game.UnsocketGem("rf-start", b.Stream, b.Ciphers, c, socket);
+                Assert.Null(c.RighteousFire);
+                Assert.False(c.GemSourceLifetimes.IsCurrent(linked.SourceLifetime!));
+                await Game.SocketGem("rf-start", b.Stream, b.Ciphers, c, socket);
+                await SwapRighteousFireSocket(b, host.Id, 1, "Faster Attacks Support");
+                await Game.ActivateRighteousFire("rf-start", b.Stream, b.Ciphers, c, gem.Id,
+                    gem.Effect, gem.Level, gem.Quality, Assert.Single(Game.GemSkillEffects(c)).Gem);
+                var unlinked = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                Assert.NotSame(linked.SourceLifetime, unlinked.SourceLifetime);
+                Assert.DoesNotContain(burning, Game.SupportedSkill(c, gem.Id).Stats.Keys);
+                At(1.8125);
+            });
+            clock.OnWait(() => { Observe(); updates.Stop.Cancel(); });
+            c.Wire = ("rf-start", b.Stream, b.Ciphers);
+            c.PlayerUpdatesState = updates;
+            Assert.True(c.PlayerUpdatesWorker.TryStart(c, updates.Rules, null, updates, out updates.Generation));
+            c.Clock.Start();
+            if (recovery) await Game.RunResourceRecovery("rf-start", b.Stream, b.Ciphers, c, updates);
+            else await Game.RunPlayerTick("rf-start", b.Stream, b.Ciphers, c, updates);
+            var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+            Assert.Empty(clock.Steps);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            double rate = recovery
+                ? DamageModel.Mitigate(c.PlayerMaxLife * rf.BurnPctPerMinute / 6000d,
+                    Game.Resistance(c, DamageType.Fire), Game.MaxResistance(c, DamageType.Fire))
+                : c.PlayerMaxLife * rf.DamagePctPerMinute / 6000d;
+            double linkedRate = recovery ? rate : rate * 1.2;
+            double firstBurn = recovery ? .78125 : .8125;
+            Assert.Equal(new[] { 0, (int)(rate * .25), (int)(rate * .75), (int)(rate * firstBurn),
+                (int)(rate * firstBurn + linkedRate * .125 + rate * .0625) }, losses);
+        }
+        finally
+        {
+            c.Clock.Stop();
+            Game.AreaUpdateContext.Value = previous;
+            if (ReferenceEquals(c.PlayerUpdatesState, updates)) c.RetirePlayerUpdates();
+            updates.Stop.Dispose();
+        }
+    }
+
+    static uint EquipRighteousFireAttributeItems(ClientState c, PlayerInventories items, ItemCatalog.BaseType wand, string move)
+    {
+        c.PlayerStats.Remove(Program.Stats.Key("virtual_intelligence_for_requirements")!.Value);
+        var intelligence = Program.Items.Mods.ById("Intelligence8")!;
+        int bare = Game.CurrentGemRequirements(c).Intelligence;
+        Assert.InRange(Program.Items.Requirements(wand).Int, bare + 1, bare + intelligence.RangeAt(0).Max);
+
+        InventoryItem Equip(byte row, string type, params string[] modifiers)
+        {
+            var affixes = modifiers.Select(id => Program.Items.Mods.ById(id)!)
+                .Select(mod => new ItemMod(ModSection.Explicit, mod.Hash, [mod.RangeAt(0).Max])).ToArray();
+            return items.Add(row, 0, 0, ItemCatalog.Create(Program.Items.Find(type)!) with
+                { Rarity = affixes.Length == 1 ? ItemRarity.Magic : ItemRarity.Rare, Mods = affixes });
+        }
+        if (move == "cascading qualification")
+        {
+            c.PlayerStats.Remove(Program.Stats.Key("virtual_dexterity_for_requirements")!.Value);
+            var boots = Program.Items.Find("Goathide Boots")!;
+            int dex = Game.CurrentGemRequirements(c).Dexterity;
+            Assert.InRange(Program.Items.Requirements(boots).Dex, dex + 1, dex + Program.Items.Mods.ById("Dexterity8")!.RangeAt(0).Max);
+            Equip(PlayerInventories.Boots, boots.Name, "Intelligence8");
+            return Equip(PlayerInventories.Gloves, "Iron Gauntlets", "Dexterity8").Id;
+        }
+        if (move == "keeps qualification")
+        {
+            Equip(PlayerInventories.Helmet, "Iron Hat", "Intelligence8");
+            return Equip(PlayerInventories.Gloves, "Iron Gauntlets", "Intelligence8").Id;
+        }
+        return Equip(PlayerInventories.Gloves, "Iron Gauntlets", "Intelligence8", "FireResist3").Id;
+    }
+
+    static async Task<(int AtWrite, int AtTick, bool Running, bool Lease, double Rate)> RighteousFireHostInterval(
+        bool recovery, string move)
+    {
+        using var b = new Battle("Righteous Fire", "Burning Damage Support");
+        var c = b.Conn;
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        bool attributeMove = move is "loses qualification" or "cascading qualification" or "keeps qualification" or "gem qualification";
+        using var exemption = move == "gem qualification"
+            ? GameEvents.RequirementExemptions.Add("Game", actor => ReferenceEquals(actor, c) ? [host.Id] : []) : null;
+        var wandType = Program.Items.Find(attributeMove ? "Carved Wand" : "Driftwood Wand")!;
+        var wand = ItemCatalog.Create(wandType);
+        var burningWand = wand with { Sockets = host.Item.Sockets, Links = [2], ItemLevel = 80 };
+        if (move == "gem qualification")
+        {
+            var socket = burningWand.Sockets[0];
+            var fire = socket.Gem!;
+            var type = Program.Items.Gem(Program.Items.ByHash(fire.TypeHash)!)!;
+            burningWand = burningWand with { Sockets = [socket with { Gem = fire with { GemExperience = type.ExperienceFor(8) } },
+                burningWand.Sockets[1]] };
+        }
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => burningWand);
+        var replacement = wand with { Sockets = [burningWand.Sockets[0]], Links = [1] };
+        uint picked = attributeMove ? EquipRighteousFireAttributeItems(c, items, wandType, move) : host.Id;
+        if (move == "promotion")
+        {
+            items.Remove(PlayerInventories.Weapon1, host.Id);
+            items.Put(PlayerInventories.Offhand1, host with { Item = burningWand });
+            picked = items.Add(PlayerInventories.Weapon1, 0, 0, wand).Id;
+        }
+        if (move == "weapon swap") items.Add(PlayerInventories.Weapon2, 0, 0, replacement);
+        if (move is "place" or "onto") items.Add(PlayerInventories.Cursor, 0, 0, replacement);
+        if (move == "vendor")
+        {
+            var wisdom = Program.Items.Find("Scroll of Wisdom")!;
+            items.Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(wisdom));
+            var seller = Game.Npcs.Value.Find("Metadata/NPC/Epilogue/LillyHideout")!;
+            var offer = new InventoryItem(41, 0, 0, replacement with { Price = [(wisdom.Hash, 1)] });
+            c.Shop = new(new(seller, 100, 100), new() { [offer.Id] = (NpcShops.FirstTabId, offer) });
+        }
+        c.Pools = Game.PoolsFor(c, 100);
+        c.PlayerLife = c.PlayerMaxLife;
+        b.Enemy.Walk.Teleport(105, 100, 0);
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        var clock = new ProjectileClock();
+        var updates = new PlayerUpdatesState(Game.CombatLifetime!, clock);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            const string name = "rf-host";
+            uint inv = PlayerInventories.InventoryId(attributeMove ? PlayerInventories.Gloves : PlayerInventories.Weapon1);
+            double start = Math.Ceiling(Math.Max(c.Clock.Elapsed.TotalSeconds, clock.Now(c))) + 1;
+            void At(double time) => b.Session.AdvanceTo(ProjectileRuntime.Time(start + time));
+            Task Pick() => Game.PickUpItem(name, b.Stream, b.Ciphers, c, new(inv, picked, 0, 0, 0));
+            Task Swap(byte set) => Game.OnClientMessages(name, b.Stream, b.Ciphers,
+                [(InstanceProtocol.SwapWeaponsId, new byte[] { 0, (byte)InstanceProtocol.SwapWeaponsId, set })], [], c);
+            At(0);
+            c.Clock.Start();
+            await Game.ActivateRighteousFire(name, b.Stream, b.Ciphers, c, gem.Id, gem.Effect, gem.Level, gem.Quality, gem.Gem);
+            var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+            Assert.Equal(host.Id, rf.SourceLifetime!.Key.Host);
+            double rate = recovery
+                ? DamageModel.Mitigate(c.PlayerMaxLife * rf.BurnPctPerMinute / 6000d,
+                    Game.Resistance(c, DamageType.Fire), Game.MaxResistance(c, DamageType.Fire))
+                : c.PlayerMaxLife * rf.DamagePctPerMinute / 6000d * 1.2;
+            uint before = recovery ? c.PlayerLife : b.Enemy.Life;
+            int Loss() => (int)(before - (recovery ? c.PlayerLife : b.Enemy.Life));
+            int atWrite = 0;
+            bool running = false, lease = false;
+            clock.OnWait(() => At(.5));
+            clock.Steps.Enqueue(async () =>
+            {
+                Assert.Equal((int)(rate * .5), Loss());
+                At(.625);
+                if (move == "pickup" || attributeMove)
+                {
+                    var held = items.Add(PlayerInventories.Cursor, 0, 0, wand);
+                    await Pick();
+                    Assert.Same(rf, c.RighteousFire);
+                    Assert.Equal((int)(rate * .5), Loss());
+                    items.Remove(PlayerInventories.Cursor, held.Id);
+                }
+                if (move == "onto")
+                {
+                    await Game.HeldOntoItem(name, b.Stream, b.Ciphers, c, new(inv, uint.MaxValue, 0, 0, 0), "");
+                    Assert.Same(rf, c.RighteousFire);
+                    Assert.Equal((int)(rate * .5), Loss());
+                }
+                if (move == "stash")
+                {
+                    Assert.Null(ItemMoves.InventoryToStashFrom(Game.StashOf(c), items, 0, host.Id,
+                        PlayerInventories.MainInventory, Game.ShapeOf, out _));
+                    Assert.Equal(PlayerInventories.Weapon1, items.RowOf(host.Id));
+                }
+                if (move == "weapon swap")
+                {
+                    await Swap(0);
+                    Assert.Same(rf, c.RighteousFire);
+                    Assert.Equal((int)(rate * .5), Loss());
+                }
+                At(.75);
+                var gate = Program.SendGates.GetValue(b.Ciphers, _ => new(1, 1));
+                Assert.True(gate.Wait(0));
+                Task operation;
+                try
+                {
+                    operation = move switch
+                    {
+                        _ when attributeMove => Pick(),
+                        "pickup" or "promotion" => Pick(),
+                        "place" => Game.PlaceItem(name, b.Stream, b.Ciphers, c, new(inv, 0, 0, 0, 0, 0, 0)),
+                        "onto" => Game.HeldOntoItem(name, b.Stream, b.Ciphers, c, new(inv, host.Id, 0, 0, 0), ""),
+                        "weapon swap" => Swap(1),
+                        "stash" => Game.CtrlClickToStash(name, b.Stream, b.Ciphers, c, 0, host.Id, name),
+                        "vendor" => VendorsFeature.BuyFromShop(name, b.Stream, b.Ciphers, c, new(41, inv, 0, 0, 0, 0, 0)),
+                        _ => throw new ArgumentOutOfRangeException(nameof(move)),
+                    };
+                    Assert.False(operation.IsCompleted);
+                    atWrite = Loss();
+                    running = ReferenceEquals(rf, c.RighteousFire);
+                    lease = c.GemSourceLifetimes.IsCurrent(rf.SourceLifetime);
+                }
+                finally { gate.Release(); }
+                await operation;
+                if (attributeMove)
+                {
+                    Assert.Equal(host.Id, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+                    bool eligible = move == "keeps qualification";
+                    Assert.Equal(!eligible && move != "gem qualification", Game.IsInactive(c, host.Id));
+                    Assert.Equal(eligible, Game.SupportedSkill(c, gem.Id).RequirementsMet);
+                    if (move == "cascading qualification")
+                        Assert.True(Game.IsInactive(c, Assert.Single(items.Items(PlayerInventories.Boots)).Id));
+                    if (!eligible)
+                    {
+                        At(.875);
+                        await Game.PlaceItem(name, b.Stream, b.Ciphers, c, new(inv, 0, 0, 0, 0, 0, 0));
+                        Assert.True(Game.SupportedSkill(c, gem.Id).RequirementsMet);
+                        Assert.Null(c.RighteousFire);
+                        Assert.False(c.GemSourceLifetimes.IsCurrent(rf.SourceLifetime));
+                    }
+                }
+                else if (move == "promotion") Assert.Equal(host.Id, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+                else Assert.DoesNotContain(items.EquipmentSnapshot(), entry => entry.Item.Id == host.Id);
+                if (move is "place" or "onto" or "weapon swap" or "vendor")
+                    Assert.Equal(gem.Id, Assert.Single(Game.GemSkillEffects(c)).Id);
+                At(1);
+            });
+            clock.OnWait(() => updates.Stop.Cancel());
+            c.Wire = (name, b.Stream, b.Ciphers);
+            c.PlayerUpdatesState = updates;
+            Assert.True(c.PlayerUpdatesWorker.TryStart(c, updates.Rules, null, updates, out updates.Generation));
+            if (recovery) await Game.RunResourceRecovery(name, b.Stream, b.Ciphers, c, updates);
+            else await Game.RunPlayerTick(name, b.Stream, b.Ciphers, c, updates);
+            Assert.Empty(clock.Steps);
+            return (atWrite, Loss(), running, lease, rate);
+        }
+        finally
+        {
+            c.Clock.Stop();
             Game.AreaUpdateContext.Value = previous;
             if (ReferenceEquals(c.PlayerUpdatesState, updates)) c.RetirePlayerUpdates();
             updates.Stop.Dispose();
@@ -901,6 +1546,7 @@ public class ArrowRainAndMirageTests
         await Game.OnUseObject("rf-links", b.Stream, b.Ciphers, c, new(Program.PlayerId, gem.Id, 1, 0), c.Clock.Elapsed.TotalSeconds);
         c.Clock.Stop();
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         Task Tick(double factor) => AssertRighteousFireTick(b, rf, factor);
         async Task Replace(int index, string name, byte quality = 0)
         {
@@ -967,6 +1613,7 @@ public class ArrowRainAndMirageTests
         await Game.ActivateRighteousFire("rf-link", b.Stream, b.Ciphers, c, gem.Id,
             gem.Effect, gem.Level, gem.Quality, gem.Gem);
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         var owner = Assert.IsType<GemSourceLifetimes.SourceLifetime>(rf.SourceLifetime);
         Task Tick(double factor) => AssertRighteousFireTick(b, rf, factor);
         await Tick(1.2);
@@ -1029,6 +1676,7 @@ public class ArrowRainAndMirageTests
         Game.ActivateRighteousFire("rf-increases", b.Stream, b.Ciphers, c, gem.Id,
             gem.Effect, gem.Level, gem.Quality, gem.Gem).GetAwaiter().GetResult();
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         Assert.Equal(4200, rf.DamagePctPerMinute);
         Assert.Equal(4200, rf.EnergyShieldDamagePctPerMinute);
         Assert.Equal(5400, rf.BurnPctPerMinute);
@@ -2070,7 +2718,7 @@ public class ArrowRainAndMirageTests
     [Theory]
     [InlineData("Split Arrow", "Crude Bow")]
     [InlineData("Power Siphon", "Driftwood Wand")]
-    public void Barrage_support_paces_attacks_using_the_resolved_projectile_count(string skill, string weapon)
+    public async Task Barrage_support_paces_attacks_using_the_resolved_projectile_count(string skill, string weapon)
     {
         using var b = new Battle(skill, "Barrage Support");
         var items = Game.ItemsOf(b.Conn);
@@ -2087,6 +2735,11 @@ public class ArrowRainAndMirageTests
         int baselineSpeed = (int)MathF.Round(nativeSpeed - 100, MidpointRounding.AwayFromZero);
         Assert.Equal(0, Game.SupportedSkill(b.Conn, gem.Id).Stats.GetValueOrDefault(penaltyKey));
         items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [2] });
+        b.Conn.LockstepClient = true;
+        b.Conn.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
+        b.Enemy.Walk.Teleport(135, 100, 0);
+        if (skill == "Power Siphon")
+            b.Conn.Monsters[202] = new("second target", new(130, 112, 0), 0, 0, 100000) { Hostile = true };
         int initialCount = 0;
         foreach (int extra in new[] { 0, 2 })
         {
@@ -2096,6 +2749,8 @@ public class ArrowRainAndMirageTests
             Assert.True(penalty > 0);
             Game.ApplyProjectilePanelStats(gem.Effect, stats);
             int count = stats[countKey];
+            Assert.Equal(count * stats[Program.Stats.Key("support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired")!.Value],
+                stats[Program.Stats.Key("virtual_trap_and_mine_throwing_time_+%_final")!.Value]);
             Assert.True(count > extra + 1);
             if (extra == 0) initialCount = count;
             Assert.Equal(initialCount + extra, count);
@@ -2103,9 +2758,336 @@ public class ArrowRainAndMirageTests
                 MidpointRounding.AwayFromZero);
             double expected = baseline * (baselineSpeed + 100) / (speed + 100);
             Assert.Equal(expected, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);
+
+            // Drive the paid skill on an explicit timeline. Power Siphon keeps one simultaneous shot per
+            // target. A direct bow volley contacts at 66/200 of each Witch fire clip after its windup.
+            double start = 10 + extra * 3;
+            b.Conn.Clock.Start();
+            Assert.True(await Game.CastGemSkill("barrage", b.Stream, b.Ciphers, b.Conn, gem.Id, (100, 100), (175, 100),
+                sequence: 0x8013, actionToken: b.Conn.ActionCount, swingAt: start));
+            b.Conn.Clock.Stop();
+            double windup = expected * .4, interval = expected * .6 / count;
+            var shots = new Dictionary<long, (long At, long Group)>();
+            int hits = 0;
+            uint life = b.Enemy.Life;
+            bool move = skill == "Split Arrow" && extra != 0;
+            int action = b.Conn.ActionCount;
+            for (int step = 0; step <= (expected + 1) * 200; step++)
+            {
+                double elapsed = step / 200d;
+                b.Session.AdvanceTo(ProjectileRuntime.Time(start + elapsed));
+                foreach (var shot in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0))
+                    shots.TryAdd(shot.Id, (shot.CreatedAt, shot.EmissionId));
+                if (b.Enemy.Life < life) hits++;
+                life = b.Enemy.Life;
+                if (move && b.Conn.ActionCount == action && elapsed >= windup + 2.8 * interval)
+                {
+                    b.Conn.LockstepHold.Press((99, 108), 0x2909, 8);
+                    await Game.StartLockstepActions("barrage-move", b.Stream, b.Ciphers, b.Conn, start + elapsed);
+                }
+            }
+            if (skill == "Power Siphon")
+            {
+                Assert.Equal(2, shots.Count);
+                Assert.Single(shots.Values.Distinct());
+                continue;
+            }
+            int fired = move ? 3 : count;
+            if (move) Assert.NotEqual(action, b.Conn.ActionCount);
+            long first = ProjectileRuntime.Time(start + windup + interval * 66 / 200);
+            Assert.Equal(Enumerable.Range(0, fired).Select(i => first + i * ProjectileRuntime.Time(interval)),
+                shots.Values.Select(shot => shot.At).Order());
+            Assert.Equal(fired, shots.Values.Select(shot => shot.Group).Distinct().Count());
+            Assert.Equal(fired, hits);
         }
         items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [1, 1] });
         Assert.Equal(baseline, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);
+        if (skill == "Split Arrow")
+        {
+            await VerifyBarrageNovaLanding();
+            VerifyBallistaBarrage();
+            await VerifyPlacedBarrage("Trap Support");
+        }
+        else VerifyPowerSiphonBallista();
+        await VerifyPlacedBarrage(skill == "Split Arrow" ? "Locus Mine Support" : "Blastchain Mine Support");
+        await VerifyActiveBarrage(weapon, "Barrage", [1, 1, 1, 1, 1, 1]);
+        await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [7, 1, 1, 7]);
+        await VerifyActiveBarrage(weapon, "Barrage", [7, 1, 1, 1, 1, 7], volleyFire: true);
+        await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [13, 1, 1, 13], volleyFire: true);
+        await VerifyActiveBarrage(weapon, "Barrage", [1, 1, 1, 1, 1, 1], selective: true);
+        await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [7, 1, 1, 7], selective: true);
+    }
+
+    static async Task VerifyActiveBarrage(string weapon, string skill, int[] expectedGroups, bool volleyFire = false,
+        bool selective = false)
+    {
+        using var b = new Battle(skill);
+        var items = Game.ItemsOf(b.Conn);
+        var slot = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, slot.Id, item => ItemCatalog.Create(Program.Items.Find(weapon)!) with
+        { Sockets = item.Sockets, Links = item.Links });
+        if (volleyFire)
+        {
+            const byte jewelSlot = 9; // 40 Dexterity in radius, all on unallocated passives in this fixture.
+            b.Conn.Passives.Add(Game.PassivesFor(b.Conn).JewelNodeForSlot(jewelSlot)!.Value);
+            var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Volley Fire", new Random(29)));
+            items.Add(PlayerInventories.Cursor, 0, 0, jewel);
+            await Game.PlaceItem("active-barrage", b.Stream, b.Ciphers, b.Conn,
+                new(PlayerInventories.InventoryId(PlayerInventories.PassiveJewels), jewelSlot, 0, 0, 0, 0, 0));
+            Assert.Single(items.Items(PlayerInventories.PassiveJewels));
+        }
+        var gem = Game.GemSkillEffects(b.Conn).Single();
+        b.Enemy.Walk.Teleport(135, 100, 0);
+        uint selectiveKey = Program.Stats.Key("first_and_final_barrage_projectiles_return")!.Value;
+        const byte amuletSlot = 5;
+        if (selective)
+        {
+            var enchant = Program.Items.Mods.ById("GrantedPassive")!.With(ModSection.Enchant, [24358], new Random(19));
+            var amulet = ItemCatalog.Create(Program.Items.Find("Paua Amulet")!);
+            items.Add(PlayerInventories.Cursor, 0, 0, amulet with { Mods = [.. amulet.Mods, enchant] });
+            await Game.PlaceItem("active-barrage", b.Stream, b.Ciphers, b.Conn,
+                new(PlayerInventories.InventoryId(amuletSlot), 0, 0, 0, 0, 0, 0));
+            Assert.Equal(1, Game.CharacterPlayerStats(b.Conn).GetValueOrDefault(selectiveKey));
+            Assert.DoesNotContain((ushort)24358, b.Conn.Passives);
+            b.Conn.Monsters.Clear(); // Every root reaches the end of its outgoing flight.
+        }
+        b.Conn.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
+        b.Conn.PlayerStats[Program.Stats.Key("projectile_remove_default_spread")!.Value] = 1;
+        double start = 10, duration = Game.SupportedAttackSeconds(b.Conn, gem.Id);
+        b.Conn.Clock.Start();
+        Assert.True(await Game.CastGemSkill("active-barrage", b.Stream, b.Ciphers, b.Conn, gem.Id, (100, 100), (175, 100),
+            sequence: 19, actionToken: b.Conn.ActionCount, swingAt: start));
+        b.Conn.Clock.Stop();
+        string projectile = weapon == "Crude Bow" ? "Metadata/Projectiles/DefaultArrow" : "Metadata/Projectiles/BarrageWand";
+        var shots = new Dictionary<long, ProjectileEntity>();
+        HashSet<long> returning = [];
+        uint life = b.Enemy.Life;
+        int hits = 0;
+        for (int step = 0; step <= (duration + (selective ? 4 : 1)) * 200; step++)
+        {
+            b.Session.AdvanceTo(ProjectileRuntime.Time(start + step / 200d));
+            foreach (var shot in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0))
+            {
+                shots.TryAdd(shot.Id, shot);
+                if (shot.Phase > 0) returning.Add(shot.Id);
+            }
+            if (b.Enemy.Life < life) hits++;
+            life = b.Enemy.Life;
+        }
+        var contacts = shots.Values.GroupBy(p => p.CreatedAt).OrderBy(g => g.Key).ToArray();
+        Assert.Equal(expectedGroups, contacts.Select(g => g.Count()));
+        Assert.All(shots.Values, p => Assert.Equal(projectile, p.Profile.Id));
+        Assert.Single(shots.Values.Select(p => p.UseId).Distinct());
+        Assert.Equal(expectedGroups.Length, contacts.Select(g => Assert.Single(g.Select(p => p.EmissionId).Distinct())).Distinct().Count());
+        double clip = duration * .6 / expectedGroups.Length;
+        long first = ProjectileRuntime.Time(start + duration * .4 + clip * 66 / 200);
+        Assert.Equal(Enumerable.Range(0, expectedGroups.Length).Select(i => first + i * ProjectileRuntime.Time(clip)),
+            contacts.Select(g => g.Key));
+        if (selective)
+        {
+            Assert.Equal(contacts[0].Concat(contacts[^1]).Select(p => p.Id).Order(), returning.Order());
+            var equipped = Assert.Single(items.Items(amuletSlot));
+            await Game.PickUpItem("active-barrage", b.Stream, b.Ciphers, b.Conn,
+                new(PlayerInventories.InventoryId(amuletSlot), equipped.Id, 0, 0, 0));
+            Assert.Equal(0, Game.CharacterPlayerStats(b.Conn).GetValueOrDefault(selectiveKey));
+        }
+        else Assert.Equal(expectedGroups.Length, hits);
+    }
+
+    static async Task VerifyPlacedBarrage(string support)
+    {
+        using var b = new Battle("Lightning Arrow", support, "Barrage Support");
+        var conn = b.Conn;
+        conn.PlayerStats[Program.Stats.Key("first_and_final_barrage_projectiles_return")!.Value] = 1;
+        var gem = Game.GemSkillEffects(conn).Single();
+        var own = Game.SupportedSkill(conn, gem.Id).Stats;
+        bool mine = support != "Trap Support";
+        var placed = new PlacedSkills.Placed(777, gem.Id, gem.Effect, (mine ? 148 : 128, 100), mine, 0, 10,
+            DamagePacket.Empty, own, 0, 0, false, 0) { TrapType = mine ? null : "Metadata/MiscellaneousObjects/TrapNormal2" };
+        if (mine) placed.DetonateAt = 1;
+        conn.Placed.All.Add(placed.Id, placed);
+        conn.WorldOutput.ExistingObject(Program.PlayerId);
+        conn.WorldOutput.ExistingObject(placed.Id);
+        conn.PlayerSent = true;
+        conn.Wire = ("placed-barrage", b.Stream, b.Ciphers);
+        double duration = Game.SupportedAttackSeconds(conn, gem.Id, ushort.MaxValue);
+        conn.Clock.Start();
+        await Game.PlayerMinionsTick("placed-barrage", b.Stream, b.Ciphers, conn, 1);
+        Assert.Empty(conn.Placed.All);
+        Assert.Equal(1 + duration, Assert.Single(conn.Placed.Leaving).At, 6);
+        // The world can retire the animation before the projectile clock processes its scheduled contacts.
+        await Game.PlayerMinionsTick("placed-barrage", b.Stream, b.Ciphers, conn, 1 + duration);
+        conn.Clock.Stop();
+        Assert.Empty(conn.Placed.Leaving);
+        int count = support == "Locus Mine Support" ? 3 : 5;
+        Assert.Contains(placed.BarrageProxy!.Stats!, s => s.Key == StatKeys.VirtualTotalArrows && s.Value == count);
+        double interval = duration * .6 / count;
+        long first = ProjectileRuntime.Time(1 + duration * .4 + interval * (mine ? 70 : 66) / 200);
+        var groups = new HashSet<long>();
+        for (int i = 0; i < count; i++)
+        {
+            long due = first + i * ProjectileRuntime.Time(interval);
+            b.Session.AdvanceTo(due - 1);
+            Assert.DoesNotContain(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.VolleyIndex == i);
+            b.Session.AdvanceTo(due);
+            if (support == "Blastchain Mine Support" && i >= 2)
+                Assert.DoesNotContain(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.VolleyIndex == i);
+            else
+            {
+                var shot = Assert.Single(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.VolleyIndex == i);
+                Assert.Equal(due, shot.CreatedAt);
+                Assert.Equal(i == 0 || i == count - 1, shot.Profile.Returns);
+                Assert.True(groups.Add(shot.EmissionId));
+            }
+            if (i == 0)
+            {
+                conn.ActionCount++;
+                conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 4;
+            }
+            if (i == 1 && support == "Blastchain Mine Support") conn.PlayerLife = 0;
+        }
+    }
+
+    static void VerifyPowerSiphonBallista()
+    {
+        using var b = new Battle("Power Siphon", "Ballista Totem Support");
+        var conn = b.Conn;
+        var items = Game.ItemsOf(conn);
+        var bow = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)
+            with { Sockets = item.Sockets, Links = item.Links });
+        var gem = Game.GemSkillEffects(conn).Single();
+        var source = Game.SupportedSkill(conn, gem.Id);
+        var totem = new TotemState.Totem(777, gem.Id, (108, 100), 100, 20, null, varietyId: Game.TotemVariety(conn, gem.Effect)!.Id)
+        { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = source.Host, SourceItem = source.SourceGem, Ballista = true };
+        conn.Totems.Place(totem, 1, 0);
+        Game.BindTotemSource(conn, totem);
+        Assert.Contains(Game.TotemProxy(conn, gem.Id)!.Stats!, s => s.Key == StatKeys.VirtualTotalProjectiles && s.Value == 4);
+
+        conn.Walk.Teleport(245, 105, 0);
+        b.Enemy.Walk.Teleport(141, 110, 0);
+        conn.Monsters[202] = new("east", new(145, 100, 0), 0, 0, 1000) { Hostile = true };
+        conn.Monsters[203] = new("west edge", new(36, 100, 0), 0, 0, 1000) { Hostile = true };
+        conn.Monsters[204] = new("outside", new(108, 173, 0), 0, 0, 1000) { Hostile = true };
+        conn.Monsters[205] = new("behind wall", new(108, 138, 0), 0, 0, 1000) { Hostile = true };
+        conn.ProjectileWalls.Add((108, 120));
+        conn.Clock.Start();
+        Game.TickSpellTotemsLocked("power-siphon", b.Stream, b.Ciphers, conn, []);
+        conn.Clock.Stop();
+        Assert.Equal(1, totem.Sequence);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
+        var directions = b.Session.Runtime.Projectiles.Where(p => p.Use.Emitter.Id == totem.Id).Select(p => p.Direction).ToArray();
+        Assert.Equal(3, directions.Length);
+        foreach (var ray in new ProjectileVector[] { new(33, 10), new(37, 0), new(-72, 0) })
+            Assert.Contains(directions, direction => (direction - ray.Unit).Length < 1e-9);
+    }
+
+    static void VerifyBallistaBarrage()
+    {
+        foreach (var (skill, count, contact) in new[] { ("Split Arrow", 11, 66), ("Siege Ballista", 7, 66), ("Shrapnel Ballista", 9, 83) })
+        {
+            using var b = new Battle(skill == "Split Arrow" ? [skill, "Ballista Totem Support", "Barrage Support"]
+                : [skill, "Barrage Support"]);
+            var c = b.Conn;
+            c.PlayerStats[Program.Stats.Key("first_and_final_barrage_projectiles_return")!.Value] = 1;
+            c.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
+            c.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
+            var gem = Game.GemSkillEffects(c).Single();
+            var source = Game.SupportedSkill(c, gem.Id);
+            var variety = Game.TotemVariety(c, gem.Effect)!;
+            var totem = new TotemState.Totem(777, gem.Id, (108, 100), 100, 20, null, varietyId: variety.Id)
+            { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = source.Host, SourceItem = source.SourceGem, Ballista = true };
+            c.Totems.Place(totem, 1, 0);
+            Game.BindTotemSource(c, totem);
+            var proxy = Game.TotemProxy(c, gem.Id)!;
+            var stats = proxy.Stats!.ToDictionary(s => s.Key, s => s.Value);
+            Assert.Equal(count, stats[StatKeys.VirtualTotalArrows]);
+            Assert.Equal(count, stats[StatKeys.VirtualTotalProjectiles]);
+            var action = new List<byte>();
+            c.Clock.Start();
+            Game.TickSpellTotemsLocked("ballista-barrage", b.Stream, b.Ciphers, c, action);
+            c.Clock.Stop();
+            Assert.NotEmpty(action);
+            Assert.Equal(1, totem.Sequence);
+            double duration = Game.TotemAttackSeconds(c, gem.Id);
+            double start = totem.NextCast - duration, interval = duration * .6 / count;
+            long first = ProjectileRuntime.Time(start + duration * .4 + interval * contact / 200);
+            // An equipment bonus arriving during windup applies when the actor starts its next attack.
+            c.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 5;
+            var fired = new Dictionary<long, long>();
+            for (int i = 0; i < count; i++)
+            {
+                long due = first + i * ProjectileRuntime.Time(interval);
+                b.Session.AdvanceTo(due - 1);
+                Assert.DoesNotContain(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.Use.Emitter.Id == totem.Id && p.VolleyIndex == i);
+                b.Session.AdvanceTo(due);
+                foreach (var p in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0 && p.Use.Emitter.Id == totem.Id))
+                {
+                    Assert.Equal(p.VolleyIndex == 0 || p.VolleyIndex == count - 1, p.Profile.Returns);
+                    fired.TryAdd(p.EmissionId, p.CreatedAt);
+                }
+                if (i == 1) c.ActionCount++; // A new owner action does not interrupt the ballista.
+                if (i == 2 && skill == "Siege Ballista") totem.DiedAt = due / (double)ProjectileRuntime.QuantaPerSecond;
+            }
+            int expected = skill == "Siege Ballista" ? 3 : count;
+            Assert.Equal(Enumerable.Range(0, expected).Select(i => first + i * ProjectileRuntime.Time(interval)), fired.Values.Order());
+        }
+    }
+
+    static async Task VerifyBarrageNovaLanding()
+    {
+        using var b = new Battle("Split Arrow", "Arrow Nova Support", "Barrage Support");
+        var c = b.Conn;
+        c.LockstepClient = true;
+        c.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
+        var items = Game.ItemsOf(c);
+        var bow = items.Items(PlayerInventories.Weapon1).Single();
+        var gem = Game.GemSkillEffects(c).Single();
+        var aim = (X: 100, Y: 175);
+        b.Enemy.Walk.Teleport(aim.X + 18, aim.Y, 0);
+        foreach (bool barrage in new[] { false, true })
+        {
+            items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = barrage ? [3] : [2, 1] });
+            double start = barrage ? 20 : 10;
+            c.Clock.Start();
+            Assert.True(await Game.CastGemSkill("nova", b.Stream, b.Ciphers, c, gem.Id, (100, 100), aim,
+                sequence: 0x8013, actionToken: c.ActionCount, swingAt: start));
+            c.Clock.Stop();
+            var carriers = new HashSet<long>();
+            var arrows = new SortedDictionary<long, ProjectileEntity>();
+            int hits = 0;
+            uint life = b.Enemy.Life;
+            for (int step = 0; step <= 400; step++)
+            {
+                b.Session.AdvanceTo(ProjectileRuntime.Time(start + step / 200d));
+                foreach (var p in b.Session.Runtime.Projectiles)
+                {
+                    if (p.ParentId == 0) carriers.Add(p.Id);
+                    else arrows.TryAdd(p.Id, p);
+                }
+                if (b.Enemy.Life < life) hits++;
+                life = b.Enemy.Life;
+            }
+            long carrier = Assert.Single(carriers);
+            int count = barrage ? 15 : 11;
+            Assert.Equal(count, arrows.Count);
+            Assert.All(arrows.Values, p => Assert.Equal(carrier, p.ParentId));
+            long first = arrows.Values.First().CreatedAt;
+            int i = 0;
+            foreach (var arrow in arrows.Values)
+            {
+                double fraction = barrage ? i / (double)(count - 1) : i / (double)count;
+                double radians = barrage ? -Math.Tau * fraction : Math.PI / 2 + Math.Tau * fraction;
+                Assert.Equal(first + ProjectileRuntime.Time(barrage ? .4 * fraction : 0), arrow.CreatedAt);
+                Assert.Equal(Math.Cos(radians), arrow.Direction.X, 6);
+                Assert.Equal(Math.Sin(radians), arrow.Direction.Y, 6);
+                Assert.Equal(aim.X, arrow.Use.Origin.X, 6);
+                Assert.Equal(aim.Y, arrow.Use.Origin.Y, 6);
+                i++;
+            }
+            Assert.Equal(barrage ? count : 1, arrows.Values.Select(p => p.EmissionId).Distinct().Count());
+            Assert.Equal(barrage ? 2 : 1, hits);
+        }
     }
 
     [Fact]

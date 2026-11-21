@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -40,6 +41,36 @@ public sealed class AwakenedSupportTests
         Assert.Equal(100, GamblerModifiers.From(_ => 0).ForSkill(echo, spell: true, finalRepeat: true).DoubleDamageChance);
         Assert.Equal(0, GamblerModifiers.From(_ => 0).ForSkill(echo, spell: true).DoubleDamageChance);
         Assert.Equal(0, GamblerModifiers.From(_ => 0).ForSkill(echo, spell: false, finalRepeat: true).DoubleDamageChance);
+
+        using var battle = new ArrowRainAndMirageTests.Battle("Frostbolt");
+        var conn = battle.Conn;
+        var items = Game.ItemsOf(conn);
+        var host = items.EquipmentSnapshot().Single();
+        var awakened = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemSpellEchoPlus")!);
+        items.Change(host.Row, host.Item.Id, item => item with
+        { Sockets = [item.Sockets[0], new(SocketColour.White, awakened)], Links = [2] });
+        var gem = Game.GemSkillEffects(conn).Single();
+        uint chance = Program.Stats.Key("spell_echo_plus_chance_double_damage_%_final")!.Value;
+
+        uint ProjectileDamage(int repeat, uint left)
+        {
+            var use = Game.CaptureGemProjectile(conn, battle.Session, gem.Id, gem, (130, 100), new(0),
+                repeat: repeat, repeatsLeft: left);
+            var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+            Assert.Equal(20, shot.SkillStats[chance]);
+            // Fixed damage and a guaranteed roll isolate whether this release qualifies for the bonus.
+            var fixedShot = shot with { Hit = DamagePacket.Of(DamageType.Cold, 100, 100), CriticalChance = 0,
+                SkillStats = new Dictionary<uint, int>(shot.SkillStats) { [chance] = 100 } };
+            uint life = battle.Enemy.Life;
+            battle.Session.Runtime.Release(use with { Payload = fixedShot });
+            battle.AdvanceBy(3);
+            return life - battle.Enemy.Life;
+        }
+
+        Assert.Equal(100u, ProjectileDamage(0, 0));
+        Assert.Equal(100u, ProjectileDamage(0, 2));
+        Assert.Equal(100u, ProjectileDamage(1, 1));
+        Assert.Equal(200u, ProjectileDamage(2, 0));
 
         var aura = new AuraCatalog.Aura(1, Program.Skills.EffectRow("Haste"), "Haste", "Haste", 1, 1, 0, 0,
             Level: 20, Quality: 0);

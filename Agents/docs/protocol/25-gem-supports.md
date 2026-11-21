@@ -176,7 +176,7 @@ in the middle; the client draws each effect half a radius toward the caster, so 
 Not built: the client's per-area delay (`support_spell_cascade_area_delay_+%`) and whether the damage penalty applies
 to the centre area as well as the repeats (the stat is applied to every area, as PoB does).
 
-Arrow Nova turns a supported bow attack into one payload arrow that lands at the aimed cell and fires the skill's
+Arrow Nova turns a supported bow attack into one payload arrow that lands at the selected cell and fires the skill's
 whole volley in a circle from there (`projectiles_rain` and `skill_is_rain_skill`). Captured from the 3.29.3b client
 on 2026-11-04 (Split Arrow, 18 arrows): every child started on the aim cell and the directions were exactly 20 degrees
 apart, the first on the aim ray about 0.66 s after the use at 33 cells; the client drew the volley's children, so
@@ -187,7 +187,20 @@ stand at the player, not at the bow's release point). The
 rig's `Animated` bit3 id is 6 at the caster and 0 at the landing, and the attachment record sends kind 0 and mask 3
 (`EffectObject.AnimationId`, `AttachKind`, `AttachFlags`); sending 0 on both ends played the landing backwards. The
 landing comes 415 ms after the use and the nova 221 ms later; `ArrowNovaChildren` uses `EndEmission.Delay` and takes
-the shared modifier pass's extra arrows. Not built: the per-child launch order.
+the shared modifier pass's extra arrows.
+
+In 3.29.3c the rain action accepts a walkable cursor cell with clear projectile sight from the source. Otherwise
+it walks the inclusive source-to-cursor grid line and retains the last consecutive cell with walk clearance at
+least one. If the source fails this walk, the action ends before creating a rig. A wall blocking only projectile
+sight can therefore leave the cursor as the landing. The action stores that cell before starting its timer and
+dispatches the arrows there (`0x141ba74ae`, `0x141a7b6b0`, `0x141baba3b`). The released arrows run their own
+terminal return qualification (`0x141bb2f80`).
+
+With Barrage Support, the 3.29.3c rain action starts a 400 ms spiral at the landing. The first child fires immediately
+and the last closes the turn. For N children the time and signed angle steps are 400 ms / (N − 1) and −360° / (N − 1)
+for the player flags the server sends. When landing on the aimed cell the first ray is +X, regardless of the bow's
+direction. Each step emits one child with fresh hit history. Timing and heading come from the client action
+(`0x141ba7d17`, `0x141bb6690`, `0x141bb6940`); repeated hits were checked in the local server.
 
 Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
 monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement
@@ -201,8 +214,10 @@ chances (`IncreasedItemRarity`); both also fill the selected skill's panel rows
 (`display_skill_increased_item_quantity_+%`/`..._rarity_+%`); a damage-over-time kill keeps no skill attribution; Iron Grip's `keystone_strong_bowman`
 adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
 (`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
-maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
-shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
+maximum life on low life and Coursing Current's equivalent shock/chill depend on the target. While a Bonechill chill
+or chilling area affects a monster, all sources increase its cold damage taken by the strongest current chill.
+A weaker supported chill retains its own expiry under a stronger ordinary one
+([GGG](https://www.pathofexile.com/forum/view-thread/3332781)). Fist of War makes every 1.8 s slam a big hit (damage and area);
 Devour recovers its life/mana on a killing blow and consumes the corpse (the object is removed); Sacrifice pays current life once at
 the original player cast's first valid release (including Fireball/Spark), shared by repeats and cascades.
 Its added chaos enters raw spell damage before effectiveness, conversion, increases, more and damage prohibitions;
@@ -273,7 +288,8 @@ Microtransaction variants and independent Occupying Force archers remain unverif
 ## Remaining execution gaps
 
 A native compatibility match and a displayed support letter do not prove that its special mechanic is implemented.
-Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
+The cast determines which release is its final repeat. Its projectiles and delayed area hits retain that decision.
+Ice Nova of Frostbolts converts the supported repeats into extra rings on the selected projectiles ([11](11-skills.md) "Spell repeats").
 Other trigger payloads, totems, mines, minion behaviour, attack repeats, projectile branching, leech and conditional effects
 still require their own execution paths.
 Second Wind uses the supported skill's cooldown/recovery inputs: non-instant skills gain its extra stored use,
@@ -285,7 +301,36 @@ Barrage's attack-time penalty uses the resolved projectile count, including addi
 In the 3.29.3c release, `0x142706610` reads the count (`0x2d5`, or bow alias `0x2d6`) and
 `support_barrage_attack_time_+%_per_projectile_fired` (`0x2a28`), multiplying final speed by
 `100 / (100 + count * penalty)` at `0x142708769..0x1427087fd` before rounding to an integer percent.
-This does not establish individual release times: Barrage still needs its sequential release, cancellation and hit admission.
+For direct player attacks, the startup uses 40% of the paid attack time and the remaining 60% is divided by the
+resolved shot count (`0x141b71790`). Each shot leaves on its rig's Barrage fire contact. The Witch bow contact
+is 66/200 of a firing clip. The shot ordinal seeds the two spread offsets (`0x141bae62c`).
+Move can interrupt early startup or later firing clips. The first fire clip is protected, and subsequent clips
+use their contact and lock-cancelling events (`0x141bad750`). Released arrows remain in flight and can each hit
+the same enemy. Power Siphon's per-target selection and Arrow Nova's payload have separate release paths.
+The ballista's `0x4000` skill record carries the projectile totals used by this action. Its own ACT maps
+`BarrageFireMain` to the firing clip. DexterityTotem and Siege Ballista contact at 66/200 ms, Shrapnel Ballista
+at 83/200 ms. Extra `effect` tracks on the same ACT entry leave that body contact intact. The area Gateway
+sends a changed skill record before the next attack and retains the in-flight attack's count.
+
+The active gems use the `barrage_bow` and `barrage_wand` projectile art groups in 3.29.3c.
+Barrage has six firing contacts at level 1 with zero quality. Barrage of Volley Fire has four.
+Its endpoint stat adds six projectiles to the first and last contacts. The resulting groups contain 7, 1, 1 and 7
+projectiles. Members of a group share a hit limit per target. A later contact starts a fresh group.
+When projectile count modifiers apply to splitting, the endpoint bonus increases the split count once.
+The stock gem and projectile tables establish the counts and art. Rendered playback still needs a client check.
+
+A trap or mine throw uses a separate Barrage modifier. The 3.29.3c stat calculator multiplies the resolved
+arrow or projectile count by `support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired`
+and publishes `virtual_trap_and_mine_throwing_time_+%_final`. Each resolved shot adds 10% to the throwing
+time for the stock support. Three Locus shots take 390 ms of base mine throwing time, five Blastchain shots 450 ms.
+
+At activation, a direct Barrage from a mine or an ordinary Trap Support trap uses the owner's supported attack time.
+The actor created by the throw supplies the firing clip. Both fire roles map to `barrage` on RemoteMine and TrapNormal2.
+The mine's contact is at 70/200 of each firing clip and the trap's at 66/200. Their muzzle heights are 94.995 and
+44.901 model units respectively. The server captures aim, count and spread when the actor starts its action.
+The object stays until that action finishes. A mine releases its reservation at activation.
+The visible timing and muzzle on both clients and the ACT mappings of other trap objects still need verification.
+
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
 needs warcry exertion.
@@ -296,6 +341,22 @@ Lifetap's spent-Life counter and buff are server state: the hidden `lifetap_life
 not gain the buff, and its more damage does not reach damage over time.
 The native catalogue includes historical and placeholder variants; their presence does not make them obtainable.
 Do not describe the entire support catalogue as mechanically complete.
+
+### Parallel firing points
+
+Volley Support supplies two points per side and Greater Volley four. Both publish an X spacing of 80 world units.
+The simultaneous action (3.29.3c, `0x141bbb460`) divides the projectile count over the centre and paired sides.
+Each point receives the quotient. Pairs nearest the centre receive the remainder two at a time, then the centre
+receives the odd arrow. Each group shifts the source and aim together before applying its own spread. The Gateway
+checks the path from the firing source to each side origin with the area's projectile grid. A blocked group
+consumes no emitted ordinals. See the [layout and placement evidence](../re/projectiles/emission-admission.md#61-candidate-geometry-remains-separate-from-admitted-identity).
+
+Direct Barrage uses a different order (`0x141bb3c90`). It rounds one perpendicular X step to whole cells,
+then sweeps from the negative to the positive side. A partial final pass is centred and skips the middle when its
+length is even. The firing actor and its input aim both receive the slot offset before the ordinary per-shot
+spread sample (`0x141bae74c`). With 13 shots and four points per side the passes are −4 through +4, then
+−2, −1, +1, +2. Independent paid Gateway casts cover both supports and overlap with walls and targets. Visual
+placement and obstruction of a displaced Barrage actor still need a real-client comparison.
 
 ## Damage-taken trigger execution
 

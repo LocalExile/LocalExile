@@ -24,8 +24,12 @@ public static partial class Game
         var types = new SkillArea.Types(known && skills.IsMelee(effect), known && skills.IsAttack(effect),
             known && skills.IsWarcry(effect), known && skills.IsVaal(effect),
             Get("is_totem") != 0, Get("is_trap") != 0, Get("is_remote_mine") != 0);
-        if (SkillArea.TypedIncrease(Get, types) is int typed and not 0 && Stats.Key(SkillArea.Increase) is uint total)
-            stats[total] = stats.GetValueOrDefault(total) + typed;
+        int increased = SkillArea.TypedIncrease(Get, types);
+        // ActiveSkills.ice_shot maps this input to increased area before the shared area-to-radius conversion.
+        if (skills.EffectId(effect) == "IceShot")
+            increased += Get("ice_shot_radius_+%");
+        if (increased != 0 && Stats.Key(SkillArea.Increase) is uint total)
+            stats[total] = stats.GetValueOrDefault(total) + increased;
         return stats;
     }
 

@@ -56,7 +56,7 @@ public sealed class MonsterEssenceDrainTests
     }
 
     [Fact]
-    public void Essence_drain_is_a_catalog_projectile()
+    public void Essence_drain_is_a_catalog_projectile_with_its_level_damage()
     {
         var skills = new SkillCatalog();
         int effect = skills.EffectRow("EssenceDrain");
@@ -65,5 +65,12 @@ public sealed class MonsterEssenceDrainTests
         Assert.False(skills.IsAttack(effect));
         // Essence Drain keeps its old name's projectile row (Siphon), at its speed of 750.
         Assert.Equal(("Metadata/Projectiles/Siphon", 750), skills.ProjectileFor(effect));
+
+        // The transfigured gem has two contributions to its chaos damage per minute in the same level row.
+        int desperation = skills.EffectRow("EssenceDrainAltX");
+        uint perMinute = Program.Stats.Key("base_chaos_damage_to_deal_per_minute")!.Value;
+        int DamageAt(int level) => skills.EffectStats(desperation, level).Single(stat => stat.Item1 == perMinute).Item2;
+        Assert.Equal(4764, DamageAt(1));
+        Assert.Equal(319305, DamageAt(20));
     }
 }

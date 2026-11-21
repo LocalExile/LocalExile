@@ -36,7 +36,7 @@ public static class ProjectileGeometry
     /// <summary>Supercover grid traversal. Cells are centered on integer coordinates.</summary>
     public static TerrainContact? TraceGrid(ProjectileVector from, ProjectileVector to, Func<int, int, bool> blocked)
     {
-        int x = (int)Math.Floor(from.X + .5), y = (int)Math.Floor(from.Y + .5);
+        var (x, y) = from.Cell;
         var delta = to - from;
         int sx = Math.Sign(delta.X), sy = Math.Sign(delta.Y);
         if (blocked(x, y)) return new(0, delta.Unit * -1);

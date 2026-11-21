@@ -32,6 +32,22 @@ public sealed class ProjectileThresholdJewelTests
         Assert.Equal(-1, Profile("IceShot").Pierce);
         stats.Remove("freezing_pulse_number_of_additional_projectiles");
         Assert.Equal(2, Profile("FreezingPulse").Count);
+
+        var uniques = new UniqueCatalog(Program.Items);
+        foreach (var (jewel, attribute) in new[] { ("Volley Fire", "base_dexterity"),
+            ("Frozen Trail", "base_intelligence"), ("Rapid Expansion", "base_strength") })
+        {
+            var item = Assert.IsType<GameServer.Core.Protocol.Instance.Item>(uniques.Create(jewel, new Random(2)));
+            var (radius, effects) = ThresholdJewels.Read(item, Program.Items.Mods);
+            Assert.Equal(1200, radius);
+            Assert.NotEmpty(effects);
+            uint key = Program.Stats.Key(attribute)!.Value;
+            foreach (var effect in effects)
+            {
+                Assert.False(ThresholdJewels.Met(effect, new Dictionary<uint, int> { [key] = 39 }));
+                Assert.True(ThresholdJewels.Met(effect, new Dictionary<uint, int> { [key] = 40 }));
+            }
+        }
     }
 
     [Fact]
@@ -54,6 +70,8 @@ public sealed class ProjectileThresholdJewelTests
         Assert.True(fan.Nova);
         Assert.Equal(Math.PI, fan.Angle(2, 4, 10), 4);
         stats["support_parallel_projectile_number_of_points_per_side"] = 1;
-        Assert.Null(Volley("EtherealKnivesAltX").NativeVolley);
+        var parallel = Volley("EtherealKnivesAltX").NativeVolley!;
+        Assert.NotNull(parallel.Layout);
+        Assert.False(parallel.Nova);
     }
 }

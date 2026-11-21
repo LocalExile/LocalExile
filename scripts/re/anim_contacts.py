@@ -122,43 +122,70 @@ def closing_brace(tokens, start):
 MELEE_FLAGS = {"with_main_hand", "item_animation", "OffHand"}
 
 
-def direct_melee(tokens):
-    """The body's own Melee expression as (names, flags), or None: a quoted list, then flags, then ";". A child's
-    override must never overwrite its parent's, so nested blocks are skipped."""
-    i = 0
-    while i < len(tokens):
-        if tokens[i] == "{":
-            i = closing_brace(tokens, i) + 1
-        elif tokens[i] == "Melee" and tokens[i + 1:i + 2] == ["="]:
-            end = i + 2
-            while end < len(tokens) and tokens[end] != ";":
-                end += 1
-            expression = tokens[i + 2:end]
-            if end == len(tokens) or not expression or not expression[0].startswith('"') \
-                    or any(t not in MELEE_FLAGS for t in expression[1:]):
-                raise ValueError(f"Unsupported default attack ACT expression: {' '.join(tokens[i:end])}")
-            return expression[0][1:-1], set(expression[1:])
-        else:
-            i += 1
-    return None
+def stance_actions(text, roles):
+    """The requested ACT roles in every stance. A child inherits its parent's complete block, including assignments
+    that follow the child in the file. Other nested blocks do not declare stance actions."""
+    tokens = act_tokens(text)
+    result = {}
+
+    def visit(name, opening, closing, inherited):
+        actions = inherited.copy()
+        children = []
+        i = opening + 1
+        while i < closing:
+            if tokens[i] == "stance" and tokens[i + 2:i + 3] == ["{"]:
+                end = closing_brace(tokens, i + 2)
+                children.append((tokens[i + 1], i + 2, end))
+                i = end + 1
+            elif tokens[i] == "{":
+                i = closing_brace(tokens, i) + 1
+            elif tokens[i] in roles and tokens[i + 1:i + 2] == ["="]:
+                end = tokens.index(";", i + 2, closing)
+                expression = tokens[i + 2:end]
+                if not expression or not expression[0].startswith('"'):
+                    raise ValueError(f"Missing animation list for {name}/{tokens[i]}")
+                actions[tokens[i]] = (expression[0][1:-1], expression[1:])
+                i = end + 1
+            else:
+                i += 1
+        result[name] = actions
+        for child, start, end in children:
+            visit(child, start, end, actions)
+
+    root = tokens.index("{")
+    visit("Unarmed", root, closing_brace(tokens, root), {})
+    return result
 
 
-def stances(tokens, inherited, out):
-    """Every stance of the body, nested, as {name: (names, flags)}: a stance without its own Melee keeps its parent's."""
-    i = 0
-    while i < len(tokens):
-        if tokens[i:i + 1] == ["stance"] and tokens[i + 2:i + 3] == ["{"]:
-            name, end = tokens[i + 1], closing_brace(tokens, i + 2)
-            body = tokens[i + 3:end]
-            melee = direct_melee(body) or inherited
-            out.setdefault(name, melee)
-            stances(body, melee, out)
-            i = end + 1
-        elif tokens[i] == "{":
-            i = closing_brace(tokens, i) + 1
-        else:
-            i += 1
-    return out
+def projectile_casts(text, animations):
+    """The ordinary clip and the stat-qualified candidates for the three elemental actor roles in each stance."""
+    elements = ("SpellProjectileFire", "SpellProjectileCold", "SpellProjectileLightning")
+    contacts_by_name = contacts(animations)
+    result, variants = {}, []
+    for stance, actions in stance_actions(text, {"SpellProjectile", *elements}).items():
+        for role in elements:
+            alias, effects = actions[role]
+            if alias != "@SpellProjectile" or len(effects) % 3 or any(
+                    flag != "effect_locked" or not asset.startswith('"') or not clip.startswith('"')
+                    for flag, asset, clip in zip(effects[::3], effects[1::3], effects[2::3])):
+                raise ValueError(f"Unsupported projectile actor role {stance}/{role}: {alias} {effects}")
+        names, flags = actions["SpellProjectile"]
+        ordinary = []
+        for candidate in names.split(","):
+            match = re.fullmatch(r"(\w+)(?::variation=(\d+))?", candidate.strip(), re.ASCII)
+            if not match or flags:
+                raise ValueError(f"Unsupported projectile animation {stance}: {candidate} {flags}")
+            name, variation = match[1], int(match[2] or 0)
+            if name not in contacts_by_name:
+                raise ValueError(f"Missing projectile contact in {stance}: {name}")
+            if variation:
+                variants.append({"stance": stance, "variation": variation, "animation": name})
+            else:
+                ordinary.append(name)
+        if len(ordinary) != 1:
+            raise ValueError(f"Expected one unqualified projectile clip with a contact in {stance}: {ordinary}")
+        result[stance] = ordinary[0]
+    return result, variants
 
 
 def default_attack_pools(text, animations, views):
@@ -166,13 +193,9 @@ def default_attack_pools(text, animations, views):
     the contact and slow span (ms from the entry's start), the ACT attack_time budget (seconds) and whether the clip is
     the item's (item_animation: the weapon's own rig plays it). A name ending in _01a brings its _01b view along as a
     pair: the client plays the two in an order not predicted (live 2026-11-03: 51 sword swings, no seed found)."""
-    tokens = act_tokens(text)
-    root_start = tokens.index("{")
-    root = tokens[root_start + 1:closing_brace(tokens, root_start)]
-    root_melee = direct_melee(root)
-    if root_melee is None:
+    pools = stance_actions(text, {"Melee"})
+    if "Melee" not in pools["Unarmed"]:
         raise ValueError("Character ACT has no default Melee animation")
-    pools = stances(root, root_melee, {"Unarmed": root_melee})
     clips = {a["name"]: (i, a) for i, a in enumerate(animations)}
 
     def entry(name, budget, item, pair):
@@ -204,7 +227,10 @@ def default_attack_pools(text, animations, views):
                 "budget": budget, "weight": 1, "item": item, "pair": pair, "position": position}
 
     result = {}
-    for stance, (names, flags) in pools.items():
+    for stance, actions in pools.items():
+        names, flags = actions["Melee"]
+        if any(t not in MELEE_FLAGS for t in flags):
+            raise ValueError(f"Unsupported default attack flags {flags} in {stance}")
         if names in ("delete", "@Melee"):
             continue
         pool = []
@@ -226,6 +252,27 @@ def default_attack_pools(text, animations, views):
     return result
 
 
+def placed_barrage(act, fetch_missing):
+    """The firing clip, contact and muzzle shared by this placed actor's two Barrage fire roles."""
+    if fetch_missing:
+        fetch([act])
+    text = read_text(act)
+    if text is None:
+        raise ValueError(f"Missing placed actor ACT: {act}")
+    ao = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M).group(1)
+    roles = stance_actions(text, ("BarrageFireMain", "BarrageFireOff"))["Unarmed"]
+    fire, _ = roles["BarrageFireMain"]
+    if fire != "barrage" or fire != roles["BarrageFireOff"][0]:
+        raise ValueError(f"Unexpected Barrage firing roles in {act}: {roles}")
+    amd = amd_of(ao, fetch_missing=fetch_missing)
+    animations = rig_clips(amd, ao, fetch_missing=fetch_missing)
+    index, clip = next((i, a) for i, a in enumerate(animations) if a["name"] == fire)
+    if first_contact(clip["events"]) is None:
+        raise ValueError(f"Missing Barrage firing contact: {ao}/{fire}")
+    return ao, {"amd": amd, "act": act, "animations": contacts([clip]), "positions": positions([clip]),
+                "contacts": every_contact([clip]), "indices": {fire: index}, "clips": named_clips([clip])}
+
+
 def main():
     dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "animation-contacts.json")
     fetch_missing = "--cached-only" not in sys.argv
@@ -245,15 +292,19 @@ def main():
         text = read_text(act)
         if text is None:
             raise ValueError(f"Missing character ACT asset: {act}")
+        ordinary, variants = projectile_casts(text, animations)
         result[ao] = {"amd": amd, "act": act, "animations": contacts(animations), "positions": positions(animations),
                       "cancels": {a["name"]: next((t for e, t, _ in a["events"] if e == "lock_cancelling"), None)
                                   for a in animations if first_contact(a["events"]) is not None},
                       "contacts": every_contact(animations),
                       "indices": {a["name"]: i for i, a in enumerate(animations)},
-                      "clips": named_clips(animations),
+                      "clips": named_clips(animations), "projectileCasts": ordinary, "projectileCastVariants": variants,
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao, fetch_missing=fetch_missing))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
               f"{len(result[ao]['defaultAttack'])} default attack stances", file=sys.stderr)
+    for act in ("RemoteMine", "Trap2"):
+        ao, rig = placed_barrage(f"Metadata/MiscellaneousObjects/{act}.act", fetch_missing)
+        result[ao] = rig
     with open(dest + ".tmp", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
     os.replace(dest + ".tmp", dest)   # never leave a truncated file for the Gateway

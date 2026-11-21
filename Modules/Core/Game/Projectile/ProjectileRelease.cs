@@ -19,27 +19,31 @@ public static partial class Game
     /// it must not keep flying to the generic projectile range. Arrow Nova's payload arrow lands at the aim before its
     /// volley, so it stops there too. Other projectiles keep their full range.</summary>
     public static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
-        // Caustic Arrow stops and bursts at the aimed point, where the client draws its impact (live 2026-11-17).
-        toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
-            || effect?.StartsWith("CausticArrow", StringComparison.Ordinal) == true
-            ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
+        toTarget || ProjectileEndsAtAim(effect) ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
+
+    // Caustic Arrow stops and bursts at the aimed point, where the client draws its impact (live 2026-11-17).
+    static bool ProjectileEndsAtAim(string? effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+        || effect?.StartsWith("CausticArrow", StringComparison.Ordinal) == true;
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
     /// fixed 30-degree server spread, which could send an arrow past the point where the client's own arrow burst.</summary>
     public static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<string, int> get)
     {
-        if (get("support_parallel_projectile_number_of_points_per_side") != 0) return profile;
-        return profile with
+        // A per-target action has already aimed each projectile from the firing actor.
+        if (profile.NativeVolley?.Angles is not null) return profile;
+        var fan = new ProjectileNativeVolley
         {
-            NativeVolley = new()
-            {
-                Width = get("total_projectile_spread_angle_override") is > 0 and var width
-                    ? width / 10.869565 : 60 / 10.869565,
-                FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
-                SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
-                Nova = profile.NativeVolley?.Nova == true || get("projectiles_nova") != 0
-            }
+            Width = get("total_projectile_spread_angle_override") is > 0 and var width ? width / 10.869565 : 60 / 10.869565,
+            FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
+            SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
+            Nova = profile.NativeVolley?.Nova == true || get("projectiles_nova") != 0
         };
+        if (ParallelFiringPoints.From(get) is { } points)
+        {
+            bool random = get("random_projectile_direction") != 0;
+            return profile with { NativeVolley = fan with { Layout = use => points.Groups(use, fan, random) } };
+        }
+        return profile with { NativeVolley = fan };
     }
 
     public static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
@@ -78,41 +82,112 @@ public static partial class Game
         }
     }
 
+    // Fireball, Spark, Freezing Pulse and Frostbolt enter the same projectile action start (3.29.3c, 0x141ba58f0).
+    static bool UsesPlayerProjectileAim(ClientState conn, int effect) =>
+        SkillsFor(conn).ActionHash(effect) is 0xaa4e or 0x7859 or 0x4923 or FrostboltAction;
+
+    static bool UsesElementalProjectileCast(string? effect) => effect is "Fireball" or "Spark" or "FreezingPulse" or "FrostBolt";
+
+    // The four elemental actor roles alias SpellProjectile. An equipped actor variation selects that role's
+    // candidate pool. Rain and barrage request other roles.
+    static AnimationClip? PlayerProjectileCastClip(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (GolemStat(stats, "projectiles_rain") != 0 || GolemStat(stats, "projectiles_barrage") != 0) return null;
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+        return Animations.ProjectileCastTiming(ao, ActiveMainHand(conn)?.Type?.Stance ?? byte.MaxValue,
+            ActiveOffHand(conn)?.Type?.Stance ?? byte.MaxValue, GolemStat(stats, "animation_variation_spell_projectile"));
+    }
+
+    static CastAnimationContact? PlayerProjectileContact(ClientState conn, ushort skill, int effect, ushort sequence, double start)
+    {
+        if (!UsesElementalProjectileCast(SkillsFor(conn).EffectId(effect))) return null;
+        lock (conn.Monsters)
+        {
+            // Lockstep dispatches the request after releasing the frame lock. A weapon swap may already be queued.
+            if (conn.LockstepClient && sequence == (0x8000 | conn.LockstepSequence)
+                && conn.LockstepCastWindow?.Contact is { } held && held.Sequence == sequence && held.Skill == skill && held.Effect == effect)
+                return held;
+            var clip = PlayerProjectileCastClip(conn, SupportedStats(conn, skill));
+            double? seconds = clip.HasValue ? SpellActionSeconds(conn, effect, skill) : CastMs(conn, effect, skill) / 1000d;
+            return seconds is double duration ? new(skill, effect, sequence, start, duration,
+                clip?.ContactFraction ?? Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject),
+                SpellRepeats(conn, skill, effect)) : null;
+        }
+    }
+
+    static (int X, int Y) StartPlayerProjectileAim(ClientState conn, int effect, IReadOnlyDictionary<uint, int> own,
+        (int X, int Y) from, (int X, int Y) aim, uint targetId, ushort sequence, double now, int? repeatsLeft = null)
+    {
+        var player = CharacterPlayerStats(conn);
+        if (from == aim) aim = CoincidentPlayerProjectileAim(conn, effect, player, own, aim, sequence, repeatsLeft);
+        if (targetId != PlayerId) FacePlayerAction(conn, from, aim, now, player, own);
+        return aim;
+    }
+
+    static (int X, int Y) CoincidentPlayerProjectileAim(ClientState conn, int effect, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int> own, (int X, int Y) at, ushort sequence, int? repeatsLeft)
+    {
+        int Get(string key) => GolemStat(player, key) + GolemStat(own, key);
+        if (Get("projectiles_rain") != 0) return at;
+        // Both action start and ordinary contact write this point back. The root's derived byte and chain count are zero.
+        uint remaining = (uint)(repeatsLeft ?? SpellRepeats(conn, effect, Get));
+        var (sin, cos) = MathF.SinCos(ProjectileActionAngle(sequence, 0, remaining, PlayerId, 6.28318f));
+        return (at.X + (int)(60 * sin), at.Y + (int)(60 * cos));
+    }
+
+    internal static float ProjectileActionAngle(ushort sequence, uint derived, uint repeats, uint owner, float fullTurn)
+    {
+        var random = new AnimationVariantSelector.NativeRandom([sequence, derived, 0, repeats, owner]);
+        return random.Range(0, fullTurn);
+    }
+
     public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0, double? swingAt = null, bool cryExerted = false, int seals = 0, double reoccurrenceMore = 1)
+        ushort sequence = 0, double? swingAt = null, bool cryExerted = false, int seals = 0, double reoccurrenceMore = 1) =>
+        ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, 0, aim, action, recoveryGeneration, ticket,
+            criticalRoll, sequence, swingAt, cryExerted, seals, reoccurrenceMore);
+
+    static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        uint targetId, (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket,
+        SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted, int seals, double reoccurrenceMore,
+        CastAnimationContact? contact = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);
+        using var stats = new PlayerStatScope(conn);
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
-        int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
-        if (cast is null) return Task.CompletedTask;
+        contact ??= PlayerProjectileContact(conn, skillId, gem.Effect, sequence, swingAt ?? conn.Clock.Elapsed.TotalSeconds);
+        double? seconds = attack ? 0 : contact?.Duration ?? CastMs(conn, gem.Effect, skillId) / 1000d;
+        if (seconds is not double cast) return Task.CompletedTask;
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
-        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
+        double acceptedAt = contact?.Start ?? swingAt ?? conn.Clock.Elapsed.TotalSeconds;
+        double attackTime = attack ? SupportedAttackSeconds(conn, skillId, sequence) : 0;
+        var barrage = attack ? DirectBarrage(conn, skillId, gem.Effect, action, acceptedAt, attackTime) : null;
+        if (barrage is not null && conn.LockstepClient) BarrageAttacks.AddOrUpdate(conn, barrage);
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
                 ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject, AnimationWeaponProfileFor(conn),
-                SupportedAttackSeconds(conn, skillId, sequence))
+                attackTime)
             : null;
-        double delay = thrown is { } swing ? swing
-            : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId, sequence), false))
-            : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
+        double delay = barrage?.FirstContact ?? thrown ?? (attack ? AttackReleaseDelay(AttackContactDelay(conn, attackTime, false))
+            : cast * (contact?.Fraction ?? Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject)));
         int epoch = conn.ProjectileEpoch;
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
-        // Paid attacks survive Move unless their recipe opts into cancellable windup (e.g. release-time costs).
-        // Spells and cooldown tickets retain action cancellation.
-        // Epoch, death and hit recovery still cancel unreleased attacks.
+        // Moving can end a barrage before its first contact or between shots. Ordinary paid arrows retain
+        // their existing release contract. The area's epoch and hit recovery interrupt either kind.
+        bool Firing() => conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
+            && PlayerActionCurrent(conn, action);
         bool Valid() => sacrifice.Current && conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
-            && (ticket?.Current(conn) ?? (cancelOnNewAction
+            && (barrage is null || PlayerActionCurrent(conn, action)) && (ticket?.Current(conn) ?? (cancelOnNewAction
             ? PlayerActionCurrent(conn, action)
             : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
             && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
         // A spell's repeats (SpellRepeats) release again a cast time apart, with the use's critical roll; a new action
         // cancels the rest, as it ends the client's.
-        // shortcut: a repeat keeps the cast's aim point; check live whether the client re-aims at a moving target.
         if (SkillsFor(conn).EffectId(gem.Effect) == "VaalSpark")
         {
             if (conn.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
@@ -158,20 +233,62 @@ public static partial class Game
             }
             return Task.CompletedTask;
         }
-        int repeats = attack ? 0 : SpellRepeats(conn, skillId, gem.Effect);
-        for (int release = 0; release <= repeats + seals; release++)
+        int repeats = attack ? 0 : contact?.Repeats ?? SpellRepeats(conn, skillId, gem.Effect);
+        bool playerAim = UsesPlayerProjectileAim(conn, gem.Effect);
+        lock (conn.Monsters)
         {
-            int ordinal = Math.Max(0, release - seals);
-            int left = repeats - ordinal;
-            double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
-            double castOffset = ordinal + Math.Min(release, seals) * .1;
-            session.Schedule(ProjectileRuntime.Time(acceptedAt + castOffset * cast.Value / 1000d + delay), Valid,
-                () => ClientDrawnVolley(conn, session, skillId, gem,
-                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
-                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
-                    sequence, (uint)left));
+            if (!session.Active) return Task.CompletedTask;
+            for (int release = 0; release <= repeats + seals; release++)
+            {
+                int ordinal = Math.Max(0, release - seals);
+                int left = repeats - ordinal;
+                double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
+                double castOffset = ordinal + Math.Min(release, seals) * .1;
+                double start = acceptedAt + castOffset * cast;
+                if (playerAim && ordinal > 0)
+                {
+                    // Spell Echo restarts the action with its stored target. Unleash only rewinds the animation.
+                    session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(start)), () =>
+                    {
+                        if (!session.Active || !Valid()) return;
+                        double now = ProjectileWorldTime(conn);
+                        aim = StartPlayerProjectileAim(conn, gem.Effect, SupportedSkill(conn, skillId).Stats,
+                            conn.Walk.Position(now), aim, targetId, sequence, now, left);
+                    });
+                }
+                session.Schedule(ProjectileRuntime.Time(start + delay), Valid, () =>
+                {
+                    // A delayed warp can put the caster on the saved aim during windup. Ordinary contact
+                    // (3.29.3c, 0x141ba7eb7) rewrites that point without turning the actor again.
+                    if (playerAim && conn.Walk.Position(ProjectileWorldTime(conn)) == aim)
+                        aim = CoincidentPlayerProjectileAim(conn, gem.Effect, CharacterPlayerStats(conn),
+                            SupportedSkill(conn, skillId).Stats, aim, sequence, left);
+                    var use = CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
+                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more, attackContact: barrage?.Fire.Point);
+                    return DirectProjectileVolley(conn, session, skillId, gem, use, sequence, (uint)left, barrage, Firing);
+                });
+            }
         }
         return Task.CompletedTask;
+    }
+
+    static ProjectileUse DirectProjectileVolley(ClientState conn, ProjectileSession session, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, ProjectileUse use,
+        ushort sequence, uint repeatsLeft, BarrageAttack? barrage, Func<bool> firing)
+    {
+        var fan = use.Profile.NativeVolley;
+        if (barrage is not null)
+            use = use with { Profile = use.Profile with { SequentialDelay = ProjectileRuntime.Time(barrage.Interval) }, CanEmit = firing };
+        // Kinetic Bolt chooses its zig-zag legs from the shot ordinal of a sequential attack.
+        use = ClientDrawnVolley(conn, session, skillId, gem, use, sequence, repeatsLeft);
+        if (barrage is null) return use;
+        string effect = SkillsFor(conn).EffectId(gem.Effect)!;
+        bool atCursor = ProjectileEndsAtAim(effect) || GatewayProjectileSkillProfiles.IsKineticBolt(effect);
+        var rolls = use.Profile.ReturnRolls;
+        if (barrage.ExtraAtEnds > 0 && rolls is not null)
+            rolls = ReturnRolls(sequence, barrage.RootCount(use.Profile.Count), PlayerId, repeatsLeft);
+        return use with { Profile = use.Profile with { ReturnRolls = rolls, NativeVolley = new()
+            { Layout = shot => barrage.Launches(shot, sequence, atCursor, fan) } } };
     }
 
     // A spell's projectiles are the client's own (ClientPredicted): the server spreads them as the client's volley
@@ -187,7 +304,8 @@ public static partial class Game
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
-        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
+        if (!use.Profile.Lobbed || Get("projectiles_rain") == 0 && Get("skill_is_rain_skill") == 0)
+            use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
         if (use.Emitter.Id != PlayerId && NativeProjectileTotem(conn, gem.Effect)
             && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(conn).Clips(use.Profile.Id) is { Flight: not null } clips)
             use = use with { Payload = nativeTotemShot with { ClientPredicted = false,
@@ -250,12 +368,10 @@ public static partial class Game
     // notable, else 150 cells; a return, 0x141bb5570, flies back to the caster's cell and that range on), its object
     // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
     // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
-    // shortcut: parallel keeps the server's fan until it is ported.
     public static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
         ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
-        double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
-            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
+        double range = ClientProjectileRange(get);
         profile = profile with { Range = range, ReturnOvershoot = range, ContactCells = SkillsFor(conn).ProjectileContactCells(profile.Id) };
         if (profile.ReturnChancePercent is > 0 and < 100)
             profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
@@ -275,7 +391,7 @@ public static partial class Game
         const float Tau = 6.2831855f;
         if (count == 1)
         {
-            float a = new AnimationVariantSelector.NativeRandom([sequence, 2, 0, repeatsLeft, owner]).Range(0, Tau);
+            float a = ProjectileActionAngle(sequence, 2, repeatsLeft, owner, Tau);
             return [Math.Atan2(MathF.Cos(a), MathF.Sin(a)) - Math.Atan2(aim.Y, aim.X)];
         }
         var random = new AnimationVariantSelector.NativeRandom([sequence, 0, repeatsLeft, 0, owner, 0, 0]);
@@ -283,6 +399,10 @@ public static partial class Game
         for (int i = 0; i < count; i++) angles[i] = random.Range(0, Tau);
         return angles;
     }
+
+    internal static int ClientProjectileRange(Func<string, int> get) =>
+        get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
+            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
 
     // projectile_return_%_chance (0x141bb2f80, static RE 2026-10-31): each projectile's own action copy rolls 0–99
     // (0x1404d0990) from a generator seeded (0x1419c73c0) with [sequence, +0x11c (2 + its index, as Spark's), owner,
@@ -292,15 +412,21 @@ public static partial class Game
     {
         var rolls = new int[count];
         for (int i = 0; i < count; i++)
-            rolls[i] = new AnimationVariantSelector.NativeRandom([sequence, (uint)(i + 2), owner, repeatsLeft, 0, 0, 0, 0]).Uniform(0, 99);
+            rolls[i] = ReturnRoll(sequence, (uint)(i + 2), owner, repeatsLeft);
         return rolls;
     }
+
+    static int ReturnRoll(ushort sequence, uint derived, uint owner, uint repeatsLeft) =>
+        new AnimationVariantSelector.NativeRandom([sequence, derived, owner, repeatsLeft, 0, 0, 0, 0]).Uniform(0, 99);
+
+    internal static int EmittedReturnRoll(ProjectileUse use, int ordinal) =>
+        ReturnRoll(use.Sequence, GatewayProjectileSkillProfiles.DerivedByte(ordinal), use.Owner.Id, use.RepeatsLeft);
 
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
-        (int X, int Y)? from = null)
+        (int X, int Y)? from = null, ContactPoint? attackContact = null)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -314,28 +440,31 @@ public static partial class Game
         int Get(string key) => Stats.Key(key) is uint k ? merged.GetValueOrDefault(k) : 0;
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
-        var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(conn).EffectId(gem.Effect)) ? GroundArrow : null)
+        var definition = ResolveProjectileDefinition(gem.Effect) ?? ArrowRainDefinition(SkillsFor(conn).EffectId(gem.Effect))
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
         int baseSpeed = SkillsFor(conn).Projectile(metadata)?.Speed ?? 1000;
-        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        bool bowProjectiles = ArrowsFor(conn, gem.Effect);
+        int speedPercent = ProjectileSpeed.EffectivePercent(player, Own, bowProjectiles);
+        merged[Stats.Key(ProjectileSpeed.ModifierStat(bowProjectiles))!.Value] = speedPercent;
+        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, speedPercent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
-        var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, gem.Effect));
+        bool barrageGem = IsBarrageGem(SkillsFor(conn).EffectId(gem.Effect));
+        var profile = definition.Parameters.Resolve(Get, speed, bowProjectiles);
         var at = totem?.At ?? from ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
             throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
+        bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
+        bool rain = !spell && (Get("projectiles_rain") != 0 || Get("skill_is_rain_skill") != 0);
+        bool admitted = !rain || ArrowNovaLayout.TryLanding(conn, at, ref aim);
         var target = ProjectileSession.Vector(aim);
         var direction = (target - origin).Unit;
-        bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
-        // Arrow Nova fires one payload arrow to the aim, then the skill's arrows in a circle from there.
-        bool rain = SkillsFor(conn).IsAttack(gem.Effect)
-            && (Get("projectiles_rain") != 0 || Get("skill_is_rain_skill") != 0);
         // An attack gem leaves from its weapon's contact keyframe, as the default attack's shot does: puncture_bow (Burning
         // Arrow's clip) has attack1_bow's contact and position. Released at the feet 1.5 cells ahead, the arrow showed up
         // inside the body at the ground instead of at the bow.
-        var release = spell ? null : Animations.AttackContactPoint(
+        var release = spell ? null : attackContact ?? Animations.AttackContactPoint(
             Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject,
             AnimationWeaponProfileFor(conn));
         // LightningSlash is released three cells ahead at ground level, not at the sword's contact point
@@ -343,19 +472,12 @@ public static partial class Game
         double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
         if (totem is null && from is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
-        profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
-            (target - origin).Length, toTarget: rain) };
-        // Arrow Nova's payload takes the rig's fixed timeline, not the arrow's speed: the official landing rig came
-        // 415 ms after the use at 40 cells (Frida 2026-11-04), so the flight is what is left after the release delay.
-        if (rain)
-        {
-            double flight = (target - origin).Length;
-            double untilLanding = Math.Max(0.05, 0.415 - releaseDelay);
-            profile = profile with { Speed = Math.Max(0.001, flight / untilLanding) };
-        }
+        if (rain) profile = profile with { LandingDelay = ArrowNovaLayout.LandingDelay(releaseDelay) };
+        else profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range, (target - origin).Length) };
         if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
-        profile = profile with { Id = Art.Projectile(profile.Id, variation) };
+        profile = profile with { Id = barrageGem && !rain && variation != 0 ? Art.ProjectileByArt(BarrageProjectileArt(bowProjectiles), variation)
+            : Art.Projectile(profile.Id, variation) };
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
         // modifiers, accuracy and critical chance. A totem's own use swings the main hand.
         var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(conn, skillId, sequence);
@@ -378,6 +500,7 @@ public static partial class Game
             SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(player, own),
+            FinalSpellRepeat = spell && repeat > 0 && repeatsLeft == 0,
             // Child stages and release specialization can introduce areas after this root is resolved.
             AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true, handCritical),
@@ -428,11 +551,10 @@ public static partial class Game
             // The older packet-driven Burning Arrow control missed local input prediction: real mouse input creates
             // a client projectile too. ClientDrawsPrimaryProjectile handles its visual without changing simulation.
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
-            // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
-            // its payload arrow is not, so the server still sends that one object.
+            // Arrow Nova uses the two rain rigs below. The client draws its SplitArrowDefault volley at the landing rig.
             // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
             // Molten Strike's action spawns its local chunks on melee hit (0x141a6a4b0 -> 0x141ba7c30); server objects would duplicate them.
-            ClientPredicted = totem is not null || spell
+            ClientPredicted = totem is not null || spell || barrageGem && !rain && from is null
                 || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)),
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
@@ -485,7 +607,11 @@ public static partial class Game
         }
         uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
-            { Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
+            { LaunchSource = ProjectileSession.Vector(at), Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
+                CanEmit = admitted ? null : static () => false,
+                LaunchSourceAt = rain && totem is null && from is null
+                    ? t => ProjectileSession.Vector(conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)) : null,
+                Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(conn, session, skillId, gem, variation, Get, Player, Own);
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }

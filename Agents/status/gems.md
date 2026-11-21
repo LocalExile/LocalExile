@@ -63,16 +63,45 @@ Nothing yet.
   not reachable); gem drops are in (above).
   (`GemVendorStock`, `NpcShops.Tabs`; [17](../docs/protocol/17-npcs.md) §5, [19](../docs/protocol/19-gems.md) §5).
 
+- **Barrage and Barrage of Volley Fire.** Bows and wands use their own projectiles. Volley Fire's first and last
+  volleys can each hit one target once. Later firing contacts can hit it again. The Volley Fire jewel adds its rolled
+  projectiles to both gems' first and last volleys at 40 Dexterity in radius. With Selective Precision equipped,
+  every projectile in the first and last firing contacts of a direct Barrage sequence can return, including attacks
+  linked to Barrage Support. Other contacts keep their usual return chance. Client playback still needs checking.
+
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
-  Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
+  Barrage Support paces direct bow and wand shots from the resolved count and the firing clip. Each shot can hit the same enemy. Movement and hit recovery stop the player’s remaining shots.
+  Ballistas use their own firing clips and keep shooting when the owner moves. Their projectile counts and attack timing have Gateway coverage.
+  Barrage mines and ordinary traps fire on their own contact frames, and throw time scales with the final shot count.
+  Volley and Greater Volley release from distinct firing points. With Arrow Nova each admitted landing point fires
+  its own group in a circle. A wall between the firing actor and a side point can omit that group.
+  Linked Barrage shots sweep the points in order. Position, direction and blocked side launches have Gateway coverage.
+  With Reach of the Council, first-point arrows pierce, second-point arrows fork once more, third-point arrows return,
+  and fourth-point arrows chain twice more. These apply on both sides of a simultaneous volley, including Barrage's
+  extra endpoint volleys. Gateway tests follow both fourth-point arrows through two targets outside their original lanes.
+  Slivertongue arrows pierce after a fork or a completed chain. Tornado Shot's secondary arrows inherit the primary's
+  completed chains. The group can hit a target the primary hit, and each arrow spends its own remaining chains.
+  With Arrow Nova Support, ordinary Tornado Shot fires its piercing primary arrows from the landing point.
+  Each primary fires its own secondary group. Barrage Support spaces the primary releases over 400 ms.
+  With Nimis, each landing arrow in a simultaneous group turns by a separate seeded angle. A lone arrow or a
+  single release in a Barrage sweep takes its heading from that arrow's own action. This also applies to Cloudburst.
+  Arrow Nova fixes its landing cell at release using walkability and projectile sight. The landing arrows receive
+  return modifiers, including the separate return roll of each arrow.
+  Tornado Shot of Cloudburst lands one payload and fires nine damaging arrows at zero quality, or thirteen at 20%
+  quality. Arrow and projectile count bonuses apply to the landing volley and appear in the skill panel.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
-  Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
+  Ordinary multi-trap and multi-mine throws scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
-  Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
+  Locus throws spread their mines across a 100° arc at a minimum radius of 20 cells. Templars release the same
+  cells in reverse order. Terrain limits each landing. Locus mines aim at their owner's current cell on each detonation.
+  Locus reduces the supported attack's projectile count after additions, including split and cluster conversions.
+  Inside three metres the mines stay armed. Detonate Mines checks that distance before starting its cooldown.
+  Ordinary mines can still detonate under the player.
+  Flight and arming times, other multi-throw patterns and the charges' critical bonuses remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
@@ -84,12 +113,13 @@ Nothing yet.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
   extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
-  Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
-  fork; Rupture raises bleeding damage taken, dynamically speeds bleed expiry and shows its independent native buff stacks to each player; Close Combat speeds travel skills
+  Projectiles' less attack speed and Greater Chain's more chains apply. Ordinary Fork aims a 90-degree fan at the
+  contact. Fork angle scales its width, and Greater Fork places its extra projectile in the middle.
+  Rupture raises bleeding damage taken, dynamically speeds bleed expiry and shows its independent native buff stacks to each player; Close Combat speeds travel skills
   and is consumed by a paid travel use; Block Chance Reduction lowers the monster's block roll and applies Overpowered;
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
-  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you" (its buff
+  Spell Echo's double damage on hits from the final repeat, and Generosity's aura effect with its "does not affect you" (its buff
   icon is no longer shown for a self-excluding aura, while the aura art and skill-bar association remain).
   Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
@@ -98,7 +128,8 @@ Nothing yet.
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
-  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
+  Bonechill enables increased cold damage taken from any source during a supported chill or chilling area, including
+  a proliferated chill. Immolate, Bloodthirst, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
@@ -113,8 +144,12 @@ Nothing yet.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats supported releases and area hits, including ordinary Ice Nova rings, a cast time apart
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); checked with the real client (2026-11-04).
+  Ice Nova of Deep Freeze also repeats its caster-centred ring on the server. Ice Nova of Frostbolts repeats around the
+  caster when no bolt is in range. Selected Frostbolts carry the extra rings and the caster finishes one animation.
   Unleash stores seals per linked spell and spends them on extra projectile, area and summon releases.
-  Greater Spell Echo scales repeated area and projectile hits. Focused Channelling scales channelled area hits by elapsed whole seconds.
+  Greater Spell Echo scales repeated area and projectile hits, including Dark Bargain's damage and blast radius.
+  Storm Call sends each lightning impact at the radius of its strike.
+  Focused Channelling scales channelled area hits by elapsed whole seconds.
   Meat Shield reduces damage taken by supported minions, and Elemental Army scales their elemental damage paths.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and
   Awakened `support_spell_cascade_sideways`, so the aimed centre still lands the main hit; captured from the 3.29.3b
@@ -122,7 +157,8 @@ Nothing yet.
   Arrow Nova fires one payload arrow to the aim and then the skill's whole volley in a circle from there (18 arrows
   20 degrees apart for Split Arrow in the same capture); the official rain rig stands at the caster's cell and plays
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
-  documented in [25](../docs/protocol/25-gem-supports.md).
+  documented in [25](../docs/protocol/25-gem-supports.md). With Barrage Support, the ground arrows sweep one turn
+  over 400 ms and the first and last can hit the same enemy in the local server. Live verification is pending.
   CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
   Server-drawn gem projectiles (triggers, totems) play their impact clip, such as Fireball's explosion.
   Cast on Melee Kill releases linked spells on a linked melee attack's kill; it is not yet checked in the client.
@@ -140,6 +176,9 @@ Nothing yet.
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
   transfigured and Trarthan gems grant their own skill; Vaal gems grant their Vaal skill and base skill.
+  Repeated damage entries in one gem level add together, including negative adjustments. At level 1 Vortex of
+  Projection has 4591 base cold damage per minute and Essence Drain of Desperation has 4764 base chaos damage per minute.
+  These values are checked against the client tables; their displayed tooltips still need a native check.
   Vaal soul collection/native budget payloads are implemented, pending native acceptance.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
   The variant is sent in the SkillGem data and saved.

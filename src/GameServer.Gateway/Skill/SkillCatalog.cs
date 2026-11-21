@@ -419,6 +419,21 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public string? EffectId(int effectRow) =>
         _tables.Value?.EffectIds.GetValueOrDefault(effectRow);
 
+    public readonly record struct HitDamageMapping(uint Output, ReadOnlyMemory<uint> Inputs);
+
+    /// <summary>The stat keys this effect's ActiveSkills row maps to increased damage.</summary>
+    public ReadOnlySpan<uint> DamageIncreaseInputs(int effectRow)
+    {
+        foreach (var mapping in HitDamageMappings(effectRow))
+            if (mapping.Output == StatKeys.DamagePct) return mapping.Inputs.Span;
+        return [];
+    }
+
+    /// <summary>The named inputs and their hit modifiers for this granted effect's active skill.</summary>
+    public ReadOnlySpan<HitDamageMapping> HitDamageMappings(int effectRow) =>
+        _tables.Value is { } t && (uint)effectRow < (uint)t.ActiveSkills.Count && t.ActiveSkills[effectRow] is int active
+            ? t.HitDamageMappings[active] : [];
+
     /// <summary>Whether a GrantedEffects row is a support, from its actual row (not its translated name).</summary>
     public bool IsSupportEffect(int effectRow) => _supportEffects.Value.Contains(effectRow);
 
@@ -789,7 +804,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         string? effect = t.EffectIds.GetValueOrDefault(effectRow);
         if (effect is null) return null;
         foreach (string id in ProjectileCandidates(effect))
-            if (_projectiles.Value.TryGetValue(id, out int speed)) return (id, speed);
+            if (Projectile(id) is { } projectile) return projectile;
         return null;
     }
 
@@ -878,7 +893,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
     public (string Id, int Speed)? Projectile(string id) =>
-        _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
+        _projectiles.Value.TryGetValue(id, out var row) ? (id, row.Speed) : null;
+
+    public bool ProjectileUsesTargetLocation(string id) => _projectiles.Value[id].UsesTargetLocation;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
     /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
@@ -895,14 +912,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     });
 
-    private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
+    private readonly Lazy<Dictionary<string, (int Speed, bool UsesTargetLocation)>> _projectiles = new(() =>
     {
-        var result = new Dictionary<string, int>();
+        var result = new Dictionary<string, (int, bool)>();
         if (!ClientTables.Has("Projectiles")) return result;
         var d = ClientTables.Table("Projectiles");
         foreach (var r in d)
             if (r.Text("Id") is { } id)
-                result.TryAdd(id, r.IntOrNull("ProjectileSpeed") is int v ? v : 0);
+                result.TryAdd(id, (r.IntOrNull("ProjectileSpeed") ?? 0, r.Bool("UseTargetLocation")));
         return result;
     });
 
@@ -1501,7 +1518,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
-        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
+        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, HitDamageMapping[][] HitDamageMappings,
+        List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients,
         List<int> EsCost)
@@ -1530,10 +1548,24 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var effects = new Dictionary<string, (int, int)>();
             var statSets = new List<int>();
             var effectInfo = new List<(int, int, bool)>();
-            int activeCount = 0;
-            if (ClientTables.Has("ActiveSkills"))
+            var activeRows = ClientTables.TableOrEmpty("ActiveSkills");
+            ReadOnlySpan<uint> hitOutputs = [StatKeys.DamagePct, StatKeys.PhysicalDamageAsExtraChaosPct];
+            var damageInputs = new HitDamageMapping[activeRows.Count][];
+            for (int i = 0; i < activeRows.Count; i++)
             {
-                activeCount = ClientTables.Table("ActiveSkills").Count;
+                var active = activeRows[i];
+                var inputs = active.Ints("Input_StatKeys");
+                var outputs = active.Ints("Output_StatKeys");
+                if (inputs.Length != outputs.Length)
+                    throw new InvalidDataException($"ActiveSkills row {i} has {inputs.Length} stat inputs and {outputs.Length} outputs.");
+                var mappings = new List<HitDamageMapping>();
+                foreach (uint output in hitOutputs)
+                {
+                    uint[] mapped = [.. inputs.Where((_, index) => outputs[index] == output - 1)
+                        .Select(input => checked((uint)input + 1))];
+                    if (mapped.Length != 0) mappings.Add(new(output, mapped));
+                }
+                damageInputs[i] = [.. mappings];
             }
             var activeSkills = new List<int?>();
             int row = 0;
@@ -1542,7 +1574,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 string? id = r.Text("Id");
                 int statSet = Int(r, "StatSet1");
                 int activeRow = Int(r, "ActiveSkill");
-                activeSkills.Add(activeRow >= 0 && activeRow < activeCount ? activeRow : null);
+                activeSkills.Add(activeRow >= 0 && activeRow < activeRows.Count ? activeRow : null);
                 if (id is not null) effects.TryAdd(id, (row, statSet));
                 statSets.Add(statSet);
                 effectInfo.Add((statSet, Math.Max(0, Int(r, "CastTime")),
@@ -1613,12 +1645,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 damageCoefficients.Add((Coefficient(r.IntOrNull("BaseMultiplier")), Coefficient(r.IntOrNull("DamageEffectiveness"))));
                 int crit = Int(r, "SpellCritChance");
                 spellCritChances.Add(crit >= 0 ? crit : null);
-                levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
+                // Transfigured gems can split a base damage stat across two resolved values in the same level row.
+                var resolved = Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues"))
+                    .GroupBy(stat => stat.Item1, stat => stat.Item2);
+                levelStats.Add([.. resolved.Select(group => (group.Key, group.Sum())),
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
-                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
+                vaalSouls, vaalStoredUses, activeSkills, damageInputs, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute, damageCoefficients, es);
 
             static int Coefficient(int? offset) => offset is int value

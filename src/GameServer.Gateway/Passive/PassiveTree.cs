@@ -17,7 +17,7 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     public sealed record Node(ushort GraphId, string Id, string Name, IReadOnlyList<(uint Key, int Value)> Stats, int PointsGranted,
         bool IsAscendancy, bool IsStart, int MasteryGroup, int RespecMultiplier = 1, bool IsKeystone = false,
         bool IsNotable = false, bool IsJewelSocket = false, bool IsProxy = false, bool IsExpansion = false,
-        int DescendancyKey = 0)
+        int DescendancyKey = 0, bool IsAnointmentOnly = false)
     {
         public bool IsMastery => MasteryGroup >= 0;
     }
@@ -267,7 +267,8 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
                 IsJewelSocket: Flag(r, "IsJewelSocket"),
                 IsProxy: Flag(r, "IsProxyPassive"),
                 IsExpansion: Flag(r, "IsExpansion"),
-                DescendancyKey: descendancyKey));
+                DescendancyKey: descendancyKey,
+                IsAnointmentOnly: Flag(r, "IsAnointmentOnly")));
         }
         return nodes;
     }

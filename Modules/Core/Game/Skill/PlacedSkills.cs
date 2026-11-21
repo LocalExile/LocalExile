@@ -1,6 +1,8 @@
 using System.Net.Sockets;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 using GameServer.Core;
 
@@ -131,7 +133,7 @@ public static partial class Game
         return total;
     }
 
-    // Where each trap or mine of one use lands. One lands on the aim. Several scatter at random around it: within
+    // Ordinary trap and mine landings. One lands on the aim. Several scatter at random around it: within
     // throw_traps_in_circle_radius when the support gives one (Cluster Traps, Swift Assembly), otherwise (Multiple
     // Traps, Minefield) within a small radius that grows with their number, 4 cells and 2 more for each. They cluster
     // near the aim with a few outliers: the distance is the radius times a uniform roll to the power 1.5, so about
@@ -170,6 +172,33 @@ public static partial class Game
                 local: inputs.Attack ? MainHandLocalSources(conn) : null) };
     }
 
+    // The object created at throw time keeps its actor even if the owner changes the skill before it triggers.
+    static string? PlacedBarrageRig(bool mine, string? trapType) => mine
+        ? "Metadata/Effects/Spells/landmine_new/land_mine.ao"
+        : trapType == "Metadata/MiscellaneousObjects/TrapNormal2" ? "Metadata/Monsters/trap_02/rig.ao" : null;
+
+    static double? PlacedBarrageSeconds(ClientState conn, ushort skill, SupportedGem gem) =>
+        GolemStat(gem.Stats, "projectiles_barrage") != 0 && SkillsFor(conn).IsAttack(gem.Effect)
+            ? SupportedAttackSeconds(conn, skill, ushort.MaxValue) : null;
+
+    static GrantedSkill? PlacedProxy(ClientState conn, ushort skill, SupportedGem gem, double? barrageSeconds)
+    {
+        var payload = new Dictionary<uint, int>(gem.Stats);
+        foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
+            if (Stats.Key(flag) is uint key) payload[key] = 0;
+        if (Stats.Key("active_skill_area_of_effect_radius") is uint radius)
+            payload[radius] = (int)SkillRadius(conn, gem.Stats, true, gem.Effect);
+        if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseRadius)
+        {
+            var player = CharacterPlayerStats(conn);
+            payload[baseRadius] = SkillArea.BaseRadius(SkillsFor(conn).EffectId(gem.Effect),
+                n => GolemStat(gem.Stats, n) + GolemStat(player, n));
+        }
+        if (barrageSeconds is double seconds) ApplyProxyAttackStats(conn, gem, payload, seconds, projectiles: true);
+        var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
+        return proxy is null ? null : proxy with { Parent = (PlayerId, skill) };
+    }
+
     static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) from, (int X, int Y) aim, PlacedCastAdmission admission, int recovery, Func<bool> current)
     {
@@ -185,8 +214,10 @@ public static partial class Game
             int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
             // Decided once per use: Swift Assembly's chance of more traps or mines.
             swiftExtra = SwiftAssemblyExtra(Get, Random.Shared);
-            seconds = Math.Max(TickSeconds, PlacedThrowSeconds(Get, admission.Mine,
-                ChargesOf(conn).Effective(ChargeType.Frenzy)) / PlayerActionFactor(conn));
+            int throwTime = BarrageTimePercent(conn, gem.Effect, Get,
+                Get("support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired"));
+            double throwing = PlacedThrowSeconds(Get, admission.Mine, ChargesOf(conn).Effective(ChargeType.Frenzy));
+            seconds = Math.Max(TickSeconds, throwing * (1 + throwTime / 100d) / PlayerActionFactor(conn));
         }
         // The oldest traps or mines over the limit go when the throw starts, in a packet of their own. Removed in the
         // packet that created the new one, the client showed the old object moving to the new place (live 2026-11-17).
@@ -251,23 +282,24 @@ public static partial class Game
                 int circle = Get("throw_traps_in_circle_radius");
                 int limit = PlacedSkillLimit(conn, gem, admission.Mine);
                 if (count <= 0 || limit <= 0) return null;
+                LocusMineArc? arc = null;
+                if (admission.Mine && count > 1 && Get("support_locus_mine_throw_mines_in_an_arc") != 0)
+                {
+                    from = conn.Walk.Position(AreaTime(conn));
+                    bool reverse = SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId == (int)CharacterClass.Templar;
+                    arc = new(from, aim, count, reverse);
+                }
                 var context = ReservationContext(conn, admission.Skill);
                 var reserve = admission.Mine ? SupportedReservation(conn, admission.Skill) : null;
                 var offense = CapturePlacedDamage(conn, admission.Skill, gem);
                 var damage = offense?.Normal.Hit ?? SupportedHitFor(conn, admission.Skill, suppress: false);
-                var payload = new Dictionary<uint, int>(gem.Stats);
-                foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
-                    if (Stats.Key(flag) is uint key) payload[key] = 0;
-                if (Stats.Key("active_skill_area_of_effect_radius") is uint radius)
-                    payload[radius] = (int)SkillRadius(conn, gem.Stats, true, gem.Effect);
-                if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseRadius)
-                    payload[baseRadius] = SkillArea.BaseRadius(SkillsFor(conn).EffectId(gem.Effect), Get);
-                var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
-                if (proxy is null) return null;
-                proxy = proxy with { Parent = (PlayerId, admission.Skill) };
                 string path = admission.Mine
                     ? "Metadata/MiscellaneousObjects/RemoteMine"
                     : TrapVisuals.Value.GetValueOrDefault(Get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
+                double? barrageSeconds = PlacedBarrageRig(admission.Mine, path) is null
+                    ? null : PlacedBarrageSeconds(conn, admission.Skill, gem);
+                var proxy = PlacedProxy(conn, admission.Skill, gem, barrageSeconds);
+                if (proxy is null) return null;
                 var stats = new List<(uint, int)>();
                 foreach (var (name, value) in new[] { ("maximum_life", 1), ("uses_no_mana", 1),
                     ("is_trap_object", admission.Trap ? 1 : 0), ("is_remote_mine", admission.Mine ? 1 : 0) })
@@ -279,9 +311,8 @@ public static partial class Game
                 bool committed = false;
                 for (int i = 0; i < count; i++)
                 {
-                    // Several from one use scatter around the aim; one that would land off the walkable ground lands on it.
-                    var point = PlacedThrowPoint(aim, count, circle, Random.Shared);
-                    if (!conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
+                    var point = arc?.Landing(i, conn.Layout) ?? PlacedThrowPoint(aim, count, circle, Random.Shared);
+                    if (arc is null && !conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
                     uint id = conn.TakeObjectId();
                     double land = now + flight;
                     var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land + .5,
@@ -289,7 +320,8 @@ public static partial class Game
                             * Math.Max(.01, 1 + Get(admission.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
-                        { LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get) };
+                        { LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
+                            TrapType = admission.Trap ? path : null, BarrageProxy = barrageSeconds.HasValue ? proxy : null };
                     conn.Placed.All.Add(id, placement);
                     if (!ReservationBudgetFits(conn))
                     {
@@ -354,18 +386,20 @@ public static partial class Game
     static void RemovePlacedLocked(ClientState conn, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
     {
         if (!conn.Placed.All.Remove(placed.Id)) return;
+        placed.ActionUntil = 0;
         if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
             bytes.Remove(placed.Id);
         conn.Placed.Dirty = true;
         conn.Minions.StatRevision++;
     }
 
-    // A trap or mine that has gone off stays for its activation to play, then is removed (0.6 s, a local value):
-    // removed in the packet that started the action, it vanished without showing it.
+    // Release the reservation at detonation. Keep the object for its full firing action or the ordinary
+    // 0.6 s presentation window: removed in the packet that started the action, it vanished without showing it.
     static void RetirePlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now)
     {
         if (!conn.Placed.All.Remove(placed.Id)) return;
-        if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id)) conn.Placed.Leaving.Add((placed.Id, now + .6));
+        if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
+            conn.Placed.Leaving.Add((placed.Id, Math.Max(now + .6, placed.ActionUntil)));
         conn.Placed.Dirty = true;
         conn.Minions.StatRevision++;
     }
@@ -398,15 +432,28 @@ public static partial class Game
     public static double MineSequenceGap(int milliseconds, int prior) =>
         (milliseconds > 0 ? milliseconds : 250) / 1000d / (1 + .1 * Math.Max(0, prior));
 
-    // One use detonates every mine in sequence, in the order they arm: the first at once, each later one after its gap.
+    static bool IsDetonateMines(string? effect) => effect is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines";
+
+    // The radius belongs to the mine's supported skill at placement. Ordinary mines can detonate under the owner.
+    static bool MineAllowsDetonation(ClientState conn, PlacedSkills.Placed mine, double now)
+    {
+        if (now >= mine.Until) return false;
+        int minimum = GolemStat(mine.Own, "support_locus_mine_cannot_detonate_mines_within_X_units");
+        if (minimum == 0) return true;
+        var owner = conn.Walk.Position(now);
+        long dx = (long)mine.At.X - owner.X, dy = (long)mine.At.Y - owner.Y;
+        return dx * dx + dy * dy > (long)minimum * minimum;
+    }
+
+    // One use queues eligible mines in arming order: the first at once, each later one after its gap.
     // A mine that is not armed yet goes off once it is. A use during a running sequence adds the new mines to its end
     // and keeps its speed; a use after the last queued mine has gone off starts a new sequence.
     public static void DetonateMinesLocked(ClientState conn, double now)
     {
-        bool running = conn.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
+        bool running = conn.Placed.All.Values.Any(p => p.Mine && now < p.Until && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? conn.Placed.NextChain : now;
         int prior = running ? conn.Placed.Chain : 0;
-        foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt))
+        foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt) && MineAllowsDetonation(conn, p, now))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
             int time = GolemStat(mine.Own, "base_mine_detonation_time_ms");
@@ -420,8 +467,10 @@ public static partial class Game
         conn.Placed.Chain = prior;
     }
 
-    public static bool CanDetonateMines(ClientState conn) =>
-        conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(conn));
+    public static bool CanDetonateMines(ClientState conn) => CanDetonateMines(conn, AreaTime(conn));
+
+    static bool CanDetonateMines(ClientState conn, double now) =>
+        conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= now && MineAllowsDetonation(conn, p, now));
 
     static void LandPlacedRecordsLocked(ClientState conn, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
@@ -450,16 +499,17 @@ public static partial class Game
         bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
         double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(conn), placed.Effect, 1).Kind != SkillHitKind.Secondary;
-        var target = conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
+        (int X, int Y)? ownerAim = placed.Mine && GolemStat(placed.Own, "support_locus_mine_mines_always_target_your_location") != 0
+            ? conn.Walk.Position(now) : null;
+        var target = ownerAim.HasValue ? default : conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
             && Dist(p.Value.Walk.Position(now), placed.At) <= 60);
         if (bear) target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
             .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
-        var aim = target.Value?.Walk.Position(now) ?? placed.At;
-        bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
-        // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
-        // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
-        // does a triggered spell's: no local input action predicts it.
+        var aim = ownerAim ?? target.Value?.Walk.Position(now) ?? placed.At;
+        void StartAction((int X, int Y) point) => bytes.World(placed.Id, InstanceProtocol.ActionStarted(
+            placed.Id, placed.At.X, placed.At.Y, point.X, point.Y, 0x4000, 0xffff, 0x0408));
+        // The projectile carries the supported skill's hit and modifiers from the trap or mine. No local input predicts it.
         var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
         if (!bear && payload.Name is not null && payload.Effect == placed.Effect && UsesProjectileRuntime(placed.Effect)
             && ResolveProjectileDefinition(placed.Effect) is not null)
@@ -468,16 +518,47 @@ public static partial class Game
             var lifetime = CombatLifetime;
             var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
             var at = placed.At;
-            var shot = PlacedProjectileAim(at, conn.Walk.Position(now), conn.Monsters.Values
+            var shot = ownerAim ?? PlacedProjectileAim(at, conn.Walk.Position(now), conn.Monsters.Values
                 .Where(m => m is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Walk.Position(now)));
-            session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
+            BarrageAttack? barrage = null;
+            if (PlacedBarrageRig(placed.Mine, placed.TrapType) is { } rig)
             {
-                var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
-                use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
+                var gem = SupportedSkill(conn, placed.Skill);
+                double? duration = PlacedBarrageSeconds(conn, placed.Skill, gem);
+                if (duration.HasValue || placed.BarrageProxy is not null)
+                {
+                    var next = PlacedProxy(conn, placed.Skill, gem, duration)!;
+                    if (placed.BarrageProxy is null || ProxySkillChanged(placed.BarrageProxy, next))
+                        bytes.World(placed.Id, InstanceEntities.PlayerSkillsChange(placed.Id, [next], []));
+                    placed.BarrageProxy = duration.HasValue ? next : null;
+                }
+                if (duration is double seconds)
+                    barrage = DirectBarrage(conn, placed.Skill, payload.Effect, ushort.MaxValue, now, seconds, placedRig: rig);
+            }
+            StartAction(barrage is null ? aim : shot);
+            int ownerEpoch = conn.IncomingHitEpoch;
+            bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime);
+            // Presentation cleanup can run ahead of the projectile clock. A paid action survives its normal
+            // detonation, while removing a rearmed mine or losing its owner cancels pending shots.
+            bool Firing() => Current() && conn.PlayerLife > 0 && conn.IncomingHitEpoch == ownerEpoch && placed.ActionUntil > 0;
+            ProjectileUse Capture()
+            {
+                ushort sequence = barrage is null ? (ushort)0 : ushort.MaxValue;
+                var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, sequence,
+                    from: at, attackContact: barrage?.Fire.Point);
+                use = DirectProjectileVolley(conn, session, placed.Skill, payload, use, sequence, 0, barrage, Firing);
                 return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true } };
-            });
+            }
+            if (barrage is null) session.Schedule(session.Runtime.Now, Current, Capture);
+            else
+            {
+                placed.ActionUntil = now + barrage.Duration;
+                var use = Capture();
+                session.Schedule(ProjectileRuntime.Time(now + barrage.FirstContact), Firing, () => use);
+            }
             return;
         }
+        StartAction(aim);
         if (SkillsFor(conn).EffectId(placed.Effect) == "FireTrap")
         {
             var playerSources = CharacterPlayerStats(conn);
@@ -612,6 +693,12 @@ public static partial class Game
                     if (conn.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(conn, placed, bytes); continue; }
                     LandPlacedRecordsLocked(conn, placed, now, bytes);
                     if (now < placed.Armed) continue;
+                    if (placed.Mine && !MineAllowsDetonation(conn, placed, now))
+                    {
+                        // A queued mine can be too close when its turn arrives. Leave it armed for a later use.
+                        if (placed.DetonateAt <= now) placed.DetonateAt = double.PositiveInfinity;
+                        continue;
+                    }
                     bool skitter = false;
                     if (!placed.SkitterTriggered)
                     {
@@ -636,7 +723,7 @@ public static partial class Game
                     if (skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine")
                     {
                         placed.SkitterTriggered = true; placed.DetonateAt = double.PositiveInfinity;
-                        conn.Placed.All[placed.Id] = placed with { Armed = now + .5 };
+                        placed.Armed = Math.Max(now + .5, placed.ActionUntil);
                     }
                     else RetirePlacedLocked(conn, placed, now);
                 }
@@ -646,7 +733,7 @@ public static partial class Game
                     conn.Placed.Leaving.Remove(leaving);
                 }
                 if (conn.Placed.Dirty) PlacedResourcesLocked(conn, bytes);
-                bool detonation = CanDetonateMines(conn);
+                bool detonation = CanDetonateMines(conn, now);
                 if (detonation != conn.Placed.DetonationPublished)
                 {
                     bytes.World(PlayerId, InstanceEntities.PlayerSkillsChange(PlayerId, [], [], canDetonateMines: detonation));

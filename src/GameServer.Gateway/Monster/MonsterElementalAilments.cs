@@ -14,22 +14,83 @@ public sealed class MonsterElementalAilments
         // / ..._deal_damage_lessened_by_chill_effect, as the player had them when it landed.
         public bool MoreTaken { get; init; }
         public bool LessDealt { get; init; }
+        public bool ColdTaken { get; init; }
         // Its proliferation radius in cells when it landed; 0 for one that does not spread, as a spread copy.
         public int Spread { get; init; }
         // Within the Tempest's shock on the corpse, which came after the death (a spread copy of it did not).
         public bool OnKill { get; init; }
     }
     readonly List<Effect> effects = [];
+    // An active DoT can finish its elapsed interval before this recipient replaces its chill sources.
+    public event Action<double>? ChillChanging;
+    public readonly record struct GroundChill(int IncreasedEffect, int Maximum, bool ColdTaken)
+    {
+        public static GroundChill From(Func<string, int> stats) => new(stats("virtual_chill_effect_+%"), ChillCap(stats),
+            stats("support_chilling_areas_also_grant_cold_damage_taken_+%_equal_to_slow_amount") != 0);
+    }
+
+    // Each field keeps its own deadline and source flags, independently of the recipient's debuff clock.
+    public readonly record struct Circle((int X, int Y) Centre, int Radius)
+    {
+        public bool Contains((int X, int Y) cell)
+        {
+            double dx = (double)Centre.X - cell.X, dy = (double)Centre.Y - cell.Y;
+            return dx * dx + dy * dy <= (double)Radius * Radius;
+        }
+    }
+
+    readonly record struct GroundEffect(Effect Chill, PlayerWalk? Walk, Circle Area)
+    {
+        public bool ActiveAt(double now, (int X, int Y)? cell = null) =>
+            Chill.From <= now && now < Chill.Until && (Walk is null || Area.Contains(cell ?? Walk.Position(now)));
+    }
+    Dictionary<object, GroundEffect>? chillingAreas;
+    public double ChillingAreaMagnitude(Func<string, int> source, Func<string, int> target) =>
+        ChillingAreaMagnitude(GroundChill.From(source), target);
+
+    public double ChillingAreaMagnitude(GroundChill source, Func<string, int> target) =>
+        Grace || Immune(Kind.Chill, target) ? 0 : Math.Min(source.Maximum,
+            Math.Floor(10 * EffectModifier(source.IncreasedEffect, target("chill_effectiveness_on_self_+%"))));
+
+    public void SetChillingArea(double now, double until, double magnitude) =>
+        SetChillingArea(this, now, until, magnitude, false);
+
+    public void SetChillingArea(object field, double now, double until, double magnitude, bool coldTaken,
+        PlayerWalk? walk = null, Circle area = default)
+    {
+        if (magnitude <= 0) { RemoveChillingArea(field); return; }
+        chillingAreas ??= new(ReferenceEqualityComparer.Instance);
+        double from = now;
+        if (chillingAreas.TryGetValue(field, out var old) && old.Chill.Magnitude == magnitude && old.Chill.ColdTaken == coldTaken
+            && old.Chill.Until >= now)
+        {
+            if (old.Chill.Until == until) return;
+            from = old.Chill.From;
+        }
+        chillingAreas[field] = new(new(Kind.Chill, from, until, magnitude) { ColdTaken = coldTaken }, walk, area);
+    }
+
+    // A new instance runner gives the same actor a walk attached to the new collision world.
+    internal void RebindGroundWalk(PlayerWalk previous, PlayerWalk current)
+    {
+        if (chillingAreas is null) return;
+        foreach (var (field, ground) in chillingAreas)
+            if (ReferenceEquals(ground.Walk, previous)) chillingAreas[field] = ground with { Walk = current };
+    }
+
+    public void RemoveChillingArea(object field) => chillingAreas?.Remove(field);
+
     double expiryRate = 1;
     public void SetExpiryRate(double now, double rate)
     {
+        ChillChanging?.Invoke(now);
         rate = Math.Max(.25, rate);
         for (int i = 0; i < effects.Count; i++)
             effects[i] = effects[i] with { Until = RecipientEffectTime.RetimedDeadline(effects[i].Until, now, expiryRate, rate) };
         expiryRate = rate;
     }
-    // The strongest of each kind another enemy's proliferation puts on this one, set again on every AI tick.
-    readonly Dictionary<Kind, Effect> spread = [];
+    // Each reaching source keeps its own expiry and secondary effects, even under a stronger ailment.
+    readonly List<Effect> spread = [];
     // What the client was last sent: each kind's magnitude, the action speed stat and the factor its walk speed carries.
     readonly Dictionary<Kind, int> shown = [];
     public int SentActionSpeed;
@@ -41,7 +102,7 @@ public sealed class MonsterElementalAilments
         if (ReferenceEquals(this, target)) return;
         target.effects.AddRange(effects);
         target.spread.Clear();
-        foreach (var (kind, effect) in spread) target.spread[kind] = effect;
+        target.spread.AddRange(spread);
         target.expiryRate = expiryRate;
         target.Shattered = Shattered;
         target.shown.Clear();
@@ -50,6 +111,7 @@ public sealed class MonsterElementalAilments
 
         effects.Clear();
         spread.Clear();
+        chillingAreas?.Clear();
         expiryRate = 1;
         Shattered = false;
         shown.Clear();
@@ -57,14 +119,30 @@ public sealed class MonsterElementalAilments
         WalkFactor = 1;
     }
 
-    public bool Idle => effects.Count == 0 && spread.Count == 0 && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
+    bool NoHitOrPresentation => effects.Count == 0 && spread.Count == 0 && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
+    public bool Idle => NoHitOrPresentation && chillingAreas is not { Count: > 0 };
 
-    IEnumerable<Effect> Active(Kind kind, double now) => (spread.Count == 0 ? effects : effects.Concat(spread.Values))
-        .Where(e => e.Kind == kind && e.From <= now && now < e.Until);
+    public bool IdleAt(double now)
+    {
+        if (!NoHitOrPresentation) return false;
+        if (chillingAreas is { Count: > 0 })
+            foreach (var field in chillingAreas.Values)
+                if (field.ActiveAt(now)) return false;
+        return true;
+    }
+
+    IEnumerable<Effect> Active(Kind kind, double now)
+    {
+        IEnumerable<Effect> active = spread.Count == 0 ? effects : effects.Concat(spread);
+        if (kind == Kind.Chill && chillingAreas is { Count: > 0 })
+            active = active.Concat(chillingAreas.Values.Where(g => g.ActiveAt(now)).Select(g => g.Chill));
+        return active.Where(e => e.Kind == kind && e.From <= now && now < e.Until);
+    }
 
     // The AI asks every living monster each tick, and most have no ailment: that case allocates nothing.
     public double Magnitude(Kind kind, double now) =>
-        effects.Count == 0 && spread.Count == 0 ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
+        kind == Kind.Chill ? CurrentChill(now).Magnitude : effects.Count == 0 && spread.Count == 0 ? 0
+            : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
 
     /// <summary>Whether it was frozen when it died: a shattered one was, though its freeze is gone.</summary>
     public bool FrozenAtDeath(double now) => Shattered || Magnitude(Kind.Freeze, now) > 0;
@@ -93,11 +171,50 @@ public sealed class MonsterElementalAilments
 
     /// <summary>Glacial Wave: while a chill from such a hit lasts, the monster takes increased damage by its strongest
     /// chill's effect (from any source, wiki Glacial Wave; PoB CalcPerform DamageTaken INC).</summary>
-    public double ChillDamageTakenPct(double now) => Active(Kind.Chill, now).Any(e => e.MoreTaken) ? Magnitude(Kind.Chill, now) : 0;
+    public double ChillDamageTakenPct(double now) => CurrentChill(now).AllTaken;
+    public double ChillDamageTakenPct(double now, (int X, int Y)? cell) => CurrentChill(now, cell).AllTaken;
+    public double ChillColdTakenPct(double now, (int X, int Y)? cell = null) => CurrentChill(now, cell).ColdTaken;
+
+    // A qualifying chill enables the strongest current slow, including one inflicted by a different skill.
+    (double Magnitude, double AllTaken, double ColdTaken, double LessDealt) CurrentChill(double now, (int X, int Y)? cell = null)
+    {
+        bool all = false, cold = false, less = false;
+        double strongest = 0;
+        void Include(Effect e)
+        {
+            if (e.Kind != Kind.Chill || !(e.From <= now && now < e.Until)) return;
+            strongest = Math.Max(strongest, e.Magnitude);
+            all |= e.MoreTaken;
+            cold |= e.ColdTaken;
+            less |= e.LessDealt;
+        }
+        foreach (var e in effects) Include(e);
+        foreach (var e in spread) Include(e);
+        if (chillingAreas is { Count: > 0 })
+            foreach (var g in chillingAreas.Values)
+                if (g.ActiveAt(now, cell)) Include(g.Chill);
+        return (strongest, all ? strongest : 0, cold ? strongest : 0, less ? strongest : 0);
+    }
+
+    // A cold DoT interval can straddle a hit chill starting or expiring between ground samples.
+    public double NextChillChange(double from, double until)
+    {
+        double next = until;
+        void Include(Effect e)
+        {
+            if (e.Kind != Kind.Chill) return;
+            if (e.From > from) next = Math.Min(next, e.From);
+            if (e.Until > from) next = Math.Min(next, e.Until);
+        }
+        foreach (var e in effects) Include(e);
+        foreach (var e in spread) Include(e);
+        if (chillingAreas is { Count: > 0 })
+            foreach (var g in chillingAreas.Values) Include(g.Chill);
+        return next;
+    }
 
     /// <summary>Glacial Wave: and deals less damage by half that effect (PoB CalcPerform Damage MORE −effect / 2).</summary>
-    public double ChillDamageDealtFactor(double now) =>
-        Active(Kind.Chill, now).Any(e => e.LessDealt) ? 1 - Magnitude(Kind.Chill, now) / 200 : 1;
+    public double ChillDamageDealtFactor(double now) => 1 - CurrentChill(now).LessDealt / 200;
 
     /// <summary>
     /// virtual_{kind}_proliferation_radius as the client's calculators build it, the largest of its sources. Shock
@@ -142,13 +259,25 @@ public sealed class MonsterElementalAilments
     public IEnumerable<Effect> Spreading(double now) => effects.Count == 0 ? [] : effects
         .Where(e => e.Spread > 0 && e.From <= now && now < e.Until);
 
-    /// <summary>Proliferation (wiki Elemental proliferation): the strongest spreading ailment of a kind whose radius
-    /// reaches this monster affects it at the same effect until that one ends, like an aura; the copy does not spread
-    /// again and is not a new ailment. Null, or a monster immune to the kind, takes it off.</summary>
+    /// <summary>Replaces one kind of proliferation. A copy keeps its source's effect and expiry and cannot spread again.</summary>
     public void Proliferated(Kind kind, Effect? source, Func<string, int> target)
     {
-        if (source is null || Immune(kind, target)) spread.Remove(kind);
-        else spread[kind] = source with { Spread = 0, OnKill = false };
+        spread.RemoveAll(e => e.Kind == kind);
+        if (source is not null) AddProliferation(source with { Spread = 0, OnKill = false }, target);
+    }
+
+    public void ClearProliferation(double now)
+    {
+        if (spread.Count == 0) return;
+        ChillChanging?.Invoke(now);
+        spread.Clear();
+    }
+
+    public bool AddProliferation(Effect source, Func<string, int> target)
+    {
+        if (Immune(source.Kind, target)) return false;
+        spread.Add(source);
+        return true;
     }
 
     /// <summary>Chill and shock effect: floor(50 × (damage / threshold)^0.4 × effect modifiers), up to the cap, and none
@@ -310,6 +439,7 @@ public sealed class MonsterElementalAilments
     {
         effects.Clear();
         spread.Clear();
+        chillingAreas?.Clear();
         Shattered = true;
     }
 
@@ -355,16 +485,19 @@ public sealed class MonsterElementalAilments
 
     // The caps on the effect, 30% chill and 50% shock: Shaper of Winter's override ("Your Chills can reduce Action Speed by
     // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value (wiki
-    // Voltaxic Rift). "+X% to Maximum Effect of Shock" is not read: only removed content (runesmithing, Royale) has it.
+    // Voltaxic Rift). Shock Nova adds its gem's flat maximum to the cap.
     static int ChillCap(Func<string, int> attacker) =>
         attacker("elementalist_chill_maximum_magnitude_override") is > 0 and int cap ? cap : 30;
 
     static int ShockCap(Func<string, int> attacker) =>
-        50 + (attacker("unique_voltaxic_rift_shock_maximum_magnitude_override") != 0 ? 40 : 0);
+        50 + attacker("shock_maximum_magnitude_+") + (attacker("unique_voltaxic_rift_shock_maximum_magnitude_override") != 0 ? 40 : 0);
 
     static double EffectModifier(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
-        Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_effect_+%") / 100.0)
-        * Math.Max(0, 1 + target(kind == Kind.Chill ? "chill_effectiveness_on_self_+%" : "shocked_effect_on_self_+%") / 100.0);
+        EffectModifier(attacker($"virtual_{Name(kind)}_effect_+%"),
+            target(kind == Kind.Chill ? "chill_effectiveness_on_self_+%" : "shocked_effect_on_self_+%"));
+
+    static double EffectModifier(int source, int recipient) =>
+        Math.Max(0, 1 + source / 100.0) * Math.Max(0, 1 + recipient / 100.0);
 
     /// <summary>One inflicted ailment with its base duration: the attacker's and target's duration modifiers, a freeze
     /// under 0.3 s discarded, the target's immunity. Null when it does not apply. The attacker's increase and the
@@ -383,10 +516,15 @@ public sealed class MonsterElementalAilments
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).
         if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker("freeze_minimum_duration_X_ms") / 1000.0);
-        effect = effect with { Until = now + seconds / expiryRate };
+        ChillChanging?.Invoke(now);
+        effect = effect with
+        {
+            Until = now + seconds / expiryRate,
+            ColdTaken = kind == Kind.Chill && attacker("support_chills_also_grant_cold_damage_taken_+%_equal_to_slow_amount") != 0,
+        };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
-            && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));
+            && (e.MoreTaken, e.LessDealt, e.ColdTaken, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.ColdTaken, effect.Spread));
         effects.Add(effect);
         return effect;
     }
@@ -402,9 +540,12 @@ public sealed class MonsterElementalAilments
     /// are dropped.</summary>
     public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude)> Present(double now)
     {
+        ChillChanging?.Invoke(now);
         effects.RemoveAll(e => e.Until <= now);
-        for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
-            if (spread.TryGetValue(kind, out var copy) && copy.Until <= now) spread.Remove(kind);
+        spread.RemoveAll(e => e.Until <= now);
+        if (chillingAreas is { Count: > 0 })
+            foreach (var (field, ground) in chillingAreas)
+                if (ground.Chill.Until <= now) chillingAreas.Remove(field);
         var changes = new List<(Kind, ushort?, ushort?, int)>();
         foreach (var kind in Enum.GetValues<Kind>())
         {

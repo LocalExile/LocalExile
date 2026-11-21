@@ -4,6 +4,7 @@ public readonly record struct ProjectileActorKey(uint Id, int Generation = 0);
 
 public readonly record struct ProjectileVector(double X, double Y)
 {
+    internal (int X, int Y) Cell => ((int)Math.Floor(X + .5), (int)Math.Floor(Y + .5));
     public static ProjectileVector operator +(ProjectileVector a, ProjectileVector b) => new(a.X + b.X, a.Y + b.Y);
     public static ProjectileVector operator -(ProjectileVector a, ProjectileVector b) => new(a.X - b.X, a.Y - b.Y);
     public static ProjectileVector operator *(ProjectileVector a, double value) => new(a.X * value, a.Y * value);
@@ -53,11 +54,22 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     public bool UpdateTimer { get; init; }
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
+/// <summary>Emit one independent shot per heading, including both ends of the signed sweep.</summary>
+public sealed record ProjectileSweep(long Duration, double Radians, Func<ProjectileEntity, ProjectileVector> StartDirection);
+public readonly record struct ProjectileFlightPath(ProjectileVector Origin, ProjectileVector Aim, ProjectileLaunch Launch = default);
+public delegate ProjectileFlightPath ProjectileFlightLayout(int index, int spawnOrdinal);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {
+    /// <summary>The new stage copies the source's fork history and number of completed chains.</summary>
+    public bool InheritForkOrChain { get; init; }
+    /// <summary>The emitted group starts in its source's current return phase, with fresh target history.</summary>
+    public bool InheritReturnPhase { get; init; }
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
+    public ProjectileSweep? Sweep { get; init; }
+    /// <summary>Prepare a layout at the terminal position. Each child gets its path and creation ordinal when due.</summary>
+    public Func<ProjectileEntity, int, ProjectileFlightLayout?>? FlightLayout { get; init; }
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
@@ -79,6 +91,8 @@ public sealed record ProjectileNativeVolley
     public bool Nova { get; init; }
     /// <summary>The host's seeded direction of each projectile from the aim (random_projectile_direction, 0x141bbbd10).</summary>
     public IReadOnlyList<double>? Angles { get; init; }
+    /// <summary>Optional initial placements supplied by the action for the final release count and aim.</summary>
+    public Func<ProjectileUse, ProjectileLaunch[]>? Layout { get; init; }
 
     public double Angle(int index, int count, double distance)
     {
@@ -148,10 +162,12 @@ public sealed record ProjectileProfile(string Id)
     public bool ShareSequentialHits { get; init; }
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
+    public int PierceFailureChancePercent { get; init; }
     public int Fork { get; init; }
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>
     public int ForkExtraProjectileChancePercent { get; init; }
+    public int ForkAnglePercent { get; init; }
     public int Chain { get; init; }
     public int Split { get; init; }
     public double ChainRange { get; init; } = 60;
@@ -160,6 +176,8 @@ public sealed record ProjectileProfile(string Id)
     /// <summary>The host's 0–99 return roll of each initial projectile, for projectiles the client rolls itself; null
     /// rolls once for the whole use.</summary>
     public IReadOnlyList<int>? ReturnRolls { get; init; }
+    /// <summary>Resolve a staged shot's return chance at its actual creation ordinal.</summary>
+    public Func<ProjectileUse, int, int>? OrdinalReturnRoll { get; init; }
     public double ReturnSpeedMultiplier { get; init; } = 1;
     public double ReturnOvershoot { get; init; }
     /// <summary>Null retains unlimited return contacts; zero admits no return contacts.</summary>
@@ -170,6 +188,8 @@ public sealed record ProjectileProfile(string Id)
     public bool IgnoreTerrainOnReturn { get; init; }
     /// <summary>Return-phase grant; CannotPierce still overrides it.</summary>
     public bool PierceAllOnReturn { get; init; }
+    /// <summary>Contacts pierce after this flight or a continuation ancestor has forked or chained.</summary>
+    public bool PierceAllAfterForkOrChain { get; init; }
     public bool ExcludeTurnaroundTarget { get; init; }
     /// <summary>Skip contacts denied by direct-hit admission before running contact stages.</summary>
     public bool SkipDeniedReturnContacts { get; init; }
@@ -200,6 +220,8 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
     public bool Lobbed { get; init; }
+    /// <summary>Time from launch to a previously selected ground point. The presentation has no flight contacts.</summary>
+    public long? LandingDelay { get; init; }
     /// <summary>A lobbed arc's apex in Positioned marker steps above the straight start-to-end line; the client's
     /// mortar template is 40. Arrow Nova's payload is fired high into the air, so it uses a much larger apex.</summary>
     public double ArcHeight { get; init; } = 40;
@@ -230,9 +252,27 @@ public sealed record ProjectileProfile(string Id)
     public bool HidePredictedVisual { get; init; }
 }
 
+public readonly record struct ProjectileLaunch(ProjectileVector Offset, double Angle, bool CheckSourcePath = false)
+{
+    /// <summary>Release with the preceding projectile on the same firing contact and share its hit group.</summary>
+    public bool SimultaneousWithPrevious { get; init; }
+    /// <summary>This launch can return even when the projectile's ordinary chance roll fails.</summary>
+    public bool GrantsReturn { get; init; }
+    /// <summary>Hits by this launch can pierce without spending its finite pierce budget.</summary>
+    public bool PiercesAllTargets { get; init; }
+    /// <summary>Added once to this launch's fork budget. Its continuation children inherit the remaining generations.</summary>
+    public int AdditionalForks { get; init; }
+    /// <summary>Added to this launch's chain budget before its first flight.</summary>
+    public int AdditionalChains { get; init; }
+}
+
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,
     int Team, ProjectileVector Origin, ProjectileVector Aim)
 {
+    /// <summary>Source of placement traces when the contact point is displaced from the actor.</summary>
+    public ProjectileVector LaunchSource { get; init; } = Origin;
+    /// <summary>Position of a moving firing actor when delayed children check a displaced source.</summary>
+    public Func<long, ProjectileVector>? LaunchSourceAt { get; init; }
     public Func<bool>? CanEmit { get; init; }
     public ProjectileActorKey? ReturnAnchor { get; init; }
     public object? Payload { get; init; }
@@ -251,28 +291,49 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public uint RepeatsLeft { get; init; }
 }
 
+internal struct ProjectileBranchState
+{
+    public bool HasForked;
+    public int ChainsUsed;
+    public int FiringPointChains;
+}
+
+internal sealed class ProjectileReleaseState(long id)
+{
+    public long Id { get; } = id;
+    public int Spawned;
+}
+
 public sealed class ProjectileEntity
 {
-    internal ProjectileEntity(long id, long useId, long emissionId, long parent, ProjectileUse use,
-        ProjectileVector position, ProjectileVector direction, long at)
+    internal ProjectileEntity(long id, ProjectileReleaseState release, long emissionId, long parent, ProjectileUse use,
+        ProjectileVector position, ProjectileVector direction, long at, int phase = 0)
     {
-        Id = id; UseId = useId; EmissionId = emissionId; ParentId = parent; Use = use;
+        Id = id; Release = release; EmissionId = emissionId; ParentId = parent; Use = use;
+        SpawnOrdinal = release.Spawned++;
         Position = position; Direction = direction.Unit; CreatedAt = at;
         Remaining = use.Profile.Range; Pierce = use.Profile.Pierce;
-        Fork = use.Profile.Fork; Chain = use.Profile.Chain; Split = use.Profile.Split;
+        Fork = use.Profile.Fork; Split = use.Profile.Split;
         TerrainBounces = use.Profile.TerrainBounces;
         TerrainChainChance = use.Profile.TerrainChainChance;
         GroundChains = use.Profile.GroundChains;
         int seed = unchecked(use.Seed * 397 ^ (int)id);
+        if (use.Profile.PierceFailureChancePercent is > 0 and < 100)
+        {
+            pierceRandom = new(seed ^ 0x3f65e2a1);
+            nextPierceRoll = pierceRandom.Next(100);
+        }
         Random = new(seed);
         RandomSource = new(seed ^ 0x2d53a1b7);
         RewardRandomSource = new(seed ^ 0x5e418ac3);
         ReactionRandomSource = new(seed ^ 0x1a736d49);
-        Speed = use.Profile.Speed;
+        Phase = phase;
+        Speed = phase == 0 ? use.Profile.Speed : use.Profile.Speed * use.Profile.ReturnSpeedMultiplier;
         ExpiresAt = at + use.Profile.Lifetime;
     }
     public long Id { get; }
-    public long UseId { get; }
+    internal ProjectileReleaseState Release { get; }
+    public long UseId => Release.Id;
     public long EmissionId { get; }
     public long ParentId { get; }
     public ProjectileUse Use { get; }
@@ -280,7 +341,9 @@ public sealed class ProjectileEntity
     public ProjectileVector Position { get; internal set; }
     public ProjectileVector Direction { get; internal set; }
     public long CreatedAt { get; }
-    /// <summary>The arrow's index in its release volley; the terminal RNG's mother-derived byte is 2 + this.</summary>
+    /// <summary>Zero-based creation order across all flights of this release, including later child stages.</summary>
+    public int SpawnOrdinal { get; }
+    /// <summary>The initial arrow's index in its release volley.</summary>
     public int VolleyIndex { get; internal set; }
     public long ExpiresAt { get; internal set; }
     public int Phase { get; internal set; }
@@ -290,7 +353,17 @@ public sealed class ProjectileEntity
     public int Form { get; internal set; }
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
-    internal int Pierce, Fork, Chain, Split, TerrainBounces;
+    internal int Pierce, Fork, Split, TerrainBounces;
+    internal ((int X, int Y) Origin, (int X, int Y) End) ForkSegment { get; private set; }
+    internal void SetForkSegment(ProjectileVector origin) =>
+        ForkSegment = (origin.Cell, (Position + Direction * Remaining).Cell);
+    internal bool PiercesAllFromLaunch { get; init; }
+    internal ProjectileBranchState Branches;
+    internal bool CanChain => !Profile.CannotChain && Branches.ChainsUsed < Profile.Chain + Branches.FiringPointChains;
+    internal bool HasForkedOrChained => Branches.HasForked || Branches.ChainsUsed > 0;
+    readonly Random? pierceRandom;
+    int nextPierceRoll;
+
     internal int TerrainChainChance;
     internal int GroundChains;
     internal int ReturnContacts = 0;
@@ -315,6 +388,23 @@ public sealed class ProjectileEntity
     internal long ContactEpoch = -1, ContactAt, ContactEnd;
     internal int ContactIndex = -1;
     internal ProjectileVector ContactFrom, ContactTo;
+
+    // A terminal-area preview and the accepted hit share one roll. Misses and splits leave it unspent.
+    internal bool PierceTarget(bool consume)
+    {
+        if (Profile.CannotPierce || Profile.PierceFailureChancePercent == 100) return false;
+        if (pierceRandom is { } random)
+        {
+            int roll = nextPierceRoll;
+            if (consume) nextPierceRoll = random.Next(100);
+            if (roll < Profile.PierceFailureChancePercent) return false;
+        }
+        if (PiercesAllFromLaunch || HasForkedOrChained && Profile.PierceAllAfterForkOrChain
+            || Phase > 0 && Profile.PierceAllOnReturn || Pierce < 0) return true;
+        if (Pierce == 0) return false;
+        if (consume) Pierce--;
+        return true;
+    }
 
     // Freeze trigger-time flight state while sharing the use's chronological combat RNG streams.
     internal ProjectileEntity AreaSnapshot() => (ProjectileEntity)MemberwiseClone();

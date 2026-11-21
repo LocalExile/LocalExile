@@ -10,6 +10,10 @@ public sealed class InstanceWorld
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
 
+    // Connections with live Frostblink or Arctic Armour patches, under Monsters. The patches and their owners
+    // survive a rules reload together so a newly targetable monster can see them before the next reservation tick.
+    public readonly HashSet<ClientState> ChillingTrailCasters = [];
+
     // Numbered boss-room points survive host handoff and a return to a kept instance.
     public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);
 

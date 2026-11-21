@@ -60,6 +60,8 @@ public static class StatKeys
     // "Increased damage" stats that apply to an unarmed melee attack's physical damage (damage × (1 + sum / 100)):
     // damage_+%, physical_damage_+%, melee_damage_+%, melee_physical_damage_+% (strength's 1% per 5).
     public const uint DamagePct = 0x19, PhysicalDamagePct = 0x1b, MeleeDamagePct = 0x558, MeleePhysicalDamagePct = 0x1ed;
+    // physical_damage_%_to_add_as_chaos, Stats row 452 in 3.29.3c.
+    public const uint PhysicalDamageAsExtraChaosPct = 453;
     // 3.29.3b Stats.dat rows 25 and 11810; Whisperer node 50932 enables the fixed 150% transfer.
     public const uint SpellDamagePct = 26, SpellDamageIncreasesApplyToAttacks150 = 11811;
     public const uint SpellDamageIncreasesApplyToAttacks = 2493, SpellDamageIncreasesApplyToAttacksRatio = 11810,

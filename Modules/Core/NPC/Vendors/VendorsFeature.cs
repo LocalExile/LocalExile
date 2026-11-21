@@ -84,9 +84,21 @@ static class VendorsFeature
         // A gamble window opened before a module reload lost its offers (Gambling.Open): never sell the "Random …" item itself.
         else if (catalog.ByHash(bought.TypeHash)?.Class == "HiddenItem")
         { await conn.Commands!.Reply("Talk to the gambler again to gamble."); return; }
-        var purchase = ItemMoves.PurchaseVendor(items,
+        ItemMoves.VendorPurchase? Buy() => ItemMoves.PurchaseVendor(items,
             shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(conn),
             bought,catalog,ShapeOf,Consume,row,x,y);
+        EquipmentSourceChange? change = null;
+        ItemMoves.VendorPurchase? purchase;
+        if (row is byte target && ItemModStats.EquipmentRows.Contains(target))
+        {
+            using (ProjectileMutation(conn, advance: false, phase: "vendor equipment purchase"))
+            {
+                change = new(remote, stream, ciphers, conn, [target]);
+                purchase = Buy();
+                if (purchase?.Equipped is not null) change.CommitLocked();
+            }
+        }
+        else purchase = Buy();
         if (purchase is null && row is not null && bought != offer.Item.Item)
         {
             row = null;
@@ -94,6 +106,7 @@ static class VendorsFeature
         }
         if (purchase is null) { await conn.Commands!.Reply("Unable to buy: check the price, inventory space and available stock."); return; }
         if (finite) shop.Items.Remove(id);
+        if (change is not null) await change.PublishBurn();
         foreach (var payment in purchase.Payments) await SendStashPayment(remote,stream,ciphers,conn,stash,payment.Stash);
         await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
             items.NextRevision(PlayerInventories.MainInventory),before,items.Items(PlayerInventories.MainInventory)),"0x00bf vendor payment and purchase");

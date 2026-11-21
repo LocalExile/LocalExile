@@ -99,10 +99,12 @@ public static class SkillArea
     public const string Increase = "skill_area_of_effect_+%";
 
     /// <summary>The radius in cells for <paramref name="baseRadius"/> (the skill's base when it has none of its own).</summary>
-    public static int Radius(int baseRadius, Func<string, int> get, bool spell)
+    public static int Radius(int baseRadius, Func<string, int> get, bool spell) => Radius(baseRadius, get, spell, 1);
+
+    public static int Radius(int baseRadius, Func<string, int> get, bool spell, double moreArea)
     {
         int radius = baseRadius + get("active_skill_base_radius_+");
-        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell))) / 100;
+        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * moreArea)) / 100;
         scaled *= Math.Max(0, 1 + get("active_skill_area_of_effect_radius_+%_final") / 100.0);
         return Math.Max(0, (int)Math.Floor(scaled));
     }

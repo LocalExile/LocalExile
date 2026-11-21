@@ -20,7 +20,18 @@ public readonly record struct ContactPoint(float X, float Y, float Z)
 /// ms lists, independent of whether the clip has a contact.</summary>
 public readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue,
     bool CancellationKnown = false, int? Cancel = null, IReadOnlyList<int>? Contacts = null,
-    IReadOnlyDictionary<string, IReadOnlyList<int>>? Events = null);
+    IReadOnlyDictionary<string, IReadOnlyList<int>>? Events = null)
+{
+    public double ContactFraction => (double)Contact / Length;
+
+    /// <summary>The native spell's early and late Move windows (0x141942b50), scaled to this cast.</summary>
+    public GameServer.Core.World.LockstepCastWindow? SpellMoveWindow(double start, double duration, bool cannotCancelBeforeContact)
+    {
+        if (!CancellationKnown) return null;
+        double? early = cannotCancelBeforeContact ? null : duration * Math.Max(.2, ContactFraction - .3);
+        return new(start, duration, early, duration * (Cancel ?? Contact) / Length);
+    }
+}
 
 /// <summary>The kind of cast a run skill plays: an attack swing, or a spell projectile / area / buff cast.</summary>
 public enum CastAnimationKind { Attack, Projectile, Area, Buff }
@@ -49,15 +60,40 @@ public sealed class AnimationContacts
     public const double DefaultAttackContact = 0.4;
 
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
-        Dictionary<string, AnimationClip> AllClips, Dictionary<string, DefaultAttackClip[]> AttackPools);
+        Dictionary<string, AnimationClip> AllClips, Dictionary<string, DefaultAttackClip[]> AttackPools,
+        Dictionary<(string Stance, int Variation), AnimationClip> ProjectileCasts);
 
     private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo;
+    private readonly Lazy<string[]> _itemStances;
 
     /// <summary>The rigs in client.db.</summary>
     public AnimationContacts() : this(ClientTables.TableOrNull) { }
 
     /// <summary>The rigs in the animation_* tables <paramref name="tables"/> gives by name (null: none), for a test.</summary>
-    public AnimationContacts(Func<string, ClientTable?> tables) => _byAo = new(() => Load(tables));
+    public AnimationContacts(Func<string, ClientTable?> tables)
+    {
+        _byAo = new(() => Load(tables));
+        _itemStances = new(() => (tables("ItemStances") ?? throw new InvalidDataException("Missing ItemStances for projectile casts."))
+            .Select(row => row.Text("Id")!).ToArray());
+    }
+
+    /// <summary>A named contact clip on the selected rig, including its contact and cancellation events.</summary>
+    public AnimationClip ContactClip(string animatedObject, string name) => _byAo.Value[animatedObject].Clips[name];
+
+    /// <summary>The ordinary elemental projectile clip for the equipped ItemStances, in main/off-hand order.
+    /// An empty hand has stance 0xff. Older data and combinations outside the actor's ACT have no entry.</summary>
+    public AnimationClip? ProjectileCast(string animatedObject, byte main, byte off) =>
+        ProjectileCastTiming(animatedObject, main, off, 0);
+
+    /// <summary>The contact and movement times shared by the eligible clips for this variation. A pool of alternatives
+    /// has no single rig index. The client picks which animation to display.</summary>
+    public AnimationClip? ProjectileCastTiming(string animatedObject, byte main, byte off, int variation)
+    {
+        if (!_byAo.Value.TryGetValue(animatedObject, out var actor) || actor.ProjectileCasts.Count == 0) return null;
+        string Hand(byte row) => row == byte.MaxValue ? "" : _itemStances.Value[row];
+        string stance = main == byte.MaxValue && off == byte.MaxValue ? "Unarmed" : Hand(main) + Hand(off);
+        return actor.ProjectileCasts.TryGetValue((stance, variation), out var clip) ? clip : null;
+    }
 
     /// <summary>When in a spell cast its projectile leaves, as a fraction of the cast: the class's spell_projectile
     /// animation (wand, unarmed, then any), else any spell animation's contact.</summary>
@@ -77,10 +113,8 @@ public sealed class AnimationContacts
     {
         if (CastClip(animatedObject, weapon, kind) is not { } selected
             || !_byAo.Value.TryGetValue(animatedObject, out var actor)
-            || !actor.Clips.TryGetValue(selected.Name, out var clip) || !clip.CancellationKnown) return null;
-        double? early = cannotCancelBeforeContact ? null
-            : duration * Math.Max(.2, (double)clip.Contact / clip.Length - .3);
-        return new(start, duration, early, duration * (clip.Cancel ?? clip.Contact) / clip.Length);
+            || !actor.Clips.TryGetValue(selected.Name, out var clip)) return null;
+        return clip.SpellMoveWindow(start, duration, cannotCancelBeforeContact);
     }
 
     double? SpellContact(string animatedObject, string[] names, string[] prefixes)
@@ -303,6 +337,8 @@ public sealed class AnimationContacts
         var framesByClip = By("animation_clip_contacts", "clip");
         var eventsByClip = By("animation_clip_events", "clip");
         var attacksByRig = By("animation_default_attacks", "rig");
+        var projectileCastsByRig = By("animation_projectile_casts", "rig");
+        var projectileVariantsByRig = By("animation_projectile_cast_variants", "rig");
         foreach (var rig in rigs)
         {
             string ao = rig.Text("ao")!;
@@ -343,7 +379,24 @@ public sealed class AnimationContacts
                     throw new InvalidDataException($"Invalid default attack animation pool {ao}/{stance.Key}.");
                 pools.Add(stance.Key, entries);
             }
-            result[ao] = new ActorAnimations(clips, allClips, pools);
+            AnimationClip CastClip(ClientRow row)
+            {
+                string stance = row.Text("stance")!, name = row.Text("animation")!;
+                if (!clips.TryGetValue(name, out var clip) || clip.Length <= 0 || clip.Contact < 0
+                    || clip.Contact > clip.Length || !clip.CancellationKnown || clip.Cancel is < 0 || clip.Cancel > clip.Length)
+                    throw new InvalidDataException($"Invalid projectile cast clip {ao}/{stance}: {name}.");
+                return clip;
+            }
+            var casts = projectileCastsByRig[rig.Index].ToDictionary(row => (row.Text("stance")!, 0), CastClip);
+            foreach (var pool in projectileVariantsByRig[rig.Index].GroupBy(row => (row.Text("stance")!, row.Int("variation"))))
+            {
+                var times = pool.Select(CastClip).Select(c => new AnimationClip(c.Length, c.Contact, null,
+                    CancellationKnown: true, Cancel: c.Cancel)).Distinct().ToArray();
+                if (times.Length != 1)
+                    throw new InvalidDataException($"Projectile variation {ao}/{pool.Key} needs per-candidate timing.");
+                casts.Add(pool.Key, times[0]);
+            }
+            result[ao] = new ActorAnimations(clips, allClips, pools, casts);
         }
         return result;
     }

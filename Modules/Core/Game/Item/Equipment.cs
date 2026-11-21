@@ -11,6 +11,29 @@ public static partial class Game
 
     public static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
 
+    // Capture while the old links, stats and resource pools are readable. Call CommitLocked only after the
+    // inventory accepts the write, under the same actor lock. Network output follows the mutation.
+    public sealed class EquipmentSourceChange(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, ReadOnlySpan<byte> affectedRows)
+    {
+        readonly RighteousFireRemoval? fire = CaptureEquippedRighteousFireLocked(conn, affectedRows);
+        readonly IReadOnlyList<PlayerSkillSource> before = PlayerSkillSourcesLocked(conn);
+        RighteousFireBurnOutput? finalBurn;
+
+        public void CommitLocked()
+        {
+            if (fire is not null && !EquippedRighteousFireQualifiesLocked(conn, fire))
+                finalBurn = SettleRighteousFireRemovalLocked(remote, stream, ciphers, conn, fire);
+            using var scope = new PlayerStatScope(conn, fresh: true);
+            RecomputePoolsAndSpeed(conn);
+            ReconcileBeastCompanionsLocked(conn);
+            ReconcileEquipmentSourceLifetimesLocked(conn, before);
+        }
+
+        public Task PublishBurn() => finalBurn is null ? Task.CompletedTask
+            : PublishRighteousFireBurn(remote, stream, ciphers, conn, finalBurn);
+    }
+
     // Active local item defences retain their base roll, local conversions and final native rounding.
     public static IEnumerable<(byte Row, (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) Defence)> EquippedArmourDefences(
         ClientState conn, Func<string, int>? get = null)
@@ -254,6 +277,17 @@ public static partial class Game
         ? new VisibleItem(0, t.VisualIdentity, t.Stance,
             t.ClassRow is >= 0 and < 255 ? (byte)(t.ClassRow + 1) : (byte)1) : null;
 
+    // The wardrobe remembers a pick through weapon swaps. Its cast animation belongs to the character and
+    // item the skin can dress, in the active hand named by the cosmetic slot.
+    static CosmeticEffects.Effect? ActiveCosmeticEffect(ClientState conn, InstanceMicrotransactions.Equipped worn)
+    {
+        var effect = MtxEffects.Of(worn.MtxTypeHash);
+        if (effect?.ProjectileCastCharacters is not { } characters) return effect;
+        if (characters.Count != 0 && !characters.Contains(conn.ClassRow)) return null;
+        if (MtxEffects.SlotOf(worn.Slot) is not { Name: "Weapon Skin", InventoryRow: byte row }) return null;
+        return ActiveHand(conn, row)?.Type is { } item && effect.Fits(item.ClassRow) ? effect : null;
+    }
+
     // What the model wears: the equipped items, dressed in the worn cosmetics (CosmeticEffects). A skin replaces the item's
     // art in its entry's first reference and a weapon effect fills the second; attachments and character effects fill the
     // model slots no item uses, which go out empty when nothing is worn there so taking one off clears it.
@@ -287,7 +321,7 @@ public static partial class Game
         var cosmeticSlots = CosmeticEffects.CosmeticOnlySlots.ToDictionary(s => s, VisibleItem.Empty);
         foreach (var worn in WornCosmetics(conn))
         {
-            if (MtxEffects.SlotOf(worn.Slot) is not { ModelSlot: byte model } slot || MtxEffects.Of(worn.MtxTypeHash) is not { } fx) continue;
+            if (MtxEffects.SlotOf(worn.Slot) is not { ModelSlot: byte model } slot || ActiveCosmeticEffect(conn, worn) is not { } fx) continue;
             if (cosmeticSlots.ContainsKey(model))
             {
                 if (fx.Visual != 0)
@@ -315,7 +349,7 @@ public static partial class Game
     // derived stat for a player the server describes.
     public static IEnumerable<(uint Stat, int Value)> CosmeticStats(ClientState conn)
     {
-        var worn = WornCosmetics(conn).Where(w => w.Slot != 49).SelectMany(w => MtxEffects.Of(w.MtxTypeHash) is not { } fx ? [] :
+        var worn = WornCosmetics(conn).Where(w => w.Slot != 49).SelectMany(w => ActiveCosmeticEffect(conn, w) is not { } fx ? [] :
                 fx.Pet != 0 && Stats.Key(w.Slot == 19 ? "pet_slot2" : "pet_slot1") is uint pet ? [.. fx.Stats, (pet, fx.Pet)] : fx.Stats)
             .GroupBy(s => s.Stat, s => s.Value).Select(g => (Stat: g.Key,
                 Value: ActorScale.IsInput(g.Key) ? ActorScale.Saturate(g.Sum(v => (long)v)) : g.Sum())).ToList();

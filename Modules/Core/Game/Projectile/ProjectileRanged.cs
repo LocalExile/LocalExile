@@ -114,27 +114,32 @@ public static partial class Game
             // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
             HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn
         };
-        var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
+        var caster = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
+        var origin = caster;
         var target = ProjectileSession.Vector(aim);
         // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
         // 5.5 cells, a wand's tip 7.5), else 1.5 cells ahead; never past half way to the aim, so a close target
         // is not behind the release. The lateral part of the keyframe is not applied (ContactPoint).
         double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
         origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
-        var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get);
-        profile = clientDrawn ? ClientDrawnProfile(conn, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
+        var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, character);
+        int VolleyStat(string name) => Stats.Key(name) is uint key
+            ? character.GetValueOrDefault(key) + shot.SkillStats.GetValueOrDefault(key) : 0;
+        profile = clientDrawn ? ClientDrawnProfile(conn, profile, VolleyStat, sequence, target - origin) : NativeVolley(profile, VolleyStat);
         return new(profile, new(PlayerId, session.Conn.ProjectileEpoch), new(PlayerId, session.Conn.ProjectileEpoch), 1,
             origin, target)
-            { Payload = shot, ReturnAnchor = new(PlayerId, session.Conn.ProjectileEpoch) };
+            { LaunchSource = caster, Sequence = sequence, Payload = shot, ReturnAnchor = new(PlayerId, session.Conn.ProjectileEpoch) };
     }
 
     // The ordinary shot's flight as the server simulates it, and with it the count the client's record carries.
-    static ProjectileProfile OrdinaryRangedProfile(ClientState conn, string projectileId, bool bow, Func<string, int> get)
+    static ProjectileProfile OrdinaryRangedProfile(ClientState conn, string projectileId, bool bow, IReadOnlyDictionary<uint, int> character)
     {
         var ranged = SkillsFor(conn).Projectile(projectileId);
-        double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, get, _ => 0,
-            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
-        return GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, get, speed, attack: true, arrows: bow);
+        int percent = ProjectileSpeed.EffectivePercent(character, _ => 0, bow);
+        string speedStat = ProjectileSpeed.ModifierStat(bow);
+        int Get(string name) => name == speedStat ? percent : Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, percent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        return GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, Get, speed, attack: true, arrows: bow);
     }
 
     /// <summary>
@@ -149,8 +154,7 @@ public static partial class Game
     {
         var weapon = WeaponProfileFor(conn, activeSet: true);
         if (!conn.LockstepClient || OrdinaryRangedAttack.ProjectileId(weapon) is not { } projectileId) return [];
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-        int n = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get).Count;
+        int n = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, character).Count;
         return weapon.Bow
             ? [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
                 (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n)]

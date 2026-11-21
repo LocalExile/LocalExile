@@ -313,9 +313,28 @@ public static partial class Game
     {
         var stash = StashOf(conn);
         var items = ItemsOf(conn);
-        var moved = ItemMoves.InventoryToStash(stash, items, tab, itemId, ShapeOf, out string refused);
+        EquipmentSourceChange? change = null;
+        ItemMoves.Transfer? moved;
+        string refused;
+        var sourceRow = items.RowOf(itemId);
+        ItemMoves.Transfer? Move(out string reason) =>
+            ItemMoves.InventoryToStashFrom(stash, items, tab, itemId, sourceRow, ShapeOf, out reason);
+        if (sourceRow is byte row && ItemModStats.EquipmentRows.Contains(row))
+        {
+            using (ProjectileMutation(conn, advance: false, phase: "stash equipment transfer"))
+            {
+                change = new(remote, stream, ciphers, conn, [row]);
+                moved = Move(out refused);
+                if (moved is not null) change.CommitLocked();
+            }
+        }
+        else moved = Move(out refused);
         Console.WriteLine($"[gateway] {remote} <= {why}: move item {itemId} to stash tab {tab}" + (moved is null ? $": refused ({refused})" : ""));
-        if (moved is not null) await SendTransfer(remote, stream, ciphers, conn, items, stash, moved, tabFirst: false);
+        if (moved is not null)
+        {
+            if (change is not null) await change.PublishBurn();
+            await SendTransfer(remote, stream, ciphers, conn, items, stash, moved, tabFirst: false);
+        }
     }
 
     // An item out of a stash tab into the main inventory (C→S 0xe3), a stack onto the inventory's stacks first

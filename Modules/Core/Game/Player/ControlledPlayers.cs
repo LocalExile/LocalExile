@@ -13,6 +13,7 @@ public static partial class Game
         conn.Walk.Teleport(at.X, at.Y, conn.Clock.Elapsed.TotalSeconds);
         conn.PeerType = InstanceEntities.ObjectTypeHash(SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType);
         conn.PeerTemplate = PlayerForCreation(conn) with { GridX = at.X, GridY = at.Y };
+        conn.Walk.SetRotation(conn.PeerTemplate.Rotation, conn.Clock.Elapsed.TotalSeconds);
         conn.ClientSkillIds = [.. conn.PeerTemplate.Skills!.Select(s => s.Id)];
         conn.PlayerSent = conn.PlayerObjectCreated = true;
         Program.InGame[conn] = 0;

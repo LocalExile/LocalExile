@@ -489,7 +489,9 @@ public static partial class Game
         {
             var profile = WeaponProfileFor(conn);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
-            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
+            int attackSpeed = gem.Stats.GetValueOrDefault(raw);
+            if (IsBarrageGem(SkillsFor(conn).EffectId(gem.Effect))) attackSpeed += Get("barrage_attack_speed_+%");
+            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(attackSpeed * factor);
             // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)
@@ -509,15 +511,8 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d);
-        int barrageTime = Get("support_barrage_attack_time_+%_per_projectile_fired");
-        if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
-        {
-            var projectiles = projectileParameters.Resolve(Get, 1, ArrowsFor(conn, gem.Effect));
-            int count = Get("projectiles_rain") != 0 && projectiles.EndEmission is { } rain
-                ? rain.Child.Count : projectiles.Count;
-            // The native final-speed consumer divides by 1 + the per-projectile time penalty before rounding.
-            more /= 1 + (double)barrageTime * count / 100;
-        }
+        // The final speed is rounded after the per-projectile time modifier.
+        more /= 1 + BarrageTimePercent(conn, gem.Effect, Get, Get("support_barrage_attack_time_+%_per_projectile_fired")) / 100d;
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
             && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
@@ -637,6 +632,10 @@ public static partial class Game
         var gem = capturedGem ?? SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
+        foreach (var mapping in SkillsFor(conn).HitDamageMappings(gem.Effect))
+            foreach (uint input in mapping.Inputs.Span)
+                if (stats.TryGetValue(input, out int value))
+                    stats[mapping.Output] = stats.GetValueOrDefault(mapping.Output) + value;
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;

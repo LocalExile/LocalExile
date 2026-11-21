@@ -35,6 +35,40 @@ public sealed class BowProjectileCountTests
         Assert.Equal(4, GatewayProjectileDefaults.Resolve("Metadata/Projectiles/DefaultArrow", Get, 1000,
             attack: true, arrows: true).Count);
 
+        stats.Clear();
+        stats["number_of_projectiles_+%_final_from_locus_mine_support"] = -30;
+        stats["minimum_number_of_projectiles_to_fire_is_1"] = 1;
+        ProjectileProfile Mine(string effect, bool arrows = false) =>
+            GatewayProjectileSkillProfiles.Resolve(effect, arrows ? "Arrow" : "Wand", Get, 1000, attack: true, arrows);
+        foreach (var (extra, expected) in new[] { (0, 1), (2, 2), (4, 3), (9, 7), (299, 210) })
+        {
+            stats["number_of_additional_projectiles"] = extra;
+            Assert.Equal(expected, Mine("LightningArrow", arrows: true).Count);
+        }
+
+        stats["number_of_additional_projectiles"] = 9;
+        stats["number_of_projectiles_+%_final_from_skill"] = 50;
+        Assert.Equal(10, Mine("Frenzy").Count);
+        stats.Remove("number_of_projectiles_+%_final_from_skill");
+        stats["modifiers_to_projectile_count_do_not_apply"] = 1;
+        Assert.Equal(1, Mine("IceShotAltX", arrows: true).Count);
+        stats.Remove("modifiers_to_projectile_count_do_not_apply");
+
+        stats["number_of_additional_projectiles"] = 0;
+        stats["modifiers_to_number_of_projectiles_instead_apply_to_splitting"] = 1;
+        Assert.Equal(0, Mine("LightningArrow", arrows: true).Split);
+        Assert.Equal(1, Mine("Frenzy").Split);
+        stats["projectile_number_to_split"] = 3;
+        stats["number_of_additional_projectiles"] = 3;
+        var splitting = Mine("SplitArrowAltX", arrows: true);
+        Assert.Equal((1, 3), (splitting.Count, splitting.Split));
+        stats.Clear();
+        stats["number_of_projectiles_+%_final_from_locus_mine_support"] = -30;
+        stats["cluster_burst_spawn_amount"] = 3;
+        var clustering = Mine("KineticBlastAltX");
+        Assert.Equal((1, 1), (clustering.Count, clustering.ContactArea!.Count));
+        Assert.Equal(clustering.ContactArea.Count, clustering.EndArea!.Count);
+
         var skills = new SkillCatalog();
         int tornado = skills.EffectRow("TornadoShot");
         Assert.True(tornado >= 0);
@@ -53,6 +87,22 @@ public sealed class BowProjectileCountTests
         };
         Game.ApplyProjectilePanelStats(skills.EffectRow("Fireball"), fireball);
         Assert.Equal(1, fireball[Program.Stats.Key("total_number_of_projectiles_to_fire")!.Value]);
+        using (var battle = new ArrowRainAndMirageTests.Battle("Frenzy", "Locus Mine Support"))
+        {
+            var conn = battle.Conn;
+            conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 1;
+            conn.PlayerStats[Program.Stats.Key("number_of_additional_arrows")!.Value] = 4;
+            ushort id = Game.GemSkillEffects(conn).Single().Id;
+            var bowStats = Game.PlayerSkills(conn).Single(row => row.Id == id).Stats!;
+            Assert.Contains(bowStats, row => row.Key == StatKeys.TotalArrowsToFire && row.Value == 4);
+            var items = Game.ItemsOf(conn);
+            var host = items.Items(PlayerInventories.Weapon1).Single();
+            items.Change(PlayerInventories.Weapon1, host.Id, item => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)
+                with { Sockets = item.Sockets, Links = item.Links });
+            var wandStats = Game.PlayerSkills(conn).Single(row => row.Id == id).Stats!;
+            Assert.Contains(wandStats, row => row.Key == StatKeys.TotalProjectilesToFire && row.Value == 1);
+            Assert.DoesNotContain(wandStats, row => row.Key == StatKeys.TotalArrowsToFire);
+        }
         // A native mouse-triggered Burning Arrow creates a client primary even though its existing simulation
         // does not take the spell/Spectral Throw geometry path. Do not generalize this to unverified attacks.
         Assert.True(Game.ClientDrawsPrimaryProjectile(false, skills.EffectId(skills.EffectRow("BurningArrow"))));

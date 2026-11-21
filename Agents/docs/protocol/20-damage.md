@@ -233,6 +233,18 @@ and `diagnostic-hook/conversion-final-diagnostic-assessment.json`.
 Monster, ailment and DoT consumers remain outside this player-hit change; conditional/minimum-/maximum-only
 operators, critical-weighted DPS and official fractional parity remain open.
 
+For a supported skill hit, the granted effect's `ActiveSkill` selects the row whose paired
+`Input_StatKeys` and `Output_StatKeys` map its skill-specific increase to `damage_+%`. The input
+adds to generic increased damage before hit scaling. A 40% Ice Shot enchant and 50% generic increase
+therefore give 90% increased damage to that arrow. A socketed Fireball receives only the 50%.
+Shock Nova's ring adds its ring-only increase on top of the general Shock Nova increase.
+Both its ring and its disc take the general increase once. [#1181](https://github.com/LocalExile/LocalExile/issues/1181)
+
+Toxic Rain's active skill maps `toxic_rain_physical_damage_%_to_add_as_chaos` to
+`physical_damage_%_to_add_as_chaos`. Its landing hit and pod burst gain chaos from the physical
+amount before conversion. With a 10% enchant and 20% generic gain, both hits gain 30%.
+The pod's separate chaos damage over time uses the gem's per-minute value. [#1184](https://github.com/LocalExile/LocalExile/issues/1184)
+
 ## 2a. Equipped weapon-local damage
 
 `ItemWeaponStats` constructs one typed item packet from the active, requirement-enabled weapon before character,

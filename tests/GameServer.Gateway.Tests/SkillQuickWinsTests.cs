@@ -8,10 +8,9 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SkillQuickWinsTests
 {
-    // A bow/wand attack gem with no projectile row of its own fires the held weapon's (its own art by weapon where the
-    // data has it); a Barrage volley still has no recipe and stays refused before its cost.
+    // Frenzy uses the held weapon's projectile. Barrage's own bow and wand art also selects a client-drawn volley.
     [Fact]
-    public void Weapon_projectile_gems_fire_the_held_weapons_projectile_and_barrage_stays_refused()
+    public void Weapon_projectile_gems_use_the_held_weapons_art_and_barrage_selects_its_own_volley()
     {
         foreach (var (weapon, expected) in new[] { ("Crude Bow", "Metadata/Projectiles/FrenzyArrow"),
             ("Driftwood Wand", "Metadata/Projectiles/FrenzyWand") })
@@ -23,9 +22,13 @@ public sealed class SkillQuickWinsTests
             Assert.Equal(expected, use.Profile.Id);
             Assert.False(Assert.IsType<ProjectileOffense>(use.Payload).ClientPredicted);
             var barrage = f.Gem("Barrage");
-            Assert.Null(Game.ResolveProjectileDefinition(barrage.Effect));
-            Assert.False(Game.ProjectilePathAvailable("weapon-test", f.Conn, barrage.Id, barrage.Effect));
+            Assert.True(Game.ProjectilePathAvailable("weapon-test", f.Conn, barrage.Id, barrage.Effect));
+            var volley = Game.CaptureGemProjectile(f.Conn, f.Session, barrage.Id, barrage, (150, 100), new SkillCriticalRoll(0));
+            Assert.Equal(weapon == "Crude Bow" ? "Metadata/Projectiles/DefaultArrow" : "Metadata/Projectiles/BarrageWand", volley.Profile.Id);
+            Assert.Equal(6, volley.Profile.Count);
+            Assert.True(Assert.IsType<ProjectileOffense>(volley.Payload).ClientPredicted);
         }
+        Assert.Null(Game.ResolveProjectileDefinition(Program.Skills.EffectRow("BarrageAltY")));
     }
 
     // A hand-cast Steelskin starts the guard buff through the triggered-guard code: 70% of each hit absorbed up to its

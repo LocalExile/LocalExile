@@ -637,9 +637,10 @@ public static partial class Game
         // The allocated passives' self buffs (PassiveBuffAuras) add their stats like the passives themselves.
         PassiveBuffAuras.WithSelfBuffs(passives, nodes, LeagueFor(conn).HardMode);
         // Only attributes need a wide source view. Keep each raw key until overrides have replaced its entire total.
-        var passiveAttributes = new Dictionary<string, long>();
+        var anointments = OffTreeAnointments.Read(equipment, catalog.Mods, tree, allocated);
+        var treeAttributes = new Dictionary<string, long>();
         foreach (var (name, value) in clusterAttributes)
-            passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+            treeAttributes[name] = treeAttributes.GetValueOrDefault(name) + value;
         foreach (ushort node in nodes)
         {
             var effects = !(tattoos.TryGetValue(node, out var replacement) && TattooCatalogue.Find(replacement)?.IsRunegraft == true)
@@ -648,15 +649,15 @@ public static partial class Game
             {
                 string name = Stats.Name(key);
                 if (AttributeModifiers.IsInput(name))
-                    passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+                    treeAttributes[name] = treeAttributes.GetValueOrDefault(name) + value;
             }
         }
         foreach (var (key, value) in scalingStats)
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
-                passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+                treeAttributes[name] = treeAttributes.GetValueOrDefault(name) + value;
         foreach (var (key, value) in copiedSmallStats)
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
-                passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+                treeAttributes[name] = treeAttributes.GetValueOrDefault(name) + value;
         StatConditions.Subject ConditionSubject(IReadOnlyDictionary<string, long> raw, IReadOnlyList<Item>? activeItems = null)
         {
             var attributes = AttributeInputs(raw, dev).Apply(c.Strength + (conn.God ? 1000 : 0),
@@ -683,6 +684,15 @@ public static partial class Game
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
         {
             var items = active.ToArray();
+            var passiveAttributes = treeAttributes;
+            if (anointments.Count > 0)
+                foreach (var (key, value) in OffTreeAnointments.Stats(anointments, items))
+                {
+                    string name = Stats.Name(key);
+                    if (!AttributeModifiers.IsInput(name)) continue;
+                    if (ReferenceEquals(passiveAttributes, treeAttributes)) passiveAttributes = new(treeAttributes);
+                    passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+                }
             var raw = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
             // Independent equipment-count modifiers settle before comparisons that read those final attributes.
@@ -756,6 +766,9 @@ public static partial class Game
         var qualifiedSlotFlags = new Dictionary<string, bool>(conditionFlags);
         foreach (var (key, value) in ConditionalRings(equipment, active).Flags) qualifiedSlotFlags[key] = value;
         conditionFlags = qualifiedSlotFlags;
+        if (anointments.Count > 0)
+            foreach (var (key, value) in OffTreeAnointments.Stats(anointments, active))
+                passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         var curseInputs = SelfCurseConditionInputs(conn, active, passives, conditionNow, recentEvents, dev);
         bool cursed = Stats.Key("cursed_by_vulnerability") is uint cursedKey && curseInputs.GetValueOrDefault(cursedKey) != 0;
         auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId)

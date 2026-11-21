@@ -86,14 +86,22 @@ def item_types(doc):
 
 def monster_contacts(doc):
     monsters, clips, frames, clocks = [], [], [], []
-    for m, (variety, value) in enumerate(doc.items()):
-        monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks"))})
-        clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
-        for pool, entries in value["pools"].items():
+
+    def add_pools(m, pools):
+        for pool, entries in pools.items():
             for i, c in enumerate(entries):
                 clip = len(clips)
                 clips.append({"monster": m, "pool": pool, **child("monster", m, i, c, skip=("contacts",))})
-                frames += [{"clip": clip, "ord": k, "ms": f[0], "position": f[1]} for k, f in enumerate(c.get("contacts") or [])]
+                frames.extend({"clip": clip, "ord": k, "ms": f[0], "position": f[1]}
+                              for k, f in enumerate(c.get("contacts") or []))
+
+    for m, (variety, value) in enumerate(doc.items()):
+        monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks", "layered_effect_pools"))})
+        clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
+        add_pools(m, value["pools"])
+    # Frame rows refer to numeric clip IDs. Append newly recognised layered ACT entries after the original corpus.
+    for m, value in enumerate(doc.values()):
+        add_pools(m, value.get("layered_effect_pools", {}))
     return {"monster_contacts": monsters, "monster_contact_clips": clips, "monster_contact_clip_frames": frames,
             "monster_melee_clocks": clocks}
 
@@ -126,10 +134,11 @@ def animation_contacts(doc):
     cancels[name] = the lock_cancelling time (a null cancel is still listed: cancel_listed), contacts[name] = every
     contact frame [ms, point], indices[name] = the clip's index in the rig; and the default attack's stance pools.
     clips[name] adds every clip's length, even without a contact, and its named events as ordered ms lists."""
-    rigs, clips, frames, events, attacks = [], [], [], [], []
+    rigs, clips, frames, events, attacks, casts, variants = [], [], [], [], [], [], []
     for r, (ao, value) in enumerate(doc.items()):
         rigs.append({"ao": ao, "amd": value.get("amd"), "act": value.get("act")})
-        known = set(value) - {"amd", "act", "animations", "positions", "cancels", "contacts", "indices", "clips", "defaultAttack"}
+        known = set(value) - {"amd", "act", "animations", "positions", "cancels", "contacts", "indices", "clips",
+                              "defaultAttack", "projectileCasts", "projectileCastVariants"}
         if known:
             raise ValueError(f"animation-contacts {ao}: unknown keys {sorted(known)}")
         names = list(dict.fromkeys([*value.get("animations", {}), *value.get("positions", {}), *value.get("cancels", {}),
@@ -150,8 +159,12 @@ def animation_contacts(doc):
                        for event, times in (full or {}).get("events", {}).items() for i, ms in enumerate(times)]
         for stance, entries in value.get("defaultAttack", {}).items():
             attacks += [{"rig": r, "stance": stance, "ord": i, **flat(a)} for i, a in enumerate(entries)]
+        casts += [{"rig": r, "stance": stance, "animation": name} for stance, name in value.get("projectileCasts", {}).items()]
+        variants.extend({"rig": r, **entry} for entry in value.get("projectileCastVariants", []))
     return {"animation_rigs": rigs, "animation_clips": clips, "animation_clip_contacts": frames,
-            "animation_clip_events": events, "animation_default_attacks": attacks}
+            "animation_clip_events": events, "animation_default_attacks": attacks,
+            **({"animation_projectile_casts": casts} if casts else {}),
+            **({"animation_projectile_cast_variants": variants} if variants else {})}
 
 
 def projectile_clips(doc):

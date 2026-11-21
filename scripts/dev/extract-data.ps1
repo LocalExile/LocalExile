@@ -54,15 +54,15 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/anim_contacts.py'); Version = 9; Needs = @('tables')
-       UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), every contact frame of a clip, and all named events and clip lengths including clips without contact' }
+       Args = @('scripts/re/anim_contacts.py'); Version = 13; Needs = @('tables')
+       UsedBy = 'RemoteMine and Trap2 Barrage contacts and muzzles, class spell contacts and elemental projectile stance and variation clips, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), every contact frame of a clip, and all named events and clip lengths including clips without contact' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
     # contact of a clip with several (one release each), the effects' own animation keys, .act clips that name an effect.
     # v6 adds separate ordinary-melee clocks from the variety AO, preserving all legacy contact pools.
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 6; Needs = @('tables', 'object-types')
-       UsedBy = 'monster contact frames, variety AO clip clocks with slow spans and ACT budgets, projectile release points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
+       Args = @('scripts/re/monster_contacts.py'); Version = 7; Needs = @('tables', 'object-types')
+       UsedBy = 'monster contact frames including layered ACT effects, variety AO clip clocks with slow spans and ACT budgets, projectile release points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'

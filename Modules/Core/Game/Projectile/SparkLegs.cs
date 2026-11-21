@@ -1,7 +1,7 @@
 using GameServer.Core.Projectiles;
 
 /// <summary>
-/// Spark's wander, as the client draws its own sparks (3.29.3c, Spark action vtable 0x1435172b0). Each spark seeds the
+/// Spark's wander, as the client draws its own sparks (3.29.3c, ordinary client action vtable 0x143245f88). Each spark seeds the
 /// client's small generator (0x14146fcd0, TinyMT32's key initializer) from [use sequence, 2 + its index in the volley,
 /// the cast's repeats left (+0x2d0, SpellRepeats), owner id] (Frida 2026-10-31: 524 sparks). Its first leg (0x141b384a0) draws its life, a 15–25-cell length toward
 /// its aim point and a 0.8–1.2 speed factor; each later leg (0x141b38350) draws a turn of ±45°, or of 0–360° after

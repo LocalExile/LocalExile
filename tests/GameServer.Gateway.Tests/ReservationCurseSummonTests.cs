@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using GameServer.Core.Accounts;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -49,6 +50,60 @@ public sealed partial class ReservationCurseSummonTests
         ailments.WithoutDamage(MonsterElementalAilments.Kind.Shock, 1, 0, n => Game.SkitterAilmentStat(skitter, n), _ => 0);
         Assert.Equal(11, ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 0));
         Assert.Equal(17, ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 0));
+    }
+
+    static async Task VerifyLocusDetonation(PlacedSkills.Placed ordinary)
+    {
+        var conn = SpellTotemExecutionTests.Connection("LocusDistance");
+        conn.Walk.Teleport(100, 100, 0);
+        var stats = Program.Skills.EffectStats(Program.Skills.EffectRow("SupportLocusMine"), 1)
+            .ToDictionary(p => p.Item1, p => p.Item2);
+        Assert.Equal(30, stats[Program.Stats.Key("support_locus_mine_cannot_detonate_mines_within_X_units")!.Value]);
+        var edge = ordinary with { Id = 10, At = (118, 124), Own = stats, DetonateAt = double.PositiveInfinity };
+        conn.Placed.All.Add(edge.Id, edge);
+        Assert.False(Game.CanDetonateMines(conn));
+        Game.DetonateMinesLocked(conn, 0);
+        Assert.True(double.IsPositiveInfinity(edge.DetonateAt));
+
+        var outside = edge with { Id = 11, At = (119, 124) };
+        var underfoot = ordinary with { Id = 12, At = (100, 100), DetonateAt = double.PositiveInfinity };
+        conn.Placed.All.Add(outside.Id, outside);
+        conn.Placed.All.Add(underfoot.Id, underfoot);
+        Assert.True(Game.CanDetonateMines(conn));
+        Game.DetonateMinesLocked(conn, 0);
+        Assert.True(double.IsPositiveInfinity(edge.DetonateAt));
+        Assert.Equal(0, outside.DetonateAt);
+        Assert.Equal(Game.MineSequenceGap(250, 1), underfoot.DetonateAt);
+        conn.Walk.Teleport(99, 100, 0);
+        Game.DetonateMinesLocked(conn, 0);
+        Assert.Equal(underfoot.DetonateAt + Game.MineSequenceGap(250, 2), edge.DetonateAt);
+        var expired = outside with { Id = 13, Until = 2, DetonateAt = double.PositiveInfinity };
+        var fresh = outside with { Id = 14, Until = 10, DetonateAt = double.PositiveInfinity };
+        conn.Placed.All.Add(expired.Id, expired);
+        conn.Placed.All.Add(fresh.Id, fresh);
+        Game.DetonateMinesLocked(conn, 5);
+        Assert.True(double.IsPositiveInfinity(expired.DetonateAt));
+        Assert.Equal(5, fresh.DetonateAt);
+
+        using var battle = new ArrowRainAndMirageTests.Battle("Lightning Arrow", "Locus Mine Support");
+        var archer = battle.Conn;
+        archer.Clock.Start();
+        var arrow = Game.GemSkillEffects(archer).Single();
+        var first = ordinary with { Id = 1000, Skill = arrow.Id, Effect = arrow.Effect, At = (145, 100), Armed = 0,
+            Until = 10, DetonateAt = double.PositiveInfinity, Own = Game.SupportedSkill(archer, arrow.Id).Stats };
+        var second = first with { Id = 1001, At = (145, 110) };
+        archer.Placed.All.Add(first.Id, first);
+        archer.Placed.All.Add(second.Id, second);
+        Game.DetonateMinesLocked(archer, 4);
+        foreach (var (mine, owner) in new[] { (first, (X: 100, Y: 100)), (second, (X: 200, Y: 135)) })
+        {
+            archer.Walk.Teleport(owner.X, owner.Y, mine.DetonateAt);
+            battle.Session.AdvanceTo(ProjectileRuntime.Time(mine.DetonateAt));
+            await Game.PlayerMinionsTick("locus", battle.Stream, battle.Ciphers, archer, mine.DetonateAt);
+            battle.Session.AdvanceTo(battle.Session.Runtime.Now);
+            var projectile = Assert.Single(battle.Session.Runtime.Projectiles, p => p.Use.Origin == new ProjectileVector(mine.At.X, mine.At.Y));
+            Assert.Equal(new ProjectileVector(owner.X, owner.Y), projectile.Use.Aim);
+        }
     }
 
     [Fact]
@@ -216,6 +271,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(landedBytes, landing.Count);
             Game.DetonateMinesLocked(conn, 4);
             Assert.Equal(4, mine.DetonateAt);
+            await VerifyLocusDetonation(mine);
             var animatedHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
             await Game.UnsocketGem("test", wire.Stream, wire.Ciphers, conn,
                 new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), animatedHost.Id, 0));

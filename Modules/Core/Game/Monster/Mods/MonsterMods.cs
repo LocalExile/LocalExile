@@ -195,7 +195,8 @@ public static partial class Game
         double withered = m.Withered.Count == 0 ? 0
             : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true,
                 increasedPct: additionalTakenPct) - factor);
-        double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
+        double cold = mitigated[DamageType.Cold].Min;
+        double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
@@ -203,19 +204,34 @@ public static partial class Game
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
             * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
             * (1 + e["physical_damage_taken_+%"] / 100.0);
-        // Its fire, cold and lightning damage taken (Izaro's statues' buffs) on those parts.
-        double typed = mitigated[DamageType.Fire].Min * e["fire_damage_taken_+%"] + mitigated[DamageType.Cold].Min * e["cold_damage_taken_+%"]
-            + mitigated[DamageType.Lightning].Min * e["lightning_damage_taken_+%"];
-        return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
+        double typed = mitigated[DamageType.Fire].Min * e["fire_damage_taken_+%"] + mitigated[DamageType.Lightning].Min * e["lightning_damage_taken_+%"];
+        double coldTaken = cold == 0 ? 0 : cold * MonsterColdHitTaken(m, spell, now, elementalFactor, additionalTakenPct);
+        return (int)Math.Round((total - cold - elementalDamage) * factor + elementalDamage * elementalFactor + coldTaken + withered
             + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
     }
 
+    static double IncreasedColdTaken(SpawnedMonster m, double now, (int X, int Y)? cell = null) =>
+        m.Effects["cold_damage_taken_+%"] + m.Ailments.ChillColdTakenPct(now, cell);
+
+    static double MonsterColdHitTaken(SpawnedMonster m, bool spell, double now, double? elementalFactor = null, int additionalTakenPct = 0)
+    {
+        double cold = IncreasedColdTaken(m, now);
+        return cold == 0 && elementalFactor is { } factor ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: cold + additionalTakenPct);
+    }
+
     public static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
-        double now = double.NaN) =>
-        mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
-            ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
-                * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
-            .Scale(m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects));
+        double now = double.NaN)
+    {
+        double factor = m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects);
+        return mitigated.Select((type, range) => range.Scale(type switch
+        {
+            DamageType.Cold => MonsterColdHitTaken(m, spell, now),
+            DamageType.Physical => factor * Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                * (1 + MaimedPhysicalTaken(m, now) / 100.0),
+            _ => factor,
+        }));
+    }
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     public static int SelfCriticalReduction(ClientState conn)
@@ -275,7 +291,10 @@ public static partial class Game
     /// (<see cref="MonsterDamageTaken"/>: its shock and Glacial Wave's chill at <paramref name="now"/>, without a time
     /// they do not count, and the player's debuffs on it). Spell Resistant counts for hits only: its stat has no
     /// description saying it covers damage over time.</summary>
-    public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
+    public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN) =>
+        MonsterDotTaken(m, type, now, null);
+
+    static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now, (int X, int Y)? cell)
     {
         if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
@@ -283,13 +302,13 @@ public static partial class Game
         {
             DamageType.Physical => (double)m.Effects["physical_damage_taken_+%"] + MaimedPhysicalTaken(m, now),
             DamageType.Fire => m.Effects["fire_damage_taken_+%"],
-            DamageType.Cold => m.Effects["cold_damage_taken_+%"],
+            DamageType.Cold => IncreasedColdTaken(m, now, cell),
             DamageType.Lightning => m.Effects["lightning_damage_taken_+%"],
             _ => 0,
         };
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
-                chaos: type == DamageType.Chaos, increasedPct: increasedTaken);
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken, cell: cell);
         // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
             factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;

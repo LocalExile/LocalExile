@@ -43,7 +43,7 @@ public sealed partial class ProjectileRuntime
             if (!p.Profile.CannotChain && target is not null)
             {
                 p.Direction = (target.Position(Now) - p.Position).Unit;
-                Publish(ProjectileEventKind.Redirect, p);
+                Redirect(p, p.Position);
             }
             else End(p, ProjectileEndReason.Terrain);
         }

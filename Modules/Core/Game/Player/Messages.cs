@@ -153,7 +153,7 @@ public static partial class Game
                 if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
                 {
                     double duration = DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn));
-                    if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, out var shot)) continue;
+                    if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, (use.X, use.Y), out var shot)) continue;
                     int projectileEpoch;
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
@@ -327,8 +327,12 @@ public static partial class Game
                         // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
+                        {
+                            var player = CharacterPlayerStats(conn);
+                            FacePlayerAction(conn, (px, py), (use.X, use.Y), at, player);
                             conn.NextAttackAt = AttackTiming.After(at, conn.NextAttackAt,
-                                Math.Max(TickSeconds, DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
+                                Math.Max(TickSeconds, DefaultAttackSeconds(conn, use.Slot, player) / PlayerActionFactor(conn)));
+                        }
                     }
                 }
                 Mark("begin");
@@ -686,6 +690,7 @@ public static partial class Game
                 var swapItems = ItemsOf(conn);
                 byte wanted = (byte)(bytes[2] == 1 ? 1 : 0);
                 byte finalWeaponSet;
+                EquipmentSourceChange? change = null;
                 List<(byte[] Packet, string Label)> swapOutputs = [];
                 // The current-set decision, mutation, qualification and final-set capture share one boundary. Outputs
                 // and SendEquipment may suspend after it; the 0xde set below is the one committed by this message.
@@ -694,18 +699,13 @@ public static partial class Game
                     finalWeaponSet = swapItems.WeaponSet;
                     if (wanted != swapItems.WeaponSet)
                     {
-                        var sourcesBefore = PlayerSkillSourcesLocked(conn);
+                        change = new(remote, stream, ciphers, conn, [PlayerInventories.Weapon1, PlayerInventories.Offhand1]);
                         var before = new[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2 }
                             .ToDictionary(r => r, r => swapItems.Items(r).ToArray());
                         swapItems.SwapWeaponSets();
                         swapItems.WeaponSet = wanted;
                         finalWeaponSet = wanted;
-                        using (new PlayerStatScope(conn, fresh: true))
-                        {
-                            RecomputePoolsAndSpeed(conn);
-                            ReconcileBeastCompanionsLocked(conn);
-                            ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
-                        }
+                        change.CommitLocked();
                         foreach (var (row, old) in before)
                         {
                             uint inv = PlayerInventories.InventoryId(row);
@@ -717,6 +717,7 @@ public static partial class Game
                         }
                     }
                 }
+                if (change is not null) await change.PublishBurn();
                 foreach (var (packet, label) in swapOutputs) await Send(remote, stream, ciphers, packet, label);
                 await Send(remote, stream, ciphers, InstanceProtocol.WeaponSet(finalWeaponSet == 1),
                     $"0x00de weapon set {finalWeaponSet + 1}");

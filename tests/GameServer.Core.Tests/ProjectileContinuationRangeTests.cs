@@ -37,8 +37,8 @@ public class ProjectileContinuationRangeTests
     public void A_fork_child_gets_a_fresh_range_budget()
     {
         var world = new Arena(); world.Target(1, 30);
-        // The upper fork child leaves the first target at +30 degrees and reaches this one after 60 cells.
-        world.Target(2, 30 + 60 * Math.Cos(Math.PI / 6), 60 * Math.Sin(Math.PI / 6));
+        // From the impact at (29, 0) the +45-degree child travels about 59 cells, beyond the parent's 31 left.
+        world.Target(2, 71, 42);
         var runtime = new ProjectileRuntime(world);
         runtime.Release(Use(new("fork") { Speed = 100, Range = 60, Radius = 1, Fork = 1 }));
 

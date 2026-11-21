@@ -29,6 +29,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Power of Purpose (#291). Docs: [Power of Purpose](../docs/game/power-of-purpose.md).
 - The default attack, and weapons whose requirements are not met leaving the hands.
   Docs: [11](../docs/protocol/11-skills.md) §4 and §10a.
+- Supported skill hits and their damage rows include the skill-specific increased damage mapped by their active
+  skill, including helmet enchants on attacks and spells. [20](../docs/protocol/20-damage.md#2-hit-pipeline)
 - Combat timing: stationary attacks, wand bolts, monster flinches and the monster planner.
   Docs: [11](../docs/protocol/11-skills.md) §4–6.
 - Impale. Docs: [20](../docs/protocol/20-damage.md) §3a, [11](../docs/protocol/11-skills.md) §14.
@@ -64,6 +66,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Manual Vortex and Vortex of Projection leave non-stacking cold damage and chill. Projection consumes nearby
+  owned Frostbolts in sequence. Without a bolt, Runegraft of the Novamark centres Vortex and Ice Nova on the
+  caster's marked enemy. Monsters entering chilling ground receive chill and Vortex damage on becoming targetable.
+  Manual Shock Nova hits with its ring and then its disc, using the cursor, own mark or caster in that order.
+  Shock Nova of Procession repeats along its original direction. Walls and gaps in the ground limit each centre.
+  A caster-centred repeat uses the player's retained facing after walking, default attacks and aimed casts.
+  When directed at the caster's cell, manual Fireball, Spark, Freezing Pulse and Frostbolt resolve a seeded
+  aim before turning. If a delayed warp lands on the saved aim during windup, ordinary contact picks a new
+  point and Spell Echo uses it. Their ordinary releases and lockstep Move windows use the equipped stance's
+  actor timing. The Witch's Elemental Staff variation follows the usable weapon in the selected hand through
+  swaps and loss or recovery of its requirements. With Echo, the windows belong to the first and
+  final casts. Native presentation, target-refresh events and triggered casts remain open.
+- Righteous Fire settles its final burn on gem removal, weapon swap or loss of the equipment or attributes the skill needs. [Skills §12](../docs/protocol/11-skills.md)
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) §12.
@@ -87,7 +102,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
   Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
   Desperation's life loss, the debuff in Survivors.
-- Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
+- Ordinary Ice Shot's primary arrows (`IceArrow`) hit. The skill record combines gem quality and helmet cone angle,
+  and scales the 24-cell impact radius with Ice Shot's increased area. Cone damage and native rendering remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
@@ -102,7 +118,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Combat load: input-checked caches and snapshots; pathfinding and load spikes are still under investigation.
   Docs: [performance](../docs/dev/performance.md).
 - Survivors league and its three optional modules. Docs: [Survivors mode](../docs/game/survivors-mode.md).
-- Attack-speed admission and projectile speed for gem attacks. Docs: [11](../docs/protocol/11-skills.md) §10.
+- Attack-speed admission and gem projectile speed. Ordinary bow, wand and skill projectiles add returning speed to
+  the rounded outbound modifier. Ethereal Knives quality and other skill-local final speed modifiers multiply with
+  Slower Projectiles Support and the projectile speed masteries before rounding. [Flight](../docs/protocol/11-skills.md).
 - Skill area and duration scaling: the player's increased area counted once at every area site, type-scoped area,
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) §12.
@@ -113,7 +131,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) §3.
-- Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) §10,
+- Tornado Shot's terminal secondary arrows inherit their primary's return phase for hits and speed, with fresh
+  target history for each group. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 - Kinetic Bolt's zig-zags. Docs: [11](../docs/protocol/11-skills.md) §10.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) §2i.
@@ -169,6 +188,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
+  Bow rains publish their landing counts. The additional-projectile helmets increase Toxic Rain and Spark counts.
+  Split Arrow's helmets add two or three arrows. Split Arrow of Splitting fires one arrow and splits
+  toward two or three more targets on hit.
+  Toxic Rain's physical-as-extra-chaos helmet enchants apply to its landing and burst. [20](../docs/protocol/20-damage.md#2-hit-pipeline)
   The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.
   The arrow the client flies up is stood in for by the falling art; Rain of Arrows and Blast Rain shoot nothing up.
 - Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
@@ -180,7 +203,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   projectile (not checked live). Docs: [skills](../docs/game/projectile-skills.md).
   Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.
   Puncture always bleeds, for its skill duration and with its more bleeding damage.
-  Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
+  Power Siphon fires one shot per selected visible enemy around the casting actor, including a Ballista, up to its
+  projectile count. It samples crowded groups and keeps its per-Power-Charge criticals. Graphical verification is pending.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
@@ -245,7 +269,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Dark Bargain (player and chained skeleton explosions; skeleton chains have server-side coverage). Docs: [11](../docs/protocol/11-skills.md) §9a.
 
 ## Not working yet
 

@@ -9,11 +9,11 @@ using GameServer.Core.Protocol.Login;
 namespace GameServer.Gateway.Tests;
 public sealed class SpellTotemExecutionTests
 {
-    internal static ClientState Connection(string name)
+    internal static ClientState Connection(string name, InstanceState? instance = null, int classRow = SkillCatalog.WitchRow)
     {
         var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            Character = name, ClassRow = classRow, PlayerLife = 1000, PlayerMana = 1000, Instance = instance ?? new(),
             Experience = CharacterStats.ExperienceFor(100),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),

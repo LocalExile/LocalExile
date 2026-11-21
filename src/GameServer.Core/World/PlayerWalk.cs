@@ -24,6 +24,7 @@ public sealed class PlayerWalk
     private List<Segment> _segments = [];
     private (int X, int Y) _rest;
     private double _restSince;
+    private (double At, float Radians) _facing;
     private (int X, int Y) _target;
     private int _maxRange, _tolerance = -1;
     // The current order's precision (MoveTo +0x528): the projectile grid value its line to the target needs; 1 again once
@@ -39,7 +40,9 @@ public sealed class PlayerWalk
 
     // Joined: the next segment goes on along the same piece of the path (steps already due, split off by InFrame), so
     // this one's last cell is no waypoint (EndsPiece).
-    private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step, bool Joined = false)
+    // At the last step the next piece is set up and turns the actor toward its waypoint (0x141e37b25).
+    private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step,
+        (int X, int Y)? NextWaypoint = null, bool Joined = false)
     {
         public double End => T0 + Cells.Length * (double)Step;
     }
@@ -134,7 +137,7 @@ public sealed class PlayerWalk
         {
             if (s.End < at - 1e-9) { kept.Add(s); continue; }
             int k = (int)Math.Round((at - s.T0) / s.Step);
-            if (k > 1) kept.Add(s with { Cells = s.Cells[..(k - 1)] });
+            if (k > 1) kept.Add(s with { Cells = s.Cells[..(k - 1)], NextWaypoint = null });
             break;
         }
         _rest = here;
@@ -177,7 +180,9 @@ public sealed class PlayerWalk
             while (k < s.Cells.Length && s.T0 + (k + 1) * (double)s.Step <= until) k++;
             if (k > 0)
             {
-                kept.Add(k == s.Cells.Length ? s : s with { Cells = s.Cells[..k] });
+                // A stop in this piece or on its waypoint never sets up the following piece.
+                if (k < s.Cells.Length) kept.Add(s with { Cells = s.Cells[..k], NextWaypoint = null });
+                else kept.Add(s.End == until && s.NextWaypoint is not null ? s with { NextWaypoint = null } : s);
                 last = s.T0 + k * (double)s.Step;
             }
             if (k < s.Cells.Length)
@@ -269,7 +274,8 @@ public sealed class PlayerWalk
         if (end == here) return;
         float step = StepTime(here, end);
         double start = now < left.T0 ? left.T0 : now - fraction * step;
-        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
+        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step, _segments[last].NextWaypoint) };
+        _facing = (now, Bearing(here, end));
         foreach (var next in _segments.Skip(last + 1))
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
         _segments = walk;
@@ -280,6 +286,42 @@ public sealed class PlayerWalk
     /// runs the active MoveTo's piece again, 0x141e81de0 → 0x141e37740): the straight line from here to the waypoint can
     /// step sideways at another cell than the line from where the piece began.</summary>
     public void Relay(double now) => SetSpeed(_speed, now);
+
+    // Positioned computes the angle from the grid vector, then wraps it into [0, 2π) (0x141e355a0).
+    // Keep the client's float operations: rounding to a cell along a cardinal direction observes the last bit.
+    static float Bearing((int X, int Y) from, (int X, int Y) to)
+    {
+        float angle = MathF.Atan2((long)to.Y - from.Y, (long)to.X - from.X) + MathF.PI / 2;
+        return angle < 0 ? angle + MathF.Tau : angle;
+    }
+
+    /// <summary>The actor's Positioned rotation in radians, clockwise from north.</summary>
+    public float Rotation(double now) => RotationAt(Frame(now));
+
+    private float RotationAt(double now)
+    {
+        var walk = _segments;
+        for (int i = walk.Count - 1; i >= 0; i--)
+        {
+            var s = walk[i];
+            if (s.End <= _facing.At) break;
+            if (s.End <= now && s.NextWaypoint is { } target) return Bearing(s.Cells[^1], target);
+        }
+        return _facing.Radians;
+    }
+
+    /// <summary>Applies an explicit Positioned rotation, as provided at actor creation.</summary>
+    public void SetRotation(float radians, double now)
+    {
+        float angle = radians % MathF.Tau;
+        _facing = (Frame(now), angle < 0 ? angle + MathF.Tau : angle);
+    }
+
+    /// <summary>Turns an admitted action to its target. A coincident target keeps the current rotation.</summary>
+    public void Face((int X, int Y) from, (int X, int Y) to, double now, bool away = false)
+    {
+        if (from != to) SetRotation(Bearing(from, to) - (away ? MathF.PI : 0), now);
+    }
 
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
     public (int X, int Y) Position(double now) => At(Frame(now), out _);
@@ -302,18 +344,19 @@ public sealed class PlayerWalk
         readonly (int X, int Y) _rest, _target;
         readonly double _restSince;
         readonly (double, double) _kept;
+        readonly (double, float) _facing;
         readonly int _maxRange, _tolerance, _precision;
         readonly bool _reached, _goalReached, _walksThrough;
 
         internal Snapshot(PlayerWalk w) =>
-            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough) =
-            (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough);
+            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough, _facing) =
+            (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough, w._facing);
 
         internal void Into(PlayerWalk w)
         {
             (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision) =
                 (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision);
-            (w.Reached, w._goalReached, w.WalksThrough) = (_reached, _goalReached, _walksThrough);
+            (w.Reached, w._goalReached, w.WalksThrough, w._facing) = (_reached, _goalReached, _walksThrough, _facing);
         }
     }
 
@@ -354,6 +397,8 @@ public sealed class PlayerWalk
     /// <summary>Puts the walker at a cell (a teleport, e.g. S→C 0x1b7): no walk in progress.</summary>
     public void Teleport(int x, int y, double now)
     {
+        double at = Frame(now);
+        _facing = (at, RotationAt(at));
         _segments = [];
         _rest = (x, y);
         _restSince = now;
@@ -375,6 +420,7 @@ public sealed class PlayerWalk
         int done = Math.Max(0, (int)((now - left.T0) / left.Step));
         var walk = new List<Segment> { left with { From = here, Cells = left.Cells[done..], T0 = Math.Max(left.T0, now + seconds - fraction * left.Step) } };
         foreach (var next in _segments.Skip(i + 1)) walk.Add(next with { T0 = walk[^1].End });
+        _facing = (now, RotationAt(now));
         _segments = walk;
     }
 
@@ -549,11 +595,12 @@ public sealed class PlayerWalk
             // The first step comes when the step in progress would have: its elapsed fraction carries over. From a stand,
             // the time a stop kept carries over as it is.
             if (i == 1) t -= standing ? kept : fraction * step;
-            walk.Add(new Segment(path[i - 1], cells, t, step));
+            walk.Add(new Segment(path[i - 1], cells, t, step, i + 1 < path.Count ? path[i + 1] : null));
             t += cells.Length * (double)step;
         }
         if (walk.Count > 0) _kept = default;
         // Whole: monsters' walks are read outside the lock too (Rampage's weapons).
+        _facing = (now, path.Count >= 2 ? Bearing(path[0], path[1]) : RotationAt(now));
         _rest = here;
         _restSince = now;
         _segments = InFrame(walk, now);
@@ -606,7 +653,8 @@ public sealed class PlayerWalk
                 placed.Add(s);
                 continue;
             }
-            placed.Add(new Segment(s.From, s.Cells[..d], now + before * (double)gap, gap, Joined: d < s.Cells.Length));
+            placed.Add(s with { Cells = s.Cells[..d], T0 = now + before * (double)gap, Step = gap,
+                NextWaypoint = d == s.Cells.Length ? s.NextWaypoint : null, Joined = d < s.Cells.Length });
             if (d < s.Cells.Length) placed.Add(s with { From = s.Cells[d - 1], Cells = s.Cells[d..], T0 = s.T0 + d * (double)s.Step });
             before += d;
         }

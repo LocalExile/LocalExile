@@ -15,6 +15,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Fortification extensions:** other conditional sources, permanent grants and monster ailment thresholds.
   See [Fortification](../docs/game/fortification.md).
 - **Aura caster art:** confirm the received buff's top-left icon live; radius-scaled aura rings need their radius.
+- **Ordinary Ice Shot:** verify the cone's damage aperture and contact boundaries, including successive pierced
+  targets, before implementing the fully cold area hit. Check the three impact art tiers in an isolated client
+  with quality and helmet changes. [#925](https://github.com/LocalExile/LocalExile/issues/925)
 - **Spark start cell:** the server flies each spark on the client's wander but from the server's walk position, so a
   drawn spark can still hit with no damage.
   Start: trace the client's start cell and each leg's start time per frame (`scripts/re/frida/trace-spark-legs.js`)
@@ -26,7 +29,17 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   clock, with pauses and default attacks between throws; then read every class and stance's Melee views from the ACT
   and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
   Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
-- Verify transfigured Ice Nova repeats when the area expands from Frostbolts.
+- Verify the native repeat of Ice Nova of Deep Freeze.
+- Verify Ice Nova of Frostbolts live at the 100-cell targeting boundary and follow its rings on two moving Frostbolts.
+- Verify Vortex in a native session, including the explosion, removal of predicted Frostbolts, ground coverage on
+  spawning or emerging monsters, marked-target placement and worn effects. Check triggered or proxy Vortex releases
+  and Runegraft of the Novamark on other nova actions. Verify ordinary Shock Nova placement and timing live,
+  including worn effects. Verify Procession's moving marks, directional repeats, terrain edges and proxy casts live.
+  Verify Fireball, Spark, Freezing Pulse and Frostbolt in a native session with a moving object and a delayed
+  Lightning Warp landing during Spell Echo. Verify the Witch's visible Elemental Staff clip across weapon swaps
+  in a native session. Check whether a runtime event can refresh the bound target (`0xc4a5`) during those
+  casts, and verify when a Move interrupts an ordinary cast or its final Echo in the client.
+  Trace turns from movement skills and channels before a stationary Procession.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats
@@ -51,6 +64,12 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   conditional damage and support/modifier scope; check equipment UI refresh live.
   Attack base/added coefficients are separate; negative weapon conditions, remaining weapon families,
   skill-specific added inputs and native checks stay in #368.
+  Verify the native panel across helmet swaps for skill-specific damage, Toxic Rain's physical damage
+  gained as extra chaos, and the projectile counts for Toxic Rain, Spark and Split Arrow. Check both helmet tiers
+  with Split Arrow of Splitting in the client. Local casts cover its split targets, Vortex ground and Toxic Rain pods.
+  Other standalone damage-over-time executors still need equipment checks. [#1181](https://github.com/LocalExile/LocalExile/issues/1181),
+  [#1184](https://github.com/LocalExile/LocalExile/issues/1184), [#1185](https://github.com/LocalExile/LocalExile/issues/1185),
+  [#1186](https://github.com/LocalExile/LocalExile/issues/1186)
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
@@ -85,6 +104,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     the off hand's own stun threshold reduction and weapon-family modifiers; a wand beside a melee weapon (the default
     attack keeps the main hand); both-hand skills' on-hit locals and ailments from the off hand; Varunastra's hand
     eligibility; a live check that the server's hand matches the client's swing.
+  - Righteous Fire: verify final burn timing and rounding in the client on gem removal, weapon swap and loss of
+    required attributes.
   - Continue auditing the remaining rows against the current implementation before adding formulas.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
@@ -184,7 +205,10 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   Keep the [K1/K2/K3 followups](../docs/re/projectiles/verification-and-limitations.md) separate.
   Do not make full rendering, every stat producer or complete engine teardown prerequisites for using closed rules.
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production routing and the only simulator;
-  [registered skills](../docs/game/projectile-skills.md) add special behaviour.
+  [registered skills](../docs/game/projectile-skills.md) add special behaviour. Tornado Shot's secondary group now
+  starts in the primary's final return phase. Ordinary and returning speed increases now add in that phase.
+  The speed masteries and the skill's own final speed now scale flight. Check Ethereal Knives quality,
+  Vengeant Cascade returns and the secondary arrows' radial flight in both clients.
 - **Open:**
   - Nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).

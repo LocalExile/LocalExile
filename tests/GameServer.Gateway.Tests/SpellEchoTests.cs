@@ -26,12 +26,17 @@ public sealed class SpellEchoTests
         Assert.Equal(-100, Speed(-100, false));
     }
 
-    // Spell Echo (base_spell_repeat_count 1, 40% more cast speed at level 1) repeats Fireball once;
-    // ordinary Ice Nova likewise releases one ring on each cast.
+    // Level-one Spell Echo grants one repeat and 40% more cast speed to each linked active gem.
     [Theory]
-    [InlineData("Metadata/Items/Gems/SkillGemFireball", "Fireball", 1, 536)]
-    [InlineData("Metadata/Items/Gems/SkillGemIceNova", "IceNova", 1, 500)]
-    public void Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(string gemType, string effectId, int repeats, int castMs)
+    [InlineData(6, "Driftwood Wand", 0, 0, 697, 900, "Fireball", "Frostbolt")]
+    [InlineData(6, "Gnarled Branch", 0, 0, 697, 900, "Ice Nova", "Ice Nova of Deep Freeze", "Ice Nova of Frostbolts", "Spark", "Freezing Pulse")]
+    [InlineData(1, "Gnarled Branch", 0, 0, 754, 1066, "Fireball", "Frostbolt", "Spark", "Freezing Pulse")]
+    [InlineData(1, "Driftwood Wand", 1, 0, 754, 1066, "Fireball", "Frostbolt")]
+    [InlineData(6, "Gnarled Branch", 1, 0, 697, 900, "Fireball", "Frostbolt")]
+    [InlineData(1, "Gnarled Branch", 4, 0, 754, 1066, "Fireball", "Frostbolt")]
+    [InlineData(1, "Gnarled Branch", 1, 1, 599, 1066, "Fireball", "Frostbolt", "Spark", "Freezing Pulse")]
+    public async Task Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(int classRow, string weaponName,
+        byte staffSkinSlot, int expectedVariation, int lateFrame, int length, params string[] gemNames)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-spell-echo-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -39,43 +44,83 @@ public sealed class SpellEchoTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = new ClientState(new(1, "spell-echo", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "SpellEcho", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            Character = "SpellEcho", ClassRow = classRow, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
         try
         {
-            var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!);
-            var gem = ItemCatalog.Create(Program.Items.Find(gemType)!);
-            var echo = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemMulticast")!);
-            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand with
+            const uint elementalStaff = 218786835;
+            var weapon = ItemCatalog.Create(Program.Items.Find(weaponName)!);
+            var sockets = gemNames.Append("Spell Echo Support").Select(name =>
             {
-                Sockets = [new ItemSocket(SocketColour.White, gem), new ItemSocket(SocketColour.White, echo)], Links = [2],
-            });
+                var gem = Program.Items.FindGem(name)!.Value;
+                return new ItemSocket(SocketColour.White, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index });
+            }).ToArray();
+            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon with { Sockets = sockets, Links = [(byte)sockets.Length] });
+            if (weaponName == "Driftwood Wand")
+                Game.ItemsOf(conn).Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Goathide Buckler")!));
             foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
                 "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
-            var skill = Game.GemSkillEffects(conn).Single(g => Game.SkillsFor(conn).EffectId(g.Effect) == effectId);
-            Assert.Equal(repeats, Game.SpellRepeats(conn, skill.Id, skill.Effect));
-            Assert.Equal(castMs, Game.CastMs(conn, skill.Effect, skill.Id)); // 750 and 700 ms at 40% more
             conn.LockstepClient = true;
-            Assert.Equal(effectId == "Fireball" ? 1.5 / 1.4 : 1.0,
-                Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
-            // A target changes the aim, not the native cast duration or the held spell's repeat gate.
-            foreach (uint? target in new uint?[] { null, 0x3001 })
+            uint variation = Program.Stats.Key("animation_variation_spell_projectile")!.Value;
+            if (staffSkinSlot != 0)
             {
-                conn.LockstepSkill.Press((110, 100), target, skill.Id, 0x400, repeats: true);
-                conn.LockstepBusyUntil = 0;
-                Game.HoldLockstepSkill(conn, 0x8001, 10, 10.033);
-                Assert.Equal(10 + Game.LockstepActionHold(conn, skill.Id, 0x8001), conn.LockstepBusyUntil, 6);
-                if (effectId == "Fireball")
+                Game.RecomputePoolsAndSpeed(conn);
+                Assert.DoesNotContain(Game.PlayerSkills(conn), skill => skill.Stats?.Any(stat => stat.Key == variation) == true);
+                using var wire = new SpellTotemExecutionTests.Wire();
+                var skin = Game.Mtx.ByHash(elementalStaff)!;
+                await GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.PickCosmetic("spell-echo", wire.Stream, wire.Ciphers,
+                    conn, (staffSkinSlot, skin.Id, 0));
+                Assert.Equal(skin.MtxTypeHash, CharacterSaves.Cosmetics(conn.Character!)[staffSkinSlot].Hash);
+            }
+            Assert.Equal(expectedVariation != 0, Game.Looks(conn, Game.ItemsOf(conn)).Any(item => item.SkinHash == elementalStaff));
+            Assert.Equal(expectedVariation, Game.FinalPlayerStats(conn).SingleOrDefault(stat => stat.Item1 == variation).Item2);
+            var active = Game.GemSkillEffects(conn);
+            foreach (var name in gemNames)
+            {
+                var skill = active.Single(g => g.Name == name);
+                Assert.Equal(1, Game.SpellRepeats(conn, skill.Id, skill.Effect));
+                uint repeatStat = Program.Stats.Key("spell_repeat_count")!.Value;
+                Assert.Equal(expectedVariation, Game.SupportedStats(conn, skill.Id).GetValueOrDefault(variation));
+                var published = Game.PlayerSkills(conn).Single(s => s.Id == skill.Id).Stats!;
+                Assert.Equal(expectedVariation, published.SingleOrDefault(stat => stat.Key == variation).Value);
+                Assert.Equal(1, published.Single(s => s.Key == repeatStat).Value);
+                int baseMs = name switch { "Fireball" or "Frostbolt" => 750, "Spark" => 600, "Freezing Pulse" => 650, _ => 700 };
+                double castSeconds = baseMs / 1.4 / 1000;
+                Assert.Equal((int)Math.Round(baseMs / 1.4), Game.CastMs(conn, skill.Effect, skill.Id));
+                Assert.Equal(2 * castSeconds, Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
+                // A target changes the aim, not the native cast duration or the held spell's repeat gate.
+                foreach (uint? target in new uint?[] { null, 0x3001 })
                 {
-                    Assert.NotNull(conn.LockstepCastWindow);
-                    conn.LockstepHold.Press((120, 100), 0x2909, 0x401);
-                    Assert.True(Game.LockstepPlayerFree(conn, 10.01)); // Before the first cast's contact.
-                    Assert.False(Game.LockstepPlayerFree(conn, 10 + .75 / 1.4 + .01)); // Early in the repeat.
-                    Assert.True(Game.LockstepPlayerFree(conn, conn.LockstepBusyUntil - .001)); // Late in the final cast.
-                    conn.LockstepHold.Clear();
+                    conn.LockstepSkill.Press((110, 100), target, skill.Id, 0x400, repeats: true);
+                    conn.LockstepBusyUntil = 0;
+                    Game.HoldLockstepSkill(conn, 0x8001, 10, 10.033);
+                    Assert.Equal(10 + Game.LockstepActionHold(conn, skill.Id, 0x8001), conn.LockstepBusyUntil, 6);
+                    if (name == "Ice Nova of Frostbolts")
+                    {
+                        conn.LockstepSequence = 1;
+                        Game.ReleaseFrostboltNovaRepeats(conn, 0x8002, 1, 0);
+                        Assert.Equal(11, conn.LockstepBusyUntil);
+                        Game.ReleaseFrostboltNovaRepeats(conn, 0x8001, 1, 0);
+                        Assert.Equal(10.5, conn.LockstepBusyUntil, 6);
+                        Assert.Equal(.5, conn.LockstepCastWindow!.Value.Duration, 6);
+                    }
+                    if (name is "Fireball" or "Frostbolt" or "Spark" or "Freezing Pulse")
+                    {
+                        Assert.NotNull(conn.LockstepCastWindow);
+                        // The Witch's two Elemental Staff candidates both release the late Move at their contact.
+                        Assert.NotNull(conn.LockstepCastWindow.Value.Contact);
+                        Assert.Equal(castSeconds * (1 + (double)lateFrame / length), conn.LockstepCastWindow.Value.LateFrom, 6);
+                        conn.LockstepHold.Press((120, 100), 0x2909, 0x401);
+                        Assert.Equal(Game.SkillsFor(conn).ActionHash(skill.Effect), conn.LockstepCastWindow.Value.ActionHash);
+                        Assert.True(Game.LockstepPlayerFree(conn, 10.01)); // Before the first cast's contact.
+                        Assert.False(Game.LockstepPlayerFree(conn, 10 + castSeconds + .01)); // Early in the repeat.
+                        Assert.Equal(expectedVariation != 0, Game.LockstepPlayerFree(conn, 10 + castSeconds * 1.65));
+                        Assert.True(Game.LockstepPlayerFree(conn, conn.LockstepBusyUntil - .001)); // Late in the final cast.
+                        conn.LockstepHold.Clear();
+                    }
                 }
             }
         }

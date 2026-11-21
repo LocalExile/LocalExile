@@ -259,6 +259,7 @@ public static partial class Game
             placed.Ballista = ballista;
             placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(conn, placed);
+            if (ballista) BallistaActorSkills.Add(placed, proxy!);
             var replaced = conn.Totems.Place(placed, limit, now, ordinaryLimit);
             if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
             // A totem blocks paths on the client as any body does.

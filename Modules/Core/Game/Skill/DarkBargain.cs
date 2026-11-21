@@ -25,7 +25,7 @@ public static partial class Game
 
     static async Task DarkBargainCast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
-        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
+        int repeat, bool finalSpellRepeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
         double sealDelay = 0, double reoccurrenceMore = 1)
     {
         if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
@@ -82,13 +82,9 @@ public static partial class Game
                 lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
             });
         double more = self ? Math.Max(0, 1 + Stat("skeletal_chains_no_minions_damage_+%_final") / 100.0) : 1;
-        int radius = SkillRadius(conn, skillStats, true, gem.Effect);
         string ao = self ? DarkBargainPlayerAo : DarkBargainSkeletonAo;
         Console.WriteLine($"[gateway] {remote} dark bargain: {(self ? "own life" : $"{blasts.Count} skeleton(s)")}, "
-            + $"sacrificed [{string.Join(", ", blasts.Select(b => b.Sacrificed))}] ({percent}%), chains {chains}, radius {radius}, more x{more:0.##}");
-        // The art is drawn at MiscAnimated __col4 world units at scale 1 (SkeletalChainsExplodePlayer 200,
-        // SkeletalChainsExplode 120): scale it to the blast's radius.
-        float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? (self ? 200 : 120)));
+            + $"sacrificed [{string.Join(", ", blasts.Select(b => b.Sacrificed))}] ({percent}%), chains {chains}, more x{more:0.##}");
         Console.WriteLine($"[gateway] {remote} dark bargain skin {DarkBargainSkin}: art {ao}");
         var art = new List<uint>();
         for (int i = 0; i < blasts.Count; i++)
@@ -96,18 +92,10 @@ public static partial class Game
             if (i > 0) await Task.Delay(TimeSpan.FromSeconds(DarkBargainChainSeconds));
             if (conn.Closed || conn.LeavingArea || !conn.ProjectileActive(epoch)) break;
             var (at, paid, skeleton) = blasts[i];
-            uint effect;
-            lock (conn.Monsters) effect = conn.TakeObjectId();
-            art.Add(effect);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                new EffectObject(at.X, at.Y, ao) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
-                $"0x02bb create effect 0x{effect:x} {ao} at ({at.X}, {at.Y}) scale {scale:0.##}");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-            int addedChaos = paid;
             Console.WriteLine($"[gateway] {remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
-                + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
-            await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true,
-                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore);
+                + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {paid}");
+            art.Add(await DarkBargainBlast(remote, stream, ciphers, conn, skillId, gem, at, paid, self, repeat,
+                finalSpellRepeat, criticalRoll, sacrifice, more * reoccurrenceMore));
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>
@@ -116,6 +104,26 @@ public static partial class Game
                 foreach (uint effect in art)
                     if (conn.ProjectileActive(epoch)) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null);
             });
+    }
+
+    internal static async Task<uint> DarkBargainBlast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at,
+        int paid, bool self, int repeat, bool finalSpellRepeat, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice, double damageMore)
+    {
+        int radius = SkillRadius(conn, SupportedSkill(conn, skillId).Stats, true, gem.Effect, repeat);
+        string ao = self ? DarkBargainPlayerAo : DarkBargainSkeletonAo;
+        // MiscAnimated gives the art's world radius at scale 1 (200 for the player, 120 for a skeleton).
+        float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? (self ? 200 : 120)));
+        uint effect;
+        lock (conn.Monsters) effect = conn.TakeObjectId();
+        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            new EffectObject(at.X, at.Y, ao) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
+            $"0x02bb create effect 0x{effect:x} {ao} at ({at.X}, {at.Y}) scale {scale:0.##}");
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
+        await AreaSkillHitForUse(null, remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true,
+            repeat: repeat, radiusOverride: radius, finalSpellRepeat: finalSpellRepeat, criticalRoll: criticalRoll, sacrifice: sacrifice,
+            baseChaos: paid, damageMore: damageMore);
+        return effect;
     }
 
     // The life a blast pays: the percent of the maximum, never the last point (a sacrifice, not damage: it cannot kill).

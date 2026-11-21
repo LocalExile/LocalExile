@@ -50,6 +50,7 @@ public sealed class GameModule : IModule, IDisposable
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(Program.ConnOf(kill.Player), force: true));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => Rules.FinishVortexGround(conn));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
