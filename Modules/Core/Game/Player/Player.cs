@@ -1251,6 +1251,7 @@ public static partial class Game
                 if (dead)
                 {
                     ClearPlayerDecay(conn);
+                    ClearCorruptedBlood(conn);
                     ClearEssenceAuraExposure(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =

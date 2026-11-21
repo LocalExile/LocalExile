@@ -33,10 +33,26 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
 
+public sealed record CorruptedBloodOnHit(int Stacks, double Seconds, int PhysicalPerMinute, int AverageHitPercentPerMinute)
+{
+    public static CorruptedBloodOnHit? From(Func<string, int> stat)
+    {
+        int cleave = stat("corrupted_blood_cleave_stacks_to_add");
+        int stacks = cleave > 0 ? cleave : stat("corrupted_blood_on_hit_num_stacks");
+        if (stacks <= 0) return null;
+        int duration = stat("corrupted_blood_on_hit_duration");
+        // shortcut: cleave rows omit duration; use the other three-stack beam's five seconds until a retail cleave trace confirms it.
+        double seconds = duration > 0 ? duration / 1000d : cleave > 0 ? 5 : 0;
+        return new(stacks, seconds, cleave > 0 ? stat("base_physical_damage_to_deal_per_minute") : 0,
+            stat("corrupted_blood_on_hit_%_average_damage_to_deal_per_minute_per_stack"));
+    }
+}
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
+    public CorruptedBloodOnHit? CorruptedBlood { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>

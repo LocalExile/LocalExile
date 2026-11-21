@@ -190,8 +190,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   off-hand weapon stats, Avarius/Innocence start in `Transitionable` state 1, Amarissa/Ambrosia start targetable in
   state 2, Fairgraves throws Spectral Throw and summons ghostflame Raging Spirits, Merveil casts Ice Spear and summons
   statues/daughters/spawn, and Piety's lightning beam sweeps 900°. The beam lands hits in both network modes.
-  Its level-39 stat set also specifies three stacks of Corrupted Blood; the current hit path only applies that debuff
-  for Sirus. Piety's debuff and multiplayer beam contacts still need validation against the encounter.
+  At level 39, the beam applies three stacks of Corrupted Blood per unblocked contact and the reverse cleave adds one.
+  Each stack deals 2,800 base physical damage per minute. The ten strongest stacks deal damage and a new application
+  refreshes the timer. The five-second duration follows the other three-stack monster beam since Piety's rows omit it.
+  In a shared instance the same sweep reached a Predictive and a Lockstep player. Both reached ten stacks, and clearing
+  or escaping the effect on one player left the other player's stacks independent.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
   Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.

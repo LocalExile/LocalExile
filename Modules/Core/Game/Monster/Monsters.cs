@@ -2028,7 +2028,19 @@ public static partial class Game
             : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
         if (BossKits.EffectOf(m, a) == BossKits.PietyBeamEffect)
         {
-            await RunPietyBeam(remote, stream, ciphers, conn, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim);
+            // All recipients use the original cast's aim and the shared instance clock. Each owns its hit gate,
+            // defences, minions and cooldown, including after the original target dies or moves out of the sweep.
+            Task Sweep(ClientState target)
+            {
+                var wire = target.Wire;
+                return RunPietyBeam(wire.Remote, wire.Stream, wire.Ciphers, target, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim);
+            }
+            var primary = RunPietyBeam(remote, stream, ciphers, conn, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim);
+            var peers = conn.Instance?.Presence.PlayersExcept(conn.PeerId);
+            if (peers is { Length: > 0 })
+                await Task.WhenAll(peers.Where(p => p.Current && p.Owner is { } other && ReferenceEquals(other.Instance, conn.Instance))
+                    .Select(p => Sweep(p.Owner!)).Append(primary));
+            else await primary;
             return;
         }
         if (meleeClock)
@@ -2135,7 +2147,7 @@ public static partial class Game
                 {
                     double t = Math.Clamp((now - sweepStart) / Math.Max(0.01, sweepEnd - sweepStart), 0, 1);
                     angle = startAngle + SweepRadians * t;
-                    bool protectedByGrace = InGracePeriod(conn);
+                    bool protectedByGrace = InGracePeriod(conn) || conn.AsleepMonsters.Contains(id) || !conn.MonsterViews.ContainsKey(id);
                     if (!protectedByGrace && conn.Golems.All.Count + conn.Reservations.Fighters.Count + conn.Summons.Fighters.Count > 0)
                     {
                         minionAttack ??= a with { Damage = a.Damage.Scale(MinionDamageFactor) };
@@ -2163,7 +2175,7 @@ public static partial class Game
                 double hitFrom = prevAngle, hitTo = angle;
                 if (await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
                 {
-                    if (InGracePeriod(conn)) return null;
+                    if (InGracePeriod(conn) || conn.AsleepMonsters.Contains(id) || !conn.MonsterViews.ContainsKey(id)) return null;
                     double hitNow = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
                     if (hitNow >= sweepEnd || MonsterActionFactor(m, hitNow) == 0 || hitNow < nextPlayerHit) return null;
                     var here = conn.Walk.Position(hitNow);
@@ -2421,7 +2433,7 @@ public static partial class Game
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
         ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
-        Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
+        ApplyCorruptedBloodOnHit(conn, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);

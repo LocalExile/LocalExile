@@ -222,6 +222,7 @@ public static class BossKits
         {
             Spell = spell,
             DualWielding = dualWielding,
+            CorruptedBlood = CorruptedBloodOnHit.From(Raw),
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
