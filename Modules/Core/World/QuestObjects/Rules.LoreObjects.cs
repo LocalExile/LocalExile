@@ -151,7 +151,7 @@ static partial class QuestobjectsRules
         int cycle = cycles.GetValueOrDefault(npc.Npc.Id, 0);
         var talk = SelectLoreTalk(available, flags, cycle);
         if (talk is null) return false;
-        if (available.Count > 1) cycles[npc.Npc.Id] = (talk.Index + 1) % available.Count;
+        if (available.Count > 1) cycles[npc.Npc.Id] = (available.IndexOf(talk) + 1) % available.Count;
         var toSet = LoreFlagsToSet(talk).Where(f => !ClientHasQuestFlag(conn, f)).ToList();
         if (toSet.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, toSet);
         // Leave conn.InNpcTalk = false: on C→S 0x85 (Continue / Esc / walk away), CloseNpcDialogue ends dialogue with 0x84 0.
