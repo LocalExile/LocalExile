@@ -6,31 +6,22 @@ using static Game;
 using static Program;
 
 /// <summary>
-/// The essence spells the hit kit cannot represent: the resistance pulses (Hatred/Anger/Wrath), the chaos damage-over-time
-/// pulse (Misery) and the grasping-hand grab (Envy). Their daemon effects carry no hit damage, summon or projectile, so
-/// <see cref="EssenceKit"/> drops them; a non-hit kit special also fights the auto-attack and stalls the rare, so they are
-/// cast here on their own timer while the released rare lives, independent of its AI. The visual is a spell effect object
-/// (the client's own art for the skill), not a monster action — the rare's rig has no pulse/grab clip:
+/// The essence spells the hit kit cannot represent, cast on their own timer while the released rare lives, independent of
+/// its AI. Their daemon effects carry no hit damage, summon or projectile, so <see cref="EssenceKit"/> drops them; a non-hit
+/// kit special also fights the auto-attack and stalls the rare. This file holds the shared machinery — the periodic caster,
+/// the pulse daemon, the spell effect objects and the player debuff plumbing. Each essence's own behaviour lives apart so a
+/// change to one cannot disturb the others:
 /// <list type="bullet">
-/// <item>RepeatedPulseCold/Fire/Lightning: a pulse nova (<c>Metadata/Effects/Spells/pulses/&lt;element&gt;pulse.ao</c>) at the
-/// rare, then <c>base_&lt;type&gt;_damage_resistance_%</c> (-10) on the players near it for the pulse's duration (the
-/// invisible essence elemental-damage-taken debuff, BuffDefinitions 746).</item>
-/// <item>RepeatedPulseDegen: a chaos pulse nova (<c>pulses/chaospulse.ao</c>) at the rare, then
-/// <c>base_chaos_damage_to_deal_per_minute</c> as a chaos degeneration on the players near it, after chaos resistance,
-/// through <c>TrapDegenPerSecond</c> (the essence daemon degen aura, buff 100).</item>
-/// <item>EssenceDaemonGrab: the demon-grasp circle and hand (<c>monsters_effects/essence/demon_grasp/</c>) appear where the
-/// target stood; after the windup the grasp end plays and a player still inside the circle is pulled to the rare — stepping
-/// out evades it (the wiki).</item>
+/// <item>the resistance novas (Hatred cold / Anger fire / Wrath lightning) and their debuff — <c>EssenceNova.cs</c>;</item>
+/// <item>Hatred's Creeping Frost chilling trail — <c>EssenceHatredTrail.cs</c>;</item>
+/// <item>Misery's chaos pulse — <c>EssenceMisery.cs</c>;</item>
+/// <item>Envy's grasping-hand grab — <c>EssenceGrab.cs</c>.</item>
 /// </list>
 /// Cooldowns live on the instance area, so several players' ticks cast a spell once, not once each.
 /// </summary>
 public static partial class MapEssences
 {
     static double Now => DateTime.UtcNow.Ticks / (double)TimeSpan.TicksPerSecond;
-
-    const string GrabCircleArt = "Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao";
-    const string GrabHandArt = "Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp.ao";
-    const string GrabEndArt = "Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_end.ao";
 
     /// <summary>One special spell a released rare casts: its nova visual effect and its RepeatedPulse trigger effect (the
     /// pulsation wind-up that debuffs / deals chaos degen), what it does (cold/fire/lightning resistance pulse, chaos degen
@@ -156,19 +147,19 @@ public static partial class MapEssences
             lock (conn.Monsters)
             {
                 at = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-                // The rare stops to cast: hold its AI for the wind-up and the release (~1 s) so the pulsation and the nova
-                // stay where it stands; it resumes fighting once the projectiles are out, not for the whole daemon linger.
-                monster.BusyUntil = Math.Max(monster.BusyUntil, conn.Clock.Elapsed.TotalSeconds + 1.0);
+                // The rare stops to cast: hold its AI for the wind-up and the release so the pulsation and the nova stay
+                // where it stands; it resumes fighting once the projectiles are out, not for the whole daemon linger.
+                monster.BusyUntil = Math.Max(monster.BusyUntil, conn.Clock.Elapsed.TotalSeconds + 2.3);
             }
             uint daemon = await ShowPulseDaemon(conn, spell, at, monster.ObjectId);
             if (spell.Kind is "cold" or "fire" or "lightning")
             {
-                // The pulsation wind-up: accelerating pulses (0.5 / 0.2 / 0.1 s), then the nova bursts its projectiles.
+                // The pulsation wind-up: accelerating pulses (1.25 / 0.5 / 0.25 s), then the nova bursts its projectiles.
+                await Task.Delay(TimeSpan.FromSeconds(1.25));
+                await PlayPulse(conn, daemon, at, spell);
                 await Task.Delay(TimeSpan.FromSeconds(0.5));
                 await PlayPulse(conn, daemon, at, spell);
-                await Task.Delay(TimeSpan.FromSeconds(0.2));
-                await PlayPulse(conn, daemon, at, spell);
-                await Task.Delay(TimeSpan.FromSeconds(0.1));
+                await Task.Delay(TimeSpan.FromSeconds(0.25));
                 FireNova(conn, monster, spell);
             }
             await Task.Delay(TimeSpan.FromSeconds(0.5));
@@ -210,29 +201,35 @@ public static partial class MapEssences
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
     }
 
-    /// <summary>The pulsation wind-up: the essence's daemon at the rare plays its RepeatedPulse action, so the native client
-    /// selects, scales and animates the pulse (the shrine nova pattern — a standalone pulse effect object draws nothing).
-    /// The pulse is self-centred and rides the shrine circle (26); the nova's projectiles are fired separately
-    /// (<see cref="FireNova"/>) after the wind-up. The daemon is friendly, invulnerable and out of the AI, removed when the
-    /// pulse ends. The grab uses effect objects instead (its demon_grasp art is a ground trap, not a caster nova).</summary>
+    /// <summary>The pulsation wind-up: the essence's daemon at the rare plays a pulse nova action, so the native client
+    /// selects, scales and animates it (the shrine nova pattern — a standalone pulse effect object draws nothing). The
+    /// RepeatedPulse action is element-agnostic (one skill id for cold/fire/lightning, so it always drew the frost pulse);
+    /// Wrath therefore plays the shrine's ShockNova, a lightning nova, on the same Daemon rig. The pulse is self-centred and
+    /// rides the shrine circle (26); the nova's projectiles are fired separately (<c>EssenceNova.cs</c>) after the wind-up.
+    /// The daemon is friendly, invulnerable and out of the AI, removed when the pulse ends. The grab uses effect objects
+    /// instead (its demon_grasp art is a ground trap, not a caster nova).</summary>
+    static int PulseVisualEffect(ClientState conn, SpecialSpell spell) =>
+        spell.Kind == "lightning" ? SkillsFor(conn).EffectRow("ShrineShockNova") : spell.Pulse;
+
     static async Task<uint> ShowPulseDaemon(ClientState conn, SpecialSpell spell, (int X, int Y) at, uint summoner)
     {
         var catalog = SkillsFor(conn);
-        if (Monsters.Find(spell.Daemon) is not { Supported: true } variety || catalog.ActionHash(spell.Pulse) is not ushort hash) return 0;
+        int visual = PulseVisualEffect(conn, spell);
+        if (Monsters.Find(spell.Daemon) is not { Supported: true } variety || catalog.ActionHash(visual) is not ushort hash) return 0;
         ushort skillId = (ushort)(hash & 0x3fff);
-        var stats = catalog.EffectStats(spell.Pulse, 1).ToDictionary(s => s.Item1, s => s.Item2);
+        var stats = catalog.EffectStats(visual, 1).ToDictionary(s => s.Item1, s => s.Item2);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        // The daemon plays the RepeatedPulse wind-up — the pulsation before the nova — a self-centred pulse with no radius
-        // of its own, riding the shrine circle (26). The nova's projectiles are fired separately (FireNova); the pulse
-        // effect carries no area radius, so reading the nova's (absent) radius drew a radius-1 circle nothing could see.
+        // The pulse is self-centred with no radius of its own, riding the shrine circle (26). The nova's projectiles are
+        // fired separately (FireNova); the pulse effect carries no area radius, so reading the nova's (absent) radius drew a
+        // radius-1 circle nothing could see.
         int radius = Math.Max(1, SkillArea.Radius(26, Get, true));
-        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(spell.Pulse) / 1000.0), radius, DamagePacket.Empty) { Spell = true };
+        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(visual) / 1000.0), radius, DamagePacket.Empty) { Spell = true };
         foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
         void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
         // The client reads the final area radius explicitly (the shrine nova sets it).
         Set("active_skill_area_of_effect_radius", radius);
         Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
-        if (catalog.FindByRow(skillId, spell.Pulse, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
+        if (catalog.FindByRow(skillId, visual, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;
         // PositionedBlocking false: the daemon's body must not block the rare's own walk (a monster AI walk is stopped by
         // living bodies, unlike the client-driven player walk); it still renders and plays the nova.
@@ -250,11 +247,11 @@ public static partial class MapEssences
         return id;
     }
 
-    /// <summary>One pulsation of the wind-up: re-plays the daemon's RepeatedPulse action in place.</summary>
+    /// <summary>One pulsation of the wind-up: re-plays the daemon's pulse nova action in place.</summary>
     static async Task PlayPulse(ClientState conn, uint daemonId, (int X, int Y) at, SpecialSpell spell)
     {
         if (daemonId == 0 || conn.Closed || conn.LeavingArea) return;
-        if (SkillsFor(conn).ActionHash(spell.Pulse) is not ushort hash) return;
+        if (SkillsFor(conn).ActionHash(PulseVisualEffect(conn, spell)) is not ushort hash) return;
         ushort skillId = (ushort)(hash & 0x3fff);
         var (remote, stream, ciphers) = conn.Wire;
         await SendWorldRecord(remote, stream, ciphers, conn, daemonId,
@@ -277,175 +274,6 @@ public static partial class MapEssences
 
     static IEnumerable<ClientState> PlayersNear(ClientState conn, (int X, int Y) at, double radius) => Members(conn)
         .Where(c => c.PlayerSent && c.PlayerLife > 0 && Dist(c.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) <= radius);
-
-    /// <summary>The resistance pulse's nova: a ring of the essence's projectiles fired through the monster projectile
-    /// runtime (the Rampage nova pattern), so the client draws them and the server simulates their hits on the player. A
-    /// daemon action alone drew no projectiles — the runtime creates the flying objects. The shot is the rare's own (it
-    /// originates from the rare's live position, not the pulse daemon's): Hatred fires Creeping Frost (ArcticBreath) and
-    /// leaves a chilling trail, Anger fires the fire Creeping Frost (FlameBreath) with its fire damage, and Wrath
-    /// is a lobbed molten mortar (its MonsterProjectile row) the runtime lands in a ring around the rare.</summary>
-    static void FireNova(ClientState conn, SpawnedMonster monster, SpecialSpell spell)
-    {
-        if (monster.Dead || monster.Life <= 0 || monster.Variety is null) return;
-        var catalog = SkillsFor(conn);
-        var stats = catalog.EffectStats(spell.Effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int count = ScaledSpellCount(spell.Effect, spell.Tier, Get("number_of_additional_projectiles") + 1);
-        SkillCatalog.MonsterProjectileInfo projectile;
-        if (catalog.MonsterProjectile(spell.Effect, includeWeaponAttacks: true) is { } mortar)
-            // Wrath: a lightning mortar (MortarLightning, the lightning molten-projectile rig), lobbed. A full-turn spread
-            // lands each shell its landing distance out in its own direction — a ring of explosions around the rare. The
-            // row's speed 750 crossed the short landing in ~0.14 s (too fast to see) and the molten art read as fire, so the
-            // shell is slowed (~1.2 s arc) and its minimum range widened (~2x the ring) for a visible lightning volley.
-            projectile = mortar with { Metadata = "Metadata/Projectiles/MortarLightning", Count = count,
-                SpreadRadians = Math.PI * 2, Speed = 190, MinimumRange = 250 };
-        else
-        {
-            // Hatred's Creeping Frost (ArcticBreath), or Anger's fire Creeping Frost (FlameBreath — the fire arctic breath
-            // its EssenceTriggeredFlameBreath effect names).
-            string projId = spell.Kind == "fire" ? "Metadata/Projectiles/FlameBreath" : "Metadata/Projectiles/ArcticBreath";
-            if (catalog.Projectile(projId) is not { } meta) return;
-            projectile = new SkillCatalog.MonsterProjectileInfo(meta.Id, meta.Speed, false, 1)
-                { Count = count, SpreadRadians = Math.PI * 2 };
-        }
-        var attack = BossKits.AttackFor(conn, monster.Variety, (byte)AreaLevel(conn), spell.Effect, 0x4000);
-        var session = ProjectilesFor(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
-        var use = MonsterProjectileUse(session, monster.ObjectId, monster, attack, projectile, monster.ActionGeneration);
-        session.Schedule(ProjectileRuntime.Time(ProjectileWorldTime(conn)), () => !monster.Dead && monster.Life > 0 && !conn.Closed, () => use);
-        if (spell.Kind == "cold") FrostTrail(conn, monster, count);
-        Console.WriteLine($"[map-content] essence {spell.Kind} nova: {count} {projectile.Metadata}{(projectile.Lobbed ? " (lobbed)" : "")} from rare 0x{monster.ObjectId:x}");
-    }
-
-    /// <summary>Hatred's Creeping Frost trail: a line of small chilling-ground ice crystals along each nova projectile's
-    /// radial path (the flame-dash trail pattern), lasting the skill's chilling duration. A player walking over them is
-    /// chilled (the strongbox ice-nova ground pattern, <see cref="TickTrail"/>).</summary>
-    const string TrailArt = "Metadata/Effects/Spells/ground_effects/ice/ice.ao";
-    sealed record TrailZone((int X, int Y) At, int Radius, double Until, uint Art);
-
-    static void FrostTrail(ClientState conn, SpawnedMonster monster, int count)
-    {
-        if (!Areas.TryGetValue(conn.Instance, out var area)) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var at = monster.Walk.Position(now);
-        var aim = conn.Walk.Position(now);
-        double facing = Math.Atan2(aim.Y - at.Y, aim.X - at.X);
-        double until = Now + 7.5; // base_skill_effect_duration of EssenceArcticBreathNova
-        for (int i = 0; i < count; i++)
-        {
-            double angle = facing + Math.Tau * (i / (double)count - .5);
-            // A trail of ice crystals along each projectile's bearing, reaching ~40% further than the first pass and a
-            // touch smaller; spaced so neighbouring crystals meet into a near-continuous ice path.
-            for (double d = 6; d <= 56; d += 10)
-            {
-                var spot = conn.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * d), at.Y + (int)Math.Round(Math.Sin(angle) * d)));
-                uint id = conn.TakeObjectId();
-                lock (conn.Monsters)
-                {
-                    conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(spot.X, spot.Y, TrailArt) { Flags0 = EffectObject.FixedRotation, Scale = 1.05f }.Blob()),
-                        null, WorldId: id, CreatesObject: true));
-                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
-                }
-                lock (area.Trail) area.Trail.Add(new(spot, 5, until, id));
-            }
-        }
-    }
-
-    /// <summary>Called from the essence tick: expires the trail's ice crystals (their art removed) and chills a player who
-    /// stands on one (the strongbox chilling-ground pattern). The chill refreshes while they remain on the ice.</summary>
-    static void TickTrail(ClientState conn)
-    {
-        if (!Areas.TryGetValue(conn.Instance, out var area)) return;
-        double now = Now;
-        TrailZone[] zones;
-        lock (area.Trail)
-        {
-            foreach (var gone in area.Trail.Where(z => z.Until <= now).ToArray())
-            {
-                area.Trail.Remove(gone);
-                lock (conn.Monsters)
-                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(gone.Art), null, WorldId: gone.Art, RemovesObject: true));
-            }
-            zones = [.. area.Trail];
-        }
-        if (zones.Length == 0 || conn.PlayerLife <= 0 || conn.Paused || conn.Immune || InGracePeriod(conn)) return;
-        double at = conn.Clock.Elapsed.TotalSeconds;
-        var here = conn.Walk.Position(at);
-        if (!zones.Any(z => Dist(here, z.At) <= z.Radius)) return;
-        const int chill = 20;
-        if (conn.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Chill, at) >= chill) return;
-        var stats = CharacterPlayerStats(conn);
-        lock (conn.Monsters)
-            ApplyPlayerAilmentsLocked(conn, at, a => a.Inflict(PlayerElementalAilments.Kind.Chill, chill, .3, at,
-                name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom));
-    }
-
-    /// <summary>The resistance pulse: -10% of its element on the players near the rare for the pulse's duration. The same
-    /// element's debuff refreshes rather than stacks; the buff (746) is invisible, so the debuff is the stat alone.</summary>
-    static async Task ResDebuff(ClientState source, (int X, int Y) at, double range, SpecialSpell spell)
-    {
-        string statName = spell.Kind switch
-        {
-            "cold" => "base_cold_damage_resistance_%",
-            "fire" => "base_fire_damage_resistance_%",
-            _ => "base_lightning_damage_resistance_%",
-        };
-        if (Stats.Key(statName) is not uint key || spell.Value == 0) return;
-        double seconds = Math.Max(1, spell.Duration);
-        foreach (var conn in PlayersNear(source, at, range).ToArray())
-        {
-            if (conn.Immune || InGracePeriod(conn)) continue;
-            var effects = Effects.GetOrCreateValue(conn);
-            ushort buff = conn.NextBuff++;
-            lock (effects)
-            {
-                effects.Debuffs.RemoveAll(d => d.Until <= Now || d.Key == key);
-                effects.Debuffs.Add((new Dictionary<uint, int> { [key] = spell.Value }, Now + seconds, buff, key));
-            }
-            var (remote, stream, ciphers) = conn.Wire;
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, 746,
-                u68: BitConverter.SingleToUInt32Bits((float)seconds)), $"essence {spell.Kind} resistance pulse {spell.Value}%");
-            await RefreshStats(conn);
-        }
-    }
-
-    /// <summary>The chaos pulse: a chaos degeneration on the players near the rare for the pulse's duration, after their
-    /// chaos resistance, dealt through <c>TrapDegenPerSecond</c> (the tick recomputes the share). Pulses stack.</summary>
-    static void ChaosDegen(ClientState source, (int X, int Y) at, double range, SpecialSpell spell)
-    {
-        if (spell.Dps <= 0) return;
-        double seconds = Math.Max(1, spell.Duration);
-        foreach (var conn in PlayersNear(source, at, range).ToArray())
-        {
-            if (conn.Immune || InGracePeriod(conn)) continue;
-            double dps = spell.Dps * Math.Max(0, 1 - Math.Min(MaxResistance(conn, DamageType.Chaos), Resistance(conn, DamageType.Chaos)) / 100.0);
-            var effects = Effects.GetOrCreateValue(conn);
-            ushort buff = conn.NextBuff++;
-            lock (effects)
-            {
-                effects.Degens.RemoveAll(d => d.Until <= Now);
-                effects.Degens.Add((dps, Now + seconds, buff));
-            }
-            var (remote, stream, ciphers) = conn.Wire;
-            _ = SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, 100,
-                u68: BitConverter.SingleToUInt32Bits((float)seconds)), $"essence chaos degen pulse {dps:0.#}/s");
-        }
-    }
-
-    /// <summary>The grab: the demon-grasp circle appeared where the target stood at the cast; after its windup, a target
-    /// still inside it is pulled to the rare, one who stepped out is not (the wiki). The teleport is the gate's own (0x01b7).</summary>
-    static async Task Grab(ClientState conn, SpawnedMonster monster, ClientState target, (int X, int Y) trapAt, double trapRadius)
-    {
-        if (target.Immune || InGracePeriod(target)) return;
-        double now = target.Clock.Elapsed.TotalSeconds;
-        if (Dist(target.Walk.Position(now), trapAt) > trapRadius) return;
-        var at = monster.Walk.Position(now);
-        var (remote, stream, ciphers) = target.Wire;
-        using (ProjectileMutation(target))
-            target.Walk.Teleport(at.X, at.Y, ProjectileWorldTime(target));
-        await SendWorldRecord(remote, stream, ciphers, target, PlayerId, InstanceProtocol.Teleport(PlayerId, at.X, at.Y),
-            $"essence grab to ({at.X}, {at.Y})");
-    }
 
     sealed class EssenceEffects
     {
