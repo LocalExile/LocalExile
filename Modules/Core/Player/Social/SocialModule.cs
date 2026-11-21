@@ -78,6 +78,14 @@ public sealed class SocialModule : IModule
                 await SocialFeature.PlayerTradeOffer(remote, conn, trade, inventory, item);
                 return true;
             });
+        GameEvents.Packet(InstanceNpcs.TradeCtrlMoveId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var remote = conn.Wire.Remote;
+            if (conn.Trade is not { } trade) return false;
+            var (item, inventory, _) = InstanceNpcs.ReadTradeCtrlMove(bytes);
+            await SocialFeature.PlayerTradeMoveSameType(remote, conn, trade, inventory, item);
+            return true;
+        });
         GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var remote = conn.Wire.Remote;
@@ -254,6 +262,41 @@ static class SocialFeature
             // offered item invisible (live 2026-10-28).
             await SendTo(c, InstanceNpcs.TradeOpen(them.PeerId, PlayerTradeMine, PlayerTradeTheirs, PlayerTradeOpenFlags, CharacterName(them), -1),
                 $"0x00b8 trade with {CharacterName(them)} open");
+        }
+    }
+
+    // C→S 0xb4 (Ctrl + right-click): move every item of the clicked item's base type between inventory and trade offer.
+    internal static async Task PlayerTradeMoveSameType(string remote, ClientState conn, PlayerTrade trade, uint inventory, uint itemId)
+    {
+        var items = ItemsOf(conn);
+        if (items.Offered().FirstOrDefault(i => i.Id == itemId) is { } offeredTarget)
+        {
+            uint type = offeredTarget.Item.TypeHash;
+            uint[] ids = [itemId, .. items.Offered().Where(i => i.Id != itemId && i.Item.TypeHash == type)
+                .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+            foreach (uint id in ids)
+            {
+                if (conn.Trade != trade || trade.Over) break;
+                await PlayerTradeTakeBack(remote, conn, trade, id);
+            }
+            return;
+        }
+        byte? row = PlayerInventories.Row(inventory);
+        var clicked = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
+        if (clicked is null)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x00b4 trade ctrl-move: item {itemId} not in inventory {inventory}");
+            return;
+        }
+        uint matchType = clicked.Item.TypeHash;
+        uint[] toOffer = [itemId, .. items.Items(row!.Value).Where(i => i.Id != itemId && i.Item.TypeHash == matchType)
+            .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+        foreach (uint id in toOffer)
+        {
+            if (conn.Trade != trade || trade.Over) break;
+            int before = items.Offered().Count;
+            await PlayerTradeOffer(remote, conn, trade, inventory, id);
+            if (items.Offered().Count == before) break;
         }
     }
 

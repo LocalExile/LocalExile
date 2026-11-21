@@ -90,6 +90,45 @@ public sealed class VendorsModule : IModule
                 else await OfferFromInventory(remote, stream, ciphers, conn, sale, inventory, item);
                 return true;
             });
+        GameEvents.Packet(InstanceNpcs.TradeCtrlMoveId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            // A trade between players has these messages first.
+            if (conn.Trade is not null) return false;
+            var (itemId, inventory, _) = InstanceNpcs.ReadTradeCtrlMove(bytes);
+            if (conn.Sale is not { } sale)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x00b4 trade ctrl-move: no sale open");
+                return true;
+            }
+            var items = ItemsOf(conn);
+            if (items.Offered().FirstOrDefault(i => i.Id == itemId) is { } offeredTarget)
+            {
+                uint type = offeredTarget.Item.TypeHash;
+                uint[] ids = [itemId, .. items.Offered().Where(i => i.Id != itemId && i.Item.TypeHash == type)
+                    .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+                foreach (uint id in ids)
+                {
+                    if (conn.Sale != sale) break;
+                    await TakeFromSale(remote, stream, ciphers, conn, sale, id);
+                }
+                return true;
+            }
+            byte? row = PlayerInventories.Row(inventory);
+            var clicked = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
+            if (clicked is null) return true;
+            uint matchType = clicked.Item.TypeHash;
+            uint[] toOffer = [itemId, .. items.Items(row!.Value).Where(i => i.Id != itemId && i.Item.TypeHash == matchType)
+                .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+            foreach (uint id in toOffer)
+            {
+                if (conn.Sale != sale) break;
+                int before = items.Offered().Count;
+                await OfferFromInventory(remote, stream, ciphers, conn, sale, inventory, id);
+                if (items.Offered().Count == before) break;
+            }
+            return true;
+        });
         GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var (remote, stream, ciphers) = conn.Wire;
