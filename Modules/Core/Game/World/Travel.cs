@@ -379,6 +379,77 @@ public static partial class Game
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
+    // C→S 0x17a: visit a named character's hideout (self, same party, friend, or invited via 0x179).
+    public static async Task WarpToPlayerHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string rawTarget, string why)
+    {
+        string targetName = rawTarget.Trim();
+        if (targetName.Length == 0
+            || string.Equals(targetName, CharacterName(conn), StringComparison.OrdinalIgnoreCase)
+            || conn.Account is not null && string.Equals(targetName, conn.Account, StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(remote, stream, ciphers, conn, why);
+            return;
+        }
+        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed
+            && (string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Account, targetName, StringComparison.OrdinalIgnoreCase)));
+        if (target is null)
+        {
+            await (conn.Commands?.Reply("Player not found.") ?? Task.CompletedTask);
+            return;
+        }
+        if (ReferenceEquals(target, conn)
+            || string.Equals(CharacterName(target), CharacterName(conn), StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(remote, stream, ciphers, conn, why);
+            return;
+        }
+        bool sameLeague = !conn.Ssf && !target.Ssf
+            && conn.Hardcore == target.Hardcore && conn.LeagueForm == target.LeagueForm
+            && string.Equals(conn.League, target.League, StringComparison.OrdinalIgnoreCase);
+        if (!sameLeague)
+        {
+            await (conn.Commands?.Reply("You cannot visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (!CanVisitHideout(conn, target))
+        {
+            await (conn.Commands?.Reply("You do not have permission to visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (HomeHideout(target) is not { } hideout)
+        {
+            await (conn.Commands?.Reply("That player does not have a hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        string ownerName = CharacterName(target);
+        if (HideoutCatalog.ByArea(target.Layout.Hash) is not null && OwnHideout(target) && target.InstanceNumber != 0)
+        {
+            if (conn.Layout.Hash == target.Layout.Hash && conn.InstanceNumber == target.InstanceNumber) return;
+            await ChangeArea(remote, stream, ciphers, conn,
+                new PendingTransfer(target.Layout.Hash, target.InstanceNumber, false, AtWaypoint: true),
+                $"{why}: {ownerName}'s {hideout.Name}");
+            return;
+        }
+        if (conn.Layout.Hash == hideout.AreaHash16 && string.Equals(conn.InstanceOwner, ownerName, StringComparison.OrdinalIgnoreCase))
+            return;
+        await ChangeArea(remote, stream, ciphers, conn,
+            new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true) { InstanceOwner = ownerName },
+            $"{why}: {ownerName}'s {hideout.Name}");
+    }
+
+    static bool CanVisitHideout(ClientState visitor, ClientState owner)
+    {
+        if (visitor.Account is not null && string.Equals(visitor.Account, owner.Account, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (AppContext.GetData("LocalExile.Social.HideoutAccessHook") is Func<ClientState, ClientState, bool> check)
+            return check(visitor, owner);
+        if (visitor.Account is not { } vAcc || owner.Account is not { } oAcc) return false;
+        var accounts = new GameServer.Storage.SqliteAccountStore(Saves.Db);
+        if (accounts.FindAccount(vAcc) is not { } v || accounts.FindAccount(oAcc) is not { } o) return false;
+        return new GameServer.Storage.SqliteFriendStore(Saves.Db).Friends(o.Id).Contains(v.Id);
+    }
+
     public static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
         HideoutCatalog.Selected(SharedHideout(conn)?.Area ?? CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
 
@@ -489,14 +560,16 @@ public static partial class Game
             return;
         }
         var call = control ?? (request => InstanceControl.CallAsync(request));
-        ulong join = t.Instance != 0 || t.New ? 0 : InstanceEvents.TransferInstance.For(conn).Select(run => run(conn, t)).FirstOrDefault(i => i != 0);
+        ulong join = t.Instance != 0 || t.New || !string.IsNullOrWhiteSpace(t.InstanceOwner) ? 0
+            : InstanceEvents.TransferInstance.For(conn).Select(run => run(conn, t)).FirstOrDefault(i => i != 0);
         var r = await call(new ControlRequest
         {
             Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,
+            Owner = t.InstanceOwner,
         });
         // The party member's instance may be gone or closed to this player: the default choice then.
         if (join != 0 && !r.Ok)
-            r = await call(new ControlRequest { Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed });
+            r = await call(new ControlRequest { Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed, Owner = t.InstanceOwner });
         else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
         t.Done?.Invoke(r);
         if (!r.Ok)
