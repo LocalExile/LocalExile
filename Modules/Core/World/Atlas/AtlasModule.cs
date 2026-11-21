@@ -259,6 +259,9 @@ static class AtlasFeature
     /// <summary>AtlasTrees' flag columns for trees II and III: Unlocked (329, 331) and Active (330, 332).</summary>
     static readonly (int Unlocked, int Active)[] TreeFlags = [(0, 0), (329, 330), (331, 332)];
 
+    /// <summary>LeagueQuestFlags id 295 (wire bit 294): zooms the Atlas out to scale 0.5 once a map is completed (0x1407b2500).</summary>
+    internal const int CompletedMapFlag = 295;
+
     /// <summary>A tree is unlocked by the character's completed maps, or by holding nodes (an old save's nodes in a tree that
     /// is now locked stay reachable).</summary>
     internal static bool TreeUnlocked(ClientState conn, int tree) =>
@@ -266,16 +269,22 @@ static class AtlasFeature
             && (conn.AtlasPassives[tree].Count > 0
                 || AtlasProgress.Completed(WorldOf(PlayerOf(conn)).CharacterData).Count >= TreeUnlockMaps[tree]));
 
-    /// <summary>Sets trees II and III's league flags on the connection (never saved to the account: they follow each
-    /// character's own maps and active preset, so a shared save would leak one character's trees to another). The client
-    /// shows the tree selector when more than one tree is unlocked and starts on the last tree with Unlocked and Active.</summary>
+    /// <summary>Sets per-character Atlas league flags (CompletedMap and trees II/III) on the connection (never saved to
+    /// the account: they follow each character's own maps and active preset, so a shared save would leak one character's
+    /// Atlas state to another). The client shows the tree selector when more than one tree is unlocked and starts on the
+    /// last tree with Unlocked and Active.</summary>
     internal static bool ApplyTreeFlags(ClientState conn)
     {
         bool changed = false;
+        int completedCount = AtlasProgress.Completed(WorldOf(PlayerOf(conn)).CharacterData).Count;
+        changed |= completedCount > 0
+            ? conn.LeagueQuestFlags.Add(CompletedMapFlag)
+            : conn.LeagueQuestFlags.Remove(CompletedMapFlag);
         int active = AtlasActivePreset(conn);
         for (int tree = 1; tree < TreeFlags.Length; tree++)
         {
-            bool unlocked = TreeUnlocked(conn, tree);
+            bool unlocked = tree < TreeUnlockMaps.Length && tree < conn.AtlasPassives.Length
+                && (conn.AtlasPassives[tree].Count > 0 || completedCount >= TreeUnlockMaps[tree]);
             changed |= unlocked ? conn.LeagueQuestFlags.Add(TreeFlags[tree].Unlocked) : conn.LeagueQuestFlags.Remove(TreeFlags[tree].Unlocked);
             bool on = unlocked && active == tree;
             changed |= on ? conn.LeagueQuestFlags.Add(TreeFlags[tree].Active) : conn.LeagueQuestFlags.Remove(TreeFlags[tree].Active);
