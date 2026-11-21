@@ -136,7 +136,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   guards it, including both copies in a twinned area. The party shares one opening and one base reward, a corrupted
   Vaal gem or a level-eligible Sacrifice fragment. With the *of Experimentation* area modifier, the vessel also
   drops the rolled number of Vaal Orbs. The *of the Gemcutter* suffix adds one or two corrupted Vaal skill gems
-  drawn from the level-eligible vessel pool. *Of Chiselling* adds a corrupted gem with 23% quality from the
+  drawn from the level-eligible vessel pool. *Of Thaumaturgy* adds one level 20 Vaal gem with its own experience
+  threshold. *Of Chiselling* adds a corrupted gem with 23% quality from the
   league's ordinary gem drop pool. *Of the Facetor* adds one corrupted level 21 gem from bases that can reach
   that level. An area modifier for additional Vaal monsters supplies a count of packs.
   The 3.29.3c pack row contains three Vaal cultist varieties and a wraith. The category and fragment weights use Chris Wilson's

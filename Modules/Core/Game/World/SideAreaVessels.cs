@@ -184,6 +184,9 @@ public static class SideAreaVessels
         int gems = Count("map_vaal_vessel_drop_X_vaal_gems");
         for (int n = 0; n < gems; n++) rewards.Add(VaalGem(catalog, level, Random.Shared));
 
+        int levelledVaalGems = Count("map_vaal_vessel_drop_X_levelled_vaal_gems");
+        for (int n = 0; n < levelledVaalGems; n++) rewards.Add(VaalGem(catalog, level, Random.Shared, gemLevel: 20));
+
         int qualityGems = Count("map_vaal_vessel_drop_X_quality_23_gems");
         for (int n = 0; n < qualityGems; n++)
             if (DropsFor(conn).GemBase(Random.Shared, level) is { } gem)
@@ -223,12 +226,13 @@ public static class SideAreaVessels
         return VaalGem(items, level, random);
     }
 
-    static ItemDrops.Drop VaalGem(ItemCatalog items, int level, Random random)
+    static ItemDrops.Drop VaalGem(ItemCatalog items, int level, Random random, int gemLevel = 1)
     {
         var variants = VaalGems.GetValue(items, catalog => [.. catalog.All.Select(t => catalog.Gem(t)?.VaalBaseRow)
             .OfType<int>().Distinct().Select(row => catalog.Row(row)!).Where(t => t.Supported)]);
         var gems = variants.Where(t => t.DropLevel <= level).ToArray();
         var gem = gems[random.Next(gems.Length)];
-        return new(ItemCatalog.Create(gem) with { ItemLevel = 1, Corrupted = true }, gem);
+        int experience = items.Gem(gem)!.Thresholds[gemLevel - 1];
+        return new(ItemCatalog.Create(gem) with { ItemLevel = 1, Corrupted = true, GemExperience = experience }, gem);
     }
 }

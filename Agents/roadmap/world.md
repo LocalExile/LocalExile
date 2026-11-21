@@ -146,7 +146,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The independent *Of the Vaal* suffix sends a chasing Blade Vortex for five seconds alongside a prefix.
   The Vaal Temple map implicit places ten guarded Vaal Vessels with their own corruption drop modifier.
   A newly populated Vaal side area's placed boss-room chest grants a shared base reward after its natural guards die.
-  Its *of Experimentation* modifier adds the Vaal Orb count carried by the area, and *of the Gemcutter* adds Vaal gems.
+  Its *of Experimentation* modifier adds the Vaal Orb count carried by the area. *Of the Gemcutter* adds Vaal gems
+  and *of Thaumaturgy* adds a level 20 Vaal gem.
   *Of Chiselling* adds a corrupted gem with 23% quality and *of the Facetor* adds a level 21 corrupted gem.
   A rolled additional Vaal pack count feeds the area population alongside ordinary packs.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
