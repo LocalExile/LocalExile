@@ -24,6 +24,7 @@ public sealed class CurrencyExchangeModule : IModule
     readonly ConditionalWeakTable<IPlayer, Timer> _timers = new();
     readonly object _ratesLock = new();
     ExchangeRates? _rates;
+    Dictionary<string, ExchangePrice>? _baselinePrices;
     DateTime _ratesWritten;
     IModuleContext _module = null!;
 
@@ -74,12 +75,88 @@ public sealed class CurrencyExchangeModule : IModule
 
     ExchangeItems ItemsOf(IPlayer player) => ExchangeItems.For(WorldOf(player).Crafting);
 
-    ExchangeRates? Rates()
+    // Baseline chaos values for stock usability when data/currency-exchange-rates.json (liveeconomy) is absent.
+    // Whenever data/currency-exchange-rates.json is present, it always takes priority.
+    static readonly Dictionary<string, double> CoreBaselineChaos = new(StringComparer.Ordinal)
+    {
+        ["Metadata/Items/Currency/CurrencyRerollRare"] = 1.0,                 // Chaos Orb
+        ["Metadata/Items/Currency/CurrencyModValues"] = 150.0,                // Divine Orb
+        ["Metadata/Items/Currency/CurrencyAddModToRare"] = 15.0,              // Exalted Orb
+        ["Metadata/Items/Currency/CurrencyDuplicate"] = 120_000.0,            // Mirror of Kalandra
+        ["Metadata/Items/Currency/CurrencyDuplicateShard"] = 6_000.0,         // Mirror Shard
+        ["Metadata/Items/Currency/CurrencyHinekorasLock"] = 12_000.0,         // Hinekora's Lock
+        ["Metadata/Items/Currency/CurrencyImprintOrb"] = 50_000.0,            // Eternal Orb
+        ["Metadata/Items/Currency/CurrencyAddModToMagic"] = 0.03,             // Orb of Augmentation
+        ["Metadata/Items/Currency/CurrencyUpgradeToMagic"] = 0.02,            // Orb of Transmutation
+        ["Metadata/Items/Currency/CurrencyRerollMagic"] = 0.1,                // Orb of Alteration
+        ["Metadata/Items/Currency/CurrencyUpgradeMagicToRare"] = 0.5,         // Regal Orb
+        ["Metadata/Items/Currency/CurrencyUpgradeToRare"] = 0.2,              // Orb of Alchemy
+        ["Metadata/Items/Currency/CurrencyUpgradeRandomly"] = 0.1,            // Orb of Chance
+        ["Metadata/Items/Currency/CurrencyConvertToNormal"] = 0.3,            // Orb of Scouring
+        ["Metadata/Items/Currency/CurrencyCorrupt"] = 0.5,                    // Vaal Orb
+        ["Metadata/Items/Currency/CurrencyRerollSocketLinks"] = 0.2,          // Orb of Fusing
+        ["Metadata/Items/Currency/CurrencyRerollSocketNumbers"] = 0.05,       // Jeweller's Orb
+        ["Metadata/Items/Currency/CurrencyRerollSocketColours"] = 0.08,       // Chromatic Orb
+        ["Metadata/Items/Currency/CurrencyPassiveRefund"] = 0.4,              // Orb of Regret
+        ["Metadata/Items/Currency/CurrencyAtlasPassiveRefund"] = 0.5,         // Orb of Unmaking
+        ["Metadata/Items/Currency/CurrencyRemoveMod"] = 10.0,                 // Orb of Annulment
+        ["Metadata/Items/Currency/CurrencyRerollImplicit"] = 0.2,             // Blessed Orb
+        ["Metadata/Items/Currency/CurrencyGemQuality"] = 1.0,                 // Gemcutter's Prism
+        ["Metadata/Items/Currency/CurrencyFlaskQuality"] = 0.5,               // Glassblower's Bauble
+        ["Metadata/Items/Currency/CurrencyMapQuality"] = 0.4,                 // Cartographer's Chisel
+        ["Metadata/Items/Currency/CurrencyArmourQuality"] = 0.02,             // Armourer's Scrap
+        ["Metadata/Items/Currency/CurrencyWeaponQuality"] = 0.02,             // Blacksmith's Whetstone
+        ["Metadata/Items/Currency/CurrencyIdentification"] = 0.005,           // Scroll of Wisdom
+        ["Metadata/Items/Currency/CurrencyPortal"] = 0.01,                    // Portal Scroll
+        ["Metadata/Items/Currency/CurrencyRerollMapType"] = 0.2,              // Orb of Horizons
+        ["Metadata/Items/Currency/CurrencyUpgradeMapTier"] = 2.0,             // Harbinger's Orb
+        ["Metadata/Items/Currency/CurrencyRerollUnique"] = 12.0,              // Ancient Orb
+        ["Metadata/Items/Currency/CurrencyFractureOrb"] = 600.0,              // Fracturing Orb
+        ["Metadata/Items/Currency/CurrencyVeiledOrb"] = 800.0,                // Veiled Orb
+        ["Metadata/Items/Currency/CurrencyRerollDefences"] = 50.0,            // Sacred Orb
+        ["Metadata/Items/Currency/CurrencyConflictOrb"] = 80.0,               // Orb of Conflict
+        ["Metadata/Items/Currency/CurrencyUpgradeInfluenceMod"] = 300.0,      // Orb of Dominance
+        ["Metadata/Items/Currency/CurrencyEnkindlingOrb"] = 0.3,              // Enkindling Orb
+        ["Metadata/Items/Currency/CurrencyInstillingOrb"] = 0.3,              // Instilling Orb
+        ["Metadata/Items/Currency/CurrencyStrongboxQuality"] = 0.25,          // Engineer's Orb
+    };
+
+    const string BaselineLeague = "Baseline";
+
+    ExchangeRates BaselineRates(ExchangeItems items)
+    {
+        lock (_ratesLock)
+        {
+            if (_baselinePrices is null)
+            {
+                var prices = new Dictionary<string, ExchangePrice>(StringComparer.Ordinal);
+                foreach (var row in items.ByHash.Values)
+                {
+                    double chaos = CoreBaselineChaos.TryGetValue(row.Id, out double fixedChaos)
+                        ? fixedChaos
+                        : row.ItemsPerGold
+                            ? Math.Max(0.01, 0.25 / Math.Max(1u, row.Fee))
+                            : Math.Clamp(row.Fee / 50.0, 0.25, 2_000.0);
+                    double volume = Math.Max(5_000.0, chaos * 50.0);
+                    prices[row.Id] = new ExchangePrice(chaos, volume);
+                }
+                _baselinePrices = prices;
+            }
+            return new ExchangeRates(Now, BaselineLeague, new Dictionary<string, Dictionary<string, ExchangePrice>>(StringComparer.Ordinal)
+            {
+                [ExchangeRates.Standard] = _baselinePrices,
+                [BaselineLeague] = _baselinePrices,
+            }, Hours: 1);
+        }
+    }
+
+    ExchangeRates? Rates(ExchangeItems items)
     {
         lock (_ratesLock)
         {
             var file = new FileInfo(RatesFile);
-            if (!file.Exists || file.LastWriteTimeUtc == _ratesWritten) return _rates;
+            if (!file.Exists) return _rates ?? BaselineRates(items);
+            if (file.LastWriteTimeUtc == _ratesWritten && _rates is not null) return _rates;
             try
             {
                 _rates = ExchangeRates.Parse(File.ReadAllText(RatesFile));
@@ -90,17 +167,17 @@ public sealed class CurrencyExchangeModule : IModule
             {
                 _module.Log($"{RatesFile} cannot be read, the rates stay as they were: {e.Message}");
             }
-            return _rates;
+            return _rates ?? BaselineRates(items);
         }
     }
 
-    /// <summary>The market this player trades on; null when there are no rates, or they are too old to trade at.</summary>
+    /// <summary>The market this player trades on; falls back to built-in baseline rates when no rates file is present.</summary>
     ExchangeMarket? MarketOf(IPlayer player)
     {
-        if (Rates() is not { } rates) return null;
-        var options = Options;
-        if (Now - rates.SourceHour > options.MaxRateAgeDays * 86400) return null;
         var items = ItemsOf(player);
+        if (Rates(items) is not { } rates) return null;
+        var options = Options;
+        if (rates.Current != BaselineLeague && Now - rates.SourceHour > options.MaxRateAgeDays * 86400) return null;
         var league = player.League == ExchangeRates.Standard ? options.StandardPrices : options.LeaguePrices;
         return rates.Prices(league == ExchangeRatesLeague.Standard) is { } prices
             ? new(rates, prices, hash => items.ByHash.TryGetValue(hash, out var row) ? row.Id : null, options.SpreadScale, options.VolumeShare,
@@ -160,18 +237,37 @@ public sealed class CurrencyExchangeModule : IModule
     {
         var items = ItemsOf(player);
         if (request.Want == request.Have || request.WantCount is 0 or >= 1_000_000 || request.HaveCount is 0 or >= 1_000_000
-            || !items.ByHash.TryGetValue(request.Want, out var want) || !items.ByHash.ContainsKey(request.Have)) return;
+            || !items.ByHash.TryGetValue(request.Want, out var want) || !items.ByHash.ContainsKey(request.Have))
+        {
+            await player.Send(Wire.Error(Wire.ErrorInvalidRequest), "0x02f9 Currency Exchange invalid request");
+            return;
+        }
         if (MarketOf(player) is not { } market || market.Trade(request.Want, request.Have) is null)
         {
+            await player.Send(Wire.Error(Wire.ErrorMarketDisabled), "0x02f9 Currency Exchange market unavailable");
             await player.Tell("Currency Exchange: there is no market for these two items.");
             return;
         }
         uint divisor = (uint)BigInteger.GreatestCommonDivisor(request.WantCount, request.HaveCount);
         uint ratioWant = request.WantCount / divisor, ratioHave = request.HaveCount / divisor;
-        if (ratioWant > ExchangeRatio.Max || ratioHave > ExchangeRatio.Max) return;
-        if (BookOf(player).Orders.Count >= Options.OrderSlots) return;
+        if (ratioWant > ExchangeRatio.Max || ratioHave > ExchangeRatio.Max)
+        {
+            await player.Send(Wire.Error(Wire.ErrorInvalidRequest), "0x02f9 Currency Exchange ratio out of range");
+            return;
+        }
+        if (BookOf(player).Orders.Count >= Options.OrderSlots)
+        {
+            await player.Send(Wire.Error(Wire.ErrorTooManyOrders), "0x02f9 Currency Exchange too many orders");
+            await player.Tell("Currency Exchange: maximum number of active orders reached.");
+            return;
+        }
         ulong fee = FeeOf(want), gold = want.ItemsPerGold ? (request.WantCount + fee - 1) / fee : request.WantCount * fee;
-        if (gold > uint.MaxValue) return;
+        if (gold > uint.MaxValue)
+        {
+            await player.Send(Wire.Error(Wire.ErrorGenericOrderFailure), "0x02f9 Currency Exchange gold fee overflow");
+            await player.Tell("Currency Exchange: not enough gold.");
+            return;
+        }
 
         ExchangeOrder? placed = null;
         var filled = new List<ExchangeOrder>();
@@ -189,7 +285,27 @@ public sealed class CurrencyExchangeModule : IModule
         }), $"Currency Exchange order, {gold} gold");
         if (!paid)
         {
-            await player.Tell("Currency Exchange: not enough currency or gold.");
+            var conn = ConnOf(player);
+            var stash = PersonalStashOf(conn);
+            var inv = global::Game.ItemsOf(conn);
+            bool enoughGold = stash.Gold >= gold;
+            long ownedHave = (long)inv.Count(PlayerInventories.MainInventory, request.Have) + stash.CountOf(request.Have);
+            bool enoughCurrency = ownedHave >= request.HaveCount;
+            if (!enoughCurrency && enoughGold)
+            {
+                await player.Send(Wire.Error(Wire.ErrorCouldNotFindSellItems), "0x02f9 Currency Exchange insufficient currency");
+                await player.Tell("Currency Exchange: not enough currency.");
+            }
+            else if (!enoughGold && enoughCurrency)
+            {
+                await player.Send(Wire.Error(Wire.ErrorGenericOrderFailure), "0x02f9 Currency Exchange insufficient gold");
+                await player.Tell($"Currency Exchange: not enough gold (need {gold}, have {stash.Gold}).");
+            }
+            else
+            {
+                await player.Send(Wire.Error(Wire.ErrorGenericOrderFailure), "0x02f9 Currency Exchange insufficient currency and gold");
+                await player.Tell("Currency Exchange: not enough currency or gold.");
+            }
             return;
         }
         // He is already speaking, of the placing: what completed now only has its notification.
@@ -258,8 +374,57 @@ public sealed class CurrencyExchangeModule : IModule
         bool bought = claim.Side == 1;
         uint item = bought ? order.Want : order.Have, amount = bought ? order.ClaimWant : order.ClaimHave;
         if (amount == 0) return;
+
+        var conn = ConnOf(player);
+        var catalogType = ItemsFor(conn).ByHash(item);
+        int maxStack = Math.Max(1, (int)(catalogType?.MaxStack ?? 1));
+
+        if (claim.ToCursor)
+        {
+            if (catalogType is null) return;
+            var inv = global::Game.ItemsOf(conn);
+            InventoryItem? removedCursor = null, addedCursor = null;
+            ExchangeOrder? cursorOrder = null;
+            bool committed = Saves.Atomically(() =>
+            {
+                var held = inv.Items(PlayerInventories.Cursor).FirstOrDefault();
+                if (held is not null && (held.Item.TypeHash != item || held.Item.StackSize >= maxStack)) return false;
+                int room = held is null ? maxStack : maxStack - held.Item.StackSize;
+                int take = (int)Math.Min(amount, (uint)room);
+                if (take <= 0) return false;
+                if (!Save(player, book =>
+                {
+                    if (book.Orders.Find(o => o.Id == claim.Order) is not { } saved) return;
+                    if (bought) saved.ClaimWant -= (uint)take;
+                    else saved.ClaimHave -= (uint)take;
+                    cursorOrder = saved;
+                    Forget(book, saved);
+                }) || cursorOrder is null) return false;
+                if (held is null)
+                {
+                    var created = ItemCatalog.Create(catalogType) with { StackSize = (ushort)take };
+                    addedCursor = inv.Add(PlayerInventories.Cursor, 0, 0, created);
+                }
+                else
+                {
+                    removedCursor = held;
+                    addedCursor = inv.Change(PlayerInventories.Cursor, held.Id,
+                        cur => cur with { StackSize = (ushort)(cur.StackSize + take) });
+                }
+                return addedCursor is not null;
+            });
+            if (!committed || addedCursor is null) return;
+            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                inv.NextRevision(PlayerInventories.Cursor), removedCursor is null ? [] : [removedCursor.Id], [addedCursor]),
+                $"0x00bf cursor: Currency Exchange claim x{addedCursor.Item.StackSize}");
+            if (cursorOrder is not null) await SendOrder(player, cursorOrder, "claimed to cursor");
+            return;
+        }
+
+        // Ctrl+left-click (PressKind == 1) takes one stack to inventory; Ctrl+right-click (PressKind == 0) takes all stacks.
+        uint wanted = claim.PressKind == 0 ? amount : Math.Min(amount, (uint)maxStack);
         ExchangeOrder? changed = null;
-        int placed = await WorldOf(player).ReceiveCurrency(item, (int)amount, into => Save(player, book =>
+        int placed = await WorldOf(player).ReceiveCurrency(item, (int)wanted, into => Save(player, book =>
         {
             if (book.Orders.Find(o => o.Id == claim.Order) is not { } saved) return;
             if (bought) saved.ClaimWant -= (uint)into;
@@ -267,7 +432,7 @@ public sealed class CurrencyExchangeModule : IModule
             changed = saved;
             Forget(book, saved);
         }), "Currency Exchange claim");
-        if (placed < amount) await player.Tell("Currency Exchange: not enough room in the inventory.");
+        if (placed < wanted) await player.Tell("Currency Exchange: not enough room in the inventory.");
         if (changed is not null) await SendOrder(player, changed, "claimed");
     }
 
