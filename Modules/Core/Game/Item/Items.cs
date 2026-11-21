@@ -662,7 +662,8 @@ public static partial class Game
         return size switch { 2 => 2, 1 => 1, _ => 0 };
     }
 
-    /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
+    /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a
+    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
     /// one of the sockets that jewel has. The tree socket must be allocated for the jewel to be there at all, which the
     /// socketing path already checks.</summary>
     public static bool ClusterSlotOpen(ClientState conn, int cell)

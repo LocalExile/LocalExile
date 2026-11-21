@@ -44,7 +44,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   2), one per account until there are guilds (verified live).
   Code: `AccountStash.cs`, `StashCatalog.cs`, `InstanceStash.cs`, Gateway (`OpenStash`, `SendStashTab`).
   Docs: [18](../docs/protocol/18-stash.md).
-- **Fast stash opens.** Area entry preloads only the tabs with shop currency (`PreloadsForPrices`); other tabs load
+- **Stash loading and manual placement.** Area entry preloads only the tabs with shop currency (`PreloadsForPrices`); other tabs load
   lazily on first click (`C→S 0xc7`) and stay registered for the connection so revisited cached pages accept manual
   placement without showing a red overlay.
   `SendTabChange`/`EnsureTabLoaded` registers unopened tabs before `0xbf` (affinity deposits and Map/Unique children).

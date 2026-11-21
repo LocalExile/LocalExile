@@ -96,6 +96,9 @@ public sealed class DiscordBugReportFixesTests : IDisposable
             Assert.Null(Game.PassiveJewelRefusal(conn, 20, 0, validMedium));
             Game.ItemsOf(conn).Add(PlayerInventories.PassiveJewels, 20, 0, validMedium);
             Assert.True(Game.ClusterSlotOpen(conn, 51));
+            var layout = ClusterJewelLayout.For(20, validMedium)!;
+            Assert.True(Game.ClusterNodeExists(conn, (ushort)(layout.Base + layout.EntryOffset)));
+            Assert.False(Game.ClusterNodeExists(conn, Game.MaxClusterNodeId));
             // Nested cluster jewel must be strictly smaller than its parent (Small fits inside Medium, another Medium does not).
             var smallCluster = ClusterJewels.Create(items.Find("Small Cluster Jewel")!, null, 3, 0)!;
             Assert.Null(Game.PassiveJewelRefusal(conn, 51, 0, smallCluster));

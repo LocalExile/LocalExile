@@ -1827,13 +1827,11 @@ public static partial class Game
     public static async Task ChangeClusterPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort node, bool allocate)
     {
-        bool socketed = false;
         bool changed = false;
         string? refusal = null;
         lock (conn.Monsters)
         {
-            socketed = ClusterJewelSocketed(conn);
-            if (!socketed) refusal = "no cluster jewel socketed";
+            if (!ClusterJewelSocketed(conn)) refusal = "no cluster jewel socketed";
             else if (node > MaxClusterNodeId) refusal = "not a cluster node id";
             else
             {
@@ -1844,6 +1842,7 @@ public static partial class Game
                     int unspent = points + PassivesFor(conn).PointsGranted(nodes) + AscendancyOrdinaryPoints(conn)
                         - nodes.Count - conn.ClusterPassives.Count;
                     if (unspent <= 0) refusal = "no passive skill points remaining";
+                    else if (!ClusterNodeExists(conn, node)) refusal = "node absent from socketed cluster jewels";
                     else if (conn.ClusterPassives.Count >= ClusterNodeBudget(conn)) refusal = "cluster jewel passive budget reached";
                 }
                 if (refusal is null)
@@ -1869,6 +1868,19 @@ public static partial class Game
         // A cluster's passives give their stats only when the whole cluster is allocated (ClusterJewelStats), so the
         // node that completes it must refresh the character's stats as well as the tree.
         await SendPassiveJewelStats(remote, stream, ciphers, conn);
+    }
+
+    public static bool ClusterNodeExists(ClientState conn, ushort node)
+    {
+        foreach (var jewel in ItemsOf(conn).Items(PlayerInventories.PassiveJewels))
+        {
+            if (ClusterSize(jewel.Item) is null) continue;
+            if (Passives.JewelNodeForSlot(jewel.X) is null && !ClusterSlotOpen(conn, jewel.X)) continue;
+            // An unmeasured layout still uses the existing point and jewel budget checks.
+            if (ClusterJewelLayout.For(jewel.X, jewel.Item) is not { } layout
+                || layout.ByOffset.ContainsKey(node - layout.Base)) return true;
+        }
+        return false;
     }
 
     /// <summary>The largest cluster jewel node id the client sends with the expansion flag: its own layout index, well

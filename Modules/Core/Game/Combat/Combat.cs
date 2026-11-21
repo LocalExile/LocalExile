@@ -2361,12 +2361,13 @@ public static partial class Game
             double reachLimit = wave ? waveLength : fissure ? Dist(from, end) : radius;
             // Ice Nova of Frostbolts expands from up to N active player Frostbolt projectiles near the aimed point,
             // with its native damage multiplier, instead of only expanding once around the caster.
-            List<(int X, int Y)> centres = [centre];
-            if (frostboltCap > 0)
+            List<(int X, int Y)>? centres = null;
+            if (frostboltCap > 0 && conn.ProjectileRuntime is { Active: true } session)
             {
-                var frostbolts = ProjectilesFor(remote, stream, ciphers, conn).Runtime.Projectiles
+                var frostbolts = session.Runtime.Projectiles
                     .Where(p => p.Use.Owner.Id == PlayerId
-                        && p.Profile.Id.Contains("FrostBolt", StringComparison.OrdinalIgnoreCase))
+                        && p.Use.Payload is ProjectileOffense { FromTotem: false, FromTrapOrMine: false } shot
+                        && SkillsFor(conn).EffectId(shot.Effect) is "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale")
                     .Select(p => (X: (int)Math.Round(p.Position.X), Y: (int)Math.Round(p.Position.Y)))
                     .Where(p => Dist(to, p) <= Math.Max(60, radius + 30))
                     .OrderBy(p => Dist(to, p))
@@ -2378,15 +2379,16 @@ public static partial class Game
                     frostboltMore = Math.Max(0, 1 + Stat("ice_nova_damage_when_cast_on_frostbolt_+%_final") / 100.0);
                 }
             }
-            var found = centres.SelectMany(c => conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
+            IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
+                conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: fissure
                     ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
                     && e.Distance <= reachLimit
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
-                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))))
-                .ToList();
+                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)));
+            var found = (centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt)).ToList();
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
             if (ring || wave || fissure)

@@ -554,7 +554,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
 public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort Skill)
 {
     public double NextVolley;
-    public int ManaPerMinute;
+    public int CostPerMinute;
+    public bool PaysLife, OutOfLife;
+    public double LifeCostCarry;
     public bool Ended;
     public readonly Queue<(uint Id, double Landed, double Gone)> Blades = new();
 }

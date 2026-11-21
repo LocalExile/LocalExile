@@ -271,10 +271,10 @@ public static partial class Game
             if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
             if (NativeProjectileTotem(conn, effect) && seconds > 0)
             {
-                int groundRadius = SkillRadius(conn, 14, own, spell: true, effect);
+                int groundRadius = SkillRadius(conn, 16, own, spell: true, effect);
                 conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, place.X, place.Y, groundRadius,
                     AreaTime(conn) + seconds, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, place, groundRadius),
-                    ConsecratedEnemyDamageTakenNow(conn)));
+                    ConsecratedEnemyDamageTakenNow(conn)) { SourceAlive = placed.Alive, GrantsCurseImmunity = Get("consecrated_ground_immune_to_curses") != 0 });
             }
             TotemRecords(conn, bytes);
             Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "

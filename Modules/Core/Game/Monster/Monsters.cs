@@ -2131,11 +2131,12 @@ public static partial class Game
                 paused = conn.Paused;
                 now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
                 frozen = MonsterActionFactor(m, now) == 0;
-                if (!paused && !frozen && now < sweepEnd && !InGracePeriod(conn))
+                if (!paused && !frozen && now < sweepEnd)
                 {
                     double t = Math.Clamp((now - sweepStart) / Math.Max(0.01, sweepEnd - sweepStart), 0, 1);
                     angle = startAngle + SweepRadians * t;
-                    if (conn.Golems.All.Count + conn.Reservations.Fighters.Count + conn.Summons.Fighters.Count > 0)
+                    bool protectedByGrace = InGracePeriod(conn);
+                    if (!protectedByGrace && conn.Golems.All.Count + conn.Reservations.Fighters.Count + conn.Summons.Fighters.Count > 0)
                     {
                         minionAttack ??= a with { Damage = a.Damage.Scale(MinionDamageFactor) };
                         foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).ToArray())
@@ -2148,7 +2149,7 @@ public static partial class Game
                             if (GolemTakeHitLocked(conn, golem, id, m, minionAttack, now, area: true)) minionHit = true;
                         }
                     }
-                    if (now >= nextPlayerHit && InSweptBeam(origin, conn.Walk.Position(now), prevAngle, angle, Length, HalfWidth))
+                    if (!protectedByGrace && now >= nextPlayerHit && InSweptBeam(origin, conn.Walk.Position(now), prevAngle, angle, Length, HalfWidth))
                         shouldHitPlayer = true;
                 }
             }
@@ -2163,8 +2164,8 @@ public static partial class Game
                 if (await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
                 {
                     if (InGracePeriod(conn)) return null;
-                    double hitNow = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
-                    if (MonsterActionFactor(m, hitNow) == 0 || hitNow < nextPlayerHit) return null;
+                    double hitNow = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
+                    if (hitNow >= sweepEnd || MonsterActionFactor(m, hitNow) == 0 || hitNow < nextPlayerHit) return null;
                     var here = conn.Walk.Position(hitNow);
                     if (!InSweptBeam(origin, here, hitFrom, hitTo, Length, HalfWidth)) return null;
                     nextPlayerHit = hitNow + HitCooldown;

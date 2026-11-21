@@ -215,7 +215,7 @@ public static class BossKits
                 : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
         if (projectile is not null && !spell && reach < 45)
-            reach = Math.Max(reach, Math.Min(Math.Max(variety.AggroRange, 45), 45));
+            reach = 45;
         var summon = catalog.MonsterSummon(effect, actorLevel);
         bool dualWielding = variety.Weapons.Any(l => l.Slot == 1 && l.Stance is not (9 or 10));
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
@@ -282,7 +282,7 @@ public static class BossKits
             anyMelee ??= melee ? entry.Attack : null;
             anyAllowed ??= entry.Attack;
         }
-        return anyNoCooldown ?? anyMelee ?? anyAllowed ?? monster.Attack;
+        return anyNoCooldown ?? anyMelee ?? anyAllowed;
     }
 
     /// <summary>Records the swing just ordered: the skill it used goes on cooldown, and even one without a cooldown

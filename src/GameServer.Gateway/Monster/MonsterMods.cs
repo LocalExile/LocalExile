@@ -198,7 +198,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 
     /// <summary>The attack time with a skill's own increased and more/less attack speed modifiers.</summary>
     public double AttackSeconds(double baseSeconds, int skillIncreasedPct, int skillMorePct) => baseSeconds
-        / Math.Max(0.1, 1 + (this["attack_speed_+%"] + this["attack_and_cast_speed_+%"] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + (this["attack_speed_+%"] + skillIncreasedPct) / 100.0)
         / Math.Max(0.1, 1 + skillMorePct / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 

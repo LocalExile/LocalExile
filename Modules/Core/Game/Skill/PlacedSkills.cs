@@ -156,6 +156,7 @@ public static partial class Game
     static PlacedSkills.DamageSnapshot? CapturePlacedDamage(ClientState conn, ushort skill, SupportedGem gem)
     {
         if (SupportedHitInputsFor(conn, skill, capturedGem: gem) is not { } inputs) return null;
+        inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
         bool spell = !inputs.Attack;
         long additionalIncreased = inputs.Get(PlayerHitDamage.VsBlindedDamageStat);
         PlacedSkills.DamageProfile Profile(long increased) => new(
@@ -576,8 +577,7 @@ public static partial class Game
         }
         if (GolemStat(placed.Own, "base_fire_damage_to_deal_per_minute") > 0)
         {
-            var playerSources = CharacterPlayerStats(conn);
-            int Get(string n) => GolemStat(placed.Own, n) + GolemStat(playerSources, n);
+            int Get(string n) => GolemStat(placed.Own, n) + GolemStat(player, n);
             double increased = new[] { "damage_+%", "fire_damage_+%", "elemental_damage_+%", "damage_over_time_+%",
                 "fire_damage_over_time_+%", "burn_damage_+%", "area_damage_+%" }.Sum(Get);
             if (Get("spell_damage_modifiers_apply_to_skill_dot") != 0) increased += Get("spell_damage_+%");
@@ -586,11 +586,11 @@ public static partial class Game
                 .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(n) / 100d));
             double dps = Get("base_fire_damage_to_deal_per_minute") / 60d * Math.Max(0, 1 + increased / 100d)
                 * Math.Max(0, 1 + (Get("dot_multiplier_+") + Get("fire_dot_multiplier_+")) / 100d) * groundMore;
-            var damage = new SkillDamageContext(SkillHitKind.Spell, playerSources)
+            var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(player))
                 .OverTime(new(DamageType.Fire, dps, 1));
             int baseDuration = Get("base_skill_effect_duration");
             double seconds = SkillDurationModifiers.Seconds(baseDuration > 0 ? baseDuration : 1750,
-                n => GolemStat(playerSources, n), n => GolemStat(placed.Own, n), DurationKinds(conn, placed.Effect));
+                n => GolemStat(player, n), n => GolemStat(placed.Own, n), DurationKinds(conn, placed.Effect));
             conn.Placed.Grounds.Add(new(placed.Id, placed.Skill, placed.At, radius, damage.DamagePerSecond, now + seconds, now));
         }
     }
@@ -613,6 +613,7 @@ public static partial class Game
     static void PlacedGroundRecordsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, double now, WorldRecordBuilder bytes)
     {
+        if (conn.Placed.Grounds.Count == 0) return;
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.
         foreach (var (id, monster) in conn.Monsters.ToArray())
         {

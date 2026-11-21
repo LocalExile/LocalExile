@@ -84,25 +84,28 @@ public static partial class Game
             foreach (var ground in state.Expire(now))
                 if (ground.Object is uint obj) pending.Packets.Add(new(InstanceProtocol.RemoveObject(obj),
                     $"0x02bd remove effect 0x{obj:x} ({ground.Kind} ends)", WorldId: obj, RemovesObject: true));
-            foreach (uint gone in state.BlindedMonsters().Except(conn.Monsters.Keys)) state.SetBlinded(gone, false, () => 0);
-            foreach (uint gone in state.ProfaneMonsters().Except(conn.Monsters.Keys))
-                state.SetProfane(gone, false, false, now, () => 0);
-            foreach (var (id, monster) in conn.Monsters)
+            if (state.NeedsMonsterUpdates)
             {
-                bool inside = monster.Hostile && !monster.Dead && monster.Life > 0 && monster.Mods.Effects["cannot_be_blinded"] == 0
-                    && state.Covers(FlaskGrounds.Kind.SmokeCloud, monster.Walk.Position(now));
-                if (state.SetBlinded(id, inside, () => conn.NextBuff++) is { } change)
-                    pending.Packets.Add(new(change.Added
-                        ? InstanceEntities.AddBuff(id, change.Buff, FlaskGrounds.BlindedBuffRow, PlayerId)
-                        : InstanceEntities.RemoveBuff(id, change.Buff),
-                        $"0x{(change.Added ? "01c1" : "01c2")} monster 0x{id:x} {(change.Added ? "blinded in the smoke cloud" : "no longer blinded")}", WorldId: id));
-                bool aliveMonster = monster.Hostile && !monster.Dead && monster.Life > 0;
-                bool inProfane = aliveMonster && state.Covers(FlaskGrounds.Kind.ProfaneGround, monster.Walk.Position(now));
-                if (state.SetProfane(id, inProfane, aliveMonster, now, () => conn.NextBuff++) is { } profane)
-                    pending.Packets.Add(new(profane.Added
-                        ? InstanceEntities.AddBuff(id, profane.Buff, FlaskGrounds.ProfaneBuffRow, PlayerId)
-                        : InstanceEntities.RemoveBuff(id, profane.Buff),
-                        $"profane ground monster 0x{id:x}: {profane.Added}", WorldId: id));
+                foreach (uint gone in state.BlindedMonsters().Except(conn.Monsters.Keys)) state.SetBlinded(gone, false, () => 0);
+                foreach (uint gone in state.ProfaneMonsters().Except(conn.Monsters.Keys))
+                    state.SetProfane(gone, false, false, now, () => 0);
+                foreach (var (id, monster) in conn.Monsters)
+                {
+                    bool inside = monster.Hostile && !monster.Dead && monster.Life > 0 && monster.Mods.Effects["cannot_be_blinded"] == 0
+                        && state.Covers(FlaskGrounds.Kind.SmokeCloud, monster.Walk.Position(now));
+                    if (state.SetBlinded(id, inside, () => conn.NextBuff++) is { } change)
+                        pending.Packets.Add(new(change.Added
+                            ? InstanceEntities.AddBuff(id, change.Buff, FlaskGrounds.BlindedBuffRow, PlayerId)
+                            : InstanceEntities.RemoveBuff(id, change.Buff),
+                            $"0x{(change.Added ? "01c1" : "01c2")} monster 0x{id:x} {(change.Added ? "blinded in the smoke cloud" : "no longer blinded")}", WorldId: id));
+                    bool aliveMonster = monster.Hostile && !monster.Dead && monster.Life > 0;
+                    bool inProfane = aliveMonster && state.Covers(FlaskGrounds.Kind.ProfaneGround, monster.Walk.Position(now));
+                    if (state.SetProfane(id, inProfane, aliveMonster, now, () => conn.NextBuff++) is { } profane)
+                        pending.Packets.Add(new(profane.Added
+                            ? InstanceEntities.AddBuff(id, profane.Buff, FlaskGrounds.ProfaneBuffRow, PlayerId)
+                            : InstanceEntities.RemoveBuff(id, profane.Buff),
+                            $"profane ground monster 0x{id:x}: {profane.Added}", WorldId: id));
+                }
             }
             bool alive = conn.PlayerLife > 0;
             var here = conn.Walk.Position(now);
@@ -112,6 +115,7 @@ public static partial class Game
             if (make > 0) state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
                 double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make),
                 ConsecratedEnemyDamageTakenNow(conn)));
+            bool wasCurseImmune = state.CurseImmune;
             if (state.SetConsecrated(state.OnConsecrated(alive, here, now), () => conn.NextBuff++) is { } consecrated)
             {
                 pending.Packets.Add(new(consecrated.Added
@@ -120,6 +124,7 @@ public static partial class Game
                     $"0x{(consecrated.Added ? "01c1" : "01c2")} player {(consecrated.Added ? "on" : "off")} consecrated ground", WorldId: PlayerId));
                 pending.StatRevision++;
             }
+            else if (wasCurseImmune != state.CurseImmune) pending.StatRevision++;
             state.StopTickerIfIdle();
         }
     }
