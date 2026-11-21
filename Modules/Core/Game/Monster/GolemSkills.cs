@@ -3,6 +3,10 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    const int ZombieSlamEffect = 5590;
+    const string ZombieSlamDamage = "zombie_slam_damage_+%";
+    const string ZombieSlamCooldown = "zombie_slam_cooldown_speed_+%";
+
     public static bool GolemSummonedInPastEightSeconds(GolemState.Golem golem, double at) =>
         golem.Definition.IsGolem && at >= golem.SummonedAt && at - golem.SummonedAt < 8;
 
@@ -189,6 +193,9 @@ public static partial class Game
         int Own(string name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
+            bool zombieSlam = effect == ZombieSlamEffect && golem.Definition.Kind == "Zombie";
+            int slamDamage = zombieSlam ? GolemStat(player, ZombieSlamDamage) : 0;
+            int slamCooldown = zombieSlam ? GolemStat(player, ZombieSlamCooldown) : 0;
             var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
             if (effect == 306)
             {
@@ -276,7 +283,7 @@ public static partial class Game
             {
                 if (effect == 306 && path.Type != prismatic) continue;
                 if (GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
-                double increase = mods["damage_+%"] + (spell ? mods["spell_damage_+%"] : mods["attack_damage_+%"])
+                double increase = slamDamage + mods["damage_+%"] + (spell ? mods["spell_damage_+%"] : mods["attack_damage_+%"])
                     + (Raw("is_area_damage") != 0 ? mods["area_damage_+%"] : 0);
                 foreach (var type in DamageTypes.ConversionOrder)
                     if ((path.History & DamageTypes.HistoryOf(type)) != 0) increase += mods[type.ToString().ToLowerInvariant() + "_damage_+%"];
@@ -310,11 +317,13 @@ public static partial class Game
                 projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
-                (GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);
+                (slamCooldown + GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);
             var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
                 Math.Clamp(contact?.Fraction ?? .5, .05, 1), projectile, crit);
             result.Add(ability);
-            int AilmentStat(string name) => mods[name] + Raw(name) + (name == "critical_ailment_dot_multiplier_+" ? 50 : 0);
+            int AilmentStat(string name) => mods[name] + Raw(name)
+                + (name == "critical_ailment_dot_multiplier_+" ? 50 : 0)
+                + (name == "damage_+%" ? slamDamage : 0);
             string hand = spell ? "spell" : "main_hand";
             var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
             var ignite = MonsterIgnites.Settings.From(rows, hand, AilmentStat);
@@ -375,6 +384,11 @@ public static partial class Game
         foreach (var p in player.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stats.Key("dexterity") is uint dexKey) hash.Add((dexKey, player.GetValueOrDefault(dexKey)));
+        if (golem.Definition.Kind == "Zombie")
+        {
+            hash.Add(GolemStat(player, ZombieSlamDamage));
+            hash.Add(GolemStat(player, ZombieSlamCooldown));
+        }
         hash.Add(OwnerMaximumPowerCharges(player));
         int inheritedCoefficient = GolemStat(player, "minions_gain_x_percent_of_your_resistances");
         GolemOwnerResistances? ownerResistances = inheritedCoefficient == 0 ? null : GolemOwnerResistancesFor(conn);
