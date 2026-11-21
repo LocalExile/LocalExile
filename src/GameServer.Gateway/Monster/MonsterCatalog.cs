@@ -91,6 +91,14 @@ public sealed class MonsterCatalog(string folder = "data")
 
     private readonly Lazy<Dictionary<string, int?>?> _corpse = new(LoadCorpse);
 
+    /// <summary>The variety's DeathFromDegen clip clears the body at another time than its Death clip (client.db's
+    /// monster_takehit death_unblockByKind_DeathFromDegen: five Faridun Flesh Hulks, 166 ms against 150).</summary>
+    public bool DegenDeathClipDiffers(string id) => _degenDeath.Value.Contains(id);
+
+    private readonly Lazy<HashSet<string>> _degenDeath = new(() =>
+        [.. ClientTables.TableOrEmpty("monster_takehit").Where(r => !r.IsNull("death_unblockByKind_DeathFromDegen"))
+            .Select(r => r.Text("variety")!)]);
+
     static Dictionary<string, int?>? LoadCorpse()
     {
         if (ClientTables.TableOrNull("monster_takehit") is not { } table) return null;
@@ -288,6 +296,7 @@ public sealed class MonsterCatalog(string folder = "data")
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
+        var chains = new Dictionary<string, string[]>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
         var blocking = new Dictionary<string, bool>();
         var phasing = new HashSet<string>();
@@ -300,6 +309,7 @@ public sealed class MonsterCatalog(string folder = "data")
             {
                 string type = t.Text("type")!;
                 components[type] = ObjectTypes.Components(t);
+                chains[type] = t.Texts("chain");
                 if (ObjectTypes.Flag(t, "positioned_blocking") is bool block) blocking[type] = block;
                 if (t.BoolOrNull("phases") == true) phasing.Add(type);
                 if (t.BoolOrNull("immobile") == true) immobile.Add(type);
@@ -320,6 +330,7 @@ public sealed class MonsterCatalog(string folder = "data")
         static int Column(ClientRow row, string name) =>
             (row.IntOrNull(name) ?? 0);
         var (visualHashes, classStances) = WeaponTables();
+        const byte noWeaponType = 0x68, noStance = 0xff;
         int bowClass = ClientTables.Has("ItemClasses")
             ? Array.FindIndex(ClientTables.Table("ItemClasses").ToArray(), r => r.Text("Id") == "Bow") : -1;
         IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
@@ -332,9 +343,23 @@ public sealed class MonsterCatalog(string folder = "data")
                 if (visual < visualHashes.Count && type < classStances.Count && type < 255)
                     held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
             }
+            void Visual(byte slot, int visual)
+            {
+                if (visual >= 0 && visual < visualHashes.Count)
+                    held.Add(new(slot, visualHashes[visual], noStance, noWeaponType));
+            }
             bool bow = bowClass >= 0 && row.IntOrNull("MainHand_ItemClassesKey") == bowClass;
-            Hold(0, bow ? "Weapon2_ItemVisualIdentityKeys" : "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
-            Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+            Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
+            if (bow)
+            {
+                // Bow monsters use the same model-slot layout as bow players (13-items.md "Bow model records"):
+                // slot 0 carries the right-hand arrow visual with the Bow class/stance, slot 1 carries the left-hand
+                // held bow, and slot 7 carries the back quiver.
+                Visual(1, row.Ints("Weapon2_ItemVisualIdentityKeys").FirstOrDefault(-1));
+                if (row.IntOrNull("Back_ItemVisualIdentityKey") is int back) Visual(7, back);
+            }
+            else
+                Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
             return held;
         }
         var rows = new List<Variety>();
@@ -350,6 +375,17 @@ public sealed class MonsterCatalog(string folder = "data")
                 // for the task count: "Buffer Underflow" (live 2026-10-30). 17 varieties serialise differently that way.
                 string type = components.ContainsKey(id) ? id : baseType;
                 string? ao = r.Texts("AOFiles").FirstOrDefault();
+                // The add-on types (AddonMonsterTypeIndex) join the client's type after the base: their shared states and
+                // timers follow the base's in the StateMachine data. Without them a Coconut Crab (add-on
+                // DeepwaterBaseWaveOnly: state size, timer despawn) gave "Buffer Underflow" (live 2026-11-19, the client
+                // read wave_monster, size and one timer). Add-on components are not merged (not traced). An add-on the type
+                // already inherits adds nothing (Abberath2Gauntlet lists itself).
+                var machine = stateMachines.GetValueOrDefault(type);
+                var chain = chains.GetValueOrDefault(type) ?? [];
+                foreach (string addon in r.Texts("AddonMonsterTypeIndex"))
+                    if (machine is not null && addon != type && !chain.Contains(addon) && stateMachines.GetValueOrDefault(addon) is { } extra)
+                        machine = new StateMachineData([.. machine.SharedStates, .. extra.SharedStates], machine.SharedTimers + extra.SharedTimers,
+                            [.. machine.Names ?? machine.SharedStates.Select(_ => ""), .. extra.Names ?? extra.SharedStates.Select(_ => "")]);
                 int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
                     .SelectMany(r.Ints)
                     .Distinct().ToArray();
@@ -357,7 +393,7 @@ public sealed class MonsterCatalog(string folder = "data")
                     components.Count == 0 ? null : components.GetValueOrDefault(type),
                     r.Int("LifeMultiplier"),
                     !r.IsNull("MonsterTypesKey") ? r.Int("MonsterTypesKey") : -1,
-                    stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
+                    machine, transitionStates.GetValueOrDefault(type, (byte)1),
                     r.Int("MovementSpeed"), r.Int("ObjectSize"), r.Int("MaxAgroRange"),
                     [.. r.Ints("GrantedEffectsKeys")],
                     r.Int("AttackSpeed"), r.Int("MaximumAttackDistance"),

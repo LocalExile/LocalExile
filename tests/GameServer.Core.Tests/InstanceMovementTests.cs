@@ -109,6 +109,27 @@ public class InstanceMovementTests
         Assert.Equal(lockstep, InstanceProtocol.IsLockstepMovement(id));
 
     [Fact]
+    public void Retarget_action_frames_six_bytes_decodes_big_endian_target_and_preserves_trailing_messages()
+    {
+        Assert.Equal((ushort)0x0193, InstanceProtocol.RetargetActionId);
+        Assert.Equal(6, InstanceProtocol.RetargetActionLength);
+        Assert.Equal(6, InstanceProtocol.KnownClientLength(InstanceProtocol.RetargetActionId));
+        Assert.False(InstanceProtocol.IsLockstepRequest(InstanceProtocol.RetargetActionId));
+
+        byte[] retarget = Convert.FromHexString("019380003001");
+        Assert.Equal(0x80003001u, InstanceProtocol.ReadRetargetAction(retarget));
+
+        byte[] chunk = [.. retarget, .. Convert.FromHexString("001B0046997F00"), .. Convert.FromHexString("01970000006400000078")];
+        var msgs = InstanceProtocol.SplitClientMessages(chunk, out byte[] partial, out byte[] unknown);
+        Assert.Equal(new ushort[] { InstanceProtocol.RetargetActionId, InstanceProtocol.TickId, InstanceProtocol.ChannelUpdateId },
+            msgs.Select(m => m.Id));
+        Assert.Equal(new[] { 6, 7, 10 }, msgs.Select(m => m.Bytes.Length));
+        Assert.Equal(0x80003001u, InstanceProtocol.ReadRetargetAction(msgs[0].Bytes));
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+    }
+
+    [Fact]
     public void Splitter_frames_known_messages_and_keeps_partials()
     {
         // 0x0099, the two chat channel joins and 0x0129, then a tick, as one live chunk; then a tick cut in two.

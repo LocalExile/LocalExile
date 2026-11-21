@@ -65,6 +65,9 @@ public sealed class LoginWriter
     }
 }
 
+/// <summary>Result of measuring a variable-length wire field without allocating or throwing.</summary>
+public enum WireMeasure { Ok, Incomplete, Invalid }
+
 /// <summary>
 /// Reads login-connection fields. Like the client's receive stream (0x140df9ed0, flag +0x252), running out of data
 /// does not throw: <see cref="Short"/> is set and defaults are returned, so the caller can wait for more bytes.
@@ -136,5 +139,58 @@ public ref struct LoginReader(ReadOnlySpan<byte> buf)
             else throw new InvalidDataException("Protocol violation reading wstring from the network");
         }
         return Short ? "" : sb.ToString();
+    }
+
+    /// <summary>
+    /// Measures a compact wide string (<see cref="WStr"/>) at the start of <paramref name="data"/> without allocating or
+    /// throwing. Distinguishes an incomplete prefix (<see cref="WireMeasure.Incomplete"/>) from malformed markers or
+    /// disallowed code points (<see cref="WireMeasure.Invalid"/>), matching client reader 0x140e0b480.
+    /// </summary>
+    public static WireMeasure TryMeasureWStr(ReadOnlySpan<byte> data, out int byteLength)
+    {
+        byteLength = 0;
+        if (data.Length < 2) return WireMeasure.Incomplete;
+        int count = BinaryPrimitives.ReadUInt16BigEndian(data);
+        int pos = 2;
+        for (int i = 0; i < count; i++)
+        {
+            if (pos >= data.Length) return WireMeasure.Incomplete;
+            byte tag = data[pos++];
+            if (tag < 0x80) continue;
+            if (tag == 0x80)
+            {
+                if (data.Length - pos < 2) return WireMeasure.Incomplete;
+                ushort u = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(pos, 2));
+                if (u is >= 0xD800 and < 0xE000) return WireMeasure.Invalid;
+                pos += 2;
+            }
+            else if (tag == 0xC0)
+            {
+                if (data.Length - pos < 4) return WireMeasure.Incomplete;
+                uint cp = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(pos, 4));
+                pos += 4;
+                if (cp is >= 0xD800 and < 0xDC00)
+                {
+                    if (i + 1 < count)
+                    {
+                        if (pos >= data.Length) return WireMeasure.Incomplete;
+                        if (data[pos] == 0xC0)
+                        {
+                            if (data.Length - pos < 5) return WireMeasure.Incomplete;
+                            uint lo = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(pos + 1, 4));
+                            if (lo is >= 0xDC00 and < 0xE000)
+                            {
+                                pos += 5;
+                                i++;
+                            }
+                        }
+                    }
+                }
+                else if (cp < 0x10000 && cp is not (>= 0xDC00 and < 0xE000)) return WireMeasure.Invalid;
+            }
+            else return WireMeasure.Invalid;
+        }
+        byteLength = pos;
+        return WireMeasure.Ok;
     }
 }

@@ -71,23 +71,34 @@ public static class InstanceSocial
     public static byte[] OfflinePlayer(string account) =>
         new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8(0).RawU64(0).ToArray();
 
-    /// <summary>Bytes of a 0x93 at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
-    public static int? PartyInviteLength(ReadOnlySpan<byte> m)
+    /// <summary>Bytes of a 0x93 at the start of <paramref name="m"/>, or null if it is not complete yet (or invalid).</summary>
+    public static int? PartyInviteLength(ReadOnlySpan<byte> m) =>
+        MeasurePartyInviteLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasurePartyInviteLength(ReadOnlySpan<byte> m, out int length)
     {
-        var r = new LoginReader(m);
-        r.U16();
-        r.WStr();
-        return r.Short ? null : r.Position;
+        length = 0;
+        if (m.Length < 2) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[2..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        length = 2 + textLength;
+        return WireMeasure.Ok;
     }
 
-    /// <summary>Bytes of a 0x80 at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
-    public static int? FriendAddLength(ReadOnlySpan<byte> m)
+    /// <summary>Bytes of a 0x80 at the start of <paramref name="m"/>, or null if it is not complete yet (or invalid).</summary>
+    public static int? FriendAddLength(ReadOnlySpan<byte> m) =>
+        MeasureFriendAddLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureFriendAddLength(ReadOnlySpan<byte> m, out int length)
     {
-        var r = new LoginReader(m);
-        r.U16();
-        r.WStr();
-        r.U16();
-        return r.Short ? null : r.Position;
+        length = 0;
+        if (m.Length < 2) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[2..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        int total = 2 + textLength + 2;
+        if (m.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
     }
 
     /// <summary>0xb8 flags bit 1 with bit 0 clear: a player's trade request. The in-game UI (0x140dca680) looks the wstr

@@ -1,25 +1,64 @@
+using System.Collections.Concurrent;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Harbinger league data: the client's <c>Harbingers</c> table (normal and strong Harbinger varieties by level and
 /// weight), the King Harbinger boss and its helper/obelisk varieties, wave summoning profiles from
-/// <c>GrantedEffectStatSetsPerLevel</c>, and the 3.29 active currency shard drop table.
+/// <c>GrantedEffectStatSetsPerLevel</c>, variety skill kits and obelisk auras from <c>MonsterVarieties</c>/<c>Mods</c>,
+/// and the 3.29 active currency shard drop table.
 /// </summary>
 public static class HarbingerCatalog
 {
     public enum HarbingerKind { Normal, Strong, King }
 
+    public enum SkillRole
+    {
+        Summon,
+        Convocation,
+        WarpFlame,
+        MinionBuffWeak,
+        MinionBuffStrong,
+        FireMortar,
+        BeamCannon,
+        BallLightning,
+        RighteousFire,
+        SkyBeam,
+        ChargedBlast,
+        Upheaval,
+        AllyDamageAura,
+        AllyActionSpeedAura,
+        PlayerCurseAura,
+    }
+
     /// <summary>One <c>Harbingers</c> table row whose monster variety is supported by the server.</summary>
     public sealed record Entry(int Row, string Variety, int Weight, int MinLevel, int MaxLevel, bool Strong);
 
-    /// <summary>Per-wave summoning cadence, counts, rarity limits and life-loss permyriad per summoned minion killed
+    /// <summary>Per-wave summoning cadence, counts, rarity limits, life-loss permyriad and <c>skill_repeat_count</c>
     /// (from <c>HarbingerSummonMonsters</c>, <c>HarbingerSummonMonsters2</c> and <c>HarbingerSummonMonstersAtlas</c>).</summary>
     public sealed record WaveProfile(double CooldownSeconds, int BaseCount, int ExtraCountChancePct, int Permyriad,
-        int MaxMagic, int MaxRare, int MagicChancePct, int RareChancePct, int AliveCap);
+        int MaxMagic, int MaxRare, int MagicChancePct, int RareChancePct, int AliveCap, int RepeatCount = 0);
+
+    /// <summary>One playable granted skill on a Harbinger, King helper or Empowered Obelisk.</summary>
+    public sealed record ActorSkill(int EffectRow, string EffectId, ushort SkillId, SkillRole Role,
+        double CastSeconds, double CooldownSeconds);
+
+    /// <summary>One species-mod ally aura on an Empowered Obelisk (<c>HarbingerTotemScarab3</c>).</summary>
+    public sealed record ObeliskAura(string ModId, ushort BuffRow, double Radius, IReadOnlyDictionary<string, int> Stats);
+
+    /// <summary>Decoded skill kit and implicit auras for a managed Harbinger, King helper or Empowered Obelisk variety.</summary>
+    public sealed record VarietyKit(string VarietyId, IReadOnlyList<ActorSkill> Skills, IReadOnlyList<ObeliskAura> ObeliskAuras);
 
     /// <summary>One currency shard entry in the Harbinger drop pool.</summary>
     public sealed record ShardEntry(string Id, double Weight, int MinStack, int MaxStack);
+
+    // Disjoint skill-id base for Harbinger actors (player gems use 0x0102..0x0142, AtlasBosses use 0x4000..0x402c).
+    public const ushort SkillIdBase = 0x4040;
+
+    // GrantedEffects Ids for wave summoning across Normal, Strong and King tiers.
+    public const string SummonNormalEffectId = "HarbingerSummonMonsters";
+    public const string SummonStrongEffectId = "HarbingerSummonMonsters2";
+    public const string SummonAtlasEffectId = "HarbingerSummonMonstersAtlas";
 
     // King Harbinger (First Wave / Harbinger Scarab of Regency): MonsterVarieties 5868 (<<HRB30>>, crown + cape visuals).
     public const string KingVariety = "Metadata/Monsters/Avatar/AvatarBossAtlas";
@@ -54,12 +93,41 @@ public static class HarbingerCatalog
         "Metadata/Monsters/HarbingerTiger/HarbingerTiger",
     ];
 
-    // BuffDefinitions rows: 916 = harbinger_minion_new (blue Harbinger tint/spawn visual), 930 = harbinger_minion_buff.
-    public const ushort MinionBuffRow = 916, MinionEmpowerBuffRow = 930;
+    // BuffDefinitions rows from client.db.
+    public const ushort MinionBuffRow = 916;                 // harbinger_minion_new (blue Harbinger tint)
+    public const ushort MinionEmpowerBuffRow = 930;          // harbinger_minion_buff
+    public const ushort ColdBeaconBuffRow = 932;             // harbinger_cold_beacon
+    public const ushort MortarBuffRow = 934;                 // harbinger_mortar_buff
+    public const ushort DamageReductionAuraBuffRow = 137;    // monster_aura_damage_reduction
+    public const ushort ActionSpeedAuraBuffRow = 921;        // harbinger_action_speed_aura
+    public const ushort ActionSpeedAuraAtlasBuffRow = 2436;  // harbinger_action_speed_auraAtlasUber
+    public const ushort HatredAuraBuffRow = 174;             // monster_aura_cold_damage
+    public const ushort AngerAuraBuffRow = 175;              // monster_aura_fire_damage
+    public const ushort WrathAuraBuffRow = 176;              // monster_aura_lightning_damage
+    public const ushort TemporalChainsBuffRow = 69;          // curse_temporal_chains
+    public const ushort EnfeebleBuffRow = 76;                // curse_enfeeble
+    public const ushort AssassinsMarkBuffRow = 77;           // curse_assassins_mark
 
-    // MiscAnimated AO paths (rows 1594 and 1576): summon circle for wave spawns and burst for Harbinger defeat.
+    // Projectiles.dat metadata paths and base speeds.
+    public const string FireMortarProjectile = "Metadata/Projectiles/HarbingerFireMortar";
+    public const string BallLightningProjectile = "Metadata/Projectiles/HarbingerBallLightning";
+    public const int FireMortarSpeed = 750;
+    public const int BallLightningSpeed = 300;
+
+    // MiscAnimated AO paths verified in client.db.
     public const string SummonCircleAo = "Metadata/Effects/Spells/monsters_effects/league_avatar/Summons/summon_circle.ao";
     public const string DefeatBurstAo = "Metadata/Effects/Spells/monsters_effects/league_avatar/Summons/avatarsummon.ao";
+    public const string WarpMarkerAo = "Metadata/Effects/Spells/monsters_effects/league_avatar/Summons/avatarteleport_marker.ao";
+    public const string BeamMarkerAo = "Metadata/Effects/Spells/monsters_effects/harbinger_special_beam_cannon/marker.ao";
+    public const string BeamCannonAo = "Metadata/Effects/Spells/monsters_effects/harbinger_special_beam_cannon/cold_beam.ao";
+    public const string BeamNovaAo = "Metadata/Effects/Spells/monsters_effects/harbinger_special_beam_cannon/coldbeamnova.ao";
+    public const string SkyBeamAo = "Metadata/Effects/Spells/monsters_effects/harbinger_solarbeam/solarbeam_beam.ao";
+    public const string SkyBeamImpactAo = "Metadata/Effects/Spells/monsters_effects/harbinger_solarbeam/solarbeam_impact.ao";
+    public const string FlameblastMarkerAo = "Metadata/Effects/Spells/monsters_effects/league_avatar/flameblast/flameblast_target.ao";
+    public const string FlameblastExplodeAo = "Metadata/Effects/Spells/monsters_effects/league_avatar/flameblast/flameblast_explode_medium.ao";
+    public const string UpheavalAo = "Metadata/Effects/Spells/monsters_effects/league_avatar/Upheaval/lightning_upheaval.ao";
+    public const string RighteousFireAo = "Metadata/Effects/Spells/monsters_effects/league_avatar/Ri_fire_blue/blue_rifire.ao";
+    public const string BurningGroundAo = "Metadata/Effects/Spells/ground_effects/fire/fire1.ao";
 
     // Base shard stack counts in tenths from Mods.dat: HarbingerCurrencyShards (22), HarbingerCurrencyShardsStrong (38),
     // HarbingerCurrencyShardsStrongAtlas (104), HarbingerCurrencyShardsObelisk (5..20).
@@ -95,6 +163,8 @@ public static class HarbingerCatalog
         foreach (string v in EmpoweredObeliskVarieties) set.Add(v);
         return set;
     });
+    static readonly ConcurrentDictionary<(HarbingerKind Kind, int Level), WaveProfile> WaveProfiles = new();
+    static readonly ConcurrentDictionary<string, VarietyKit> VarietyKits = new(StringComparer.Ordinal);
 
     public static IReadOnlyList<Entry> All => Data.Value;
 
@@ -133,33 +203,183 @@ public static class HarbingerCatalog
         return pool[^1];
     }
 
-    /// <summary>Wave summoning cadence, monster count, rarity limits and life-loss permyriad for a Harbinger tier and area level.</summary>
-    public static WaveProfile Profile(HarbingerKind kind, int level) => kind switch
+    /// <summary>Wave summoning cadence, monster count, rarity limits, life-loss permyriad and <c>skill_repeat_count</c>
+    /// read from <c>HarbingerSummonMonsters</c> / <c>2</c> / <c>Atlas</c> in <c>client.db</c>.</summary>
+    public static WaveProfile Profile(HarbingerKind kind, int level) =>
+        WaveProfiles.GetOrAdd((kind, Math.Clamp(level, 1, 100)), static key => LoadWaveProfile(key.Kind, key.Level));
+
+    static WaveProfile LoadWaveProfile(HarbingerKind kind, int level)
     {
-        HarbingerKind.King => new(CooldownSeconds: 2.0, BaseCount: 15, ExtraCountChancePct: 75, Permyriad: 50,
-            MaxMagic: 15, MaxRare: 1, MagicChancePct: 20, RareChancePct: 5, AliveCap: 22),
-        // HarbingerSummonMonsters2 levels 3 (monster level 46), 4 (73) and 5 (85); strong Harbingers start at 60.
-        HarbingerKind.Strong => level switch
+        string effectId = kind switch
         {
-            <= 72 => new(CooldownSeconds: 2.0, BaseCount: 6, ExtraCountChancePct: 25, Permyriad: 400,
-                MaxMagic: 4, MaxRare: 1, MagicChancePct: 20, RareChancePct: 20, AliveCap: 12),
-            <= 84 => new(CooldownSeconds: 2.0, BaseCount: 8, ExtraCountChancePct: 61, Permyriad: 181,
-                MaxMagic: 6, MaxRare: 1, MagicChancePct: 20, RareChancePct: 20, AliveCap: 12),
-            _ => new(CooldownSeconds: 2.0, BaseCount: 8, ExtraCountChancePct: 75, Permyriad: 100,
-                MaxMagic: 8, MaxRare: 1, MagicChancePct: 20, RareChancePct: 20, AliveCap: 12),
-        },
-        _ => level switch
+            HarbingerKind.King => SummonAtlasEffectId,
+            HarbingerKind.Strong => SummonStrongEffectId,
+            _ => SummonNormalEffectId,
+        };
+        var (magicChance, rareChance, aliveCap, fallbackCd) = kind switch
         {
-            <= 44 => new(CooldownSeconds: 3.0, BaseCount: 3, ExtraCountChancePct: 0, Permyriad: 700,
-                MaxMagic: 1, MaxRare: 0, MagicChancePct: 10, RareChancePct: 10, AliveCap: 12),
-            <= 72 => new(CooldownSeconds: 3.0, BaseCount: 6, ExtraCountChancePct: level >= 46 ? 25 : 0, Permyriad: 410,
-                MaxMagic: 2, MaxRare: level >= 46 ? 1 : 0, MagicChancePct: 10, RareChancePct: 10, AliveCap: 12),
-            <= 84 => new(CooldownSeconds: 3.0, BaseCount: 8, ExtraCountChancePct: 61, Permyriad: 198,
-                MaxMagic: 4, MaxRare: 1, MagicChancePct: 10, RareChancePct: 10, AliveCap: 12),
-            _ => new(CooldownSeconds: 3.0, BaseCount: 8, ExtraCountChancePct: 75, Permyriad: 120,
-                MaxMagic: 4, MaxRare: 1, MagicChancePct: 10, RareChancePct: 10, AliveCap: 12),
-        },
+            HarbingerKind.King => (20, 5, 22, 2.0),
+            HarbingerKind.Strong => (20, 20, 12, 2.0),
+            _ => (10, 10, 12, 3.0),
+        };
+
+        int row = Program.Skills.EffectRow(effectId);
+        if (row >= 0)
+        {
+            int effLevel = Program.Skills.MaxLevelAt(row, level);
+            var stats = Program.Skills.EffectStats(row, effLevel);
+            int Get(string name)
+            {
+                if (Program.Stats.Key(name) is not uint key) return 0;
+                int sum = 0;
+                foreach (var (k, v) in stats) if (k == key) sum += v;
+                return sum;
+            }
+            int baseCount = Get("number_of_monsters_to_summon");
+            if (baseCount > 0)
+            {
+                int cdMs = Program.Skills.CooldownMs(row, effLevel);
+                double cd = cdMs > 0 ? cdMs / 1000.0 : fallbackCd;
+                return new(
+                    CooldownSeconds: cd,
+                    BaseCount: baseCount,
+                    ExtraCountChancePct: Math.Max(0, Get("harbinger_minion_extra_monster_chance_%")),
+                    Permyriad: Math.Max(1, Get("harbinger_minion_remove_parent_life_on_death_permyriad")),
+                    MaxMagic: Math.Max(0, Get("harbinger_minion_max_magic_count")),
+                    MaxRare: Math.Max(0, Get("harbinger_minion_max_rare_count")),
+                    MagicChancePct: magicChance,
+                    RareChancePct: rareChance,
+                    AliveCap: aliveCap,
+                    RepeatCount: Math.Max(0, Get("skill_repeat_count")));
+            }
+        }
+
+        // Fallback if client tables are unavailable.
+        return kind switch
+        {
+            HarbingerKind.King => new(2.0, 15, 75, 50, 15, 1, 20, 5, 22, 2),
+            HarbingerKind.Strong => level <= 72
+                ? new(2.0, 6, 25, 400, 4, 1, 20, 20, 12, 1)
+                : level <= 84
+                    ? new(2.0, 8, 61, 181, 6, 1, 20, 20, 12, 2)
+                    : new(2.0, 8, 75, 100, 8, 1, 20, 20, 12, 2),
+            _ => level <= 44
+                ? new(3.0, 3, 0, 700, 1, 0, 10, 10, 12, 1)
+                : level <= 72
+                    ? new(3.0, 6, level >= 46 ? 25 : 0, 410, 2, level >= 46 ? 1 : 0, 10, 10, 12, 1)
+                    : level <= 84
+                        ? new(3.0, 8, 61, 198, 4, 1, 10, 10, 12, 2)
+                        : new(3.0, 8, 75, 120, 4, 1, 10, 10, 12, 2),
+        };
+    }
+
+    /// <summary>Decodes the real <c>GrantedEffectsKeys</c> skills and <c>ModsKeys</c> implicit auras of a Harbinger,
+    /// King helper or Empowered Obelisk variety from <c>client.db</c>.</summary>
+    public static VarietyKit KitFor(string varietyId) =>
+        VarietyKits.GetOrAdd(varietyId, LoadVarietyKit);
+
+    static VarietyKit LoadVarietyKit(string varietyId)
+    {
+        var variety = Game.Monsters.Find(varietyId);
+        if (variety is null) return new(varietyId, [], []);
+
+        var skills = new List<ActorSkill>();
+        var seenEffects = new HashSet<int>();
+        if (variety.GrantedEffects is { Count: > 0 } effects)
+        {
+            foreach (int effectRow in effects)
+            {
+                if (effectRow < 0 || !seenEffects.Add(effectRow)) continue;
+                string? effectId = Program.Skills.EffectId(effectRow);
+                if (effectId is null || ClassifyEffect(effectId) is not { } role) continue;
+                double castSec = Program.Skills.CastTimeMs(effectRow) is int cm and > 0 ? cm / 1000.0 : 0.8;
+                int cdMs = Program.Skills.CooldownMs(effectRow, 1);
+                double cdSec = cdMs > 0 ? cdMs / 1000.0 : DefaultCooldown(role, effectId);
+                ushort skillId = (ushort)(SkillIdBase + skills.Count);
+                skills.Add(new(effectRow, effectId, skillId, role, Math.Max(0.25, castSec), cdSec));
+            }
+        }
+
+        var auras = LoadObeliskAuras(variety);
+        return new(varietyId, skills, auras);
+    }
+
+    static SkillRole? ClassifyEffect(string effectId) => effectId switch
+    {
+        SummonNormalEffectId or SummonStrongEffectId or SummonAtlasEffectId => SkillRole.Summon,
+        "AvatarConvocation" => SkillRole.Convocation,
+        "HarbingerWarpFlame" or "HarbingerWarpFlameTotem" => SkillRole.WarpFlame,
+        "EmptyActionSpellHarbingerBuffWeak" => SkillRole.MinionBuffWeak,
+        "EmptyActionSpellHarbingerBuffStrong" => SkillRole.MinionBuffStrong,
+        "AvatarFireMortar" or "AvatarFireMortarAtlas" => SkillRole.FireMortar,
+        "HarbingerSpecialBeamCannon" or "HarbingerSpecialBeamCannonAtlas" => SkillRole.BeamCannon,
+        "HarbingerBallLightning" or "HarbingerBallLightningAtlas" or "HarbingerBallLightningTotem" => SkillRole.BallLightning,
+        "RighteousFireSacrifice" => SkillRole.RighteousFire,
+        "AttachedAvatarSkyBeam" => SkillRole.SkyBeam,
+        "AttachedVaalChargedBlast2" => SkillRole.ChargedBlast,
+        "HarbingerUpheaval" => SkillRole.Upheaval,
+        "AvatarAnger" or "AvatarHatred" or "AvatarWrath" => SkillRole.AllyDamageAura,
+        "HarbingerActionSpeedAuraAtlas" => SkillRole.AllyActionSpeedAura,
+        "AvatarEnfeebleAura" or "AvatarTemporalChainsAura" or "AvatarAssassinsMarkAura" => SkillRole.PlayerCurseAura,
+        _ => null,
     };
+
+    static double DefaultCooldown(SkillRole role, string effectId) => role switch
+    {
+        SkillRole.Summon => effectId == SummonNormalEffectId ? 3.0 : 2.0,
+        SkillRole.Convocation => 10.0,
+        SkillRole.WarpFlame => effectId.EndsWith("Totem", StringComparison.Ordinal) ? 4.0 : 6.0,
+        SkillRole.MinionBuffWeak or SkillRole.MinionBuffStrong => 5.0,
+        SkillRole.FireMortar => effectId.EndsWith("Atlas", StringComparison.Ordinal) ? 1.0 : 2.0,
+        SkillRole.BeamCannon => effectId.EndsWith("Atlas", StringComparison.Ordinal) ? 3.5 : 8.0,
+        SkillRole.BallLightning => effectId.EndsWith("Totem", StringComparison.Ordinal) ? 4.0
+            : effectId.EndsWith("Atlas", StringComparison.Ordinal) ? 3.0 : 5.0,
+        SkillRole.RighteousFire => 10.0,
+        SkillRole.SkyBeam => 5.5,
+        SkillRole.ChargedBlast => 6.0,
+        SkillRole.Upheaval => 5.0,
+        SkillRole.AllyActionSpeedAura => 10.0,
+        SkillRole.AllyDamageAura or SkillRole.PlayerCurseAura => 0.0,
+        _ => 5.0,
+    };
+
+    static IReadOnlyList<ObeliskAura> LoadObeliskAuras(MonsterCatalog.Variety variety)
+    {
+        if (variety.SpeciesModsOrEmpty.Count == 0 || !Program.Items.Mods.Loaded || !ClientTables.Has("BuffTemplates"))
+            return [];
+
+        int auraAoePct = 0;
+        var auraMods = new List<ModCatalog.Mod>();
+        foreach (int modRow in variety.SpeciesModsOrEmpty)
+        {
+            if (Program.Items.Mods.Row(modRow) is not { } mod) continue;
+            foreach (var stat in mod.Stats)
+                if (stat.Id == "base_aura_area_of_effect_+%")
+                    auraAoePct += stat.Min;
+            if (mod.BuffTemplate is not null)
+                auraMods.Add(mod);
+        }
+        if (auraMods.Count == 0) return [];
+
+        double radiusScale = Math.Sqrt(Math.Max(0.1, 1.0 + auraAoePct / 100.0));
+        var templates = ClientTables.Table("BuffTemplates");
+        var result = new List<ObeliskAura>(auraMods.Count);
+        foreach (var mod in auraMods)
+        {
+            if (mod.BuffTemplate is not int btRow || templates.Row(btRow) is not { } tpl
+                || tpl.IntOrNull("BuffDefinitionsKey") is not int buffDef || buffDef <= 0)
+                continue;
+            int baseRadius = tpl.Int("AuraRadius");
+            if (baseRadius <= 0) continue;
+            var statMap = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var s in mod.Stats)
+                if (s.Min != 0)
+                    statMap[s.Id] = statMap.GetValueOrDefault(s.Id) + s.Min;
+            if (statMap.Count == 0) continue;
+            result.Add(new(mod.Id, checked((ushort)buffDef), baseRadius * radiusScale, statMap));
+        }
+        return result;
+    }
 
     /// <summary>
     /// Rolls Harbinger or Empowered Obelisk currency shard drops (unaffected by IIQ/IIR).
