@@ -72,7 +72,9 @@ public static partial class Game
         if (RepeatMinionAttackLocked(conn, g, now)) return;
         m.Walk.SetSpeed(m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll), now);
         var here = m.Walk.Position(now); var owner = conn.Walk.Position(now);
+        var (aggressive, defensive) = MinionStance(g, now);
         bool follows = !conn.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
+        follows |= defensive && summon?.Family != "Clone";
         if (follows && Dist(here, owner) > 150)
         {
             var at = NextToPlayer(conn);
@@ -99,14 +101,31 @@ public static partial class Game
                 return;
             }
         }
+        double aggroRange = aggressive ? Math.Max(m.AggroRange, AggressiveMinionMinimumRange) : m.AggroRange;
+        double ownerRange = defensive ? Math.Min(DefensiveMinionMaximumRange, aggroRange) : 100;
         var target = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
                 && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
-            .Where(t => (IsPrey(conn, g, t.Key, t.M, now) || Dist(t.At, here) <= m.AggroRange) && (!follows || Dist(t.At, owner) <= 100))
+            .Where(t => IsPrey(conn, g, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
+                && (!(follows || defensive) || Dist(t.At, owner) <= ownerRange))
             .OrderByDescending(t => IsPrey(conn, g, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
         if (target.M is null) { if (follows) GolemFollowLocked(conn, g, owner, now); return; }
         g.Target = target.Key;
         double distance = Dist(target.At, here);
+        if (aggressive && g.Definition.Id == "SummonSkeletons"
+            && g.Abilities.FirstOrDefault(a => a.Effect == 10844) is { } dash && GolemReady(g, dash, now)
+            && g.Abilities.FirstOrDefault(a => a.Effect == 406) is { } swing
+            && distance > swing.Attack.Range + LivingCollision.Size(target.M) && distance <= dash.Attack.Range)
+        {
+            double fraction = Math.Max(0, swing.Attack.Range - 1) / distance;
+            var landing = ((int)Math.Round(target.At.X + (here.X - target.At.X) * fraction),
+                (int)Math.Round(target.At.Y + (here.Y - target.At.Y) * fraction));
+            if (GolemDashPath(conn, m, here, landing))
+            {
+                GolemReserveLocked(conn, g, dash, 0, null, landing, now);
+                return;
+            }
+        }
         var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0) && GolemUsable(g, a) && GolemReady(g, a, now)
                 && distance <= a.Attack.Range + LivingCollision.Size(target.M))
             .OrderByDescending(a => a.Cooldown > 0).ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
@@ -124,13 +143,17 @@ public static partial class Game
         GolemReserveLocked(conn, g, ability, target.Key, target.M, target.At, now);
     }
 
+    static bool GolemDashPath(ClientState conn, SpawnedMonster m, (int X, int Y) from, (int X, int Y) to) =>
+        ClientPathfinder.LineBelow(from, to, (x, y) =>
+            conn.Layout.WalkableFor(x, y, LivingCollision.Size(m)) && !conn.Barrier.Contains((x, y)) ? 0 : 1, 1);
+
     static bool GolemUsable(GolemState.Golem g, GolemState.Ability a) =>
         g.Definition.Kind == "Phantasm" ? a.Effect is 9427 or 9428
         : g.Definition.Kind == "Absolution" ? a.Effect is 11994 or 11995
         : g.Definition.Kind == "Zombie" ? g.Definition.Id == "RaiseZombieAltX" ? a.Effect == 5590
             : g.Definition.Id == "RaiseZombieAltY" ? a.Effect == 7133 : a.Effect != 7133 : a.Effect switch
     {
-        4839 or 5026 or 5268 or 10801 or 12032 or 12033 or 10584 => false,
+        4839 or 5026 or 5268 or 10801 or 10844 or 12032 or 12033 or 10584 => false,
         4336 => !g.Definition.Special,
         4337 => g.Definition.Special,
         5069 => !g.Definition.Special,
@@ -226,6 +249,16 @@ public static partial class Game
         GolemState.Golem g, GolemState.Action action, double now)
     {
         var a = action.Ability; var at = g.Monster.Walk.Position(now);
+        if (a.Effect == 10844)
+        {
+            if (GolemDashPath(conn, g.Monster, at, action.Aim))
+            {
+                var end = action.Aim;
+                g.Monster.Walk = conn.NewMonsterWalk(g.Id, end.X, end.Y, g.Monster.Walk.Speed, LivingCollision.Size(g.Monster), false);
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, end.X, end.Y), null, g.Id, g.Monster, WorldId: g.Id));
+            }
+            return;
+        }
         if (a.Effect == 10584 && g.Abilities.FirstOrDefault(s => s.Id.Contains("DashImpactSlash", StringComparison.Ordinal)) is { } slash)
         {
             if (conn.Layout.WalkableFor(action.Aim.X, action.Aim.Y, LivingCollision.Size(g.Monster)))

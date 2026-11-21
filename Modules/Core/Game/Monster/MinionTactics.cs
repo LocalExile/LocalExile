@@ -2,6 +2,22 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    const int AggressiveMinionMinimumRange = 80;
+    const int DefensiveMinionMaximumRange = 30;
+    const int MeatShieldNearbyRange = 30;
+
+    static (bool Aggressive, bool Defensive) MinionStance(GolemState.Golem fighter, double now)
+    {
+        bool aggressive = GolemStat(fighter.Own, "minion_larger_aggro_radius") != 0
+            || GolemStat(fighter.Player, "minion_larger_aggro_radius") != 0
+            || fighter.Definition.IsGolem && GolemStat(fighter.Player, "golems_larger_aggro_radius") != 0
+            || GolemStat(fighter.Player, "minion_are_aggressive_if_have_blocked_recently") != 0
+                && now - fighter.BlockedAt is >= 0 and <= 4;
+        bool defensive = GolemStat(fighter.Own, "minions_are_defensive") != 0
+            || GolemStat(fighter.Player, "minions_are_defensive") != 0;
+        return (aggressive && !defensive, defensive && !aggressive);
+    }
+
     internal static bool SignalPreyLocked(ClientState conn, ushort source, SupportedGem gem,
         (int X, int Y) aim, uint target, double now)
     {
@@ -52,6 +68,9 @@ public static partial class Game
         double more = MinionTacticsBaseDamage(conn, fighter, now);
         if (IsPrey(conn, fighter, id, target, now))
             more *= Math.Max(0, 1 + GolemStat(fighter.Own, "support_minion_focus_fire_damage_+%_final_vs_focussed_target") / 100d);
+        int nearby = GolemStat(fighter.Own, "support_minion_defensive_stance_minion_damage_+%_final_against_enemies_near_you");
+        if (nearby != 0 && Dist(conn.Walk.Position(now), target.Walk.Position(now)) <= MeatShieldNearbyRange)
+            more *= Math.Max(0, 1 + nearby / 100d);
         return more;
     }
 
