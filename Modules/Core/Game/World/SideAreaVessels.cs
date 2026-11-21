@@ -177,16 +177,18 @@ public static class SideAreaVessels
         var run = MapRunOf(conn);
         int level = run is { Area.Level: > 0 } ? run.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id);
         var catalog = ItemsFor(conn);
-        var reward = Reward(catalog, level, Random.Shared);
+        var stats = conn.Instance.KeptAreaStats;
+        int Count(string id) => stats is null ? run?.Mods.Get(id) ?? 0 : stats.GetValueOrDefault(Program.Stats.Key(id)!.Value);
 
-        const string orbStat = "map_vaal_vessel_drop_X_vaal_orbs";
-        int count = conn.Instance.KeptAreaStats is { } stats
-            ? stats.GetValueOrDefault(Program.Stats.Key(orbStat)!.Value)
-            : run?.Mods.Get(orbStat) ?? 0;
-        if (count <= 0) return [reward];
+        var rewards = new List<ItemDrops.Drop> { Reward(catalog, level, Random.Shared) };
+        int gems = Count("map_vaal_vessel_drop_X_vaal_gems");
+        for (int n = 0; n < gems; n++) rewards.Add(VaalGem(catalog, level, Random.Shared));
+
+        int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
+        if (orbs <= 0) return rewards;
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;
         var drop = new ItemDrops.Drop(ItemCatalog.Create(orb), orb);
-        return ItemDrops.Stacked(Enumerable.Repeat(drop, count).Prepend(reward));
+        return ItemDrops.Stacked(rewards.Concat(Enumerable.Repeat(drop, orbs)));
     }
 
     // The guaranteed reward uses Chris Wilson's published 2014 category and fragment ratios.
@@ -204,6 +206,11 @@ public static class SideAreaVessels
             var fragment = fragments[random.Next(fragments.Length)];
             return new(ItemCatalog.Create(fragment), fragment);
         }
+        return VaalGem(items, level, random);
+    }
+
+    static ItemDrops.Drop VaalGem(ItemCatalog items, int level, Random random)
+    {
         var variants = VaalGems.GetValue(items, catalog => [.. catalog.All.Select(t => catalog.Gem(t)?.VaalBaseRow)
             .OfType<int>().Distinct().Select(row => catalog.Row(row)!).Where(t => t.Supported)]);
         var gems = variants.Where(t => t.DropLevel <= level).ToArray();

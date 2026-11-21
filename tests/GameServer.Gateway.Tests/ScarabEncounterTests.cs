@@ -160,7 +160,7 @@ public sealed class ScarabEncounterTests
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
             await CheckTempleVessels();
             await CheckSideAreaVessel("1_SideArea5_3_2", 44, 31451);
-            await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, withOrbSuffix: true);
+            await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, withVesselSuffixes: true);
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
             var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
@@ -457,7 +457,7 @@ public sealed class ScarabEncounterTests
         }
     }
 
-    static async Task CheckSideAreaVessel(string areaId, int level, uint seed, bool withOrbSuffix = false)
+    static async Task CheckSideAreaVessel(string areaId, int level, uint seed, bool withVesselSuffixes = false)
     {
         const string chest = "Metadata/Chests/SideArea/SideAreaChest";
         var area = AreaInfo.Load(GamePack.Default.TryRead, areaId, level);
@@ -465,14 +465,18 @@ public sealed class ScarabEncounterTests
         var layout = AreaLayouts.For(area.Hash16, seed);
         var at = Assert.Single(new QuestObjectTypes.AreaPlacements(areaId, seed, []).Of(chest));
         var instance = new InstanceState();
-        int orbs = 0;
-        if (withOrbSuffix)
+        int orbs = 0, gems = 0;
+        if (withVesselSuffixes)
         {
             var mod = Program.Items.Mods.ById("MapCorruptedSideAreaVesselVaalOrbDrop_")!;
             orbs = Assert.Single(mod.Roll(ModSection.Explicit, new Random(7)).Values);
             Assert.InRange(orbs, 1, 3);
             uint stat = Program.Stats.Key("map_vaal_vessel_drop_X_vaal_orbs")!.Value;
-            instance.AreaStats(() => new Dictionary<uint, int> { [stat] = orbs });
+            var gemMod = Program.Items.Mods.ById("MapCorruptedSideAreaVesselVaalGemDrop")!;
+            gems = Assert.Single(gemMod.Roll(ModSection.Explicit, new Random(7)).Values);
+            Assert.InRange(gems, 1, 2);
+            uint gemStat = Program.Stats.Key("map_vaal_vessel_drop_X_vaal_gems")!.Value;
+            instance.AreaStats(() => new Dictionary<uint, int> { [stat] = orbs, [gemStat] = gems });
         }
         await using var owner = await Wire.Open(instance, layout, seed);
         await using var peer = await Wire.Open(instance, layout, seed);
@@ -508,8 +512,13 @@ public sealed class ScarabEncounterTests
             var drops = instance.Ground.All().Select(entry => entry.Item.Item).ToArray();
             uint vaalOrb = Program.Items.Find(CurrencyEffects.VaalOrb)!.Hash;
             Assert.Equal(orbs, drops.Where(item => item.TypeHash == vaalOrb).Sum(item => (int)item.StackSize));
-            var drop = Assert.Single(drops, item => item.TypeHash != vaalOrb);
-            Assert.True(drop.Corrupted || Program.Items.ByHash(drop.TypeHash)!.Id.Contains("/CurrencyVaalFragment1_"));
+            var rewards = drops.Where(item => item.TypeHash != vaalOrb).ToArray();
+            Assert.Equal(gems + 1, rewards.Length);
+            var gemRows = Program.Items.All.Select(t => Program.Items.Gem(t)?.VaalBaseRow).OfType<int>().ToHashSet();
+            var gemDrops = rewards.Where(item => gemRows.Contains(Program.Items.ByHash(item.TypeHash)!.Row)).ToArray();
+            Assert.InRange(gemDrops.Length, gems, gems + 1);
+            Assert.All(gemDrops, item => Assert.True(item.Corrupted));
+            Assert.All(rewards.Except(gemDrops), item => Assert.Contains("/CurrencyVaalFragment1_", Program.Items.ByHash(item.TypeHash)!.Id));
         }
         finally { Program.Outgoing = oldOutput; }
     }

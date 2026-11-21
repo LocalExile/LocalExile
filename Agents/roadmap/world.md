@@ -146,8 +146,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The independent *Of the Vaal* suffix sends a chasing Blade Vortex for five seconds alongside a prefix.
   The Vaal Temple map implicit places ten guarded Vaal Vessels with their own corruption drop modifier.
   A newly populated Vaal side area's placed boss-room chest grants a shared base reward after its natural guards die.
-  Its *of Experimentation* modifier adds the Vaal Orb count carried by the area. A rolled additional Vaal pack
-  count feeds the area population alongside ordinary packs.
+  Its *of Experimentation* modifier adds the Vaal Orb count carried by the area, and *of the Gemcutter* adds Vaal gems.
+  A rolled additional Vaal pack count feeds the area population alongside ordinary packs.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
 - **Next.** Measure Blade Vortex targeting, movement and presentation in the client. Measure the fissure daemon's release, turns,
   repeat cadence and mortar placement, the axe daemon's release and spiral spacing, and the Spark daemon's empty
