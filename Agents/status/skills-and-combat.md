@@ -129,7 +129,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) §3.
-- Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) §10,
+- Tornado Shot's terminal secondary arrows inherit their primary's return phase for hits and speed, with fresh
+  target history for each group. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 - Kinetic Bolt's zig-zags. Docs: [11](../docs/protocol/11-skills.md) §10.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) §2i.

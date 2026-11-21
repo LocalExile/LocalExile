@@ -273,6 +273,43 @@ public sealed class TornadoShotSecondaryTests
     [Fact]
     public void Tornado_shot_children_continue_the_primary_distance()
     {
+        foreach (bool returns in new[] { false, true })
+        foreach (bool shotgun in new[] { false, true })
+        {
+            int Get(string key) => key switch
+            {
+                "projectiles_return" when returns => 1,
+                "projectiles_can_shotgun" when shotgun => 1,
+                "returned_projectile_speed_+%" => 50,
+                _ => 0
+            };
+            var profile = GatewayProjectileSkillProfiles.Resolve("TornadoShot",
+                "Metadata/Projectiles/TornadoShotArrow", Get, 200, attack: true, arrows: true)
+                with { Range = 30, ReturnOvershoot = 0 };
+            var arena = new Arena(false);
+            var owner = new ProjectileActorKey(999);
+            var origin = new ProjectileVector(0, 0);
+            var aim = new ProjectileVector(30, 0);
+            // The primary and its group meet the same target at the end of the primary's flight.
+            arena.Targets.Add(new(owner, 1, _ => origin, 0));
+            arena.Targets.Add(new(new(50), 2, _ => returns ? origin : aim, 0));
+            var runtime = new ProjectileRuntime(arena);
+            runtime.Release(new ProjectileUse(profile, owner, owner, 1, origin, aim) { ReturnAnchor = owner });
+            runtime.AdvanceTo(ProjectileRuntime.Time(1));
+
+            var primary = Assert.Single(arena.Flights, p => p.ParentId == 0);
+            var children = arena.Flights.Where(p => p.ParentId == primary.Id).ToArray();
+            Assert.Equal(3, children.Length);
+            Assert.All(children, child =>
+            {
+                Assert.Equal(returns ? 1 : 0, child.Phase);
+                Assert.Equal(returns ? 300d : 200d, child.Speed);
+                Assert.DoesNotContain(child.Id, arena.Redirects);
+            });
+            Assert.Contains((primary.Id, 50u), arena.Hits);
+            Assert.Equal(shotgun ? 3 : 1, arena.Hits.Count(h => h.Arrow != primary.Id && h.Target == 50));
+        }
+
         foreach (var (chains, wall, grant, forbid, redirects, hits) in new[]
         {
             (1, false, 0, 0, 1, 2), (1, false, 1, 0, 1, 4), (1, false, 1, 1, 1, 2),

@@ -139,12 +139,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileEntity Spawn(ProjectileUse use, ProjectileReleaseState release, long emission, long parent,
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
-        int index = 0, bool piercesAll = false, int additionalForks = 0, ProjectileBranchState branches = default)
+        int index = 0, bool piercesAll = false, int additionalForks = 0, ProjectileBranchState branches = default,
+        int phase = 0)
     {
         if (continuing is null && !use.Profile.CannotReturn && !use.Profile.Returns && use.Profile.OrdinalReturnRoll is { } roll
             && roll(use, release.Spawned) < use.Profile.ReturnChancePercent)
             use = use with { Profile = use.Profile with { Returns = true } };
-        var p = new ProjectileEntity(++sequence, release, emission, parent, use, position, direction, Now)
+        var p = new ProjectileEntity(++sequence, release, emission, parent, use, position, direction, Now, phase)
         {
             VolleyIndex = index,
             PiercesAllFromLaunch = continuing?.PiercesAllFromLaunch ?? piercesAll,

@@ -205,7 +205,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   Keep the [K1/K2/K3 followups](../docs/re/projectiles/verification-and-limitations.md) separate.
   Do not make full rendering, every stat producer or complete engine teardown prerequisites for using closed rules.
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production routing and the only simulator;
-  [registered skills](../docs/game/projectile-skills.md) add special behaviour.
+  [registered skills](../docs/game/projectile-skills.md) add special behaviour. Tornado Shot's secondary group now
+  starts in the primary's final return phase. Its radial flight after a return still needs a live visual check.
 - **Open:**
   - Nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).

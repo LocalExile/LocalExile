@@ -2524,9 +2524,11 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
 - **Tornado Shot's secondaries**: each primary arrow pierces its contacts and emits three `TornadoShotSecondaryArrow`
   flights at its endpoint, spaced around the client's terminal RNG ray
   ([geometry](../re/projectiles/tornado-geometry.md)). The client predicts the primary and secondary arrows itself, so
-  the server hides both and only simulates damage; one secondary per set can hit an enemy, and the children keep
-  support Pierce/Fork/Chain. Their range uses the client's 0.3 s secondary action lifetime, so projectile speed scales
-  it, and Point Blank / Far Shot distance includes the primary leg.
+  the server hides both and simulates their hits. Each group has fresh target history, shared by default. Children
+  keep support Pierce/Fork/Chain. If the primary has returned, its children start on their radial paths in the
+  return phase. The 3.29.3c emitter calls the same copy slot for the template and each child, retaining the
+  returning byte at `+0x461`. The speed getter reads that byte before selecting `returned_projectile_speed_+%`.
+  Each secondary has its own 0.3 s lifetime. Point Blank / Far Shot distance includes the primary leg.
 - **Bow arrow counts**: `number_of_additional_arrows` and
   `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` add primary arrows on top of the generic
   projectile additions, only for a real bow (not wand, spell or melee projectiles); the selected-skill panel publishes

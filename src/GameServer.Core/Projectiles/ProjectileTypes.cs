@@ -63,6 +63,8 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
 {
     /// <summary>The new stage copies the source's fork history and number of completed chains.</summary>
     public bool InheritForkOrChain { get; init; }
+    /// <summary>The emitted group starts in its source's current return phase, with fresh target history.</summary>
+    public bool InheritReturnPhase { get; init; }
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
     public ProjectileSweep? Sweep { get; init; }
@@ -305,7 +307,7 @@ internal sealed class ProjectileReleaseState(long id)
 public sealed class ProjectileEntity
 {
     internal ProjectileEntity(long id, ProjectileReleaseState release, long emissionId, long parent, ProjectileUse use,
-        ProjectileVector position, ProjectileVector direction, long at)
+        ProjectileVector position, ProjectileVector direction, long at, int phase = 0)
     {
         Id = id; Release = release; EmissionId = emissionId; ParentId = parent; Use = use;
         SpawnOrdinal = release.Spawned++;
@@ -325,7 +327,8 @@ public sealed class ProjectileEntity
         RandomSource = new(seed ^ 0x2d53a1b7);
         RewardRandomSource = new(seed ^ 0x5e418ac3);
         ReactionRandomSource = new(seed ^ 0x1a736d49);
-        Speed = use.Profile.Speed;
+        Phase = phase;
+        Speed = phase == 0 ? use.Profile.Speed : use.Profile.Speed * use.Profile.ReturnSpeedMultiplier;
         ExpiresAt = at + use.Profile.Lifetime;
     }
     public long Id { get; }
