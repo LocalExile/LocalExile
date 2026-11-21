@@ -116,9 +116,11 @@ public partial class Program
                 // of the level from. A Labyrinth room's extra data is its node, so it gets none.
                 var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
                     : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
-                // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: a seed the
-                // Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory, pluginStates);
+                // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: merge any
+                // character-scoped ascendancy world stats before calling PlayableSeed so both sides see identical stats.
+                var seedStats = InstanceEvents.Merge(areaStats,
+                    AscendancyPolicies.AreaStats(areaLeague.Modules, CharacterSaves.Load(characterName)?.MainAscendancy?.Selection));
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, seedStats, leagueCategory, pluginStates);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");

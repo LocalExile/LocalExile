@@ -241,8 +241,11 @@ public static partial class Game
     {
         var list = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = dest });
         var instances = list.Instances ?? [];
+        // Realm byte is 1-based into Data/Realms.dat (0x140bbfa6c: index = realm - 1 < Realms.Count = 34; both 0 and
+        // the client's unset sentinel 0x23 = 35 fall through to "-"). 1 selects row 0 ("Texas (US)").
+        const byte DefaultRealm = 1;
         var entries = instances
-            .Select(i => new InstanceTransfer.InstanceListEntry((ulong)i.CreatedUnix, (uint)i.SecondsLeft, 0, i.Players)).ToList();
+            .Select(i => new InstanceTransfer.InstanceListEntry((ulong)i.CreatedUnix, (uint)i.SecondsLeft, DefaultRealm, i.Players)).ToList();
         conn.Chooser = new ChooserList(dest, [.. instances.Select(i => i.Id)], atWaypoint, arrivalEntrance);
         await Send(remote, stream, ciphers, InstanceTransfer.InstanceList(dest, entries),
             $"0x00ae instance list for 0x{dest:x4}: {entries.Count} instance(s) [{string.Join(", ", instances.Select(i => $"{i.Id} ({i.SecondsLeft} s left): {string.Join("/", i.Players)}"))}]");

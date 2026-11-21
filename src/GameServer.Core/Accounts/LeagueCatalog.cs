@@ -34,12 +34,16 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
     /// position" on an empty one and the client crashes (live 2026-10-18). A leading '#' makes it a lookup key.</summary>
     public string Description => CardText is { Length: > 0 } text ? text : $"The {Name} league.";
 
+    /// <summary>LeagueCategory id sent in S→C 0x1b LeagueEntry.C1 (+0xc1): 59 matches ActiveSettings.Current for the
+    /// Allflame/Deepwater launch plaque rule (0x140d17e80); 0 for other leagues.</summary>
+    public byte LaunchCategory => Base.Equals("Allflame", StringComparison.OrdinalIgnoreCase) ? (byte)59 : (byte)0;
+
     /// <summary>The S→C 0x1b entry. Main leagues get a card on the create screen; variants are reached through its check
     /// boxes. The client has one check box for a league form, and its wire names call it Ruthless.</summary>
     public LeagueEntry Entry() => new(Name, Description, SsfParent, HardcoreParent, FormParent, 0, 0, 0,
         (byte)((IsMain ? LeagueEntry.Main : 0) | (Hardcore ? LeagueEntry.Hardcore : 0)),
         (byte)((IsMain ? 0 : LeagueEntry.Variant) | (Form is not null ? LeagueEntry.Ruthless : 0)),
-        0, 0, 0, 0xd1);
+        0, 0, LaunchCategory, 0xd1);
 }
 
 /// <summary>
