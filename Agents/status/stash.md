@@ -46,7 +46,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [18](../docs/protocol/18-stash.md).
 - **Stash loading and manual placement.** Area entry preloads only the tabs with shop currency (`PreloadsForPrices`); other tabs load
   lazily on first click (`C→S 0xc7`) and stay registered for the connection so revisited cached pages accept manual
-  placement without showing a red overlay.
+  placement without showing a red overlay. The chest detaches ordinary inactive pages on reopen. With five populated
+  tabs, a small tab reopened with a 14–19 ms frame gap in both network modes on the regular 3.29.3d client.
   `SendTabChange`/`EnsureTabLoaded` registers unopened tabs before `0xbf` (affinity deposits and Map/Unique children).
   Quest items (`QuestItem` class or `Quest` component) are refused from personal and guild stashes.
   Gateway tests cover lazy preloading, keeping visited tabs registered, quest-item refusal, and unopened-tab registration before `0xbf`.

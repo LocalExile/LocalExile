@@ -105,6 +105,15 @@ public class StashTabReloadTests : IDisposable
             Assert.Contains(0, conn.StashTabsSent);
             Assert.Contains(1, conn.StashTabsSent);
 
+            var reopen = stash.Records(null, conn.StashTabsSent, catalog);
+            Assert.False(reopen[1].Loaded);
+            Assert.Equal(0u, reopen[1].Inventory);
+            foreach (int tab in new int[] { 0, currencyTab, parent, mapChild }.Concat(children))
+            {
+                Assert.True(reopen[tab].Loaded);
+                Assert.Equal(stash.InventoryOf(tab), reopen[tab].Inventory);
+            }
+
             // Replaying the parent's request after the first-open window keeps all visited tabs and categories registered.
             conn.StashForcedUntil = double.NegativeInfinity;
             await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, parent, InstanceStash.Personal);

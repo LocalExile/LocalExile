@@ -16,6 +16,10 @@ public sealed class StashRules
     public const byte Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Folder = 16, Delve = 12, Blight = 13,
         Ultimatum = 14, Delirium = 15, Flask = 17, Gem = 18, Breach = 22;
 
+    public static bool PreloadsForPrices(byte? tabType, IEnumerable<InventoryItem> inside, ItemCatalog catalog) =>
+        tabType is byte type && (type == Currency || IsGrid(type))
+        && inside.Any(i => catalog.ByHash(i.Item.TypeHash)?.Class == "StackableCurrency");
+
     /// <summary>Fallback limit for slotted tabs without an item-specific currency-tab limit.</summary>
     public const ushort SlotStack = 5000;
 

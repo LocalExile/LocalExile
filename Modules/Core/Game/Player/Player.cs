@@ -10,8 +10,7 @@ public static partial class Game
     /// <summary>Whether a stash tab goes out on area entry, so shop prices see the currency in it: a currency or grid tab
     /// (the only ones that hold shop currency) with currency (class StackableCurrency) in it.</summary>
     public static bool PreloadsForPrices(byte? tabType, IEnumerable<InventoryItem> inside, ItemCatalog catalog) =>
-        tabType is byte type && (type == StashRules.Currency || StashRules.IsGrid(type))
-        && inside.Any(i => catalog.ByHash(i.Item.TypeHash)?.Class == "StackableCurrency");
+        StashRules.PreloadsForPrices(tabType, inside, catalog);
 
     // The characters in god mode, by name, for the Gateway's lifetime: every area is a new connection, so without this an
     // area change or a relog silently ended /god.

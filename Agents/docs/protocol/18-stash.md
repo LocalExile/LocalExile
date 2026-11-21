@@ -92,14 +92,22 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   it), then **S→C 0xc8** (class `0x1435e7540`, read `0x1421aaf20`, case 0x3b): u16 BE tab index, u32 BE inventory id
   (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87da0`), which builds the
   page. The Gateway sends 0xc0 when the client doesn't have the tab, and 0xc8 every time.
-- **Visited tabs stay loaded for the connection.** The panel asks (`0xc7`) only for a tab it has no built page for: a
+- **Visited inventories stay registered for the connection.** The panel asks (`0xc7`) only for a tab it has no built page for: a
   page it built stays at panel tab `+0x58` across `0x136` tab lists (`0x140a87e90` clears pages via `0x140b08980` only
   for kind 2 trade tabs), and the tab-selected handler (`0x140a86290`) shows that page without another request.
   - Earlier builds unloaded non-shown tabs on tab switch with **S→C 0xc1** (`0x141d65a40`, u8 manager, u32 inventory id)
     to reduce open cost (`0x1418b0a30`), then reloaded on `0xbf` via `Game.SendTabChange` so the client would not abort
     with `"Got an inventory set change for an inventory that isn't in the set"`
     ([#605](https://github.com/LocalExile/LocalExile/issues/605), [#710](https://github.com/LocalExile/LocalExile/issues/710)).
-  - The panel walks loaded items on reopen. With five populated special tabs (1,503 inventory entries) in the regular uncapped 3.29.3d client, two Lockstep reopens produced main-loop gaps of 175 and 191 ms. With only the tab-loading method replaced by main’s unloading implementation, the same reopens measured 87 and 9 ms. Before visiting the tabs the largest observed gap on open was 5.3 ms. The earlier 3.29.3c measurement with five full tabs was about 1.5 s.
+  - Before an ordinary chest reopens, the Gateway sends a tab list with the ordinary visited pages detached
+    (inventory id 0 and loaded bit clear). Their inventory manager entries keep accepting item changes. Currency
+    sources used by vendors and the Map and Unique collection bindings retain their inventory ids. The guild chest
+    applies the same rule to its own catalog. No tab positions or saved items change.
+  - Regular uncapped 3.29.3d, 1,503 entries across Currency, Essence, Fragment, Gem and Divination. On three
+    physical chest reopens showing a small grid tab, the largest main-loop gap per open was 180–181 ms with the
+    original Lockstep handler, 14–19 ms with the fix in Lockstep and 14–19 ms in Predictive. A reopen showing
+    the full 470-card page measured 194 ms with the original Lockstep handler and 86 ms with the fix in either mode.
+    Moving an Essence out of its cached tab and back by hand kept its item id in both modes.
   - Static 3.29.3c/d verification of `0x141d65f80` (inventory placement check): the very first lookup
     (`0x141d65830` at `0x141d65fd1`) returns null when `0xc1` removed the tab's inventory while `+0x58` kept its page
     shown, so hovering a held item over a revisited tab turns red and blocks manual left-click placement (`0x2a`),

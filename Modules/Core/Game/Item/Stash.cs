@@ -101,8 +101,16 @@ public static partial class Game
                 still: () => PlayerActionCurrent(conn, action));
         }
         else
+        {
+            if (conn.StashTabsSent.Count > 0)
+            {
+                var tabs = stash.Records(null, conn.StashTabsSent, ItemsFor(conn));
+                if (tabs.Any(t => !t.Loaded && conn.StashTabsSent.Contains(t.Index)))
+                    await Send(remote, stream, ciphers, InstanceStash.TabList(tabs), "0x0136 stash pages before reopen");
+            }
             await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceStash.OpenStashUi, conn.StashObject, InstanceStash.NoAffinity),
                 "0x007b open the stash on the panel's own tab", still: () => PlayerActionCurrent(conn, action));
+        }
     }
 
     // C→S 0xc7: the panel shows a tab whose contents it does not have (or it just opened on it). The first time per
@@ -133,12 +141,6 @@ public static partial class Game
         uint inventory = stash.InventoryOf(tab);
         byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
         var sent = TabsSentOf(conn, stash);
-        // Keep every visited tab's inventory registered for this connection (18-stash.md §4): the panel caches each built
-        // page (+0x58) and shows it again without sending 0xc7 (0x140a86290), and 0x136 only clears pages for kind 2
-        // (Trade, 0x140a87e90). Unloading a visited tab with 0xc1 removes its inventory from the manager so hovering a
-        // cursor item over it fails 0x141d65f80 -> 0x141d65830 (red placement overlay, manual 0x2a blocked) while
-        // Ctrl+click (0xe0/0xe1) still routes by tab index. Area entry still preloads only shop-currency tabs
-        // (PreloadsForPrices).
         if (sent.Add(tab))
         {
             var (slot, items) = stash.Inventory(tab);
