@@ -65,6 +65,7 @@ public static partial class Game
             RecordIncomingHitLocked(conn, now, spell, blocked, suppressed, lifeDamage);
             RecentHitLifeLossOnHitLocked(conn, now);
             UnhingedHitRecoveryLocked(conn, now, stats);
+            VitalityHitRecoveryLocked(conn, now, stats);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
             RecordHardcoreDeath(conn);
             hit = new(dealt, mitigation, conn.PlayerLife, conn.PlayerMana, manaBefore,
