@@ -55,6 +55,14 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        if (golem.CombatCharges is { } charges)
+        {
+            int frenzy = charges.Held(ChargeType.Frenzy);
+            values["attack_speed_+%"] = values.GetValueOrDefault("attack_speed_+%") + 4 * frenzy;
+            values["cast_speed_+%"] = values.GetValueOrDefault("cast_speed_+%") + 4 * frenzy;
+            values["critical_strike_chance_+%"] = values.GetValueOrDefault("critical_strike_chance_+%")
+                + 50 * charges.Held(ChargeType.Power);
+        }
         int Get(string n) => GolemStat(player, n);
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
         // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
@@ -263,6 +271,7 @@ public static partial class Game
                 * Math.Max(0, 1 + Own("minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Raw("active_skill_damage_+%_final") / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "damage") / 100.0) : 1);
+            more *= 1 + .04 * (golem.CombatCharges?.Held(ChargeType.Frenzy) ?? 0);
             if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_damage_+%_final") / 100d);
             var types = new HashSet<int>();
             if (spell) types.Add(1);
@@ -298,7 +307,8 @@ public static partial class Game
             if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
             if (id.Contains("Whirling", StringComparison.Ordinal) || id.Contains("Cyclone", StringComparison.Ordinal) || id.Contains("Leap", StringComparison.Ordinal)) range = 45;
             double radius = Raw("active_skill_base_area_of_effect_radius");
-            if (radius <= 0) radius = id.Contains("Slam", StringComparison.Ordinal) ? 15 : 10;
+            if (radius <= 0) radius = SpectreChargeRoar(golem, effect) is not null ? 60
+                : id.Contains("Slam", StringComparison.Ordinal) ? 15 : 10;
             radius *= (1 + Raw("active_skill_area_of_effect_radius_+%_final") / 100.0)
                 * Math.Sqrt(Math.Max(0, 1 + (mods["base_skill_area_of_effect_+%"] + Raw("base_skill_area_of_effect_+%")) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
@@ -376,6 +386,11 @@ public static partial class Game
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stats.Key("dexterity") is uint dexKey) hash.Add((dexKey, player.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(player));
+        if (golem.CombatCharges is { } charges)
+        {
+            hash.Add(charges.Held(ChargeType.Frenzy));
+            hash.Add(charges.Held(ChargeType.Power));
+        }
         int inheritedCoefficient = GolemStat(player, "minions_gain_x_percent_of_your_resistances");
         GolemOwnerResistances? ownerResistances = inheritedCoefficient == 0 ? null : GolemOwnerResistancesFor(conn);
         if (ownerResistances is { } resistanceHash) hash.Add(resistanceHash);
