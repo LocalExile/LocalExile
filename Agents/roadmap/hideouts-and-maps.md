@@ -6,8 +6,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Harvest, what is left: Crop Rotation's tier upgrades, Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting; the
-client questions (the Extractor/Irrigator state sequence after a crop starts and where seeds sit), and Oshabi's soul tree and boss state sequence captured live (the order of the three colours after
+Harvest, what is left: Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting; the
+client questions (the Extractor/Irrigator state sequence after a crop starts, where seeds sit and what clears a hatched seed's plant; the crop label's button sends C→S 0x0275 with the Irrigator's id, which has no handler), and Oshabi's soul tree and boss state sequence captured live (the order of the three colours after
 Sacred, random here, and whether a Root Wall's TriggerableBlockage is sent blocked); AtlasNode 158 `OshabiBoss`'s
 completion (`HarvestLeagueBoss` has no `Bosses_MonsterVarietiesKeys`, so AtlasProgress never completes it); opening
 the Atlas RandomContent nodes (MapDeviceRecipes 74-89, whose RecipeItems hold the placeholder 3920) to reach the
@@ -44,7 +44,7 @@ bench.
 - **Known:** the `Idols` module works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
   The client's own Idol inventories (three loadouts of up to 32 cells) have no panel in the 3.29.3 clients.
 - **Start:** the slots unlocked by Atlas objectives (`MapRelicInventoryLayout`, league quest flags `AtlasIdolSlotsUnlocked1` to `6`);
-  Kingsmarch's Idol gambling (`VillageIdolGamblingUnlocked`); the Ruthless versions of two unique Idols;
+  the Ruthless versions of two unique Idols;
   refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
 - **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
 

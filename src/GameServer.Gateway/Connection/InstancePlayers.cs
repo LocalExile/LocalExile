@@ -53,6 +53,66 @@ public static class InstanceEvents
         return sum;
     }
 
+    /// <summary>The league content category the instance is played in (S→C 0x1d +0x28, client world +0xd0;
+    /// <see cref="GameServer.Core.World.LeagueCategory"/>): the client's topology pick, SpecialMapPins <c>__col5</c> and the
+    /// object types' <c>league_category</c> read it, so the Gateway generates the level with it too. The first answer of
+    /// the league's modules wins; none is 60.</summary>
+    public static readonly GameEvent<Func<AreaStatsRequest, int?>> LeagueCategory = new();
+
+    /// <summary>The league's first answer to <see cref="LeagueCategory"/>, or 60; a failing answer counts as none.</summary>
+    public static int ComposeLeagueCategory(LeagueRuntime league, AreaStatsRequest request)
+    {
+        foreach (var compose in LeagueCategory.For(league))
+        {
+            int? value;
+            try { value = compose(request); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[gateway] league category of 0x{request.Area:x4} for {request.Character}: {ex.GetType().Name}: {ex.Message}");
+                continue;
+            }
+            if (value is not null) return GameServer.Core.World.LeagueCategory.Clamp(value);
+        }
+        return GameServer.Core.World.LeagueCategory.None;
+    }
+
+    /// <summary>The terrain plugin states a new instance is played with (S→C 0x1d extra data, second flag byte bit 0: per
+    /// plugin its TerrainPlugins <c>__col1</c> id and the plugin's bytes). The client's plugin builds its part of the level
+    /// from them, so the Gateway generates the level with the same. Asked once per instance
+    /// by its first connection, with the area stats; per plugin the last answer wins (a mod after the modules).</summary>
+    public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyList<(ushort Plugin, byte[] State)>?>> TerrainPluginStates = new();
+
+    /// <summary>The league's answers to <see cref="TerrainPluginStates"/>, the last per plugin, a failing answer counting as
+    /// none. Only a state for the area's own plugin, of a plugin the server's generator ports, is kept: the client would
+    /// build any other plugin's part of the level and the server could not.</summary>
+    public static IReadOnlyList<(ushort Plugin, byte[] State)> ComposeTerrainPluginStates(LeagueRuntime league, AreaStatsRequest request)
+    {
+        var states = new Dictionary<ushort, byte[]>();
+        foreach (var compose in TerrainPluginStates.For(league))
+        {
+            IReadOnlyList<(ushort Plugin, byte[] State)>? part;
+            try { part = compose(request); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[gateway] terrain plugin states of 0x{request.Area:x4} for {request.Character}: {ex.GetType().Name}: {ex.Message}");
+                continue;
+            }
+            foreach (var (plugin, state) in part ?? [])
+            {
+                if (states.ContainsKey(plugin)) Console.WriteLine($"[gateway] terrain plugin {plugin} state of 0x{request.Area:x4} replaced by a later answer");
+                states[plugin] = state;
+            }
+        }
+        var own = AreaTerrainPlugins.Of(request.Area);
+        foreach (var plugin in states.Keys.ToList())
+            if (own is not { } o || o.Id != plugin || !GameServer.Data.Terrain.Generation.LevelGenerator.PortsPlugin(o.Name))
+            {
+                Console.WriteLine($"[gateway] terrain plugin {plugin} state of 0x{request.Area:x4} dropped: not the area's own plugin, or not ported");
+                states.Remove(plugin);
+            }
+        return [.. states.Select(p => (p.Key, p.Value))];
+    }
+
     /// <summary>Two stat lists summed (the area stats and the league's own, both sent in 0x1d's first list).</summary>
     public static IReadOnlyDictionary<uint, int>? Merge(IReadOnlyDictionary<uint, int>? a, IReadOnlyDictionary<uint, int>? b)
     {

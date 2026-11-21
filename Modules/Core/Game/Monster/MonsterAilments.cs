@@ -418,11 +418,13 @@ public static partial class Game
             double action = MonsterActionFactor(m, now, freeze: false);
             // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed. So does
             // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
+            bool speedFloored = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0;
             var movement = MaimedMovementFactor(m, now);
-            if (trap != 1) movement = (movement.Factor * trap, (int)Math.Round((100 + movement.Pct) * trap - 100));
-            double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
+            if (trap != 1 && !(speedFloored && trap < 1))
+                movement = (movement.Factor * trap, (int)Math.Round((100 + movement.Pct) * trap - 100));
+            double walk = (speedFloored ? Math.Max(1, action) : action)
                 * movement.Factor;
-            if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
+            if (!speedFloored) walk *= vines;
             if (walk != a.WalkFactor)
             {
                 // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore

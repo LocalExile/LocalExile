@@ -55,7 +55,7 @@ public sealed class LabyrinthTrialTests
         // Transitionable, Buffs (u16 count), tasks. A 1x3 lies three tiles along its angle.
         const string plate = "Metadata/Terrain/Doodads/Traps/hotplate1_3.ao";
         byte[] lava = LabyrinthTrials.Blob(LabyrinthTrials.Lava1x3, plate, 57, 103, 0, 1, LabyrinthTrials.Open, 125);
-        Assert.Equal(new byte[] { 0x04, 0x02, 16, 0, 0, 0 }, lava[16..22]);
+        Assert.Equal(new byte[] { 0x04, 0x02, 0xf0, 0xff, 0xff, 0xff }, lava[16..22]);
         Assert.Equal(125f, BitConverter.ToSingle(lava, 22));
         Assert.Equal(new byte[] { LabyrinthTrials.Open, 0, 0, 0 }, lava[(2 + 26 + 1 + 4 + plate.Length * 2)..]);
         Assert.Equal(3, LabyrinthTrials.TransitionableIndex(LabyrinthTrials.Lava1x3));

@@ -129,12 +129,17 @@ public static class InstanceStash
 
     /// <summary>C→S 0xcd (vtable 0x1435cab10, write 0x141f9ccd0; built by the tab settings 0x14025b9b0): a premium tab
     /// renamed. u8 kind, u16 BE tab, u64 (0), wstr name.</summary>
-    public static int? RenameTabLength(ReadOnlySpan<byte> m)
+    public static int? RenameTabLength(ReadOnlySpan<byte> m) =>
+        MeasureRenameTabLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureRenameTabLength(ReadOnlySpan<byte> m, out int length)
     {
-        var r = new LoginReader(m);
-        r.U16(); r.U8(); r.U16(); r.U32(); r.U32();
-        r.WStr();
-        return r.Short ? null : r.Position;
+        length = 0;
+        if (m.Length < 13) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[13..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        length = 13 + textLength;
+        return WireMeasure.Ok;
     }
 
     public static (byte Kind, ushort Tab, string Name) ReadRenameTab(ReadOnlySpan<byte> m)

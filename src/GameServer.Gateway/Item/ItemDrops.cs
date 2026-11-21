@@ -420,11 +420,12 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     }
 
     /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the campaign). Our own
-    /// rates until the game pools are known.</summary>
-    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0)
+    /// rates until the game pools are known. <paramref name="chanceFactor"/> scales the chance (a monster's or league's
+    /// map-related drop chance).</summary>
+    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0, double chanceFactor = 1)
     {
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
-        chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps"));
+        chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps") * Math.Max(0, chanceFactor));
         if (maps is null || chance <= 0 || rng.NextDouble() >= chance) return null;
         int stones = Math.Max(0, voidstones);
         int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
