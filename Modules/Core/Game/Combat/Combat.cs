@@ -569,6 +569,7 @@ public static partial class Game
                     weapon.Melee, player, ownPenetration));
                 stun = OwnerStun(conn, m, damage, mitigated, weapon.Melee, spell: false, critical, player, ownPenetration)
                     with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
+                uint lifeBefore = m.Life;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, weapon.Melee, player);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(conn, m, damage, Cull.Of(player, ownPenetration, critical, spell: false),
                     rampageSource, player);
@@ -598,6 +599,9 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: weapon.Melee, critical);
+                if (weapon.ItemClass is not null) conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                if (life == 0) RecordTinctureKill(m, TinctureKillBonusFor(conn, player, hand));
+                if (conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
             }
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
@@ -2494,6 +2498,8 @@ public static partial class Game
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
+        bool weaponAttack = false;
+        TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<string, int>? weaponLocal = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
@@ -2548,6 +2554,9 @@ public static partial class Game
                         var sourceWeapon = shield ?? HandWeapon(conn, hand);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
                         weaponLocal = local;
+                        weaponAttack = !spell && shield is null && sourceWeapon.ItemClass is not null && SkillsFor(conn).IsAttack(gem.Effect);
+                        if (weaponAttack)
+                            tinctureKill = TinctureKillBonusFor(conn, player, hand);
                         if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: IsSmite(gem.Effect) ? singleStrikeTarget is null : null)
                             is not { } capturedInputs) break;
                         var offInputs = shield is null && hand == AttackHand.Both && OffhandWeaponFor(conn) is { } bothOff
@@ -2699,6 +2708,9 @@ public static partial class Game
                         if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
+                        if (weaponAttack) conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                        if (applied.Value.Life == 0) RecordTinctureKill(m, tinctureKill);
+                        if (!spell && conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(conn, m, skillStats);
                         AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
@@ -2996,7 +3008,9 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now),
+        bool ignorePhys = attack && mods.IgnorePhysicalReductionChance > 0
+            && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared);
+        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys),
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 
@@ -3005,14 +3019,20 @@ public static partial class Game
     {
         var a = HitResistances.Mods.From(player, Stats.Key);
         var b = skill is null ? default : HitResistances.Mods.From(skill, Stats.Key);
+        int ignorePhys = Has("tincture_applied")
+            ? Math.Clamp(Value("hits_ignore_enemy_monster_physical_damage_reduction_%_chance_with_tinctured_weapons"), 0, 100)
+            : 0;
         return new(a.CriticalIgnoreElemental | b.CriticalIgnoreElemental,
             a.AttackCriticalIgnoreElemental | b.AttackCriticalIgnoreElemental,
             a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore,
             IgnoreFire: Has("virtual_hits_ignore_enemy_fire_resistance"),
-            IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"));
+            IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"),
+            IgnorePhysicalReductionChance: ignorePhys);
 
         bool Has(string name) => Stats.Key(name) is uint key
             && (player.GetValueOrDefault(key) != 0 || (skill?.GetValueOrDefault(key) ?? 0) != 0);
+        int Value(string name) => Stats.Key(name) is uint key
+            ? player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0) : 0;
     }
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where
@@ -3413,10 +3433,12 @@ public static partial class Game
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill, bool byHit = true)
     {
+        TinctureKillBonus? tinctureKill;
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;
         lock (conn.Monsters)
         {
+            tinctureKill = playerKill && byHit ? TakeTinctureKill(conn, m) : null;
             destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
             if (playerKill) QueueMadnessExplosionLocked(conn, id, m);
         }
@@ -3445,7 +3467,7 @@ public static partial class Game
             await GameEvents.RunMonsterKilled(new(conn, monster));
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
-            RecoverOnKill(conn, m);
+            RecoverOnKill(conn, m, tinctureKill);
             GainPhasingOnKill(conn);
             // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
             bool corpseConsumed, devoured;
@@ -3488,7 +3510,7 @@ public static partial class Game
             lock (conn.Monsters) have = conn.Experience;
             if (have < needed) await GainExperience(remote, stream, ciphers, conn, needed - have, $"quest: {m.Label} killed, level {level}");
         }
-        await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
+        await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
         if (!m.NoRewards) await DropLoot(remote, stream, ciphers, conn, m, at);
         await PublishUnhingedCorpseDestruction(remote, stream, ciphers, conn, id, m, destroyCorpse);
     }
