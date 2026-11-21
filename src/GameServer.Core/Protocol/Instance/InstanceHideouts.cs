@@ -51,10 +51,18 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
 /// </summary>
 public static class InstanceMapDevice
 {
-    public const ushort ActivateId = 0x00d8, SelectMapId = 0x00e7, MoveId = 0x00e8, SocketId = 0x00f6;
-    public const int ActivateLength = 5, SelectMapLength = 5, MoveLength = 11, SocketLength = 8;
+    public const ushort ActivateId = 0x00d8, SelectMapId = 0x00e7, MoveId = 0x00e8, SocketId = 0x00f6,
+        ActivateMemoryLineId = 0x0297, ActivateMavenInvitationId = 0x0298;
+    public const int ActivateLength = 5, SelectMapLength = 5, MoveLength = 11, SocketLength = 8,
+        ActivateMemoryLineLength = 3, ActivateMavenInvitationLength = 3;
 
     public static (ushort Target, byte Index) ReadActivate(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
+
+    /// <summary>C→S 0x0297 (3 bytes, 0x140c285e8 mode 0x5e MemoryLineMaps1): u8 primordial boss option.</summary>
+    public static byte ReadActivateMemoryLine(ReadOnlySpan<byte> m) => m[2];
+
+    /// <summary>C→S 0x0298 (3 bytes, 0x140c2866c mode 0x56 MavenInvitations): u8 invitation slot index (0..10).</summary>
+    public static byte ReadActivateMavenInvitation(ReadOnlySpan<byte> m) => m[2];
 
     /// <summary>C→S 0x00e7: an Atlas map node picked in the hideout map device. u16 BE WorldAreas HASH16, u8 0x0d.</summary>
     public static (ushort Area, byte Mode) ReadSelectMap(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);

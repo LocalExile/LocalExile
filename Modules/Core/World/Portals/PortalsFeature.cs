@@ -104,12 +104,38 @@ static class PortalsFeature
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): one map (its affixes and the scarabs/fragments)
     // or a MapDeviceRecipes set with no map. Then one item from each slot's stack is consumed, the area opens (the first
     // portal taken makes its instance) and its portals appear around the device, replacing any open before. Otherwise the chat says why.
-    internal static async Task ActivateMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Target, byte Index) activate)
+    internal static Task ActivateMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Target, byte Index) activate) =>
+        ActivateDeviceSlots(remote, stream, ciphers, conn, PlayerInventories.MapDevice, ItemsOf(conn).Items(PlayerInventories.MapDevice),
+            activate.Target, activate.Index, $"0x00d8 activate the map device (target 0x{activate.Target:x4}, index {activate.Index})",
+            allowCampaign: true);
+
+    // C→S 0x0297, the map receptacle's Memory Line Activate (mode 0x5e, inventory row 94 MemoryLineMaps1).
+    internal static Task ActivateMemoryLine(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte bossOption) =>
+        ActivateDeviceSlots(remote, stream, ciphers, conn, PlayerInventories.MemoryLineMaps, ItemsOf(conn).Items(PlayerInventories.MemoryLineMaps),
+            target: 0, bossOption, $"0x0297 activate memory line (index {bossOption})", allowCampaign: false);
+
+    // C→S 0x0298, the map receptacle's Maven Invitation Activate (mode 0x56, inventory row 86 MavenInvitations, slot 0..10).
+    internal static async Task ActivateMavenInvitation(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte invitationIndex)
+    {
+        var all = ItemsOf(conn).Items(PlayerInventories.MavenInvitations);
+        var chosen = all.Where(i => i.X == invitationIndex).ToList();
+        if (chosen.Count == 0)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0298 activate Maven invitation slot {invitationIndex}: empty");
+            await Send(remote, stream, ciphers, InstanceChat.ChatLine("No Maven invitation is placed in that slot."),
+                "0x0017 chat line \"No Maven invitation is placed in that slot.\"");
+            return;
+        }
+        await ActivateDeviceSlots(remote, stream, ciphers, conn, PlayerInventories.MavenInvitations, chosen,
+            target: 0, bossOptionInput: 0, $"0x0298 activate Maven invitation slot {invitationIndex}", allowCampaign: false);
+    }
+
+    static async Task ActivateDeviceSlots(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        byte inventoryRow, IReadOnlyList<InventoryItem> slots, ushort target, byte bossOptionInput, string logHeader, bool allowCampaign)
     {
         var device = MapDeviceHere(conn);
         var items = ItemsOf(conn);
-        var slots = items.Items(PlayerInventories.MapDevice);
-        Console.WriteLine($"[gateway] {remote} <= 0x00d8 activate the map device (target 0x{activate.Target:x4}, index {activate.Index}): " +
+        Console.WriteLine($"[gateway] {remote} <= {logHeader}: " +
             $"{string.Join(", ", slots.Select(i =>
             {
                 string name = Items.ByHash(i.Item.TypeHash)?.Name ?? $"0x{i.Item.TypeHash:x8}";
@@ -117,7 +143,9 @@ static class PortalsFeature
             }).DefaultIfEmpty("empty"))}");
         Task Tell(string text) => Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         if (device is null) { await Tell("There is no Map Device here."); return; }
+        bool campaign = allowCampaign && device.Value.Campaign;
         if (!device.Value.Campaign && !OwnHideout(conn)) { await Tell("Only the hideout owner can activate this Map Device."); return; }
+        if (!allowCampaign && device.Value.Campaign) { await Tell("This Map Device cannot activate that mode."); return; }
         MapDevice.Slot[] checkedSlots = [.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
             ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
             {
@@ -125,10 +153,10 @@ static class PortalsFeature
                 Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id,
             }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
-        byte bossOption = !device.Value.Campaign && activate.Index is >= 1 and <= 3 ? activate.Index : (byte)0;
-        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
+        byte bossOption = !campaign && bossOptionInput is >= 1 and <= 3 ? bossOptionInput : (byte)0;
+        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: campaign);
         if (opening is not null && bossOption != 0) opening = opening with { BossOption = bossOption };
-        var request = new MapOpening(conn, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
+        var request = new MapOpening(conn, checkedSlots, campaign, opening, why) { Target = target };
         GameEvents.ResolveMapOpening(request);
         opening = request.Opening;
         why = request.Reason;
@@ -144,7 +172,7 @@ static class PortalsFeature
             return;
         }
         var area = opening.Area;
-        byte resolvedBossOption = !device.Value.Campaign ? (opening.BossOption != 0 ? opening.BossOption : bossOption) : (byte)0;
+        byte resolvedBossOption = !campaign ? (opening.BossOption != 0 ? opening.BossOption : bossOption) : (byte)0;
         // One from each slot's stack, in one transaction: leftover stacks stay in the device (a shop scarab stack is 20).
         var consumed = Saves.Atomically(() =>
         {
@@ -153,21 +181,21 @@ static class PortalsFeature
             foreach (int index in consumedIndices)
             {
                 var slot = slots[index];
-                if (items.ConsumeOne(PlayerInventories.MapDevice, slot.Id) is not { } take) continue;
+                if (items.ConsumeOne(inventoryRow, slot.Id) is not { } take) continue;
                 gone.Add(slot.Id);
                 if (take.Left is { } remain) left.Add(remain);
             }
             return (gone, left);
         });
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MapDevice),
-            items.NextRevision(PlayerInventories.MapDevice), consumed.gone, consumed.left),
-            $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.gone.Count} slot(s)"
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(inventoryRow),
+            items.NextRevision(inventoryRow), consumed.gone, consumed.left),
+            $"0x00bf inventory {PlayerInventories.InventoryId(inventoryRow)}: the map device consumed {consumed.gone.Count} slot(s)"
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         var entrance = conn.Layout.Near((device.Value.X, device.Value.Y));
         var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow,
-            device.Value.Campaign || request.ReturnToSource ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null,
+            campaign || request.ReturnToSource ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null,
             entrance: new(conn.Layout.Hash, conn.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption);
-        if (device.Value.Campaign)
+        if (campaign)
             await SetQuestFlags(remote, stream, ciphers, conn, ["a7q2-DeliveredItem"]);
         string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
             ? $", +{opening.Mods.ExtraMagicPacks} magic packs, {opening.Mods.PacksDropCards} pack(s) drop cards"
