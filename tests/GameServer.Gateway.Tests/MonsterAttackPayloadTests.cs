@@ -20,7 +20,10 @@ public class MonsterAttackPayloadTests
         {
             var variety = Game.Monsters.Find("Metadata/Monsters/" + path)!;
             bool skeleton = path.StartsWith("Skeletons/", StringComparison.Ordinal);
-            Assert.Equal(3, variety.Weapons.Count);
+            bool armoured = path == "Bandits/BanditBowBurningArrow";
+            Assert.Equal(armoured ? 7 : 3, variety.Weapons.Count);
+            if (armoured)
+                Assert.Equal([2, 4, 5, 6], variety.Weapons.Select(w => (int)w.Slot).Where(s => s is 2 or 4 or 5 or 6).Order().ToArray());
             var arrow = Assert.Single(variety.Weapons, w => w.Slot == 0);
             var bow = Assert.Single(variety.Weapons, w => w.Slot == 1);
             var quiver = Assert.Single(variety.Weapons, w => w.Slot == 7);
