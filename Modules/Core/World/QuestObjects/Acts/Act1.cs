@@ -19,8 +19,17 @@ static class Act1Monsters
     public const string Dweller = "Metadata/Monsters/ShieldCrabs/ShieldCrabBossSlowAura";        // 541
     public const string Brutus = "Metadata/Monsters/Brute/BossBrute";                            // 150 Brutus, Lord Incarcerator
     public const string Fairgraves = "Metadata/Monsters/Skeletons/SkeletonBossFairgraves";       // 550
+    public const string Amarissa = "Metadata/Monsters/Seawitch/SeaWitchBossSpark";               // 520 Amarissa, Daughter of Merveil
+    public const string Ambrosia = "Metadata/Monsters/Seawitch/SeaWitchBossFirestorm";           // 518 Ambrosia, Daughter of Merveil
     public const string Merveil = "Metadata/Monsters/seawitchillusion/BossMerveil";              // 162 Merveil, the Siren
     public const string MerveilTwisted = "Metadata/Monsters/Seawitch/BossMerveil2";              // 164 Merveil, the Twisted
+}
+
+/// <summary>Object and chest types for Act 1 encounters.</summary>
+static class Act1Objects
+{
+    public const string AmarissaTrickChest = "Metadata/Chests/AmarissaTrickChest";
+    public const string AmbrosiaTrickChest = "Metadata/Chests/AmbrosiaTrickChest";
 }
 
 /// <summary>BaseItemTypes Ids of Act 1's quest items dropped by rules (the glyphs are GlyphQuest's).</summary>
@@ -108,8 +117,11 @@ sealed class Act1 : Act
             // a1q3 "The Siren's Cadence" (§9): Merveil, the Siren (no drops, a second form) becomes Merveil, the Twisted, whose
             // death sets KilledSeaWitch: the six MerveilExitBlockers before the exit stop blocking (object_size 5,
             // unblock_quest_flag) and the way into Act 2 opens. Nessa's "Merveil Reward" is offer 10.
+            // Amarissa (1_1_11_1) and Ambrosia (1_1_11_2) spring from their Trick Chests (Rules.TrickChests.cs).
             new Quest("a1q3")
             {
+                On.Spawns(CavernOfWrath, Act1Objects.AmarissaTrickChest, Act1Monsters.Amarissa),
+                On.Spawns(CavernOfAnger, Act1Objects.AmbrosiaTrickChest, Act1Monsters.Ambrosia),
                 On.Seen(CavernOfAnger, Act1Monsters.Merveil, "a1q3-SeenMerveil"),
                 On.SecondForm(CavernOfAnger, Act1Monsters.Merveil, Act1Monsters.MerveilTwisted),
                 On.Killed(CavernOfAnger, Act1Monsters.MerveilTwisted, "a1q3-KilledSeaWitch"),

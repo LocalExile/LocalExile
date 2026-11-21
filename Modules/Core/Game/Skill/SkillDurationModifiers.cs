@@ -11,14 +11,14 @@ public static class SkillDurationModifiers
     /// Func{string, int}, Kinds)"/>): a CreatesMinion skill's, a warcry's, a Vaal skill's, a Buff skill's, or a skill's
     /// secondary duration (base_secondary_skill_effect_duration) instead of its primary one.</summary>
     [Flags]
-    public enum Kinds { None = 0, Minion = 1, Warcry = 2, Vaal = 4, Buff = 8, Secondary = 16 }
+    public enum Kinds { None = 0, Minion = 1, Warcry = 2, Vaal = 4, Buff = 8, Secondary = 16, Brand = 32 }
 
     // The increases scoped to a kind, from the player and the skill alike. base_minion_duration_+% is the player's only
     // (PoB SkillStatMap: Duration INC for SkillType.CreatesMinion).
     static readonly (Kinds Kind, string Stat)[] TypedIncreases =
     [
         (Kinds.Warcry, "warcry_duration_+%"), (Kinds.Vaal, "vaal_skill_effect_duration_+%"), (Kinds.Buff, "buff_duration_+%"),
-        (Kinds.Secondary, "secondary_skill_effect_duration_+%"),
+        (Kinds.Secondary, "secondary_skill_effect_duration_+%"), (Kinds.Brand, "sigil_duration_+%"),
     ];
 
     // Supports' more or less duration, on the supported skill's own stats.
@@ -67,6 +67,7 @@ public static partial class Game
         var skills = SkillsFor(conn);
         return (skills.IsWarcry(effect) ? SkillDurationModifiers.Kinds.Warcry : 0)
             | (skills.IsVaal(effect) ? SkillDurationModifiers.Kinds.Vaal : 0)
-            | (skills.HasType(effect, "Buff") ? SkillDurationModifiers.Kinds.Buff : 0);
+            | (skills.HasType(effect, "Buff") ? SkillDurationModifiers.Kinds.Buff : 0)
+            | (skills.IsBrand(effect) ? SkillDurationModifiers.Kinds.Brand : 0);
     }
 }

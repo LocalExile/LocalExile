@@ -724,7 +724,8 @@ public static partial class Game
                 stats[artKey] = art;
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
-            int supportCastSpeed = Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0;
+            int supportCastSpeed = (Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0)
+                + BrandCastSpeedBonusPct(conn, effect, playerStats, own);
             int castSpeedTotal = FinalCastSpeedPct(conn, stats, CastSpeedPct(stats) + supportCastSpeed);
             var supportedTiming = GolemStat(own, "base_spell_cast_time_ms_override") is int castBasis and > 0
                 ? SpellCastTiming.Calculate(castBasis, castSpeedTotal) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, castSpeedTotal);
@@ -1038,6 +1039,14 @@ public static partial class Game
                 if (Get("base_totem_duration") is int baseTotemMs and > 0)
                     Publish("totem_duration", (int)Math.Round(baseTotemMs * Math.Max(0, 100 + Get("totem_duration_+%")) / 100.0));
             }
+            if (SkillsFor(conn).IsBrand(effect))
+            {
+                Publish("brands_per_target_limit", BrandMaxPerTarget(playerStats, own));
+                if (GolemStat(own, "base_sigil_repeat_frequency_ms") > 0)
+                    Publish("sigil_repeat_frequency_ms", (int)Math.Round(1000 * BrandActivationSeconds(conn, supported, playerStats)));
+                if (GolemStat(own, "base_secondary_skill_effect_duration") > 0)
+                    Publish("secondary_skill_effect_duration", (int)Math.Round(1000 * BrandDetachedDurationSeconds(playerStats, own)));
+            }
             Publish("skill_is_instant", GolemStat(own, "base_skill_is_instant") != 0 ? 1 : 0);
             if (CurseCatalog.Hex(SkillsFor(conn).EffectId(effect) ?? ""))
             {
@@ -1272,7 +1281,8 @@ public static partial class Game
             return "this curse is triggered by Bane";
         if (TravelSkillsExceptDashDisabled(conn, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
-            && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
+            && !TriggeredSpellExecutable(conn, skillId, gem)
+            && !SnipeTriggeredAttackExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? WeaponRestricted(conn, effect)
                 ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)

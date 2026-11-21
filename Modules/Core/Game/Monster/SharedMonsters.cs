@@ -592,6 +592,8 @@ public static partial class Game
                     packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
                     if (owner.ProjectileRuntimeState is ProjectileSession mirages && mirages.MiragePeerDisplay(m.Id, id) is { } display)
                         packets.World(id, display);
+                    else if (MirageWarriorPeerDisplay(owner, m.Id, id) is { } warriorDisplay)
+                        packets.World(id, warriorDisplay);
                     if (!conn.LockstepClient && m.Destination != (m.X, m.Y))
                         packets.World(id, InstanceProtocol.ActionStarted(id, m.X, m.Y, m.Destination.X, m.Destination.Y, 0x2909, 0xffff, 0x0408));
                 }

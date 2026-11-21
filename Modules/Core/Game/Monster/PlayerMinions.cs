@@ -78,6 +78,8 @@ public static partial class Game
         if (!Current()) return;
         await PlacedSkillsTick(remote, stream, ciphers, conn, now);
         if (!Current()) return;
+        await MirageWarriorsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;

@@ -215,6 +215,8 @@ public static partial class Game
             // that held it ends here rather than staying set for the respawned client to keep holding (the loop merely
             // returns on the zero life, so nothing else clears ChannelSkill).
             WinterOrbRetire(conn);
+            SnipeRetire(conn);
+            MirageWarriorsRetire(conn);
             conn.RetireOwnedCombat();
             conn.ChannelSkill = 0;
             conn.ChannelGeneration++;
@@ -413,7 +415,7 @@ public static partial class Game
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
     // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
     static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
-        out uint es, out uint fromEs, out Dictionary<uint, int> player)
+        out uint es, out uint fromEs, out Dictionary<uint, int> player, int costPercent = 100)
     {
         cost = 0;
         life = 0;
@@ -454,6 +456,12 @@ public static partial class Game
         }
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
         es = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("es_cost") ?? 0));
+        if (costPercent != 100)
+        {
+            cost = (uint)((long)cost * costPercent / 100);
+            life = (int)((long)life * costPercent / 100);
+            es = (uint)((long)es * costPercent / 100);
+        }
         if (es > conn.EnergyShield.Current) return false;
         var paying = player;
         bool Has(string name) => Stats.Key(name) is uint key && paying.GetValueOrDefault(key) != 0;
@@ -476,14 +484,17 @@ public static partial class Game
     // Mana cost from what Energy Shield is left before Mana. False when the player lacks the pool it actually uses.
     // cost is what Mana paid, and only that is Mana spent (ManaSpentLocked: Ravenous Passion's Rage, recoup): the part
     // Energy Shield paid is not (a player's test, 2025: Indigon did not count it; no official statement found).
-    public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
+    public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost) =>
+        PayMana(conn, skillId, out cost, out lifeCost, 100);
+
+    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent)
     {
         var supported = SupportedSkill(conn, skillId);
         var own = supported.Stats;
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            if (!SkillCostLocked(conn, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var player))
+            if (!SkillCostLocked(conn, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var player, costPercent))
             {
                 cost = 0;
                 return false;
@@ -517,6 +528,7 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
+        speed += BrandCastSpeedBonusPct(conn, effect, player, own);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
         return GolemStat(own, "base_spell_cast_time_ms_override") is int basis and > 0
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);

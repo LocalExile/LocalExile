@@ -83,6 +83,7 @@ public static partial class Game
         conn.NpcFinishFlag = null;
         conn.NpcFinishLeagueFlag = null;
         conn.NpcRewardOffer = null;
+        await CharacterVoiceLines.OnNpcTalked(conn, npc.Npc.Id);
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         // Ctrl, Alt or both held on the click (0x24 flags 0x0004, 0x0200): the NPC's option with that shortcut, as if it
