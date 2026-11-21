@@ -154,6 +154,11 @@ public sealed class DeferredSystemsTests
             int released = await Game.ReleaseSnipeStages("snipe", wire.Stream, wire.Ciphers, conn, snipe.Id, snipe, 3, (120, 100));
             Assert.Equal(1, released);
 
+            // End the bow encounter before placing the warcry targets in its arrow path.
+            session.Invalidate();
+            await session.OutputCompleted;
+            session = Game.ProjectilesFor("gc", wire.Stream, wire.Ciphers, conn);
+
             // 3. General's Cry & Mirage Warriors: non-blocking wire flags, corpse reuse, rush & strike
             var nonBlockingBlob = new MonsterObject(100, 100, 100, MonsterObject.BaseComponents) { Blocking = false }.Blob();
             // Object header (2) + Positioned: x(4) y(4) rot(4) team(2) flags0(1) flags1(1 @17) hidden(1) blocking(1) noWalkerBlock(1 @20)
