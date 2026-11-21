@@ -161,6 +161,7 @@ public sealed class ScarabEncounterTests
             await CheckTempleVessels();
             await CheckSideAreaVessel("1_SideArea5_3_2", 44, 31451);
             await CheckSideAreaVessel("MapSideArea5_3_2", 69, 47923, "MapCorruptedSideAreaVesselTempleItemDrop_");
+            await CheckSideAreaVessel("MapSideArea5_3_2", 80, 47923, "MapCorruptedSideAreaVaalTempleDrop");
             await CheckSideAreaVessel("MapSideArea5_3_2", 74, 47923, "MapCorruptedSideAreaVesselDoubleImplicitDrop_");
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselVaalOrbDrop_",
                 "MapCorruptedSideAreaVesselVaalGemDrop", "MapCorruptedSideAreaVesselLevelledGemDrop");
@@ -551,7 +552,20 @@ public sealed class ScarabEncounterTests
                 Assert.False(card.Corrupted);
                 Assert.True(DivinationRewards.Find(type.Id) is { Enabled: true, Corrupted: true });
             }
-            var rares = drops.Where(item => item.Rarity == ItemRarity.Rare).ToArray();
+            var temple = Program.Items.Find("Metadata/Items/Maps/MapKeyVaalTemple")!;
+            var templeMaps = drops.Where(item => item.TypeHash == temple.Hash).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVaalTempleDrop"), templeMaps.Length);
+            foreach (var map in templeMaps)
+            {
+                Assert.True(map.Corrupted);
+                Assert.Equal(ItemRarity.Rare, map.Rarity);
+                Assert.Equal(level, map.ItemLevel);
+                var slot = new MapDevice.Slot(temple.Hash, temple.Class, temple.Name, temple.Row, map.Mods, map.Quality);
+                var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([slot], null, Program.Items.Mods, out _));
+                Assert.Equal("MapWorldsVaalTemple", opening.Area.Id);
+                Assert.Equal(10, opening.Mods.Get("map_vaal_temple_spawn_additional_vaal_vessels"));
+            }
+            var rares = drops.Where(item => item.Rarity == ItemRarity.Rare && item.TypeHash != temple.Hash).ToArray();
             Assert.Equal(Count("MapCorruptedSideAreaVesselTempleItemDrop_", 2), rares.Length);
             foreach (var item in rares)
             {
@@ -612,7 +626,11 @@ public sealed class ScarabEncounterTests
         var key = ItemCatalog.Create(map, random: new Random(41));
         var slot = new MapDevice.Slot(map.Hash, map.Class, map.Name, map.Row, key.Mods, 0) { BaseId = map.Id };
         var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([slot], null, Program.Items.Mods, out _));
+        Assert.Equal(("MapWorldsVaalTemple", 16, 83), (opening.Area.Id, opening.Area.Tier, opening.Area.Level));
         Assert.Equal(10, opening.Mods.Get("map_vaal_temple_spawn_additional_vaal_vessels"));
+        var generic = Program.Items.Find("Metadata/Items/Maps/MapKeyTier16")!;
+        var other = new MapDevice.Slot(generic.Hash, generic.Class, generic.Name, generic.Row, [], 0);
+        Assert.Null(Game.MapDevices.Value.Check([other], null, Program.Items.Mods, out _, false, opening.Area.Hash16));
         var instance = new InstanceState();
         instance.OpenedWith(new("TempleOwner", opening.Area, opening.Mods));
         var areaStats = instance.AreaStats(() => Game.ComposeMapAreaStats(opening.Mods, opening.Area.Tier,

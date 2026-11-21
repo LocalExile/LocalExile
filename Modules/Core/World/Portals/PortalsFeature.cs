@@ -146,7 +146,7 @@ static class PortalsFeature
                 UniqueNameWord = i.Item.NameWords is [var word] ? word : null,
             }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
-        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
+        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, device.Value.Campaign, activate.Target);
         var request = new MapOpening(conn, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
         GameEvents.ResolveMapOpening(request);
         opening = request.Opening;

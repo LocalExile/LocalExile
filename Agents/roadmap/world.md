@@ -151,6 +151,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   *Of Chiselling* adds a corrupted gem with 23% quality and *of the Facetor* adds a level 21 corrupted gem.
   *Of Divination* adds one to three cards for corrupted items outside Ruthless. The individual vessel rates
   still need a direct sample.
+  *Of the Pyramid* grants a Vaal Temple Map at side-area level 80 and above. Its dedicated key opens the Temple.
+  Verify the map's explicit modifiers and identification state on drop in the client.
   *Of Atzoatl* adds the saved count of corrupted rare equipment with a native Incursion affix.
   *Of Dark Blessings* adds one or two level-eligible uniques, each with one corruption implicit.
   *Of the Locus* adds one unique with two corruption implicits from distinct families. A kept area uses its saved count.

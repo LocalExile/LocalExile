@@ -218,6 +218,19 @@ public static class SideAreaVessels
             rewards.AddRange(VaalVesselUniques.Roll(catalog, RollsFor(conn), UniquesFor(conn), DropsFor(conn), level,
                 doubleUniques, Random.Shared, doubleImplicit: true));
 
+        int templeMaps = Count("map_vaal_vessel_drop_X_vaal_temple_maps");
+        if (templeMaps > 0)
+        {
+            var temple = catalog.Find("Metadata/Items/Maps/MapKeyVaalTemple")!;
+            var rolls = RollsFor(conn);
+            for (int n = 0; n < templeMaps; n++)
+            {
+                var map = ItemCatalog.Create(temple, random: Random.Shared) with { ItemLevel = (byte)level };
+                var rare = rolls.Roll(map, ItemRarity.Rare, Random.Shared);
+                rewards.Add(new(rare with { Corrupted = true, Identified = true }, temple));
+            }
+        }
+
         int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
         if (orbs <= 0) return rewards;
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;

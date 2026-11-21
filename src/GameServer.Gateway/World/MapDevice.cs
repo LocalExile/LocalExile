@@ -157,7 +157,10 @@ public sealed class MapDevice
     /// </summary>
     public Opening? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, null, out why);
 
-    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false)
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false) =>
+        Check(slots, character, mods, out why, campaign, 0);
+
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign, ushort target)
     {
         why = "";
         if (campaign)
@@ -189,13 +192,25 @@ public sealed class MapDevice
             area ??= AreaOf(map.TypeHash);
             if (area is null && _atlas?.TierOf(map.TypeHash) is int tier)
             {
-                if (_atlas.Selected(character) is { } layout)
-                    area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
-                else
+                var destinations = _atlas.ForKey(map.BaseRow);
+                var layout = target != 0 ? _atlas.ByNodeHash(target)
+                    : destinations.Count == 1 ? destinations[0] : _atlas.Selected(character);
+                if (layout is null)
                 {
-                    why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";
+                    why = "No Atlas layout is available for this selection.";
                     return null;
                 }
+                if (layout.RequiredKeyRow is int required && required != map.BaseRow)
+                {
+                    why = $"The {layout.Name} location requires its specific map item.";
+                    return null;
+                }
+                if (target != 0 && destinations.Count > 0 && layout.RequiredKeyRow != map.BaseRow)
+                {
+                    why = $"{map.Name} cannot open the selected Atlas location.";
+                    return null;
+                }
+                area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
             }
             if (area is null) { why = $"{maps[0].Name} opens no known area."; return null; }
             var extras = slots.Where(s => !s.IsMap).ToList();

@@ -8,7 +8,11 @@ using GameServer.Core;
 /// </summary>
 public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
 {
-    public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting);
+    public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting)
+    {
+        public ushort NodeHash { get; init; }
+        public int? RequiredKeyRow { get; init; }
+    }
 
     readonly Lazy<IReadOnlyList<Layout>> _layouts = new(() => LoadLayouts(folder));
     readonly Lazy<IReadOnlyDictionary<uint, int>> _keyTiers = new(() => LoadKeyTiers(catalog, folder));
@@ -27,6 +31,11 @@ public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
 
     public Layout? ByHash16(ushort hash16) => Layouts.FirstOrDefault(l => l.Hash16 == hash16);
 
+    public Layout? ByNodeHash(ushort hash) => Layouts.FirstOrDefault(l => l.NodeHash == hash);
+
+    /// <summary>Atlas nodes that take this specific BaseItemTypes row. Some keys select between several nodes.</summary>
+    public IReadOnlyList<Layout> ForKey(int baseRow) => Layouts.Where(l => l.RequiredKeyRow == baseRow).ToArray();
+
     public Layout? Find(string idOrName) => Layouts.FirstOrDefault(l =>
         l.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase) || l.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
 
@@ -40,6 +49,8 @@ public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
         if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return [];
         var n = ClientTables.Table("AtlasNode");
         var a = ClientTables.Table("WorldAreas");
+        var devices = ClientTables.Table("MapDeviceLayouts");
+        var keys = ClientTables.Table("MapKeys");
         var result = new List<Layout>();
         foreach (var row in n)
         {
@@ -51,7 +62,12 @@ public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
             if (wa.IntOrNull("HASH16") is not int hash) continue;
             result.Add(new(row.Text("Id") ?? "", (ushort)hash,
                 wa.Text("Name") ?? "", row.Int("Tier"),
-                row.Bool("StartingNode")));
+                row.Bool("StartingNode"))
+            {
+                NodeHash = (ushort)row.Int("HASH16"),
+                RequiredKeyRow = row.Bool("RequiresSpecificItem") && devices[row.Int("MapDeviceLayout")].IntOrNull("MapKey") is int key
+                    ? keys[key].Int("BaseItemType") : null,
+            });
         }
         return result;
     }
