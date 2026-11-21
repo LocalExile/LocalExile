@@ -343,6 +343,7 @@ public class TinctureTests
             // Manual toggle off starts lingering for 1.0 s (2 stacks * 500 ms) while clearing active & burn state.
             await Game.UseFlask("tincture-test", stream, ciphers, conn3, 0);
             Assert.False(conn3.TinctureEffects.AnyActive);
+            Assert.Empty(conn3.FlaskAutomation.Packets);
             Assert.True(conn3.TinctureEffects.HasLingering);
             Assert.Equal(1, Stat(Game.CharacterStatSources(conn3).Stats, "has_lingering_tincture"));
             Assert.Equal(1, Stat(Game.CharacterStatSources(conn3).Stats, "tincture_applied"));

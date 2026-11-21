@@ -165,8 +165,8 @@ public static partial class Game
         finally
         {
             conn.FlaskBarGate.Release();
+            if (changed) await PublishFlaskChanges(remote, stream, ciphers, conn);
         }
-        if (changed) await PublishFlaskChanges(remote, stream, ciphers, conn);
     }
 
     // Called after PickUpItem / PlaceItem / HeldOntoItem / currency modification on the flask bar: deactivates any
