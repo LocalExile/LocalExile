@@ -46,7 +46,7 @@ public static partial class Game
     public static async Task SyncPhasing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         byte[]? buffBytes = null;
-        byte[]? statBytes = null;
+        bool? sendPhase = null;
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
@@ -65,7 +65,7 @@ public static partial class Game
                         u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null,
                         visual: PhasingVisualRow.Value);
                     Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} for {(timed ? $"{until - now:0.###} s" : "the flask effect")} (row {PhasingBuffRow.Value})");
-                    statBytes = PhaseStat(conn.IsPhasing);
+                    sendPhase = true;
                 }
                 else if (TimedChanged(conn, timed, until))
                 {
@@ -81,11 +81,11 @@ public static partial class Game
                 Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} ended");
                 conn.PhasingBuff = 0;
                 conn.PhasingSentUntil = 0;
-                statBytes = PhaseStat(false);
+                sendPhase = false;
             }
         }
         if (buffBytes is not null) await Send(remote, stream, ciphers, buffBytes, "phasing buff");
-        if (statBytes is not null) await Send(remote, stream, ciphers, statBytes, "phasing stat");
+        if (sendPhase is bool phaseOn) await Send(remote, stream, ciphers, PhaseStat(conn, phaseOn), "phasing stat");
     }
 
     // The timed remainder is re-sent when a kill extends it; a timed buff that fell back to a flask-only source
@@ -93,11 +93,23 @@ public static partial class Game
     static bool TimedChanged(ClientState conn, bool timed, double until) =>
         timed ? Math.Abs(until - conn.PhasingSentUntil) > 0.001 : conn.PhasingSentUntil != 0;
 
-    static byte[] PhaseStat(bool on)
+    static byte[] PhaseStat(ClientState conn, bool on)
     {
         var stats = new List<(uint Key, int Value)>();
         if (Stats.Key("virtual_phase_through_objects") is uint virtualKey) stats.Add((virtualKey, on ? 1 : 0));
         if (Stats.Key("phase_through_objects") is uint phaseKey) stats.Add((phaseKey, on ? 1 : 0));
+        if (Stats.Key("light_radius_+%_while_phased") is uint whilePhasedKey
+            && Stats.Key("virtual_light_radius_+%") is uint virtualLightKey)
+        {
+            var sources = CharacterStatSources(conn).Stats;
+            int phasedBonus = sources.GetValueOrDefault(whilePhasedKey);
+            if (phasedBonus != 0)
+            {
+                int baseLight = Stats.Key("light_radius_+%") is uint lightKey ? sources.GetValueOrDefault(lightKey) : 0;
+                int mapLight = MapModsOf(conn)?.Get("map_player_light_radius_+%") ?? 0;
+                stats.Add((virtualLightKey, ActorScale.Saturate((long)baseLight + (on ? phasedBonus : 0) + mapLight)));
+            }
+        }
         return InstanceEntities.StatsUpdate(PlayerId, stats);
     }
 }

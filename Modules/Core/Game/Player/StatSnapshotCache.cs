@@ -37,6 +37,8 @@ public static partial class Game
         public required double LifeRegenerationToEnergyShield;
         /// <summary>Walking when the head was read: the while-moving regeneration in the Recovery rows (PanelStats.WhileMoving).</summary>
         public required bool Moving;
+        public bool IsPhasing;
+        public int MapLightRadiusPct;
         public int BlindLess;
         public required int BloodChargesHeld;
         public required bool BloodChargesShown;
@@ -66,6 +68,7 @@ public static partial class Game
             && EnergyShieldRecharging == o.EnergyShieldRecharging
             && PetrifiedBloodRecoveryCapped == o.PetrifiedBloodRecoveryCapped
             && LifeRegenerationToEnergyShield.Equals(o.LifeRegenerationToEnergyShield) && Moving == o.Moving
+            && IsPhasing == o.IsPhasing && MapLightRadiusPct == o.MapLightRadiusPct
             && BloodChargesHeld == o.BloodChargesHeld && BloodChargesShown == o.BloodChargesShown
             && SuppressionChance == o.SuppressionChance && AttackEffectId == o.AttackEffectId
             && ActionFactor.Equals(o.ActionFactor) && Ailments.AsSpan().SequenceEqual(o.Ailments)
@@ -136,7 +139,9 @@ public static partial class Game
             PetrifiedBloodRecoveryCapped = conn.PetrifiedBlood.Active && conn.PlayerLife > 0
                 && (long)conn.PlayerLife + recoveryMargin
                     >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
-            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving, BlindLess = PlayerBlindValue(conn, stats).Less,
+            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
+            IsPhasing = conn.IsPhasing, MapLightRadiusPct = MapModsOf(conn)?.Get("map_player_light_radius_+%") ?? 0,
+            BlindLess = PlayerBlindValue(conn, stats).Less,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(conn, SkillCatalog.FirstSkillId),
@@ -241,6 +246,19 @@ public static partial class Game
                 stats[reqDex] = Get("dexterity");
             if (Stats.Key("virtual_intelligence_for_requirements") is uint reqInt && !devSet.Contains(reqInt))
                 stats[reqInt] = Get("intelligence");
+            // Client player light (0x141659b80 / 0x141656e50) reads virtual_light_radius_+% (0x1e59, calculator
+            // 0x142745510: light_radius_+% + light_radius_+%_while_phased while phased) and
+            // virtual_blind_does_not_affect_light_radius (0x2fa8, calculator 0x1428b52f0: keystone_blind_monk ||
+            // blind_does_not_affect_light_radius). Direct light stats (blinded, unique_loris_lantern_golden_light,
+            // disable_player_light, light_radius_scales_with_energy_shield) pass through from character stat sources.
+            bool phased = inputs.IsPhasing || Get("phase_through_objects") != 0;
+            int virtualLight = ActorScale.Saturate((long)Get("light_radius_+%")
+                + (phased ? Get("light_radius_+%_while_phased") : 0) + inputs.MapLightRadiusPct);
+            if (virtualLight != 0 && Stats.Key("virtual_light_radius_+%") is uint lightKey && !devSet.Contains(lightKey))
+                stats[lightKey] = virtualLight;
+            if ((Get("keystone_blind_monk") != 0 || Get("blind_does_not_affect_light_radius") != 0)
+                && Stats.Key("virtual_blind_does_not_affect_light_radius") is uint blindLightKey && !devSet.Contains(blindLightKey))
+                stats[blindLightKey] = 1;
             // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
             // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
             if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
