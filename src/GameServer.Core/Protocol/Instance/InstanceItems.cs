@@ -155,6 +155,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// in a shop.</summary>
     public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init => field = Owned.List(value); } = [];
 
+    /// <summary>Item price note (Base flag bit 4 = 0x10, WStr32 at Base+0x60 via 0x1421ed864; C→S 0x1a1).</summary>
+    public string? Note { get; init; }
+
     /// <summary>The four item types whose data ends with an extra u16 (0x1421f2800; the writer sends 1).</summary>
     static readonly uint[] TrailingU16 = [0x192c7aab, 0x365f206a, 0x503da850, 0x9aff2df6];
 
@@ -204,7 +207,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // up, 0x141e655b0 reads the amount); stored in the Base's +0xb8 item list.
                 case "Base":
                     w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0))
-                        .U16((ushort)((Price.Count > 0 ? 0x80 : 0) | (SkinTransferSource is not null ? 0x40 : 0))).U8((byte)Influences);
+                        .U16((ushort)((Price.Count > 0 ? 0x80 : 0) | (SkinTransferSource is not null ? 0x40 : 0)
+                            | (Note is { Length: > 0 } ? 0x10 : 0))).U8((byte)Influences);
+                    if (Note is { Length: > 0 } note) w.WStr32(note);
                     if (SkinTransferSource is { } skin)
                     {
                         if (skin.SkinTransferSource is not null) throw new InvalidDataException("Nested skin transfers are not supported");
@@ -705,6 +710,33 @@ public static class InstanceItems
     {
         var r = new LoginReader(m[2..]);
         return new(r.U32(), r.U32(), r.U32(), r.U8());
+    }
+
+    /// <summary>C→S 0x1a1 (variable length, writer 0x141fa2270, senders 0x14021de00 / 0x1402fbbf0 / 0x140b10ca0):
+    /// set or clear an item's price note. u32 BE inventory id, u32 BE (item id | (flag &lt;&lt; 31)), WStr note.</summary>
+    public const ushort SetItemNoteId = 0x1a1;
+
+    public sealed record SetItemNote(uint InventoryId, uint ItemId, bool Flag, string Note);
+
+    public static int? SetItemNoteLength(ReadOnlySpan<byte> m) =>
+        MeasureSetItemNoteLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureSetItemNoteLength(ReadOnlySpan<byte> m, out int length)
+    {
+        length = 0;
+        if (m.Length < 10) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[10..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        length = 10 + textLength;
+        return WireMeasure.Ok;
+    }
+
+    public static SetItemNote ReadSetItemNote(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        uint inventory = r.U32();
+        uint rawItem = r.U32();
+        return new(inventory, rawItem & 0x7fffffff, (rawItem & 0x80000000) != 0, r.WStr());
     }
 }
 

@@ -121,6 +121,7 @@ public static class InstanceProtocol
         InstanceMonsterStatue.CreateId => InstanceMonsterStatue.CreateLength,
         InstanceItems.CurrencyApplicationForesightRequestId => InstanceItems.CurrencyApplicationForesightRequestLength,
         InstanceStash.ColourTabId => InstanceStash.ColourTabLength,
+        InstanceStash.PublicTabId => InstanceStash.PublicTabLength,
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
         InstanceChat.LinkAnotherId => InstanceChat.LinkAnotherLength,
@@ -189,7 +190,7 @@ public static class InstanceProtocol
         0x0057 or 0x0060 or 0x0063 or 0x0064 or 0x0177 => 11,
         0x005f or 0x0075 or 0x00b4 or 0x00f5 or 0x00f7 or 0x00fe or 0x0101 or 0x0110 or 0x02b0 => 12,
         0x002c => 13,
-        0x0067 or 0x00cf => 14,
+        0x0067 => 14,
         0x005a or 0x0114 => 16,
         0x0076 or 0x0078 => 17,
         0x0079 or 0x0283 or 0x0294 or 0x0299 => 18,
@@ -666,6 +667,7 @@ public static class InstanceProtocol
             case InstanceNpcs.CtrlBuyId: return FromNullableLength(InstanceNpcs.CtrlBuyLength(data), out length);
             case InstanceStash.ReorderTabsId: return FromNullableLength(InstanceStash.ReorderTabsLength(data), out length);
             case InstanceStash.RenameTabId: return InstanceStash.MeasureRenameTabLength(data, out length);
+            case InstanceItems.SetItemNoteId: return InstanceItems.MeasureSetItemNoteLength(data, out length);
             case InstanceStash.MoveToAffinityTabId: return FromNullableLength(InstanceStash.MoveToAffinityTabLength(data), out length);
             case InstanceStash.SetAffinitiesId: return FromNullableLength(InstanceStash.SetAffinitiesLength(data), out length);
             case InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId:

@@ -42,7 +42,8 @@ public sealed partial class AccountStash
     /// <paramref name="Parent"/>: a unique category page's Unique tab, else the folder the tab is in (0xffff none).
     /// <paramref name="Hidden"/>: left out of the panel; a deleted folder, kept so later tabs keep their places.</summary>
     public sealed record SavedTab(string Name, byte Type, byte R, byte G, byte B, List<CharacterSaves.SavedPlacement> Items, uint Affinities = 0,
-        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue, bool Hidden = false);
+        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue, bool Hidden = false,
+        bool Public = false);
 
     /// <summary>LeagueQuestFlags: the league quest flags (client ids, Quests.League) the account's characters set in this
     /// stash's league, such as a Trial of Ascendancy's: every character of the league has them.</summary>
@@ -477,6 +478,38 @@ public sealed partial class AccountStash
         return true;
     }
 
+    /// <summary>Sets or clears a premium tab's Public flag (C→S 0xcf, bit 3 = 0x08 in S→C 0x136) and propagates it to
+    /// any hidden child pages owned by that tab (matching 0x14216e103). False for no such tab or a non-premium tab.</summary>
+    public bool SetPublic(int tab, bool isPublic)
+    {
+        bool changed = false;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type)) return false;
+            if (_tabs[tab].Saved.Public != isPublic)
+            {
+                _tabs[tab].Saved = _tabs[tab].Saved with { Public = isPublic };
+                changed = true;
+            }
+            for (int i = 0; i < _tabs.Count; i++)
+                if (_tabs[i].Saved.UniqueCategory != 0 && _tabs[i].Saved.Parent == tab && _tabs[i].Saved.Public != isPublic)
+                {
+                    _tabs[i].Saved = _tabs[i].Saved with { Public = isPublic };
+                    changed = true;
+                }
+        }
+        if (changed) Persist();
+        return true;
+    }
+
+    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside <paramref name="tab"/>.</summary>
+    public InventoryItem? SetItemNote(int tab, uint itemId, string? note)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized is { Length: > 250 }) normalized = normalized[..250];
+        return Change(tab, itemId, item => item with { Note = normalized });
+    }
+
     /// <summary>The tab of a stash inventory id, or null.</summary>
     public int? TabOf(uint inventoryId)
     {
@@ -494,7 +527,8 @@ public sealed partial class AccountStash
                 t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) || t.Saved.Type == StashRules.Folder ? 0 : InventoryOf(i),
                 t.Saved.Type, t.Saved.R, t.Saved.G, t.Saved.B,
                 // Retail sends folders with the premium flag and no inventory (3.30 capture), though they have no colour.
-                Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
+                Flags: (IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None)
+                    | (t.Saved.Public ? InstanceStash.TabFlags.Public : InstanceStash.TabFlags.None),
                 Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
                 Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
                 Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,

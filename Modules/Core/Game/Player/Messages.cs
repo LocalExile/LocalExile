@@ -739,6 +739,40 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {remote} <= 0x00ce stash {kind} tab {tab} colour 0x{colour:x8}: {(done ? "saved" : "refused")} ({Convert.ToHexString(bytes)})");
                 await SendTabListAgain(remote, stream, ciphers, conn, kind);
             }
+            else if (id == InstanceStash.PublicTabId)
+            {
+                var (kind, tab, isPublic) = InstanceStash.ReadPublicTab(bytes);
+                if (kind == InstanceStash.Guild && conn.Ssf) continue;
+                bool done = (kind == InstanceStash.Guild ? GuildStashOf(conn) : PersonalStashOf(conn)).SetPublic(tab, isPublic);
+                Console.WriteLine($"[gateway] {remote} <= 0x00cf stash {kind} tab {tab} public={(isPublic ? "on" : "off")}: {(done ? "saved" : "refused")}");
+                await SendTabListAgain(remote, stream, ciphers, conn, kind);
+            }
+            else if (id == InstanceItems.SetItemNoteId)
+            {
+                var req = InstanceItems.ReadSetItemNote(bytes);
+                var personal = PersonalStashOf(conn);
+                AccountStash? targetStash = personal.TabOf(req.InventoryId) is int personalTab ? personal
+                    : !conn.Ssf && GuildStashOf(conn).TabOf(req.InventoryId) is int ? GuildStashOf(conn) : null;
+                if (targetStash is not null && targetStash.TabOf(req.InventoryId) is int noteTab)
+                {
+                    var updated = targetStash.SetItemNote(noteTab, req.ItemId, req.Note);
+                    Console.WriteLine($"[gateway] {remote} <= 0x01a1 stash tab {noteTab} item {req.ItemId} note \"{req.Note}\": {(updated is not null ? "saved" : "refused")}");
+                    if (updated is not null)
+                        await SendTabChange(remote, stream, ciphers, conn, targetStash, noteTab, [updated.Id], [updated],
+                            $"0x00bf stash tab {noteTab}: item {updated.Id} note updated");
+                }
+                else if (PlayerInventories.Row(req.InventoryId) is byte noteRow)
+                {
+                    var items = ItemsOf(conn);
+                    string? normalized = string.IsNullOrWhiteSpace(req.Note) ? null : req.Note.Trim();
+                    if (normalized is { Length: > 250 }) normalized = normalized[..250];
+                    var updated = items.Change(noteRow, req.ItemId, item => item with { Note = normalized });
+                    Console.WriteLine($"[gateway] {remote} <= 0x01a1 inventory {req.InventoryId} item {req.ItemId} note \"{req.Note}\": {(updated is not null ? "saved" : "refused")}");
+                    if (updated is not null)
+                        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(req.InventoryId, items.NextRevision(noteRow),
+                            [updated.Id], [updated]), $"0x00bf inventory {req.InventoryId}: item {updated.Id} note updated");
+                }
+            }
             else if (id == InstanceStash.MoveToTabId)
                 await MoveToStash(remote, stream, ciphers, conn, InstanceStash.ReadMoveToTab(bytes));
             else if (id == InstanceStash.MoveToAffinityTabId)
