@@ -262,7 +262,7 @@ public static class InstanceEntities
     /// an unsigned compact key (Stats.dat row) and a signed compact value. The world handler (0x14218ddf0) sets each on the
     /// object's Stats component (0x1424d65c0).
     /// </summary>
-    public const ushort ComponentUpdateId = 0x2bc;
+    public const ushort ComponentUpdateId = 0x2bc, BaseDataUpdateId = 0x2c1;
 
     /// <summary>
     /// S→C 0x2bc (world group, read 0x141fe6dd0): world header, then blob16 = u8 component index (in the object's
@@ -270,6 +270,17 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
+
+    /// <summary>
+    /// S→C 0x2c1 (world group, factory 0x1421cda1c, class 0x1435e81c8, read 0x141fe6dd0; world handler
+    /// 0x14218f011 → 0x141dedf80): live base-data KV update. 10-byte object header (u32 entity id, u32 order key,
+    /// u16 checkpoint) followed by blob16 of the entity base-data variables (<see cref="EntityVariable.EncodeBlob"/>).
+    /// </summary>
+    public static byte[] BaseDataUpdate(uint entityId, byte[] baseDataBlob, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(BaseDataUpdateId).U32(entityId).U32(orderKey).U16(checkpoint).Blob(baseDataBlob).ToArray();
+
+    public static byte[] BaseDataUpdate(uint entityId, IReadOnlyList<EntityVariable> variables, uint orderKey = 0, ushort checkpoint = 0) =>
+        BaseDataUpdate(entityId, EntityVariable.EncodeBlob(variables), orderKey, checkpoint);
 
     public const ushort AddTaskId = 0x2c2, UpdateTaskId = 0x2c3, RemoveTaskId = 0x2c5;
 
