@@ -85,8 +85,7 @@ internal static class ArenaHazards
                         : Math.Min(Resistance(p, type), MaxResistance(p, type));
                     double factor = p.ElementalAilments.DamageTakenFactor(now, Get("base_damage_taken_+%")
                         + Get(type.ToString().ToLowerInvariant() + "_damage_taken_+%"))
-                        * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
-                        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
+                        * IncomingResourceDefences.FinalTakenFactor(p.Pools, Get);
                     double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];
                     int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
                     bool chaosBypasses = type == DamageType.Chaos && ChaosDamageBypassesEnergyShield(p, stats);
