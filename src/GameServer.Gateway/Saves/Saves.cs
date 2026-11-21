@@ -83,6 +83,20 @@ public static class Saves
         SaveRows.WriteCharacter(Db, character, save);
     }
 
+    public static bool PutCharacterInventories(string character, Dictionary<byte, List<CharacterSaves.SavedPlacement>> inventories,
+        CharacterSaves.SavedItem? startWeapon, uint? unsavedExperience)
+    {
+        if (FailWrite?.Invoke(character) == true) throw new IOException($"save of {character} failed (test)");
+        return SaveRows.WriteCharacterInventories(Db, character, inventories, startWeapon, unsavedExperience);
+    }
+
+    public static bool PutCharacterExperience(string character, uint experience) => Db.Atomically(() =>
+    {
+        if (!SaveRows.CharacterExperience(Db, character).Saved) return false;
+        if (FailWrite?.Invoke(character) == true) throw new IOException($"save of {character} failed (test)");
+        return SaveRows.WriteCharacterExperience(Db, character, experience);
+    });
+
     /// <summary>A stash's header (its tabs without their items), or null when it has none.</summary>
     public static AccountStash.Save? LoadStash(string account) => Readable(SaveDatabase.Table.Stashes, account, () => SaveRows.LoadStash(Db, account));
 

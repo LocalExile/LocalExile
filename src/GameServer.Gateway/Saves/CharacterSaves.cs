@@ -290,7 +290,12 @@ public static class CharacterSaves
 
     /// <summary>Records the character's inventories and its start weapon still on the ground, keeping the rest of the save.</summary>
     public static void SetInventories(string character, Dictionary<byte, List<SavedPlacement>> inventories, SavedItem? startWeapon = null) =>
-        Update(character, s => s with { Inventories = inventories, StartWeapon = startWeapon });
+        Saves.Atomically(() =>
+        {
+            uint? unsavedXp = UnsavedExperience.TryGetValue(character, out uint xp) ? xp : null;
+            if (!Saves.PutCharacterInventories(character, inventories, startWeapon, unsavedXp))
+                Write(character, new Save(inventories, Experience: unsavedXp, StartWeapon: startWeapon));
+        });
 
     /// <summary>The character's level: from its saved experience. The account's level (Auth, the ticket's) is only a copy
     /// for the character list, which a failed update at a level-up leaves behind; it counts only for a save without
@@ -400,7 +405,7 @@ public static class CharacterSaves
         {
             // Sample inside the write transaction: a queued flush must not restore XP captured before a level reset.
             if (!UnsavedExperience.TryGetValue(character, out uint xp)) return;
-            if (Saves.LoadCharacter(character) is { } save) Write(character, save with { Experience = xp });
+            Saves.PutCharacterExperience(character, xp);
             flushed = xp;
         });
         if (flushed is { } saved)
