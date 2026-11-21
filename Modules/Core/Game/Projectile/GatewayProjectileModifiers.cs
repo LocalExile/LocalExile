@@ -84,19 +84,21 @@ public static class GatewayProjectileModifiers
         // metre), so 48 is 4.8 m. It caps rather than replaces either the baseline or a distance override.
         if (get("projectile_maximum_range_override") is > 0 and var maximum)
             p = p with { Range = Math.Min(p.Range, maximum) };
-        ProjectileProfile ReturnControls(ProjectileProfile target) => target with
+        int pierceFailure = Math.Clamp(get("projectile_chance_to_not_pierce_%"), 0, 100);
+        ProjectileProfile ContinuationControls(ProjectileProfile target) => target with
         {
+            PierceFailureChancePercent = Math.Max(target.PierceFailureChancePercent, pierceFailure),
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get("projectile_return_%_chance"), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get("returning_projectiles_always_pierce") != 0,
             ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get("returned_projectile_speed_+%") / 100d)
         };
-        p = ReturnControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers, finalCount));
+        p = ContinuationControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers, finalCount));
         // Children receive already resolved continuation grants, never another count expansion.
         if (p.EndEmission is { } endEmission)
-            p = p with { EndEmission = endEmission with { Child = ReturnControls(ProjectileParameters.Resolve(endEmission.Child,
+            p = p with { EndEmission = endEmission with { Child = ContinuationControls(ProjectileParameters.Resolve(endEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
         if (p.TravelEmission is { } travelEmission)
-            p = p with { TravelEmission = travelEmission with { Child = ReturnControls(ProjectileParameters.Resolve(travelEmission.Child,
+            p = p with { TravelEmission = travelEmission with { Child = ContinuationControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
         if (get("projectiles_can_shotgun") != 0)
             p = p with { HitRule = new(ProjectileHitScope.Projectile) };

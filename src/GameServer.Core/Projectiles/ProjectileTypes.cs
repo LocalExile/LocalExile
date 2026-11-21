@@ -153,6 +153,7 @@ public sealed record ProjectileProfile(string Id)
     public bool ShareSequentialHits { get; init; }
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
+    public int PierceFailureChancePercent { get; init; }
     public int Fork { get; init; }
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>
@@ -241,6 +242,8 @@ public readonly record struct ProjectileLaunch(ProjectileVector Offset, double A
     public bool SimultaneousWithPrevious { get; init; }
     /// <summary>This launch can return even when the projectile's ordinary chance roll fails.</summary>
     public bool GrantsReturn { get; init; }
+    /// <summary>Hits by this launch can pierce without spending its finite pierce budget.</summary>
+    public bool PiercesAllTargets { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,
@@ -279,6 +282,11 @@ public sealed class ProjectileEntity
         TerrainChainChance = use.Profile.TerrainChainChance;
         GroundChains = use.Profile.GroundChains;
         int seed = unchecked(use.Seed * 397 ^ (int)id);
+        if (use.Profile.PierceFailureChancePercent is > 0 and < 100)
+        {
+            pierceRandom = new(seed ^ 0x3f65e2a1);
+            nextPierceRoll = pierceRandom.Next(100);
+        }
         Random = new(seed);
         RandomSource = new(seed ^ 0x2d53a1b7);
         RewardRandomSource = new(seed ^ 0x5e418ac3);
@@ -306,6 +314,10 @@ public sealed class ProjectileEntity
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
+    internal bool PiercesAllFromLaunch { get; init; }
+    readonly Random? pierceRandom;
+    int nextPierceRoll;
+
     internal int TerrainChainChance;
     internal int GroundChains;
     internal int ReturnContacts = 0;
@@ -330,6 +342,22 @@ public sealed class ProjectileEntity
     internal long ContactEpoch = -1, ContactAt, ContactEnd;
     internal int ContactIndex = -1;
     internal ProjectileVector ContactFrom, ContactTo;
+
+    // A terminal-area preview and the accepted hit share one roll. Misses and splits leave it unspent.
+    internal bool PierceTarget(bool consume)
+    {
+        if (Profile.CannotPierce || Profile.PierceFailureChancePercent == 100) return false;
+        if (pierceRandom is { } random)
+        {
+            int roll = nextPierceRoll;
+            if (consume) nextPierceRoll = random.Next(100);
+            if (roll < Profile.PierceFailureChancePercent) return false;
+        }
+        if (PiercesAllFromLaunch || Phase > 0 && Profile.PierceAllOnReturn || Pierce < 0) return true;
+        if (Pierce == 0) return false;
+        if (consume) Pierce--;
+        return true;
+    }
 
     // Freeze trigger-time flight state while sharing the use's chronological combat RNG streams.
     internal ProjectileEntity AreaSnapshot() => (ProjectileEntity)MemberwiseClone();

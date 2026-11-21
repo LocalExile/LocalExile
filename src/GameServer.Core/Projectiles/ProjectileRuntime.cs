@@ -97,11 +97,12 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 projectileUse = projectileUse with { ProjectileSpeeds = null,
                     Profile = projectileUse.Profile with { Speed = projectileSpeeds[contact] } };
             bool last = i == roots - 1;
+            bool piercesAll = launch.PiercesAllTargets;
             void Emit()
             {
                 if (sharedSeries && last) pendingEmissions.Remove(emission);
                 if (clear && use.CanEmit?.Invoke() != false)
-                    Spawn(projectileUse, useId, group, 0, origin, direction, index: index);
+                    Spawn(projectileUse, useId, group, 0, origin, direction, index: index, piercesAll: piercesAll);
             }
             if (use.Profile.SequentialDelay > 0 && contact > 0) Schedule(Now + contact * use.Profile.SequentialDelay, Emit);
             else Emit();
@@ -116,6 +117,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             || p.Lifetime <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
+            || p.PierceFailureChancePercent is < 0 or > 100
             || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0)
             throw new ArgumentOutOfRangeException(nameof(p));
         foreach (var area in new[] { p.ContactArea, p.EndArea })
@@ -132,10 +134,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileEntity Spawn(ProjectileUse use, long useId, long emission, long parent,
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
-        int index = 0)
+        int index = 0, bool piercesAll = false)
     {
         var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
-            { VolleyIndex = index };
+            { VolleyIndex = index, PiercesAllFromLaunch = continuing?.PiercesAllFromLaunch ?? piercesAll };
         projectiles.Add(p.Id, p);
         if (continuing is { } previous)
         {
@@ -487,9 +489,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     bool CanContinue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => p.Phase == 0 && p.Profile.OutboundHitLimit is not null
         || p.Phase == 0 && p.Legs is { TurnsOnEnemy: true }
-        || p.Phase > 0 && p.Profile.PierceAllOnReturn && !p.Profile.CannotPierce
         || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors).Any()))
-        || (!p.Profile.CannotPierce && p.Pierce != 0) || (!p.Profile.CannotFork && p.Fork > 0)
+        || p.PierceTarget(consume: false) || (!p.Profile.CannotFork && p.Fork > 0)
         || (!p.Profile.CannotChain && p.Chain > 0 && Nearby(p, actors).Any());
 
     ProjectileHitResult Damage(ProjectileEntity p, ProjectileActor target, string stage,
@@ -524,8 +525,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             ApplyLegTurn(p, turn);
             return true;
         }
-        if (p.Phase > 0 && profile.PierceAllOnReturn && !profile.CannotPierce) return true;
-        if (!profile.CannotPierce && p.Pierce != 0) { if (p.Pierce > 0) p.Pierce--; return true; }
+        if (p.PierceTarget(consume: true)) return true;
         if (!profile.CannotFork && p.Fork > 0)
         {
             p.Fork--;

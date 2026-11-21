@@ -71,6 +71,13 @@ public sealed class VolleySupportTests
             });
             c.ProjectileWalls.Clear();
             if (wall) c.ProjectileWalls.Add((102, 96));
+            c.Monsters.Clear();
+            if (!barrage)
+            {
+                foreach (int y in new[] { 93, 107 })
+                    foreach (int x in new[] { 125, 157 })
+                        c.Monsters[(uint)(x * 1000 + y)] = new("target", new(x, y, 0), 0, 0, 1000000) { Hostile = true };
+            }
             c.Clock.Start();
             Assert.True(await Game.CastGemSkill("volley", battle.Stream, battle.Ciphers, c, gem.Id,
                 (100, 100), (175, 100), sequence: 0x8013, actionToken: c.ActionCount, swingAt: start));
@@ -101,6 +108,15 @@ public sealed class VolleySupportTests
                 bool returns = unique && !barrage && Math.Abs(slots[i]) == 3;
                 Assert.Equal(returns, shot.Profile.Returns);
                 Assert.Equal(returns ? 1 : 0, shot.Phase);
+                if (!barrage && Math.Abs(slots[i]) == 1)
+                {
+                    // A third-point return can also damage these targets. Follow the first-point arrow itself.
+                    if (unique) Assert.True(shot.Position.X > 157);
+                    else Assert.InRange(shot.Position.X, 120, 125);
+                    int laneY = slots[i] > 0 ? 93 : 107;
+                    Assert.True(c.Monsters[(uint)(125000 + laneY)].Life < 1000000);
+                    Assert.Equal(unique, c.Monsters[(uint)(157000 + laneY)].Life < 1000000);
+                }
             }
         }
     }
