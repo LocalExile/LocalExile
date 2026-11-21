@@ -15,8 +15,9 @@ internal static class OffTreeAnointments
                 if (mod.Section != ModSection.Enchant || mods.ByHash(mod.Hash)?.Id is not
                     ("GrantedPassive" or "GrantedPassive2" or "GrantedPassive3" or "GrantedPassive4" or "GrantedPassive5"))
                     continue;
-                if (mod.Values is [var id] && id is > 0 and <= ushort.MaxValue
-                    && tree.Find((ushort)id) is { IsAnointmentOnly: true } node && !allocated.Contains(node.GraphId))
+                // An item can store the 16-bit graph id as either a signed or an unsigned stat value.
+                if (mod.Values is [var id] && id is >= short.MinValue and <= ushort.MaxValue
+                    && tree.Find(unchecked((ushort)id)) is { IsAnointmentOnly: true } node && !allocated.Contains(node.GraphId))
                     grants.Add(new(placed.Item, node));
             }
         return grants;
