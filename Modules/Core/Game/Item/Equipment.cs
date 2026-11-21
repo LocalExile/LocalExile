@@ -241,7 +241,8 @@ public static partial class Game
 
     public static PlayerInventories.Shape? ShapeOf(Item i) => Items.ByHash(i.TypeHash) is { } t
         ? new PlayerInventories.Shape(t.Width, t.Height, t.Class, t.MaxStack,
-            t.BecomesWhenFull && Items.Row(t.FullStackRow) is { Supported: true } full ? () => ItemCatalog.Create(full) : null)
+            t.BecomesWhenFull && Items.Row(t.FullStackRow) is { Supported: true } full ? () => ItemCatalog.Create(full) : null,
+            t.IsFossil)
         : null;
 
     // The weapon type of an equipment row's item (its BaseItemTypes row), or null: the active (not inactive) item.

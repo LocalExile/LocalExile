@@ -129,6 +129,9 @@ public sealed class ItemCatalog
         /// Vaal also admits anything with a Map or MapKey component.</summary>
         public bool CanBeCorrupted { get; init; }
 
+        /// <summary>Referenced by DelveCraftingModifiers with a display name: socketable in Delve resonators.</summary>
+        public bool IsFossil { get; init; }
+
         public bool Supported => Components.Count > 0 && Item.CanSerialize(Components);
         /// <summary>Several of the type share one cell (a Stack component and a CurrencyItems StackSize above 1).</summary>
         public bool Stackable => MaxStack > 1;
@@ -757,6 +760,10 @@ public sealed class ItemCatalog
             var tagsTable = ClientTables.Table("Tags");
             tagIds = [.. tagsTable.Select(r => r.Text("Id") ?? "")];
         }
+        var fossilRows = new HashSet<int>();
+        if (ClientTables.Has("DelveCraftingModifiers"))
+            foreach (var r in ClientTables.Table("DelveCraftingModifiers"))
+                if (r.IntOrNull("BaseItemTypesKey") is int b) fossilRows.Add(b);
         var rows = new List<BaseType>();
         var clusters = ClusterJewels.Load(mods);
         var baseItemTypesTable = ClientTables.Table("BaseItemTypes");
@@ -764,9 +771,10 @@ public sealed class ItemCatalog
             foreach (var r in baseItemTypesTable)
             {
                 string id = r.Text("Id") ?? "";
+                string name = r.Text("Name") ?? "";
                 var itemComponents = components.GetValueOrDefault(id) ?? [];
                 int visual = r.Int("ItemVisualIdentity");
-                rows.Add(new BaseType(rows.Count, id, r.Text("Name") ?? "", r.UInt("HASH32"),
+                rows.Add(new BaseType(rows.Count, id, name, r.UInt("HASH32"),
                     (byte)r.Int("Width"), (byte)r.Int("Height"),
                     visual >= 0 && visual < visualHashes.Count ? visualHashes[visual] : (ushort)0,
                     itemComponents, charges.GetValueOrDefault(id),
@@ -796,6 +804,7 @@ public sealed class ItemCatalog
                         mc >= 0 && mc < mirrorableClasses.Count && mirrorableClasses[mc],
                     CanBeCorrupted = r.IntOrNull("ItemClassesKey") is int cc &&
                         cc >= 0 && cc < corruptibleClasses.Count && corruptibleClasses[cc],
+                    IsFossil = name.Length > 0 && fossilRows.Contains(rows.Count),
                 });
             }
         }
