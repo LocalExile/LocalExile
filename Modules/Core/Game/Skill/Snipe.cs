@@ -27,7 +27,6 @@ public static partial class Game
     {
         public ushort SkillId;
         public (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem;
-        public SupportedGem Source = null!;
         public int Action;
         public int ChannelGeneration;
         public int Epoch;
@@ -132,8 +131,6 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action, (int X, int Y) aim)
     {
         ushort staleBuff = 0;
-        var source = SupportedSkill(conn, skillId);
-        int max = SnipeMaxStages(conn, skillId);
         lock (conn.Monsters)
         {
             if (SnipeRuntimes.TryGetValue(conn, out var old))
@@ -148,20 +145,17 @@ public static partial class Game
             {
                 SkillId = skillId,
                 Gem = gem,
-                Source = source,
                 Action = action,
                 ChannelGeneration = conn.ChannelGeneration,
                 Epoch = conn.ProjectileEpoch,
                 Rules = CombatLifetime,
-                Stages = Math.Clamp(1, 1, max),
                 Channelling = true,
                 Aim = aim,
-                PresentedBuff = staleBuff,
                 PresentedStages = -1,
             };
             SnipeRuntimes.AddOrUpdate(conn, runtime);
         }
-        await SnipePresentStages(remote, stream, ciphers, conn);
+        if (staleBuff != 0) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, staleBuff), "snipe stages cleared");
     }
 
     /// <summary>Advances Snipe by one stage on each paid channel tick, capped at <see cref="SnipeMaxStages"/>.</summary>

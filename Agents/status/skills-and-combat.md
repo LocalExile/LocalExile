@@ -255,10 +255,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Brand system: Storm Brand (+ Indecision), Armageddon Brand (+ Volatility, Recall), Penance Brand (+ Dissipation,
   Conduction), Wintertide Brand, Arcanist Brand, Brand Recall and Brandsurge with attachment, limits, Swiftbrand
-  cadence, `ActiveSigil`/`magma_pustule`/`immolation_brand_burn` buffs and `SigilDisplay` counters (not checked live).
+  cadence, `ActiveSigil`/`magma_pustule`/`immolation_brand_burn` buffs and `SigilDisplay` counters.
+  Base Penance Brand and Brand Recall were exercised against Amarissa in Predictive and Lockstep on the
+  3.29.3d DX12 client. Conduction currently spreads only from its attached monster to two nearby targets.
+  Arcanist Brand requires a supported trigger executor for each linked spell.
   Docs: [11](../docs/protocol/11-skills.md).
 - Snipe (`channelled_snipe` gem and Assailum) stage channelling (`snipe_stacks` 1494) and staged bow attack release,
-  and General's Cry (`generals_cry` + variants) corpse consumption and non-blocking Mirage Warrior melee execution
+  and General's Cry (`generals_cry` + variants) corpse selection and non-blocking Mirage Warrior melee execution
   (not checked live). Docs: [11](../docs/protocol/11-skills.md).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) Â§9a.

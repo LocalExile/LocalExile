@@ -5,6 +5,27 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class DeferredSystemsTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(20)]
+    public void Penance_energy_visual_carries_its_maximum(ushort stacks)
+    {
+        var packet = Game.PenanceEnergyBuff(701, 1, stacks);
+        Assert.Equal(new byte[] { 4, 0, (byte)stacks, 0, 0, 0, 1, 0, 0, 0, 20 }, packet[22..]);
+    }
+
+    [Fact]
+    public void Weaker_wintertide_end_takes_over_when_the_stronger_one_expires()
+    {
+        var target = new SpawnedMonster("target", new(100, 100, 0), 0, 0, 1000);
+        var end = new Game.WintertideEndDot(target, 0);
+        end.Apply(0, 1, 100);
+        end.Apply(0.5, 2, 20);
+        Assert.Equal(110, end.Advance(1.5, 1));
+        Assert.Equal(10, end.Advance(2.1, 1));
+        Assert.Equal(0, end.Until);
+    }
+
     static Item Gem(string name)
     {
         var found = Program.Items.FindGem(name)!.Value;
@@ -83,12 +104,34 @@ public sealed class DeferredSystemsTests
             Assert.True(enemy.Life < lifeBefore);
 
             // Brand Recall detaches (resetting Dissipation energy), reattaches, and fires an immediate pulse
+            double remainingBeforeRecall = activeBrand.AttachedRemaining;
             uint lifeBeforeRecall = enemy.Life;
             Assert.True(await Game.CastBrandRecall("brand", wire.Stream, wire.Ciphers, conn, recall.Id, recall, () => true));
             Assert.Equal(1, activeBrand.Energy);
             Assert.True(enemy.Life < lifeBeforeRecall);
+            Assert.Equal(remainingBeforeRecall, activeBrand.AttachedRemaining);
             Game.ClearBrands(conn);
             Assert.Equal(0, Game.BrandCountFor(conn));
+
+            EquipLinked(conn, "Gnarled Branch", "Arcanist Brand", "Ice Nova");
+            var arcanistEffects = Game.GemSkillEffects(conn).ToDictionary(g => g.Name);
+            var nova = arcanistEffects["Ice Nova"];
+            Assert.Contains(Game.SupportedSkill(conn, nova.Id).Supports, s => s.Effect.Id == "SupportBrandSupport");
+            Assert.NotNull(Game.GemSkillInstanceDisabled(conn, nova.Effect, nova.Id));
+            Assert.Null(Game.GemSkillInstanceDisabled(conn, nova.Effect, nova.Id, triggered: true));
+
+            EquipLinked(conn, "Gnarled Branch", "Wintertide Brand", "Brand Recall");
+            var winterEffects = Game.GemSkillEffects(conn).ToDictionary(g => g.Name);
+            var winter = winterEffects["Wintertide Brand"];
+            Assert.True(await Game.ResolveCastBrand("winter", wire.Stream, wire.Ciphers, conn, winter.Id, winter,
+                (110, 100), conn.ActionInterruptionGeneration, () => true));
+            var winterBrand = Assert.Single(Game.ActiveBrandsFor(conn));
+            int stages = winterBrand.Stages;
+            var winterRecall = winterEffects["Brand Recall"];
+            Assert.True(await Game.CastBrandRecall("winter", wire.Stream, wire.Ciphers, conn,
+                winterRecall.Id, winterRecall, () => true));
+            Assert.Equal(stages + 1, winterBrand.Stages);
+            Game.ClearBrands(conn);
 
             // 2. Snipe: stage math, manual-cast disable on linked bow skill, and staged bow release
             EquipLinked(conn, "Crude Bow", "Snipe", "Burning Arrow");
@@ -107,10 +150,11 @@ public sealed class DeferredSystemsTests
             Assert.Equal(0.6 * (1 + 4 * hitPerStage / 100.0), hitMult, 6);
             Assert.Equal(0.6 * (1 + 4 * ailmentPerStage / 100.0), ailmentMult, 6);
 
+            Assert.Equal(0, await Game.ReleaseSnipeStages("snipe", wire.Stream, wire.Ciphers, conn, snipe.Id, snipe, 0, (120, 100)));
             int released = await Game.ReleaseSnipeStages("snipe", wire.Stream, wire.Ciphers, conn, snipe.Id, snipe, 3, (120, 100));
             Assert.Equal(1, released);
 
-            // 3. General's Cry & Mirage Warriors: non-blocking wire flags, corpse consumption, rush & strike
+            // 3. General's Cry & Mirage Warriors: non-blocking wire flags, corpse reuse, rush & strike
             var nonBlockingBlob = new MonsterObject(100, 100, 100, MonsterObject.BaseComponents) { Blocking = false }.Blob();
             // Object header (2) + Positioned: x(4) y(4) rot(4) team(2) flags0(1) flags1(1 @17) hidden(1) blocking(1) noWalkerBlock(1 @20)
             Assert.Equal((byte)0x0a, nonBlockingBlob[17]);
@@ -127,14 +171,18 @@ public sealed class DeferredSystemsTests
 
             var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
             var corpse = new SpawnedMonster("corpse", new(106, 100, 0), 0, 0, 1000) { Hostile = true, Dead = true, Life = 0, Variety = zombie };
-            var target = new SpawnedMonster("gc target", new(108, 100, 0), 0, 0, 100000) { Hostile = true, Variety = zombie };
+            var target = new SpawnedMonster("gc target", new(108, 100, 0), 0, 0, 100000) { Hostile = true, Variety = zombie, Rarity = MonsterRarity.Unique };
             conn.Monsters.Clear();
             conn.Monsters[710] = corpse;
             conn.Monsters[711] = target;
 
-            int summoned = await Game.GeneralsCryReleased("gc", wire.Stream, wire.Ciphers, conn, cry.Id, (100, 100), 60, conn.ProjectileEpoch);
-            Assert.True(summoned >= 1);
-            Assert.False(conn.Monsters.ContainsKey(710));
+            var weaker = new SpawnedMonster("closer normal", new(106, 100, 0), 0, 0, 100000) { Hostile = true, Variety = zombie };
+            conn.Monsters[712] = weaker;
+            var summoning = Game.GeneralsCryReleased("gc", wire.Stream, wire.Ciphers, conn, cry.Id, (100, 100), 60, conn.ProjectileEpoch);
+            Assert.DoesNotContain(conn.Monsters.Values, m => m.NonBlocking && !m.Hostile);
+            Assert.Equal(1, await summoning);
+            Assert.Same(corpse, conn.Monsters[710]);
+            Assert.False(corpse.CorpseConsumed);
             var warrior = conn.Monsters.Values.Single(m => m.NonBlocking && !m.Hostile);
             Assert.False(LivingCollision.Blocks(warrior));
 
@@ -143,6 +191,7 @@ public sealed class DeferredSystemsTests
             await Game.MirageWarriorsTick("gc", wire.Stream, wire.Ciphers, conn, gcNow + 0.05);
             await Game.MirageWarriorsTick("gc", wire.Stream, wire.Ciphers, conn, gcNow + 1.5);
             Assert.True(target.Life < gcTargetBefore);
+            Assert.Equal(weaker.MaxLife, weaker.Life);
         }
         finally
         {

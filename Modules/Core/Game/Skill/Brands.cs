@@ -19,8 +19,7 @@ using Kind = MonsterElementalAilments.Kind;
 ///   (<c>list</c>) entries <c>[0]</c> (MiscAnimated row index: <c>4478..4482</c>) and <c>[1]</c> (animation mode
 ///   <c>0 = fadein</c>, <c>1 = chargeup_start</c>) unchecked, so every <c>ActiveSigil</c> <c>0x1c1</c> sends
 ///   <c>list: [attachedMiscAnimatedRow, 0]</c>.
-/// - Penance energy: <c>1551 magma_pustule</c> (<c>PenanceBrandCharge</c>, ctor <c>0x1417bfa90</c> reads no list),
-///   <c>ShowCount = 1</c> showing stacks up to 20.
+/// - Penance energy: <c>1551 magma_pustule</c> (<c>PenanceBrandCharge</c>) displays stacks relative to the maximum in <c>list[0]</c>.
 /// - Wintertide DoT: <c>1550 immolation_brand_burn</c> (primary) and <c>1552 immolation_brand_burn_secondary</c>
 ///   (Wintertide's End), neither reading <c>list</c>.
 /// - HUD counters: <c>SigilDisplay</c> stats (<c>current_number_of_active_*_sigils</c>,
@@ -134,6 +133,7 @@ public static partial class Game
         public SpawnedMonster? AttachedMonster;
         public double AttachedAt;
         public double DetachedAt;
+        public int RecallSearchBonus;
         public double NextActivationAt;
 
         // Penance Brand energy stacks on this brand (Dissipation) or contributed to attached monster
@@ -143,6 +143,8 @@ public static partial class Game
 
         // Wintertide Brand stage count (1..20)
         public int Stages;
+        public double WintertidePrimaryDps;
+        public int AttachedTakenPct;
         // Arcanist Brand linked spell rotation cursor
         public int TriggerRotation;
         // Brandsurge overcharge state
@@ -173,16 +175,38 @@ public static partial class Game
         public required double AreaMore;
     }
 
-    sealed class WintertideEndDot
+    internal sealed class WintertideEndDot(SpawnedMonster monster, double now)
     {
-        public required uint MonsterId;
-        public required SpawnedMonster Monster;
-        public required double DamagePerSecond;
-        public required double Until;
-        public required double LastAt;
-        public double Carry;
+        public readonly SpawnedMonster Monster = monster;
+        readonly List<(double Start, double Until, double Dps)> effects = [];
+        double last = now, carry;
         public ushort BuffInstance;
         public double ShownUntil;
+        public double Until => effects.Count == 0 ? 0 : effects.Max(e => e.Until);
+
+        public void Apply(double start, double until, double dps) => effects.Add((start, until, dps));
+
+        public int Advance(double now, double factor)
+        {
+            double damage = carry;
+            while (last < now && effects.Count > 0)
+            {
+                double next = now, strongest = 0;
+                foreach (var effect in effects)
+                {
+                    if (effect.Start > last) next = Math.Min(next, effect.Start);
+                    else if (effect.Until > last) strongest = Math.Max(strongest, effect.Dps);
+                    if (effect.Until > last) next = Math.Min(next, effect.Until);
+                }
+                damage += (next - last) * strongest * factor;
+                last = next;
+            }
+            effects.RemoveAll(e => e.Until <= now);
+            last = now;
+            int whole = (int)Math.Min(int.MaxValue, Math.Floor(damage));
+            carry = damage - whole;
+            return whole;
+        }
     }
 
     sealed class MonsterBrandVisuals
@@ -200,7 +224,6 @@ public static partial class Game
         public int AttachedCount;
         public int TakenPct;
         public int PenanceEnergy;
-        public readonly Dictionary<long, double> WintertidePrimaryDps = [];
     }
 
     sealed class BrandState
@@ -510,7 +533,7 @@ public static partial class Game
                     state.Brands.Add(brand);
                     Interlocked.Increment(ref _globalActiveBrandCount);
 
-                    if (!TryAttachBrandLocked(remote, stream, ciphers, conn, session, state, brand, player, now, bytes, excludeMonster: 0, recallBonusPct: 0))
+                    if (!TryAttachBrandLocked(remote, stream, ciphers, conn, session, state, brand, player, now, bytes, excludeMonster: 0))
                         SpawnDetachedVisualLocked(conn, brand, bytes);
                     spawned = true;
                 }
@@ -529,7 +552,8 @@ public static partial class Game
         Func<bool> current)
     {
         bool recalled = false;
-        uint extraManaSpent = 0;
+        bool paid = false;
+        uint extraLifeSpent = 0;
         await SendWorldBatch(conn, [], admission =>
         {
             using (ProjectileMutation(conn))
@@ -557,17 +581,6 @@ public static partial class Game
                 foreach (var brand in state.Brands.ToArray())
                 {
                     if (!state.Brands.Contains(brand) || brand.CannotBeRecalled) continue;
-                    // Optional per-recalled-brand mana cost share (20% of brand's mana cost)
-                    if (spendPct > 0)
-                    {
-                        uint brandCost = (uint)Math.Max(0, GolemStat(brand.Gem.Stats, "mana_cost") * spendPct / 100);
-                        if (brandCost > 0 && conn.PlayerMana >= brandCost)
-                        {
-                            conn.PlayerMana -= brandCost;
-                            extraManaSpent += brandCost;
-                        }
-                    }
-
                     // Detach from old target (triggers Penance / Wintertide detach effects at old position)
                     if (brand.Attached)
                         DetachBrandLocked(remote, stream, ciphers, conn, session, state, brand, now, bytes, spawnGround: false);
@@ -576,26 +589,31 @@ public static partial class Game
 
                     // Move to player position and refresh/extend remaining duration
                     brand.At = here;
+                    brand.RecallSearchBonus = searchBonus;
                     brand.DetachedAt = now;
-                    if (!brand.InfiniteAttachedDuration)
-                    {
-                        double added = extendAttached > 0 ? extendAttached : 1.0;
-                        brand.AttachedRemaining = Math.Min(brand.AttachedDurationTotal, brand.AttachedRemaining + added);
-                    }
-                    double addedDetached = extendDetached > 0 ? extendDetached : brand.DetachedDurationTotal;
-                    brand.DetachedRemaining = Math.Min(brand.DetachedDurationTotal, brand.DetachedRemaining + addedDetached);
+                    if (!brand.InfiniteAttachedDuration && extendAttached > 0)
+                        brand.AttachedRemaining = Math.Min(brand.AttachedDurationTotal, brand.AttachedRemaining + extendAttached);
+                    if (extendDetached > 0)
+                        brand.DetachedRemaining = Math.Min(brand.DetachedDurationTotal, brand.DetachedRemaining + extendDetached);
 
                     recalledFamilies.Add(brand.Family);
                     recalled = true;
 
                     // Reattach near player with Brand Recall search range bonus
                     if (!TryAttachBrandLocked(remote, stream, ciphers, conn, session, state, brand, player, now, bytes,
-                        excludeMonster: 0, recallBonusPct: searchBonus, triggerOnAttach: false))
+                        excludeMonster: 0, triggerOnAttach: false))
                         SpawnDetachedVisualLocked(conn, brand, bytes);
 
                     // Immediate activation on every recalled brand (bypassing Armageddon Brand of Recall's -80% penalty)
                     if (state.Brands.Contains(brand))
                     {
+                        if (spendPct > 0)
+                        {
+                            if (SupportedSkill(conn, brand.SkillId).Effect != brand.Effect ||
+                                !PayMana(conn, brand.SkillId, out var mana, out var life, spendPct)) continue;
+                            paid |= mana > 0 || life > 0;
+                            extraLifeSpent += life;
+                        }
                         ActivateBrandLocked(remote, stream, ciphers, conn, session, state, brand, player, now, bytes, fromRecall: true);
                         double interval = BrandActivationSeconds(conn, brand.Gem, player, AttachedFraction(brand),
                             brand.Overcharged ? now - brand.OverchargedAt : 0, brand.OverchargeFasterActivationPctPerSec);
@@ -607,13 +625,12 @@ public static partial class Game
                 foreach (var fam in recalledFamilies)
                     SpawnTempEffectLocked(conn, state, here, PresentationOf(fam).RecallCircleAo, now + 0.6, bytes);
 
-                if (extraManaSpent > 0)
-                    bytes.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool));
                 ReconcileBrandPresentationLocked(conn, state, now, bytes);
                 return bytes.Count > 0 ? bytes.Build() : null;
             }
         }, transport: (remote, stream, ciphers));
 
+        if (paid) await SendSkillCost(remote, stream, ciphers, conn, extraLifeSpent, "Brand Recall activation");
         if (recalled) await PublishMinionOutcomes(remote, stream, ciphers, conn);
         return true;
     }
@@ -633,7 +650,6 @@ public static partial class Game
         if (conn.Closed || conn.LeavingArea || !current() || conn.ActionInterruptionGeneration != recoveryGeneration)
             return false;
 
-        bool affected = false;
         await SendWorldBatch(conn, [], admission =>
         {
             using (ProjectileMutation(conn))
@@ -674,13 +690,12 @@ public static partial class Game
                     }
                     SpawnBeamLocked(conn, state, here, PlayerId, brand.At, brand.Attached ? brand.AttachedMonsterId : 0,
                         BrandsurgeCastBeamRow, now + 0.35, bytes);
-                    affected = true;
                 }
                 return bytes.Count > 0 ? bytes.Build() : null;
             }
         }, transport: (remote, stream, ciphers));
 
-        return affected || true;
+        return true;
     }
 
     // ---- Main 100ms Brand Tick (GameEvents.CompanionTick) ---------------------------------------------------------------
@@ -778,7 +793,7 @@ public static partial class Game
                             if (shouldReattach && brand.Attached)
                             {
                                 uint prevTarget = brand.AttachedMonsterId;
-                                var candidate = FindAttachTargetLocked(conn, state, brand, player, now, excludeMonster: prevTarget, recallBonusPct: 0);
+                                var candidate = FindAttachTargetLocked(conn, state, brand, player, now, excludeMonster: prevTarget);
                                 if (candidate is not null)
                                 {
                                     DetachBrandLocked(remote, stream, ciphers, conn, session, state, brand, now, bytes, spawnGround: false);
@@ -796,7 +811,7 @@ public static partial class Game
                             continue;
                         }
                         TryAttachBrandLocked(remote, stream, ciphers, conn, session, state, brand, player, now, bytes,
-                            excludeMonster: 0, recallBonusPct: 0);
+                            excludeMonster: 0);
                     }
                 }
 
@@ -837,8 +852,9 @@ public static partial class Game
         if (BrandMonsterMarks.TryGetValue(kill.Monster, out var mark) && mark.AttachedCount > 0)
         {
             var player = CharacterPlayerStats(conn);
-            int chance = GolemStat(player, "branded_enemy_explode_for_25%_life_as_chaos_on_death_chance_%")
-                + GolemStat(player, "wintertide_and_arcanist_brand_branded_enemy_explode_for_25%_life_as_chaos_on_death_chance_%");
+            int chance = GolemStat(player, "branded_enemy_explode_for_25%_life_as_chaos_on_death_chance_%");
+            if (state.Brands.Any(b => ReferenceEquals(b.AttachedMonster, kill.Monster) && b.Family is BrandFamily.Immolation or BrandFamily.Trigger))
+                chance += GolemStat(player, "wintertide_and_arcanist_brand_branded_enemy_explode_for_25%_life_as_chaos_on_death_chance_%");
             if (chance > 0 && Random.Shared.Next(100) < chance && kill.Monster.MaxLife > 0)
             {
                 double chaosDmg = kill.Monster.MaxLife * 0.25;
@@ -898,10 +914,10 @@ public static partial class Game
             ? 0 : Math.Clamp(1.0 - brand.AttachedRemaining / brand.AttachedDurationTotal, 0, 1);
 
     static (uint Id, SpawnedMonster Monster)? FindAttachTargetLocked(ClientState conn, BrandState state,
-        ActiveBrand brand, IReadOnlyDictionary<uint, int> player, double now, uint excludeMonster, int recallBonusPct)
+        ActiveBrand brand, IReadOnlyDictionary<uint, int> player, double now, uint excludeMonster)
     {
         double detachedSecs = brand.Attached ? 0 : Math.Max(0, now - brand.DetachedAt);
-        double range = BrandAttachmentRange(player, brand.Gem.Stats, detachedSecs, recallBonusPct);
+        double range = BrandAttachmentRange(player, brand.Gem.Stats, detachedSecs, brand.RecallSearchBonus);
         int perTargetLimit = BrandMaxPerTarget(player, brand.Gem.Stats);
 
         uint bestId = 0;
@@ -926,9 +942,9 @@ public static partial class Game
 
     static bool TryAttachBrandLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ProjectileSession session, BrandState state, ActiveBrand brand, IReadOnlyDictionary<uint, int> player,
-        double now, WorldRecordBuilder bytes, uint excludeMonster, int recallBonusPct, bool triggerOnAttach = true)
+        double now, WorldRecordBuilder bytes, uint excludeMonster, bool triggerOnAttach = true)
     {
-        var target = FindAttachTargetLocked(conn, state, brand, player, now, excludeMonster, recallBonusPct);
+        var target = FindAttachTargetLocked(conn, state, brand, player, now, excludeMonster);
         if (target is null) return false;
         AttachToMonsterLocked(conn, state, brand, target.Value.Id, target.Value.Monster, player, now, bytes,
             triggerOnAttach, remote, stream, ciphers, session);
@@ -940,15 +956,18 @@ public static partial class Game
         bool triggerImmediately, string remote, NetworkStream stream, ConnectionCiphers ciphers, ProjectileSession session)
     {
         var fromAt = brand.At;
+        brand.RecallSearchBonus = 0;
         RemoveDetachedVisualLocked(brand, bytes);
 
         brand.AttachedMonsterId = monsterId;
         brand.AttachedMonster = monster;
         brand.AttachedAt = now;
         brand.At = monster.Walk.Position(now);
-        if (brand.Family == BrandFamily.Immolation && brand.Stages == 0) brand.Stages = 1;
 
-        UpdateMonsterBrandMarkLocked(conn, state, monster, player);
+        var mark = BrandMonsterMarks.GetOrCreateValue(monster);
+        mark.AttachedCount++;
+        brand.AttachedTakenPct = GolemStat(player, "sigil_attached_target_damage_taken_+%");
+        mark.TakenPct += brand.AttachedTakenPct;
 
         // Visual attach beam from old location to target
         if (Dist(fromAt, brand.At) >= 2)
@@ -980,18 +999,17 @@ public static partial class Game
 
         var player = CharacterPlayerStats(conn);
         // Trigger end-of-attachment effects before detaching
-        if (brand.Family == BrandFamily.Magma && !brand.PenancePulses)
+        if (brand.PenanceExplodesOnDetach)
             TriggerPenanceExplosionLocked(remote, stream, ciphers, conn, state, brand, oldId, oldMonster, at, player, now, bytes);
         else if (brand.Family == BrandFamily.Immolation)
             TriggerWintertideEndLocked(conn, state, brand, at, player, now, bytes);
 
+        ClearBrandMonsterMarkLocked(brand);
         brand.AttachedMonsterId = 0;
         brand.AttachedMonster = null;
         brand.DetachedAt = now;
         brand.Energy = 0;
-        brand.Stages = 0;
 
-        UpdateMonsterBrandMarkLocked(conn, state, oldMonster, player);
         if (spawnGround && state.Brands.Contains(brand))
             SpawnDetachedVisualLocked(conn, brand, bytes);
     }
@@ -1009,7 +1027,7 @@ public static partial class Game
         // End-of-attachment effects (Penance Brand explosion, Wintertide's End)
         if (wasAttached && oldMonster is not null)
         {
-            if (brand.Family == BrandFamily.Magma && !brand.PenancePulses)
+            if (brand.PenanceExplodesOnDetach)
                 TriggerPenanceExplosionLocked(remote, stream, ciphers, conn, state, brand, oldId, oldMonster, at, player, now, bytes);
             else if (brand.Family == BrandFamily.Immolation)
                 TriggerWintertideEndLocked(conn, state, brand, at, player, now, bytes);
@@ -1032,7 +1050,6 @@ public static partial class Game
             TriggerBrandsurgeExplosionLocked(remote, stream, ciphers, conn, state, brand, at, player, now, bytes);
 
         RemoveBrandCleanlyLocked(state, brand, bytes);
-        if (oldMonster is not null) UpdateMonsterBrandMarkLocked(conn, state, oldMonster, player);
     }
 
     static void RemoveBrandCleanlyLocked(BrandState state, ActiveBrand brand, WorldRecordBuilder bytes)
@@ -1050,46 +1067,14 @@ public static partial class Game
         if (brand.AttachedMonster is not { } m) return;
         if (BrandMonsterMarks.TryGetValue(m, out var mark))
         {
-            mark.WintertidePrimaryDps.Remove(brand.Id);
+            if (brand.Family == BrandFamily.Magma) mark.PenanceEnergy = 0;
+            mark.TakenPct -= brand.AttachedTakenPct;
+            brand.AttachedTakenPct = 0;
+            brand.WintertidePrimaryDps = 0;
             if (mark.AttachedCount > 0) mark.AttachedCount--;
-            if (mark.AttachedCount == 0 && mark.PenanceEnergy == 0 && mark.WintertidePrimaryDps.Count == 0)
+            if (mark.AttachedCount == 0 && mark.PenanceEnergy == 0)
                 BrandMonsterMarks.Remove(m);
         }
-    }
-
-    static void UpdateMonsterBrandMarkLocked(ClientState conn, BrandState state, SpawnedMonster m,
-        IReadOnlyDictionary<uint, int> player)
-    {
-        int count = 0;
-        int maxPulseEnergy = 0;
-        bool hasNonPulseMagma = false;
-        foreach (var b in state.Brands)
-            if (ReferenceEquals(b.AttachedMonster, m))
-            {
-                count++;
-                if (b.Family == BrandFamily.Magma)
-                {
-                    if (b.PenancePulses) maxPulseEnergy = Math.Max(maxPulseEnergy, b.Energy);
-                    else hasNonPulseMagma = true;
-                }
-            }
-        if (count == 0)
-        {
-            if (BrandMonsterMarks.TryGetValue(m, out var existing))
-            {
-                existing.AttachedCount = 0;
-                existing.TakenPct = 0;
-                existing.WintertidePrimaryDps.Clear();
-                if (!hasNonPulseMagma) existing.PenanceEnergy = 0;
-                if (existing.PenanceEnergy == 0) BrandMonsterMarks.Remove(m);
-            }
-            return;
-        }
-        var mark = BrandMonsterMarks.GetOrCreateValue(m);
-        mark.AttachedCount = count;
-        if (!hasNonPulseMagma) mark.PenanceEnergy = maxPulseEnergy;
-        int takenPerBrand = GolemStat(player, "sigil_attached_target_damage_taken_+%");
-        mark.TakenPct = takenPerBrand * count;
     }
 
     // ---- Per-Brand Activation Dispatcher --------------------------------------------------------------------------------
@@ -1113,7 +1098,7 @@ public static partial class Game
                 ActivateWintertideBrandLocked(conn, state, brand, player, now);
                 break;
             case BrandFamily.Trigger:
-                ActivateArcanistBrandLocked(conn, session, state, brand, player, now);
+                ActivateArcanistBrandLocked(conn, session, brand, player, now);
                 break;
         }
     }
@@ -1238,9 +1223,8 @@ public static partial class Game
         // Dissipation (PenanceBrandAltX): builds energy on the brand/enemy and pulses AoE damage EVERY activation!
         if (brand.PenancePulses)
         {
-            if (brand.Energy < PenanceMaxEnergy) brand.Energy++;
             var mark = BrandMonsterMarks.GetOrCreateValue(target);
-            mark.PenanceEnergy = Math.Max(mark.PenanceEnergy, brand.Energy);
+            brand.Energy = mark.PenanceEnergy = Math.Min(PenanceMaxEnergy, mark.PenanceEnergy + 1);
 
             int perEnergyHit = GolemStat(brand.Gem.Stats, "magma_brand_hit_damage_+%_final_per_additional_pustule");
             int perEnergyAilment = GolemStat(brand.Gem.Stats, "magma_brand_ailment_damage_+%_final_per_additional_pustule");
@@ -1270,7 +1254,7 @@ public static partial class Game
         var targetMark = BrandMonsterMarks.GetOrCreateValue(target);
         if (targetMark.PenanceEnergy < PenanceMaxEnergy) targetMark.PenanceEnergy++;
         brand.Energy = targetMark.PenanceEnergy;
-        brand.EnergizedMonsters.Add(targetId);
+        if (brand.PenanceSpreads) brand.EnergizedMonsters.Add(targetId);
 
         // Conduction (PenanceBrandAltY) spreads energy to nearby enemies on activation!
         if (brand.PenanceSpreads)
@@ -1279,6 +1263,7 @@ public static partial class Game
             var spreadTargets = conn.Monsters
                 .Where(kv => kv.Key != targetId
                     && kv.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+                    && (!BrandMonsterMarks.TryGetValue(kv.Value, out var existing) || existing.PenanceEnergy == 0)
                     && kv.Value.OwnerId is null && !conn.AsleepMonsters.Contains(kv.Key)
                     && Dist(kv.Value.Walk.Position(now), at) <= spreadRadius)
                 .OrderBy(kv => Dist(kv.Value.Walk.Position(now), at))
@@ -1298,7 +1283,6 @@ public static partial class Game
         {
             TriggerPenanceExplosionLocked(remote, stream, ciphers, conn, state, brand, targetId, target, at, player, now, bytes);
             RemoveBrandCleanlyLocked(state, brand, bytes);
-            UpdateMonsterBrandMarkLocked(conn, state, target, player);
         }
     }
 
@@ -1316,17 +1300,14 @@ public static partial class Game
             SpawnTempEffectLocked(conn, state, centreAt, full ? PenanceExplosionBigAo : PenanceExplosionSmallAo,
                 now + 0.55, bytes, (float)Math.Clamp(radius / 22.0, 0.6, 3.0));
 
-            // Base Penance Brand scales proportionally to max energy (full damage at 20 energy);
-            // Conduction deals its full base hit on every energized enemy (with +100% more on branded target).
-            double energyScale = brand.PenanceExplodesOnDetach ? 1.0 : Math.Clamp(energy / (double)PenanceMaxEnergy, 0.1, 1.0);
             foreach (var (id, m) in conn.Monsters.ToArray())
             {
                 if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                     || m.OwnerId is not null || conn.AsleepMonsters.Contains(id)
-                    || Dist(m.Walk.Position(now), centreAt) > radius) continue;
+                    || (brand.PenanceSpreads ? id != centreId : Dist(m.Walk.Position(now), centreAt) > radius)) continue;
                 double brandedMore = id == primaryId ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
                 DealBrandSpellHitLocked(remote, stream, ciphers, conn, brand.SkillId, brand.Gem, player, id, m,
-                    now, energyScale * brandedMore, energyScale, label: brand.EffectId);
+                    now, brandedMore, 1.0, label: brand.EffectId);
             }
             if (centreMonster is not null && BrandMonsterMarks.TryGetValue(centreMonster, out var cm))
                 cm.PenanceEnergy = 0;
@@ -1382,9 +1363,7 @@ public static partial class Game
             + GolemStat(player, "winter_brand_max_number_of_stages_+"));
         if (brand.Stages < maxStages) brand.Stages++;
 
-        double dps = WintertideDpsFor(brand.Gem, player, brand.Stages);
-        var mark = BrandMonsterMarks.GetOrCreateValue(target);
-        mark.WintertidePrimaryDps[brand.Id] = dps;
+        brand.WintertidePrimaryDps = WintertideDpsFor(brand.Gem, player, brand.Stages);
 
         // Inflict Chill on the attached enemy
         int chillEffect = GolemStat(player, "winter_brand_chill_effect_+%") + GolemStat(brand.Gem.Stats, "winter_brand_chill_effect_+%");
@@ -1415,22 +1394,9 @@ public static partial class Game
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 || m.OwnerId is not null || Dist(m.Walk.Position(now), at) > radius) continue;
-            if (state.WintertideEnds.TryGetValue(id, out var existing) && ReferenceEquals(existing.Monster, m))
-            {
-                existing.DamagePerSecond = Math.Max(existing.DamagePerSecond, dps);
-                existing.Until = Math.Max(existing.Until, until);
-            }
-            else
-            {
-                state.WintertideEnds[id] = new WintertideEndDot
-                {
-                    MonsterId = id,
-                    Monster = m,
-                    DamagePerSecond = dps,
-                    Until = until,
-                    LastAt = now,
-                };
-            }
+            if (!state.WintertideEnds.TryGetValue(id, out var end) || !ReferenceEquals(end.Monster, m))
+                state.WintertideEnds[id] = end = new(m, now);
+            end.Apply(now, until, dps);
             InflictedLocked(conn, m, m.Ailments.WithoutDamage(Kind.Chill, duration, now, Get, n => m.Effects[n], 1.0));
         }
     }
@@ -1439,13 +1405,12 @@ public static partial class Game
         ClientState conn, BrandState state, double now, double dt, WorldRecordBuilder bytes)
     {
         // Primary attached Wintertide Brand DoTs (multiple attached brands stack on the same enemy!)
-        foreach (var (id, m) in conn.Monsters.ToArray())
+        var targets = state.Brands.Where(b => b.Attached && b.WintertidePrimaryDps > 0).GroupBy(b => b.AttachedMonsterId);
+        foreach (var group in targets)
         {
-            if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }) continue;
-            if (!BrandMonsterMarks.TryGetValue(m, out var mark) || mark.WintertidePrimaryDps.Count == 0) continue;
-
-            double totalDps = 0;
-            foreach (double v in mark.WintertidePrimaryDps.Values) totalDps += v;
+            uint id = group.Key;
+            if (!conn.Monsters.TryGetValue(id, out var m) || m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }) continue;
+            double totalDps = group.Where(b => ReferenceEquals(b.AttachedMonster, m)).Sum(b => b.WintertidePrimaryDps);
             if (!(totalDps > 0)) continue;
 
             var vis = state.MonsterVisuals.TryGetValue(id, out var existing) ? existing : state.MonsterVisuals[id] = new();
@@ -1465,7 +1430,8 @@ public static partial class Game
             var m = end.Monster;
             bool alive = conn.Monsters.TryGetValue(id, out var live) && ReferenceEquals(live, m)
                 && m is { Hostile: true, Dead: false, Life: > 0 };
-            if (!alive || now >= end.Until)
+            int damage = alive ? end.Advance(now, m.Invulnerable ? 0 : MonsterDotTaken(m, DamageType.Cold, now)) : 0;
+            if (!alive || end.Until <= now)
             {
                 if (end.BuffInstance != 0)
                 {
@@ -1473,21 +1439,14 @@ public static partial class Game
                     end.BuffInstance = 0;
                 }
                 state.WintertideEnds.Remove(id);
-                continue;
             }
-            if (end.BuffInstance == 0 || end.ShownUntil != end.Until)
+            else if (end.BuffInstance == 0 || end.ShownUntil != end.Until)
             {
                 if (end.BuffInstance == 0) end.BuffInstance = conn.NextBuff++;
                 end.ShownUntil = end.Until;
                 bytes.World(id, InstanceEntities.AddBuff(id, end.BuffInstance, WintertideSecondaryBuffRow, PlayerId,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0.1, end.Until - now))));
             }
-            if (m.Invulnerable) { end.LastAt = now; continue; }
-            double step = Math.Clamp(Math.Min(now, end.Until) - end.LastAt, 0, 0.5);
-            end.LastAt = now;
-            double total = end.Carry + end.DamagePerSecond * step * MonsterDotTaken(m, DamageType.Cold, now);
-            int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
-            end.Carry = total - damage;
             if (damage <= 0 || ApplyMonsterHitLocked(conn, m, damage) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "Wintertide's End", playerKill: true);
@@ -1496,39 +1455,21 @@ public static partial class Game
 
     // ---- 5. Arcanist Brand (Linked Spell Triggering) --------------------------------------------------------------------
 
-    static List<(ushort Skill, SupportedGem Gem, string Effect)> ArcanistBrandLinkedSpellsLocked(ClientState conn, SupportedGem brand)
+    static List<(ushort Id, SupportedGem Gem)> ArcanistBrandLinkedSpellsLocked(ClientState conn, SupportedGem brand)
     {
-        var result = new List<(ushort, SupportedGem, string)>();
-        if (brand.Host == 0 || brand.Group < 0) return result;
-        var catalog = SkillsFor(conn);
-        int supportRow = catalog.EffectRow("SupportBrandSupport");
-        var supportDef = Supports.Of(supportRow);
+        var result = new List<(ushort, SupportedGem)>();
         foreach (var source in PlayerSkillSourcesLocked(conn).Where(s => s.Active && s.SourceGem is not null
-            && s.Identity.Host == brand.Host).OrderBy(s => s.Identity.Socket))
+            && s.Identity.Host == brand.Host && s.Effect != brand.Effect).OrderBy(s => s.Identity.Socket))
         {
-            if (source.Effect == brand.Effect) continue;
             var linked = SupportedSkill(conn, source.Id);
-            if (linked.Group != brand.Group || !linked.RequirementsMet) continue;
-            if (!catalog.IsSpell(linked.Effect) || catalog.IsAttack(linked.Effect) || catalog.IsTravel(linked.Effect)
-                || catalog.IsBrand(linked.Effect) || catalog.IsChannelled(linked.Effect)
-                || PlacedKind(linked) is not (false, false) || GolemStat(linked.Stats, "is_totem") != 0
-                || SupportedReservation(conn, source.Id) is not null
-                || catalog.VaalBudget(linked.Effect, linked.Level) is not null) continue;
-            if (supportDef is not null && Supports.Of(linked.Effect) is { } targetDef)
-            {
-                var types = targetDef.Types.Concat(linked.Supports.SelectMany(s => s.Effect.Added)).ToHashSet();
-                if (!GemSupports.Compatible(supportDef, types, [], null)) continue;
-            }
-            if (catalog.EffectId(linked.Effect) is not { } effectId) continue;
-            bool canExecute = TriggerPayloadAvailable(conn, linked)
-                || SkillHitPlan.ForSkill(catalog, linked.Effect, linked.Level, linked.Quality).CanHit;
-            if (!canExecute) continue;
-            result.Add((source.Id, linked, effectId));
+            if (linked.Group == brand.Group && linked.RequirementsMet && linked.Supports.Any(s => s.Effect.Id == "SupportBrandSupport")
+                && TriggeredSpellExecutable(conn, source.Id, linked))
+                result.Add((source.Id, linked));
         }
         return result;
     }
 
-    static void ActivateArcanistBrandLocked(ClientState conn, ProjectileSession session, BrandState state,
+    static void ActivateArcanistBrandLocked(ClientState conn, ProjectileSession session,
         ActiveBrand brand, IReadOnlyDictionary<uint, int> player, double now)
     {
         var liveBrand = SupportedSkill(conn, brand.SkillId);
@@ -1537,15 +1478,6 @@ public static partial class Game
         if (linked.Count == 0) return;
 
         var catalog = SkillsFor(conn);
-        int supportRow = catalog.EffectRow("SupportBrandSupport");
-        var supportStats = catalog.EffectStats(supportRow, liveBrand.Level, liveBrand.Quality)
-            .GroupBy(s => s.Item1).ToDictionary(g => g.Key, g => g.Sum(s => s.Item2));
-        double brandLessMore = Math.Max(0, 1 + GolemStat(supportStats, "support_brand_damage_+%_final") / 100.0);
-        double vsBrandedMore = brand.Attached
-            ? Math.Max(0, 1 + GolemStat(supportStats, "trigger_brand_support_hit_damage_+%_final_vs_branded_enemy") / 100.0) : 1.0;
-        double aoeMore = SkillArea.RadiusMultiplier(GolemStat(supportStats, "support_brand_area_of_effect_+%_final"));
-        double damageScale = brandLessMore * vsBrandedMore;
-
         var aim = brand.At;
         var origin = brand.At;
         if (!brand.Attached)
@@ -1561,9 +1493,14 @@ public static partial class Game
         for (int i = 0; i < linked.Count; i++)
         {
             int idx = (brand.TriggerRotation + i) % linked.Count;
-            var (spellSkillId, spellGem, spellEffectId) = linked[idx];
+            var (spellSkillId, spellGem) = linked[idx];
             if (now < triggerState.ReadyAt.GetValueOrDefault(spellGem.Effect)) continue;
             if (GemSkillInstanceDisabled(conn, spellGem.Effect, spellSkillId, triggered: true) is not null) continue;
+            bool Current() => session.Active && CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
+                && !conn.Closed && !conn.LeavingArea && !conn.Paused && conn.PlayerLife > 0;
+
+            var release = PrepareTriggeredPayload(conn, session, spellSkillId, aim, Current, origin, brand.AttachedMonster);
+            if (release is null) continue;
             if (!PayMana(conn, spellSkillId, out uint mana, out uint life))
             {
                 brand.TriggerRotation = (idx + 1) % linked.Count;
@@ -1581,34 +1518,7 @@ public static partial class Game
             if (mana > 0 || life > 0)
                 session.Enqueue(() => SendSkillCost(session.remote, session.stream, session.ciphers, conn, life, "Arcanist Brand trigger cost"));
 
-            bool Current() => session.Active && CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
-                && !conn.Closed && !conn.LeavingArea && !conn.Paused && conn.PlayerLife > 0;
-
-            var gemEntry = GemSkillEffects(conn).FirstOrDefault(g => g.Id == spellSkillId);
-            if (gemEntry.Name is null) return;
-
-            if (UsesProjectileRuntime(spellGem.Effect) && ResolveProjectileDefinition(spellGem.Effect) is not null)
-            {
-                var critical = CaptureSkillCriticalRoll(conn, spellSkillId);
-                var shotAim = Dist(origin, aim) < 1 ? (origin.X + 15, origin.Y) : aim;
-                session.Schedule(session.Runtime.Now, Current, () =>
-                {
-                    var use = CaptureGemProjectile(conn, session, spellSkillId, gemEntry, shotAim, critical, from: origin);
-                    use = ClientDrawnVolley(conn, session, spellSkillId, gemEntry, use, 0, 0);
-                    var payload = (ProjectileOffense)use.Payload!;
-                    return use with { Payload = payload with { ClientPredicted = false, Hit = payload.Hit.Scale(damageScale) } };
-                });
-            }
-            else if (TriggerPayloadAvailable(conn, spellGem))
-            {
-                var release = PrepareTriggeredPayload(conn, session, spellSkillId, aim, Current);
-                release?.Invoke();
-            }
-            else
-            {
-                session.Enqueue(() => AreaSkillHit(session.remote, session.stream, session.ciphers, conn, spellSkillId,
-                    gemEntry, origin, aim, immediate: true, damageMore: damageScale, radiusMore: aoeMore, triggeredCurrent: Current));
-            }
+            release();
             return;
         }
     }
@@ -1787,6 +1697,10 @@ public static partial class Game
         state.WintertideEnds.Clear();
     }
 
+    internal static byte[] PenanceEnergyBuff(uint monsterId, ushort instance, ushort energy) =>
+        InstanceEntities.AddBuff(monsterId, instance, PenanceEnergyBuffRow, PlayerId,
+            stacks: energy, list: [PenanceMaxEnergy]);
+
     static void ReconcileBrandPresentationLocked(ClientState conn, BrandState state, double now, WorldRecordBuilder bytes)
     {
         // 1. Recompute HUD counters
@@ -1819,9 +1733,8 @@ public static partial class Game
         // 2. Reconcile monster buffs (ActiveSigil, magma_pustule, immolation_brand_burn)
         var allMonsters = new HashSet<uint>(state.MonsterVisuals.Keys);
         foreach (uint mid in desiredAttached.Keys) allMonsters.Add(mid);
-        foreach (var (mid, m) in conn.Monsters)
-            if (BrandMonsterMarks.TryGetValue(m, out var mk) && (mk.PenanceEnergy > 0 || mk.WintertidePrimaryDps.Count > 0))
-                allMonsters.Add(mid);
+        foreach (var brand in state.Brands)
+            if (brand.PenanceSpreads) allMonsters.UnionWith(brand.EnergizedMonsters);
 
         foreach (uint mid in allMonsters)
         {
@@ -1871,13 +1784,12 @@ public static partial class Game
             else if (energy > 0 && energy != vis.PenanceStacks)
             {
                 if (vis.PenanceBuff == 0) vis.PenanceBuff = conn.NextBuff++;
-                bytes.World(mid, InstanceEntities.AddBuff(mid, vis.PenanceBuff, PenanceEnergyBuffRow, PlayerId,
-                    stacks: (ushort)energy));
+                bytes.World(mid, PenanceEnergyBuff(mid, vis.PenanceBuff, (ushort)energy));
                 vis.PenanceStacks = energy;
             }
 
             // Wintertide Brand primary DoT visual (BuffDefinitions 1550 immolation_brand_burn)
-            bool hasWinterPrimary = exists && BrandMonsterMarks.TryGetValue(monster!, out var wmark) && wmark.WintertidePrimaryDps.Count > 0;
+            bool hasWinterPrimary = exists && desiredAttached.TryGetValue(mid, out var winterFamilies) && winterFamilies.ContainsKey(BrandFamily.Immolation);
             if (!hasWinterPrimary && vis.WintertidePrimaryBuff != 0)
             {
                 if (conn.Monsters.ContainsKey(mid)) bytes.World(mid, InstanceEntities.RemoveBuff(mid, vis.WintertidePrimaryBuff));

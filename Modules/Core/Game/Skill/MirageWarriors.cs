@@ -10,7 +10,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// <summary>
 /// General's Cry (<c>GeneralsCry</c> / <c>GeneralsCryAltX</c> / <c>GeneralsCryAltY</c>, support half
 /// <c>GeneralsCrySupport</c>): warcry that counts power from nearby enemies and corpses (<c>warcry_gain_mp_from_corpses</c>,
-/// <c>warcry_count_power_from_enemies</c>), consumes nearby corpses up to <c>maximum_number_of_spiritual_cry_warriors</c>
+/// <c>warcry_count_power_from_enemies</c>), uses nearby corpses up to <c>maximum_number_of_spiritual_cry_warriors</c>
 /// (5 base + gem quality + <c>generals_cry_maximum_warriors_+</c>), and summons non-blocking Mirage Warriors
 /// (<c>Metadata/Monsters/MirageWarrior/MirageWarrior&lt;Class&gt;</c>, BuffVisuals 1215 <c>mirage_warrior_visual</c>).
 /// Each Mirage Warrior rushes a nearby living enemy, executes a linked melee attack skill using the player's attack
@@ -48,7 +48,6 @@ public static partial class Game
         public double FinishAt;
         public bool Struck;
         public bool Channelled;
-        public int ChannelHitsLeft;
         public double ChannelInterval;
     }
 
@@ -57,6 +56,7 @@ public static partial class Game
         public readonly int Epoch = epoch;
         public readonly object? Rules = rules;
         public readonly List<MirageWarrior> Warriors = [];
+        public int Release;
     }
 
     static readonly RuleTable<ClientState, MirageWarriorState> MirageWarriors = new();
@@ -139,15 +139,14 @@ public static partial class Game
 
     /// <summary>
     /// Resolves General's Cry when its warcry finishes: replaces any prior Mirage Warriors, counts warcry power
-    /// from nearby enemies and corpses, consumes up to the allowed number of nearby corpses, and spawns
+    /// from nearby enemies and corpses, selects up to the allowed number of nearby corpses, and spawns
     /// non-blocking Mirage Warriors armed with the linked melee attack skill(s).
     /// </summary>
     public static async Task<int> GeneralsCryReleased(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort crySkillId, (int X, int Y) at, int radius, int epoch)
     {
-        // Re-casting General's Cry replaces existing Mirage Warriors immediately.
-        await DespawnAllMirageWarriors(remote, stream, ciphers, conn);
-
+        MirageWarriorState releaseState;
+        int release;
         SupportedGem cryGem;
         List<(ushort Id, SupportedGem Gem, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Effect)> linked;
         lock (conn.Monsters)
@@ -157,7 +156,10 @@ public static partial class Game
             cryGem = SupportedSkill(conn, crySkillId);
             if (!IsGeneralsCry(conn, cryGem.Effect)) return 0;
             linked = GeneralsCryLinkedMeleeSkills(conn, cryGem);
+            releaseState = MirageWarriorStateOfLocked(conn);
+            release = ++releaseState.Release;
         }
+        await DespawnMirageWarriors(remote, stream, ciphers, conn, finishAttacks: true);
         if (linked.Count == 0)
         {
             Console.WriteLine($"[gateway] {remote} General's Cry: no eligible linked melee attack skill");
@@ -180,7 +182,7 @@ public static partial class Game
         int extraMovePct = Player("spiritual_cry_double_movement_velocity_+%") + Own("spiritual_cry_double_movement_velocity_+%");
         double speedFactor = MirageWarriorBaseSpeedFactor * Math.Max(0.25, 1 + extraMovePct / 100.0);
 
-        List<(uint Id, string Label, (int X, int Y) At)> consumed = [];
+        List<(int X, int Y)> spawnPoints;
         int power = 0;
         using (ProjectileMutation(conn))
         {
@@ -205,27 +207,14 @@ public static partial class Game
                 int enemyPower = conn.Monsters.Values
                     .Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), at) <= radius)
                     .Sum(m => WarcryPower(m.Rarity));
-                int corpsePower = nearbyCorpses.Count; // warcry_gain_mp_from_corpses: 1 power per corpse
+                int corpsePower = nearbyCorpses.Sum(e => e.Monster.CreatedAsCorpse ? 1 : WarcryPower(e.Monster.Rarity));
                 int minPower = Math.Max(Player("warcry_minimum_power"), Own("warcry_minimum_power"));
                 power = Math.Max(enemyPower + corpsePower, minPower);
             }
             // At least 1 Mirage Warrior when a corpse is available; +perFive per 5 Power, capped by maxWarriors and corpses.
             int wanted = Math.Clamp(Math.Max(1, power / 5 * perFive), 1, maxWarriors);
-            int toSummon = Math.Min(nearbyCorpses.Count, wanted);
-            for (int i = 0; i < toSummon; i++)
-            {
-                var (corpseId, corpse, corpseAt) = nearbyCorpses[i];
-                corpse.CorpseConsumed = true;
-                NoteCorpseConsumedLocked(conn, corpse);
-                conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
-                conn.Monsters.Remove(corpseId);
-                consumed.Add((corpseId, corpse.Label, corpseAt));
-            }
+            spawnPoints = nearbyCorpses.Take(wanted).Select(e => e.At).ToList();
         }
-
-        foreach (var (corpseId, label, _) in consumed)
-            await SendWorldRemoval(remote, stream, ciphers, conn, corpseId,
-                $"0x02bd corpse 0x{corpseId:x} ({label}) consumed by General's Cry");
 
         var rules = CombatLifetime;
         var looks = Looks(conn, ItemsOf(conn));
@@ -237,16 +226,20 @@ public static partial class Game
         byte level = (byte)Math.Clamp(conn.Pools.Level, 1, 100);
         int spawned = 0;
 
-        for (int i = 0; i < consumed.Count; i++)
+        bool Current() => CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
+            && Volatile.Read(ref releaseState.Release) == release
+            && !conn.Closed && !conn.LeavingArea && conn.ProjectileActive(epoch) && conn.PlayerLife > 0;
+        double spawnTime = conn.Clock.Elapsed.TotalSeconds + 0.3;
+        for (int i = 0; i < spawnPoints.Count; i++)
         {
-            var (_, _, spawnAt) = consumed[i];
+            while (Current() && conn.Clock.Elapsed.TotalSeconds < spawnTime) await Task.Delay(16);
+            if (!Current()) break;
+            spawnTime = conn.Clock.Elapsed.TotalSeconds + 0.2;
+            var spawnAt = spawnPoints[i];
             if (!conn.Layout.WalkableFor(spawnAt.X, spawnAt.Y, 0)) spawnAt = at;
             var (linkedId, linkedGem, linkedEffect) = linked[i % linked.Count];
             var actorSkill = BuildMirageWarriorSkill(conn, linkedId, linkedGem);
             MirageWarrior? warrior = null;
-            bool Current() => CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
-                && !conn.Closed && !conn.LeavingArea && conn.ProjectileActive(epoch) && conn.PlayerLife > 0;
-
             uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal,
                 spawnAt.X, spawnAt.Y, friendly: true, log: false, scripted: true, nonBlocking: true,
                 placement: MonsterPlacement.Established, movement: movement,
@@ -280,7 +273,7 @@ public static partial class Game
                 $"0x01c1 mirage warrior 0x{id:x} visual", still: Current);
         }
 
-        Console.WriteLine($"[gateway] {remote} General's Cry: {power} power, consumed {consumed.Count} corpse(s), "
+        Console.WriteLine($"[gateway] {remote} General's Cry: {power} power, "
             + $"summoned {spawned} Mirage Warrior(s) ({duration:0.0}s, {damageFactor:0.##}x damage) using {linked[0].Effect.Name}");
         return spawned;
     }
@@ -314,32 +307,34 @@ public static partial class Game
                 conn.MinionOrigins.TryRemove(w.Id, out _);
                 conn.RetiredCombatObjects.Add(w.Id);
             }
+            Interlocked.Increment(ref state.Release);
             state.Warriors.Clear();
             MirageWarriors.Remove(conn);
         }
     }
 
-    static async Task DespawnAllMirageWarriors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task DespawnMirageWarriors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool finishAttacks)
     {
         List<uint> remove = [];
         lock (conn.Monsters)
         {
             if (!MirageWarriors.TryGetValue(conn, out var state) || state.Warriors.Count == 0) return;
-            foreach (var w in state.Warriors)
+            for (int i = state.Warriors.Count - 1; i >= 0; i--)
             {
+                var w = state.Warriors[i];
+                if (finishAttacks && w.Phase == MirageWarriorPhase.Attacking) continue;
+                state.Warriors.RemoveAt(i);
                 conn.Monsters.Remove(w.Id);
                 conn.MinionOrigins.TryRemove(w.Id, out _);
                 remove.Add(w.Id);
             }
-            state.Warriors.Clear();
         }
         foreach (uint id in remove)
             await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd mirage warrior 0x{id:x} replaced");
     }
 
     /// <summary>
-    /// Steps active Mirage Warriors at game time <paramref name="now"/>: acquires targets (spreading across nearby
-    /// enemies), rushes into melee reach, executes the linked melee attack skill using player stats + General's Cry
+    /// Steps active Mirage Warriors at game time <paramref name="now"/>: acquires the strongest nearby enemies, rushes into melee reach, executes the linked melee attack skill using player stats + General's Cry
     /// damage scaling, and despawns warriors after attacking or when expired.
     /// </summary>
     public static async Task MirageWarriorsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -361,14 +356,6 @@ public static partial class Game
             else if (conn.Paused) return;
             else
             {
-                // Advance warrior walk estimates before checking reach.
-                var claimedTargets = new HashSet<uint>();
-                foreach (var w in state.Warriors)
-                    if (w.Phase != MirageWarriorPhase.Done && w.TargetId != 0
-                        && conn.Monsters.TryGetValue(w.TargetId, out var existing)
-                        && existing.Hostile && !existing.Dead && existing.Life > 0)
-                        claimedTargets.Add(w.TargetId);
-
                 var weapon = WeaponFor(conn);
                 for (int i = state.Warriors.Count - 1; i >= 0; i--)
                 {
@@ -386,10 +373,9 @@ public static partial class Game
                     var here = w.Monster.Walk.Position(now);
                     if (w.Phase == MirageWarriorPhase.Seeking)
                     {
-                        var target = PickMirageWarriorTargetLocked(conn, here, w.TargetId, claimedTargets, now);
+                        var target = PickMirageWarriorTargetLocked(conn, here, w.TargetId, now);
                         if (target is not { } picked) continue;
                         w.TargetId = picked.Id;
-                        claimedTargets.Add(picked.Id);
 
                         double reach = MirageWarriorReach(conn, w, weapon, picked.Monster);
                         double dist = Dist(here, picked.At);
@@ -403,9 +389,8 @@ public static partial class Game
                             {
                                 double interval = Math.Max(0.1, SupportedChannelSeconds(conn, w.LinkedSkillId) ?? attackSeconds);
                                 w.ChannelInterval = interval;
-                                w.ChannelHitsLeft = 3;
                                 w.ContactAt = now + Math.Min(0.1, interval * 0.5);
-                                w.FinishAt = Math.Min(w.ExpiresAt, w.ContactAt + interval * 2.5);
+                                w.FinishAt = Math.Min(w.ExpiresAt, now + 1.0);
                             }
                             else
                             {
@@ -429,13 +414,12 @@ public static partial class Game
                     {
                         if (w.Channelled)
                         {
-                            if (w.ChannelHitsLeft > 0 && now >= w.ContactAt)
+                            if (now < w.FinishAt && now >= w.ContactAt)
                             {
-                                w.ChannelHitsLeft--;
                                 w.ContactAt = now + w.ChannelInterval;
                                 toStrike.Add(w);
                             }
-                            if (w.ChannelHitsLeft <= 0 && now >= w.FinishAt)
+                            if (now >= w.FinishAt)
                             {
                                 w.Phase = MirageWarriorPhase.Done;
                                 actions.Add((w.Id, InstanceProtocol.ActionEnded(w.Id), null));
@@ -461,7 +445,7 @@ public static partial class Game
 
         if (retireAll)
         {
-            await DespawnAllMirageWarriors(remote, stream, ciphers, conn);
+            await DespawnMirageWarriors(remote, stream, ciphers, conn, finishAttacks: false);
             return;
         }
 
@@ -488,7 +472,7 @@ public static partial class Game
     }
 
     static (uint Id, SpawnedMonster Monster, (int X, int Y) At)? PickMirageWarriorTargetLocked(
-        ClientState conn, (int X, int Y) from, uint currentTarget, HashSet<uint> claimed, double now)
+        ClientState conn, (int X, int Y) from, uint currentTarget, double now)
     {
         // Keep current alive target if still within aggro range.
         if (currentTarget != 0 && conn.Monsters.TryGetValue(currentTarget, out var kept)
@@ -499,11 +483,8 @@ public static partial class Game
                 return (currentTarget, kept, keptAt);
         }
 
-        (uint Id, SpawnedMonster Monster, (int X, int Y) At)? bestUnclaimed = null;
-        double bestUnclaimedDist = double.MaxValue;
-        (uint Id, SpawnedMonster Monster, (int X, int Y) At)? bestAny = null;
-        double bestAnyDist = double.MaxValue;
-
+        (uint Id, SpawnedMonster Monster, (int X, int Y) At)? best = null;
+        double bestDistance = double.MaxValue;
         foreach (var (id, m) in conn.Monsters)
         {
             if (!m.Hostile || m.Dead || m.Life == 0 || m.OwnerId is not null || m.WorldHidden
@@ -511,10 +492,12 @@ public static partial class Game
             var at = m.Walk.Position(now);
             double d = Dist(from, at);
             if (d > MirageWarriorAggroRange) continue;
-            if (d < bestAnyDist) { bestAnyDist = d; bestAny = (id, m, at); }
-            if (!claimed.Contains(id) && d < bestUnclaimedDist) { bestUnclaimedDist = d; bestUnclaimed = (id, m, at); }
+            if (best is { } found && (m.Rarity < found.Monster.Rarity
+                || m.Rarity == found.Monster.Rarity && d >= bestDistance)) continue;
+            bestDistance = d;
+            best = (id, m, at);
         }
-        return bestUnclaimed ?? bestAny;
+        return best;
     }
 
     /// <summary>
@@ -534,7 +517,8 @@ public static partial class Game
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         using (ProjectileMutation(conn))
         {
-            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
+                || !conn.Monsters.TryGetValue(w.Id, out var actor) || !ReferenceEquals(actor, w.Monster)) return;
             double now = ProjectileWorldTime(conn);
             warriorPos = w.Monster.Walk.Position(now);
 

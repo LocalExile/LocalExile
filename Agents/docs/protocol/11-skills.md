@@ -4302,7 +4302,8 @@ to the same packet writer. Native icon was confirmed; corrected countdown awaits
   `0x1415c6860` (`0x1415c68ee`, `0x1415c6a99`) and update `0x1415c6d60`, which read `buff+0x80` (`list`) entries
   `[0]` (`MiscAnimated` row `4478..4482`) and `[1]` (`0 = fadein`, `1 = chargeup_start`) unchecked. Every `0x1c1`
   for these buffs must include a 2-element `list`; omitting it dereferences null. `1551` (`magma_pustule`,
-  `PenanceBrandCharge`, ctor `0x1417bfa90`) reads no `list`. HUD counters read `SigilDisplay` stats
+  `PenanceBrandCharge`) requires the maximum energy (20) in `list[0]` when updating the effect in 3.29.3d.
+  HUD counters read `SigilDisplay` stats
   (`current_number_of_active_*_sigils`, `current_number_of_inactive_*_sigils`, `current_total_number_of_sigils`).
 - **Snipe**: `BuffDefinitions` `1494` (`snipe_stacks`, `ShowCount`, `BuffVisuals` `1285` `snipe_stages`) displays
   channelled stages; unlinked releases fire `Metadata/Projectiles/ChannelledSnipeDefaultProjectile`.

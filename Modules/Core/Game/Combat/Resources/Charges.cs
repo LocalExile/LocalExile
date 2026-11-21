@@ -354,9 +354,10 @@ public static partial class Game
                     lock (conn.Monsters)
                         if (conn.ProjectileActive(epoch) && conn.PlayerLife > 0)
                             ApplyIntimidatingCryLocked(conn, own, CharacterPlayerStats(conn), now);
-                if (skillId != 0 && IsGeneralsCry(conn, effect))
-                    await GeneralsCryReleased(remote, stream, ciphers, conn, skillId, here, radius, epoch);
-                await WarcryReleased(remote, stream, ciphers, conn, here, radius, epoch);
+                var warriors = skillId != 0 && IsGeneralsCry(conn, effect)
+                    ? GeneralsCryReleased(remote, stream, ciphers, conn, skillId, here, radius, epoch)
+                    : Task.CompletedTask;
+                await Task.WhenAll(warriors, WarcryReleased(remote, stream, ciphers, conn, here, radius, epoch));
                 return;
             }
             lock (conn.Monsters)
