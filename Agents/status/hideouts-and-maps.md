@@ -179,11 +179,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   The map-device underfoot escape and walking through its released old position were verified in the client.
   Extracted AO hull radii cover small and large map devices; persistence and clearance have automated coverage.
   Map-device, Nessa and stash movement/rotation and reconnect persistence were verified in the real client.
-  Adding/removing arbitrary decorations and changing their appearance remain unimplemented; the dev `/statue`
-  command places a saved stone Monster Statue of a chosen MonsterVarieties row (2026-11-01, live client verified:
-  no life bar or name, idle animation, survives leaving and re-entering). See
-  [21](../docs/protocol/21-hideouts.md), Monster Statue.
-  See [21](../docs/protocol/21-hideouts.md), Moving installed furniture and NPCs.
+  Placing/reclaiming/resetting custom decorations (`C→S 0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout` (command 50),
+  music box selection (`0x255`), Item Display Case (`0x7b` `0x49`, `0x67`, `0x68`), Horticrafting Ctrl + click (`0xf9`),
+  and `RecipeUnlockDisplay` area unlock flags are implemented (offline verified; live client checks pending).
+  The dev `/statue` command places a saved stone Monster Statue of a chosen MonsterVarieties row (live client verified:
+  no life bar or name, idle animation, survives leaving and re-entering).
+  See [21](../docs/protocol/21-hideouts.md), Monster Statue and Moving installed furniture and NPCs.
 - Ordinary crafting bench (2026-10-25, automated coverage; live client verification pending): all 765 active recipes
   and their 130 recipe flags are available.
   Exact modifiers, class masks, socket/link recipes, flask enchantments, replacement/removal and rare-affix rerolls

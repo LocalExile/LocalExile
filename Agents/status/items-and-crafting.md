@@ -123,6 +123,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
 - Currency metamods: prefix/suffix locks and attack/caster restrictions.
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".
+- Repeat currency use by type on passives (`C→S 0x78`) and world objects (`C→S 0x79`) routes to Tattoo/Scouring,
+  Strongbox and Essence handlers (offline verified; live client check pending).
 
 ## Not working yet
 
