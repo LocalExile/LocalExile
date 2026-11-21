@@ -790,6 +790,9 @@ public static partial class Game
             : Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
         int Player(string name) => release && IsCriticalProhibition(name) ? 0
             : Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        if (Own("mine_critical_strike_chance_+%_per_power_charge") is int minePerPower and not 0
+            && PlacedKind(gem).Mine)
+            extraIncrease += (long)minePerPower * Player("current_power_charges");
         if (SkillsFor(conn).IsAttack(gem.Effect))
         {
             if (new[] { "global_cannot_crit", "virtual_global_cannot_crit", "cannot_critical_strike_with_attacks" }
@@ -876,6 +879,9 @@ public static partial class Game
         // per-charge stats are already in its stats (ChargeEffects), this one only on the skill.
         if (GolemStat(gem.Stats, "critical_strike_multiplier_+_per_power_charge") is int perPower and not 0)
             extra += perPower * GolemStat(player, "current_power_charges");
+        if (GolemStat(gem.Stats, "trap_critical_strike_multiplier_+_per_power_charge") is int trapPerPower and not 0
+            && PlacedKind(gem) is (true, false))
+            extra += trapPerPower * GolemStat(player, "current_power_charges");
         return CriticalHitMultiplier((long)(SkillsFor(conn).IsAttack(gem.Effect)
             ? AttackCriticalMultiplier(conn, player, gem.Effect, gem.Stats)
             : conn.Pools.SpellCriticalStrikeMultiplier) + extra, player, gem.Stats);
