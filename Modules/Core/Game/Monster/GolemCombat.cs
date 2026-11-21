@@ -357,7 +357,8 @@ public static partial class Game
             + (area ? g.Monster.Mods.Effects["area_damage_+%"] : 0);
         double more = MinionTacticsBaseDamage(conn, g, now) * Math.Max(0, 1 + GolemStat(g.Own, "active_skill_minion_damage_+%_final") / 100.0)
             * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_damage_+%_final") / 100.0)
-            * Math.Max(0, 1 + GolemTether(g.Player, "damage") / 100.0);
+            * Math.Max(0, 1 + GolemTether(g.Player, "damage") / 100.0)
+            * Math.Max(0, 1 + g.Monster.Mods.Effects["dot_multiplier_+"] / 100.0);
         double increasedMultiplier = Math.Max(0, 1 + normalIncrease / 100.0);
         double factor = increasedMultiplier * more;
         return (intrinsicDamagePerSecond * factor,

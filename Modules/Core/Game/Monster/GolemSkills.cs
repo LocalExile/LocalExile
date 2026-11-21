@@ -56,6 +56,11 @@ public static partial class Game
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
         int Get(string n) => GolemStat(player, n);
+        long gaze = Math.Min(30, (long)Math.Max(0, Get("number_of_minion_abyss_jewels"))
+            * Math.Max(0, Get("minion_damage_over_time_multiplier_+_per_minion_abyss_jewel_up_to_+30")));
+        int dotMultiplier = ActorScale.Saturate(gaze + Get("base_minion_dot_multiplier_+"));
+        if (dotMultiplier != 0)
+            values["dot_multiplier_+"] = ActorScale.Saturate((long)values.GetValueOrDefault("dot_multiplier_+") + dotMultiplier);
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
         // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
         // maximum kernel as the owner's charge session; its maximum already includes Character.ot's base three.
