@@ -60,7 +60,8 @@ public static partial class Game
             foreach (var conn in InGame.Keys)
                 lock (conn.Monsters)
                     foreach (var (id, child) in conn.Monsters)
-                        if (!child.Dead && MonsterSummonParents.TryGetValue(child, out _))
+                        if (!child.Dead && (MonsterSummonParents.TryGetValue(child, out _)
+                            || child.Variety?.Id == EssenceExplosiveInsect && child.SummonerId is not null))
                             EndMonsterSummonLocked(conn, id, child, conn.Clock.Elapsed.TotalSeconds);
         }
     }

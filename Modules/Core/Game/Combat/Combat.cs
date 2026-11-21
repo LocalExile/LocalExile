@@ -3376,6 +3376,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
+            QueueEssenceDeathSpawnLocked(conn, id, m);
             if (playerKill) QueueMadnessExplosionLocked(conn, id, m);
         }
         StopCorpseBlocking(remote, stream, ciphers, conn, id, m);

@@ -48,7 +48,8 @@ public static partial class Game
         var hit = conn.Golems.IncomingHits.FirstOrDefault(h => h.Enemy == output.TargetId && h.Generation == output.Action);
         if (hit is null || hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
         double now = AreaTime(conn); var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
-        hit.Started = true; hit.ContactAt = now + hit.Attack.Seconds * (hit.Attack.Release?.Fraction ?? .5);
+        hit.Started = true;
+        hit.ContactAt = now + hit.Attack.Seconds * (hit.Monster.Variety?.Id == EssenceExplosiveInsect ? 1 : hit.Attack.Release?.Fraction ?? .5);
         hit.Monster.BusyUntil = now + hit.Attack.Seconds;
         hit.Monster.Walk.Order(from.X, from.Y, now);
         return InstanceProtocol.ActionStarted(hit.Enemy, from.X, from.Y, to.X, to.Y, hit.Attack.SkillId,
@@ -70,6 +71,11 @@ public static partial class Game
             if (!hit.Started || now < hit.ContactAt) continue;
             conn.Golems.IncomingHits.Remove(hit);
             if (MonsterActionFactor(hit.Monster, now) == 0) continue;
+            if (hit.Monster.Variety?.Id == EssenceExplosiveInsect)
+            {
+                QueueEssenceInsectContactLocked(conn, hit.Enemy, hit.Monster, hit.Attack, hit.Generation);
+                continue;
+            }
             if (hit.Attack.Projectile is { } projectile)
             {
                 var session = ProjectilesFor(remote, stream, ciphers, conn);
@@ -94,7 +100,7 @@ public static partial class Game
         var m = g.Monster; var effects = m.Effects;
         var random = conn.IncomingHitRandom;
         int Player(string name) => GolemStat(g.Player, name);
-        if (!attack.Spell)
+        if (!attack.Spell && !attack.Secondary)
         {
             int evasion = (int)Math.Max(0, effects.Evasion((Monsters.BaseEvasion(m.Level) ?? 0) + effects["base_evasion_rating"])
                 * (1 + effects["grace_aura_evasion_rating_+%_final"] / 100.0));
@@ -103,7 +109,7 @@ public static partial class Game
         }
         int block = attack.Spell ? Player("minion_additional_spell_block_%") + effects["base_spell_block_%"]
             : Player("minion_block_%") + effects["monster_base_block_%"];
-        if (random.Next(100) < Math.Clamp(block, 0, 75))
+        if (!attack.Secondary && random.Next(100) < Math.Clamp(block, 0, 75))
         {
             g.BlockedAt = now;
             m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player("minion_recover_%_of_maximum_life_on_block") / 100
@@ -134,7 +140,7 @@ public static partial class Game
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
-            value = (int)Math.Round(value * effects.DamageTaken(attack.Spell)
+            value = (int)Math.Round(value * effects.DamageTaken(attack.Spell && !attack.Secondary)
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
                 * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_defensive_stance_minion_damage_taken_+%_final") / 100.0)
                 * Math.Max(0, 1 + GolemStat(g.Own, "vaal_upgrade_minion_damage_taken_+%_final") / 100d)
@@ -149,7 +155,7 @@ public static partial class Game
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == "never_freeze" && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
-        if (m.Life > 0) GolemHostileAilmentsLocked(conn, g, attacker, source, rolled, critical, !attack.Spell, now);
+        if (m.Life > 0) GolemHostileAilmentsLocked(conn, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now);
         var from = source.Walk.Position(now);
         var to = m.Walk.Position(now);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.

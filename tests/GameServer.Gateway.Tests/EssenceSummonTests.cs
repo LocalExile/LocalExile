@@ -3,9 +3,24 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class EssenceSummonTests
+public sealed class EssenceSummonTests : IDisposable
 {
-    static ClientState Connection() => new(new(1, "essence-summons", 300, 300, 100, 100, null, []), 1, 1) { Instance = new() };
+    readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
+    readonly GameServer.Modding.IModuleLifetime? previousLifetime = Game.CombatLifetime;
+    readonly ModuleLifetime lifetime = new("Game");
+    public EssenceSummonTests()
+    {
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+    }
+    public void Dispose()
+    {
+        lifetime.Stop(ex => throw ex);
+        Game.CombatLifetime = previousLifetime;
+        Program.SetGameLogic(previousLogic!);
+    }
+    static ClientState Connection(InstanceState? instance = null) => new(new(1, "essence-summons", 300, 300, 100, 100, null, []), 1, 1)
+        { Instance = instance ?? new() };
     static SpawnedMonster Monster() => new("source", new(300, 300, 30), 60, 8, 100) { Level = 70, Aggro = true };
     static SkillCatalog.MonsterSummonInfo Summon(string effect) =>
         Program.Skills.MonsterSummon(Program.Skills.EffectRow(effect), 70)!;
@@ -13,6 +28,7 @@ public sealed class EssenceSummonTests
     [Fact]
     public void Karui_daemon_uses_native_summon_data_and_an_awake_carriers_cast_and_cooldown()
     {
+        VerifyInsectDataAndSecondaryDamage();
         var summon = Summon("EssenceDaemonSummonMovingKaruiSpirit");
         Assert.Equal(Game.EssenceKaruiSpirit, Game.Monsters.Find(summon.Variety.ToString())!.Id);
         Assert.Equal(1, summon.Count);
@@ -73,6 +89,7 @@ public sealed class EssenceSummonTests
     [Fact]
     public void Native_summon_parent_flags_end_children_without_kills_and_ignore_dormancy_or_reused_ids()
     {
+        VerifyDeathQueueAndExplosion();
         foreach (string effect in new[] { "EssenceDaemonSummonMovingKaruiSpirit", "EssenceDaemonSummonSpectralSkull" })
         {
             var summon = Summon(effect);
@@ -123,5 +140,110 @@ public sealed class EssenceSummonTests
         Assert.Equal(0, Game.TickMonsterSummonParentsLocked(c, 1));
         Assert.False(independent.Dead);
         Assert.False(independent.NoRewards);
+    }
+
+    sealed class ZeroRolls : Random
+    {
+        public override int Next(int maxValue) => 0;
+        public override int Next(int minValue, int maxValue) => minValue;
+        public override double NextDouble() => 0;
+    }
+
+    static void VerifyInsectDataAndSecondaryDamage()
+    {
+        var conn = Connection();
+        conn.PlayerLife = 10000;
+        conn.Pools = new(70, 10000, 100, 0, 0, FireResistance: 0, BlockChance: 75, SpellBlockChance: 75,
+            SpellSuppressionChance: 100);
+        conn.IncomingHitRandom = new ZeroRolls();
+        var attack = Game.EssenceInsectAttack(conn, 70, 0x2e0a, new(new Dictionary<string, int>()));
+        Assert.True(attack.Spell);
+        Assert.True(attack.Secondary);
+        Assert.Equal(0, attack.Damage[DamageType.Physical].Max);
+        Assert.True(attack.Damage[DamageType.Fire].Min > 1000);
+        Assert.Equal(3, attack.Seconds);
+        Assert.Equal(12, attack.Range);
+        Assert.Equal(30, Game.EssenceInsectRadius(conn));
+        Assert.Equal(60, Game.EssenceInsectRadius(conn, new(new Dictionary<string, int> { ["base_skill_area_of_effect_+%"] = 300 })));
+        var raw = Game.GolemData.Skill(Program.Skills, Program.Skills.EffectRow("InsectSuicideExplosionHuge"), 1).Stats;
+        var before = raw.OrderBy(p => p.Key).ToArray();
+        var native = Game.EssenceInsectSkillStats(conn, attack, attack.SkillStats()).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(100, native[Program.Stats.Key("total_skill_area_of_effect_radius_+%_including_final")!.Value]);
+        Assert.Equal(3000, native[StatKeys.BaseSpellCastTimeMs]);
+        Assert.Equal(before, raw.OrderBy(p => p.Key)); // preparing one actor never contaminates cached raw skill data
+        var fixedHit = attack with { Damage = DamagePacket.Of(DamageType.Fire, 1000, 1000) };
+        var source = Monster();
+        var at = conn.Walk.Position(0);
+        var secondary = Game.CommitMonsterHitLocked("secondary", conn, 42, source, fixedHit, 0, at, at, false)!;
+        Assert.False(secondary.Blocked);
+        Assert.Equal(1000, secondary.Damage); // 100% spell suppression and 75% blocks do not cover secondary damage
+        var spell = Game.CommitMonsterHitLocked("spell", conn, 42, source, fixedHit with { Secondary = false }, 1, at, at, false)!;
+        Assert.True(spell.Blocked);
+        Assert.Equal(0, spell.Damage);
+        // The minion refresh reads the connection clock; keep it separate from the supplied hit timeline above.
+        conn = Connection();
+        conn.IncomingHitRandom = new ZeroRolls();
+        var definition = Game.GolemData.Find("SummonFlameGolem")!;
+        var ally = new SpawnedMonster("ally", new(300, 300, 30), 60, 8, 10000)
+            { Hostile = false, Variety = Game.Monsters.Find(definition.Variety), Level = 70 };
+        var fighter = new GolemState.Golem(44, ally, definition, 0);
+        conn.Summons.Fighters[44] = fighter;
+        conn.Monsters[44] = ally;
+        fighter.Own[Program.Stats.Key("base_spell_block_%")!.Value] = 75;
+        Assert.False(Game.GolemTakeHitLocked(conn, fighter, 42, source, fixedHit with { Secondary = false },
+            conn.Clock.Elapsed.TotalSeconds, area: true));
+        uint minionLife = ally.Life;
+        Assert.True(Game.GolemTakeHitLocked(conn, fighter, 42, source, fixedHit, conn.Clock.Elapsed.TotalSeconds, area: true));
+        Assert.True(ally.Life < minionLife);
+        conn.Closed = true;
+    }
+
+    static void VerifyDeathQueueAndExplosion()
+    {
+        var conn = Connection();
+        conn.PlayerLife = 10000;
+        var source = Monster();
+        var mod = Program.Items.Mods.ById("EssenceInsectSummonedOnDeath")!;
+        source.Mods = Game.MonsterModRolls.Value.Create([mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Rare, 70);
+        conn.Monsters[42] = source;
+        Assert.False(Game.QueueEssenceDeathSpawnLocked(conn, 42, source));
+        source.Dead = true; source.Life = 0;
+        Assert.True(Game.QueueEssenceDeathSpawnLocked(conn, 42, source));
+        Assert.False(Game.QueueEssenceDeathSpawnLocked(conn, 42, source));
+        var pending = Assert.Single(Game.ClaimEssenceDeathSpawnsLocked(conn));
+        Assert.Equal(Game.EssenceExplosiveInsect, Game.Monsters.Find(pending.Definition.Variety.ToString())!.Id);
+        Assert.Equal(1, pending.Definition.Count);
+        Assert.Empty(Game.ClaimEssenceDeathSpawnsLocked(conn));
+        var peer = Connection(conn.Instance); peer.PlayerLife = 10000;
+        conn.Instance.World.Runner = peer;
+        Assert.Same(pending, Assert.Single(Game.ClaimEssenceDeathSpawnsLocked(peer)));
+        Assert.False(Game.EssenceDeathSpawnCurrentLocked(conn, pending));
+        Game.CompleteEssenceDeathSpawnLocked(conn, pending, true); // a retired claimant cannot consume the new claim
+        Assert.True(Game.EssenceDeathSpawnCurrentLocked(peer, pending));
+        Game.CompleteEssenceDeathSpawnLocked(peer, pending, false);
+        Assert.Same(pending, Assert.Single(Game.ClaimEssenceDeathSpawnsLocked(peer)));
+        Game.CompleteEssenceDeathSpawnLocked(peer, pending, true);
+        Assert.Empty(Game.ClaimEssenceDeathSpawnsLocked(peer));
+        Assert.False(Game.QueueEssenceDeathSpawnLocked(peer, 42, source));
+        Assert.Null(Game.EssenceDeathDefinitionFor(0));
+        Assert.Null(Game.EssenceDeathDefinitionFor(999));
+
+        var insect = new SpawnedMonster("insect", new(300, 300, 30), 105, 6, 100)
+        { Variety = Game.Monsters.Find(Game.EssenceExplosiveInsect), Level = 70, ActionGeneration = 17 };
+        peer.Monsters[43] = insect;
+        peer.Clock.Stop();
+        Assert.Null(Game.CommitEssenceInsectExplosionLocked(peer, 43, insect, 17));
+        peer.Clock.Start();
+        Assert.Null(Game.CommitEssenceInsectExplosionLocked(peer, 43, insect, 16));
+        var blast = Game.CommitEssenceInsectExplosionLocked(peer, 43, insect, 17)!;
+        Assert.True(insect.Dead);
+        Assert.Equal(0u, insect.Life);
+        Assert.True(insect.NoRewards);
+        Assert.Null(Game.CommitEssenceInsectExplosionLocked(peer, 43, insect, 17));
+        Assert.True(Game.InEssenceInsectBlast(blast, (330, 300)));
+        Assert.False(Game.InEssenceInsectBlast(blast, (331, 300)));
+        Assert.Empty(peer.Minions.Rewarded);
+        Assert.DoesNotContain(peer.Minions.OutputQueue, o => o.Kind == PlayerMinions.OutputKind.PlayerKill);
+        conn.Closed = peer.Closed = true;
     }
 }

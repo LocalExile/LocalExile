@@ -440,3 +440,11 @@ Both it and `EssenceDaemonSummonSpectralSkull` carry implicit `minion_dies_when_
 `EssenceMovingAncestor.ot` makes the Karui spirit untargetable, damage/stun immune and unknockable.
 Its Heavy Strike has +50% damage and +80% **increased** attack speed, not a more-speed modifier.
 The server-only `.ais` files are absent; daemon activation, summon scatter and `DiesAfterTime` duration remain unverified.
+
+`essence_delirium_spawn_monster_on_death_variation=10` selects row 9 of `SummonedSpecificMonstersOnDeath`:
+`EssenceInsectWildExplosiveColossal`, one insect (`__col4`).
+Its `InsectSuicideExplosionHuge` action casts for 3 seconds and deals the stat set's level-scaled secondary fire damage.
+On 3.29.3d, `SuicideExplosion` factory `0x1419b53d0` constructs `0x141a46170`; its execute function `0x141a46250`
+computes `floor(15 * radius_percentage / 100)` at `0x141a462cc`–`0x141a462e5`.
+The percentage getter `0x14193efd0` reads stat `0x1591` plus 100; the skill's +100% final radius therefore gives 30 cells.
+These code addresses also hold for 3.29.3c; the disassembly used the allowed d executable, SHA-256 `e9ba3d31…f41f53d`.
