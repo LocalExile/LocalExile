@@ -119,7 +119,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         if (p.Count is < 1 or > 256 || !double.IsFinite(p.Speed) || p.Speed <= 0
             || !double.IsFinite(p.Range) || p.Range <= 0 || !double.IsFinite(p.Radius) || p.Radius < 0
-            || p.Lifetime <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
+            || p.Lifetime <= 0 || p.LandingDelay is <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
             || p.PierceFailureChancePercent is < 0 or > 100
@@ -131,8 +131,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     static ProjectileProfile ResolveReturn(ProjectileProfile profile, int roll) => profile with
     {
-        Returns = !profile.CannotReturn && (profile.Returns || roll < profile.ReturnChancePercent),
-        // Child emissions share this use's roll; continuation children already share its profile.
+        Returns = !profile.CannotReturn && (profile.Returns || profile.OrdinalReturnRoll is null && roll < profile.ReturnChancePercent),
+        // A staged shot with its own roll gets its ordinal when it spawns.
         EndEmission = profile.EndEmission is { } end ? end with { Child = ResolveReturn(end.Child, roll) } : null,
         TravelEmission = profile.TravelEmission is { } travel ? travel with { Child = ResolveReturn(travel.Child, roll) } : null
     };
@@ -141,6 +141,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
         int index = 0, bool piercesAll = false, int additionalForks = 0, ProjectileBranchState branches = default)
     {
+        if (continuing is null && !use.Profile.CannotReturn && !use.Profile.Returns && use.Profile.OrdinalReturnRoll is { } roll
+            && roll(use, release.Spawned) < use.Profile.ReturnChancePercent)
+            use = use with { Profile = use.Profile with { Returns = true } };
         var p = new ProjectileEntity(++sequence, release, emission, parent, use, position, direction, Now)
         {
             VolleyIndex = index,
@@ -165,8 +168,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             p.Form = 1; p.Speed *= splitForm.SpeedMultiplier; p.Pierce = splitForm.Pierce;
         }
-        // A lobbed child still lands at the use's aim, never past it.
-        if (p.Profile.Lobbed) p.Remaining = Math.Max(.001, Math.Min(p.Remaining, (use.Aim - position).Length));
+        if (p.Profile.LandingDelay is long delay)
+        {
+            p.Remaining = (use.Aim - position).Length;
+            p.Speed = p.Remaining * QuantaPerSecond / delay;
+            p.ExpiresAt = Now + delay;
+        }
+        else if (p.Profile.Lobbed) p.Remaining = Math.Max(.001, Math.Min(p.Remaining, (use.Aim - position).Length));
         if (continuing is null && p.Profile.Legs is { } legs)
         {
             p.Legs = legs(index); p.LegStart = position;
@@ -249,7 +257,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     readonly record struct Contact(long At, ProjectileEntity Projectile, ProjectileActor? Target,
         ProjectileEndReason? End, ProjectileVector Normal, ProjectileInteraction? Interaction = null,
-        ProjectileVector? TerrainPoint = null) : IComparable<Contact>
+        ProjectileVector? Point = null) : IComparable<Contact>
     {
         public int CompareTo(Contact other)
         {
@@ -264,6 +272,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     Contact? NextContact(ProjectileEntity p, long horizon, ContactSearch search)
     {
+        if (p.Profile.LandingDelay.HasValue)
+            return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Landing, default, Point: p.Use.Aim) : null;
         if (p.WaitUntil > Now)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Lifetime, default) : null;
         long end = Math.Min(horizon, p.ExpiresAt);
@@ -277,7 +287,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             double fraction = Math.Clamp(wall.Fraction, 0, 1);
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
-                ProjectileEndReason.Terrain, wall.Normal, TerrainPoint: p.Position + (to - p.Position) * fraction);
+                ProjectileEndReason.Terrain, wall.Normal, Point: p.Position + (to - p.Position) * fraction);
         }
         if (Interactions.Count > 0)
             foreach (var interaction in Interactions.OrderBy(w => w.Id))
@@ -389,7 +399,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         var p = c.Projectile;
         p.ContactEpoch = -1;
-        if (c.TerrainPoint is { } point)
+        if (c.Point is { } point)
         {
             // Contact time is quantized upward, but geometry must stay on the surface. Otherwise
             // fast reflected/split flights can start inside the blocked cell and die immediately.

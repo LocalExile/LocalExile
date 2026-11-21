@@ -1,9 +1,35 @@
 using System.Numerics;
 using GameServer.Core.Projectiles;
+using GameServer.Core.World;
 
 internal static class ArrowNovaLayout
 {
     const float WorldPerCell = 10.869565f, CellsPerWorld = .092f;
+
+    // The captured rig landed 415 ms after use. The release may already have consumed part of that time.
+    public static long LandingDelay(double releaseDelay) => ProjectileRuntime.Time(Math.Max(.05, .415 - releaseDelay));
+
+    public static bool TryLanding(ClientState conn, (int X, int Y) from, ref (int X, int Y) aim)
+    {
+        var layout = conn.Layout;
+        bool Inside(int x, int y) => x >= 0 && y >= 0 && (layout.GridW == 0 || x < layout.GridW && y < layout.GridH);
+        bool Ground((int X, int Y) cell) => Inside(cell.X, cell.Y) && !conn.Barrier.Contains(cell)
+            && layout.WalkableFor(cell.X, cell.Y, 0);
+        int Sight(int x, int y) => Inside(x, y) && !conn.ProjectileWalls.Contains((x, y))
+            ? layout.Sight?.Invoke(x, y) ?? 1 : 0;
+
+        // 3.29.3c checks the aim's walk nibble, then the whole projectile line. The fallback reads only walk.
+        bool openSight = layout.Sight is null && conn.ProjectileWalls.Count == 0 && Inside(from.X, from.Y);
+        if (Ground(aim) && (openSight || !ClientPathfinder.LineBelow(from, aim, Sight, 1))) return true;
+        bool found = false;
+        foreach (var cell in ClientPathfinder.Line(from, aim))
+        {
+            if (!Ground(cell)) break;
+            aim = cell;
+            found = true;
+        }
+        return found;
+    }
 
     // TornadoShotArrow uses its target location. Its rain mothers stop at the dispatcher's integer
     // destinations, where each releases a secondary group. A generic arrow extends that initial ray.
@@ -13,8 +39,7 @@ internal static class ArrowNovaLayout
         int offset = get("projectile_firing_forward_distance_override");
         int forward = offset == 0 ? 30 : offset;
         bool noOffset = get("projectiles_not_offset") != 0 || get("is_trap_object") != 0 || get("is_remote_mine") != 0;
-        float maximum = get("projectile_maximum_range_override") is > 0 and var range ? range
-            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
+        float maximum = Game.ClientProjectileRange(get);
         return (payload, count) =>
         {
             if (!tornado && !random && count == 1) return null;

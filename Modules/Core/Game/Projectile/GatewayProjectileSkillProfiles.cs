@@ -320,7 +320,8 @@ public static class GatewayProjectileSkillProfiles
             DirectDamage = true, Lobbed = false,
             EndEmission = null, TravelEmission = null, Pulse = null,
             EndAreaOnReturnTurnaround = false, Legs = null, LegLeash = 0, GroundChains = 0,
-            Returns = false, ReturnChancePercent = 0, ReturnRolls = null, CannotReturn = true,
+            OrdinalReturnRoll = get("projectile_return_%_chance") is > 0 and < 100 ? Game.EmittedReturnRoll : null,
+            ReturnOvershoot = Game.ClientProjectileRange(get),
             FormChange = null, SplitForm = null, SplitOnTerrain = false
         };
         return payload with
@@ -330,6 +331,7 @@ public static class GatewayProjectileSkillProfiles
             Count = 1, CountConsumer = ProjectileCountConsumer.Children,
             NativeVolley = AimedRainPayload,
             DirectDamage = false, HideVisual = true, Lobbed = true, ArcHeight = 200,
+            LandingDelay = ArrowNovaLayout.LandingDelay(0), CannotReturn = true,
             Pierce = 0, CannotPierce = true, Fork = 0, Chain = 0, Split = 0, CannotSplit = true,
             EndArea = null, EndAreaReasons = null, EndAreaOnReturnTurnaround = false,
             ContactArea = null, ContactTargets = null,
@@ -344,7 +346,7 @@ public static class GatewayProjectileSkillProfiles
         };
     }
 
-    // Even with random projectile directions the carrier lands at the cursor. Its damaging children choose their headings.
+    // Random directions affect the damaging arrows released from the selected rain cell.
     static readonly ProjectileNativeVolley AimedRainPayload = new() { Angles = Array.AsReadOnly<double>([0]) };
 
     // 3.29.3c: the Barrage rain action starts at the aim relative to the landing cell. At the aimed

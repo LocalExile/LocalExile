@@ -94,6 +94,56 @@ public sealed class TornadoShotSecondaryTests
         CheckArrowNovaPrimaries(sweep: true);
         CheckVolleyLandingPoints();
         CheckRandomLandingDirections();
+        CheckRainGroundTargets();
+    }
+
+    static void CheckRainGroundTargets()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle("Split Arrow", "Arrow Nova Support", "Returning Projectiles Support");
+        var conn = battle.Conn;
+        conn.PlayerStats[Program.Stats.Key("projectile_maximum_range_override")!.Value] = 37;
+        var gem = Game.GemSkillEffects(conn).Single();
+        (int X, int Y) source = (100, 100), aim = (149, 101), wall = (127, 101);
+        ((int, int)? Walk, bool Sight, (int X, int Y)? Landing)[] cases =
+        [
+            (null, false, aim), (null, true, aim), (wall, false, aim), (wall, true, (126, 101)),
+            (aim, false, (148, 101)), (source, false, aim), (source, true, null), ((101, 100), true, source)
+        ];
+        foreach (var (walk, sight, landing) in cases)
+        {
+            conn.Barrier = walk.HasValue ? new HashSet<(int, int)> { walk.Value } : new HashSet<(int, int)>();
+            conn.ProjectileWalls.Clear();
+            if (sight) conn.ProjectileWalls.Add(wall);
+            var use = Game.CaptureGemProjectile(conn, battle.Session, gem.Id, gem, aim, new(0), releaseDelay: .2);
+            // The flight sees a wall even when the action admitted a clear line before release.
+            var arena = new Arena(false) { PlacementWall = wall };
+            arena.Targets.Add(new(use.Owner, use.Team, _ => use.LaunchSource, 0));
+            var runtime = new ProjectileRuntime(arena);
+            runtime.Release(use);
+            if (landing is not { } cell)
+            {
+                runtime.AdvanceTo(ProjectileRuntime.Time(1));
+                Assert.Empty(arena.Flights);
+                continue;
+            }
+            var rig = Assert.Single(arena.Flights);
+            long due = ProjectileRuntime.Time(.215);
+            runtime.AdvanceTo(due - 1);
+            Assert.Same(rig, Assert.Single(runtime.Projectiles));
+            runtime.AdvanceTo(due);
+            Assert.Empty(runtime.Projectiles);
+            Assert.Equal(new ProjectileVector(cell.X, cell.Y), rig.Position);
+            Assert.False(rig.Profile.Returns);
+            runtime.AdvanceTo(due + ProjectileRuntime.Time(.221));
+            var arrows = arena.Flights.Where(p => p.ParentId == rig.Id).ToArray();
+            Assert.Equal(use.Profile.EndEmission!.Child.Count, arrows.Length);
+            Assert.All(arrows, p =>
+            {
+                Assert.True(p.Profile.Returns);
+                Assert.Equal(37, p.Profile.ReturnOvershoot);
+            });
+            Assert.DoesNotContain(rig.Id, arena.Redirects);
+        }
     }
 
     static void CheckRandomLandingDirections()
@@ -108,6 +158,7 @@ public sealed class TornadoShotSecondaryTests
             int Get(string key) => key switch
             {
                 "projectiles_rain" or "projectiles_nova" or "random_projectile_direction" => 1,
+                "projectile_return_%_chance" => 50,
                 "number_of_additional_projectiles" => ends.Length - 1,
                 _ => 0
             };
@@ -122,6 +173,8 @@ public sealed class TornadoShotSecondaryTests
             Assert.Equal(new ProjectileVector(147, 100), carrier.Use.Aim);
             Assert.All(arrows, p => Assert.Equal(new ProjectileVector(146, 97), p.Use.Origin));
             Assert.Equal(ends, arrows.Select(p => p.Use.Aim));
+            // Sequence 19 and owner 4096 give 58, 78, 35, 10 and 44 at the five landing arrows' ordinals.
+            Assert.Equal(new[] { false, false, true, true, true }.Take(arrows.Length), arrows.Select(p => p.Profile.Returns));
         }
     }
 

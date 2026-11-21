@@ -371,8 +371,7 @@ public static partial class Game
     public static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
         ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
-        double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
-            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
+        double range = ClientProjectileRange(get);
         profile = profile with { Range = range, ReturnOvershoot = range, ContactCells = SkillsFor(conn).ProjectileContactCells(profile.Id) };
         if (profile.ReturnChancePercent is > 0 and < 100)
             profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
@@ -401,6 +400,10 @@ public static partial class Game
         return angles;
     }
 
+    internal static int ClientProjectileRange(Func<string, int> get) =>
+        get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
+            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
+
     // projectile_return_%_chance (0x141bb2f80, static RE 2026-10-31): each projectile's own action copy rolls 0–99
     // (0x1404d0990) from a generator seeded (0x1419c73c0) with [sequence, +0x11c (2 + its index, as Spark's), owner,
     // +0x2d0 (the repeats left), byte +0x2b8, 0, 0, 0] and returns when the roll is under the chance.
@@ -409,9 +412,15 @@ public static partial class Game
     {
         var rolls = new int[count];
         for (int i = 0; i < count; i++)
-            rolls[i] = new AnimationVariantSelector.NativeRandom([sequence, (uint)(i + 2), owner, repeatsLeft, 0, 0, 0, 0]).Uniform(0, 99);
+            rolls[i] = ReturnRoll(sequence, (uint)(i + 2), owner, repeatsLeft);
         return rolls;
     }
+
+    static int ReturnRoll(ushort sequence, uint derived, uint owner, uint repeatsLeft) =>
+        new AnimationVariantSelector.NativeRandom([sequence, derived, owner, repeatsLeft, 0, 0, 0, 0]).Uniform(0, 99);
+
+    internal static int EmittedReturnRoll(ProjectileUse use, int ordinal) =>
+        ReturnRoll(use.Sequence, GatewayProjectileSkillProfiles.DerivedByte(ordinal), use.Owner.Id, use.RepeatsLeft);
 
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
@@ -445,12 +454,11 @@ public static partial class Game
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
             throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
+        bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
+        bool rain = !spell && (Get("projectiles_rain") != 0 || Get("skill_is_rain_skill") != 0);
+        bool admitted = !rain || ArrowNovaLayout.TryLanding(conn, at, ref aim);
         var target = ProjectileSession.Vector(aim);
         var direction = (target - origin).Unit;
-        bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
-        // Arrow Nova fires one payload arrow to the aim, then the skill's arrows in a circle from there.
-        bool rain = SkillsFor(conn).IsAttack(gem.Effect)
-            && (Get("projectiles_rain") != 0 || Get("skill_is_rain_skill") != 0);
         // An attack gem leaves from its weapon's contact keyframe, as the default attack's shot does: puncture_bow (Burning
         // Arrow's clip) has attack1_bow's contact and position. Released at the feet 1.5 cells ahead, the arrow showed up
         // inside the body at the ground instead of at the bow.
@@ -462,14 +470,7 @@ public static partial class Game
         double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
         if (totem is null && from is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
-        // Arrow Nova's payload takes the rig's fixed timeline, not the arrow's speed: the official landing rig came
-        // 415 ms after the use at 40 cells (Frida 2026-11-04), so the flight is what is left after the release delay.
-        if (rain)
-        {
-            double flight = (target - origin).Length;
-            double untilLanding = Math.Max(0.05, 0.415 - releaseDelay);
-            profile = profile with { Range = Math.Max(.001, flight), Speed = Math.Max(.001, flight / untilLanding) };
-        }
+        if (rain) profile = profile with { LandingDelay = ArrowNovaLayout.LandingDelay(releaseDelay) };
         else profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range, (target - origin).Length) };
         if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
@@ -548,8 +549,7 @@ public static partial class Game
             // The older packet-driven Burning Arrow control missed local input prediction: real mouse input creates
             // a client projectile too. ClientDrawsPrimaryProjectile handles its visual without changing simulation.
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
-            // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
-            // its payload arrow is not, so the server still sends that one object.
+            // Arrow Nova uses the two rain rigs below. The client draws its SplitArrowDefault volley at the landing rig.
             // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
             // Molten Strike's action spawns its local chunks on melee hit (0x141a6a4b0 -> 0x141ba7c30); server objects would duplicate them.
             ClientPredicted = totem is not null || spell || barrageGem && !rain && from is null
@@ -606,6 +606,7 @@ public static partial class Game
         uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
             { LaunchSource = ProjectileSession.Vector(at), Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
+                CanEmit = admitted ? null : static () => false,
                 LaunchSourceAt = rain && totem is null && from is null
                     ? t => ProjectileSession.Vector(conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)) : null,
                 Sequence = sequence, RepeatsLeft = repeatsLeft };

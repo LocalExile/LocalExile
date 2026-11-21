@@ -176,7 +176,7 @@ in the middle; the client draws each effect half a radius toward the caster, so 
 Not built: the client's per-area delay (`support_spell_cascade_area_delay_+%`) and whether the damage penalty applies
 to the centre area as well as the repeats (the stat is applied to every area, as PoB does).
 
-Arrow Nova turns a supported bow attack into one payload arrow that lands at the aimed cell and fires the skill's
+Arrow Nova turns a supported bow attack into one payload arrow that lands at the selected cell and fires the skill's
 whole volley in a circle from there (`projectiles_rain` and `skill_is_rain_skill`). Captured from the 3.29.3b client
 on 2026-11-04 (Split Arrow, 18 arrows): every child started on the aim cell and the directions were exactly 20 degrees
 apart, the first on the aim ray about 0.66 s after the use at 33 cells; the client drew the volley's children, so
@@ -188,6 +188,13 @@ rig's `Animated` bit3 id is 6 at the caster and 0 at the landing, and the attach
 (`EffectObject.AnimationId`, `AttachKind`, `AttachFlags`); sending 0 on both ends played the landing backwards. The
 landing comes 415 ms after the use and the nova 221 ms later; `ArrowNovaChildren` uses `EndEmission.Delay` and takes
 the shared modifier pass's extra arrows.
+
+In 3.29.3c the rain action accepts a walkable cursor cell with clear projectile sight from the source. Otherwise
+it walks the inclusive source-to-cursor grid line and retains the last consecutive cell with walk clearance at
+least one. If the source fails this walk, the action ends before creating a rig. A wall blocking only projectile
+sight can therefore leave the cursor as the landing. The action stores that cell before starting its timer and
+dispatches the arrows there (`0x141ba74ae`, `0x141a7b6b0`, `0x141baba3b`). The released arrows run their own
+terminal return qualification (`0x141bb2f80`).
 
 With Barrage Support, the 3.29.3c rain action starts a 400 ms spiral at the landing. The first child fires immediately
 and the last closes the turn. For N children the time and signed angle steps are 400 ms / (N − 1) and −360° / (N − 1)

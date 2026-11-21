@@ -174,6 +174,8 @@ public sealed record ProjectileProfile(string Id)
     /// <summary>The host's 0–99 return roll of each initial projectile, for projectiles the client rolls itself; null
     /// rolls once for the whole use.</summary>
     public IReadOnlyList<int>? ReturnRolls { get; init; }
+    /// <summary>Resolve a staged shot's return chance at its actual creation ordinal.</summary>
+    public Func<ProjectileUse, int, int>? OrdinalReturnRoll { get; init; }
     public double ReturnSpeedMultiplier { get; init; } = 1;
     public double ReturnOvershoot { get; init; }
     /// <summary>Null retains unlimited return contacts; zero admits no return contacts.</summary>
@@ -216,6 +218,8 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
     public bool Lobbed { get; init; }
+    /// <summary>Time from launch to a previously selected ground point. The presentation has no flight contacts.</summary>
+    public long? LandingDelay { get; init; }
     /// <summary>A lobbed arc's apex in Positioned marker steps above the straight start-to-end line; the client's
     /// mortar template is 40. Arrow Nova's payload is fired high into the air, so it uses a much larger apex.</summary>
     public double ArcHeight { get; init; } = 40;
