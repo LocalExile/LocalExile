@@ -429,6 +429,14 @@ public class TinctureTests
             conn4.RecentEvents.RecordHit(t4 + 1.0, critical: false);
             Assert.Equal(25, Game.AdjacentTinctureFlaskEffect(conn4, slot: 1, Stats4, t4 + 1.0));
             Assert.Equal(0, Game.AdjacentTinctureFlaskEffect(conn4, slot: 3, Stats4, t4 + 1.0));
+
+            conn4.PlayerStats[Program.Stats.Key("tincture_effects_linger_for_ms_per_toxicity_up_to_6_seconds")!.Value] = 500;
+            conn4.TinctureEffects.AddBurnStacks(2);
+            await Game.UseFlask("tincture-test", stream, ciphers, conn4, 0);
+            Assert.True(conn4.TinctureEffects.HasLingering);
+            Game.ItemsOf(conn4).Remove(PlayerInventories.Flask, slot4.Id);
+            await Game.ReconcileTincturesAfterFlaskBarChange("tincture-test", stream, ciphers, conn4);
+            Assert.False(conn4.TinctureEffects.AnyEffective);
         }
         finally
         {

@@ -192,7 +192,7 @@ public static class Tinctures
         public IReadOnlyList<(string Stat, int Value)> ScaledStats { get; set; } = InitialScaledStats;
     }
 
-    public sealed record Lingering(uint ItemId, byte Slot, string Name, ushort Buff, ushort BuffRow,
+    public sealed record Lingering(uint ItemId, byte Slot, Item Item, string Name, ushort Buff, ushort BuffRow,
         double Ends, IReadOnlyList<(string Stat, int Value)> ScaledStats);
 
     /// <summary>Reload-persistent per-connection tincture state held on <see cref="ClientState"/>.</summary>
@@ -345,7 +345,7 @@ public static class Tinctures
                 if (lingerSeconds > 0 && removed.ScaledStats.Count > 0)
                 {
                     _lingering.RemoveAll(l => l.ItemId == removed.ItemId);
-                    _lingering.Add(new(removed.ItemId, removed.Slot, removed.Name, lingerBuff, removed.BuffRow,
+                    _lingering.Add(new(removed.ItemId, removed.Slot, removed.Item, removed.Name, lingerBuff, removed.BuffRow,
                         now + lingerSeconds, removed.ScaledStats));
                 }
                 allInactive = _active.Count == 0;
@@ -374,7 +374,7 @@ public static class Tinctures
                     if (lingerSeconds > 0 && a.ScaledStats.Count > 0)
                     {
                         _lingering.RemoveAll(l => l.ItemId == a.ItemId);
-                        var entry = new Lingering(a.ItemId, a.Slot, a.Name, lingerBuffFor?.Invoke(a) ?? 0, a.BuffRow,
+                        var entry = new Lingering(a.ItemId, a.Slot, a.Item, a.Name, lingerBuffFor?.Invoke(a) ?? 0, a.BuffRow,
                             now + lingerSeconds, a.ScaledStats);
                         _lingering.Add(entry);
                         lingering.Add(entry);
@@ -387,12 +387,12 @@ public static class Tinctures
             }
         }
 
-        public List<Lingering> ExpireLingering(double now, bool all = false)
+        public List<Lingering> EndLingering(Func<Lingering, bool> endedWhen)
         {
             if (!_hasLingering) return [];
             lock (_lock)
             {
-                var ended = _lingering.Where(l => all || l.Ends <= now).ToList();
+                var ended = _lingering.Where(endedWhen).ToList();
                 if (ended.Count == 0) return ended;
                 foreach (var l in ended) _lingering.Remove(l);
                 SyncFlagsLocked();

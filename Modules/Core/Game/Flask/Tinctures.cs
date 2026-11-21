@@ -136,6 +136,7 @@ public static partial class Game
                 effects.LifeBurn = lifeBurn;
                 var active = new Tinctures.Active(current.Id, (byte)slot, type.Name, current.Item, definition,
                     buffInstance, buffRow, now, interval, cooldown, local, multiplier, scaled);
+                if (effects.HasLingering) EndLingeringTincturesLocked(conn, l => l.ItemId == current.Id, "reactivated");
                 effects.Activate(active);
 
                 // Emit wire-active Tincture component byte (1) in the flask bar without persisting TinctureActive in saves.
@@ -174,7 +175,7 @@ public static partial class Game
     public static async Task ReconcileTincturesAfterFlaskBarChange(string remote, NetworkStream stream,
         ConnectionCiphers ciphers, ClientState conn)
     {
-        if (!conn.TinctureEffects.AnyActive) return;
+        if (!conn.TinctureEffects.AnyEffective) return;
         await conn.FlaskBarGate.WaitAsync();
         bool changed = false;
         try
@@ -194,6 +195,12 @@ public static partial class Game
                     DeactivateTinctureLocked(conn, active.ItemId, now, character,
                         present is null ? "unequipped" : "moved or modified", inBar: present, allowLinger: false);
                     changed = true;
+                }
+                if (conn.TinctureEffects.HasLingering)
+                {
+                    changed |= EndLingeringTincturesLocked(conn, l => !bar.Any(i =>
+                        i.Id == l.ItemId && i.X == l.Slot && ReferenceEquals(i.Item, l.Item)), "left flask bar");
+                    if (!conn.TinctureEffects.AnyEffective) ClearTinctureBurnAndParentBuffsLocked(conn, "left flask bar");
                 }
                 if (changed)
                 {
@@ -276,13 +283,20 @@ public static partial class Game
             deactivatedIds ??= [];
             DeactivateAllTincturesLocked(conn, now, recoveryStats, "death", allowLinger: false, deactivatedIds);
         }
-        foreach (var l in effects.ExpireLingering(now, all: true))
-            if (l.Buff != 0)
-                state.Packets.Add(new(InstanceEntities.RemoveBuff(PlayerId, l.Buff),
-                    $"0x01c2 player buff: lingering {l.Name} ends (death)", WorldId: PlayerId));
+        EndLingeringTincturesLocked(conn, static _ => true, "death");
         ClearTinctureBurnAndParentBuffsLocked(conn, "death");
         RecomputePoolsAndSpeed(conn);
         state.StatRevision++;
+    }
+
+    static bool EndLingeringTincturesLocked(ClientState conn, Func<Tinctures.Lingering, bool> endedWhen, string reason)
+    {
+        var ended = conn.TinctureEffects.EndLingering(endedWhen);
+        foreach (var l in ended)
+            if (l.Buff != 0)
+                Automation(conn).Packets.Add(new(InstanceEntities.RemoveBuff(PlayerId, l.Buff),
+                    $"0x01c2 player buff: lingering {l.Name} ends ({reason})", WorldId: PlayerId));
+        return ended.Count > 0;
     }
 
     static void ClearTinctureBurnAndParentBuffsLocked(ClientState conn, string why)
@@ -359,15 +373,7 @@ public static partial class Game
 
         if (conn.LeavingArea) return;
 
-        bool statsChanged = false;
-        // 1. Expire lingering tinctures whose duration ended.
-        foreach (var l in effects.ExpireLingering(now))
-        {
-            if (l.Buff != 0)
-                state.Packets.Add(new(InstanceEntities.RemoveBuff(PlayerId, l.Buff),
-                    $"0x01c2 player buff: lingering {l.Name} ends", WorldId: PlayerId));
-            statsChanged = true;
-        }
+        bool statsChanged = effects.HasLingering && EndLingeringTincturesLocked(conn, l => l.Ends <= now, "expired");
         if (!effects.AnyEffective && effects.ParentBuff != 0)
             ClearTinctureBurnAndParentBuffsLocked(conn, "linger expired");
 
