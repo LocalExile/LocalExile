@@ -11,6 +11,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** friends can be added, accepted and removed through the native Social UI.
   Relations are account-level and persisted; see [28](../docs/protocol/28-player-trade.md) §6.
 - **Start:** friend notes, ignore lists and status editing; verify presence across separate Gateway processes.
+  Party allocation/downscaling selections now synchronize; verify the native UI and implement their gameplay rules.
+  Account defaults and map-portal access remain open; see [28](../docs/protocol/28-player-trade.md) §5.
 - **Done when:** these remaining Social-panel actions persist and update the native UI for both accounts.
 
 ### NPCs: dialogue options, shops and the other towns

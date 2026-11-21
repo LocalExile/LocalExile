@@ -93,6 +93,13 @@ public sealed class SocialModule : IModule
         });
         GameEvents.Packet(InstanceSocial.PartyKickId).Add(module.Manifest.Id, (conn, bytes) =>
             PartyRoster.Kick(conn, InstanceSocial.ReadPartyKick(bytes)));
+        GameEvents.Packet(InstanceSocial.PartyOptionsId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            if (bytes.Length != InstanceSocial.PartyOptionsLength) return true;
+            var options = InstanceSocial.ReadPartyOptions(bytes);
+            if (options.CurrentParty) await PartyRoster.ChangeOptions(conn, options.Allocation, options.Scaling);
+            return true;
+        });
         GameEvents.Packet(InstanceSocial.PartyLeaveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var remote = conn.Wire.Remote;
