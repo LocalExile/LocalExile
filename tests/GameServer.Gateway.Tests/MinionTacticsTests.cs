@@ -133,4 +133,49 @@ public sealed class MinionTacticsTests
         }
         finally { Game.AreaUpdateContext.Value = outer; }
     }
+
+    [Fact]
+    public async Task Minion_stances_change_skeleton_targeting_and_cancel_each_other()
+    {
+        foreach (var (feeding, meatShield, target, dash) in new[]
+            { (false, false, 900u, false), (true, false, 900u, true), (false, true, 0u, false), (true, true, 900u, false) })
+        {
+            using var f = new MinionUtilityTests.Fixture();
+            var gems = new List<(string, int)> { ("Summon Skeletons", 20) };
+            if (feeding) gems.Add(("Feeding Frenzy Support", 20));
+            if (meatShield) gems.Add(("Meat Shield Support", 20));
+            f.Equip([.. gems]); Link(f, (byte)gems.Count);
+            var fighter = f.Conn.Summons.Fighters[await Skeleton(f)];
+            f.Conn.Walk.Teleport(100, 100, 0);
+            fighter.Monster.Walk.Teleport(100, 100, 0);
+            var monster = Enemy(f, 900, 143);
+            Game.GolemStepLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, 1);
+            Assert.Equal(target, fighter.Target);
+            Assert.Equal(dash, fighter.Pending?.Ability.Effect == 10844);
+            if (dash)
+            {
+                var action = fighter.Pending!;
+                uint life = monster.Life;
+                Game.GolemAbilityContactLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, action, 1);
+                Assert.Equal(action.Aim, fighter.Monster.Walk.Position(1));
+                Assert.Equal(life, monster.Life);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Meat_shield_bonus_depends_on_distance_to_the_owner()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Summon Skeletons", 20), ("Meat Shield Support", 20)); Link(f, 2);
+        var fighter = f.Conn.Summons.Fighters[await Skeleton(f)];
+        f.Conn.Walk.Teleport(100, 100, 0);
+        fighter.Monster.Walk.Teleport(145, 100, 0);
+        var near = Enemy(f, 900, 105);
+        var far = Enemy(f, 901, 145);
+        Assert.True(Hit(f, fighter, 900, near, 1));
+        Assert.True(Hit(f, fighter, 901, far, 1));
+        Assert.Equal(130u, near.MaxLife - near.Life);
+        Assert.Equal(100u, far.MaxLife - far.Life);
+    }
 }
