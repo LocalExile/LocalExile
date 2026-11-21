@@ -6,6 +6,41 @@ using static Program;
 
 static class VendorsFeature
 {
+    // NPCTalk 950 finishes league flag 1163; the Purchase Items row 952 requires it on the client.
+    internal const int LillyGemShopLeagueFlag = 1163;
+    static bool CampaignLilly(string id) => id is "Metadata/NPC/Act6/Lilly" or "Metadata/NPC/Act10/Lilly"
+        or "Metadata/NPC/Epilogue/Lilly" or "Metadata/NPC/Epilogue/Lilly2";
+
+    internal static async Task<bool> BeginLillyGemIntroduction(ClientState conn, uint id, SpawnedNpc npc)
+    {
+        if (!CampaignLilly(npc.Npc.Id) || LeagueFor(conn).HardMode || conn.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return false;
+        var flags = conn.QuestFlagsSnapshot();
+        // These rows have an account context, so the generic automatic-conversation selector leaves them to a module.
+        var talk = Npcs.Value.TalksOf(npc.Npc).FirstOrDefault(t => t.Introduction
+            && t.StartFlag == GemVendorStock.LillyUnlock && t.Available(flags));
+        if (talk is null) return false;
+        var (remote, stream, ciphers) = conn.Wire;
+        await global::Game.ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, talk);
+        return conn.InNpcTalk;
+    }
+
+    internal static async Task FinishLillyGemIntroduction(ClientState conn)
+    {
+        if (!conn.InNpcTalk || conn.NpcFinishFlag != GemVendorStock.LillyUnlock
+            || conn.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return;
+        lock (conn.Npcs)
+            if (conn.Npcs.GetValueOrDefault(conn.TalkingTo) is not { } npc || !CampaignLilly(npc.Npc.Id)) return;
+        var (remote, stream, ciphers) = conn.Wire;
+        await SetLeagueQuestFlags(remote, stream, ciphers, conn, [LillyGemShopLeagueFlag]);
+    }
+
+    internal static IReadOnlySet<string> VendorQuestFlags(ClientState conn)
+    {
+        var flags = conn.QuestFlagsSnapshot();
+        if (conn.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) flags.Add(GemVendorStock.LillyUnlock);
+        return flags;
+    }
+
     internal static async Task BuyFromShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceNpcs.Buy buy)
     {
         if (conn.NpcRewardOffer is not null)
@@ -304,7 +339,7 @@ static class VendorsFeature
         var gems = GemVendorStock.Sells(npc.Npc.Id)
             ? GemVendorStock.For(catalog,Npcs.Value,SkillsFor(conn),league.HardMode,league.Rules.SupportGemRewards) : null;
         var stock = gems is not null
-            ? gems.Stock(npc.Npc.Id,conn.ClassRow,conn.QuestFlagsSnapshot(),league.HardMode,conn.Pools.Level,league.Rules) : [];
+            ? gems.Stock(npc.Npc.Id,conn.ClassRow,VendorQuestFlags(conn),league.HardMode,conn.Pools.Level,league.Rules) : [];
         if (league.Rules.FullGemStock && npc.Npc.Id == "Metadata/NPC/Act1/Nessa")
             return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemStock:stock,
                 gemPrice:gems!.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);

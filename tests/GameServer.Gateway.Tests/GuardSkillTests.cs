@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Gateway.Tests;
 
@@ -32,6 +33,9 @@ public sealed class GuardSkillTests
         var held = Game.GuardCooldownEntry(f.Conn, gem.Id, gem.Effect);
         Assert.Equal(InstanceEntities.PlayerSingleUseCooldowns(Program.PlayerId,
             [new SingleUseCooldownUpdate(gem.Id, 3f, 3f, 0f, 1)]), held);
+        // The pre-entry published before the instant action is the same frozen rate-0 entry, built from the skill's base
+        // cooldown without touching the state, so the client skips the press prediction it would start from a use (#1127).
+        Assert.Equal(held, Game.GuardCooldownPreEntry(f.Conn, gem.Id, gem.Effect));
         // The record's own cooldown base is the gem's 3 s (the bar dims the icon against it), like the official client.
         Assert.Equal(3000u, Game.PlayerSkills(f.Conn).Single(s => s.Id == gem.Id).CooldownMs);
         // Level 1 with three charges: 25% less Physical and Elemental Damage, then 15% less Physical per charge.
@@ -70,5 +74,69 @@ public sealed class GuardSkillTests
         await Game.CastGemSkill("test", cloak.Stream, cloak.Ciphers, cloak.Conn, arcane.Id, (100, 100), (100, 100),
             cooldownUse: ticket);
         Assert.Empty(Game.TriggeredGuardPresentation(cloak.Conn, cloak.Conn.Clock.Elapsed.TotalSeconds));
+    }
+
+    // Issue #1127: a guard's stat-only start rebuilt the skill bar (0x53), which re-creates every slot and resets its
+    // cooldown entry to the skill's own recovery rate, replaying the bar's cooldown animation. Only a real skill change
+    // (a skill added or removed) rebuilds the bar; a pure stat refresh keeps the slots and their entries.
+    [Fact]
+    public async Task A_stat_only_skill_refresh_does_not_rebuild_the_skill_bar()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Immortal Call", 1), ("Steelskin", 1));
+        CharacterSaves.SetSkillBar(f.Conn.Character!, 2, "ImmortalCall");
+        CharacterSaves.SetSkillBar(f.Conn.Character!, 3, "Steelskin");
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, f.Ciphers)) packets.Add(bytes.ToArray()); };
+        bool Bar(byte[] p) => p.Length > 2 && p[0] == 0 && p[1] == 0x53;
+        try
+        {
+            // The login refresh establishes the client's skill ids (and binds the saved bar).
+            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "login");
+            packets.Clear();
+            // A guard or self buff starting/ending, or an aura's stats recalculated, adds and removes no skill: the bar
+            // must not go out again, so the slots keep their cooldown entries (the guard's held freeze is not reset).
+            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "guard started");
+            Assert.DoesNotContain(packets, Bar);
+            packets.Clear();
+            // A skill leaving the equipment is a real change: a bound slot may have emptied, so the saved bar goes out.
+            f.Equip(("Immortal Call", 1));
+            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "gem removed");
+            Assert.Contains(packets, Bar);
+        }
+        finally { Program.Outgoing = outgoing; }
+    }
+
+    // Issue #1127 (movement): a stat refresh re-sends the skill list, and the client's skill replacement refreshes an
+    // existing zero-rate cooldown entry (0x141ef1573), so a guard's held entry started counting again while its buff ran.
+    // The held rate-0 entry must go out again behind the skill list so the bar stays frozen.
+    [Fact]
+    public async Task A_skill_refresh_during_a_held_guard_republishes_its_frozen_entry()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Immortal Call", 1));
+        var gem = Game.GemSkillEffects(f.Conn).Single(g => Game.SkillsFor(f.Conn).EffectId(g.Effect) == "ImmortalCall");
+        var charges = Game.ChargesOf(f.Conn);
+        var limits = charges.Limits(ChargeType.Endurance);
+        charges.State.Set(ChargeType.Endurance, limits.Minimum + 3, 0, limits);
+        double now = f.Conn.Clock.Elapsed.TotalSeconds;
+        await Game.UseInstantSkill("test", f.Stream, f.Ciphers, f.Conn, gem.Id, 0, f.Conn.Walk.Position(now));
+        Assert.True(Game.SingleUseState(f.Conn, gem.Effect, gem.Id)!.Held);
+        var frozen = InstanceEntities.PlayerSingleUseCooldowns(Program.PlayerId,
+            [new SingleUseCooldownUpdate(gem.Id, 3f, 3f, 0f, 1)]);
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        // Its own cipher stream: the guard's start still has its stats send and held entry queued on the fixture's, and
+        // those would pass for the refresh's entry.
+        var refresh = new ConnectionCiphers(new byte[64], false);
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, refresh)) packets.Add(bytes.ToArray()); };
+        try
+        {
+            await Game.SendCharacterStats("test", f.Stream, refresh, f.Conn, "conditional item stats changed");
+            Assert.Contains(packets, p => p.SequenceEqual(frozen));
+            Assert.True(Game.SingleUseState(f.Conn, gem.Effect, gem.Id)!.Held);
+        }
+        finally { Program.Outgoing = outgoing; }
     }
 }

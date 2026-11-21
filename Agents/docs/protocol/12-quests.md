@@ -182,6 +182,26 @@ each object once, where the client has it.
   MinimapIcon flags `0x06` explicitly hide its marker (`0x02` override present, `0x04` hidden). Its component update
   does not refresh the marker in the client: recreate the source object with those flags after its item is collected,
   retaining its opened state. A marker is personal to the character, including on area re-entry and after hand-in.
+  Buffs writes `u16 0`; Functions and ControlZone have no data.
+- **Object tasks** (GameObjectTasks): the blob ends with the tasks (`0x141ee6950`): `u8 n`, per task the `u16` HASH16
+  little-endian, then the task's own data, which its reader consumes. Later the world group (reader `0x141fe6e90`,
+  handler `0x14218ddf0`) changes them: S→C 0x2c2 adds and 0x2c3 replaces one, both `u16 id, u32 entity BE (0 = the
+  world), u32 0, u16 0, u16 task BE, blob16 data`; 0x2c5 removes one (the same header, `u16 task`). An id without a
+  factory in 0x2c2 is fatal ("Unrecognised task serialised by server"), an unknown one in 0x2c3 logs "Client task not
+  found for server task update" (Core `InstanceEntities.AddTask`/`UpdateTask`/`RemoveTask`).
+  - `DeepwaterLantern` (row 149, 0xc4df) is an Allflame lantern's light: `f32 a, rate_a, b, rate_b`. Each frame a and b
+    fall by their rates per second (b stops at 0) and the task ends at a ≤ 0. The radius (`0x141ebe600`) is
+    `10 + (BaseLanternRadius − 10) · clamp01(a) · (0.6 + 0.4 · clamp01(b))` grid cells (110 at a = b = 1, 70 at b = 0),
+    tested `dx² + dy² ≤ r²` against the entity's grid position (`0x141684a00`). The server keeps the same floats, so its
+    light test follows the client's circle without per-frame messages.
+  - `DeepwaterBathysphereDrop` (row 155, 0x2387, ctor `0x141640fd0`): `u32 stages, u32 stage` on a descending
+    `ExtractionObject` (`landed` 0); the height is (1 − stage/(stages − 1)) · 1500, and stage ≥ stages plays `land_01`
+    and ends the task (`0x141641310`).
+- **League quest flags and areas in QuestStates** (H): `__col13` lists league quest flags a state needs, `__col14` those
+  it needs missing, and `Area` restricts a state to listed `WorldAreas` rows (empty matches anywhere). Allflame's quests
+  (209–211) use these columns (1821 first Chart, 1822 four charted, 1823 first Voyage, 1859 Vesper awakened, 1888 Vesper
+  revived, 1881–1883 failed-first-chart path); `QuestStates.State.Matches` evaluates them when league flags or an area row
+  are supplied.
 - **Rewards nothing can build**: an offer none of whose items the server can build (magic or rare jewellery) sets its
   taken flag without an item, so its quest completes (a3q4, a3q13).
 - **Dialogue** ([17](17-npcs.md)): `QuestFlag4` set on choosing, `QuestFlag5` when the talk ends, and the scripts'
@@ -500,7 +520,8 @@ the data does not say:
   IncaTreeTransitionBlockers lift and the exit into The Vaal Ruins (IncaTreeTransition) appears.
 - **a2q7**: each bandit lord's death sets his kill flag and drops his amulet; Eramir's "Bandit Amulets" (NPCTalk 95,
   `SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets")`) takes the three: one passive point; "Take the Apex"
-  (offer 17) gives The Apex. The bandit vote (help a lord) is not implemented ([status](../../status/quests.md)).
+  (offer 17) gives The Apex. A solo player can also help a lord and hand in the two rivals' amulets
+  for the corresponding permanent reward; the leader's "Get the Apex" (offer 17) gives The Apex ([status](../../status/quests.md)).
 - **a2q8**: the Ancient Seal (IncaDarknessRelease, tile record; its model is the record's `bossrelease.ao`) →
   `a2q8-UnleashedDarkness`; the Apex door in The Caverns transitions with `a2b-SeenApexReward`; the Dark Altar
   (IncaBossSpawner) takes The Apex (`a2q8-PlacedApex`) and brings the Vaal Oversoul (MV 158, no WorldAreas boss), whose

@@ -17,7 +17,7 @@ public static partial class Game
 
     static SummonCatalog.Definition? TotemSummon(ClientState conn, int effect) =>
         SummonData.Find(SkillsFor(conn).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
-    static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
+    static bool SameSocketedSkillSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
         && a.Effect == b.Effect && a.Quality == b.Quality
         && a.SourceGem is not null && b.SourceGem is not null
         && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
@@ -93,7 +93,7 @@ public static partial class Game
             && SupportedSkill(conn, totem.SkillId) is var supported && supported.Host == totem.SourceHost
             && supported.SourceGem is not null && totem.SourceItem is not null
             && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem))
-            && (!TotemSources.TryGetValue(totem, out var captured) || SameTotemSource(captured, supported))
+            && (!TotemSources.TryGetValue(totem, out var captured) || SameSocketedSkillSource(captured, supported))
             && GemSkillInstanceDisabled(conn, totem.Effect, totem.SkillId) is null
             && TotemPathAvailable(conn, totem.SkillId, totem.Effect)
             && IsTotemSkill(conn, totem.SkillId);

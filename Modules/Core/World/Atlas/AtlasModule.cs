@@ -134,6 +134,11 @@ public sealed class AtlasModule : IModule
         // with no item. Hand the matching MavenFights invitation into the bag first; the empty FinishNPCChat still closes.
         GameEvents.NpcOptionPicked.Add(module.Manifest.Id, async (conn, talk) =>
         {
+            if (AtlasFeature.KiracHeardFlags(conn, talk) is { Count: > 0 } heard)
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, heard);
+            }
             await AtlasFeature.GiveMavenInvitation(conn, talk.Script);
             return true;
         });
@@ -169,7 +174,7 @@ static class AtlasFeature
     [
         6, 7,                         // Unlocked5thMapDeviceSlot, Unlocked6thMapDeviceSlot
         225, 351, 352,                // MapDeviceMavenUnlocked, MapDeviceTangleUnlocked, MapDeviceCleansingFireUnlocked
-        219, 220, 221, 222,           // PrimordialWatchstoneUnlocked Maven / UberElder / Tangled / CleansingFire
+        219, 220, 221, 222, 708, 709, // PrimordialWatchstoneUnlocked Maven / UberElder / Tangled / CleansingFire + QuestRewards#111 Eldritch / Originator
         290, 607,                     // VoidstoneSocketed, PickedUpVoidstone
         1019,                         // AtlasMavenCollectedEnoughMaps
         1100, 1101, 1102, 1103, 1104, 1161, // VoidMavenCollectedEnoughMaps1–6
@@ -187,6 +192,14 @@ static class AtlasFeature
     };
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // Kirac's rows (NPCs.dat 410, also the hideout Kirac's) mark their conversation heard with league quest flags
+    // (NPCTalk column 15), which open his next ones. Reward rows are left to their reward offer.
+    internal static List<int> KiracHeardFlags(ClientState conn, NpcCatalog.Talk talk)
+    {
+        if (talk.Npc != 410 || talk.RewardOffer is not null) return [];
+        lock (conn.Monsters) return [.. talk.HeardLeagueFlags.Where(f => !conn.LeagueQuestFlags.Contains(f))];
+    }
 
     internal static async Task<int> EnsureUnlocked(ClientState conn)
     {

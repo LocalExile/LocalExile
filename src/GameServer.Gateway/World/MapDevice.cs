@@ -224,6 +224,10 @@ public sealed class MapDevice
     public sealed record Run(string Owner, MapArea Area, MapMods Mods, int ItemRow = 0, Origin? ReturnTo = null)
     {
         public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo);
+
+        /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
+        /// module starts with its own mods (only those mods' stats apply).</summary>
+        public bool Atlas { get; init; } = true;
     }
 
     /// <summary>The map a transfer's ticket opens its instance with (<see cref="PendingTransfer.Map"/>), until that

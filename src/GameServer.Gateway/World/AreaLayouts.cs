@@ -8,6 +8,8 @@ using SaveFiles = GameServer.Core.Saves.SaveFiles;
 public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int SpawnX, int SpawnY,
     Func<int, int, bool>? Walkable, (uint Id, AreaTransitionObject Transition)[] AreaTransitions)
 {
+    /// <summary>The layout's own spawn: an arrival's <c>with { SpawnX = … }</c> copy keeps it (the town portal's anchor).</summary>
+    public (int X, int Y) Anchor { get; init; } = (SpawnX, SpawnY);
     public float SpawnRotation { get; init; }
     /// <summary>The area's waypoint (WaypointCatalog), if it has one and its place is known.</summary>
     public WaypointObject? Waypoint { get; init; }
@@ -111,7 +113,7 @@ public static class AreaLayouts
 
     const string Folder = "data/walkability";
 
-    static string IdOf(ushort hash) =>
+    internal static string IdOf(ushort hash) =>
         Ids.GetValueOrDefault(hash) ?? AreaTransitionCatalog.IdOf(hash) ?? HideoutCatalog.ByArea(hash)?.AreaId ?? $"0x{hash:x4}";
 
     /// <summary>The seed the instance's layout is generated and played at (<see cref="ServerLevels.PlayableSeed"/>).</summary>
@@ -123,6 +125,15 @@ public static class AreaLayouts
     /// <inheritdoc cref="PlayableSeed(ushort, uint)"/>
     public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats) =>
         ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats);
+
+    /// <inheritdoc cref="ServerLevels.PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats, category);
+
+    /// <inheritdoc cref="ServerLevels.PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int, IReadOnlyList{ValueTuple{ushort, byte[]}}?)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category,
+        IReadOnlyList<(ushort Plugin, byte[] State)>? pluginStates) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats, category, pluginStates);
 
     public static AreaLayout For(ushort hash, uint seed)
     {
@@ -142,7 +153,7 @@ public static class AreaLayouts
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
             return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
-                SightOf(generated.Projectile, generated.Width, generated.Height)) with
+                SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start) with
             {
                 CellHeights = generated.Heights,
                 EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from),
@@ -152,13 +163,16 @@ public static class AreaLayouts
         return WithCells(hash, id, seed, cells, w, h, LoadSight(id, seed));
     }
 
-    static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight)
+    static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight,
+        (int X, int Y, float Angle)? start = null)
     {
-        var layout = WithTransitions(hash, id, seed, cells, w, h);
+        var layout = WithTransitions(hash, id, seed, cells, w, h, start);
         return layout with { Effects = AreaTransitionCatalog.Effects(id, seed), Sight = sight };
     }
 
-    static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h)
+    /// <param name="start">The start a terrain plugin marks (<see cref="ServerLevels.Level.Start"/>): the spawn, without
+    /// the room fit.</param>
+    static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h, (int X, int Y, float Angle)? start = null)
     {
         var notes = new List<string>();
         var transitions = AreaTransitionCatalog.For(hash, id, seed, notes);
@@ -172,13 +186,16 @@ public static class AreaLayouts
             return new AreaLayout(hash, id, 690, 414, 197, 261, fits ? Walkable(cells!, w, h) : null, transitions)
             { Clearance = fits ? Clearance(cells!, w, h) : null };
         }
+        if (cells is not null && start is { } s)
+            return new AreaLayout(hash, id, w, h, s.X, s.Y, Walkable(cells, w, h), transitions)
+                { Clearance = Clearance(cells, w, h), SpawnRotation = s.Angle };
         if (cells is not null)
         {
             // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the deepest cell.
-            var start = AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default");
-            var (sx, sy) = start is null ? DeepestCell(cells, w, h) : (start.X, start.Y);
+            var point = AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default");
+            var (sx, sy) = point is null ? DeepestCell(cells, w, h) : (point.X, point.Y);
             return new AreaLayout(hash, id, w, h, sx, sy, Walkable(cells, w, h), transitions)
-                { Clearance = Clearance(cells, w, h), SpawnRotation = start?.Angle ?? 0 };
+                { Clearance = Clearance(cells, w, h), SpawnRotation = point?.Angle ?? 0 };
         }
         // No walk map yet: a position inside any grid; the client may place the player on unwalkable ground.
         return new AreaLayout(hash, id, 0, 0, 197, 261, null, transitions);
@@ -202,6 +219,8 @@ public static class AreaLayouts
             {
                 id = layout.Id, seed, hash = layout.Hash, written = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 nonce = Guid.NewGuid().ToString("N"),
+                // The terrain plugin states of the load, for the trace: levelgen generates with them.
+                pluginStates = ServerLevels.PluginStatesOf(layout.Id, seed)?.ToDictionary(p => p.Key.ToString(), p => Convert.ToHexString(p.Value)),
             });
             SaveFiles.Write($"{Folder}/current.json", json);
         }

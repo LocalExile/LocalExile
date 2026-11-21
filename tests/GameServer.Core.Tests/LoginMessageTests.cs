@@ -66,6 +66,7 @@ public class LoginMessageTests
         (LoginDirection.ClientToServer, new WStringMessage(0x3f, "q")),
         (LoginDirection.ClientToServer, new WStringMessage(0x40, "r")),
         (LoginDirection.ClientToServer, new U8Message(0x42, 1)),
+        (LoginDirection.ClientToServer, new ClientBlob45(B(12, 0x20))),
         (LoginDirection.ClientToServer, new U32Message(0x46, 0)),
     ];
 

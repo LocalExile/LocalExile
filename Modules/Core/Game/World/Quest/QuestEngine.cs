@@ -311,8 +311,12 @@ public static partial class Game
         if (MapBossFights.Current.Unlock(CharacterName(conn), variety.Id) is { } stone)
         {
             if (stone.Flag.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, [stone.Flag]);
+            var stoneType = ItemsFor(conn).Find(stone.ItemId);
+            if (stoneType is not null
+                && QuestRewardCatalog.Load().Find(111)?.Choices.FirstOrDefault(c => c.ItemRow == stoneType.Row)?.RequiredLeagueFlag is int voidstoneLqf)
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, [voidstoneLqf]);
             await DropGroundItem(remote, stream, ciphers, conn, stone.ItemId, at, m.Label);
-            string name = ItemsFor(conn).Find(stone.ItemId)?.Name ?? stone.ItemId.Split('/')[^1];
+            string name = stoneType?.Name ?? stone.ItemId.Split('/')[^1];
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Atlas: {name} unlocked."),
                 $"0x0017 Voidstone slot {stone.Slot} from {m.Label}");
         }
@@ -944,11 +948,9 @@ public static partial class Game
                 where = conn.LaterFormPoints.GetValueOrDefault(rule.Next, at);
             }
             if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
-            // The campaign variety's Life component starts at 92%; the map versions have their own encounters.
-            int? life = conn.Layout.Id == "1_4_6_3" && boss.Id == "Metadata/Monsters/Malachai/MalachaiBoss2" ? 92 : null;
             Console.WriteLine($"[gateway] {remote} {source.Label} leaves: {boss.Name} forms at ({where.X}, {where.Y})");
             await SpawnMonster(remote, stream, ciphers, conn, boss, source.Level, MonsterRarity.Unique, where.X, where.Y,
-                lifePercent: life);
+                lifePercent: rule.InitialLifePercent);
         }
     }
 }

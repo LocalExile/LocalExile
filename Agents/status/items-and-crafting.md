@@ -34,6 +34,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Native skin-transfer bind/reclaim preserves complete donors across character and stash saves. Optional item-stat
+  sources exclude socket/skill hosts; 3.29.3c picker binding and protocol reclaim pass, with the shift-click gesture
+  and 3.29.3d picker untested. Docs: [23](../docs/protocol/23-microtransactions.md).
+
 - Unique-flask mechanics; Oriath explosion parity and Replica Rumi's Petrified remain open.
   Docs: [13](../docs/protocol/13-items.md) §8a.
 
@@ -91,7 +95,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   rerolls".
 - **Orb of Chance** (local rule). Docs: [13](../docs/protocol/13-items.md), "Orb of Chance",
   [admission](../docs/re/chance-coe.md).
-- **Vaal Orb and corruption** (local rule). Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
+- **Vaal Orb and corruption.** Skill and support gems can change level or quality. The matching Vaal variant can
+  replace an active gem, including its transfigured base skill. Equipment and maps retain the local corruption rules.
+  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
   [admission](../docs/re/vaal-coe.md).
 - **Eldritch Ichors.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ichor-coe.md).

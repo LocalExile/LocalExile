@@ -24,7 +24,9 @@ An NPCs.dat row's `Id` (`Metadata/NPC/Act1/Tarkleigh`) is an .ot type, created w
 The child .ot only sets its `animated_object`.
 
 Of the NPC types in `data/object-types.json`, 190 have exactly that list; 54 add Transitionable, 31 StateMachine, and a
-few ControlZone, Functions, Stats or Brackets (not written yet).
+few ControlZone, Functions, Stats or Brackets. Stats is written as a monster's (compact count + pairs, u32, u32, u8;
+reader `0x1421c98b0`), empty; Functions and ControlZone read nothing (slot 17 `0x1400f1180`: ret). Brackets is not
+written: it would also let Kingsmarch's Mayor, Tujen, Rog, Farmer and Recruiter spawn.
 
 | Part | Bytes |
 |---|---|
@@ -36,6 +38,12 @@ few ControlZone, Functions, Stats or Brackets (not written yet).
 | MinimapIcon | `00` |
 | Transitionable, StateMachine | as for monsters |
 
+`Act2/HelenaSins.ot` has three Transitionable states: 1 hangs below the ledge; 2 climbs up and becomes
+targetable; 3 hides the model, marker and targeting. Rescue uses 2, including on a return to the instance.
+
+`Act5/SinInnocence.ot` creates state 1 with `entrance_avarius` paused and targeting disabled. The 1→2
+update starts the entrance; its animation end enables targeting. Creating state 2 directly is the returning pose.
+
 The NPC component's debug dump (`0x141e7b860`) prints the NPC and the NPCTalk row the client picks for the player
 (`0x141e7d430`): the client chooses the dialogue itself.
 
@@ -43,8 +51,10 @@ Bosses that speak have an NPC component too, after their Transitionable (Captain
 Merveil, the Siren's `seawitchillusion/Merveil`; Piety, General Gravicius and the Sceptre of God's three lieutenants,
 Kaom, Daresso, Utula, Malachai and the three in The Harvest): the monster blob writes it as `00 ff` (no dialogue, no
 component that must be alive). Without it these monsters could not be created at all ([12](12-quests.md) §9–10).
-Act 2's bandit lords (Kraityn, Alira, Oak) add InteractionAction before their NPC, written `00` as for an NPC: they
-are created as hostile unique bosses; their dialogue (help or kill, the bandit choice) is not offered this way.
+Act 2's bandit lords add InteractionAction before their NPC. An NPC delta (reader `0x141e7b780`) carries the same
+two bytes as creation. The solo dialogue's vote uses S→C `0xbe` (writer `0x1421a9f80`): u8 VoteType row plus one
+(zero closes), u8 answered, u8 local voter, u8 number of vote entries. A solo choice has no vote entries. The buttons
+send C→S `0xbd` (sender `0x14026ff10`) with u8 1 for Help or 0 for Kill.
 
 NPC collision uses the same inherited Positioned metadata as the client, including NPCs.dat Id aliases whose
 OT is the row's Metadata. Server routing and overlap escape register every spawned NPC with its own footprint,
@@ -75,11 +85,21 @@ NPC is removed and created again there).
 
 The league hubs have NPCs of their own (`NpcCatalog.Towns`): Niko in the Mine Encampment, Einhar in the Menagerie
 (495, 485, 290°; the hideout row `EinharHideout`, because `EinharMenagerie` has no `.ot` in the GGPK and the client
-drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, Johan, Tujen, Gwennen, Rog, Dannig,
-Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour,
-Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
-been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
-Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`: unlike `VillageFaustus`, it has no ControlZone, so it can be serialized).
+drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, Johan, Tujen, Gwennen, Rog, Sonja and
+Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour. Kingsmarch, the Rogue
+Harbour and the Monastery have not been placed live yet: their NPCs, stash and guild stash are offsets from the arrival
+(`StashCatalog.FromArrival`).
+Kingsmarch's Dannig, Faustus and Isla and the Monastery's Ailith (`ChayulaFarmerHub`) have Functions or ControlZone and
+are left out until they are placed live.
+Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`).
+
+The Allflame NPCs (`Deepwater` module): NPCs 789–795 opt into `NPCTalk` league-flag filtering and auto-conversations via
+`GameEvents.NpcUsesLeagueFlags` (`__col15` set, `__col16` required, `__col18` refused; `__col17` sets one league flag in
+`2..1910` and uses `1` as a manual-only sentinel that prevents auto-open). Valerie's Coast "Ready for Adventure?"
+(NPCTalk 3932) needs QuestFlags 3551 `DeepwaterNPCSeen` and sets `DeepwaterNPCIntroductionSeen` (3552) plus league flag
+1834 `DeepwaterBoatUnlocked`. `hub.arm`'s Valerie lines (x 84–97) lie off the walkable deck; `DeepwaterProgression`
+places the active deck variant on `ValeriePlacerOne/Two/Three` or beside `CorpseBattery`, and below-deck Valerie
+(`#791`/`#792`) with `VesperCrafting` (`#795`) until league flag 1859 awakens Vesper.
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off
@@ -117,8 +137,7 @@ by the same amount.
   0x02's two bytes): i32 −z / 7.8125 and f32 z, the live server's convention for a fixed height (its projectiles,
   [11](11-skills.md) "Sign"; world z points down). Live the NPCs looked the same with either sign of the i32 (Nessa,
   Kira, Oyun, Act 6's Lilly on her pier, 2026-10-25: same pose and name labels at the same height), so for a standing
-  object the client seems to use the f32. The area transitions and waypoints still send +z / 7.8125
-  ([08](08-area-transitions.md) §5); aligning them is left for a later change.
+  object the client seems to use the f32. Every fixed-height writer sends this sign.
 - **Seed.** The origins other than (0, 0) were captured with seed 1, the seed the Gateway gives towns; `TownNpcs`
   stores it with those rooms and leaves a room's NPCs out (with a log line) in an instance of another seed. Oriath's
   rooms are generated around fixed nodes, so their origins could depend on it; the single-room towns' borders
@@ -130,7 +149,7 @@ by the same amount.
 - **Not placed:** league NPCs of the same rooms (Einhar, Niko, Jun, Alva, Gwennen, Tujen, Rog, Dannig, Divinia,
   Faustus, Kurai, Cassia, Tane, Johan), the Tutorial NPC and Letters of Exile, Tolman (act 8, no NPCTalk rows), Kirac
   and the Karui Shores' `HelenaIntro` at (510, 173) (a trigger by the tunnel that plays "HelenaThroughTheTunnel" and
-  then hides; both need ControlZone, which is not serialized) and later quest stages of the same NPC: Highgate's `DiallaTownWithered` at (250, 553),
+  then hides; not placed yet) and later quest stages of the same NPC: Highgate's `DiallaTownWithered` at (250, 553),
   Oriath Docks' `InnocenceTown` in Bannon's cell, Act 6's Lilly sitting by Bestel at (148, 343) (she is placed by her
   ship, `QuestObjects/Act6/LillyShip`). Which stage the real server shows depends on quest progress; the Gateway places
   the first one.
@@ -244,6 +263,10 @@ Automatic quest selection conservatively accepts only rows with empty extra list
 zero minimum level and native neutral context/league selectors (60 / `0x777`). Other rows retain manual selection.
 The raw evidence and decoded `semantics.json`/`equipment.json` stay under ignored `Tools/re/out/gameplay-captures/`.
 
+Lilly's "Virtue Gems" rows 950/951 use an account context, outside the generic automatic selector.
+Row 950 finishes league quest flag 1163; Purchase Items (952) requires that flag, in addition to the character unlock.
+Vendors runs the eligible introduction and saves 1163 when its talk finishes; its gem stock reads the shared unlock.
+
 ### NPCTalk scripts
 
 A row's `Script` / `Script2` (NPCTalk columns) can do more than set flags. The Game module runs these calls
@@ -340,10 +363,16 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   (`0x140740840`) and otherwise shows the ordinary buy window; item and placement messages are the shop's (0x88, 0x8a).
   The shown items are the client's 55 `HiddenItem` rows `…Gamble` ("Random One Hand Sword" … "Random Conqueror Idol",
   BaseItemTypes 5187–5241), drawn with the mystery art; a purchase must answer with another item, which need not have the
-  shown item's size. Prices are poewiki's 3.29 formulas; item level, rarity, unique chance, sockets and affix tiers follow
-  its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
-  Faustus in the hideout). Not done: the alt price floor (the account's highest character in the league).
+  shown item's size. Prices are poewiki's 3.29 formulas, with the 3.29 alt price floor
+  (`max(level, min(highestLeagueLevel − 20, 68))` across the account's characters in the same league, starting at main
+  level 25 and capping at the level-68 price at level 88); item level, rarity, unique chance, sockets and affix tiers
+  follow its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
+  Faustus in the hideout).
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
+  QuestRewardOffers `__col3` is a league quest flag taken flag (1911, past the client's 0x776 flags, is none):
+  Allflame's pity Sulphur (offer 136) has only LQF 1880. The other rows that have one are once-per-league rewards
+  (Kirac's first map 70, the Heist coins 77-109, Kingsmarch's tutorial gold 123-129); the server ORs it with the row's
+  QuestFlag and sets it in the claim's save.
 
 ## 6. Dev commands
 

@@ -21,6 +21,50 @@ public sealed class TotemTests
         ["ShockwaveTotem", "HolyFlameTotem", "AncestorTotemSlash", "SearingBond", "WbFlameTotem"];
 
     [Fact]
+    public async Task Holy_flame_placement_does_not_start_a_paid_player_channel()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        var conn = f.Conn;
+        var clock = new PlacementClock();
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            var gem = ItemCatalog.Create(Program.Items.Find("Holy Flame Totem")!);
+            var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!, [new(SocketColour.White, gem)], [1]);
+            var items = Game.ItemsOf(conn);
+            items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+            items.Add(PlayerInventories.Weapon1, 0, 0, host);
+            var source = Assert.Single(Game.GemSkillEffects(conn));
+
+            uint mana = conn.PlayerMana;
+            Assert.True(await Game.CastGemSkill("test", f.Stream, f.Ciphers, conn, source.Id,
+                (100, 100), (108, 100), actionToken: conn.ActionCount));
+            Assert.True(conn.PlayerMana < mana);
+            Assert.Null(conn.PaidChannel);
+            Assert.True(clock.Waited);
+        }
+        finally
+        {
+            conn.Closed = true;
+            clock.Release.TrySetResult();
+            Game.AreaUpdateContext.Value = previous;
+        }
+    }
+
+    sealed class PlacementClock : IPlayerUpdateSchedule
+    {
+        public readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Waited { get; private set; }
+        public double Now(ClientState conn) => 0;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            Waited = true;
+            return Release.Task;
+        }
+    }
+
+    [Fact]
     public void EveryTotemSkillCarriesSummonsTotemAndResolvesToASupportedVariety()
     {
         var skills = new SkillCatalog(); var monsters = new MonsterCatalog();

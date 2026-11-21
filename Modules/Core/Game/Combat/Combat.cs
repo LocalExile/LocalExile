@@ -492,6 +492,7 @@ public static partial class Game
             // direct physical roll may then store a new instance; it never consumes that new instance itself.
             double stored, impaleStored;
             int impaleStacks, damage;
+            byte hitCode = 0;
             bool impaled, critical;
             string? resistance;
             List<byte[]>? ignited = null, bled = null;
@@ -553,6 +554,7 @@ public static partial class Game
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
                     gambler.InvertsResistance(Random.Shared));
+                hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(player, true, ownPenetration, weapon.LocalSources, weapon.Melee));
@@ -610,7 +612,8 @@ public static partial class Game
             // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
             // the directional blood.
             var order = HitOrder(conn, PlayerId);
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03,
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId,
+                    flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03, code: hitCode,
                     angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
             await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life, orderKey: order.Key, checkpoint: order.Life),
@@ -1272,7 +1275,9 @@ public static partial class Game
                 }
                 if (paid && beastCompanion is { } beast)
                     QueueBeastCompanionLocked(conn, beast, skillId, actionToken);
-                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
+                // The native Holy Flame skill is tagged Channel for the totem's payload. Its owner places it with a
+                // single cast. Starting an owner channel would tie the placement to the input that movement clears.
+                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true && !IsTotemSkill(conn, skillId))
                 {
                     channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
                     bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
@@ -1460,6 +1465,13 @@ public static partial class Game
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse,
                 guardStart: guardStart))
         {
+            // A guard's cooldown is server-owned and held at full while its buff runs. Publish that held rate-0 entry
+            // before the instant action: the client skips its press prediction (startCooldown) when a zero-rate entry
+            // already exists, so the bar's ring does not sweep before the freeze (issue #1127). The instant action's
+            // native use refresh then briefly restores the recovery rate, which StartTriggeredGuard's held entry behind
+            // it freezes again; the remaining time stays full throughout, so neither flicker moves the ring.
+            if (guard && GuardCooldownPreEntry(conn, skillId, gem.Effect) is { Length: > 0 } preEntry)
+                await Send(remote, stream, ciphers, preEntry, "0x02bc guard cooldown held before its instant action");
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
                 atGate: () =>
@@ -1997,6 +2009,70 @@ public static partial class Game
         if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
     }
 
+    // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
+    // action onto an object in the area. Applies in both lockstep and predictive modes; safely ignored when idle,
+    // blocked, or when the target object is absent or dead.
+    public static async Task RetargetAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint targetId, long readAt = 0)
+    {
+        if (conn.Closed || conn.LeavingArea) return;
+        (int X, int Y)? fallbackPos = null;
+        if (targetId != PlayerId)
+        {
+            lock (conn.Npcs)
+                if (conn.Npcs.TryGetValue(targetId, out var npc)) fallbackPos = (npc.X, npc.Y);
+            if (fallbackPos is null && conn.Instance?.Ground.Get(targetId) is { } ground)
+                fallbackPos = (ground.GridX, ground.GridY);
+        }
+
+        bool aimLockstepChannel = false;
+        using (ProjectileMutation(conn))
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            double at = Math.Max(conn.ClockAt(readAt), conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+            if (conn.Closed || conn.LeavingArea || PlayerActionBlocked(conn, at, now))
+                return;
+
+            (int X, int Y) aim;
+            bool isMonster = false;
+            if (conn.Monsters.TryGetValue(targetId, out var monster))
+            {
+                if (monster.Dead || monster.Life == 0) return;
+                aim = monster.Walk.Position(at);
+                isMonster = true;
+            }
+            else if (targetId == PlayerId)
+                aim = conn.Walk.Position(at);
+            else if (fallbackPos is { } pos)
+                aim = pos;
+            else
+                return;
+
+            bool lockstepActive = conn.LockstepHold.Active || conn.LockstepSkill.Active;
+            if (conn.LockstepClient || lockstepActive)
+            {
+                conn.LockstepHold.Update(aim);
+                if (conn.LockstepSkill.Held)
+                {
+                    conn.LockstepSkill.Retarget(isMonster ? targetId : null, aim);
+                    if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
+                    {
+                        ChannelAimedAt(conn, aim.X, aim.Y, at);
+                        conn.LastChannelUpdateAt = now;
+                    }
+                    aimLockstepChannel = conn.LockstepSkill.Channel is not null;
+                }
+            }
+            else if (conn.ChannelSkill != 0)
+            {
+                ChannelAimedAt(conn, aim.X, aim.Y, at);
+                conn.LastChannelUpdateAt = now;
+            }
+        }
+        if (aimLockstepChannel)
+            await AimLockstepChannel(remote, stream, ciphers, conn);
+    }
+
     // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
     // as part of the channel); the walk gets its usual speed back.
     public static void ChannelReleased(ClientState conn, double at)
@@ -2144,8 +2220,9 @@ public static partial class Game
         if (Stat("base_deal_no_damage") != 0) return;
         if (!hitPlan.CanHit)
         {
-            // Contagion has no hit: its cast puts a chaos damage over time on the monsters in its area (MonsterContagions.cs).
-            if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
+            if (IsBane(conn, gem.Effect))
+                await CastBane(conn, skillId, admittedGem, from, to, repeat, radiusMore, Current);
+            else if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
                 await CastContagion(conn, gem.Effect, skillId, from, to,
                     contagion with { SpreadAo = ContagionSkinAo(conn, gem.Gem) }, repeat, radiusMore,
                     actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, cooldownUse?.Instant == true, Current);
@@ -2602,7 +2679,7 @@ public static partial class Game
                         if (reflected.Count > 0 && player is not null)
                             ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
                         CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
-                            settleKill: singleStrikeTarget is not null);
+                            settleKill: singleStrikeTarget is not null, hitCode: hitCode);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, ignited, igniteLog));
@@ -3356,7 +3433,7 @@ public static partial class Game
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
+            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
@@ -3369,6 +3446,8 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
         drops.AddRange(MadeDrops(conn, modded));
+        modded?.ApplyTransforms(drops);
+        if (MapBeyond.CorruptsDrops(conn, m.Variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.

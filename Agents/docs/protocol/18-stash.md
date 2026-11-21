@@ -92,15 +92,17 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   it), then **S→C 0xc8** (class `0x1435e7540`, read `0x1421aaf20`, case 0x3b): u16 BE tab index, u32 BE inventory id
   (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87da0`), which builds the
   page. The Gateway sends 0xc0 when the client doesn't have the tab, and 0xc8 every time.
-- **Only the shown tab stays loaded.** The client keeps every tab it was sent, and each stash open walks all of them as
+- **Ordinary unshown tabs can be unloaded.** The client keeps every tab it was sent, and each stash open walks all of them as
   the panel becomes visible (`0x1418b0a30`, the element show/hide). Opening therefore got slower with every loaded item.
   Live 2026-10-29: about 1.5 s once the currency, essence, fragment, gem and divination tabs were all loaded.
-  - When the player picks a tab (a 0xc7 outside the first open's two requests), the Gateway unloads every other loaded
-    tab with **S→C 0xc1** (u8 manager, u32 inventory id).
+  - A 0xc7 outside the first-open window lets the Gateway unload other eligible tabs with **S→C 0xc1**
+    (u8 manager, u32 inventory id).
   - It then sends the tab list (0x136) again with those tabs' loaded bit clear. The panel asks (0xc7) only for a tab it
     has no page for: a page it built stays through the list (panel tab `+0x58`), and the tab-selected handler
     (`0x140a86290`) shows it without a request. Live 2026-11-12: tab 0, tab 2, tab 0 again sent one 0xc7, for tab 2.
-  - The tabs with shop currency stay (below).
+  - The tabs with shop currency stay (below). A Unique Collection and its loaded categories also stay for the
+    connection. On 3.29.3c, the client requested the old normal tab again after the first-open window while the
+    collection still showed. Unloading its categories at that point crashed the client on a category click.
   - During the first open, the panel's old tab is asked for after the forced one; unloading the shown tab then crashed
     the client on the next open, so nothing is unloaded in that window.
   - So the player can act on a tab the client no longer has the inventory of, by going back to it: a click (0x28/0x2a,
@@ -129,14 +131,20 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   BE tab, u16 BE position). Kept (2026-10-22): `AccountStash.SetPositions` saves each tab's position with the stash
   (kind 1 the guild stash), and the tab lists send it back as the record's +0x38, so the order survives a relog.
 - **0xd1** (7 bytes, vtable `0x1435cabd0`, write `0x141f9d680`, `0x14216dd20`): u16 BE tab, u16 BE folder (0xffff out),
-  u8 kind: a tab into a folder. Logged.
+  u8 kind: a tab into a folder. The tab settings' Folder box (shown only with `user_input_mode` gamepad) sends 0xffff then its choice, and its "Create New Folder" sends
+  the tab's own index as the folder: only then does the sender leave the tab's +0x3a alone, so the server makes the
+  folder (a StashType 16 tab, never asked for contents) and the tab list (S→C 0x136) puts the tab in it. A drag in the
+  tab list (`0x140a8cf75`) sends the same pair. Kept (`AccountStash.MoveToFolder`, the parent column).
 - **0xcd** (vtable `0x1435cab10`, write `0x141f9ccd0`; built by the tab settings `0x14025b9b0`): a premium tab renamed.
   u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
   send back (the record's second u32). Both are kept with the stash, account-wide (`AccountStash.Rename`, `SetColour`;
-  every tab but normal ones and folders is premium, as bought tabs are: the tab settings show the name and colour only
-  with the record's premium flag; kind 1 the guild stash). Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
-- **0xd2** (u16 tab, u8 kind; `0x14025c5c0`): from the tab settings. Not seen yet.
+  every tab but normal ones is premium, as bought tabs are: the tab settings show the name and colour only
+  with the record's premium flag; kind 1 the guild stash). Folders have the flag too but no colour: retail (3.30 capture) sends a new folder as "New Folder", inventory 0, colour 0, and its settings show only the name and Delete Folder. Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
+- **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
+  Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
+  the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
+  removing it would move the later tabs' indices and inventory ids (`AccountStash.DeleteFolder`).
 - **0xd3** (class `0x1435cad70`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
@@ -332,7 +340,7 @@ Gold stays with the personal stash.
 - **Last tab:** switching to an already loaded tab sends nothing, so a switch followed by a logout without reopening
   the stash or moving an item is not seen; the next login opens on the tab before it.
 - Not checked live yet: the affinity window closing on S→C 0x136, and the special tabs other than currency and map.
-- Tab folders (0xd1 is logged), 0xe2, the unique, divination and other special tabs, the
+- Tab folders in the real client (0xd1 and 0xd2 are handled, not checked live), 0xe2, the unique, divination and other special tabs, the
   real guilds (shared guild stash, members, rights), stashes per league, and stashes in the other towns.
 
 ### Delve inventory bounds and resonators

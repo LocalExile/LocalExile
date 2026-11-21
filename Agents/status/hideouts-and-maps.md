@@ -5,7 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
+- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, can be gambled at Faustus, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
   The 3.29.3 clients have no Idol panel, so the Idol inventory is the map device's storage grid: 4 by 5 cells, one loadout.
   Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
@@ -67,6 +67,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
+  the town-side position uses the fixed layout anchor, independently of the latest arrival entrance (automated check);
   the town side checks that Auth still has the destination instance; there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
   a map's portal gets no portal back: an entry through that map's device portals arrives at it, also after a death, and it
   replaces the map's own portal back there, #1002;
@@ -83,7 +84,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   maps go into its slots (dragged, or Ctrl + clicked: C→S 0x00e4 in and 0x00e5 out, live 2026-11-15), Activate
   (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
   opens six portals (MultiplexPortal + S→C 0x008f) into one instance of the map's area, each used once (the one taken
-  stays gone); guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
+  stays gone); a click on a run whose instance has expired (six minutes after its last player left) closes the run and
+  its remaining portals and says so in chat, instead of spending a portal on a transfer that cannot arrive (2026-11-18);
+  guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
   Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
   The instance keeps the map's level and mods for its whole life (after its last portal or another
   activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates
@@ -96,6 +99,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the instance the character enters, so its portals left stand at the new device (2026-11-18).
   A click on a portal back into a hideout or town whose instance expired enters a new one of that area, by its
   device, instead of a transfer that was refused (2026-11-18).
+  "Resurrect at Checkpoint" from a map whose hideout instance is gone enters a new instance of it by its device, not
+  a refused transfer that left the dead character in the map (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
@@ -108,20 +113,38 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Named scarabs: Domination/Cloister, guarded Ambush boxes, Essence release/Ascent/Calcification and Terrors bosses;
-  box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
-- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
-  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
+- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+  Essence: Vaal corruption/transfers, Toughness, enrage, Decay and Envy aura; other skills/scaling stay partial (#505).
+- Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
+  rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
+  [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
-  Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+- Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
+  (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
+  spawning packs and bosses (K'Tash, Ghorr, Beidat) and shutting down further portals once a boss spawns.
+  Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
+  (Endless Tide, Demonic Power map-instance boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
+  `Game.MapModsOf`.
+  Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
+
+- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with repeat-wave summoning
+  (`skill_repeat_count`) and permyriad life loss on wave kills, Harbinger/King-helper/Empowered-Obelisk skills and
+  auras (mortars, ball lightning, cold beam, warp flame, minion buffs, curse auras, obelisk damage-reduction and haste
+  auras), King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
+  (full-stack conversion and full-orb upgrades), all four Harbinger scarabs, and composed Atlas/Idol map stats.
+  Not yet: the sky beam, flameblast and upheaval land once instead of as their trigger cascade, the ball lightning
+  hits once instead of zapping as it flies, The Beachhead unique map portal encounter and Harbinger unique piece
+  assembly.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
   packs stay out of the grove.
   The Harvest module fills 3-4 pairs of crops (Extractor, Irrigator, Pole, Storage Tank, 23 seeds by colour and tier);
   one click hatches the seed monsters and withers the other crop of the pair; they drop Wild/Vivid/Primal lifeforce.
-  The `atlas_harvest_*` passives, the three Harvest scarabs and the Idols' same stats apply, all read from
-  `Game.MapModsOf`, except Crop Rotation, Nature's Favour (lucky Horticrafting outcomes), the Harvest-scarab weighting
+  The `atlas_harvest_*` passives (including Crop Rotation via `atlas_keystone_crop_rotation`: all Tier 1 on spawn and
+  per-seed tier upgrades on idle crops of other colours at crop completion),
+  the three Harvest scarabs and the Idols' same stats apply, all read from
+  `Game.MapModsOf`, except Nature's Favour (lucky Horticrafting outcomes), the Harvest-scarab weighting
   (`map_harvest_scarab_more_likely_%`) and Refiner's Bargain's crops (its monsters drop no lifeforce and nothing else).
   The memory-line grove (`HarvestLeagueMemoryLine`, or its room in a map) has five single crops of 45-47 mixed-colour
   seeds; Corpse-Grown (Faridun) seeds replace Tier 3 seeds wherever `map_harvest_%_chance_for_faridun_seed` is granted.
@@ -189,7 +212,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Niko and Kirac in the hideout (verified live, 2026-10-21):** Niko to Nessa's right, Kirac to her left.
   Faustus uses his native hideout NPC alongside them in every template, with the existing dialogue and saved editor placement.
   Kirac's hideout row has no dialogue of its own and uses the main Kirac's (`NpcCatalog.TalkSource`);
-  Purchase Items sells maps.
+  Purchase Items sells maps. Kirac marks a conversation heard when chosen (NPCTalk column 15 league flags), which opens his next ones.
   Niko's Delve options need quest flag ThisIsMyHideout (sent in hideouts and the Mine Encampment) and league quest
   flag 68 DelveEncounterComplete (every character): NPCTalk columns 15-18 are league quest flag ids.
   See [21](../docs/protocol/21-hideouts.md).
@@ -202,12 +225,94 @@ Part of [Status](../Status.md); what to build next in this area is in
   always activated). The Hideout, Menagerie, Mine Encampment, Forbidden Sanctum, Kingsmarch, Rogue Harbour and
   Monastery of the Keepers pins lead to their hubs, which have a clickable waypoint back, a stash, a guild stash and
   their NPCs (Einhar, Divinia, the Kingsmarch villagers, the Heist crew, Ailith; Einhar also in every hideout).
-  The hub waypoints stay unlit (client area-type rule); The Sovereign (Deepwater) has no layout yet.
+  The hub waypoints stay unlit (client area-type rule).
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
   See [16](../docs/protocol/16-waypoints.md) §4.
   See [21](../docs/protocol/21-hideouts.md).
+- **The Sovereign (Allflame leagues):** after Valerie's introduction on the Deepwater Coast (`NPCTalk` 3932 sets league
+  flag 1834 `DeepwaterBoatUnlocked`), its rowboat, the Deepwater World-panel pin and `/boat` reach The Sovereign.
+  The hub is generated, with its waypoint, `Boat_AreaTransition_Animate` deck ↔ below-deck stairs (serialized with
+  trailing `StateMachine` so `no_highlight` applies), deck and below-deck stashes and guild stashes, below-deck crafting
+  bench, dynamic Valerie variants (789–794) on `ValeriePlacerOne/Two/Three` and below deck, `CorpseBattery` and
+  `VesperCrafting` (795) ([08](../docs/protocol/08-area-transitions.md) §2, [16](../docs/protocol/16-waypoints.md) §4,
+  [17](../docs/protocol/17-npcs.md)).
+  Charts (rarity, affixes, level, room including Kishara's Rest `#29` at area level ≥ 81), the Chart Locker, Valerie's
+  chart device and Voyage planner, and the deck's Bathysphere start Chart and Voyage runs whose grid, level and stats
+  are the chart's or the board's, with the Maiden Voyage, Spirit Flame and Turning the Tide trackers (Quests 209–211,
+  [03](../docs/protocol/03-area-and-world.md) §8, [05](../docs/protocol/05-inventories-and-ui.md) §3,
+  [12](../docs/protocol/12-quests.md) §5, [13](../docs/protocol/13-items.md) §2).
+  Guesses (G in the code): the chart inventories are per character while the tutorial's league flags are per account
+  and league; the deck's map owner; the drop, room, implicit and border pools; when charts are consumed.
+  Chart and border stats apply per cell on Charts and Voyages: pack size, Sulphur, experience, magic extra mods,
+  combat affixes, Soul Eater, free lanterns, Strongboxes, Essence monoliths, Torment cages, Izaro altars, Treasure
+  Anchors, minibosses, rare-monster drops and post-roll drop conversions.
+  Not applied: Wildwood Wisps, Pantheon rare mods, rare fracture-on-death, Friendly Jellyfish AI, wealthy barrel
+  clusters, highly fishy, and the Active Voyage window (0x72).
+  A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
+  of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
+  0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
+  [03](../docs/protocol/03-area-and-world.md) §8).
+  The player arrives in the bottom-left chart (cell 0's `default` point; the board's layout and orientation are from
+  the client's code).
+  Their level generation is in the [world status](world.md) ("Level generator port").
+  The Chart and Voyage runs (lanterns placed where the client's snap puts them, server-side Auto-Lanterns via league
+  flag 1841, drowning, the league's packs, Sulphur and its posed corpses, chests, collapse, capsules with a Voyage's
+  entry capsule, the Bathysphere's staged descent, extraction to the deck's CollectionChest, Dredge) are in
+  `Modules/Core/Content/Deepwater`, with its guesses marked G there ([03](../docs/protocol/03-area-and-world.md) §8,
+  [12](../docs/protocol/12-quests.md) §5).
+  Verified live (3.29.3d, 2026-11-19): a Chart's six lanterns, its collapse and ride up, a Voyage's Bathysphere called
+  from a capsule and its three-stage descent, the haul on the deck and in the inventory on The Sovereign after a relog,
+  the corpses without a GEAL error.
+  Picked-up Dredge items carry the client's contraband item flag (header flags 0x0006,
+  [13](../docs/protocol/13-items.md) §2), so they can be dragged (C→S 0x2a) or Ctrl+clicked (C→S 0x0112) into and out
+  of a capsule's grid (inventory 113) and only there besides the main inventory; Send to Surface moves them, unmarked,
+  to the deck's collection.
+  A Voyage's start Bathysphere is sent `landed` 0 once one is called, so it stays unusable.
+  Verified live 2026-11-19: the drag, the Ctrl+click both ways, the client refusing an unmarked item, Send to Surface
+  from a cell capsule (the entry one refuses), the unlabelled start Bathysphere.
+  An encounter area also gets ruleset 172, before 0x21, so the deck's Loot window (0x7b kind 0x6f) shows the
+  collection; its Ctrl+click (C→S 0x0113) and Take All (ruleset 172 op 9) move it to the main inventory (verified live
+  2026-11-19).
+  What is still in a capsule's grid at a ride up goes, unmarked, to the collection or the inventory (G).
+  Dead Man's Sulphur counts and pays across the Chart Locker, carried bags and personal stash.
+  Vesper's Allflame Crafting (`0x7b` kind `0x69`, C→S `0x010f`, ruleset 172 op 2), all 11 crafting Ducats,
+  Intangibility and the four `GhostflameCraftingOutput` display-case vats with hover mod-diff and relog persistence
+  work ([03](../docs/protocol/03-area-and-world.md) §8, [05](../docs/protocol/05-inventories-and-ui.md) §3).
+  Cursed Ducats (inventories 115/116, C→S `0x0115`, area stats on Charts and Voyages, all six drops including Velka's
+  `Ducat of Tsoatha's Gift` and Valerie's reclaimable "TAKE ALL" offer via C→S `0x008b`) and Messages in a Bottle
+  (`0x0058` → `Cursor1` + `0x7b` kind `0x6d`) work ([05](../docs/protocol/05-inventories-and-ui.md) §3).
+  Verified live 2026-11-19: Chaos and Changeling's Ducat crafts, vat crack/claim and relog reconstruction, Cursed
+  Ducat socketing and reclaim, and Message in a Bottle reveal.
+  Ship upgrades (`DeepwaterUpgrades` rows 0–4: `+1` lantern, Sulphur scaling, extra scattered objects, final-lantern
+  Adrenaline, all five upgrade pieces with Vesper turn-ins `#3920–3924` unlocking copy-cap tiers and
+  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with `FlameBarrier1` and
+  `AllFlameLanternDeepwater`), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
+  Cressie and Velka, guaranteed unique + 8% Coursing Current Support + first-kill quest drops, and
+  `VelkaDescensionObject` opening Velka Bloodline `Descendancy#15`) work
+  ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5,
+  [17](../docs/protocol/17-npcs.md)).
+  Verified live (3.29.3d, 2026-11-20): Sovereign stairs with no white hover glow, below-deck stashes and crafting
+  bench, `LQF 1834` boat unlock, Ship Graveyard Fairgraves and Vesper awakening, all five upgrade turn-ins with
+  `Stage2..6` props, Auto-Lanterns (`LQF 1841`) and final-lantern Adrenaline, Kishara's Rest `#29 → #30` with Cressie
+  and Velka, Velka Bloodline (`Descendancy#15`) reload preserving Dredge loot and extraction, Vesper's revive scene,
+  rotated charts, free-lantern cells, Strongboxes, Essence monoliths, Torment cages, Izaro altars, Treasure Anchors,
+  and drop conversions (Stacked Decks, Gold, Corrupted).
+  Deferred crafting orbs: Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory orbs.
+- **Allflame encounters in ordinary areas:** an Allflame character meets the Coral Nest, Cursed Treasure and Brinerot
+  Plunder rooms the level generator places: their guards (golems and crabs, Drowned Crawlers, Brinerots), a chest that
+  opens once they are dead for one Chart and ordinary chest loot, Ducats from Brinerot guards, and the opener's
+  Craiceann's Call, Possession or Sailor's Lantern (`Modules/Core/Content/Deepwater`, `DeepwaterEncounters.cs`,
+  `DeepwaterBuffs.cs`).
+  Verified live 2026-11-19 in 1_2_1 and 1_1_4_1; a Standard character gets none.
+  The trigger distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`,
+  `deepwater_*_chance`).
+  Charts drop only from these chests ("The Sovereign" for their rolls).
+  Possession can be cancelled by right-clicking its buff icon (`C→S 0x004b`, verified live 2026-11-20).
+  Not built: Possession monster touches outside torment maps; the Drowned Crawlers' possessed rares; the Brinerot
+  barrels' own monsters and `free` state (plain Brinerots stand in); dungeon areas such as The Submerged Passage, where
+  the port rolls the room but does not place it.
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.

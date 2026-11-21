@@ -1577,7 +1577,20 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   5.32 s), and a zero rate on it stops the ring with the icon dark and no sweep, as the official client's frozen entry
   (`3.00 / 3.00 / rate 0`) shows; the press prediction the client makes from 0x1ce keeps its own rate
   (`1 + 113 %` = 2.13 here), so the server's entry has to follow it. Every repeated entry replays the bar's cooldown
-  animation, so one press must publish one entry.
+  animation, so one press must publish one entry. A 0x53 skill bar rebuild also re-creates the slot and resets its entry
+  to the skill's own recovery rate (a held rate-0 entry sent before the rebuild counted again at rate 2.13 right after
+  it), so a stat-only skill refresh — a guard or self buff starting/ending — does not rebuild the bar; only a skill added
+  or removed does (#1127). Publishing the guard's held rate-0 entry *before* the 0x1ce also skips the press prediction
+  altogether: `startCooldown` (`0x141ef2840`, called from the 0x1ce use through `0x141ef08db`) does not run when a zero-rate
+  entry already exists (Frida: no `startCooldown`, the record's +0x10 vector stays `3.00 / 3.00 / rate 0`). The 0x1ce's
+  native use refresh briefly restores the recovery rate, but the held remaining stays full so the ring does not move;
+  `StartTriggeredGuard`'s held entry behind the 0x1ce freezes the rate again. Without the pre-entry the prediction swept
+  ~109 ms (3.00 → 2.89) on a slow first press before the held entry froze it (#1127).
+  A skill-list refresh (Actor 0x20, `SendSkills`) replaces every skill record, and that replacement refreshes an existing
+  zero-rate entry (the `0x141ef1573` case above): a movement or conditional-item-stat refresh during the buff therefore
+  started the held entry counting again at the recovery rate (Frida: `[3,3,0]` → `[3,3,1]` → counting, live 2026-11-19).
+  `SendSkills` re-publishes the held rate-0 entry behind the list (`HeldGuardCooldownRefresh`), so the bar stays frozen
+  through stat refreshes; a zero-rate refresh replaces the entry without restarting its animation (#1127).
   The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
   `0x14219e694..0x14219e7eb` reads its entries; `0x14219e900..0x14219e948` replaces the matching cooldown's vector.
   `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.
@@ -2810,8 +2823,9 @@ The Spirit chieftains are the first (section 10f).
   its attack time.
   There the hit needs both alive and within reach + 2; it rolls the minion's accuracy (DefaultMonsterStats at its
   level) against the target's evasion, then the target's block, then the target's mitigation (`MonsterTakesRolled`).
-  S→C 0x1af shows the hit (the minion as source, flags 0x4601), the target's Life follows, and a kill gives the
-  player experience and loot through `MonsterKilled` (no on-kill charges: the player did not kill it).
+  S→C 0x1af shows the hit (the minion as source, kind 3, flags 0x4201, code by type), the target's Life follows,
+  and a kill gives the player experience and loot through `MonsterKilled` (no on-kill charges: the player did not
+  kill it).
   A minion's hit does not count as the player hitting.
 - End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
   removed a second later (0x2bd).
@@ -3070,9 +3084,10 @@ failed I/O, allocation limits, actual official values and every skill's successf
   cleared the option at the next skill update. The Gateway saves both masks with the bar and sends them back.
 - **The 0x20 skill update can take a bound skill off the bar**: live 2026-10-21, Haste's slot emptied when its aura went
   on (the aura's stats resend every skill record), and the area change's 0x53 brought it back. A gem taken out and
-  socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after every
-  update, unless it adds a skill whose GrantedEffects Id the saved bar does not have: the client binds such a new
-  skill to a free slot itself (0x4e), and a bar sent then would clear it.
+  socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after an
+  update that adds or removes a skill, unless it adds one whose GrantedEffects Id the saved bar does not have: the
+  client binds such a new skill to a free slot itself (0x4e), and a bar sent then would clear it. A stat-only update
+  sends no bar (#1127); live 2026-11-19 (3.29.3c) Wrath on and off kept every bound slot without one.
 - **The Gateway** saves each 0x4e (`CharacterSaves`, `data/characters.db`) as slot → a GrantedEffects Id for gems and the default
   attack (skill ids change with the socketed gems), `Action/<ActionTypes Id>` for a basic action (Move 0x2909 =
   "Move only"), or "" for a cleared slot. It sends 0x53 right after the player and area messages, no delay needed,

@@ -96,12 +96,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
   Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
   are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
+  The tower legionnaires now precede the miscreations, then Dominus appears at the roof's boss point.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
   The Library's candle opens the hidden door for the instance only.
   The two exits the layout disables and a quest gates (The Upper Sceptre of God → The Aqueduct, The Library → The
   Archives) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds).
-  Every quest object, chest and NPC the rules name is placed at seed 1.
+  Every quest object, chest and NPC the rules name is placed at seed 1. Helena's rescue uses her visible state 2
+  on the kill and on re-entry; her asset's last state hides her. Sin's first appearance after Innocence advances
+  the paused entrance to state 2, while a return starts in the completed pose.
   Driver step files: `scripts/dev/campaign/quests/a2q*.py`, `a3q*.py`.
   Code: `Acts/Act2.cs`, `Acts/Act3.cs` (QuestObjects module).
   Docs: [12](../docs/protocol/12-quests.md) §11–12; [act 2](../docs/game/campaign/act2.md),
@@ -154,10 +157,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
   Act 8); a8q1, a8q5, a8q4, a8q6, a8q7 (the legion's multi-kill), a8q3 and a8q2 (both orbs at the fight starter,
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
-  barrier, both Shakaris), a9q4, a9q2 (the feather to Irasha), a9q1 (both ingredients in one click, the membrane, the
-  three spirits, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
+  barrier, Shakari retreats at 65% life and resumes in her second arena), a9q4, a9q2 (the feather to Irasha), a9q1
+  (both ingredients in one click, the membrane, the three spirit gauntlets, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
   (Bannon becomes Innocence: Oriath Docks' two stages; the Chambers shortcut waits for the instance's kill), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
-  earned, −60% with Act 5's, before him −30%; Sin's portal home) and A11q0 (Lilly sails to Karui Shores). Every act
+  earned, −60% with Act 5's, before him −30%; Sin's portal) and A11q0 (Lilly sails). Both routes arrive at
+  Karui Shores' shore entrance. Every act
   7–10 quest done with every act 7–10 flag of `EpilogueAtlasDemo`, 24 quest passive points and 20 refund points.
   The exits the layouts disable and a quest gates (The Ashen Fields' way north, The Harbour Bridge's into Act 9, Sin's
   portal home) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds); burnt Oriath's
@@ -193,11 +197,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.
-- The bandit vote (a2q7's help path: talking to a bandit lord opens the client's vote panel through
-  `DispatchRulesetEvent(BanditCallVote)`, VoteType/VoteState) is not implemented; its messages are not
-  reverse-engineered.
-  The lords are hostile and the choice comes from the kills (the campaign runner kills all three); the help rewards'
-  stats (QuestStaticRewards 4–6) apply once their flags are set.
+- In Act 2, solo players talk to a bandit leader to open the native Help or Kill choice. An allied leader accepts both
+  rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
 

@@ -385,6 +385,7 @@ public static partial class Game
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true, handCritical),
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true, handCritical),
             ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
+            FromTrapOrMine = from is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(conn, hitInputs,

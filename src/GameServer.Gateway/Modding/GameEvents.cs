@@ -12,6 +12,9 @@ using GameServer.Core.World;
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     ImmutableArray<(string Owner, int Rank, T Run)> _subscribers = [];
+    long _revision;
+    /// <summary>Changes when a provider is added or removed, for consumers that retain derived state.</summary>
+    public long Revision => Volatile.Read(ref _revision);
 
     public GameEvent() => GameEventOwners.Register(this);
 
@@ -24,7 +27,12 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
             while (at > 0 && s[at - 1].Rank > rank) at--;
             return s.Insert(at, (owner, rank, run));
         });
-        return new Subscription(() => ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run))));
+        Interlocked.Increment(ref _revision);
+        return new Subscription(() =>
+        {
+            ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run)));
+            Interlocked.Increment(ref _revision);
+        });
     }
 
     public IEnumerable<T> All => _subscribers.Select(s => s.Run);
@@ -57,8 +65,11 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
                 yield return (owner, run);
     }
 
-    void GameEventOwners.IOwned.Release(string owner, int rank) =>
-        ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank));
+    void GameEventOwners.IOwned.Release(string owner, int rank)
+    {
+        if (ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank)))
+            Interlocked.Increment(ref _revision);
+    }
 
     int GameEventOwners.IOwned.Count(string owner) => _subscribers.Count(e => e.Owner == owner);
 
@@ -174,11 +185,21 @@ public static class GameEvents
     /// <summary>The player is about to leave the area or the game, with why.</summary>
     public static readonly GameEvent<Func<ClientState, string, Task>> PlayerLeaving = new();
 
+    /// <summary>The character has left the game (a logout, a disconnect; not an area change) and its save is written:
+    /// nothing of that connection writes it again, and a login of the character waits for the subscribers before it
+    /// reads it. The place to replace a character's save. Not run when the last save failed, or for a connection that never
+    /// loaded the character (a refused login).</summary>
+    public static readonly GameEvent<Func<ClientState, Task>> CharacterAtRest = new();
+
     /// <summary>The player's hideout is being furnished: place stations here.</summary>
     public static readonly GameEvent<Func<ClientState, Task>> HideoutReady = new();
 
     /// <summary>Messages sent as the player enters an area, before its objects: a log line and the message.</summary>
     public static readonly GameEvent<Func<ClientState, IEnumerable<(string Log, byte[] Message)>>> EnterMessages = new();
+
+    /// <summary>Messages sent with the player's own, before 0x21 activates the area: what the client's UI reads once as
+    /// it attaches to the area (a ruleset some of its windows look up then). A log line and the message.</summary>
+    public static readonly GameEvent<Func<ClientState, IEnumerable<(string Log, byte[] Message)>>> BeforeEnterMessages = new();
 
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<ClientState, AreaHeader?>> AreaHeader = new();
@@ -202,6 +223,10 @@ public static class GameEvents
     /// answers does nothing.</summary>
     public static readonly GameEvent<Func<NpcOption, Task<bool>>> NpcOption = new();
 
+    /// <summary>The player right-clicked a removable buff icon to cancel it (C→S 0x004b, buff instance id).
+    /// True: this subscriber owned and removed that buff.</summary>
+    public static readonly GameEvent<Func<ClientState, ushort, Task<bool>>> BuffCancel = new();
+
     /// <summary>Whether this subscriber fills the sub-area of an ExtraTerrainFeatures row (by its Id). A gate the layout links
     /// to such a sub-area (<see cref="AreaTransitionObject.Feature"/>) stands only where a subscriber answers true.</summary>
     public static readonly GameEvent<Func<ClientState, string, bool>> FeatureFilled = new();
@@ -221,6 +246,13 @@ public static class GameEvents
 
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
+
+    /// <summary>Extra worn items counted as stat inputs only: their mods join the character's stat sources and conditions,
+    /// their local defences the armour slots' defences. They host no gems or granted skills, and checks that look for one
+    /// worn item (weapon hit stats, gem requirements, unique mechanics such as Her Embrace) still read the real inventory.
+    /// Rows outside the equipment rows are dropped; ids must be stable and distinct from real items.</summary>
+    public static readonly GameEvent<Func<ClientState, IReadOnlyList<(byte Row, InventoryItem Item)>,
+        IReadOnlyList<(byte Row, InventoryItem Item)>>> ItemStatSources = new();
 
     static readonly System.Collections.Concurrent.ConcurrentDictionary<ushort, GameEvent<Func<ClientState, byte[], Task<bool>>>> Packets = new();
 
@@ -260,6 +292,11 @@ public static class GameEvents
         foreach (var (owner, run) in PlayerLeaving.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(PlayerLeaving), () => run(conn, why));
     }
 
+    public static async Task RunCharacterAtRest(ClientState conn)
+    {
+        foreach (var (owner, run) in CharacterAtRest.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(CharacterAtRest),() => run(conn));
+    }
+
     public static async Task RunHideoutReady(ClientState conn)
     {
         foreach (var (owner, run) in HideoutReady.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(HideoutReady), () => run(conn));
@@ -269,6 +306,14 @@ public static class GameEvents
     {
         var messages = new List<(string, byte[])>();
         foreach (var (owner, run) in EnterMessages.Subscribers(conn)) GameEventOwners.Guard(owner, nameof(EnterMessages), () => messages.AddRange(run(conn)));
+        return messages;
+    }
+
+    public static List<(string Log, byte[] Message)> RunBeforeEnterMessages(ClientState conn)
+    {
+        var messages = new List<(string, byte[])>();
+        foreach (var (owner, run) in BeforeEnterMessages.Subscribers(conn))
+            GameEventOwners.Guard(owner, nameof(BeforeEnterMessages), () => messages.AddRange(run(conn)));
         return messages;
     }
 
@@ -295,6 +340,18 @@ public static class GameEvents
         {
             bool taken = false;
             if (await GameEventOwners.Guard(owner, nameof(NpcOption), async () => taken = await run(option)) && taken) return true;
+        }
+        return false;
+    }
+
+    /// <summary>True when a subscriber owned and removed the buff.</summary>
+    public static async Task<bool> RunBuffCancel(ClientState conn, ushort buffInstance)
+    {
+        if (!BuffCancel.Any) return false;
+        foreach (var (owner, run) in BuffCancel.Subscribers(conn))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(BuffCancel), async () => taken = await run(conn, buffInstance)) && taken) return true;
         }
         return false;
     }
@@ -367,6 +424,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, bool>> LootAllowed = new();
     /// <summary>True when an optional system handled closing the native reward dialogue.</summary>
     public static readonly GameEvent<Func<ClientState, Task<bool>>> RewardClosing = new();
+    /// <summary>A quest reward choice the server built for this QuestRewardOffers row; a module completes its league's
+    /// item parts. Return the item unchanged for no opinion; the first answer that changes it wins.</summary>
+    public static readonly GameEvent<Func<ClientState, int, Item, ItemCatalog.BaseType, Item>> RewardItem = new();
     /// <summary>A league encounter may refuse unrelated travel while its gate is closed.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, string?>> TravelRefusal = new();
     /// <summary>The Auth transfer answer, after failed-transfer recovery and before a successful ticket is sent.</summary>
@@ -394,6 +454,17 @@ public static class GameEvents
         return false;
     }
 
+    public static Item ResolveRewardItem(ClientState conn, int offer, Item item, ItemCatalog.BaseType type)
+    {
+        foreach (var (owner, run) in RewardItem.Subscribers(conn))
+        {
+            Item answer = item;
+            GameEventOwners.Guard(owner, nameof(RewardItem), () => answer = run(conn, offer, item, type));
+            if (answer != item) return answer;
+        }
+        return item;
+    }
+
     public static async Task RunResurrected(ClientState conn)
     {
         foreach (var run in Resurrected.For(conn)) await run(conn);
@@ -413,6 +484,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, uint, WorldItemObject, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> GroundItemUse = new();
     /// <summary>An NPC option was picked, before its action; false stops it.</summary>
     public static readonly GameEvent<Func<ClientState, NpcCatalog.Talk, Task<bool>>> NpcOptionPicked = new();
+    /// <summary>Whether an NPC opts into NPCTalk league quest flag filtering, automatic conversation matching, and
+    /// league-flag updates (<c>__col15/__col16/__col17/__col18</c>); false leaves other NPCs untouched.</summary>
+    public static readonly GameEvent<Func<ClientState, NpcCatalog.Npc, bool>> NpcUsesLeagueFlags = new();
     /// <summary>A read of client messages was handled.</summary>
     public static readonly GameEvent<Func<ClientState, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
     public static readonly GameEvent<Func<ClientState, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
@@ -425,6 +499,9 @@ public static class GameEvents
     /// <summary>Why the held item may not go into this inventory row (C→S 0x2a, 0x4a), for the log; null for no
     /// objection. The first objection wins.</summary>
     public static readonly GameEvent<Func<ClientState, byte, Item, string?>> InventoryRefusal = new();
+    /// <summary>Why a placement (possibly swapping out an existing item) may not go into this inventory row (C→S 0x2a,
+    /// 0x4a), for the log; null for no objection. The first objection wins.</summary>
+    public static readonly GameEvent<Func<InventoryPlacement, string?>> InventoryPlacementRefusal = new();
     public static readonly GameEvent<Func<ClientState, Task>> NpcDialogueClosing = new();
     /// <summary>A gem skill's cast: its effect id, skill id, where from, the action; true when the module took it, null for not its skill.</summary>
     public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
@@ -490,6 +567,17 @@ public static class GameEvents
         return true;
     }
 
+    public static bool UsesNpcLeagueFlags(ClientState conn, NpcCatalog.Npc npc)
+    {
+        foreach (var (owner, run) in NpcUsesLeagueFlags.Subscribers(conn))
+        {
+            bool answer = false;
+            GameEventOwners.Guard(owner, nameof(NpcUsesLeagueFlags), () => answer = run(conn, npc));
+            if (answer) return true;
+        }
+        return false;
+    }
+
     public static async Task RunMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)
     {
         foreach (var run in MessagesHandled.For(conn)) await run(conn, ids);
@@ -518,12 +606,23 @@ public static class GameEvents
         return slot;
     }
 
-    public static string? FirstInventoryRefusal(ClientState conn, byte row, Item item)
+    public static string? FirstInventoryRefusal(ClientState conn, byte row, Item item) =>
+        FirstInventoryRefusal(conn, row, item, null);
+
+    public static string? FirstInventoryRefusal(ClientState conn, byte row, Item item, InventoryItem? replaced)
     {
         foreach (var (owner, run) in InventoryRefusal.Subscribers(conn))
         {
             string? answer = null;
             GameEventOwners.Guard(owner, nameof(InventoryRefusal), () => answer = run(conn, row, item));
+            if (answer is not null) return answer;
+        }
+        if (!InventoryPlacementRefusal.Any) return null;
+        var placement = new InventoryPlacement(conn, row, item, replaced);
+        foreach (var (owner, run) in InventoryPlacementRefusal.Subscribers(conn))
+        {
+            string? answer = null;
+            GameEventOwners.Guard(owner, nameof(InventoryPlacementRefusal), () => answer = run(placement));
             if (answer is not null) return answer;
         }
         return null;

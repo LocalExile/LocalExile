@@ -13,7 +13,7 @@ using GameServer.Core;
 public sealed class StashRules
 {
     public UniqueStashLayout Uniques { get; private set; } = new();
-    public const byte Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Delve = 12, Blight = 13,
+    public const byte Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Folder = 16, Delve = 12, Blight = 13,
         Ultimatum = 14, Delirium = 15, Flask = 17, Gem = 18, Breach = 22;
 
     /// <summary>Fallback limit for slotted tabs without an item-specific currency-tab limit.</summary>

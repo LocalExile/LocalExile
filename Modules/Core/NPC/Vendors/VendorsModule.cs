@@ -15,14 +15,18 @@ public sealed class VendorsModule : IModule
     public void Load(IModuleContext module)
     {
         DivinationFeature.Load(module);
-        GameEvents.NpcTalk.Add(module.Manifest.Id, (conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
+        GameEvents.NpcTalk.Add(module.Manifest.Id, async (conn, id, npc) =>
+        {
+            conn.Shop = null;
+            return await BeginLillyGemIntroduction(conn, id, npc);
+        });
         GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
             (conn, args) => RefreshKirac(conn));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
         {
             var conn = ConnOf(kill.Player);
             if (kill.Monster.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Unique
-                && global::Game.MapRunOf(conn) is { } map && map.Owner.Equals(CharacterName(conn), StringComparison.OrdinalIgnoreCase))
+                && global::Game.MapRunOf(conn) is { Atlas: true } map && map.Owner.Equals(CharacterName(conn), StringComparison.OrdinalIgnoreCase))
                 KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
         });
@@ -41,6 +45,7 @@ public sealed class VendorsModule : IModule
         });
         GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, async conn =>
         {
+            await FinishLillyGemIntroduction(conn);
             conn.Shop = null;
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
@@ -112,6 +117,12 @@ public sealed class VendorsModule : IModule
         {
             var (remote, stream, ciphers) = conn.Wire;
             await CtrlBuyFromShop(remote, stream, ciphers, conn, InstanceNpcs.ReadCtrlBuy(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceNpcs.TakeAllRewardsId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await ClaimAllNpcRewards(remote, stream, ciphers, conn);
             return true;
         });
     }

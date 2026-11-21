@@ -6,6 +6,20 @@ namespace GameServer.Core.Protocol.Instance;
 public static class InstanceNpcs
 {
     public const ushort TalkId = 0x84;
+
+    // S→C 0xbe (3.29.3c writer 0x1421a9f80): VoteType row plus one (zero closes),
+    // answered flag, local voter flag, and the u8 count of (name, VoteState) entries.
+    // A solo vote has no other voters to list.
+    public static byte[] OpenVote(byte row) => new LoginWriter().U16(0xbe).U8((byte)(row + 1)).U8(0).U8(1).U8(0).ToArray();
+    public static byte[] CloseVote() => new LoginWriter().U16(0xbe).U8(0).U8(0).U8(0).U8(0).ToArray();
+
+    // C→S 0xbd (sender 0x14026ff10): one byte, 1 accepts and 0 rejects.
+    public const ushort VoteAnswerId = 0xbd;
+    public const int VoteAnswerLength = 3;
+
+    // NPC component update reader 0x141e7b780 uses the same two fields as creation.
+    public static byte[] DialogueAvailability(uint objectId, byte componentIndex, bool available) =>
+        InstanceEntities.ComponentUpdate(objectId, componentIndex, [(byte)(available ? 1 : 0), 0xff]);
     // HideoutSelectionWindow in the native screen-name table at 0x142fd89f0.
     public const byte HideoutSelectionUi = 0x22;
 
@@ -79,6 +93,13 @@ public static class InstanceNpcs
 
     /// <summary>The length of a C→S 0x8a at the start of <paramref name="data"/>, or null until its compact int arrived.</summary>
     public static int? CtrlBuyLength(ReadOnlySpan<byte> data) => data.Length < 9 ? null : 8 + CompactUIntLength(data[8]) + 2;
+
+    /// <summary>C→S 0x8b (3 bytes, class 0x1435cb1f0, write 0x140e27920, live 2026-11-19 on "TAKE ALL" in a multi-item
+    /// quest reward offer, QuestRewardOffers __col6 = 1): u16 BE 0x008b, u8 flag (0x00).</summary>
+    public const ushort TakeAllRewardsId = 0x8b;
+    public const int TakeAllRewardsLength = 3;
+
+    public static byte ReadTakeAllRewards(ReadOnlySpan<byte> m) => m[2];
 
     static int CompactUIntLength(byte first) => first < 0x80 ? 1 : first < 0xc0 ? 2 : first < 0xe0 ? 3 : first < 0xf0 ? 4 : 5;
 
@@ -236,8 +257,10 @@ public static class InstanceNpcs
 /// <summary>
 /// An NPC (Agents/docs/protocol/17-npcs.md): a 0x2bb object of an NPCs.dat type such as <c>Metadata/NPC/Act1/Tarkleigh</c>.
 /// <c>Metadata/NPC/NPC</c> deserializes Positioned, Animated, BaseEvents, InteractionAction, NPC and MinimapIcon (client
-/// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable and StateMachine.
-/// <para>NPC (slot 17 0x141e7b6e0) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents reads nothing.</para>
+/// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable, StateMachine, Stats (written as a
+/// monster's), Functions or ControlZone. Brackets is not written.
+/// <para>NPC (slot 17 0x141e7b6e0) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents,
+/// Functions and ControlZone read nothing (slot 17 0x1400f1180: ret).</para>
 /// <para><paramref name="Model"/>: an .ao for Animated when the type's own is missing or not the one the town room places
 /// (Irasha's type is <c>Metadata/NPC/NPC</c>); <paramref name="Height"/>: a fixed world z (Positioned flags0 bit2), as the
 /// room's record gives it.</para>
@@ -249,7 +272,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 
-    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine"];
+    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "Stats", "Functions", "ControlZone"];
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
@@ -281,19 +304,11 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 case "NPC": w.U8(1).U8(0xff); break;
                 case "MinimapIcon": w.U8(0); break;
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
-                case "StateMachine":
-                    var sm = StateMachine!;
-                    w.U8((byte)sm.SharedStates.Count).U8((byte)sm.SharedTimers);
-                    foreach (int v in sm.SharedStates)
-                    {
-                        var lw = new LoginWriter();
-                        InstanceProtocol.CompactInt(lw, v);
-                        foreach (byte b in lw.ToArray()) w.U8(b);
-                        w.U8(0);
-                    }
-                    for (int i = 0; i < sm.SharedTimers; i++) w.U32(0).U8(0);
-                    break;
-                // BaseEvents: no data.
+                case "StateMachine": StateMachine!.Write(w); break;
+                // As a monster's (ClientInternalStats 0x1421c98b0): compact count + pairs, u32, f32, u8. Empty: the
+                // type's own stats are the server's.
+                case "Stats": w.Stats(null).U32(0).U32(0).U8(0); break;
+                // BaseEvents, Functions, ControlZone: no data.
             }
         }
         w.U8(0);            // tasks

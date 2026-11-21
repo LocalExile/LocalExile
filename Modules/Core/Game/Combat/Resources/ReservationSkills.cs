@@ -140,7 +140,7 @@ public static partial class Game
         return SkillRadius(conn, basis > 0 ? basis : fallback, skill.Stats, spell: false, aura.Effect, player);
     }
 
-    static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         AuraCatalog.Aura aura, (int X, int Y) at, double now, uint target = 0)
     {
         using var statScope = new PlayerStatScope(conn, fresh: true);
@@ -228,9 +228,12 @@ public static partial class Game
                         && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, now) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
-                CommitAcceptedHitLocked(conn, id, m, hit, damage, now, aura.Name, playerKill: true);
+                var to = m.Walk.Position(now);
+                // Immediate kind 3 before the life update reaches the client's result consumer; 0xffff has no consuming action.
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(PlayerId, 0xffff, id,
-                    flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), aura.Name + " triggered hit", id, m, WorldId: PlayerId));
+                    flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
+                    angle: HitAngle(to.X - at.X, to.Y - at.Y)), aura.Name + " triggered hit", id, m, WorldId: PlayerId));
+                CommitAcceptedHitLocked(conn, id, m, hit, damage, now, aura.Name, playerKill: true);
                 if (ignited is { } packetsToSend)
                     for (int i = 0; i < packetsToSend.Count; i++)
                         conn.Minions.OutputQueue.Add(new(packetsToSend[i],

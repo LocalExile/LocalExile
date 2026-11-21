@@ -85,16 +85,10 @@ internal static class ArenaHazards
                         : Math.Min(Resistance(p, type), MaxResistance(p, type));
                     double factor = p.ElementalAilments.DamageTakenFactor(now, Get("base_damage_taken_+%")
                         + Get(type.ToString().ToLowerInvariant() + "_damage_taken_+%"))
-                        * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
-                        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
+                        * IncomingResourceDefences.FinalTakenFactor(p.Pools, Get);
                     double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];
                     int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
-                    bool chaosBypasses = type == DamageType.Chaos && Get("chaos_damage_does_not_bypass_energy_shield") == 0
-                        && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
-                        && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
-                            && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
-                        && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0
-                            && (long)p.PlayerMana * 2 > p.Pools.Mana);
+                    bool chaosBypasses = type == DamageType.Chaos && ChaosDamageBypassesEnergyShield(p, stats);
                     loss += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
                         : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
                 }
@@ -120,13 +114,15 @@ internal static class ArenaHazards
                     damage = g.ShieldPool.Damage(damage, false, now);
                     int absorbed = beforeShield - damage;
                     g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                    if (absorbed > 0 || damage > 0) p.Minions.OutputQueue.Add(new([], "campaign ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                    if (absorbed > 0 || damage > 0) p.Minions.OutputQueue.Add(new([], "campaign ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
+                        DeathKind: DotDeathKind(g.Monster, g.Monster.Life)));
                     if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                 }
-                return before == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
+                return before == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife,
+                    u2c: p.PlayerLife == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal);
             }
         });
         if (shieldChanged) await SendPlayerEnergyShield(w.Remote, w.Stream, w.Ciphers, p);
-        if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "campaign arena ground");
+        if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "campaign arena ground", deathKind: InstanceProtocol.DeathKindDegen);
     }
 }

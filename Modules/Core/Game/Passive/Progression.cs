@@ -197,6 +197,7 @@ public static partial class Game
         ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IEnumerable<ushort>? nodes, int? level, Action? afterConditionCapture)
     {
+        equipment = EquipmentForStats(conn, equipment);
         // A level change can trim the list while /set_stat builds pools outside the combat lock.
         // Mastery dictionaries are replaced as a whole, so retaining their current reference is safe.
         long probe = ConnectionPerformance.ProbeStart();   // Game_TRACE=lag: [latency-lookup]
@@ -1776,7 +1777,7 @@ public static partial class Game
             return;
         }
         conn.OfferedDescendancyRow = 0;
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy row {row} chosen");
+        await ChangeArea(remote, stream, ciphers, conn, AscendancyReload(conn), $"descendancy row {row} chosen");
     }
 
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an

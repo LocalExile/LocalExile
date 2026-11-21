@@ -154,7 +154,7 @@ public static partial class Game
         var lifetime = CombatLifetime;
         var source = SupportedSkill(conn, skillId);
         bool SourceCurrent() => SupportedSkill(conn, skillId) is var live && live.Host == source.Host
-            && SameTotemSource(source, live) && IsTotemSkill(conn, skillId);
+            && SameSocketedSkillSource(source, live) && IsTotemSkill(conn, skillId);
         bool Valid() => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && SourceCurrent()
             && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0;
         double start = AreaTime(conn), placedAt = start + seconds;

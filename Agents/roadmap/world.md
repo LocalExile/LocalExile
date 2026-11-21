@@ -60,8 +60,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     rooms ("Unknown Incursion Temple room hash").
   - Sanctum (4): the floors (`SanctumCellar`, `SanctumCrypt`, `SanctumNave`, `SanctumVaults`); the client rebuilds
     the floor graph from the rooms the server sends.
-  - Deepwater (2): the 3.29 league's DeepwaterEncounter and DeepwaterEncounterVoyage, built from a biome grid the
-    server sends; the only seed-1 traces the port does not match.
+  - Deepwater (2): generated on the server (status); left: run the gate on their seed-1 traces (the default grid; not
+    possible on the host that ported them).
 - The daily Labyrinth layout is step 1 of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
@@ -106,6 +106,33 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Done when:** the Wildwood's Wisp collection and its areas exist server-side, and the Primal Wisps found node
   feeds `azmeri_primalist_wisps_found_+%` into that system.
 
+### The Allflame (Deepwater) league
+
+- **Known:** the client calls the 3.29 league Deepwater: league category 59 (LeagueCategoryToDisplayName), Rulesets
+  171 DeepwaterRules and 172 DeepwaterHubRules, the hub DeepwaterHub "The Sovereign" (area type 53), the encounter
+  areas DeepwaterEncounter and DeepwaterEncounterVoyage with the biomes DeepwaterSandy, CoralForest, CoralReef and
+  ThermalVents (never shipped), and the `Deepwater*` tables.
+  What works (including Charts, Voyages, Vesper crafting, Ducats, Cursed Ducats, Messages in a Bottle, Ship Upgrades,
+  Quests 209–211, Act 1 Deepwater Fairgraves, Kishara's Rest Velka & Cressie, Velka Bloodline, and Auto-Lanterns) is in
+  the [status](../status/hideouts-and-maps.md) ("The Sovereign").
+  Ruleset 171 crashes the client where the DeepwaterPlugin is missing; it is sent only in the encounter areas
+  ([03](../docs/protocol/03-area-and-world.md) §8).
+  No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
+  Voyage) and the client's data and code are the sources.
+- **Start** (remaining polish and follow-ups):
+  1. Encounter levels: run the levelgen gate on the seed-1 traces of `DeepwaterEncounter` and `DeepwaterEncounterVoyage`
+     ([server-side level generation](#server-side-level-generation)).
+  2. Chart & Voyage polish: the Active Voyage window (0x72), Valerie's lantern callout lines (no trigger found), the six
+     unsupported chart stats (Wildwood Wisps, Pantheon rare mods, rare fracture-on-death, Friendly Jellyfish AI, wealthy
+     barrel clusters, highly fishy), the Pointer arrow, and account+league shared Chart Locker / charted storage
+     (`Inventories.__col6` = 1) once an account-wide inventory store exists.
+  3. Deferred niche crafting orbs: Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory orbs.
+  4. Global `NPCTalk` league-flag enforcement for the other 139 non-Deepwater NPCs (currently opt-in via
+     `GameEvents.NpcUsesLeagueFlags` for NPCs 789–795).
+- **Done when:** an Allflame character plays the full league progression (Coast → The Sovereign → Charts & Voyages →
+  Ship Upgrades → Fairgraves → Vesper Crafting → Kishara's Rest Velka & Cressie → Velka Bloodline) with live-client
+  verification.
+
 ### Vaal Vessels
 
 - **Known:** strongboxes are done ([status](../status/world.md), "Strongboxes"). Vaal Vessels are strongboxes too
@@ -120,7 +147,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 - **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the
   supported ones ([re/011](../docs/re/011-level-generation.md), "Labyrinth pass").
-  The day's layout is sent with each room in it, and a Normal run works ([status](../status/world.md), "A Labyrinth run").
+  The day's layout is sent with each room in it. Normal and Cruel are playable from the plaza
+  ([status](../status/world.md), "A Labyrinth run").
   The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
   Labyrinth pin always shows.
   The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
@@ -151,7 +179,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      her Guardians' mortars, which the server throws (her `SummonSpecificMonstersFromMortars` action would pick its
      own landing spots, where the server places the guardians).
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
-  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  3. The Merciless Labyrinth (its select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,

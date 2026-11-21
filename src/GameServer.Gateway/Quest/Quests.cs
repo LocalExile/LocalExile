@@ -44,7 +44,11 @@ public static partial class Quests
     /// <summary>A boss that forms once no living monster of any of the varieties is left in the instance (The Rotting
     /// Core's Depraved Trinity after Doedre's, Maligaro's and Shavronne's souls), at its own boss point
     /// (<see cref="AreaPopulation.LaterFormPoints"/>), else where the last of them died. The area does not place it.</summary>
-    public sealed record FormsRule(string Area, string[] Varieties, string Next) : Rule;
+    public sealed record FormsRule(string Area, string[] Varieties, string Next) : Rule
+    {
+        public string? BossPoint { get; init; }
+        public int? InitialLifePercent { get; init; }
+    }
     /// <summary>Flags set when the player comes within <see cref="SightRange"/> of a living monster of the variety.</summary>
     public sealed record SeenRule(string Area, string Variety, string[] Flags) : Rule;
     /// <summary>Flags set when the player comes within <see cref="SightRange"/> of a room object of this type (an NPC that
@@ -107,6 +111,8 @@ public static partial class Quests
     /// removed and transitioned as the flags change (the Game module's QuestNpcs.cs).</summary>
     public sealed record NpcRule(string Area, string NpcType, string? GoneWith, string? TransitionedBy = null, string? ShownBy = null) : Rule
     {
+        /// <summary>The freed/flagged state, when it is not the last state in the NPC's asset.</summary>
+        public byte? TransitionedTo { get; init; }
         /// <summary>A monster variety whose death in the instance frees the NPC: Transitionable 1 → 2 (Clarissa kneels until
         /// her guards' captain dies).</summary>
         public string? FreedBy { get; init; }
@@ -129,7 +135,11 @@ public static partial class Quests
     /// scripts spawn them, no room places them. Until <see cref="GoneWith"/> (null: it stays for the instance); with
     /// GoneWith set it also stands beside the boss on a later visit while the boss's kill flags are set and GoneWith is not
     /// (SinInnocence gives a5q6 only there).</summary>
-    public sealed record AppearsRule(string Area, string Variety, string NpcType, string? GoneWith, bool StayAfterReward = false) : Rule;
+    public sealed record AppearsRule(string Area, string Variety, string NpcType, string? GoneWith, bool StayAfterReward = false) : Rule
+    {
+        /// <summary>Advance the newly created NPC once to release its paused entrance animation.</summary>
+        public bool AdvanceOnAppearance { get; init; }
+    }
     /// <summary>A dialogue row of the NPC with this option text hands in every carried copy of the item, setting its
     /// remove_flag in the same save, for rows whose own flags do not (Hargan's "Victario's Holdfasts" takes each Platinum
     /// Bust carried: a3q11-DeliveredBust1–3 have no NPCTalk setter).</summary>
@@ -202,6 +212,10 @@ public static partial class Quests
             new NearRule(area, objectType, flags) { Needs = needs };
         public static Rule KilledAll(string area, string[] varieties, params string[] flags) => new KilledAllRule(area, varieties, flags);
         public static Rule Forms(string area, string[] varieties, string next) => new FormsRule(area, varieties, next);
+        public static Rule Forms(string area, string[] varieties, string next, string bossPoint) =>
+            new FormsRule(area, varieties, next) { BossPoint = bossPoint };
+        public static Rule Forms(string area, string[] varieties, string next, int initialLifePercent) =>
+            new FormsRule(area, varieties, next) { InitialLifePercent = initialLifePercent };
         public static Rule NearExit(string area, string to, params string[] flags) => new NearExitRule(area, to, flags);
         public static Rule Entered(string area, params string[] flags) => new EnteredRule(area, flags);
         public static Rule Used(string area, string objectType, params string[] flags) => new UsedRule(area, objectType, flags);
@@ -219,12 +233,13 @@ public static partial class Quests
         public static Rule SpawnsNear(string area, string objectType, string variety, string? until = null) => new NearSpawnRule(area, objectType, variety, until);
         public static Rule Drops(string area, string variety, string item) => new DropRule(area, variety, item);
         public static Rule Npc(string area, string npcType, string? goneWith, string? transitionedBy = null, string? shownBy = null,
-            string? freedBy = null, string? atObject = null) =>
-            new NpcRule(area, npcType, goneWith, transitionedBy, shownBy) { FreedBy = freedBy, AtObject = atObject };
+            string? freedBy = null, string? atObject = null, byte? transitionedTo = null) =>
+            new NpcRule(area, npcType, goneWith, transitionedBy, shownBy) { FreedBy = freedBy, AtObject = atObject, TransitionedTo = transitionedTo };
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
-        public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false) =>
-            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward);
+        public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false,
+            bool advanceOnAppearance = false) =>
+            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward) { AdvanceOnAppearance = advanceOnAppearance };
         public static Rule HandIn(string npc, string option, string item, int? row = null) => new HandInRule(npc, option, item) { Row = row };
         public static Rule TalkRow(int row, params string[] flags) => new TalkRowRule(row, flags);
         public static Rule Portal(string area, string atObject, string to, string type) => new PortalRule(area, atObject, to, type);
@@ -397,6 +412,10 @@ public static partial class Quests
         /// <summary>The bosses a death of this variety may form (<see cref="FormsRule"/>).</summary>
         public IReadOnlyList<FormsRule> FormsAfter(string areaId, string varietyId) =>
             [.. In<FormsRule>(areaId).Where(r => r.Varieties.Contains(varietyId))];
+
+        /// <summary>Later forms with explicit placements at the area's fitted boss points.</summary>
+        public IEnumerable<FormsRule> FormPlacements(string areaId) =>
+            In<FormsRule>(areaId).Where(r => r.BossPoint is not null);
 
         public IReadOnlyList<string> OnMonsterSeen(string areaId, string varietyId) =>
             [.. In<SeenRule>(areaId).Where(r => r.Variety == varietyId).SelectMany(r => r.Flags).Distinct()];
@@ -666,6 +685,9 @@ public static partial class Quests
         public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296,
             UnlockedMapDevice = 350;
 
+        /// <summary>The client's number of league quest flags (ids 1 to 0x776); a table's league flag column uses 1911 for none.</summary>
+        public const int Count = 0x776;
+
         /// <summary>Kirac's Purchase Items (NPCTalk column 16): the client hides the buy option without it.</summary>
         public const int UsedMapDevice = 348;
 
@@ -676,8 +698,8 @@ public static partial class Quests
         /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
         /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
         /// VillageKingsmarchUnlocked, HeistVisitedHub, ChayulaLeagueAreaUnlocked, AncestralHallsOfDeadUnlocked,
-        /// NecropolisAreaUnlocked, DeepwaterBoatUnlocked (0x140aa7530).</summary>
-        public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419, 1834];
+        /// NecropolisAreaUnlocked (0x140aa7530).</summary>
+        public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419];
 
         public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
             DelveEncounterComplete, .. WorldPanelPins];

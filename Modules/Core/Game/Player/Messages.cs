@@ -521,6 +521,11 @@ public static partial class Game
             }
             else if (id == InstanceEntities.PanelToggleId)
                 Console.WriteLine($"[gateway] {remote} <= 0x0123 panel {(bytes[2] != 0 ? "opened" : "closed")}");
+            else if (id == InstanceEntities.CancelBuffId)
+            {
+                uint raw = InstanceEntities.ReadCancelBuff(bytes);
+                if (raw <= ushort.MaxValue) await GameEvents.RunBuffCancel(conn, (ushort)raw);
+            }
             else if (id == InstanceItems.DropItemId)
                 await DropItem(remote, stream, ciphers, conn);
             else if (id == InstanceItems.CommandId)
@@ -621,6 +626,10 @@ public static partial class Game
             }
             else if (id == InstanceItems.InventoryRequestId)
                 Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} (inventory request, not handled yet): {Convert.ToHexString(bytes)}");
+            else if (id == InstanceSkinTransfers.BindId)
+                await NativeSkinTransfer(remote, stream, ciphers, conn, InstanceSkinTransfers.ReadBind(bytes));
+            else if (id == InstanceSkinTransfers.ReclaimId)
+                await NativeReclaimSkin(remote, stream, ciphers, conn, InstanceSkinTransfers.ReadReclaim(bytes));
             else if (id == InstanceItems.PickUpItemId)
                 await PickUpItem(remote, stream, ciphers, conn, InstanceItems.ReadPickUpItem(bytes));
             else if (id == InstanceProtocol.ExitToCharacterSelectId)
@@ -671,6 +680,8 @@ public static partial class Game
             }
             else if (id == InstanceProtocol.ChannelEndId)
                 ChannelReleased(conn, conn.ClockAt(readAt));
+            else if (id == InstanceProtocol.RetargetActionId)
+                await RetargetAction(remote, stream, ciphers, conn, InstanceProtocol.ReadRetargetAction(bytes), readAt);
             else if (id == InstanceProtocol.SwapWeaponsId)
             {
                 // The weapon swap: the hands' rows and the other set's trade their items (the client shows the active set in
@@ -745,8 +756,24 @@ public static partial class Game
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
                 await TakeFromStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, all: move.Bulk != 0);
             }
-            else if (id == InstanceStash.MoveTabId)
-                Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash tab into a folder (not handled): {Convert.ToHexString(bytes)}");
+            else if (id == InstanceStash.MoveTabId && bytes.Length >= InstanceStash.MoveTabLength)
+            {
+                // A tab into a folder, out of one, or (its own index as the folder) into a new one; the list goes out again.
+                var (kind, tab, folder) = InstanceStash.ReadMoveTab(bytes);
+                if (kind == InstanceStash.Guild && conn.Ssf) continue;
+                int? done = (kind == InstanceStash.Guild ? GuildStashOf(conn) : PersonalStashOf(conn)).MoveToFolder(tab, folder);
+                Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash {kind} tab {tab} into folder {(folder == ushort.MaxValue ? "none" : folder == tab ? "(new)" : folder)}: " +
+                    (done is int f ? f == ushort.MaxValue ? "out of its folder" : $"in folder {f}" : "refused"));
+                await SendTabListAgain(remote, stream, ciphers, conn, kind);
+            }
+            else if (id == InstanceStash.DeleteFolderId && bytes.Length >= InstanceStash.DeleteFolderLength)
+            {
+                var (kind, folder) = InstanceStash.ReadDeleteFolder(bytes);
+                if (kind == InstanceStash.Guild && conn.Ssf) continue;
+                bool done = (kind == InstanceStash.Guild ? GuildStashOf(conn) : PersonalStashOf(conn)).DeleteFolder(folder);
+                Console.WriteLine($"[gateway] {remote} <= 0x00d2 stash {kind} folder {folder} deleted: {(done ? "its tabs moved out" : "refused")}");
+                await SendTabListAgain(remote, stream, ciphers, conn, kind);
+            }
             else if (id == InstanceNpcs.OptionId)
                 await ChooseNpcOption(remote, stream, ciphers, conn, InstanceNpcs.ReadOption(bytes));
             else if (id == InstanceHideouts.SelectId)
@@ -873,6 +900,27 @@ public static partial class Game
                         if (conn.OwnedCombatState is RampageWorld world) EnsureRampageWorker(conn, world);
                 }
             }
+            else if (id == InstanceItems.CurrencyApplicationForesightRequestId)
+            {
+                // C→S 0x29d: Hinekora's Lock preview request (20 bytes). The 0x2a0 answer uses the same key.
+                var req = InstanceItems.ReadCurrencyApplicationForesightRequest(bytes);
+                var items = ItemsOf(conn);
+                var currency = items.RowOf(req.CurrencyId) is byte currencyRow
+                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == req.CurrencyId) : null;
+                var target = items.RowOf(req.TargetId) is byte targetRow
+                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == req.TargetId) : null;
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                    ? CurrencyResult(conn, target.Item, currency.Item.TypeHash,
+                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
+                    : null;
+                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
+                conn.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId,
+                    target?.Item.ForeseeSeed ?? 0, preview);
+                await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
+                    req.Key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+                    preview is null ? [] : [preview]),
+                    $"0x02a0 foresight preview key {req.Key} for item {req.TargetId}: {(preview is null ? "refused" : "preview")}");
+            }
         }
         // a1q5: after a read that moved items, the Medicine Chest's flag (and its removal once Nessa has one), here on the
         // message path so the inventory revisions stay in order.
@@ -881,31 +929,6 @@ public static partial class Game
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
-            // C→S 0x29d: Hinekora's Lock preview request: u16 key, u32 currency inventory, u32 currency id,
-            // u32 target inventory, u32 target id (all BE after the key). The 0x2a0 answer uses the same key.
-            if (uid == 0x029d && unknown.Length >= 20)
-            {
-                static uint U32(byte[] b, int i) => (uint)(b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]);
-                ushort key = (ushort)(unknown[2] << 8 | unknown[3]);
-                uint currencyInventory = U32(unknown, 4), currencyId = U32(unknown, 8);
-                uint targetInventory = U32(unknown, 12), targetId = U32(unknown, 16);
-                var items = ItemsOf(conn);
-                var currency = items.RowOf(currencyId) is byte currencyRow
-                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == currencyId) : null;
-                var target = items.RowOf(targetId) is byte targetRow
-                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == targetId) : null;
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
-                    ? CurrencyResult(conn, target.Item, currency.Item.TypeHash,
-                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
-                    : null;
-                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
-                conn.ForesightRequest = (key, currencyInventory, currencyId, targetInventory, targetId,
-                    target?.Item.ForeseeSeed ?? 0, preview);
-                await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
-                    key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
-                    preview is null ? [] : [preview]),
-                    $"0x02a0 foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
-            }
             // Unframed messages have the hooks too.
             if (GameEvents.WantsPacket(uid)) await GameEvents.AnyPacket(conn, uid, unknown);
         }

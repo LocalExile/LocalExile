@@ -5,6 +5,32 @@ namespace GameServer.Gateway.Tests;
 public class HarvestAndInnocenceTests
 {
     [Fact]
+    public void Dominus_waits_for_both_waves_of_tower_unique_monsters()
+    {
+        using var registration = Quests.Register("dominus-wave-test", QuestObjectsModule.Acts());
+        var rules = Quests.For(new HashSet<string> { "dominus-wave-test" });
+        const string area = Act3Areas.UpperSceptreOfGod;
+        foreach (string guard in Act3Monsters.DominusLegionnaires)
+        {
+            Assert.False(rules.QuestSpawned(area, guard));
+            var wave = rules.FormsAfter(area, guard);
+            Assert.Equal(Act3Monsters.DominusMiscreations, wave.Select(rule => rule.Next));
+            Assert.All(wave, rule => Assert.Equal(Act3Monsters.DominusLegionnaires, rule.Varieties));
+        }
+        foreach (string miscreation in Act3Monsters.DominusMiscreations)
+        {
+            Assert.True(Game.Monsters.Find(miscreation) is { Supported: true });
+            Assert.True(rules.QuestSpawned(area, miscreation));
+            var boss = Assert.Single(rules.FormsAfter(area, miscreation));
+            Assert.Equal(Act3Monsters.DominusMiscreations, boss.Varieties);
+            Assert.Equal(Act3Monsters.Dominus, boss.Next);
+            Assert.Equal("mapboss2", boss.BossPoint);
+        }
+        Assert.True(rules.QuestSpawned(area, Act3Monsters.Dominus));
+        Assert.Equal(Act3Monsters.DominusAscendant, rules.SecondForm(area, Act3Monsters.Dominus));
+    }
+
+    [Fact]
     public void Abberath_waits_in_his_own_final_arena_after_the_first_fight()
     {
         using var registration = Quests.Register("abberath-arena-test", QuestObjectsModule.Acts());
@@ -38,6 +64,43 @@ public class HarvestAndInnocenceTests
     }
 
     [Fact]
+    public async Task Shakari_retires_at_65_percent_and_resumes_in_her_second_arena()
+    {
+        using var fixture = new MinionUtilityTests.Fixture();
+        using var registration = Quests.Register("oasis-test", QuestObjectsModule.Acts());
+        const string area = Act9Areas.Oasis;
+        var c = new ClientState(new(1, area, 300, 300, 20, 20, (_, _) => true, []), 1, 1)
+        {
+            Character = fixture.Conn.Character, Instance = new(),
+            LeagueModule = new(new GameServer.Core.Accounts.League("oasis-test", "Standard", false, false),
+                new HashSet<string> { "oasis-test", "Game" }),
+            Wire = ("oasis", fixture.Stream, fixture.Ciphers),
+        };
+        var rules = Game.QuestsOf(c);
+        var form = Assert.Single(rules.FormsAfter(area, Act9Monsters.Shakari));
+        Assert.Equal(65, form.InitialLifePercent);
+        Assert.Equal(Act9Monsters.Shakari2, form.Next);
+        Assert.Null(rules.SecondForm(area, Act9Monsters.Shakari));
+        var first = new SpawnedMonster("Shakari", c.NewMonsterWalk(1, 40, 40, 0, 0, unique: true), 50, 5, 1000)
+        {
+            Variety = Game.Monsters.Find(Act9Monsters.Shakari), Level = 61,
+            Threshold = rules.ThresholdOf(area, Act9Monsters.Shakari),
+        };
+        Assert.Equal(65, first.Threshold!.LifePct);
+        c.Monsters[1] = first;
+        c.LaterFormPoints[form.Next] = (180, 180);
+        first.Life = Game.TakeDamageLocked(first, int.MaxValue).Life;
+        Assert.Equal(650u, first.Life);
+        await Game.QuestThreshold("oasis", fixture.Stream, fixture.Ciphers, c, 1, first);
+        await Game.QuestThreshold("oasis", fixture.Stream, fixture.Ciphers, c, 1, first);
+        var second = Assert.Single(c.Monsters).Value;
+        Assert.Equal(form.Next, second.Variety!.Id);
+        Assert.Equal((180, 180), second.Walk.Position(0));
+        Assert.Equal((uint)(second.MaxLife * 65L / 100), second.Life);
+        Assert.False(c.HasQuestFlag("a9q5-KilledBoss"));
+    }
+
+    [Fact]
     public void Approximate_town_placements_move_to_floor_but_room_placements_keep_their_cell()
     {
         var layout = new AreaLayout(1, "test", 100, 100, 50, 50, (x, y) => x >= 50 && y == 50, []);
@@ -67,7 +130,9 @@ public class HarvestAndInnocenceTests
         desecrated.QuestFlags.Add("a10q2-KilledBoss");
         Assert.True(Game.TransitionShown(desecrated, 1, normal));
         Assert.False(Game.TransitionShown(desecrated, 2, shortcut));
-        desecrated.Instance.SetState(Act10Objects.ShortcutOpen);
+        var flags = Game.QuestsOf(desecrated).OnMonsterKilled(Act10Areas.DesecratedChambers, Act10Monsters.Avarius);
+        Assert.NotNull(Game.CommitQuestFlags(desecrated, flags));
+        Assert.DoesNotContain(Act10Objects.ShortcutOpen, desecrated.QuestFlags);
         Assert.True(Game.TransitionShown(desecrated, 2, shortcut));
         Assert.False(Game.TransitionShown(new ClientState(desecrated.Layout, 1, 1)
         { Instance = new(), LeagueModule = conn.LeagueModule }, 2, shortcut));

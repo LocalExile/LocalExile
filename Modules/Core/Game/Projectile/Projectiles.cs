@@ -531,6 +531,7 @@ public static partial class Game
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
                 shot.Penetration, gambler.InvertsResistance(random));
+            if (shot.FromTrapOrMine) damage = MonsterTakesTrapOrMineHit(target, mitigated, shot.Spell, at);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
             LeechOnHitLocked(Conn, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage, shot.Leech);
@@ -603,7 +604,8 @@ public static partial class Game
             // ImpactAnimationIds: Fireball's fireball_explode), as a monster's does. Without one the object was only
             // removed, so a triggered, totem, trap or mine Fireball showed no explosion, while the client plays it for
             // its own cast (live 2026-11-17).
-            if (presentation.ImpactClip is null && !presentation.StayOnImpact && p.Use.Payload is ProjectileOffense
+            if (value.Kind == ProjectileEventKind.End && presentation.ImpactClip is null && !presentation.StayOnImpact
+                && p.Use.Payload is ProjectileOffense
                 && SkillsFor(Conn).Clips(p.Profile.Id)?.Impact is { } rigImpact)
                 presentation = presentation with
                 {
