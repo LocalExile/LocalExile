@@ -135,13 +135,13 @@ static class DivinationRewards
             && (ordinaryCorruption || reward.TwoImplicit || reward.Equipment?.Implicits == -2))
         {
             int count = reward.Equipment?.Implicits == -2 ? random.Next(1, 3) : reward.TwoImplicit ? 2 : 1;
-            if (CorruptionImplicits(item, type, items, random, count) is not { } corrupted) return null;
+            if (CorruptionImplicits(item, type, rolls, random, count) is not { } corrupted) return null;
             item = corrupted;
         }
         return item with { Identified = reward.Equipment?.Unidentified != true, Corrupted = item.Corrupted || reward.Corrupted };
     }
 
-    static Item? CorruptionImplicits(Item item, ItemCatalog.BaseType type, ItemCatalog items, Random random, int count)
+    static Item? CorruptionImplicits(Item item, ItemCatalog.BaseType type, ItemRolls rolls, Random random, int count)
     {
         if (!type.Components.Contains("Mods") || type.Components.Contains("SkillGem")) return null;
         var kept = item.Mods.Where(m => m.Section != ModSection.Implicit).ToList();
@@ -149,18 +149,9 @@ static class DivinationRewards
         var hashes = new HashSet<ushort>();
         for (int index = 0; index < count; index++)
         {
-            var pool = items.Mods.All.Where(m => m.GenerationType == 5 && m.Domain == type.ModDomain
-                && m.Level <= item.ItemLevel && m.WeightFor(type.Tags) > 0
-                && !hashes.Contains(m.Hash) && !m.Families.Any(families.Contains)).ToArray();
-            if (pool.Length == 0)
+            var picked = rolls.CorruptionImplicit(type, item.ItemLevel, random, hashes, families);
+            if (picked is null)
                 return index == 0 && count == 1 ? item with { Corrupted = true } : null;
-            long draw = random.NextInt64(pool.Sum(m => (long)m.WeightFor(type.Tags)));
-            var picked = pool[^1];
-            foreach (var mod in pool)
-            {
-                draw -= mod.WeightFor(type.Tags);
-                if (draw < 0) { picked = mod; break; }
-            }
             kept.Insert(index, picked.Roll(ModSection.Implicit, random));
             families.UnionWith(picked.Families);
             hashes.Add(picked.Hash);

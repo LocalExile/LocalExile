@@ -141,6 +141,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   league's ordinary gem drop pool. *Of the Facetor* adds one corrupted level 21 gem from bases that can reach
   that level. *Of Divination* adds one to three level-eligible cards that redeem for corrupted items outside
   Ruthless. Their relative weights use a 3.29 Stacked Deck sample. The vessel's own rates are unknown.
+  *Of Dark Blessings* adds one or two unidentified corrupted uniques at area level. Each gains a single native
+  corruption implicit for its base. The pool follows observed global drops and uses the league's configured
+  unique weights. The vessel's per-item distribution and the inclusion of named maps still need direct measurements.
+  The map device currently opens the regular layout for all 16 named maps in this pool.
+  [Global unique drop levels and tiers](https://docs.google.com/spreadsheets/d/1o35umcCAH0zG0N1ozgj4MjeDxakxR52WfwfkTvZgk9w/edit)
   An area modifier for additional Vaal monsters supplies a count of packs.
   The 3.29.3c pack row contains three Vaal cultist varieties and a wraith. The category and fragment weights use Chris Wilson's
   [2014 account](https://www.reddit.com/r/pathofexile/comments/26vxhn/comment/chv7xio/). Current server weights,

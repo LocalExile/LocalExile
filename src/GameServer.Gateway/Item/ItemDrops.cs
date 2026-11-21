@@ -141,6 +141,17 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     public static Drop? WeightedCard(List<(ItemCatalog.BaseType Type, double Weight)> cards, Random rng) =>
         Pick(cards, rng) is { } type ? new(ItemCatalog.Create(type) with { StackSize = 1 }, type) : null;
 
+    /// <summary>Draw a fixed number of uniques with replacement using the league's relative weights.
+    /// An operator can disable the pool by setting every eligible weight to zero.</summary>
+    public IEnumerable<T> GuaranteedUniques<T>(IEnumerable<T> candidates, Func<T, string> name, int count, Random rng)
+        where T : class
+    {
+        var pool = candidates.Select(value => (Value: value, Weight: UniqueWeight(name(value))))
+            .Where(p => p.Weight > 0).ToList();
+        if (pool.Count == 0) yield break;
+        for (int i = 0; i < count; i++) yield return Pick(pool, rng)!;
+    }
+
     /// <summary>The published weights for a category, by BaseItemTypes Id. Empty when the database has not been seeded.</summary>
     static Dictionary<string, double> PublishedWeights(string category) =>
         DropDataProvider.Default.Current.ItemWeights

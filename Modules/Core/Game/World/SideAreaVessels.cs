@@ -205,6 +205,10 @@ public static class SideAreaVessels
         if (cards > 0 && !LeagueFor(conn).HardMode)
             rewards.AddRange(DivinationCards(catalog, level, cards, Random.Shared));
 
+        int uniques = Count("map_vaal_vessel_drop_x_single_implicit_corrupted_uniques");
+        if (uniques > 0)
+            rewards.AddRange(VaalVesselUniques.Roll(catalog, RollsFor(conn), UniquesFor(conn), DropsFor(conn), level, uniques, Random.Shared));
+
         int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
         if (orbs <= 0) return rewards;
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;

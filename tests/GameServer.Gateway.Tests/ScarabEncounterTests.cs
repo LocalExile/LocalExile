@@ -163,7 +163,8 @@ public sealed class ScarabEncounterTests
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselVaalOrbDrop_",
                 "MapCorruptedSideAreaVesselVaalGemDrop", "MapCorruptedSideAreaVesselLevelledGemDrop");
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselQuality23GemDrop",
-                "MapCorruptedSideAreaVesselLevel21GemDrop", "MapCorruptedSideAreaVesselDivinationCardDrop");
+                "MapCorruptedSideAreaVesselLevel21GemDrop", "MapCorruptedSideAreaVesselDivinationCardDrop",
+                "MapCorruptedSideAreaVesselSingleImplicitDrop");
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
             var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
@@ -519,7 +520,7 @@ public sealed class ScarabEncounterTests
             uint vaalOrb = Program.Items.Find(CurrencyEffects.VaalOrb)!.Hash;
             Assert.Equal(Count("MapCorruptedSideAreaVesselVaalOrbDrop_", 3),
                 drops.Where(item => item.TypeHash == vaalOrb).Sum(item => (int)item.StackSize));
-            var qualityDrops = drops.Where(item => item.Quality == 23).ToArray();
+            var qualityDrops = drops.Where(item => item.Rarity != ItemRarity.Unique && item.Quality == 23).ToArray();
             Assert.Equal(Count("MapCorruptedSideAreaVesselQuality23GemDrop"), qualityDrops.Length);
             var obtainable = GemSources.DropPool(Program.Items);
             Assert.All(qualityDrops, item =>
@@ -548,7 +549,22 @@ public sealed class ScarabEncounterTests
                 Assert.False(card.Corrupted);
                 Assert.True(DivinationRewards.Find(type.Id) is { Enabled: true, Corrupted: true });
             }
-            var rewards = drops.Where(item => item.TypeHash != vaalOrb && item.Quality != 23
+            var uniques = drops.Where(item => item.Rarity == ItemRarity.Unique).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVesselSingleImplicitDrop", 2), uniques.Length);
+            foreach (var item in uniques)
+            {
+                Assert.True(item.Corrupted);
+                Assert.False(item.Identified);
+                Assert.Equal(level, item.ItemLevel);
+                var type = Program.Items.ByHash(item.TypeHash)!;
+                var implicitMod = Assert.Single(item.Mods, m => m.Section == ModSection.Implicit
+                    && Program.Items.Mods.ByHash(m.Hash)!.GenerationType == 5);
+                var mod = Program.Items.Mods.ByHash(implicitMod.Hash)!;
+                Assert.Equal(type.ModDomain, mod.Domain);
+                Assert.InRange(level, mod.Level, mod.MaxLevel);
+                Assert.True(mod.WeightFor(type.Tags) > 0);
+            }
+            var rewards = drops.Where(item => item.Rarity != ItemRarity.Unique && item.TypeHash != vaalOrb && item.Quality != 23
                 && Program.Items.GemLevel(item) != 21 && Program.Items.ByHash(item.TypeHash)!.Class != "DivinationCard").ToArray();
             int levelledGems = Count("MapCorruptedSideAreaVesselLevelledGemDrop");
             int gems = Count("MapCorruptedSideAreaVesselVaalGemDrop", 2) + levelledGems;

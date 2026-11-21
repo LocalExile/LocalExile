@@ -151,6 +151,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   *Of Chiselling* adds a corrupted gem with 23% quality and *of the Facetor* adds a level 21 corrupted gem.
   *Of Divination* adds one to three cards for corrupted items outside Ruthless. The individual vessel rates
   still need a direct sample.
+  *Of Dark Blessings* adds one or two level-eligible uniques, each with one corruption implicit.
+  Its per-item rates and the named-map pool still need a vessel sample.
   A rolled additional Vaal pack count feeds the area population alongside ordinary packs.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
 - **Next.** Measure Blade Vortex targeting, movement and presentation in the client. Measure the fissure daemon's release, turns,
