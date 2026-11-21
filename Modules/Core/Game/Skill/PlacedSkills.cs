@@ -172,7 +172,12 @@ public static partial class Game
                 local: inputs.Attack ? MainHandLocalSources(conn) : null) };
     }
 
-    static double? MineBarrageSeconds(ClientState conn, ushort skill, SupportedGem gem) =>
+    // The object created at throw time keeps its actor even if the owner changes the skill before it triggers.
+    static string? PlacedBarrageRig(bool mine, string? trapType) => mine
+        ? "Metadata/Effects/Spells/landmine_new/land_mine.ao"
+        : trapType == "Metadata/MiscellaneousObjects/TrapNormal2" ? "Metadata/Monsters/trap_02/rig.ao" : null;
+
+    static double? PlacedBarrageSeconds(ClientState conn, ushort skill, SupportedGem gem) =>
         GolemStat(gem.Stats, "projectiles_barrage") != 0 && SkillsFor(conn).IsAttack(gem.Effect)
             ? SupportedAttackSeconds(conn, skill, ushort.MaxValue) : null;
 
@@ -288,12 +293,13 @@ public static partial class Game
                 var reserve = admission.Mine ? SupportedReservation(conn, admission.Skill) : null;
                 var offense = CapturePlacedDamage(conn, admission.Skill, gem);
                 var damage = offense?.Normal.Hit ?? SupportedHitFor(conn, admission.Skill, suppress: false);
-                double? barrageSeconds = admission.Mine ? MineBarrageSeconds(conn, admission.Skill, gem) : null;
-                var proxy = PlacedProxy(conn, admission.Skill, gem, barrageSeconds);
-                if (proxy is null) return null;
                 string path = admission.Mine
                     ? "Metadata/MiscellaneousObjects/RemoteMine"
                     : TrapVisuals.Value.GetValueOrDefault(Get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
+                double? barrageSeconds = PlacedBarrageRig(admission.Mine, path) is null
+                    ? null : PlacedBarrageSeconds(conn, admission.Skill, gem);
+                var proxy = PlacedProxy(conn, admission.Skill, gem, barrageSeconds);
+                if (proxy is null) return null;
                 var stats = new List<(uint, int)>();
                 foreach (var (name, value) in new[] { ("maximum_life", 1), ("uses_no_mana", 1),
                     ("is_trap_object", admission.Trap ? 1 : 0), ("is_remote_mine", admission.Mine ? 1 : 0) })
@@ -315,7 +321,7 @@ public static partial class Game
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
                         { LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
-                            BarrageProxy = barrageSeconds.HasValue ? proxy : null };
+                            TrapType = admission.Trap ? path : null, BarrageProxy = barrageSeconds.HasValue ? proxy : null };
                     conn.Placed.All.Add(id, placement);
                     if (!ReservationBudgetFits(conn))
                     {
@@ -515,10 +521,10 @@ public static partial class Game
             var shot = ownerAim ?? PlacedProjectileAim(at, conn.Walk.Position(now), conn.Monsters.Values
                 .Where(m => m is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Walk.Position(now)));
             BarrageAttack? barrage = null;
-            if (placed.Mine)
+            if (PlacedBarrageRig(placed.Mine, placed.TrapType) is { } rig)
             {
                 var gem = SupportedSkill(conn, placed.Skill);
-                double? duration = MineBarrageSeconds(conn, placed.Skill, gem);
+                double? duration = PlacedBarrageSeconds(conn, placed.Skill, gem);
                 if (duration.HasValue || placed.BarrageProxy is not null)
                 {
                     var next = PlacedProxy(conn, placed.Skill, gem, duration)!;
@@ -527,7 +533,7 @@ public static partial class Game
                     placed.BarrageProxy = duration.HasValue ? next : null;
                 }
                 if (duration is double seconds)
-                    barrage = DirectBarrage(conn, placed.Skill, payload.Effect, ushort.MaxValue, now, seconds, mine: true);
+                    barrage = DirectBarrage(conn, placed.Skill, payload.Effect, ushort.MaxValue, now, seconds, placedRig: rig);
             }
             StartAction(barrage is null ? aim : shot);
             int ownerEpoch = conn.IncomingHitEpoch;

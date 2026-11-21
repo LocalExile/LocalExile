@@ -68,7 +68,7 @@ Nothing yet.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
   Barrage Support paces direct bow and wand shots from the resolved count and the firing clip. Each shot can hit the same enemy. Movement and hit recovery stop the player’s remaining shots.
   Ballistas use their own firing clips and keep shooting when the owner moves. Their projectile counts and attack timing have Gateway coverage.
-  Barrage mines fire on RemoteMine's contact, and trap and mine throwing time scales with the final shot count.
+  Barrage mines and ordinary traps fire on their own contact frames, and throw time scales with the final shot count.
   Volley and Greater Volley release from distinct firing points. Extra arrows share each point’s spread.
   Linked Barrage shots sweep the points in order. Position, direction and blocked side launches have Gateway coverage.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).

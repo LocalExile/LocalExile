@@ -252,21 +252,23 @@ def default_attack_pools(text, animations, views):
     return result
 
 
-def mine_barrage(fetch_missing):
-    """The sole RemoteMine actor used by placed skills, with its own projectile contact and muzzle."""
-    act = "Metadata/MiscellaneousObjects/RemoteMine.act"
+def placed_barrage(act, fetch_missing):
+    """The firing clip, contact and muzzle shared by this placed actor's two Barrage fire roles."""
     if fetch_missing:
         fetch([act])
     text = read_text(act)
     if text is None:
-        raise ValueError(f"Missing mine ACT: {act}")
+        raise ValueError(f"Missing placed actor ACT: {act}")
     ao = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M).group(1)
-    fire, _ = stance_actions(text, ("BarrageFireMain",))["Unarmed"]["BarrageFireMain"]
+    roles = stance_actions(text, ("BarrageFireMain", "BarrageFireOff"))["Unarmed"]
+    fire, _ = roles["BarrageFireMain"]
+    if fire != "barrage" or fire != roles["BarrageFireOff"][0]:
+        raise ValueError(f"Unexpected Barrage firing roles in {act}: {roles}")
     amd = amd_of(ao, fetch_missing=fetch_missing)
     animations = rig_clips(amd, ao, fetch_missing=fetch_missing)
     index, clip = next((i, a) for i, a in enumerate(animations) if a["name"] == fire)
-    if fire != "barrage" or first_contact(clip["events"]) is None:
-        raise ValueError(f"Missing RemoteMine Barrage firing contact: {ao}/{fire}")
+    if first_contact(clip["events"]) is None:
+        raise ValueError(f"Missing Barrage firing contact: {ao}/{fire}")
     return ao, {"amd": amd, "act": act, "animations": contacts([clip]), "positions": positions([clip]),
                 "contacts": every_contact([clip]), "indices": {fire: index}, "clips": named_clips([clip])}
 
@@ -300,8 +302,9 @@ def main():
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao, fetch_missing=fetch_missing))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
               f"{len(result[ao]['defaultAttack'])} default attack stances", file=sys.stderr)
-    mine_ao, mine = mine_barrage(fetch_missing)
-    result[mine_ao] = mine
+    for act in ("RemoteMine", "Trap2"):
+        ao, rig = placed_barrage(f"Metadata/MiscellaneousObjects/{act}.act", fetch_missing)
+        result[ao] = rig
     with open(dest + ".tmp", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
     os.replace(dest + ".tmp", dest)   # never leave a truncated file for the Gateway

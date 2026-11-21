@@ -16,9 +16,10 @@ public sealed class PlacedSkills
         int Flat, int Percent, bool ReservesLife, int Efficiency)
     {
         public DamageSnapshot? Offense { get; init; }
+        public string? TrapType { get; init; }
         public double Armed { get; set; } = Armed;
         public GrantedSkill? BarrageProxy;
-        // A detonated mine can still be playing the firing clips of its current attack.
+        // A triggered trap or mine can still be playing its firing clips.
         public double ActionUntil;
         public double DetonateAt = double.PositiveInfinity;
         public bool SkitterTriggered;

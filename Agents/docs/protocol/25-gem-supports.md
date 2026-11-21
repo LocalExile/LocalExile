@@ -310,11 +310,12 @@ arrow or projectile count by `support_barrage_trap_and_mine_throwing_time_+%_fin
 and publishes `virtual_trap_and_mine_throwing_time_+%_final`. Each resolved shot adds 10% to the throwing
 time for the stock support. Three Locus shots take 390 ms of base mine throwing time, five Blastchain shots 450 ms.
 
-At detonation, a direct Barrage mine uses the owner's supported attack time and the mine's own firing clip.
-RemoteMine's `BarrageFireMain` maps to `barrage`, with the contact at 70/200 of **each firing clip**.
-The server captures aim, count and spread when the mine starts its action and releases the reservation then.
-The object stays until the firing action finishes. The client-visible muzzle and timing on both builds still need
-comparison with the server releases. Traps have their own ACT mappings and need separate firing checks.
+At activation, a direct Barrage from a mine or an ordinary Trap Support trap uses the owner's supported attack time.
+The actor created by the throw supplies the firing clip. Both fire roles map to `barrage` on RemoteMine and TrapNormal2.
+The mine's contact is at 70/200 of each firing clip and the trap's at 66/200. Their muzzle heights are 94.995 and
+44.901 model units respectively. The server captures aim, count and spread when the actor starts its action.
+The object stays until that action finishes. A mine releases its reservation at activation.
+The visible timing and muzzle on both clients and the ACT mappings of other trap objects still need verification.
 
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion

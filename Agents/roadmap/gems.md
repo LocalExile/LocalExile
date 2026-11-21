@@ -82,7 +82,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   the sequence and Skitterbots at the edge. Compare Locus landings and throw order for short throws, the Templar and
   terrain near a wall. Check facing and shot direction as the owner walks between detonations on both clients.
   Compare the displayed and fired counts for Locus bow and wand mines, including split targets and Kinetic Blast clusters.
-  Compare Barrage mine throw duration, firing cadence and muzzle on both clients. Verify trap firing roles separately for each ACT.
+  Compare Barrage throw duration, firing cadence and muzzle for mines and ordinary traps on both clients.
+  Verify the firing roles of the remaining trap actors separately.
   Other proxy Barrage sequences, simultaneous jewel endpoint volleys and panel DPS still need verification.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.

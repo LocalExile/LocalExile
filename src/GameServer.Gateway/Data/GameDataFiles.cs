@@ -88,7 +88,7 @@ public static class GameDataFiles
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 12, "RemoteMine Barrage contact and muzzle, class rig animation indices, spell cancellation events, contact frames, named event times, clip lengths and each stance's ordinary and stat-qualified projectile casts"),
+        ("animation-contacts", 13, "RemoteMine and Trap2 Barrage contacts and muzzles, class rig animation indices, spell cancellation events, contact frames, named event times, clip lengths and each stance's ordinary and stat-qualified projectile casts"),
         ("monster-contacts", 7, "monster clip contacts, layered ACT effects, variety AO slow spans, ACT budgets and clock metadata availability"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),

@@ -2806,37 +2806,40 @@ public class ArrowRainAndMirageTests
         {
             await VerifyBarrageNovaLanding();
             VerifyBallistaBarrage();
+            await VerifyPlacedBarrage("Trap Support");
         }
         else VerifyPowerSiphonBallista();
-        await VerifyMineBarrage(skill == "Split Arrow" ? "Locus Mine Support" : "Blastchain Mine Support");
+        await VerifyPlacedBarrage(skill == "Split Arrow" ? "Locus Mine Support" : "Blastchain Mine Support");
     }
 
-    static async Task VerifyMineBarrage(string support)
+    static async Task VerifyPlacedBarrage(string support)
     {
         using var b = new Battle("Lightning Arrow", support, "Barrage Support");
         var conn = b.Conn;
         var gem = Game.GemSkillEffects(conn).Single();
         var own = Game.SupportedSkill(conn, gem.Id).Stats;
-        var mine = new PlacedSkills.Placed(777, gem.Id, gem.Effect, (148, 100), true, 0, 10,
-            DamagePacket.Empty, own, 0, 0, false, 0) { DetonateAt = 1 };
-        conn.Placed.All.Add(mine.Id, mine);
+        bool mine = support != "Trap Support";
+        var placed = new PlacedSkills.Placed(777, gem.Id, gem.Effect, (mine ? 148 : 128, 100), mine, 0, 10,
+            DamagePacket.Empty, own, 0, 0, false, 0) { TrapType = mine ? null : "Metadata/MiscellaneousObjects/TrapNormal2" };
+        if (mine) placed.DetonateAt = 1;
+        conn.Placed.All.Add(placed.Id, placed);
         conn.WorldOutput.ExistingObject(Program.PlayerId);
-        conn.WorldOutput.ExistingObject(mine.Id);
+        conn.WorldOutput.ExistingObject(placed.Id);
         conn.PlayerSent = true;
-        conn.Wire = ("mine-barrage", b.Stream, b.Ciphers);
+        conn.Wire = ("placed-barrage", b.Stream, b.Ciphers);
         double duration = Game.SupportedAttackSeconds(conn, gem.Id, ushort.MaxValue);
         conn.Clock.Start();
-        await Game.PlayerMinionsTick("mine-barrage", b.Stream, b.Ciphers, conn, 1);
+        await Game.PlayerMinionsTick("placed-barrage", b.Stream, b.Ciphers, conn, 1);
         Assert.Empty(conn.Placed.All);
         Assert.Equal(1 + duration, Assert.Single(conn.Placed.Leaving).At, 6);
         // The world can retire the animation before the projectile clock processes its scheduled contacts.
-        await Game.PlayerMinionsTick("mine-barrage", b.Stream, b.Ciphers, conn, 1 + duration);
+        await Game.PlayerMinionsTick("placed-barrage", b.Stream, b.Ciphers, conn, 1 + duration);
         conn.Clock.Stop();
         Assert.Empty(conn.Placed.Leaving);
         int count = support == "Locus Mine Support" ? 3 : 5;
-        Assert.Contains(mine.BarrageProxy!.Stats!, s => s.Key == StatKeys.VirtualTotalArrows && s.Value == count);
+        Assert.Contains(placed.BarrageProxy!.Stats!, s => s.Key == StatKeys.VirtualTotalArrows && s.Value == count);
         double interval = duration * .6 / count;
-        long first = ProjectileRuntime.Time(1 + duration * .4 + interval * 70 / 200);
+        long first = ProjectileRuntime.Time(1 + duration * .4 + interval * (mine ? 70 : 66) / 200);
         var groups = new HashSet<long>();
         for (int i = 0; i < count; i++)
         {
