@@ -240,12 +240,11 @@ public static partial class Game
     static void AlternateOnPlayerLocked(ClientState conn, AlternateAilment a, double magnitude, double now, Func<string, int> get,
         Random random)
     {
-        if (!a.OnPlayer || magnitude <= 0 || AlternateImmune(a, get)
-            || RandomRolls.Chance(get($"avoid_{a.Stat}_%") + get($"base_avoid_{a.Stat}_%") + get("avoid_all_elemental_status_%"), 100, random))
-            return;
-        double seconds = AlternateAilmentSeconds
-            * Math.Max(0, 1 - (get("self_elemental_status_duration_-%") - get("base_all_ailment_duration_on_self_+%")) / 100.0);
-        conn.RuleAilments.Add((int)a.Kind, now, seconds, magnitude);
+        if (!a.OnPlayer || magnitude <= 0 || AlternateImmune(a, get)) return;
+        var defence = ElementalAilmentDefences(conn, a.Stat, get);
+        double seconds = AlternateAilmentSeconds * defence.DurationFactor;
+        if (seconds > 0 && !RandomRolls.Chance(defence.AvoidancePct, 100, random))
+            conn.RuleAilments.Add((int)a.Kind, now, seconds, magnitude);
     }
 
     /// <summary>Mirrored: the Scorch and Brittle a hit added act on the player as well, the effect they landed with

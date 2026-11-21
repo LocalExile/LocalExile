@@ -204,8 +204,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                 lock (player.Monsters)
                 {
                     if (player.ElementalAilments.Magnitude(playerKind, at) >= magnitude) continue;
-                    ApplyPlayerAilmentsLocked(player, at, ailments => ailments.Inflict(playerKind, magnitude, .3, at,
-                        name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, player.IncomingHitRandom));
+                    InflictPlayerElementalAilmentLocked(player, playerKind, magnitude, .3, at, stats, ground: true);
                 }
             }
     }

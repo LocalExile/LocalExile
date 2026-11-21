@@ -372,7 +372,7 @@ public static partial class Game
         {
             foreach (var e in added)
                 ailments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
-                    e.Until - e.From, now, Player, random);
+                    e.Until - e.From, now, Player, random, kind => ElementalAilmentDefences(conn, kind, Player));
         });
     }
 

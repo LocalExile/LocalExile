@@ -153,15 +153,16 @@ public static class CharacterStats
     }
 
     /// <summary>Spell Suppression chance with the conditional passives whose condition holds now (on full life, moving,
-    /// hit an enemy recently, on full energy shield), bounded to 0..100% after every active source is added.</summary>
+    /// hit an enemy recently, on full energy shield). The ordinary roll caps at 100%; a modifier that reuses the
+    /// chance can read the uncapped sum.</summary>
     public static int SuppressionChance(Pools p, bool fullLife, bool moving, bool hitRecently,
-        bool fullEnergyShield = false) =>
+        bool fullEnergyShield = false, bool uncapped = false) =>
         (int)Math.Clamp((long)(p.SpellSuppressionChanceUncapped ?? p.SpellSuppressionChance)
             + (fullLife ? p.SpellSuppressionWhileFullLife : 0)
             + (moving ? p.SpellSuppressionWhileMoving : 0)
             + (hitRecently ? p.SpellSuppressionIfHitRecently : 0)
             + (fullEnergyShield ? p.SpellSuppressionWhileFullEnergyShield : 0),
-            0L, DamageModel.SpellSuppressionChanceCap);
+            0L, uncapped ? int.MaxValue : DamageModel.SpellSuppressionChanceCap);
 
     public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null) =>
         For(c, level, bonus, null);

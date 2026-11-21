@@ -40,6 +40,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [13](../docs/protocol/13-items.md), "What some flasks and Rational Doctrine make".
 - Watcher's Eye, Bound By Destiny, Sublime Vision, The Balance of Terror and Megalomaniac items; their drops and
   conditional consumers are partial. Docs: [unique jewels](../docs/game/unique-jewels.md).
+- Stormshroud, Ancestral Vision and Firesong affect the incoming elemental ailments the server models.
 - Ordinary ascendancy selection, point awards, allocations, paid refunds and saves.
   Docs: [ascendancies](../docs/game/ascendancies.md).
 - Descendancy (the Bloodline and Wildwood classes) and the Wildwood Primalist's nodes; the charm modifiers chain

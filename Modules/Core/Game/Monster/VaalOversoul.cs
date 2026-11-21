@@ -389,9 +389,7 @@ public static class VaalOversoul
                     if (inside)
                     {
                         var stats = CharacterPlayerStats(p);
-                        int Get(string n) => Stats.Key(n) is uint k ? stats.GetValueOrDefault(k) : 0;
-                        ApplyPlayerAilmentsLocked(p, now, ailments =>
-                            ailments.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
+                        InflictPlayerElementalAilmentLocked(p, PlayerElementalAilments.Kind.Chill, 30, .5, now, stats, ground: true);
                     }
                     VaalGroundMinionsLocked(p, now, Stat(p, Cold, boss.Level, "base_cold_damage_to_deal_per_minute") / 60d,
                         at => cold.Any(patch => Distance(patch.At, at) <= 7.5), minionDotCarry);

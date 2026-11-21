@@ -266,8 +266,7 @@ public static partial class MapStrongboxes
             double after;
             lock (conn.Monsters)
             {
-                ApplyPlayerAilmentsLocked(conn, now, a => a.Inflict(kind, magnitude, seconds, now,
-                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom));
+                InflictPlayerElementalAilmentLocked(conn, kind, magnitude, seconds, now, stats);
                 after = conn.ElementalAilments.Magnitude(kind, now);
             }
             Console.WriteLine($"[map-content] strongbox daemon {kind} {magnitude:0.#} for {seconds:0.#} s on {CharacterName(conn)}: " +
@@ -472,8 +471,7 @@ public static partial class MapStrongboxes
             if (conn.ElementalAilments.Magnitude(kind, at) >= magnitude) continue;
             var stats = CharacterPlayerStats(conn);
             lock (conn.Monsters)
-                ApplyPlayerAilmentsLocked(conn, at, a => a.Inflict(kind, magnitude, .3, at,
-                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom));
+                InflictPlayerElementalAilmentLocked(conn, kind, magnitude, .3, at, stats, ground: true);
         }
     }
 

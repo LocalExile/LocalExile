@@ -8,6 +8,7 @@ public sealed class PlayerElementalAilments
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
     public const double MonsterCriticalAilmentMultiplier = 1.3;
     public enum Kind { Ignite, Chill, Freeze, Shock }
+    public readonly record struct RecipientModifiers(int AvoidancePct, double DurationFactor);
     /// <summary>The source skill's native ailment stats. Critical strikes and native chances share one application
     /// per kind, so the defender's avoidance is rolled once even when both would inflict the same ailment.</summary>
     public readonly record struct HitSettings(int IgniteChance, int FreezeChance, int ShockChance,
@@ -111,14 +112,15 @@ public sealed class PlayerElementalAilments
         Apply(baseHit, taken, critical, maxLife, now, get, random, default, source, durationFactor);
 
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random, HitSettings settings, uint? source = null, double durationFactor = 1)
+        Func<string, int> get, Random random, HitSettings settings, uint? source = null, double durationFactor = 1,
+        Func<string, RecipientModifiers>? recipient = null)
     {
         lock (effects)
         {
             Reconcile(get);
             // The caller's duration factor scales the ailments a hit puts on you; a reflected one (Inflict) is excluded.
             void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude,
-                seconds * durationFactor, now, get, random, source);
+                seconds * durationFactor, now, get, random, source, recipient);
             if (critical || RandomRolls.Chance(settings.IgniteChance, 100, random))
                 Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
                     * Math.Max(0, 1 + settings.IgniteDamageFinalPct / 100.0), 4);
@@ -147,19 +149,22 @@ public sealed class PlayerElementalAilments
         + get("non_damaging_ailment_effect_+%_on_self");
 
     void AddLocked(Kind kind, double magnitude, double seconds, double now, Func<string, int> get, Random random,
-        uint? source = null)
+        uint? source = null, Func<string, RecipientModifiers>? recipient = null)
     {
-        seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
-        string avoid = $"avoid_{Name(kind)}_%";
-        if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
-            || RandomRolls.Chance(get(avoid), 100, random)) return;
+        if (magnitude <= 0 || seconds <= 0 || Immune(kind, get)) return;
+        string name = Name(kind);
+        var mods = recipient?.Invoke(name) ?? new(get($"avoid_{name}_%"), Math.Max(0, 1 - get($"self_{name}_duration_-%") / 100.0));
+        seconds *= mods.DurationFactor;
+        if (seconds <= 0 || kind == Kind.Freeze && seconds < .3
+            || RandomRolls.Chance(mods.AvoidancePct, 100, random)) return;
         effects.Add(new(kind, now, now + seconds / expiryRate, magnitude, source));
         if (kind == Kind.Ignite) latestIgniteStart = now;
     }
 
     // A chill, freeze or shock reflected back onto the player (a Mirrored monster) with the effect and duration it
     // landed with: then the player's own effect and duration modifiers, caps, immunity and avoidance, as for a hit.
-    public void Inflict(Kind kind, double magnitude, double seconds, double now, Func<string, int> get, Random random)
+    public void Inflict(Kind kind, double magnitude, double seconds, double now, Func<string, int> get, Random random,
+        Func<string, RecipientModifiers>? recipient = null)
     {
         lock (effects)
         {
@@ -167,7 +172,8 @@ public sealed class PlayerElementalAilments
             if (kind is Kind.Chill or Kind.Shock)
                 magnitude = Math.Min(kind == Kind.Chill ? 30 : 50,
                     Math.Floor(magnitude * Math.Max(0, 1 + EffectOnSelfPct(kind, get) / 100.0)));
-            if (kind is not (Kind.Chill or Kind.Shock) || magnitude >= 5) AddLocked(kind, magnitude, seconds, now, get, random);
+            if (kind is not (Kind.Chill or Kind.Shock) || magnitude >= 5)
+                AddLocked(kind, magnitude, seconds, now, get, random, recipient: recipient);
         }
     }
 

@@ -1641,7 +1641,9 @@ public static partial class Game
     // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
-    public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(ClientState conn)
+    public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(ClientState conn) => Suppression(conn, uncapped: false);
+
+    static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(ClientState conn, bool uncapped)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         bool fullLife, fullEnergyShield, hitRecently;
@@ -1652,7 +1654,7 @@ public static partial class Game
             hitRecently = now - conn.LastEnemyHitAt <= RecentlySeconds;
         }
         return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: conn.Walk.Moving(now), hitRecently,
-                fullEnergyShield),
+                fullEnergyShield, uncapped),
             Math.Max(0, conn.Pools.SpellSuppressionEffect),
             conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
     }

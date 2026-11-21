@@ -169,8 +169,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
                 if (p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p) && InPool(p.Walk.Position(now)))
                 {
                     var stats = CharacterPlayerStats(p);
-                    int Get(string n) => Stats.Key(n) is uint k ? stats.GetValueOrDefault(k) : 0;
-                    ApplyPlayerAilmentsLocked(p, now, a => a.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
+                    InflictPlayerElementalAilmentLocked(p, PlayerElementalAilments.Kind.Chill, 30, .5, now, stats, ground: true);
                 }
             }
             // Server-only Fearful magnitudes are absent from client tables. This level-scaled fallback is calibration.

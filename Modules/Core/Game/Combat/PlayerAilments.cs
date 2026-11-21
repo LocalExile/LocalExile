@@ -43,7 +43,47 @@ public static partial class Game
         double durationFactor = LetheShadeAilmentDuration(Get);
         ApplyPlayerAilmentsLocked(conn, now, ailments =>
             ailments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, settings, source,
-                durationFactor));
+                durationFactor, kind => ElementalAilmentDefences(conn, kind, Get)));
+    }
+
+    // Recipient modifiers are shared by hit, reflected and alternate ailments. Keep the original shock and
+    // ignite buckets on those ailments so the two "also applies" effects cannot count their own inputs twice.
+    public static PlayerElementalAilments.RecipientModifiers ElementalAilmentDefences(ClientState conn, string kind,
+        Func<string, int> get, bool ground = false)
+    {
+        // The ordinary rows are already expanded by PanelStats. Alternate ailments have no such row.
+        bool ordinary = kind is "ignite" or "chill" or "freeze" or "shock";
+        int sharedAvoidance = get("avoid_all_elemental_status_%");
+        long avoidance = get($"avoid_{kind}_%");
+        if (!ordinary) avoidance += (long)get($"base_avoid_{kind}_%") + sharedAvoidance;
+        if (kind != "shock" && get("has_avoid_shock_as_avoid_all_elemental_ailments") != 0)
+            avoidance += (long)get("avoid_shock_%") - sharedAvoidance;
+        int suppressionPct = get("spell_suppression_chance_modifiers_apply_to_avoid_all_elemental_ailments_at_%_value");
+        if (suppressionPct > 0)
+            avoidance += (long)Suppression(conn, uncapped: true).Chance * suppressionPct / 100;
+        int chance = (int)Math.Clamp(avoidance, 0, 100);
+        if (ground) return new(chance, 1);
+
+        long sharedReduction = (long)get("self_elemental_status_duration_-%") - get("base_all_ailment_duration_on_self_+%");
+        long reduced = get($"self_{kind}_duration_-%");
+        if (!ordinary) reduced += (long)get($"base_self_{kind}_duration_-%") + sharedReduction;
+        double More(string name) => Math.Max(0, 1 + get(name) / 100.0);
+        double more = More($"self_{kind}_duration_+%_final")
+            * More("virtual_self_ailment_duration_+%_final") * More("virtual_self_elemental_ailment_duration_+%_final");
+        if (kind != "ignite" && get("has_ignite_duration_on_self_as_all_elemental_ailments_on_self") != 0)
+        {
+            reduced += get("self_ignite_duration_-%") - sharedReduction;
+            more *= More("self_ignite_duration_+%_final");
+        }
+        return new(chance, Math.Max(0, 1 - reduced / 100.0) * more);
+    }
+
+    public static void InflictPlayerElementalAilmentLocked(ClientState conn, PlayerElementalAilments.Kind kind,
+        double magnitude, double seconds, double now, IReadOnlyDictionary<uint, int> stats, bool ground = false)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        ApplyPlayerAilmentsLocked(conn, now, a => a.Inflict(kind, magnitude, seconds, now, Get, conn.IncomingHitRandom,
+            name => ElementalAilmentDefences(conn, name, Get, ground)));
     }
 
     /// <summary>Apply one source's ailments under the combat lock. Hit, ground and reflected sources retain their

@@ -283,7 +283,7 @@ Each line is one mod of the 42 Global jewels; the effect text is the same as the
 | Jewel | Mod | Effect | Server |
 |---|---|---|---|
 | **Ancestral Vision** | `DexterityUnique__26` | +(5-10) to Dexterity | works |
-| **Ancestral Vision** | `ModifiersToSuppressionApplyToAilmentAvoidUnique__1` | Modifiers to Chance to Suppress Spell Damage also apply to Chance to Avoid Elemental Ailments at 50% of their Value | not read |
+| **Ancestral Vision** | `ModifiersToSuppressionApplyToAilmentAvoidUnique__1` | Modifiers to Chance to Suppress Spell Damage also apply to Chance to Avoid Elemental Ailments at 50% of their Value | works for supported incoming elemental ailments |
 | **Ancient Waystones** | `ManaCostOfTotemAurasUniqueCorruptedJewel8` | 60% reduced Cost of Aura Skills that summon Totems | not read |
 | **Apparitions** | `MinionRunSpeedUniqueJewel16` | Minions have (5-10)% increased Movement Speed | not read |
 | **Apparitions** | `MinionDodgeChanceUniqueJewel16` | Minions have +(2-5)% chance to Suppress Spell Damage | not read |
@@ -321,7 +321,7 @@ Each line is one mod of the 42 Global jewels; the effect text is the same as the
 | **Emperor's Wit** | `CriticalStrikeChanceUnique__1` | 30% increased Global Critical Strike Chance | works |
 | **Emperor's Wit** | `ActorSizeUnique__1` | 3% increased Character Size | works |
 | **Firesong** | `FireResistUnique__31` | +(10-15)% to Fire Resistance | works |
-| **Firesong** | `SelfIgniteDurationAllElementalAilmentsUnique__1` | Modifiers to Ignite Duration on you apply to all Elemental Ailments | not read |
+| **Firesong** | `SelfIgniteDurationAllElementalAilmentsUnique__1` | Modifiers to Ignite Duration on you apply to all Elemental Ailments | works for finite incoming elemental ailments |
 | **Fragility** | `ReducedMaximumEnduranceChargeUniqueCorruptedJewel17` | -1 to Maximum Endurance Charges | works |
 | **From Dust** | `SummonSkeletonsNumberOfSkeletonsToSummonUnique__1` | Summon 2 additional Skeletons with Summon Skeletons | not read |
 | **From Dust** | `SummonSkeletonsCooldownTimeUnique__1` | Summon 4 additional Skeletons with Summon Skeletons | not read |
@@ -361,7 +361,7 @@ Each line is one mod of the 42 Global jewels; the effect text is the same as the
 | **Soul's Wick** | `SpectreCriticalStrikeChanceUnique__1` | Raised Spectres have (800-1000)% increased Critical Strike Chance | not read |
 | **Soul's Wick** | `SpectreHaveBaseDurationUnique__1` | Raised Spectres have a Base Duration of 20 seconds | not read |
 | **Stormshroud** | `LightningResistUnique__28` | +(10-15)% to Lightning Resistance | works |
-| **Stormshroud** | `ShockAvoidanceAllElementalAilmentsUnique__1` | Modifiers to Chance to Avoid being Shocked apply to all Elemental Ailments | not read |
+| **Stormshroud** | `ShockAvoidanceAllElementalAilmentsUnique__1` | Modifiers to Chance to Avoid being Shocked apply to all Elemental Ailments | works for supported incoming elemental ailments |
 | **Survival Instincts** | `FlaskChargesUniqueJewel___8` | +20 to Dexterity | not read |
 | **Survival Instincts** | `FlaskDurationUniqueJewel_____8` | +6% to all Elemental Resistances | works |
 | **Survival Instincts** | `ItemLimitUniqueJewel9` | 20% reduced Flask Charges gained | not read |
