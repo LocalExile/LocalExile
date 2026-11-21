@@ -804,7 +804,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         string? effect = t.EffectIds.GetValueOrDefault(effectRow);
         if (effect is null) return null;
         foreach (string id in ProjectileCandidates(effect))
-            if (_projectiles.Value.TryGetValue(id, out int speed)) return (id, speed);
+            if (Projectile(id) is { } projectile) return projectile;
         return null;
     }
 
@@ -893,7 +893,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
     public (string Id, int Speed)? Projectile(string id) =>
-        _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
+        _projectiles.Value.TryGetValue(id, out var row) ? (id, row.Speed) : null;
+
+    public bool ProjectileUsesTargetLocation(string id) => _projectiles.Value[id].UsesTargetLocation;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
     /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
@@ -910,14 +912,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     });
 
-    private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
+    private readonly Lazy<Dictionary<string, (int Speed, bool UsesTargetLocation)>> _projectiles = new(() =>
     {
-        var result = new Dictionary<string, int>();
+        var result = new Dictionary<string, (int, bool)>();
         if (!ClientTables.Has("Projectiles")) return result;
         var d = ClientTables.Table("Projectiles");
         foreach (var r in d)
             if (r.Text("Id") is { } id)
-                result.TryAdd(id, r.IntOrNull("ProjectileSpeed") is int v ? v : 0);
+                result.TryAdd(id, (r.IntOrNull("ProjectileSpeed") ?? 0, r.Bool("UseTargetLocation")));
         return result;
     });
 

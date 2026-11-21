@@ -2,7 +2,7 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    sealed record ParallelFiringPoints(int PerSide, int XDistance, int YDistance, bool FirstPointPierces,
+    internal sealed record ParallelFiringPoints(int PerSide, int XDistance, int YDistance, bool FirstPointPierces,
         int SecondPointForks, bool ThirdPointReturns, int FourthPointChains)
     {
         public static ParallelFiringPoints? From(Func<string, int> get)
@@ -29,37 +29,45 @@ public static partial class Game
             var launches = new ProjectileLaunch[count];
             var forward = aim.Unit;
             var side = new ProjectileVector(forward.Y, -forward.X);
-            int sides = Math.Min(PerSide, count / 2);
-            int positions = 2 * sides + 1;
-            int perPoint = Math.DivRem(count, positions, out int remaining);
             int next = 0;
-            Place(0, perPoint + remaining % 2, 0);
-            for (int k = 1; k <= sides; k++)
-            {
-                int groupSize = perPoint + (k <= remaining / 2 ? 1 : 0);
-                Place(k, groupSize, 2 * k - 1);
-                Place(-k, groupSize, 2 * k);
-            }
-            return launches;
-
-            void Place(int slot, int size, int visit)
+            foreach (var (slot, size) in Slots(count))
             {
                 var offset = side * (slot * (double)XDistance / 10.869565)
                     + forward * (Math.Abs(slot) * (double)YDistance / 10.869565);
-                // The shared emitter copies the absolute layout slot to every admitted member (3.29.3c).
-                int point = Math.Abs(slot);
-                bool pierces = point == 1 && FirstPointPierces;
-                int forks = point == 2 ? SecondPointForks : 0;
-                bool returns = point == 3 && ThirdPointReturns;
-                int chains = point == 4 ? FourthPointChains : 0;
-                // Each side visit advances the fourth seed word by 529, even for an empty group.
-                var rng = random ? new AnimationVariantSelector.NativeRandom([use.Sequence, 0, use.RepeatsLeft,
-                    (uint)(529 * visit), use.Emitter.Id, 0, unchecked((uint)slot)]) : default;
+                var launch = Launch(slot) with { Offset = offset };
+                var rng = random ? GroupRandom(use, 0, slot) : default;
                 for (int i = 0; i < size; i++)
-                    launches[next++] = new(offset, random ? rng.Range(0, 6.2831855f) : fan.Angle(i, size, aim.Length),
-                        CheckSourcePath: slot != 0)
-                    { PiercesAllTargets = pierces, AdditionalForks = forks, GrantsReturn = returns, AdditionalChains = chains };
+                    launches[next++] = launch with { Angle = random ? rng.Range(0, 6.2831855f) : fan.Angle(i, size, aim.Length) };
             }
+            return launches;
+        }
+
+        public IEnumerable<(int Slot, int Size)> Slots(int count)
+        {
+            int sides = Math.Min(PerSide, count / 2);
+            int perPoint = Math.DivRem(count, 2 * sides + 1, out int remaining);
+            yield return (0, perPoint + remaining % 2);
+            for (int k = 1; k <= sides; k++)
+            {
+                int size = perPoint + (k <= remaining / 2 ? 1 : 0);
+                yield return (k, size);
+                yield return (-k, size);
+            }
+        }
+
+        // Blocked members retain their layout slot for placement. Only admitted projectiles get a flight ordinal.
+        public ProjectileLaunch Launch(int slot) => new(default, 0, CheckSourcePath: slot != 0)
+        {
+            PiercesAllTargets = Math.Abs(slot) == 1 && FirstPointPierces,
+            AdditionalForks = Math.Abs(slot) == 2 ? SecondPointForks : 0,
+            GrantsReturn = Math.Abs(slot) == 3 && ThirdPointReturns,
+            AdditionalChains = Math.Abs(slot) == 4 ? FourthPointChains : 0
+        };
+
+        public static AnimationVariantSelector.NativeRandom GroupRandom(ProjectileUse use, uint derived, int slot)
+        {
+            int visit = 2 * Math.Abs(slot) - (slot > 0 ? 1 : 0);
+            return new([use.Sequence, derived, use.RepeatsLeft, (uint)(529 * visit), use.Emitter.Id, 0, unchecked((uint)slot)]);
         }
 
         // The Barrage firing actor rounds one perpendicular step to whole cells before applying the slot.

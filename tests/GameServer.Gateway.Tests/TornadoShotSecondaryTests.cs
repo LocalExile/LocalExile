@@ -10,9 +10,11 @@ public sealed class TornadoShotSecondaryTests
         public readonly List<(long Arrow, uint Target)> Hits = [];
         public readonly List<long> Redirects = [];
         public readonly List<ProjectileEntity> Flights = [];
+        public (int X, int Y)? PlacementWall { get; init; }
         public IReadOnlyList<ProjectileActor> Actors(long from, long until) => Targets;
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
-            wall && from.X < 60 && to.X >= 60 ? new((60 - from.X) / (to.X - from.X), new(-1, 0)) : null;
+            PlacementWall is { } cell ? ProjectileGeometry.TraceGrid(from, to, (x, y) => (x, y) == cell)
+            : wall && from.X < 60 && to.X >= 60 ? new((60 - from.X) / (to.X - from.X), new(-1, 0)) : null;
         public ProjectileHitResult Hit(ProjectileDamage damage)
         {
             Hits.Add((damage.Projectile.Id, damage.Target.Id));
@@ -90,6 +92,43 @@ public sealed class TornadoShotSecondaryTests
         }
         CheckArrowNovaPrimaries(sweep: false);
         CheckArrowNovaPrimaries(sweep: true);
+        CheckVolleyLandingPoints();
+    }
+
+    static void CheckVolleyLandingPoints()
+    {
+        int Get(string key) => key switch
+        {
+            "projectiles_rain" or "projectiles_nova" => 1,
+            "support_parallel_projectile_number_of_points_per_side" => 2,
+            "virtual_additional_projectiles_fire_parallel_x_dist" => 80,
+            "number_of_additional_projectiles" => 6,
+            _ => 0
+        };
+        ProjectileVector[] starts = [new(146, 97), new(139, 99), new(139, 99), new(154, 96), new(154, 96), new(132, 101), new(161, 94)];
+        ProjectileVector[] tornadoEnds = [new(134, 42), new(127, 44), new(152, 154), new(141, 40), new(166, 151), new(120, 45), new(148, 39)];
+        ProjectileVector[] splitEnds = [new(114, -49), new(106, -47), new(172, 245), new(121, -51), new(186, 242), new(99, -46), new(128, -52)];
+        foreach (bool tornado in new[] { true, false })
+        foreach (bool moved in new[] { false, true })
+        {
+            var profile = GatewayProjectileSkillProfiles.Resolve(tornado ? "TornadoShot" : "SplitArrow",
+                "Metadata/Projectiles/" + (tornado ? "TornadoShotArrow" : "SplitArrowDefault"), Get, 200, attack: true, arrows: true);
+            var arena = new Arena(false) { PlacementWall = (130, 99) };
+            var runtime = new ProjectileRuntime(arena);
+            runtime.Release(new ProjectileUse(profile, new(4096), new(4096), 1, new(100, 100), new(147, 100))
+            {
+                Sequence = 19, LaunchSourceAt = moved ? _ => new(169, 111) : null
+            });
+            runtime.AdvanceTo(ProjectileRuntime.Time(3));
+            var carrier = Assert.Single(arena.Flights, p => p.ParentId == 0);
+            var arrows = arena.Flights.Where(p => p.ParentId == carrier.Id).ToArray();
+            // The wall crosses only the line from the original actor cell to the first positive point.
+            int[] admitted = moved ? [0, 1, 2, 3, 4, 5, 6] : [0, 3, 4, 5, 6];
+            Assert.Equal(admitted.Select(i => starts[i]), arrows.Select(p => p.Use.Origin));
+            Assert.Equal(admitted.Select(i => (tornado ? tornadoEnds : splitEnds)[i]), arrows.Select(p => p.Use.Aim));
+            Assert.Equal(Enumerable.Range(1, arrows.Length), arrows.Select(p => p.SpawnOrdinal));
+            Assert.Single(arrows.Select(p => p.EmissionId).Distinct());
+        }
     }
 
     static void CheckArrowNovaPrimaries(bool sweep)

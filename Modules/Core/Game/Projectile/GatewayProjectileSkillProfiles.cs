@@ -127,7 +127,7 @@ public static class GatewayProjectileSkillProfiles
         if (effect == "TornadoShotAltX")
             p = p with { Id = TornadoSecondaryArrow, Lifetime = TornadoSecondaryLifetime };
         if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0)
-            p = ArrowNovaChildren(payload, p, get("projectiles_nova") != 0 && get("projectiles_barrage") != 0);
+            p = ArrowNovaChildren(payload, p, effect, get);
 
         // These player stats belong to a particular active skill, including its transfigured variants.
         int extraProjectiles = effect switch
@@ -186,8 +186,7 @@ public static class GatewayProjectileSkillProfiles
             if (p.EndEmission is { } rain)
             {
                 var primary = TornadoShotChildren(rain.Child, get);
-                p = p with { EndEmission = rain with { Child = primary,
-                    FlightLayout = TornadoShotNova.LandingLayout(get, rain.Sweep) } };
+                p = p with { EndEmission = rain with { Child = primary } };
             }
             else p = TornadoShotChildren(p, get);
         }
@@ -302,8 +301,13 @@ public static class GatewayProjectileSkillProfiles
     // that lands at the aim and releases the skill's whole volley in a circle from there. Frida 2026-11-04 (Split
     // Arrow, 18 arrows): all children started on one cell and the directions were exactly 20 degrees apart, the first
     // on the aim ray; the client drew both the payload and the children, and the payload dealt no damage.
-    static ProjectileProfile ArrowNovaChildren(ProjectileProfile payload, ProjectileProfile arrows, bool barrage)
+    static ProjectileProfile ArrowNovaChildren(ProjectileProfile payload, ProjectileProfile arrows, string effect, Func<string, int> get)
     {
+        bool nova = get("projectiles_nova") != 0;
+        var sweep = nova && get("projectiles_barrage") != 0 ? PlayerArrowNovaSweep : null;
+        // The Barrage actor issues one shot per contact. Cloudburst's secondary action always selects zero side points.
+        var points = nova && sweep is null && effect != "TornadoShotAltX" ? Game.ParallelFiringPoints.From(get) : null;
+        bool tornado = effect is "TornadoShot" or "TornadoShotAltY";
         var child = arrows with
         {
             // Keep the base count and the skill's own contact/terminal areas: these are its normal arrows.
@@ -323,6 +327,7 @@ public static class GatewayProjectileSkillProfiles
             // One payload arrow: no hits, no contacts, and no server object (the official server sends none; the
             // parabola was ours). The rain rig and its attached arrow art carry the visual; the children stay hidden.
             Count = 1, CountConsumer = ProjectileCountConsumer.Children,
+            NativeVolley = AimedRainPayload,
             DirectDamage = false, HideVisual = true, Lobbed = true, ArcHeight = 200,
             Pierce = 0, CannotPierce = true, Fork = 0, Chain = 0, Split = 0, CannotSplit = true,
             EndArea = null, EndAreaReasons = null, EndAreaOnReturnTurnaround = false,
@@ -330,10 +335,16 @@ public static class GatewayProjectileSkillProfiles
             EndEmission = new(child, Radial: true)
             {
                 Delay = ProjectileRuntime.Time(.221),
-                Sweep = barrage ? PlayerArrowNovaSweep : null
+                Sweep = sweep,
+                FlightLayout = tornado || points is not null
+                    ? ArrowNovaLayout.Create(get, sweep, points, tornado, tornado || Program.Skills.ProjectileUsesTargetLocation(arrows.Id))
+                    : null
             }
         };
     }
+
+    // Even with random projectile directions the carrier lands at the cursor. Its damaging children choose their headings.
+    static readonly ProjectileNativeVolley AimedRainPayload = new() { Angles = Array.AsReadOnly<double>([0]) };
 
     // 3.29.3c: the Barrage rain action starts at the aim relative to the landing cell. At the aimed
     // cell this is +X. The player Positioned flags select the negative turn over 400 ms.

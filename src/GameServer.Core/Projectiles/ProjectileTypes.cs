@@ -56,7 +56,7 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 /// <summary>Emit one independent shot per heading, including both ends of the signed sweep.</summary>
 public sealed record ProjectileSweep(long Duration, double Radians, Func<ProjectileEntity, ProjectileVector> StartDirection);
-public readonly record struct ProjectileFlightPath(ProjectileVector Origin, ProjectileVector Aim);
+public readonly record struct ProjectileFlightPath(ProjectileVector Origin, ProjectileVector Aim, ProjectileLaunch Launch = default);
 public delegate ProjectileFlightPath ProjectileFlightLayout(int index, int spawnOrdinal);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
@@ -67,7 +67,7 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
     public long Delay { get; init; }
     public ProjectileSweep? Sweep { get; init; }
     /// <summary>Prepare a layout at the terminal position. Each child gets its path and creation ordinal when due.</summary>
-    public Func<ProjectileEntity, int, ProjectileFlightLayout>? FlightLayout { get; init; }
+    public Func<ProjectileEntity, int, ProjectileFlightLayout?>? FlightLayout { get; init; }
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
@@ -265,6 +265,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
 {
     /// <summary>Source of placement traces when the contact point is displaced from the actor.</summary>
     public ProjectileVector LaunchSource { get; init; } = Origin;
+    /// <summary>Position of a moving firing actor when delayed children check a displaced source.</summary>
+    public Func<long, ProjectileVector>? LaunchSourceAt { get; init; }
     public Func<bool>? CanEmit { get; init; }
     public ProjectileActorKey? ReturnAnchor { get; init; }
     public object? Payload { get; init; }

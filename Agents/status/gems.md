@@ -75,7 +75,8 @@ Nothing yet.
   Barrage Support paces direct bow and wand shots from the resolved count and the firing clip. Each shot can hit the same enemy. Movement and hit recovery stop the player’s remaining shots.
   Ballistas use their own firing clips and keep shooting when the owner moves. Their projectile counts and attack timing have Gateway coverage.
   Barrage mines and ordinary traps fire on their own contact frames, and throw time scales with the final shot count.
-  Volley and Greater Volley release from distinct firing points. Extra arrows share each point’s spread.
+  Volley and Greater Volley release from distinct firing points. With Arrow Nova each admitted landing point fires
+  its own group in a circle. A wall between the firing actor and a side point can omit that group.
   Linked Barrage shots sweep the points in order. Position, direction and blocked side launches have Gateway coverage.
   With Reach of the Council, first-point arrows pierce, second-point arrows fork once more, third-point arrows return,
   and fourth-point arrows chain twice more. These apply on both sides of a simultaneous volley, including Barrage's

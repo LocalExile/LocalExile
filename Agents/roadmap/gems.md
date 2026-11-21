@@ -75,7 +75,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   native data and live behaviour. Verify Bonechill's displayed magnitude across overlapping chill sources.
   Greater and Awakened Spell Echo still need native checks, including Storm Call's impact size on successive repeats.
   Check Arrow Nova with Barrage Support on a live client, including the first and last landing arrows against one target.
-  Check Volley and Greater Volley at walls on a live client, including the firing actor with Barrage Support.
+  Check Volley and Greater Volley at walls on both clients, including Barrage's firing actor and the side points
+  of Arrow Nova after the player moves.
   Verify Reach of the Council's first-point pierce, second-point fork, third-point return and fourth-point chains on
   both clients, including a blocked side, stacked fork and chain counts and Barrage's extra endpoint volleys.
   Verify the ordinary Fork fan on both clients, including off-axis contacts and the two fork-angle passives.

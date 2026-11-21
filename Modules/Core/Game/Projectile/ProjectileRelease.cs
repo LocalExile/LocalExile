@@ -304,7 +304,8 @@ public static partial class Game
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
-        use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
+        if (!use.Profile.Lobbed || Get("projectiles_rain") == 0 && Get("skill_is_rain_skill") == 0)
+            use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
         if (use.Emitter.Id != PlayerId && NativeProjectileTotem(conn, gem.Effect)
             && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(conn).Clips(use.Profile.Id) is { Flight: not null } clips)
             use = use with { Payload = nativeTotemShot with { ClientPredicted = false,
@@ -461,16 +462,15 @@ public static partial class Game
         double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
         if (totem is null && from is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
-        profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
-            (target - origin).Length, toTarget: rain) };
         // Arrow Nova's payload takes the rig's fixed timeline, not the arrow's speed: the official landing rig came
         // 415 ms after the use at 40 cells (Frida 2026-11-04), so the flight is what is left after the release delay.
         if (rain)
         {
             double flight = (target - origin).Length;
             double untilLanding = Math.Max(0.05, 0.415 - releaseDelay);
-            profile = profile with { Speed = Math.Max(0.001, flight / untilLanding) };
+            profile = profile with { Range = Math.Max(.001, flight), Speed = Math.Max(.001, flight / untilLanding) };
         }
+        else profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range, (target - origin).Length) };
         if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = barrageGem && !rain && variation != 0 ? Art.ProjectileByArt(BarrageProjectileArt(bowProjectiles), variation)
@@ -606,6 +606,8 @@ public static partial class Game
         uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
             { LaunchSource = ProjectileSession.Vector(at), Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
+                LaunchSourceAt = rain && totem is null && from is null
+                    ? t => ProjectileSession.Vector(conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)) : null,
                 Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(conn, session, skillId, gem, variation, Get, Player, Own);
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;

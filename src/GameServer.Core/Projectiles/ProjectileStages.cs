@@ -99,14 +99,21 @@ public sealed partial class ProjectileRuntime
     void SpawnChild(ProjectileEntity parent, ProjectileProfile child, long emission,
         ProjectileVector origin, ProjectileVector direction, double distance, ProjectileBranchState branches, ProjectileFlightPath? path)
     {
+        var launch = path.GetValueOrDefault().Launch;
         if (path is { } flight)
         {
             origin = flight.Origin;
+            if (launch.CheckSourcePath
+                && world.TraceTerrain(parent.Use.LaunchSourceAt?.Invoke(Now) ?? parent.Use.LaunchSource, origin) is not null)
+                return;
             direction = flight.Aim - origin;
-            child = child with { Range = direction.Length };
+            child = child with { Range = direction.Length,
+                Returns = child.Returns || launch.GrantsReturn && !child.CannotReturn };
+            branches.FiringPointChains += launch.AdditionalChains;
         }
         var use = parent.Use with { Profile = child, Origin = origin, Aim = path?.Aim ?? origin + direction * child.Range };
-        var spawned = Spawn(use, parent.Release, emission, parent.Id, origin, direction, branches: branches);
+        var spawned = Spawn(use, parent.Release, emission, parent.Id, origin, direction,
+            piercesAll: launch.PiercesAllTargets, additionalForks: launch.AdditionalForks, branches: branches);
         // Point Blank/Far Shot measure the whole continuation from the original release.
         spawned.Distance = distance;
     }

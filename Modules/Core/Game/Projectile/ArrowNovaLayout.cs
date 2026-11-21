@@ -1,26 +1,29 @@
 using System.Numerics;
 using GameServer.Core.Projectiles;
 
-internal static class TornadoShotNova
+internal static class ArrowNovaLayout
 {
     const float WorldPerCell = 10.869565f, CellsPerWorld = .092f;
 
     // TornadoShotArrow uses its target location. Its rain mothers stop at the dispatcher's integer
     // destinations, where each releases a secondary group. A generic arrow extends that initial ray.
-    public static Func<ProjectileEntity, int, ProjectileFlightLayout> LandingLayout(Func<string, int> get, ProjectileSweep? sweep)
+    public static Func<ProjectileEntity, int, ProjectileFlightLayout?> Create(Func<string, int> get, ProjectileSweep? sweep,
+        Game.ParallelFiringPoints? points, bool tornado, bool usesTargetLocation)
     {
         int offset = get("projectile_firing_forward_distance_override");
         int forward = offset == 0 ? 30 : offset;
         bool noOffset = get("projectiles_not_offset") != 0 || get("is_trap_object") != 0 || get("is_remote_mine") != 0;
+        bool random = get("random_projectile_direction") != 0;
         float maximum = get("projectile_maximum_range_override") is > 0 and var range ? range
             : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
         return (payload, count) =>
         {
+            if (!tornado && count == 1) return null;
             var landing = Grid(payload.Position);
             var origin = World(landing);
             float Angle(int ordinal) => Game.CoincidentProjectileAngle(payload.Use.Sequence,
                 GatewayProjectileSkillProfiles.DerivedByte(ordinal), payload.Use.RepeatsLeft, payload.Use.Owner.Id);
-            ProjectileFlightPath Flight(Vector2 from, Vector2 to, int ordinal)
+            ProjectileFlightPath Flight(Vector2 from, Vector2 to, int ordinal, ProjectileLaunch launch = default)
             {
                 var start = Cell(from);
                 var end = Cell(to);
@@ -28,9 +31,15 @@ internal static class TornadoShotNova
                 if (start == end)
                 {
                     var (sin, cos) = MathF.SinCos(Angle(ordinal));
-                    end = Cell(from + new Vector2(sin, cos) * 652.173889f);
+                    to = from + new Vector2(sin, cos) * 652.173889f;
+                    end = Cell(to);
                 }
-                return new(start, end);
+                if (!usesTargetLocation)
+                {
+                    var ray = to - from;
+                    end = Cell(from + ray * (maximum * WorldPerCell / ray.Length()));
+                }
+                return new(start, end, launch);
             }
             if (sweep is not null && count > 1)
             {
@@ -59,22 +68,47 @@ internal static class TornadoShotNova
             float distance = delta.Length();
             if (distance < 60)
                 destination = origin + delta * (60 / distance);
-            else if (distance > maximum * WorldPerCell)
+            else if (usesTargetLocation && distance > maximum * WorldPerCell)
                 destination = origin + delta * (maximum * WorldPerCell / distance);
             var unit = Vector2.Normalize(destination - origin);
             var startPoint = noOffset ? origin : origin + unit * forward;
+            if (!usesTargetLocation && offset != 0 && !noOffset) destination += unit * forward;
             var basis = destination - startPoint;
             if (count == 1) return (_, ordinal) => Flight(startPoint, destination, ordinal);
             float rayLength = basis.Length();
             var radial = rayLength == 0 ? Vector2.Zero : basis * (1f / rayLength);
-            float angleStep = 6.28318f / count;
-            return (i, ordinal) =>
+            if (points is null)
+                return (i, ordinal) => Flight(startPoint, RadialEnd(startPoint, radial, rayLength, i * (6.28318f / count)), ordinal);
+
+            var paths = new (Vector2 From, Vector2 To, ProjectileLaunch Launch)[count];
+            int index = 0;
+            var lateral = new Vector2(radial.Y, -radial.X);
+            foreach (var (slot, size) in points.Slots(count))
             {
-                var (sin, cos) = MathF.SinCos(i * angleStep);
-                var ray = new Vector2(radial.X * cos - radial.Y * sin, radial.Y * cos + radial.X * sin);
-                return Flight(startPoint, startPoint + ray * rayLength, ordinal);
-            };
+                var from = startPoint + lateral * (slot * (float)points.XDistance)
+                    + radial * (Math.Abs(slot) * (float)points.YDistance);
+                // Each subgroup normalizes its own translated pair before rotating the individual arrows.
+                var deltaAtPoint = (slot == 0 ? destination : from + basis) - from;
+                float length = deltaAtPoint.Length();
+                var direction = length == 0 ? Vector2.Zero : deltaAtPoint * (1f / length);
+                var rng = random ? Game.ParallelFiringPoints.GroupRandom(payload.Use,
+                    GatewayProjectileSkillProfiles.DerivedByte(payload.SpawnOrdinal), slot) : default;
+                var launch = points.Launch(slot);
+                for (int i = 0; i < size; i++)
+                {
+                    float theta = random ? rng.Range(0, 6.2831855f) : i * (6.28318f / size);
+                    paths[index++] = (from, RadialEnd(from, direction, usesTargetLocation ? length : 150, theta), launch);
+                }
+            }
+            return (i, ordinal) => Flight(paths[i].From, paths[i].To, ordinal, paths[i].Launch);
         };
+    }
+
+    static Vector2 RadialEnd(Vector2 origin, Vector2 direction, float length, float angle)
+    {
+        var (sin, cos) = MathF.SinCos(angle);
+        var ray = new Vector2(direction.X * cos - direction.Y * sin, direction.Y * cos + direction.X * sin);
+        return origin + ray * length;
     }
 
     static Vector2 World(ProjectileVector cell) =>
