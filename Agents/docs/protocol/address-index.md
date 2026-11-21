@@ -89,6 +89,17 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x14218f630` | Fn | registers the world group on the instance pump |
 | `0x142189fe0` | Fn | world activation (world vtable +0x1c8): replay queue |
 | `0x141d87640` → `0x141d7fb50` | Fn | spatial index insert (23×23 buckets, no bounds check) |
+| `0x142149550` | Fn | 0x1d +0x28 → world `+0xd0` league category ([03](03-area-and-world.md), [re/011](../re/011-level-generation.md) §3) |
+| `0x1415a6800` | Fn | S→C 0x1f add ruleset (dispatcher case 8, slot 8): builds the Rulesets row's ruleset unless held ([03](03-area-and-world.md) §8) |
+| `0x1416851b0` / `0x141685030` | Fn | DeepwaterRules (row 171) per-frame update / DeepwaterPlugin lookup (0x28 when missing, no null check) |
+| `0x141f32870` | Fn | DeepwaterPlugin +0x20: main record N × N, The Sovereign (area type 53) as a sub-area inside an encounter ([re/011](../re/011-level-generation.md) §3c4) |
+| `0x141ecdad0` / `0x141eca930` → `0x141ecab90`, `0x141ecb130` | Fn | 0x1d extra-data decoder / terrain plugins created at generation start: each sent state, then the area's own ([03](03-area-and-world.md) §1) |
+| `0x141d93260` → `0x141f32690` → `0x141f35280` (`0x141f350c0`, `0x141f565f0`) | Fn | DeepwaterPlugin factory / ctor / state parser (cell, room row) |
+| `0x142436e50` / `0x141e4c7e0` | Fn | a mod record (u16 Mods HASH16, compact ints) / the compact signed int reader |
+| `0x141f32a70` | Fn | DeepwaterPlugin +0x30: the main graph's cells and each cell's room node |
+| `0x141f331e0` → `0x141f34ee0` | Fn | DeepwaterPlugin +0x28: the seams; `0x141f33de0` across, `0x141f34900` down (ends trimmed by `0x141f34200`, `0x141f33260` plain fill), `0x141f33c90` edge merge, `0x141f33560` re-pick, `0x141f33340` fill pick |
+| `0x1416850c0` | Fn | DeepwaterRules: region r ≥ 2 → plugin cell r − 2 |
+| `0x14041b5d0` | Fn | The Sovereign's C→S 0x2ca ruleset action opcodes 0-7 |
 
 ## Objects and components
 | Address | Kind | What |
@@ -234,6 +245,12 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x1421f2b40` / `0x1421f2980` | Fn | item write (u16 length + data) / data |
 | `0x1421f2c30` / `0x1421f2d00` | Fn | item read (length) / data: type hash → ItemTypeRegister, flags, components (slot 5) |
 | `0x141fabcc0` | Fn | ItemTypeRegister lookup by HASH32 |
+| `0x142401e00` | Fn | item description builder (tooltip and header): the bytes the name symbol is picked from ([13](13-items.md) §2f) |
+| `0x140c99de7` / `0x1416d10d8` | code | name-symbol selection in the tooltip / item header ([13](13-items.md) §2f) |
+| `0x140c9a7e5` / `0x1416d11b5` | call site | resolve the selected sprite name through `0x1400f2c70` in the tooltip / item header |
+| `0x1400f2c70` | Fn | sprite from a UI image name (`art/uiimages1.txt`) |
+| `0x1416edcb0` | Fn | item description copy, field by field |
+| `0x14013fb60` | Fn | look up the Mods component on an entity |
 | `0x1421f2800` | Fn | the four type hashes with a trailing u16 |
 | `0x1421ed330`, `0x1421e6050`, `0x1421e9790`, `0x1424b5720`, `0x1424a3f80`, `0x1423fb5f0`, `0x1424755d0` | Fn | item component reads: Base, Mods, Sockets, Quality, Charges, Stack, SkillGem |
 | `0x1421edee0`, `0x1421e7b00` | Fn | debug dumps of the Base and Mods components: each field's name ([13](13-items.md) §2f) |
@@ -306,6 +323,8 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x142169dd0` | Fn | 0x7b's switch over UI kinds; kind 0 → listeners at instance +0xff8 |
 | `0x140dcae00` | Fn | in-game UI: open the World panel in travel mode (`0x140aafe50` → `0x140aa2b10`, panel +0x522) |
 | `0x140aa6d60` | Fn | World panel pin click → C→S 0x4d |
+| `0x140aa3880` | Fn | special pin click: switch on SpecialMapPins row → 0x17a-0x185, 0x4d (12 Deepwater → 0x183); u8 1 with Ctrl |
+| `0x140aa76f0` | Fn | special pin "already there": current area type equals the row's `__col15` |
 | `0x141fe37b0` | Fn | is an area's waypoint bit set (bit = index among HasWaypoint rows with +0x1e4 in {1, 2, 5, 11}) |
 | `0x14214b340` | Fn | waypoint look of the current area (0 idle, 1 inactive, 2 activation), from 0x4c |
 | `0x140aaed40` | Fn | pin widget update: revealed (+0x329) and waypoint (+0x32a) states |

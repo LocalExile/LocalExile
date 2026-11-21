@@ -171,7 +171,9 @@ public static class GatewayProjectileSkillProfiles
         var secondary = KineticBoltSecondary(parent);
         return parent with
         {
-            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i : 0, parent.ZigZags,
+            // Native ZigZagProjectile (0x141a8ce97..0x141a8ced8) adds the volley index for all multi-projectile fans
+            // (LMP/GMP/Kinetic Bolt of Fragmentation), not only sequential Barrage volleys.
+            Legs = i => new KineticBoltLegs(sequence, i, parent.ZigZags,
                 parent.Speed, parent.Range, secondary),
             LegLeash = 0
         };

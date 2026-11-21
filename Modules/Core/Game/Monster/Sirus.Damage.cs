@@ -5,44 +5,6 @@ using static Program;
 
 static partial class Sirus
 {
-    // Elemental ailments travel with the attack's native settings through the ordinary incoming-hit application.
-    // Corrupted blood is the beam's separate stacking debuff.
-    internal static void ApplyCorruptedBloodOnHit(ClientState c, SpawnedMonster m, MonsterAttack attack, DamagePacket baseHit,
-        bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
-    {
-        if (!IsActor(m.Variety) || blocked || c.Immune || c.PlayerLife == 0 || InGracePeriod(c)) return;
-        int index = attack.SkillId - 0x4000;
-        var effects = Effects(m.Variety!);
-        if (index < 0 || index >= effects.Length) return;
-        int effect = effects[index];
-        int Native(string name) => Stat(c, effect, m.Level, name);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int stacks = Native("corrupted_blood_on_hit_num_stacks");
-        if (stacks == 0 || BloodImmune(Get) || RandomRolls.Chance(Get("avoid_corrupted_blood_%_chance"), 100, c.IncomingHitRandom)) return;
-        var e = Exposures.GetValue(c, _ => new());
-        if (Get("cannot_gain_corrupted_blood_while_you_have_at_least_5_stacks") != 0 && e.BloodStacks >= 5 && e.BloodUntil > now) return;
-        if (e.BloodUntil <= now) { e.BloodStacks = 0; e.BloodDps = 0; }
-        e.BloodStacks = Math.Min(10, e.BloodStacks + stacks);
-        e.BloodUntil = now + Native("corrupted_blood_on_hit_duration") / 1000d;
-        e.BloodDps = Math.Max(e.BloodDps, (baseHit.MinTotal + baseHit.MaxTotal) * .5
-            * Native("corrupted_blood_on_hit_%_average_damage_to_deal_per_minute_per_stack") / 6000d);
-        BloodIcon(c, e, now);
-    }
-
-    static bool BloodImmune(Func<string, int> get) => get("cannot_be_inflicted_by_corrupted_blood") != 0
-        || get("immune_to_corrupted_blood") != 0;
-
-    static void BloodIcon(ClientState c, Exposure e, double now)
-    {
-        if (e.BloodBuff != 0)
-            c.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, e.BloodBuff), null, WorldId: PlayerId));
-        e.BloodBuff = e.BloodStacks == 0 ? (ushort)0 : c.NextBuff++;
-        if (e.BloodBuff != 0)
-            c.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, e.BloodBuff, 238,
-                values: [0], u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, e.BloodUntil - now)), stacks: (ushort)e.BloodStacks),
-                "[Sirus] corrupted blood", WorldId: PlayerId));
-    }
-
     internal static DamagePacket Dot(ClientState c, int effect, bool minion)
     {
         var packet = DamagePacket.Empty;
@@ -84,11 +46,7 @@ static partial class Sirus
                     var e = Exposures.GetValue(p, _ => new());
                     var stats = CharacterPlayerStats(p);
                     int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-                    if (e.BloodStacks > 0 && (e.BloodUntil <= now || BloodImmune(Get) || p.PlayerLife == 0))
-                    { e.BloodStacks = 0; e.BloodDps = 0; BloodIcon(p, e, now); }
                     var raw = p.PlayerLife == 0 || p.Immune || Get("base_cannot_be_damaged") > 0 || InGracePeriod(p) ? DamagePacket.Empty : Ground(p, p.Walk.Position(now), false, now);
-                    if (p.PlayerLife > 0 && !p.Immune && Get("base_cannot_be_damaged") == 0 && !InGracePeriod(p) && e.BloodStacks > 0)
-                        raw = raw.Add(DamageType.Physical, new(e.BloodDps * e.BloodStacks, e.BloodDps * e.BloodStacks));
                     var immune = PlayerImmunities(p);
                     double shieldBefore = p.EnergyShield.Current;
                     uint lifeBefore = p.PlayerLife;
@@ -100,8 +58,7 @@ static partial class Sirus
                             : Math.Min(Resistance(p, type), MaxResistance(p, type));
                         double factor = p.ElementalAilments.DamageTakenFactor(now, Get("base_damage_taken_+%")
                             + Get(type.ToString().ToLowerInvariant() + "_damage_taken_+%"))
-                            * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
-                            * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
+                            * IncomingResourceDefences.FinalTakenFactor(p.Pools, Get);
                         double earned = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.DotCarry[slot];
                         int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
                         bool chaosBypasses = type == DamageType.Chaos && ChaosDamageBypassesEnergyShield(p, stats);
@@ -132,14 +89,16 @@ static partial class Sirus
                         damage = g.ShieldPool.Damage(damage, bypass: false, now);
                         PublishEnergyShieldLocked(p, g);
                         g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
+                            DeathKind: DotDeathKind(g.Monster, g.Monster.Life)));
                         if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                     }
-                    return lifeBefore == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
+                    return lifeBefore == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife,
+                        u2c: p.PlayerLife == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal);
                 }
             });
             if (shieldChanged) await SendPlayerEnergyShield(w.Remote, w.Stream, w.Ciphers, p);
-            if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "[Sirus] ground damage");
+            if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "[Sirus] ground damage", deathKind: InstanceProtocol.DeathKindDegen);
         }
     }
 }

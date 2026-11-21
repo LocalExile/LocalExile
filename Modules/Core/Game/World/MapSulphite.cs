@@ -43,7 +43,7 @@ public static class MapSulphite
     {
         var w = new BlobWriter();
         w.U8(0).U8(0).I32(x).I32(y).F32(0).U16(0).U8((byte)(height is null ? 0 : 4)).U8(2);
-        if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+        if (height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
         w.U8(0).U8(1).U8(0).U8(0).U8((byte)(mined ? 6 : 0));
         States(mined, fumes).Write(w);
         return w.U8(0).ToArray();

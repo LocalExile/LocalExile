@@ -17,6 +17,8 @@ static class TownBench
         // Oriath Docks (2_10_town, HASH16 0x95b0): dock_town.arm (503 × 503 cells, code 0, origin (0, 0)) lists the bench
         // at (507, 300), angle 0, model TownCraftingBench01_01.ao — to the screen-left of the stash at (532, 296).
         [StashCatalog.OriathDocks] = new(507, 300, 0, Type, "Metadata/Terrain/Doodads/TownCraftingBench/TownCraftingBench01_01.ao"),
+        // The Sovereign (DeepwaterHub): hub_interior.arm (origin (0, 0)) lists the crafting bench below deck at (201, 103).
+        [StashCatalog.DeepwaterHub] = new(201, 103, -1.57862f, Type, "Metadata/Terrain/Doodads/TownCraftingBench/TownCraftingBench02_01.ao"),
     };
 
     /// <summary>The bench of the town whose area is <paramref name="areaHash"/>, or null.</summary>

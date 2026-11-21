@@ -386,6 +386,15 @@ public sealed record TwoWStringsBool(string A, string B, bool Flag) : ILoginMess
     internal static TwoWStringsBool Read(ushort id, ref LoginReader r) => new(r.WStr(), r.WStr(), r.Bool());
 }
 
+/// <summary>C→S 0x45 (sender 0x1400f5380, inline): u16 BE length + payload bytes. The same sender emits instance 0x2fc when connected to an instance.</summary>
+public sealed record ClientBlob45(byte[] Data) : ILoginMessage
+{
+    public const ushort Id = 0x45;
+    public ushort MessageId => Id;
+    public void WriteFields(LoginWriter w) => w.Blob(Data);
+    internal static ClientBlob45 Read(ushort id, ref LoginReader r) => new(r.Blob());
+}
+
 public enum LoginDirection { ServerToClient, ClientToServer }
 
 /// <summary>Id → layout tables for both directions and a framing-free stream decoder.</summary>
@@ -420,7 +429,7 @@ public static class LoginCodec
         [0x18] = ReadEmpty, [0x19] = ReadEmpty, [0x1c] = TwoU16.Read, [0x21] = ReadEmpty, [0x22] = HexCode.Read,
         [0x23] = ReadEmpty, [0x2a] = WStringU8Message.Read, [0x2b] = WStringU8Message.Read, [0x2c] = EpicLogin.Read,
         [0x39] = ReadEmpty, [0x3a] = U8Message.Read, [0x3d] = TwoWStringsBool.Read,
-        [0x3f] = WStringMessage.Read, [0x40] = WStringMessage.Read, [0x42] = U8Message.Read, [0x46] = U32Message.Read,
+        [0x3f] = WStringMessage.Read, [0x40] = WStringMessage.Read, [0x42] = U8Message.Read, [0x45] = ClientBlob45.Read, [0x46] = U32Message.Read,
     };
 
     public static bool IsKnown(LoginDirection dir, ushort id) => Table(dir).ContainsKey(id);
