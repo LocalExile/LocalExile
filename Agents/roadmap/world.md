@@ -152,7 +152,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   *Of Divination* adds one to three cards for corrupted items outside Ruthless. The individual vessel rates
   still need a direct sample.
   *Of the Pyramid* grants a Vaal Temple Map at side-area level 80 and above. Its dedicated key opens the Temple.
-  Verify the map's explicit modifiers and identification state on drop in the client.
+  *Of Vile Areas* grants one or two maps inhabited by the Vaal from side-area level 69. Map bosses retain their
+  own varieties. Sample the reward tier, rarity, modifier sections and identification state for both map rewards.
   *Of Atzoatl* adds the saved count of corrupted rare equipment with a native Incursion affix.
   *Of Dark Blessings* adds one or two level-eligible uniques, each with one corruption implicit.
   *Of the Locus* adds one unique with two corruption implicits from distinct families. A kept area uses its saved count.

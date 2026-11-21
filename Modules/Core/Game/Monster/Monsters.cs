@@ -536,6 +536,9 @@ public static partial class Game
         return id;
     }
 
+    const string VaalInhabitantStat = "map_packs_are_vaal";
+    static readonly RuleTable<PackCatalog, IReadOnlyList<(PackCatalog.Pack Pack, int Weight)>> VaalInhabitants = new();
+
     // The area's monsters, once the player is in (Agents/docs/protocol/14-monster-packs.md): MonsterPacks scattered over the
     // walk map, the room points' packs and the unique boss at "mapboss" (AreaPopulation). Towns have none; neither does an
     // area without a walk map. Game_MONSTERS=0 turns it off.
@@ -585,6 +588,9 @@ public static partial class Game
         var directPoints = layout.Level is { } levelWithRooms && area.DirectPacks.Count > 0
             ? AreaPopulation.DirectPackPoints(levelWithRooms.Records, area) : [];
         var mapMods = MapModsOf(conn);
+        if (mapMods?.Get(VaalInhabitantStat) > 0)
+            area = area with { Scattered = VaalInhabitants.GetValue(Packs,
+                catalog => catalog.Inhabitants(checked((int)Stats.Key(VaalInhabitantStat)!.Value - 1))) };
         var additionalPacks = MapScarabPacks.Requests(mapMods);
         if (area.Scattered.Count == 0 && area.Bosses.Count == 0 && directPoints.Count == 0 && additionalPacks.Count == 0) return;
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the

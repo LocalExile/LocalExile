@@ -12,6 +12,7 @@ unique boss **Fire Fury** and her guards at the cannibal camp, next to its campf
 | `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
 | `MonsterPackEntries` | each `MonsterVarietiesKey` for a `MonsterPacksKey`. `Weight` gives a draw weight when `Flag` is set and a fixed member count when clear. |
 | `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
+| `MapInhabitants` | `StatsKey` selects a list of `MonsterPacksKeys` for the ordinary population. The Vaal row lists 11 packs without relative weights. |
 
 The 3.29.3c pack-size tooltip (`0x1424d7240`, `ClientStrings.ItemPopupPackSize`) scales `MinCount` down to the
 nearest whole number and `MaxCount` up. It then adds `MonsterPacks.__col1` to both. This equals the sum of the

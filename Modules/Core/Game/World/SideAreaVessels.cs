@@ -220,15 +220,15 @@ public static class SideAreaVessels
 
         int templeMaps = Count("map_vaal_vessel_drop_X_vaal_temple_maps");
         if (templeMaps > 0)
+            AddMaps(templeMaps, catalog.Find("Metadata/Items/Maps/MapKeyVaalTemple")!);
+
+        int inhabitedMaps = Count("map_vaal_vessel_drop_X_maps_with_vaal_implicits");
+        if (inhabitedMaps > 0)
         {
-            var temple = catalog.Find("Metadata/Items/Maps/MapKeyVaalTemple")!;
-            var rolls = RollsFor(conn);
-            for (int n = 0; n < templeMaps; n++)
-            {
-                var map = ItemCatalog.Create(temple, random: Random.Shared) with { ItemLevel = (byte)level };
-                var rare = rolls.Roll(map, ItemRarity.Rare, Random.Shared);
-                rewards.Add(new(rare with { Corrupted = true, Identified = true }, temple));
-            }
+            var key = StrongboxLoot.MapBase(conn, catalog, level)
+                ?? throw new InvalidOperationException($"No generic map key for Vaal vessel in {conn.Layout.Id} at level {level}");
+            AddMaps(inhabitedMaps, key, catalog.Mods.ById("MapMonsterPacksVaalMapWorlds")
+                ?? throw new InvalidOperationException("Vaal vessel is missing its inhabitant modifier"));
         }
 
         int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
@@ -236,6 +236,20 @@ public static class SideAreaVessels
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;
         var drop = new ItemDrops.Drop(ItemCatalog.Create(orb), orb);
         return ItemDrops.Stacked(rewards.Concat(Enumerable.Repeat(drop, orbs)));
+
+        void AddMaps(int count, ItemCatalog.BaseType type, ModCatalog.Mod? inhabitants = null)
+        {
+            var rolls = RollsFor(conn);
+            for (int n = 0; n < count; n++)
+            {
+                var map = ItemCatalog.Create(type, random: Random.Shared) with { ItemLevel = (byte)level };
+                if (inhabitants is not null)
+                    map = map with { Mods = [inhabitants.Roll(ModSection.Implicit, Random.Shared), .. map.Mods] };
+                var rare = inhabitants is null ? rolls.Roll(map, ItemRarity.Rare, Random.Shared)
+                    : rolls.Roll(map, ItemRarity.Rare, Random.Shared, mod => !mod.Families.Intersect(inhabitants.Families).Any());
+                rewards.Add(new(rare with { Corrupted = true, Identified = true }, type));
+            }
+        }
     }
 
     // The guaranteed reward uses Chris Wilson's published 2014 category and fragment ratios.

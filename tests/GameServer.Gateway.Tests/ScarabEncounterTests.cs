@@ -161,7 +161,8 @@ public sealed class ScarabEncounterTests
             await CheckTempleVessels();
             await CheckSideAreaVessel("1_SideArea5_3_2", 44, 31451);
             await CheckSideAreaVessel("MapSideArea5_3_2", 69, 47923, "MapCorruptedSideAreaVesselTempleItemDrop_");
-            await CheckSideAreaVessel("MapSideArea5_3_2", 80, 47923, "MapCorruptedSideAreaVaalTempleDrop");
+            await CheckSideAreaVessel("MapSideArea5_3_2", 80, 47923, "MapCorruptedSideAreaVaalTempleDrop",
+                "MapCorruptedSideAreaVaalImplicitMapDrop");
             await CheckSideAreaVessel("MapSideArea5_3_2", 74, 47923, "MapCorruptedSideAreaVesselDoubleImplicitDrop_");
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselVaalOrbDrop_",
                 "MapCorruptedSideAreaVesselVaalGemDrop", "MapCorruptedSideAreaVesselLevelledGemDrop");
@@ -485,7 +486,7 @@ public sealed class ScarabEncounterTests
         {
             var slot = new MapDevice.Slot(0, "Map", "Secluded Canal", -1, [.. rolls.Values], 0);
             var mods = MapRunCatalog.Load("data").Of([slot], Program.Items.Mods);
-            instance.OpenedWith(new("VesselOwner", new(layout.Hash, areaId, "Secluded Canal", 16) { Level = level }, mods));
+            instance.OpenedWith(new("VesselOwner", new(layout.Hash, areaId, "Secluded Canal", Math.Clamp(level - 67, 1, 16)) { Level = level }, mods));
             instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1));
         }
         await using var owner = await Wire.Open(instance, layout, seed);
@@ -565,7 +566,24 @@ public sealed class ScarabEncounterTests
                 Assert.Equal("MapWorldsVaalTemple", opening.Area.Id);
                 Assert.Equal(10, opening.Mods.Get("map_vaal_temple_spawn_additional_vaal_vessels"));
             }
-            var rares = drops.Where(item => item.Rarity == ItemRarity.Rare && item.TypeHash != temple.Hash).ToArray();
+            var inhabitants = Program.Items.Mods.ById("MapMonsterPacksVaalMapWorlds")!;
+            var inhabitedMaps = drops.Where(item => item.Mods.Any(m => m.Hash == inhabitants.Hash)).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVaalImplicitMapDrop", 2), inhabitedMaps.Length);
+            foreach (var map in inhabitedMaps)
+            {
+                var type = Program.Items.ByHash(map.TypeHash)!;
+                Assert.Equal($"Metadata/Items/Maps/MapKeyTier{level - 67}", type.Id);
+                Assert.True(map.Corrupted);
+                Assert.Equal(level, map.ItemLevel);
+                Assert.Contains(map.Mods, m => m.Hash == inhabitants.Hash && m.Section == ModSection.Implicit);
+                var slot = new MapDevice.Slot(type.Hash, type.Class, type.Name, type.Row, map.Mods, map.Quality);
+                var cells = Game.MapDevices.Value.Atlas!.Find("MapWorldsCells")!;
+                var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([slot], null, Program.Items.Mods,
+                    out _, campaign: false, target: cells.NodeHash));
+                Assert.Equal(1, opening.Mods.Implicit["map_packs_are_vaal"]);
+                await CheckVaalPopulation(opening);
+            }
+            var rares = drops.Where(item => item.Rarity == ItemRarity.Rare && Program.Items.ByHash(item.TypeHash)!.Class != "MapKey").ToArray();
             Assert.Equal(Count("MapCorruptedSideAreaVesselTempleItemDrop_", 2), rares.Length);
             foreach (var item in rares)
             {
@@ -618,6 +636,23 @@ public sealed class ScarabEncounterTests
             Assert.All(rewards.Except(gemDrops), item => Assert.Contains("/CurrencyVaalFragment1_", Program.Items.ByHash(item.TypeHash)!.Id));
         }
         finally { Program.Outgoing = oldOutput; }
+    }
+
+    static async Task CheckVaalPopulation(MapDevice.Opening opening)
+    {
+        var instance = new InstanceState();
+        var run = new MapDevice.Run("VaalInhabitants", opening.Area, opening.Mods);
+        instance.OpenedWith(run);
+        var stats = instance.AreaStats(() => Game.MapAreaStats(new(run.Owner, "Standard", run.Area.Hash16, run))!);
+        uint seed = AreaLayouts.PlayableSeed(run.Area.Hash16, 5013, run.Area.Level, stats);
+        await using var player = await Wire.Open(instance, AreaLayouts.For(run.Area.Hash16, seed), seed, run.Owner);
+        var c = player.Conn;
+        await Game.PopulateArea(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c);
+        var monsters = SavedMonster.Save(c.Monsters.Values, 0, MonsterEmerge.Unrisen(c)).Concat(instance.World.HeldBackMonsters).ToList();
+        var vaal = Game.Packs.Inhabitants((int)Program.Stats.Key("map_packs_are_vaal")!.Value - 1)
+            .SelectMany(p => p.Pack.Entries.Select(e => e.Variety).Concat(p.Pack.BossVarieties)).ToHashSet();
+        Assert.Contains(monsters, m => m.Rarity != MonsterRarity.Unique && vaal.Contains(m.Variety));
+        Assert.Contains(monsters, m => m.Rarity == MonsterRarity.Unique && Game.Packs.BossesFor(run.Area.Id).Contains(m.Variety));
     }
 
     static async Task CheckTempleVessels()

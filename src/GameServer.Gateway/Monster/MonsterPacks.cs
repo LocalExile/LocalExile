@@ -130,6 +130,14 @@ public sealed class PackCatalog(string folder = "data")
 
     public Pack? Find(string id) => _data.Value?.Packs.FirstOrDefault(p => p.Id == id);
 
+    /// <summary>The ordinary map packs selected by a Stats row in MapInhabitants.</summary>
+    public IReadOnlyList<(Pack Pack, int Weight)> Inhabitants(int statRow)
+    {
+        var rule = ClientTables.Table("MapInhabitants").Single(r => r.Int("StatsKey") == statRow);
+        var packs = _data.Value!.Value.Packs;
+        return [.. rule.Ints("MonsterPacksKeys").Select(row => (packs[row], MapPackWeight))];
+    }
+
     // MonsterVarieties rows by Id, for the Labyrinth's packs.
     readonly Lazy<Dictionary<string, int>> VarietyRows = new(() =>
     {

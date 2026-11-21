@@ -234,7 +234,9 @@ public static class StrongboxLoot
                     if (drop is not null && boxStat("chest_all_dropped_scarabs_are_same_content_type") != 0) sameScarab = drop.Type;
                     return drop;
                 }
-                case Contents.Map: return Map();
+                case Contents.Map:
+                    return MapBase(conn, catalog, level) is { } map
+                        ? new(ItemCatalog.Create(map) with { ItemLevel = (byte)level }, map) : null;
                 case Contents.Currency or Contents.QualityCurrency:
                 {
                     double pick = rng.NextDouble() * currency.Sum(c => c.Weight);
@@ -314,13 +316,13 @@ public static class StrongboxLoot
 
         ItemCatalog.BaseType[] Bases(Func<ItemCatalog.BaseType, bool> kind) =>
             [.. catalog.All.Where(t => ItemDrops.Droppable(t) && t.DropLevel <= level && ItemDrops.EquipmentClasses.Contains(t.Class) && kind(t))];
+    }
 
-        // A generic map key of the open map's tier (the area level's in the campaign: level 68 is tier 1).
-        ItemDrops.Drop? Map()
-        {
-            int tier = MapRunOf(conn)?.Area.Tier is int open and > 0 ? open : Math.Clamp(level - 67, 1, 16);
-            if (MapDevices.Value.Atlas?.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
-            return new(ItemCatalog.Create(type) with { ItemLevel = (byte)level }, type);
-        }
+    // Our generic container map uses the open map's tier, or the area level outside a map run.
+    internal static ItemCatalog.BaseType? MapBase(ClientState conn, ItemCatalog catalog, int level)
+    {
+        int tier = MapRunOf(conn)?.Area.Tier is int open and > 0 ? open : Math.Clamp(level - 67, 1, 16);
+        return MapDevices.Value.Atlas?.KeyOfTier(tier) is uint hash && catalog.ByHash(hash) is { Supported: true } type
+            ? type : null;
     }
 }
