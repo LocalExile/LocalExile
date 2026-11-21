@@ -438,7 +438,11 @@ public static partial class Game
         bool waitingForBanditChoice = !friendly && BanditChoices.In(conn) is { } bandit
             && bandit.Variety == variety.Id && variety.ComponentsOrBase.Contains("NPC") && BanditChoices.Held(conn, bandit);
         var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? BossKits.StartStates(variety) ?? variety.StateMachine;
-        uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
+        // MonsterObject.Blob() omits Actor's two dead-on-birth bytes, so a create packet must carry life >= 1;
+        // a dead-on-arrival owned spawn is born with life 1 and immediately zeroed by LifeUpdate(id, 0).
+        uint initialLife = Math.Min(damagedLife ?? life, life);
+        bool initialDeath = ownedInitialDeath || (owned is not null && initialLife == 0);
+        uint wireLife = Math.Max(1u, owned is null ? life : initialLife);
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
@@ -494,7 +498,7 @@ public static partial class Game
                     return create;
                 }
             }, createLog, wake: true, transport: (remote, stream, ciphers),
-                afterCreation: ownedInitialDeath ? () => [InstanceProtocol.LifeUpdate(id, 0)] : null);
+                afterCreation: initialDeath ? () => [InstanceProtocol.LifeUpdate(id, 0)] : null);
             if (!admitted) return 0;
         }
         else
@@ -550,7 +554,7 @@ public static partial class Game
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
                 Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
-                Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
+                Life = initialLife, Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
                 CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted || atlas),
@@ -568,7 +572,8 @@ public static partial class Game
             {
                 conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
                 // Created on this client where it was spawned (SyncInstanceMonsters creates it on the others).
-                conn.MonsterViews[id] = new((x, y), (x, y), Math.Min(damagedLife ?? life, life)) { ActorStance = monster.ActorStance };
+                conn.MonsterViews[id] = new((x, y), (x, y), initialDeath ? 0 : initialLife) { ActorStance = monster.ActorStance,
+                    CreatedAsCorpse = initialDeath && conn.Monsters.GetValueOrDefault(id)?.CreatedAsCorpse == true };
             }
         }
         if (waits) WatchBuried(remote, stream, ciphers, conn);
