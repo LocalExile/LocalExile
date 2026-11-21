@@ -16,6 +16,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cooldown bypass: a use during the cooldown spends a charge; a cooldown skill pays its cost when its use is
   accepted. Docs: [11](../docs/protocol/11-skills.md) §9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
+- Vigilant Strike consumes its direct 8-second melee-hit Fortify grant and refreshes the displayed Fortification timer on a later grant through the shared path; cooldown bypass and fresh supported-client icon/timer behavior are verified live.
 - Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's charge and shield damage.
   Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md).
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
