@@ -7,7 +7,7 @@ public static partial class Game
     sealed record AnimatedGuardianGear(Dictionary<byte, Item> Reference, Dictionary<byte, Item> Equipment);
 
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment,
-        AnimatedGuardianGear? GuardianGear = null);
+        AnimatedGuardianGear? GuardianGear = null, BladefallTrarthusState? BladeSource = null);
 
     static AnimatedGuardianGear? CaptureAnimatedGuardianGearLocked(ClientState conn, SummonCatalog.Definition definition) =>
         definition.Family == "AnimatedGuardian"

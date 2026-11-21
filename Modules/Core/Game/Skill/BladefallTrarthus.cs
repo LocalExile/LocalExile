@@ -33,6 +33,7 @@ public static partial class Game
                 NextVolley = conn.Clock.Elapsed.TotalSeconds + BladefallVolleySeconds(conn, Own),
             };
             conn.BladefallTrarthus = state;
+            conn.LingeringBladeSources.Add(state);
         }
         await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, state.CostBuff, costRow, PlayerId, skillId,
                 activeSkill: icon, list: [0]),
@@ -93,22 +94,33 @@ public static partial class Game
                 var gone = new List<uint>();
                 lock (conn.Monsters)
                 {
-                    foreach (var blade in state.Blades)
-                        if (blade.Landed <= now && blade.Landed > 0) landed.Add(blade.Id);
-                    if (landed.Count > 0)
+                    for (int i = state.Blades.Count - 1; i >= 0; i--)
                     {
-                        var kept = state.Blades.Select(b => landed.Contains(b.Id) ? (b.Id, 0d, b.Gone) : b).ToList();
-                        state.Blades.Clear();
-                        foreach (var b in kept) state.Blades.Enqueue(b);
+                        var blade = state.Blades[i];
+                        if (blade.Gone <= now)
+                        {
+                            gone.Add(blade.Id);
+                            state.Blades.RemoveAt(i);
+                        }
+                        else if (blade.Landed > 0 && blade.Landed <= now)
+                        {
+                            landed.Add(blade.Id);
+                            state.Blades[i] = (blade.Id, blade.At, 0, blade.Gone);
+                        }
                     }
-                    while (state.Blades.TryPeek(out var oldest) && oldest.Gone <= now) gone.Add(state.Blades.Dequeue().Id);
                 }
                 foreach (uint id in landed)
-                    await Send(remote, stream, ciphers, InstanceEntities.ComponentUpdate(id, GroundBladeObject.AnimatedIndex, GroundBladeObject.Landed()), null);
+                    await Send(remote, stream, ciphers, [], null, atGate: () =>
+                    {
+                        lock (conn.Monsters)
+                            return state.Blades.Any(blade => blade.Id == id)
+                                ? InstanceEntities.ComponentUpdate(id, GroundBladeObject.AnimatedIndex, GroundBladeObject.Landed()) : null;
+                    });
                 foreach (uint id in gone) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
                 if (state.Ended || !ReferenceEquals(conn.BladefallTrarthus, state))
                 {
-                    if (state.Blades.Count == 0) return;
+                    lock (conn.Monsters)
+                        if (state.Blades.Count == 0) return;
                 }
                 else if (now >= state.NextVolley)
                 {
@@ -122,6 +134,10 @@ public static partial class Game
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} Bladefall of Trarthus stopped: {ServerLog.Describe(ex)}"); }
+        finally
+        {
+            lock (conn.Monsters) conn.LingeringBladeSources.Remove(state);
+        }
     }
 
     static async Task BladefallVolley(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -158,13 +174,22 @@ public static partial class Game
                 }
                 uint id = conn.TakeObjectId();
                 created.Add((id, new GroundBladeObject(cell.X, cell.Y, (float)(random.NextDouble() * Math.Tau), row)));
-                state.Blades.Enqueue((id, now + lands, now + lasts));
-                while (state.Blades.Count > most) removed.Add(state.Blades.Dequeue().Id);
+                state.Blades.Add((id, cell, now + lands, now + lasts));
+                if (state.Blades.Count > most)
+                {
+                    removed.Add(state.Blades[0].Id);
+                    state.Blades.RemoveAt(0);
+                }
             }
         }
         foreach (uint id in removed) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
         foreach (var (id, blade) in created)
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(BladefallVolleys.GroundBlade), blade.Blob()),
-                null);
+            await Send(remote, stream, ciphers, [], null, atGate: () =>
+            {
+                lock (conn.Monsters)
+                    return state.Blades.Any(entry => entry.Id == id)
+                        ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(BladefallVolleys.GroundBlade), blade.Blob())
+                        : null;
+            });
     }
 }
