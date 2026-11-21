@@ -313,6 +313,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // row → buff instance), and the increased damage taken they give (every type; fire, cold and lightning) that its
     // hits read.
     public double TauntedUntil = double.NegativeInfinity, TauntShownUntil;
+    public (ClientState Owner, TotemState.Totem Source, double Until)? DecoyTaunt;
     public ushort TauntBuff;
     // Intimidated and unnerved by his hits (Game.HitDebuffsOnHitLocked) until when, shown the same way as the taunt.
     public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
