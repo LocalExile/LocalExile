@@ -59,6 +59,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapStrongboxes.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapStrongboxes.Enter);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, SideAreaVessels.Enter);
+        GameEvents.ObjectUse.Add(module.Manifest.Id, SideAreaVessels.Use);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => MapStrongboxes.Tick(conn));
         GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using GameServer.Core;
@@ -149,6 +150,7 @@ public sealed class ScarabEncounterTests
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
             await CheckTempleVessels();
+            await CheckSideAreaVessel();
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
             var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
@@ -443,6 +445,52 @@ public sealed class ScarabEncounterTests
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseOwnSaves();
         }
+    }
+
+    static async Task CheckSideAreaVessel()
+    {
+        const string areaId = "1_SideArea5_3_2";
+        const string chest = "Metadata/Chests/SideArea/SideAreaChest";
+        var area = AreaInfo.Load(GamePack.Default.TryRead, areaId, 44);
+        uint seed = ServerLevels.PlayableSeed(areaId, 31451, 44);
+        var layout = AreaLayouts.For(area.Hash16, seed);
+        var at = Assert.Single(new QuestObjectTypes.AreaPlacements(areaId, seed, []).Of(chest));
+        var instance = new InstanceState();
+        await using var owner = await Wire.Open(instance, layout, seed);
+        await using var peer = await Wire.Open(instance, layout, seed);
+        var wire = owner.Conn.Wire;
+        await Game.PopulateArea(wire.Remote, wire.Stream, wire.Ciphers, owner.Conn);
+        int bossRow = Assert.Single(Game.Packs.BossesFor(areaId));
+        var boss = Assert.Single(owner.Conn.Monsters.Values, m => m.Variety?.Row == bossRow);
+        var oldOutput = Program.Outgoing;
+        var creates = new List<uint>();
+        Program.Outgoing = (ciphers, bytes) =>
+        {
+            if (bytes.Length >= 16 && BinaryPrimitives.ReadUInt16BigEndian(bytes) == InstanceEntities.CreateObjectId
+                && BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(12)) == InstanceEntities.ObjectTypeHash(chest))
+                creates.Add(BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)));
+            oldOutput?.Invoke(ciphers, bytes);
+        };
+        try
+        {
+            await SideAreaVessels.Enter(owner.Conn);
+            uint id = Assert.Single(creates);
+            await SideAreaVessels.Enter(peer.Conn);
+            Assert.Equal(new[] { id, id }, creates);
+            owner.Conn.Walk.Teleport(at.X + 3, at.Y, 0);
+            peer.Conn.Walk.Teleport(at.X + 3, at.Y, 0);
+            Assert.True(await SideAreaVessels.Use(owner.Conn, new(id, 0, 1, 0), 0));
+            Assert.False(instance.ChestOpened(at.X, at.Y));
+            Assert.Empty(instance.Ground.All());
+            lock (peer.Conn.Monsters) Assert.NotNull(Game.ApplyMonsterHitLocked(peer.Conn, boss, int.MaxValue));
+            Assert.True(boss.Dead);
+            Assert.True(await SideAreaVessels.Use(peer.Conn, new(id, 0, 1, 0), 0));
+            Assert.True(instance.ChestOpened(at.X, at.Y));
+            Assert.True(await SideAreaVessels.Use(owner.Conn, new(id, 0, 2, 0), 0));
+            var drop = Assert.Single(instance.Ground.All()).Item.Item;
+            Assert.True(drop.Corrupted || Program.Items.ByHash(drop.TypeHash)!.Id.Contains("/CurrencyVaalFragment1_"));
+        }
+        finally { Program.Outgoing = oldOutput; }
     }
 
     static async Task CheckTempleVessels()

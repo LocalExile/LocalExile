@@ -2981,12 +2981,14 @@ public static partial class Game
     // damage-over-time owner has left. A Vaal soul belongs only to a present owner.
     internal static void CommitMonsterDeathLocked(ClientState conn, SpawnedMonster monster)
     {
+        SideAreaVessels.Died(conn, monster);
         CollectVaalSoulAtDeathLocked(conn, monster);
         MapTorment.MartyrDiedLocked(conn, monster);
     }
 
     static Func<Task>? CommitSharedDotDeathLocked(ClientState runner, SpawnedMonster monster, ClientState? soulOwner)
     {
+        SideAreaVessels.Died(runner, monster);
         if (soulOwner is not null) CollectVaalSoulAtDeathLocked(soulOwner, monster);
         return MapTorment.CaptureMartyrDotLocked(runner, monster, playerKill: soulOwner is not null);
     }

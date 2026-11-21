@@ -132,6 +132,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
   [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
 
+- In newly populated Vaal side areas, the room's `SideAreaChest` appears at its placed position. Its natural boss
+  guards it, including both copies in a twinned area. The party shares one opening and one base reward, a corrupted
+  Vaal gem or a level-eligible Sacrifice fragment. The category and fragment weights use Chris Wilson's
+  [2014 account](https://www.reddit.com/r/pathofexile/comments/26vxhn/comment/chv7xio/). Current server weights,
+  bonus loot, the exit portal and original client presentation are unverified.
+
 - The Vaal Temple map implicit places ten guarded Vaal Vessels. `VaalTempleChest.ot` sets rare rarity and immediate
   identification. The fixed chest carries its two implicits without rolling any affixes. Its three packs and Vaal side-area boss guard the contents until the last one dies. Its drop
   implicit corrupts eligible items. The special corruption-themed reward pool and client presentation still need

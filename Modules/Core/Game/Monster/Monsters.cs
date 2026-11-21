@@ -237,7 +237,7 @@ public static partial class Game
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
         MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
-        bool bulk = false)
+        bool bulk = false, int sideAreaGuard = -1)
     {
         movement ??= MonsterMovement.Default;
         uint id;
@@ -515,6 +515,7 @@ public static partial class Game
                     || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             };
             MonsterEmerge.AddLocked(conn, id, spawned, emerge, waits);
+            if (sideAreaGuard >= 0) SideAreaVessels.PlaceGuard(conn.Instance, sideAreaGuard, id);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
             spawned.InitializeLife(ownedMaximumLife is null ? (uint)baseLife : null, keptLife);
             if (friendly && !instanceOwned) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
@@ -703,6 +704,7 @@ public static partial class Game
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
+        var vesselGuards = SideAreaVessels.PlanGuards(conn, spawns);
         if (mapMods?.Get("map_shrines_have_standalone_map_boss") > 0 && ServerLevels.For(layout.Id, conn.Seed) is { } shrineRooms)
             spawns.AddRange(MapScarabBosses.Guards(conn,
                 [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, conn.Seed).Select(p => (p.X, p.Y))], spawns));
@@ -745,7 +747,9 @@ public static partial class Game
             }
             created++;
             bool notable = s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare;
-            await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false, bulk: true);
+            await SpawnMonsterCore(null, remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y,
+                log: notable, alone: false, bulk: true,
+                sideAreaGuard: s.Rarity == MonsterRarity.Unique ? Array.IndexOf(vesselGuards, s) : -1);
         }
         Phase($"{spawns.Count} monsters ({created} created now, {spawns.Count - created} when a player comes near)");
         int extra = 0;
