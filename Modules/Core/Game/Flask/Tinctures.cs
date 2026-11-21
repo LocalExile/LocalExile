@@ -630,7 +630,7 @@ public static partial class Game
         if (!conn.TinctureEffects.HasActiveAdjacentTo(slot)) return 0;
         int bonus = character("flasks_adjacent_to_active_tinctures_have_effect_+%_if_hit_with_weapon_recently");
         if (bonus == 0) return 0;
-        return conn.RecentEvents.Happened(StatConditions.HitEnemy, now) ? bonus : 0;
+        lock (conn.Monsters) return conn.RecentEvents.Happened(StatConditions.HitEnemyWithWeapon, now) ? bonus : 0;
     }
 
     // Called under conn.Monsters on a landed player weapon attack hit (melee, area attack, or projectile attack):

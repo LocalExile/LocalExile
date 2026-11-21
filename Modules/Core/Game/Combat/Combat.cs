@@ -599,6 +599,7 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: weapon.Melee, critical);
+                if (weapon.ItemClass is not null) conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
                 if (life == 0) RecordTinctureKill(m, TinctureKillBonusFor(conn, player, hand));
                 if (conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
             }
@@ -2497,6 +2498,7 @@ public static partial class Game
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
+        bool weaponAttack = false;
         TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<string, int>? weaponLocal = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
@@ -2552,7 +2554,8 @@ public static partial class Game
                         var sourceWeapon = shield ?? HandWeapon(conn, hand);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
                         weaponLocal = local;
-                        if (!spell && shield is null && SkillsFor(conn).IsAttack(gem.Effect))
+                        weaponAttack = !spell && shield is null && sourceWeapon.ItemClass is not null && SkillsFor(conn).IsAttack(gem.Effect);
+                        if (weaponAttack)
                             tinctureKill = TinctureKillBonusFor(conn, player, hand);
                         if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: IsSmite(gem.Effect) ? singleStrikeTarget is null : null)
                             is not { } capturedInputs) break;
@@ -2705,6 +2708,7 @@ public static partial class Game
                         if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
+                        if (weaponAttack) conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
                         if (applied.Value.Life == 0) RecordTinctureKill(m, tinctureKill);
                         if (!spell && conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).

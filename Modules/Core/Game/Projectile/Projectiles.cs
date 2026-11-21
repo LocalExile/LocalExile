@@ -566,8 +566,11 @@ public static partial class Game
                 target.KilledWithItemRarityPct = shot.SkillStats.GetValueOrDefault(rarityKey);
             // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
             SoulEaterHit(Conn, target);
-            if (hit.Value.Life == 0 && shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage)
-                RecordTinctureKill(target, shot.TinctureKill);
+            if (shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage && target.Hostile)
+            {
+                Conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                if (hit.Value.Life == 0) RecordTinctureKill(target, shot.TinctureKill);
+            }
             if (shot.ActualCaster is null && !shot.Spell && Conn.TinctureEffects.AnyEffective)
                 TinctureOnWeaponHitLocked(Conn, player, target, lifeBefore, at, contact.Projectile.ReactionRandomSource);
             if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, target, shot.SkillStats);

@@ -443,9 +443,14 @@ public class TinctureTests
             var queuedCharges = conn4.TinctureEffects.DrainPendingAdjacentCharges();
             Assert.NotNull(queuedCharges);
             Assert.Contains((Slot: (byte)1, Charges: 3), queuedCharges);
-            conn4.RecentEvents.RecordHit(t4 + 1.0, critical: false);
+            conn4.RecentEvents.RecordHit(t4 + 0.9, critical: false);
+            Assert.Equal(0, Game.AdjacentTinctureFlaskEffect(conn4, slot: 1, Stats4, t4 + 0.9));
+            conn4.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, t4 + 1.0);
             Assert.Equal(25, Game.AdjacentTinctureFlaskEffect(conn4, slot: 1, Stats4, t4 + 1.0));
             Assert.Equal(0, Game.AdjacentTinctureFlaskEffect(conn4, slot: 3, Stats4, t4 + 1.0));
+
+            conn4.RecentEvents.RecordHit(t4 + 4.5, critical: false);
+            Assert.Equal(0, Game.AdjacentTinctureFlaskEffect(conn4, slot: 1, Stats4, t4 + 5.1));
 
             conn4.PlayerStats[Program.Stats.Key("tincture_effects_linger_for_ms_per_toxicity_up_to_6_seconds")!.Value] = 500;
             conn4.TinctureEffects.AddBurnStacks(2);
