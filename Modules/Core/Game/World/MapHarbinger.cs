@@ -12,12 +12,13 @@ using static Program;
 
 /// <summary>
 /// Harbingers (CoreLeagues row 8, Harbinger): invulnerable unique avatars that activate when a player approaches,
-/// summon waves of area monsters tinted with the Harbinger minion buff, and lose a fixed permyriad of their life for
-/// each summoned minion slain until defeated, dropping currency shards (unaffected by IIQ/IIR). Supports King
-/// Harbinger bosses (Regency / First Wave), Empowered Obelisks (Obelisks scarab), shard duplication (Warhoards), and
-/// all composed Atlas/Idol/map Harbinger stats read from <see cref="MapModsOf"/>.
+/// summon repeat waves (<c>skill_repeat_count</c>) of area monsters tinted with the Harbinger minion buff, cast their
+/// real <c>GrantedEffects</c> skills and auras alongside King Harbinger helpers and Empowered Obelisks, and lose a
+/// fixed permyriad of their life for each summoned minion slain until defeated, dropping currency shards (unaffected by
+/// IIQ/IIR). Supports King Harbinger bosses (Regency / First Wave), Empowered Obelisks (Obelisks scarab), shard
+/// duplication (Warhoards), and all composed Atlas/Idol/map Harbinger stats read from <see cref="MapModsOf"/>.
 /// </summary>
-public static class MapHarbinger
+public static partial class MapHarbinger
 {
     public const string Content = "Harbinger";
     const string SaveKey = "Harbinger/encounters";
@@ -28,8 +29,8 @@ public static class MapHarbinger
     public const uint HarbingerMaxLife = 10_000;
     const uint HelperMaxLife = 1_000;
 
-    // Activation range (cells), summon ring offset, obelisk cadence & caps, transient effect durations.
-    const double ActivationRange = 60, ObeliskFirstDelay = 4.0, ObeliskCooldown = 20.0, BuffPulseCooldown = 8.0;
+    // Activation range (cells), repeat sub-wave delay, obelisk cadence & caps, transient effect durations.
+    const double ActivationRange = 60, ObeliskFirstDelay = 4.0, ObeliskCooldown = 20.0, WaveRepeatInterval = 0.6;
     const double SummonEffectSeconds = 0.8, DefeatEffectSeconds = 1.2;
     const int MaxAliveObelisks = 2, MaxTotalObelisks = 4, KingHelperCount = 3;
 
@@ -64,8 +65,10 @@ public static class MapHarbinger
         public int ObelisksSummoned { get; set; }
 
         [System.Text.Json.Serialization.JsonIgnore] public double WaveCooldown;
+        [System.Text.Json.Serialization.JsonIgnore] public int PendingWaveRepeats;
+        [System.Text.Json.Serialization.JsonIgnore] public int PendingWaveRemaining;
+        [System.Text.Json.Serialization.JsonIgnore] public double WaveRepeatDelay;
         [System.Text.Json.Serialization.JsonIgnore] public double ObeliskCooldown;
-        [System.Text.Json.Serialization.JsonIgnore] public double BuffCooldown;
     }
 
     sealed record MinionLink(int HarbingerIndex, int Permyriad);
@@ -85,10 +88,19 @@ public static class MapHarbinger
         public readonly Dictionary<uint, int> ObeliskToHarbinger = [];
         public readonly ConcurrentQueue<PendingKill> Kills = new();
         public readonly List<PendingEffect> Effects = [];
+        public readonly Dictionary<uint, Dictionary<int, double>> ActorCooldowns = [];
+        // One action at a time: the encounter time (Drive's seconds, summed) until which an actor is still casting.
+        public readonly Dictionary<uint, double> ActorBusyUntil = [];
+        public double Time;
+        public bool Busy(uint actor) => ActorBusyUntil.TryGetValue(actor, out double until) && Time < until;
+        public readonly Dictionary<(uint SourceId, string AuraKey), ActiveTimedBuff> ActiveTimedAuras = [];
+        public readonly Dictionary<(uint MonsterId, string AuraKey), AppliedAllyAura> AppliedAllyAuras = [];
+        public readonly List<GroundHazard> Hazards = [];
         public volatile bool HasTracked;
         public volatile bool HasLive;
         public volatile bool HasEffects;
-        public bool NeedsTick => HasLive || HasEffects || !Kills.IsEmpty;
+        public volatile bool HasHazards;
+        public bool NeedsTick => HasLive || HasEffects || HasHazards || !Kills.IsEmpty;
     }
 
     static readonly RuleTable<InstanceState, Area> Areas = new();
@@ -271,11 +283,11 @@ public static class MapHarbinger
                 {
                     if (h.Monster != 0 && conn.Monsters.ContainsKey(h.Monster)) tracked.Add(h.Monster);
                     else missing.Add(h);
-                    if (h.State == HarbingerState.Active && h.Kind == HarbingerKind.King)
+                    if (h.Kind == HarbingerKind.King)
                     {
                         h.Helpers.RemoveAll(id => !conn.Monsters.ContainsKey(id));
                         foreach (uint id in h.Helpers) tracked.Add(id);
-                        if (h.Helpers.Count == 0) missingHelpers.Add(h);
+                        if (h.State == HarbingerState.Active && h.Helpers.Count == 0) missingHelpers.Add(h);
                     }
                 }
                 foreach (uint id in h.Obelisks)
@@ -305,7 +317,9 @@ public static class MapHarbinger
         uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Unique,
             h.X, h.Y, name: null, damagedLife: h.Life < HarbingerMaxLife ? h.Life : null, alone: true, unrisen: false,
             owned: (_, m) => { m.EncounterStats = InvulnerableStats; m.NoRewards = true; },
-            ownedMaximumLife: HarbingerMaxLife, scripted: true, movement: new MonsterMovement { ThroughBodies = true });
+            ownedMaximumLife: HarbingerMaxLife, scripted: true,
+            ownedSkills: BuildOwnedSkills(conn, variety, level),
+            movement: new MonsterMovement { ThroughBodies = true });
         if (id == 0) return;
         h.Monster = id;
     }
@@ -315,21 +329,25 @@ public static class MapHarbinger
         byte level = AreaLevel(conn);
         var w = conn.Wire;
         var rng = Random.Shared;
-        for (int i = 0; i < KingHelperCount; i++)
+        string[] order = [.. KingHelperVarieties];
+        rng.Shuffle(order);
+        for (int i = 0; i < Math.Min(KingHelperCount, order.Length); i++)
         {
-            string vid = KingHelperVarieties[rng.Next(KingHelperVarieties.Length)];
+            string vid = order[i];
             if (Monsters.Find(vid) is not { Supported: true } variety) continue;
             double angle = Math.Tau * i / KingHelperCount;
             var cell = conn.Layout.Near(((int)Math.Round(h.X + 10 * Math.Cos(angle)), (int)Math.Round(h.Y + 10 * Math.Sin(angle))));
             uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Unique,
                 cell.X, cell.Y, name: null, alone: true, unrisen: false,
                 owned: (_, m) => { m.EncounterStats = InvulnerableStats; m.NoRewards = true; },
-                ownedMaximumLife: HelperMaxLife, scripted: true, movement: new MonsterMovement { ThroughBodies = true });
+                ownedMaximumLife: HelperMaxLife, scripted: true,
+                ownedSkills: BuildOwnedSkills(conn, variety, level),
+                movement: new MonsterMovement { ThroughBodies = true });
             if (id != 0) h.Helpers.Add(id);
         }
     }
 
-    /// <summary>GameEvents.Tick: cheap early-out when Harbinger has no live encounters, kills or active effects.</summary>
+    /// <summary>GameEvents.Tick: cheap early-out when Harbinger has no live encounters, kills, hazards or active effects.</summary>
     public static async Task Tick(ClientState conn, double seconds)
     {
         if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Instance is null) return;
@@ -346,6 +364,7 @@ public static class MapHarbinger
             {
                 double dt = Math.Clamp(seconds, 0, 30);
                 await ReapEffects(conn, area, dt);
+                if (area.HasHazards) await TickHazards(conn, area, dt);
                 if (area.HasLive) await Drive(conn, area, dt);
             }
         }
@@ -376,10 +395,13 @@ public static class MapHarbinger
 
     static async Task Drive(ClientState conn, Area area, double seconds)
     {
-        var players = Members(conn).Where(c => c.PlayerSent && c.PlayerLife > 0)
-            .Select(c => c.Walk.Position(c.Clock.Elapsed.TotalSeconds)).ToArray();
-        if (players.Length == 0) return;
+        var liveMembers = Members(conn).Where(c => c.PlayerSent && c.PlayerLife > 0).ToArray();
+        if (liveMembers.Length == 0) return;
+        var players = new (int X, int Y)[liveMembers.Length];
+        for (int i = 0; i < liveMembers.Length; i++)
+            players[i] = liveMembers[i].Walk.Position(liveMembers[i].Clock.Elapsed.TotalSeconds);
 
+        area.Time += seconds;
         byte level = AreaLevel(conn);
         double cdScale = Math.Max(0.1, 1.0 + Stat(conn, "map_harbinger_cooldown_speed_+%") / 100.0);
         bool empowerObelisks = Stat(conn, "map_harbinger_scarab_empower") > 0;
@@ -430,6 +452,9 @@ public static class MapHarbinger
                         foreach (uint oid in prunedObelisks) area.ObeliskToHarbinger.Remove(oid);
                     area.HasTracked = area.MinionToHarbinger.Count > 0 || area.ObeliskToHarbinger.Count > 0;
                 }
+                if (prunedObelisks is not null)
+                    foreach (uint oid in prunedObelisks)
+                        await ClearAurasFromSource(conn, area, oid);
             }
 
             if (h.State == HarbingerState.Waiting)
@@ -437,35 +462,62 @@ public static class MapHarbinger
                 if (!players.Any(p => Distance(p, (h.X, h.Y)) <= ActivationRange)) continue;
                 h.State = HarbingerState.Active;
                 h.WaveCooldown = 0;
+                h.PendingWaveRepeats = 0;
+                h.PendingWaveRemaining = 0;
+                h.WaveRepeatDelay = 0;
                 h.ObeliskCooldown = ObeliskFirstDelay / cdScale;
-                h.BuffCooldown = BuffPulseCooldown / cdScale;
                 if (h.Kind == HarbingerKind.King && h.Helpers.Count == 0)
                     await SpawnKingHelpers(conn, h);
+                SeedEncounterCooldowns(conn, area, h, cdScale);
                 changed = true;
                 Console.WriteLine($"[harbinger] encounter {h.Index} ({h.Kind}, {h.Variety}) 0x{h.Monster:x} activated at ({h.X}, {h.Y})");
             }
             else
             {
                 h.WaveCooldown = Math.Max(0, h.WaveCooldown - seconds);
+                h.WaveRepeatDelay = Math.Max(0, h.WaveRepeatDelay - seconds);
                 h.ObeliskCooldown = Math.Max(0, h.ObeliskCooldown - seconds);
-                h.BuffCooldown = Math.Max(0, h.BuffCooldown - seconds);
             }
 
             var profile = HarbingerCatalog.Profile(h.Kind, level);
 
-            // Summon the next wave when off cooldown and below the active cap.
-            if (h.WaveCooldown <= 0 && h.Minions.Count < profile.AliveCap)
+            // Summon wave & skill_repeat_count sub-waves when off cooldown and below the active cap.
+            if (h.PendingWaveRepeats > 0)
             {
-                h.WaveCooldown = profile.CooldownSeconds / cdScale;
-                await SummonWave(conn, area, h, profile, level, players);
-                changed = true;
+                if (h.WaveRepeatDelay <= 0)
+                {
+                    int pulsesLeft = h.PendingWaveRepeats;
+                    int pulseCount = (h.PendingWaveRemaining + pulsesLeft - 1) / pulsesLeft;
+                    h.PendingWaveRepeats--;
+                    h.PendingWaveRemaining -= pulseCount;
+                    if (pulseCount > 0 && h.Minions.Count < profile.AliveCap)
+                    {
+                        await SummonWave(conn, area, h, profile, level, players, pulseCount);
+                        changed = true;
+                    }
+                    area.ActorBusyUntil[h.Monster] = area.Time + WaveRepeatInterval / cdScale;
+                    if (h.PendingWaveRepeats > 0) h.WaveRepeatDelay = WaveRepeatInterval / cdScale;
+                    else h.WaveCooldown = profile.CooldownSeconds / cdScale;
+                }
             }
-
-            // Periodically empower living wave minions with harbinger_minion_buff visual.
-            if (h.BuffCooldown <= 0 && h.Minions.Count > 0)
+            else if (h.WaveCooldown <= 0 && h.Minions.Count < profile.AliveCap && !area.Busy(h.Monster))
             {
-                h.BuffCooldown = BuffPulseCooldown / cdScale;
-                await PulseMinionBuff(conn, h);
+                int totalWant = RollWaveCount(conn, profile);
+                int pulses = 1 + Math.Max(0, profile.RepeatCount);
+                int firstPulse = (totalWant + pulses - 1) / pulses;
+                await SummonWave(conn, area, h, profile, level, players, firstPulse);
+                area.ActorBusyUntil[h.Monster] = area.Time + WaveRepeatInterval / cdScale;
+                if (profile.RepeatCount > 0)
+                {
+                    h.PendingWaveRepeats = profile.RepeatCount;
+                    h.PendingWaveRemaining = Math.Max(0, totalWant - firstPulse);
+                    h.WaveRepeatDelay = WaveRepeatInterval / cdScale;
+                }
+                else
+                {
+                    h.WaveCooldown = profile.CooldownSeconds / cdScale;
+                }
+                changed = true;
             }
 
             // Harbinger Scarab of Obelisks: periodically summon Empowered Obelisks.
@@ -473,34 +525,52 @@ public static class MapHarbinger
                 && h.Obelisks.Count < MaxAliveObelisks && h.ObelisksSummoned < MaxTotalObelisks)
             {
                 h.ObeliskCooldown = ObeliskCooldown / cdScale;
-                await SummonEmpoweredObelisk(conn, area, h, level);
+                await SummonEmpoweredObelisk(conn, area, h, level, cdScale);
                 changed = true;
             }
+
+            // Drive real GrantedEffects skills for the Harbinger, King helpers, and Empowered Obelisks.
+            await DriveEncounterSkills(conn, area, h, level, seconds, cdScale, players);
         }
+
+        // Synchronize ally auras (obelisk damage reduction/haste, helper action speed/elemental auras) and player curses.
+        await SyncAllyAuras(conn, area, seconds);
+        await SyncPlayerCurses(conn, area, liveMembers, players);
 
         if (changed) Keep(conn, area);
     }
 
+    static int RollWaveCount(ClientState conn, WaveProfile profile)
+    {
+        var rng = Random.Shared;
+        int rawCount = profile.BaseCount + (profile.ExtraCountChancePct > 0 && rng.Next(100) < profile.ExtraCountChancePct ? 1 : 0);
+        double countScale = Math.Max(0.25, 1.0 + Stat(conn, "map_harbinger_summoned_minion_count_+%") / 100.0);
+        return Math.Max(1, (int)Math.Round(rawCount * countScale));
+    }
+
     static async Task SummonWave(ClientState conn, Area area, Encounter h, WaveProfile profile, byte level,
-        (int X, int Y)[] players)
+        (int X, int Y)[] players, int wantCount)
     {
         var pool = WaveVarietyPool(conn);
         if (pool.Count == 0) return;
 
-        var rng = Random.Shared;
-        int rawCount = profile.BaseCount + (profile.ExtraCountChancePct > 0 && rng.Next(100) < profile.ExtraCountChancePct ? 1 : 0);
-        double countScale = Math.Max(0.25, 1.0 + Stat(conn, "map_harbinger_summoned_minion_count_+%") / 100.0);
-        int want = Math.Max(1, (int)Math.Round(rawCount * countScale));
         int budget = Math.Max(0, profile.AliveCap - h.Minions.Count);
-        int count = Math.Min(want, budget);
+        int count = Math.Min(wantCount, budget);
         if (count <= 0) return;
 
+        var rng = Random.Shared;
+        var origin = ActorPosition(conn, h.Monster, (h.X, h.Y));
         // Place the summon circle between the Harbinger and the nearest player (around 10 cells out).
-        var nearest = players.MinBy(p => Distance(p, (h.X, h.Y)));
-        double dist = Distance((h.X, h.Y), nearest);
-        double angle = dist > 1 ? Math.Atan2(nearest.Y - h.Y, nearest.X - h.X) : rng.NextDouble() * Math.Tau;
+        var nearest = players.MinBy(p => Distance(p, origin));
+        double dist = Distance(origin, nearest);
+        double angle = dist > 1 ? Math.Atan2(nearest.Y - origin.Y, nearest.X - origin.X) : rng.NextDouble() * Math.Tau;
         double offset = Math.Min(12.0, Math.Max(6.0, dist * 0.4));
-        var center = conn.Layout.Near(((int)Math.Round(h.X + offset * Math.Cos(angle)), (int)Math.Round(h.Y + offset * Math.Sin(angle))));
+        var center = conn.Layout.Near(((int)Math.Round(origin.X + offset * Math.Cos(angle)), (int)Math.Round(origin.Y + offset * Math.Sin(angle))));
+
+        // Emit the Harbinger's real summon skill action (0x1ab) before spawning the summon circle and monsters.
+        if (HarbingerCatalog.KitFor(h.Variety).Skills.FirstOrDefault(s => s.Role == SkillRole.Summon) is { } summonSkill)
+            await SendActorSkillAction(conn, h.Monster, summonSkill.SkillId, center);
+
         await SpawnEffect(conn, area, center, SummonCircleAo, SummonEffectSeconds);
 
         int maxRare = Math.Max(0, profile.MaxRare + Stat(conn, "map_harbinger_minion_max_rare_count"));
@@ -577,27 +647,7 @@ public static class MapHarbinger
         return fallback;
     }
 
-    static async Task PulseMinionBuff(ClientState conn, Encounter h)
-    {
-        uint[] targets;
-        lock (conn.Monsters)
-            targets = [.. h.Minions.Where(id => conn.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0).Take(4)];
-        if (targets.Length == 0) return;
-        foreach (var viewer in Members(conn))
-        {
-            var vw = viewer.Wire;
-            foreach (uint id in targets)
-            {
-                bool visible;
-                lock (viewer.Monsters) visible = viewer.MonsterViews.ContainsKey(id);
-                if (visible)
-                    await SendWorldRecord(vw.Remote, vw.Stream, vw.Ciphers, viewer, id,
-                        InstanceEntities.AddBuff(id, viewer.NextBuff++, MinionEmpowerBuffRow), null);
-            }
-        }
-    }
-
-    static async Task SummonEmpoweredObelisk(ClientState conn, Area area, Encounter h, byte level)
+    static async Task SummonEmpoweredObelisk(ClientState conn, Area area, Encounter h, byte level, double cdScale)
     {
         var rng = Random.Shared;
         string vid = EmpoweredObeliskVarieties[rng.Next(EmpoweredObeliskVarieties.Length)];
@@ -610,11 +660,13 @@ public static class MapHarbinger
         // their HarbingerCurrencyShardsObelisk payout on death.
         uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Normal,
             cell.X, cell.Y, name: null, alone: true, unrisen: false,
-            owned: (_, m) => m.NoRewards = true, scripted: true);
+            owned: (_, m) => m.NoRewards = true, scripted: true,
+            ownedSkills: BuildOwnedSkills(conn, variety, level));
         if (id == 0) return;
 
         h.Obelisks.Add(id);
         h.ObelisksSummoned++;
+        SeedActorCooldowns(area, id, vid, 1.0 / cdScale);
         lock (area.TrackingLock)
         {
             area.ObeliskToHarbinger[id] = h.Index;
@@ -668,6 +720,9 @@ public static class MapHarbinger
             {
                 if (kill.HarbingerIndex >= 0 && kill.HarbingerIndex < area.Encounters!.Count)
                     area.Encounters[kill.HarbingerIndex].Obelisks.Remove(kill.MonsterId);
+                await ClearAurasFromSource(killer, area, kill.MonsterId);
+                area.ActorCooldowns.Remove(kill.MonsterId);
+                area.ActorBusyUntil.Remove(kill.MonsterId);
                 int tenths = Random.Shared.Next(ObeliskMinTenths, ObeliskMaxTenths + 1);
                 var drops = HarbingerCatalog.RollShards(ItemsFor(killer), Math.Clamp(kill.Level, 1, 100), tenths, 0, MapModsOf(killer), Random.Shared);
                 await DropAll(killer, drops, kill.At, "empowered obelisk");
@@ -678,6 +733,7 @@ public static class MapHarbinger
             if (kill.HarbingerIndex < 0 || kill.HarbingerIndex >= area.Encounters!.Count) continue;
             var h = area.Encounters[kill.HarbingerIndex];
             h.Minions.Remove(kill.MonsterId);
+            ClearMinionAuraRecords(area, kill.MonsterId);
             if (h.State != HarbingerState.Active) continue;
 
             uint loss = Math.Max(1u, (uint)Math.Ceiling((double)HarbingerMaxLife * kill.Permyriad / 10_000.0));
@@ -716,6 +772,8 @@ public static class MapHarbinger
     static async Task DefeatHarbinger(ClientState conn, Area area, Encounter h)
     {
         h.State = HarbingerState.Defeated;
+        h.PendingWaveRepeats = 0;
+        h.PendingWaveRemaining = 0;
         (int X, int Y) at = (h.X, h.Y);
         lock (conn.Monsters)
         {
@@ -741,8 +799,25 @@ public static class MapHarbinger
             area.HasTracked = area.MinionToHarbinger.Count > 0 || area.ObeliskToHarbinger.Count > 0;
             area.HasLive = area.Encounters!.Any(e => e.State is HarbingerState.Waiting or HarbingerState.Active);
         }
-        foreach (uint helper in helpers) await Remove(conn, helper, "harbinger boss defeated");
-        foreach (uint obelisk in obelisks) await Remove(conn, obelisk, "parent harbinger defeated");
+        await ClearAurasFromSource(conn, area, h.Monster);
+        area.ActorCooldowns.Remove(h.Monster);
+        area.ActorBusyUntil.Remove(h.Monster);
+        foreach (uint helper in helpers)
+        {
+            await ClearAurasFromSource(conn, area, helper);
+            area.ActorCooldowns.Remove(helper);
+            area.ActorBusyUntil.Remove(helper);
+            await Remove(conn, helper, "harbinger boss defeated");
+        }
+        foreach (uint obelisk in obelisks)
+        {
+            await ClearAurasFromSource(conn, area, obelisk);
+            area.ActorCooldowns.Remove(obelisk);
+            area.ActorBusyUntil.Remove(obelisk);
+            await Remove(conn, obelisk, "parent harbinger defeated");
+        }
+        if (!area.HasLive)
+            await ClearAllPlayerCurses(conn);
 
         await SpawnEffect(conn, area, at, DefeatBurstAo, DefeatEffectSeconds);
         // LeagueAvatar has no corpse/fall animation on LifeUpdate(0), so remove the defeated avatar cleanly.
@@ -769,9 +844,8 @@ public static class MapHarbinger
         uint hash = InstanceEntities.ObjectTypeHash(EffectObject.TypePath);
         foreach (var viewer in Members(conn))
         {
-            var vw = viewer.Wire;
-            await SendWorldCreate(vw.Remote, vw.Stream, vw.Ciphers, viewer, id,
-                InstanceEntities.CreateObject(id, hash, blob), null);
+            byte[] create = InstanceEntities.CreateObject(id, hash, blob);
+            await SendWorldCreate(viewer, id, () => create, awaitBirth: false);
         }
         area.Effects.Add(new(id, durationSeconds));
         area.HasEffects = true;
@@ -838,8 +912,14 @@ public static class MapHarbinger
             ["encounters"] = JsonSerializer.SerializeToNode(area.Encounters),
             ["trackedMinions"] = area.MinionToHarbinger.Count,
             ["trackedObelisks"] = area.ObeliskToHarbinger.Count,
+            ["activeHazards"] = area.Hazards.Count,
+            ["appliedAllyAuras"] = area.AppliedAllyAuras.Count,
         };
     }
 
-    public static void Leave(ClientState conn) => ShownMinionBuffs.Remove(conn);
+    public static void Leave(ClientState conn)
+    {
+        ShownMinionBuffs.Remove(conn);
+        ClearPlayerCursesSync(conn);
+    }
 }
