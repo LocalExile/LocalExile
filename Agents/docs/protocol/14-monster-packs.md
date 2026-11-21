@@ -620,6 +620,18 @@ rare (friendly, invulnerable, out of AI, `SummonerId` = the rare so it does not 
 set (`SkillArea`, base 26 like the shrine ShockNova circle); the daemon is removed when the pulse ends. The pulses are
 self-centred (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4); the grab is ActiveSkill
 373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its repeat interval (4 s).
+**The resistance nova's projectiles (`FireNova`).** A daemon action alone draws no projectiles — the ring is fired through
+the monster projectile runtime (the Rampage nova pattern, `MonsterProjectileUse` + team-2 `HostileProjectileOffense`,
+`SpreadRadians` = a full turn), from the **rare's live position** at the cast (a stale origin, captured when the tick queued
+the spell, reads as the cast coming from somewhere the monster no longer is). `ProjectileFor` returns null for all three
+nova effects (no `Metadata/Projectiles/<effect>` row), so the projectile is resolved by hand: Hatred fires
+`Metadata/Projectiles/ArcticBreath` (Creeping Frost, speed 844), Anger `Metadata/Projectiles/FlameBreath` (the fire arctic
+breath its `EssenceTriggeredFlameBreath` names, speed 844, flight `firearctic_loop` index 1 / impact `firearctic_end`), and
+Wrath is the skill's own `MonsterProjectile` row — `Metadata/Projectiles/MortarMolten`, **lobbed** (speed 750, minimum range
+125, spread radius 350); a full-turn spread makes the runtime land each shell its landing distance out in its own direction,
+a ring of explosions around the rare. Hatred's Creeping Frost also leaves a trail of small chilling-ground ice crystals
+(`ground_effects/ice/ice.ao`) along each projectile's radial path for the skill's 7.5 s chilling duration; a player walking
+over them is chilled (the strongbox ice-nova ground pattern), refreshed while they stay on the ice.
 The stats at level: resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen
 `base_chaos_damage_to_deal_per_minute` (4989 at 83, ≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The
 resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its
@@ -651,49 +663,3 @@ every other crystal; a nearest-cell snap pulled them off the ring and onto each 
 match found live; the remaining visual gap is the crystal model itself: the main monolith's state-1 `stage_01` animation
 shows only its base ring in the replica, and the official look (a tall shard cluster and the shards around the minis) is
 the open item.
-
-An essence's release spell comes from `Essences.Display_Monster_ModsKey` → that mod's `MonsterMetadata`: a
-`Metadata/Monsters/Daemon/EssenceDaemon*` variety whose granted effects are the spell (Hatred → `EssenceDaemonColdPulse`,
-Anger → `EssenceDaemonFirePulse`, Wrath → `EssenceDaemonLightningPulse`, Woe → `EssenceDaemonSummonLivingCrystals`,
-Greed → `EssenceDaemonBloodProjectileDaemon`, Contempt → `EssenceDaemonSummonKaruiSpirit`, Sorrow →
-`EssenceDaemonTotemGroundEffectVortex`, Torment → `EssenceDaemonSummonOrbOfStormsDaemon`, Fear → `EssenceDaemonSummonGhost`,
-Suffering → `EssenceDaemonFrostBomb`, Rage → `EssenceDaemonFireRuneTrap`, Doubt → `EssenceDaemonSummonSpiders`,
-Spite → `EssenceDaemonTotemGroundEffectShocked`, Misery → `EssenceDaemonChaosDegenPulse`, Dread →
-`EssenceDaemonSummonChaosGolem`, Envy → `EssenceDaemonGrab`; the corrupted four → `EssenceDaemonMadness1`/`Insanity1`/
-`Horror1`/`Terror1_`, Desolation → `Metadata/Monsters/FaridunLeague/FaridunDaemon/EssenceDaemon_`). Anguish, Loathing,
-Zeal and Scorn have an empty `MonsterMetadata` (their display mods name alternating buffs / on-death elementals, not a
-daemon). `Monster_ModsKeys` are the stat mods instead: `EssenceDaemonModLifeAndDamageLevel1..7`,
-`EssenceDaemonModRarityAndQuantityLevel1..7` and a physical-added-and-converted-to-cold mod — all with **empty names**, so
-they do not draw on a hover panel. The essence's name on the monster (released rare, or a boss that inherited it) comes
-from the `Display_Monster_ModsKey` mod itself, a name-only mod ("Whispering Essence of Hatred", "Essence of Hysteria"); it
-is added to the monster's mods alongside the stat mods so the essence shows on hover. The league's terrain room is
-`Metadata/Terrain/Leagues/Essence/monolith.arm` ("EssenceMonolith", 3×3).
-
-**The spells the hit kit cannot represent (`EssenceSpells.cs`).** A daemon effect with no hit damage, summon or projectile
-is dropped from the rare's kit (`BossKits.AttackFor`), so three essences would cast nothing through it: Misery's
-`RepeatedPulseDegen` (5996) and `EssenceDaemonProximityShield` (2842), Envy's `EssenceDaemonGrab` (2929), and the
-resistance pulses `RepeatedPulseCold`/`Fire`/`Lightning` (5990/5995/5992 — Hatred/Anger/Wrath's nova damage is the *other*
-daemon effect, `EssenceArcticBreathNova` etc., which the kit keeps). These are **not** kit specials: a non-hit special in the
-kit fights the auto-attack (`BossKits.Choose` falls back to `monster.Attack`, re-casting the last spell every tick), stalls
-the rare and desyncs its position on the client, and the rare's rig has no `RepeatedPulse`/`DominusGrab` clip so the cast
-draws no animation. Instead a periodic caster in the essence tick casts them on their own cooldown while the released rare
-lives, independent of its AI (which fights normally with its default attack and the hit/summon spells); cooldowns live on the
-instance area (`Area.Casting`) so several players' ticks cast a spell once. The **grab** visual is the client's own spell art
-spawned as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`):
-the essence `demon_grasp` circle + hand (`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao`
-/ `demon_grasp.ao`, MiscAnimated 1025/1024) appear where the target stood; after a 1 s windup the grasp end
-(`demon_grasp_end.ao`, 1026) plays and a target still inside the circle is pulled to the rare — stepping out evades it. The
-**pulse** nova is animated by the native client from a real daemon's skill action (the shrine nova pattern), not a bare
-effect object (a standalone `pulses/*.ao` effect object draws nothing): `ShowPulseDaemon` spawns the essence's daemon at the
-rare (friendly, invulnerable, out of AI, `SummonerId` = the rare so it does not block its walk) and plays its
-`RepeatedPulse` action with `active_skill_area_of_effect_radius` / `total_skill_area_of_effect_radius_+%_including_final`
-set (`SkillArea`, base 26 like the shrine ShockNova circle); the daemon is removed when the pulse ends. The pulses are
-self-centred (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4); the grab is ActiveSkill
-373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its repeat interval (4 s).
-The stats at level: resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen
-`base_chaos_damage_to_deal_per_minute` (4989 at 83, ≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The
-resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its
-`BuffVisualsKey` is 0 `invisible`, so the debuff is the stat alone, no icon); the chaos degen goes through
-`TrapDegenPerSecond` after chaos resistance with buff 100 `monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds`
-/ `plague_degen.epk`); the grab teleports with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`).
-The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are not cast.
