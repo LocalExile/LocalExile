@@ -104,9 +104,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   later is never read. The panel draws but its numbers are empty — the records carry no data yet, so population, gold
   and the work rows are zero and the same actions are commands (`/village`, `/recruit`, `/treasury`, `/port`); the
   town's floor and buildings come from a client-side doodad patch
-  (`scripts/dev/kingsmarch-doodads.py`), not from the protocol. Mining/smelting, workers in maps and shipping quotas are
-  not written. Source: `Modules/Core/Game/World/KingsmarchTown.cs`, `KingsmarchPort.cs`,
-  [settlers](../docs/game/settlers.md).
+  (`scripts/dev/kingsmarch-doodads.py`), not from the protocol. Mining/smelting and shipping quotas are not written.
+  The Atlas Runner line works as commands (`/mapping`): three map devices each hold a queue of up to twelve maps, hired
+  runners work them, and every map settles its completion, its time and the chance a runner dies for good; the drops and
+  the gold go to the town treasury, and bandits can take runners hostage for a ransom or a rescue. The client's own
+  mapping panel (`0x5c`) is not wired yet: the action ids its buttons send are still unknown, so the panel stays shut.
+  Source: `Modules/Core/Village`, `Modules/Core/Game/World/KingsmarchTown.cs`, `KingsmarchPort.cs`,
+  [settlers](../docs/game/settlers.md), [atlas runners](../docs/game/kingsmarch-mapping.md).
 
 - Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up

@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Modules.Village.Mapping;
 
 namespace GameServer.Modules.Village;
 
@@ -181,11 +182,13 @@ public sealed class VillageModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        MappingCommands.Register(module.Manifest.Id);
         GameEvents.Tick.Add(module.Manifest.Id, async (conn, now) =>
         {
             var player = Program.PlayerOf(conn);
             await OpenPort(player);
             await StatePoll(player, now);
+            MappingEngine.Advance(player.Character ?? "", now);
         });
         GameEvents.Packet(ActionId).Add(module.Manifest.Id, (conn, bytes) =>
         {
