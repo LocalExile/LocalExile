@@ -185,6 +185,19 @@ public sealed class MapInstanceTests
             Assert.Equal(outsideHit, restored.Kit[1].Attack.Damage[DamageType.Physical]);
             Assert.Equal(insideHit, ordered.Damage[DamageType.Physical]);
 
+            var slowTotem = Game.Monsters.Find("Metadata/Monsters/Totems/TikiTotemSlowPlayer")!;
+            uint slowSource = await Game.SpawnMonster(remote, stream, ciphers, conn, slowTotem, level, MonsterRarity.Normal, 30, 30, bulk: true);
+            conn.Monsters[slowSource].Walk.Teleport(30, 30, 1);
+            Game.ClaimMonsterHost(remote, conn);
+            conn.Walk.Teleport(80, 30, 1);
+            Game.RegenerateConnectionMonsters(conn, 1.5, .5);
+            Assert.Equal((slowSource, -25), conn.EnemySlow);
+            double slowed = conn.Walk.Speed;
+            conn.Walk.Teleport(80, 31, 1.5);
+            Game.RegenerateConnectionMonsters(conn, 2, .5);
+            Assert.Equal(default, conn.EnemySlow);
+            Assert.Equal(conn.Walk.Speed * .75, slowed, 6);
+
             var valdoMods = new MapMods(new Dictionary<string, int>
             {
                 ["map_contains_X_harvest_bear_bosses"] = 2,

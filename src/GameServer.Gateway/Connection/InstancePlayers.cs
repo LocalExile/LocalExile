@@ -10,6 +10,8 @@ public sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, i
     /// action toward it, which their client paths and animates, instead of gliding the body from pose to pose.</summary>
     public (int X, int Y)? Destination { get; init; }
     public IReadOnlyList<SharedAura> Auras { get; init; } = [];
+    public double WalkSpeed { get; } = Owner?.Walk.Speed ?? Program.WalkSpeed;
+    public (uint Source, int Movement) EnemySlow { get; init; }
 }
 
 public sealed record SharedAura(AuraCatalog.Aura Aura, int Radius, int Effect);
@@ -136,11 +138,15 @@ public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life
     public bool CreatedAsCorpse { get; init; }
     public (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) LifeAura { get; init; }
     public (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) PhysicalDamageAura { get; init; }
+    public (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) EnemySlow { get; init; }
     public ((ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) Buff, int Cast, int Movement) SpeedAura { get; init; }
 }
 public sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
 public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination,
-    uint Life, uint EnergyShield = 0, uint MaximumEnergyShield = 0);
+    uint Life, uint EnergyShield = 0, uint MaximumEnergyShield = 0)
+{
+    public (uint Source, int Movement) EnemySlow { get; init; }
+}
 
 public partial class Program
 {

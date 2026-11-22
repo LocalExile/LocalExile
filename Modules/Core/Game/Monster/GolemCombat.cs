@@ -74,7 +74,7 @@ public static partial class Game
         }
         if (now < m.BusyUntil || now < m.FlinchUntil || MonsterActionFactor(m, now) == 0) return;
         if (RepeatMinionAttackLocked(conn, g, now)) return;
-        m.Walk.SetSpeed(m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll), now);
+        m.Walk.SetSpeed(CompanionWalkSpeed(m, now), now);
         var here = m.Walk.Position(now); var owner = conn.Walk.Position(now);
         var (aggressive, defensive) = MinionStance(g.Own, g.Player, g.Definition.IsGolem, now - g.BlockedAt is >= 0 and <= 4);
         bool follows = !conn.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
@@ -82,8 +82,7 @@ public static partial class Game
         if (follows && Dist(here, owner) > 150)
         {
             var at = NextToPlayer(conn);
-            m.Walk = conn.NewMonsterWalk(g.Id, at.X, at.Y, m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed)
-                * MonsterSpeedRoll.Factor(m.SpeedRoll), LivingCollision.Size(m), false);
+            m.Walk = conn.NewMonsterWalk(g.Id, at.X, at.Y, CompanionWalkSpeed(m, now), LivingCollision.Size(m), false);
             m.ActionGeneration++; m.LastTarget = null;
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem follows owner", g.Id, m, WorldId: g.Id));
             return;
@@ -219,7 +218,7 @@ public static partial class Game
         g.Monster.Walk.Order(from.X, from.Y, now);
         if (a.Effect is 349 or 2563)
         {
-            double speed = g.Monster.Mods.Effects.MovementSpeed(g.Monster.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(g.Monster.SpeedRoll);
+            double speed = CompanionWalkSpeed(g.Monster, now);
             if (a.Effect == 2563) speed *= 1 + GolemStat(a.Stats, "cyclone_movement_speed_+%_final") / 100.0;
             g.Monster.Walk.SetSpeed(speed, now);
             g.Monster.Walk.Order(pending.Aim.X, pending.Aim.Y, now);

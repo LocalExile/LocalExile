@@ -5,7 +5,7 @@ using AuraState = (bool Emits, uint Source, int Rate, int Extra);
 using AuraView = (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate);
 
 // BuffTemplates expresses the radius in cells and names its recipients in __col4.
-internal sealed record MonsterAuraTemplate(ushort Buff, int Radius, bool Self, bool Allies)
+internal sealed record MonsterAuraTemplate(ushort Buff, int Radius, bool Self, bool Allies, bool Enemies)
 {
     public static MonsterAuraTemplate? Read(ModCatalog.Mod mod)
     {
@@ -13,7 +13,7 @@ internal sealed record MonsterAuraTemplate(ushort Buff, int Radius, bool Self, b
             template.IntOrNull("BuffDefinitionsKey") is not int buff || buff <= 0 || template.Int("AuraRadius") <= 0)
             return null;
         var targets = template.Ints("__col4");
-        return new(checked((ushort)buff), template.Int("AuraRadius"), targets.Contains(1), targets.Contains(2));
+        return new(checked((ushort)buff), template.Int("AuraRadius"), targets.Contains(1), targets.Contains(2), targets.Contains(3));
     }
 }
 
@@ -22,7 +22,7 @@ public static partial class Game
     const string LifeAuraStat = "life_regeneration_rate_per_minute_%";
     const string PhysicalAuraStat = "physical_damage_+%";
     const string AttackSpeedStat = "attack_speed_+%", CastSpeedStat = "base_cast_speed_+%", MoveSpeedStat = "base_movement_velocity_+%";
-    const ushort LifeAuraBuff = 90, PhysicalAuraBuff = 88, SpeedAuraBuff = 89;
+    const ushort LifeAuraBuff = 90, PhysicalAuraBuff = 88, SpeedAuraBuff = 89, EnemySlowBuff = 136;
     sealed record AuraEffect(ushort Buff, string Stat);
     static readonly AuraEffect RecoveryAura = new(LifeAuraBuff, LifeAuraStat);
     static readonly AuraEffect PhysicalAura = new(PhysicalAuraBuff, PhysicalAuraStat);
@@ -30,6 +30,7 @@ public static partial class Game
     static readonly AuraEffect AttackSpeedAura = new(SpeedAuraBuff, AttackSpeedStat);
     static readonly AuraEffect CastSpeedAura = new(SpeedAuraBuff, CastSpeedStat);
     static readonly AuraEffect MoveSpeedAura = new(SpeedAuraBuff, MoveSpeedStat);
+    static readonly AuraEffect EnemySlowAura = new(EnemySlowBuff, MoveSpeedStat);
     static readonly AuraEffect[] GrantedAuraStats = [RecoveryAura, PhysicalAura, AttackSpeedAura, CastSpeedAura, MoveSpeedAura];
 
     sealed record AuraMod(MonsterAuraTemplate Template, (AuraEffect Effect, int Index)[] Stats);
@@ -48,7 +49,8 @@ public static partial class Game
         foreach (var mod in Items.Mods.All)
         {
             if (mod.Domain != MonsterModCatalog.Domain || mod.BuffTemplate is null || MonsterAuraTemplate.Read(mod) is not { } template) continue;
-            var granted = (from effect in GrantedAuraStats where effect.Buff == template.Buff
+            var granted = (from effect in GrantedAuraStats
+                           where effect.Buff == template.Buff || effect == MoveSpeedAura && template is { Buff: EnemySlowBuff, Enemies: true }
                            from i in Enumerable.Range(0, mod.Stats.Count) where mod.Stats[i].Id == effect.Stat
                            select (effect, i)).ToArray();
             if (granted.Length > 0) rows.Add(mod.Hash, new(template, granted));
@@ -105,8 +107,11 @@ public static partial class Game
     static Dictionary<AuraEffect, AuraFields>? GatherMonsterAuras(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double now)
     {
         Dictionary<AuraEffect, AuraFields>? groups = null;
+        EnemySlowSources.TryGetValue(monsters, out var slowSources);
+        slowSources?.Clear();
         foreach (var (id, monster) in monsters)
         {
+            monster.EmitsEnemySlow = false;
             var rolls = AuraRolls(monster.Mods.Mods);
             if (rolls.Length == 0) continue;
             groups ??= [];
@@ -120,18 +125,23 @@ public static partial class Game
                 if (active)
                 {
                     double radius = roll.Template.Radius;
-                    fields.Active.Add(new(id, at.X, at.Y, radius * radius * area, roll));
+                    if (roll.Template.Enemies && roll.Template.Buff == EnemySlowBuff)
+                    {
+                        monster.EmitsEnemySlow = true;
+                        (slowSources ??= EnemySlowSources.GetOrCreateValue(monsters)).Add(new(id, monster, radius * radius * area, roll.Value));
+                    }
+                    else fields.Active.Add(new(id, at.X, at.Y, radius * radius * area, roll));
                 }
             }
         }
         return groups;
     }
 
-    static bool ApplyMonsterAura(uint id, SpawnedMonster monster, AuraFields? fields, double now, AuraEffect effect, ref AuraState state)
+    static bool ApplyMonsterAura(uint id, SpawnedMonster monster, AuraFields? fields, double now, AuraEffect effect, ref AuraState state,
+        (uint Source, int Rate) enemy = default)
     {
-        if (fields is null && state == default) return false;
-        uint source = 0;
-        int value = 0;
+        if (fields is null && state == default && enemy == default) return false;
+        var (source, value) = enemy;
         bool emits = false;
         if (fields is not null && monster.Hostile && !monster.WorldHidden && !monster.Dead && monster.Life > 0)
         {
@@ -153,7 +163,7 @@ public static partial class Game
         if (state == (emits, source, value, extra)) return false;
         bool magnitudeChanged = state.Rate != value;
         state = (emits, source, value, extra);
-        monster.SetGrantedStat(effect.Stat, extra);
+        monster.SetGrantedStat(effect.Stat, effect == MoveSpeedAura ? extra + monster.LinkedFlaskMovementPct : extra);
         return magnitudeChanged;
     }
 
@@ -168,27 +178,29 @@ public static partial class Game
         {
             int extra = granted - rolled;
             if (extra != 0) monster.SetGrantedStat(stat, extra);
-            return (monster.Hostile, granted == 0 ? 0 : id, granted, extra);
+            return (monster.Hostile && rolled != 0, granted == 0 ? 0 : id, granted, extra);
         }
     }
 
-    static void ApplySpeedAura(uint id, SpawnedMonster monster, AuraFields? attack, AuraFields? cast, AuraFields? movement, double now)
+    static void ApplySpeedAura(uint id, SpawnedMonster monster, AuraFields? attack, AuraFields? cast, AuraFields? movement, double now, (uint Source, int Rate) enemy)
     {
         ref var speed = ref monster.SpeedAura;
         if (attack is null && cast is null && movement is null && speed.Attack == default && speed.Cast == default && speed.Movement == default) return;
         int previousMove = speed.Movement.Extra;
         bool attackChanged = ApplyMonsterAura(id, monster, attack, now, AttackSpeedAura, ref speed.Attack);
         bool castChanged = ApplyMonsterAura(id, monster, cast, now, CastSpeedAura, ref speed.Cast);
-        ApplyMonsterAura(id, monster, movement, now, MoveSpeedAura, ref speed.Movement);
+        ApplyMonsterAura(id, monster, movement, now, MoveSpeedAura, ref speed.Movement, enemy);
         if (attackChanged || castChanged)
             BossKits.RefreshSpeedAura(monster, new(speed.Attack.Rate, speed.Cast.Rate, speed.Movement.Rate));
         if (previousMove != speed.Movement.Extra)
-        {
-            int pct = monster.Effects.MovementPct;
-            int oldPct = pct + previousMove - speed.Movement.Extra;
-            double scale = MonsterWalkSpeedAt(monster, pct) / MonsterWalkSpeedAt(monster, oldPct);
-            SetMonsterWalkFactor(monster, MonsterWalkState(monster, now).Factor, now, scale);
-        }
+            RetimeMonsterMovement(monster, speed.Movement.Extra - previousMove, now);
+    }
+
+    static void RetimeMonsterMovement(SpawnedMonster monster, int change, double now)
+    {
+        int pct = monster.Effects.MovementPct;
+        double scale = MonsterWalkSpeedAt(monster, pct) / MonsterWalkSpeedAt(monster, pct - change);
+        SetMonsterWalkFactor(monster, MonsterWalkState(monster, now).Factor, now, scale);
     }
 
     internal static MonsterAttack WithPhysicalAura(MonsterAttack attack, int strength)
@@ -238,6 +250,7 @@ public static partial class Game
         bool dead = monster.Dead || monster.Life == 0;
         return AuraChanged(dead ? default : monster.LifeAura, view.LifeAura)
             || AuraChanged(dead ? default : monster.PhysicalDamageAura, view.PhysicalDamageAura)
+            || AuraChanged(EnemySlowOn(monster), view.EnemySlow)
             || AuraChanged(dead ? default : monster.SpeedAura.Attack, view.SpeedAura.Buff)
             || (dead ? 0 : monster.SpeedAura.Cast.Rate) != view.SpeedAura.Cast
             || (dead ? 0 : monster.SpeedAura.Movement.Rate) != view.SpeedAura.Movement;
@@ -250,6 +263,7 @@ public static partial class Game
         {
             LifeAura = Present(RecoveryAura, dead ? default : monster.LifeAura, view.LifeAura),
             PhysicalDamageAura = Present(PhysicalAura, dead ? default : monster.PhysicalDamageAura, view.PhysicalDamageAura),
+            EnemySlow = Present(EnemySlowAura, EnemySlowOn(monster), view.EnemySlow),
             SpeedAura = PresentSpeed(),
         };
 
@@ -297,7 +311,7 @@ public static partial class Game
                 if (active.Source != 0)
                     packets.Presentation(id, InstanceEntities.AddBuff(id, receiver = conn.NextBuff++, effect.Buff, active.Source));
             }
-            if (effect.Buff != SpeedAuraBuff && old.Rate != active.Rate && !dead)
+            if (effect.Buff is not (SpeedAuraBuff or EnemySlowBuff) && old.Rate != active.Rate && !dead)
                 packets.Presentation(id, InstanceEntities.StatsUpdate(id, [(Stats.Key(effect.Stat)!.Value, monster.Effects[effect.Stat])]));
             return (emitter, receiver, active.Source, active.Rate);
         }

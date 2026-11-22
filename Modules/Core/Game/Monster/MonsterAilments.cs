@@ -234,7 +234,7 @@ public static partial class Game
         int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
         int lowLife = MonsterOnLowLife(m) ? m.Effects["movement_velocity_+%_when_on_low_life"] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
-        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0 || m.SpeedAura.Movement.Rate < 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
             totalPct = Math.Max(0, totalPct);
         return (MonsterWalkSpeedAt(m, totalPct) / MonsterWalkSpeedAt(m, basePct), totalPct);
     }

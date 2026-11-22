@@ -86,6 +86,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   physical reduction, block, evasion, critical strikes and regeneration act on the server (each checked live); the
   instance keeps them. Hostile monsters keep their variety's own life regeneration on spawn and re-entry.
   Grinning Totems grant nearby hostile monsters life regeneration, increased physical damage, or attack, cast and movement speed.
+  Enemy-slow totems reduce player and allied minion movement speed by 25% within 50 cells.
   The speed totem grants 35% increased attack and cast speed and 75% increased movement speed within 60 cells.
   The runner applies the strongest grant per stat to the current walk and the next attack or cast. Physical increases add together before hit conversion and gain as extra.
   Each observer receives the source and recipient buffs.

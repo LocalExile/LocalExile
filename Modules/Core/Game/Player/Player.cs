@@ -207,6 +207,7 @@ public static partial class Game
             RecordHardcoreDeath(conn);
             conn.InvalidateIncomingHits();
             conn.DeathNotificationEpoch = deathEpoch = conn.IncomingHitEpoch;
+            ClearPlayerEnemySlow(conn);
             FortificationOf(conn).Clear();
             LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
             ClearRageOnDeath(conn);

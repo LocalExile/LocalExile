@@ -147,7 +147,8 @@ public static partial class Game
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
         var p = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         conn.Instance.PublishPlayer(new(conn.PeerId, conn.PeerType, template, p.X, p.Y, conn.PlayerLife, conn)
-            { Destination = conn.Walk.Destination, Auras = conn.PlayerLife == 0 || InTown(conn) ? []
+            { Destination = conn.Walk.Destination, EnemySlow = (conn.EnemySlow.Source, PlayerMovementPct(conn)),
+                Auras = conn.PlayerLife == 0 || InTown(conn) ? []
                 : conn.Auras.Values.Where(a => SharedPlayerAura(a.EffectId)).Select(a => new SharedAura(a,
                     AuraRadius.Of(a, conn.Pools.AuraAreaPct, SkillsFor(conn), Stats),
                     conn.Pools.AuraEffectPct + a.SupportEffectPct)).Concat(SharedAvianAuras(conn)).ToArray() });
@@ -170,6 +171,7 @@ public static partial class Game
                     if (!conn.SeenPlayers.TryGetValue(id, out var current) || current.Life != 0
                         || conn.Instance.Player(id) is not { Life: > 0 }) return null;
                     conn.SeenPlayers.Remove(id);
+                    conn.EnemySlowViews.Remove(id);
                     lock (conn.Monsters) conn.PeerWalks.Remove(id);
                     return InstanceProtocol.RemoveObject(id);
                 });
@@ -181,6 +183,7 @@ public static partial class Game
                 if (conn.Instance.Player(id) is not { } peer)
                 {
                     if (conn.SeenPlayers.Remove(id)) packets.Remove(id);
+                    conn.EnemySlowViews.Remove(id);
                     lock (conn.Monsters) conn.PeerWalks.Remove(id);
                     return packets.Build();
                 }
@@ -189,13 +192,23 @@ public static partial class Game
                     || !conn.WorldOutput.PublishedObject(peer.Id).IsReady)) return null;
                 if (!exists || previous!.Life == 0 && peer.Life > 0)
                 {
-                    if (exists) packets.Remove(peer.Id);
+                    if (exists)
+                    {
+                        packets.Remove(peer.Id);
+                        conn.EnemySlowViews.Remove(peer.Id);
+                    }
                     // The beach wake-up is the owner's alone: observers get no action to end that stance with.
                     // Its skills, for the actions the owner's uses play on it (SharedMonsters.cs MirrorPlayerAction), all
                     // but the wake-up's.
                     var player = peer.Template with { GridX = peer.X, GridY = peer.Y, Life = peer.Life,
                         Skills = peer.Template.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
                         QuestFlags = [], LeagueQuestFlags = [], WashedUp = false, Rotation = 0 };
+                    if (peer.EnemySlow.Source != 0)
+                    {
+                        player = player with { Stats = [.. (player.Stats ?? []).Where(s => s.Key != StatKeys.MovementVelocityPct),
+                            (StatKeys.MovementVelocityPct, peer.EnemySlow.Movement)] };
+                        conn.EnemySlowViews[peer.Id] = (0, 0, peer.EnemySlow.Movement, false);
+                    }
                     // In a town another player stands and walks in the town stance (Stats.dat use_town_stance): without it
                     // the client drew every other player in its combat stance there.
                     if (InTown(conn))
@@ -204,7 +217,7 @@ public static partial class Game
                     // A lockstep client runs the player's copy itself from here on: so does its estimate (PeerWalks).
                     if (conn.LockstepClient)
                         lock (conn.Monsters)
-                            conn.PeerWalks[peer.Id] = conn.NewPeerWalk(peer.Id, peer.X, peer.Y, peer.Owner?.Walk.Speed ?? Program.WalkSpeed);
+                            conn.PeerWalks[peer.Id] = conn.NewPeerWalk(peer.Id, peer.X, peer.Y, peer.WalkSpeed);
                     packets.Presentation(peer.Id, InstanceProtocol.EnterWakeZone(peer.Id));
                     // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e9da30)
                     // when its equipment changes, not when it is created: without this every other player stood in the
@@ -263,6 +276,8 @@ public static partial class Game
                     if (scale != before)
                         packets.World(peer.Id, InstanceEntities.StatsUpdate(peer.Id, [(ActorScale.Final, scale)]));
                 }
+                lock (conn.Monsters)
+                    PresentReceivedSlow(conn, packets, peer.Id, peer.Life > 0 ? peer.EnemySlow.Source : 0, peer.EnemySlow.Movement, peer.WalkSpeed);
                 conn.SeenPlayers[peer.Id] = peer;
                 return packets.Build();
             }, transport: (remote, stream, ciphers));

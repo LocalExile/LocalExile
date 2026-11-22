@@ -432,6 +432,11 @@ deadline. Observers receive the final movement and timing stats and the updated 
 Ancient Pyramid Gateway instances checked movement, melee and casts. Official mixed-source priority and client art
 remain to be captured.
 
+Three slow totems carry `MonsterTotemAuraSlow1_`. BuffTemplates row 354 targets enemies (`[3]`) within 50 cells.
+Its roll is −25 on stat 179 (`base_movement_velocity_+%`). BuffDefinitions row 136 selects separate emitter and
+recipient effects in BuffVisuals row 142. The Gateway applies the strongest reduction once and uses the lower object ID
+when two rolls match. The original client's visuals, overlap priority and update interval still need a capture.
+
 **Open:** other variety modifiers and their aura recipients are incomplete; monsters have no base
 resistance or armour yet (open PRs #225 / #226 add base resistance), the player no penetration, so the mods'
 resistances cannot be penetrated; no monster energy shield; the unsupported mods' systems;

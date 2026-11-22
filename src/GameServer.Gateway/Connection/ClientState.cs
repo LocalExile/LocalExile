@@ -297,6 +297,8 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     public (bool Emits, uint Source, int Rate, int Extra) LifeAura;
     public (bool Emits, uint Source, int Rate, int Extra) PhysicalDamageAura;
     public MonsterSpeedAura SpeedAura;
+    public bool EmitsEnemySlow;
+    public int LinkedFlaskMovementPct;
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
     // clip through its current ACT; rig indexes are retained as extraction/profile diagnostics.
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];
@@ -1096,6 +1098,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // /god immune: god mode that also takes no damage (hits and ailment ticks); only with God.
     public bool Immune;
     public readonly GracePeriod EntryProtection = new();
+    public (uint Source, int Rate) EnemySlow;
+    public readonly Dictionary<uint, (uint Source, ushort Buff, int Movement, bool OwnedMinion)> EnemySlowViews = [];
     public RighteousFireState? RighteousFire;
     public BladefallTrarthusState? BladefallTrarthus;
     public readonly List<BladefallTrarthusState> LingeringBladeSources = [];

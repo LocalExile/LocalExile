@@ -159,7 +159,7 @@ public static partial class Game
                     {
                         var at = m.Walk.Position(now);
                         minions.Add(new(id, origin, m, at.X, at.Y, m.Walk.Destination, m.Life, origin.Object.EnergyShield,
-                            SnapshotMaximumEnergyShield(origin.Object)));
+                            SnapshotMaximumEnergyShield(origin.Object)) { EnemySlow = (EnemySlowOn(m).Source, CompanionMovementPct(m, now)) });
                     }
             }
             conn.PublishedMinions = [.. minions];
@@ -580,7 +580,11 @@ public static partial class Game
             foreach (var gone in conn.SeenMinions.Keys.Where(k => !shown.ContainsKey(k)).ToList())
             {
                 conn.SeenMinions.Remove(gone);
-                if (conn.MirroredObjects.TryRemove(gone, out uint was)) packets.Remove(was);
+                if (conn.MirroredObjects.TryRemove(gone, out uint was))
+                {
+                    conn.EnemySlowViews.Remove(was);
+                    packets.Remove(was);
+                }
             }
             foreach (var (key, (owner, m)) in shown)
             {
@@ -589,6 +593,11 @@ public static partial class Game
                     uint id = (uint)Interlocked.Increment(ref conn.NextMirroredObject);
                     conn.MirroredObjects[key] = id;
                     var o = m.Origin;
+                    if (m.EnemySlow.Source != 0)
+                    {
+                        o = o with { Object = o.Object.WithStats([(StatKeys.MovementVelocityPct, m.EnemySlow.Movement)]) };
+                        conn.EnemySlowViews[id] = (0, 0, m.EnemySlow.Movement, false);
+                    }
                     if (o.Object.Parent == PlayerId)
                         o = o with { Object = o.Object with { Parent = owner.PeerId } };
                     lock (conn.Monsters)
@@ -617,6 +626,8 @@ public static partial class Game
                     if (before.EnergyShield != m.EnergyShield)
                         packets.World(id, InstanceProtocol.LifeUpdate(id, m.EnergyShield, pool: 2));
                 }
+                lock (conn.Monsters)
+                    PresentReceivedSlow(conn, packets, conn.MirroredObjects[key], m.EnemySlow.Source, m.EnemySlow.Movement);
                 if (conn.LockstepClient && before is null)
                 {
                     births.Add(conn.WorldOutput.PublishedObject(conn.MirroredObjects[key]));
@@ -856,6 +867,8 @@ public static partial class Game
                 if (auras is not null)
                     foreach (var (id, monster) in auras)
                         conn.MonsterViews[id] = PresentMonsterAuras(conn, packets, id, monster, conn.MonsterViews[id]);
+                PresentReceivedSlow(conn, packets, PlayerId, conn.EnemySlow.Source, PlayerMovementPct(conn));
+                PresentOwnedMinionSlows(conn, packets, now);
                 conn.AwakeMonsters = AwakeMonsterIds(conn);
             }
             return packets.Build();

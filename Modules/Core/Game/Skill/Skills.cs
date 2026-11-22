@@ -513,8 +513,8 @@ public static partial class Game
         lock (conn.Monsters) siphoning = SiphoningRawStatsLocked(conn, extra);
         foreach (var (key, value) in siphoning)
             extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
-        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
-            extra[cryMovement] = ActorScale.Saturate((long)extra.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
+        if (Stats.Key("base_movement_velocity_+%") is uint movementKey)
+            extra[movementKey] = ActorScale.Saturate((long)extra.GetValueOrDefault(movementKey) + IntimidatingCryMovement(conn) + conn.EnemySlow.Rate);
         AddGolemStats(conn, extra);
         AddSelfOfferingStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;

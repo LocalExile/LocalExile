@@ -388,15 +388,19 @@ public static partial class Game
     {
         using (ProjectileMutation(conn))
         {
-            if (!IsMonsterRunner(conn)) return [];
-            if (conn.Instance is { } instance)
+            List<(uint Id, uint Life)> changed = [];
+            if (IsMonsterRunner(conn))
             {
-                double start = Math.Max(now - seconds, instance.World.MonstersRegeneratedThrough);
-                if (start >= now) return [];
-                seconds = now - start;
-                instance.World.MonstersRegeneratedThrough = now;
+                var world = conn.Instance?.World;
+                double start = world is null ? now - seconds : Math.Max(now - seconds, world.MonstersRegeneratedThrough);
+                if (now > start)
+                {
+                    if (world is not null) world.MonstersRegeneratedThrough = now;
+                    changed = RegenerateMonstersLocked(conn.Monsters, now - start, now);
+                }
             }
-            return RegenerateMonstersLocked(conn.Monsters, seconds, now);
+            UpdatePlayerEnemySlow(conn, now);
+            return changed;
         }
     }
 
@@ -413,12 +417,15 @@ public static partial class Game
         var attackSpeed = auras?.GetValueOrDefault(AttackSpeedAura);
         var castSpeed = auras?.GetValueOrDefault(CastSpeedAura);
         var movementSpeed = auras?.GetValueOrDefault(MoveSpeedAura);
+        EnemySlowSources.TryGetValue(monsters, out var enemySources);
         foreach (var (id, m) in monsters)
         {
             ApplyMonsterAura(id, m, recovery, now, RecoveryAura, ref m.LifeAura);
             if (ApplyMonsterAura(id, m, physical, now, PhysicalAura, ref m.PhysicalDamageAura))
                 BossKits.RefreshPhysicalAura(m);
-            ApplySpeedAura(id, m, attackSpeed, castSpeed, movementSpeed, now);
+            var slow = !m.Hostile && !m.WorldHidden && !m.Dead && m.Life > 0 && enemySources is { Count: > 0 }
+                ? EnemySlowAt(monsters, enemySources, m.Walk.Position(now), now) : default;
+            ApplySpeedAura(id, m, attackSpeed, castSpeed, movementSpeed, now, slow);
             double spreadRecovery = SpreadPoisonRecovery(m, now);
             var hit = m.RegenerationHit;
             if (hit is { } source && now >= source.At + RecentlySeconds) m.RegenerationHit = null;

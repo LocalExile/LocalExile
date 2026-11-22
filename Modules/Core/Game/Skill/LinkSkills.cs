@@ -239,10 +239,12 @@ public static partial class Game
     // movement_velocity_+% (0xf5), in the client's, which walks every mover at its base × (1 + 0xf5 / 100) (0x141e827a0).
     static void MinionFlaskSpeedLocked(ClientState conn, uint target, double now, List<byte> bytes)
     {
-        if (!conn.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is not { } variety) return;
-        int pct = m.Mods.Effects.MovementPct + UtilityFlasks.Strongest(conn.Links.Flasks.Where(f => f.Target == target)
-            .SelectMany(f => f.Stats)).Where(s => s.Stat == "base_movement_velocity_+%").Sum(s => s.Value);
-        m.Walk.SetSpeed(Math.Max(1, variety.MovementSpeed * Math.Max(0, 100 + pct) / 100.0), now);
-        bytes.AddRange(InstanceEntities.StatsUpdate(target, [(StatKeys.MovementVelocityPct, pct)]));
+        if (!conn.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is null) return;
+        int previous = m.LinkedFlaskMovementPct;
+        m.LinkedFlaskMovementPct = UtilityFlasks.Strongest(conn.Links.Flasks.Where(f => f.Target == target)
+            .SelectMany(f => f.Stats)).Where(s => s.Stat == MoveSpeedStat).Sum(s => s.Value);
+        m.SetGrantedStat(MoveSpeedStat, m.SpeedAura.Movement.Extra + m.LinkedFlaskMovementPct);
+        RetimeMonsterMovement(m, m.LinkedFlaskMovementPct - previous, now);
+        bytes.AddRange(InstanceEntities.StatsUpdate(target, [(StatKeys.MovementVelocityPct, CompanionMovementPct(m, now))]));
     }
 }

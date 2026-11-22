@@ -462,7 +462,7 @@ public static partial class Game
             conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
         }
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
-            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
+            [(StatKeys.MovementVelocityPct, CompanionMovementPct(m, now))]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out origin))
             conn.MinionOrigins[golem.Id] = origin with { Object = origin.Object with { Skills = golem.Skills } };
     }

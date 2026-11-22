@@ -621,7 +621,7 @@ public static partial class Game
                 spawned.PhysicalDamageAura = (!friendly, selfDamageAura == 0 ? 0 : id, selfDamageAura, extra);
                 spawned.SetGrantedStat(PhysicalAuraStat, extra);
             }
-            if (authored.SpeedIncluded != default)
+            if (authored.SpeedIncluded != default || selfSpeeds != default)
                 InitializeSpeedAura(id, spawned, selfSpeeds, authored.SpeedIncluded);
             MonsterEmerge.AddLocked(conn, id, spawned, emerge, waits);
             if (sideAreaGuard >= 0) SideAreaVessels.PlaceGuard(conn.Instance, sideAreaGuard, id);

@@ -48,6 +48,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.CombatLifetime = module.Lifetime;
         module.Lifetime.Own(Rules.CleanupTemporaryAuras());
         module.Lifetime.Own(Rules.CleanupEssenceAuras());
+        module.Lifetime.Own(new Rules.EnemySlowCleanup());
         module.Lifetime.Own(Rules.CleanupMonsterSummons());
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
@@ -169,6 +170,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(id, Rules.BrandPlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => { Rules.ClearBrands(conn); return Task.CompletedTask; });
         GameEvents.TransientClosing.Add(id, Rules.ClearBrands);
+        GameEvents.TransientClosing.Add(id, Rules.ClearPlayerEnemySlow);
         GameEvents.GrantedSkillExecutable.Add(id, (_, effectId) => Rules.IsBrandsurgeEffect(effectId));
         GameEvents.Kill.Add(id, Rules.BrandOnMonsterKill);
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
