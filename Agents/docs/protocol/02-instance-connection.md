@@ -46,16 +46,18 @@ Connect time to instance server was 0ms
 | 0x0F | `0x1431767e8` (the login u32 class) | u32 ticket | 0x14 u32 at `+0x38` (info `+0x34`) |
 | 0x0E | `0x1435ca400` | bytes[12] digest, u32 address, u32 0, u8 realm (0x40), u8 flag | address = 0x14's u32 at `+0x34`. Flag = global `0x1445998ce` |
 
-The digest is computed with the hash family at `0x141fe7d90` over the 8-byte constant at `0x142fc9c38`, the 0x14
-`Data8` (info `+0x78`) and the u32 `_time64`. The algorithm is not identified, and the server doesn't need to check it.
+The 12-byte digest is **SipHash-2-4** (`0x141fe7d90`, written by `0x141f97550`):
 
-Real capture (first run, ticket still 0):
+- 16-byte key: constant `8d 75 09 a3 fe a5 17 81` (`0x142fc9c38` in 3.29.3c) followed by the 8-byte `Data8` from login `0x14` / transfer `0x27` (info `+0x78`).
+- 4-byte message: low 32 bits of `_time64(NULL)` in **little-endian**.
+- Wire layout: 8-byte SipHash-2-4 tag in **little-endian**, followed by that 32-bit Unix timestamp in **big-endian**.
+
+Real capture (first run, ticket still 0, `Data8` = 8 zero bytes):
 ```
 000F 00000000
 000E 76240850BFE2B4956AD1D6B0 7F000001 00000000 40 01
 ```
-30 bytes in total (`InstanceProtocol.OpeningLength`). `InstanceProtocol.TryReadOpening` parses it, and the Gateway logs the
-ticket, digest, address, realm and flag. The ticket the client echoes is the one from 0x14 (verified with random tickets).
+Verified against that capture: `SipHash-2-4(8d7509a3fea51781 || 0000000000000000, B0D6D16A)` equals `76240850BFE2B495` (LE), matching bytes `0..8` of the captured digest. `InstanceKeyring.Data8(ticket)` derives a ticket-bound `Data8` via HMAC-SHA512 (`[ticket BE, 0x44, 0x38]`, first 8 bytes) for login `0x14` and transfer `0x27`. `InstanceProtocol.TryReadOpening` parses the 30-byte opening (`InstanceProtocol.OpeningLength`) and `Program.Connection.cs` verifies it with `InstanceProtocol.VerifyOpeningDigest` (constant-time tag check plus clock-skew window, default 300 s) before calling Auth `resolve` or switching to encryption. The ticket the client echoes is the one from 0x14 (verified with random tickets).
 
 Sending in the client goes through `0x1421752b0(this, &msg)`, which calls the message's vtable slot 1 on the stream
 (under an SRW lock if `stream+0x242`). `0x140dfa160` flushes. The id is stored in the message object, so searching for
@@ -179,6 +181,14 @@ They also preserve the captured 0x0099 + two ticks + 0x01ef sequence as four sep
 The same fixed-length implementation passed ten integrated native area transfers with subsequent chat intact.
 That evidence belongs to the larger Phrecia integration; this extracted branch is independently covered by tests.
 It does not prove which message caused the earlier intermittent wide-string error.
-Unknown message layouts still require primary evidence; their lengths are not guessed.
+Unknown message layouts still require primary evidence; their lengths are not guessed. Additional variable-length C→S framers verified from 3.29.3c writers in `InstanceProtocol.TryClientMessageLength`:
+
+| Message | Primary writer | Layout after u16 BE opcode |
+|---|---|---|
+| C→S `0x0130` / `0x0138` | `0x141fa1600` | 4 narrow UTF-8 strings (`u16 BE len + bytes`) |
+| C→S `0x0279` | `0x141fa3d30` → `0x141fab790` | `u8 count`, `count * u8` (`3 + count` bytes) |
+| C→S `0x027f` | `0x141fa3fc0` → `0x141fab790` | `u8 wing`, `u8 count`, `count * u8` (`4 + count` bytes) |
+| C→S `0x02a5` | `0x141fa5c10` | `u32 BE netId`, `u8 count`, `count * (u8 + u32 BE + u32 BE)` (`7 + count * 9` bytes) |
+| C→S `0xF7E0` (custom mod envelope) | non-retail | `u32 BE payloadLen` (≤ 1 MiB), `payloadLen` bytes (`6 + payloadLen` bytes) |
 
 Env: `Game_GATEWAY_PORT` (6112), `Game_INSTANCE_SECRET` (data/instance-secret.bin), `Game_GATEWAY_ENTER`.

@@ -147,11 +147,13 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
   the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
   removing it would move the later tabs' indices and inventory ids (`AccountStash.DeleteFolder`).
-- **0xd3** (class `0x1435cad70`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
+- **0xd3** (class `0x1435cad70`, read `0x141f9d9a0`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
   (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
-  0x136 is what closes the window is not checked live yet.
+  0x136 is what closes the window is not checked live yet. S→C **0xd3** uses the same class and wire layout for guild stash
+  affinity broadcasts (dispatcher case `0x3f` at `0x142155f46` → `0x142174850`, accepting `kind == 1` only), encoded by
+  `InstanceStash.EncodeSetAffinities`.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
   item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bit 1: Ctrl + right click, the
   bulk boolean of `0x1403119d0`, as 0xe1 below), u8 kind (page +0x491), u16 token (raw, changes per request), u64 raw (0). The
