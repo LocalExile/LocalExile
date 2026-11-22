@@ -645,6 +645,9 @@ public static partial class Game
         var gem = capturedGem ?? SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
+        if (GolemStat(stats, "mine_damage_+%") is int mineDamage and not 0
+            && PlacedKind(gem).Mine && Stats.Key("damage_+%") is uint mineDamageKey)
+            stats[mineDamageKey] = ActorScale.Add(mineDamageKey, stats.GetValueOrDefault(mineDamageKey), mineDamage);
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
