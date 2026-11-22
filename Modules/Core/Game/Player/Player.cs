@@ -465,6 +465,8 @@ public static partial class Game
         if (es > conn.EnergyShield.Current) return false;
         var paying = player;
         bool Has(string name) => Stats.Key(name) is uint key && paying.GetValueOrDefault(key) != 0;
+        if (Has("mark_skills_cost_no_mana") && SkillsFor(conn).HasType(SupportedSkill(conn, skillId).Effect, "Mark"))
+            cost = 0;
         if (Has("virtual_spend_energy_shield_for_costs_before_mana") || Has("keystone_eldritch_battery"))
             fromEs = Math.Min(cost, conn.EnergyShield.Current - es);
         return conn.PlayerMana >= cost - fromEs && !(life > 0 && conn.PlayerLife <= (uint)life);
