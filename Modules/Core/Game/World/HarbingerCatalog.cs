@@ -362,21 +362,16 @@ public static class HarbingerCatalog
         if (auraMods.Count == 0) return [];
 
         double radiusScale = Math.Sqrt(Math.Max(0.1, 1.0 + auraAoePct / 100.0));
-        var templates = ClientTables.Table("BuffTemplates");
         var result = new List<ObeliskAura>(auraMods.Count);
         foreach (var mod in auraMods)
         {
-            if (mod.BuffTemplate is not int btRow || templates.Row(btRow) is not { } tpl
-                || tpl.IntOrNull("BuffDefinitionsKey") is not int buffDef || buffDef <= 0)
-                continue;
-            int baseRadius = tpl.Int("AuraRadius");
-            if (baseRadius <= 0) continue;
+            if (MonsterAuraTemplate.Read(mod) is not { } aura) continue;
             var statMap = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var s in mod.Stats)
                 if (s.Min != 0)
                     statMap[s.Id] = statMap.GetValueOrDefault(s.Id) + s.Min;
             if (statMap.Count == 0) continue;
-            result.Add(new(mod.Id, checked((ushort)buffDef), baseRadius * radiusScale, statMap));
+            result.Add(new(mod.Id, aura.Buff, aura.Radius * radiusScale, statMap));
         }
         return result;
     }

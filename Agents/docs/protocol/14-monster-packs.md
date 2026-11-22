@@ -413,9 +413,16 @@ The Sanguine Wave and Mammothcage both reference `MonsterImplicitLifeRegen1` (80
 The Gateway includes direct recovery rows in the hidden list and sends their summed rate in Stats. The official
 server's choice of modifier list for these rows has yet to be captured.
 
+Both Grinning Totem varieties carry `MonsterTotemAuraLifeRegen1`. BuffTemplates row 355 gives a radius of 60 cells.
+BuffDefinitions row 90 names the recipient effect “Allies Regenerate Life” and grants stat 453. The modifier supplies
+150% of maximum life per minute. The Gateway samples living hostile sources and recipients on the instance recovery
+tick, including the source itself. Overlapping instances of this buff use the strongest rate. Direct regeneration
+adds to it. BuffVisuals row 94 has separate emitter and recipient effects. Each observer receives 0x1c1 on entry and
+0x1c2 on loss. Their appearance and the official server's sampling cadence still need a graphical client capture.
+
 **Open:** other variety modifiers and their aura recipients are incomplete; monsters have no base
 resistance or armour yet (open PRs #225 / #226 add base resistance), the player no penetration, so the mods'
-resistances cannot be penetrated; no monster energy shield and no auras on their allies; the unsupported mods' systems;
+resistances cannot be penetrated; no monster energy shield; the unsupported mods' systems;
 whether the real server sends the rarity's own mods, and in which list. The monster's attack stats on the client
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.

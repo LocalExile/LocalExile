@@ -794,7 +794,8 @@ public static partial class Game
                         SettleBleeding(m, now);
                         foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance, CreatedAsCorpse = corpse, OriginStats = o.Object.Stats };
+                        var firstView = new MonsterView(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance, CreatedAsCorpse = corpse, OriginStats = o.Object.Stats };
+                        conn.MonsterViews[id] = PresentLifeAura(conn, packets, id, m, firstView);
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
                         continue;
                     }
@@ -828,7 +829,8 @@ public static partial class Game
                     if (life > 0 && bars.Hidden.Remove(id))
                         packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
                     if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
-                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life, OriginStats = o.Object.Stats };
+                    conn.MonsterViews[id] = PresentLifeAura(conn, packets, id, m,
+                        seen with { At = at, To = to, Life = life, OriginStats = o.Object.Stats });
                     // A boss the others fight: its life bar here too.
                     if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));
                 }

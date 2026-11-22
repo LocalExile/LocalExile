@@ -276,6 +276,8 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     }
     // Resolve the template when the monster is created. Recovery ticks use this number on the instance lock.
     public int TemplateLifeRegeneration { get; private init; }
+    // Current species aura on the shared actor. Extra is the portion outside its rolled modifier set.
+    public (bool Emits, uint Source, int Rate, int Extra) LifeAura;
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
     // clip through its current ACT; rig indexes are retained as extraction/profile diagnostics.
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];

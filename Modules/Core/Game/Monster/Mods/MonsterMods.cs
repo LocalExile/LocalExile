@@ -91,14 +91,14 @@ public static partial class Game
     }
 
     // Apply the variety's own recovery after the shared magic roll. Keep the row with this monster so
-    // restoring it preserves its roll. A buff template gives recovery to the aura's recipients.
+    // restoring it preserves its roll. MonsterLifeAuras reconciles a rolled aura with nearby sources.
     static MonsterModSet WithSpeciesLifeRegeneration(MonsterCatalog.Variety variety, MonsterModSet set)
     {
         var catalog = MonsterModRolls.Value;
         foreach (int row in variety.SpeciesModsOrEmpty)
         {
-            if (catalog.Mods.Row(row) is not { BuffTemplate: null } mod ||
-                !mod.Stats.Any(stat => stat.Id == "life_regeneration_rate_per_minute_%") ||
+            if (catalog.Mods.Row(row) is not { } mod || !mod.Stats.Any(stat => stat.Id == LifeAuraStat) ||
+                (mod.BuffTemplate is not null && !LifeAuraMods.Value.ContainsKey(mod.Hash)) ||
                 set.Mods.Any(kept => kept.Hash == mod.Hash)) continue;
 
             var roll = mod.Roll(ModSection.Hidden, Random.Shared);
@@ -407,8 +407,10 @@ public static partial class Game
         double now = 0, int onHitPct = 0)
     {
         var changed = new List<(uint, uint)>();
+        var auras = GatherLifeAuras(monsters, now);
         foreach (var (id, m) in monsters)
         {
+            ApplyLifeAura(id, m, auras, now);
             double spreadRecovery = SpreadPoisonRecovery(m, now);
             var hit = m.RegenerationHit;
             if (hit is { } source && now >= source.At + RecentlySeconds) m.RegenerationHit = null;
