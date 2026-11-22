@@ -216,7 +216,9 @@ public static partial class Game
                 graph.MarkRule((int)PlayerStatStep.VaalPrevention);
                 break;
             case StatInput.RecentEnemyHits:
-                graph.MarkRule((int)PlayerStatStep.RecentHits);
+                if (graph.Values.GetValueOrDefault(RecentEnemyHits.PerHit) != 0
+                    || graph.Values.GetValueOrDefault(RecentEnemyHits.GenericChance) != 0)
+                    graph.MarkRule((int)PlayerStatStep.RecentHits);
                 break;
             case StatInput.FlaskEffects:
                 foreach (var step in PlayerStatChangeReaders[(int)PlayerStatChange.Flasks]) graph.MarkRule((int)step);

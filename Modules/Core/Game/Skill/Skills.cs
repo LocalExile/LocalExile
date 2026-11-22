@@ -26,7 +26,7 @@ public static partial class Game
         // drops it at once. The stats carry Rage, charges, Onslaught and the auras, whose attack and cast times the
         // client's actions follow, so those rebuild it too.
         double now = AreaTime(player);
-        var currentStats = CharacterPlayerStats(player);
+        var currentStats = PlayerStatValues(player);
         if (player.PlayerSkillsCache is { } cached && PlayerSkillsInputs.TryGetValue(player, out var was) && ReferenceEquals(was.Skills, cached)
             && was.Inputs.Matches(player, currentStats))
         {

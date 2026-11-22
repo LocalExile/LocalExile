@@ -436,7 +436,7 @@ public static partial class Game
         await SendPlayerStatSnapshot(player,
             () =>
             {
-                var bytes = PlayerSkillsIfChanged(player, PlayerSkills(player));
+                var bytes = PlayerSkillsIfChanged(player, skills);
                 skillsSent = bytes.Length > 0;
                 return bytes;
             },

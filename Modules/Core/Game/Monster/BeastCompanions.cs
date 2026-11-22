@@ -38,12 +38,26 @@ public static partial class Game
         && LeagueFor(player).Rules.AllowsGemEffect(grant.EffectId)
         && !IsInactive(player, grant.Host);
 
+    sealed class BeastCheck
+    {
+        public long Mutations = -1;
+        public object? StatSources;
+    }
+    static readonly Store<Player, BeastCheck> BeastCheckedMutations = new();
+
     /// <summary>
     /// Reconciles the live worn grants without building CharacterPlayerStats or SupportedSkill. A missing eligible grant
     /// retires its generation irrevocably and drops pending/active ownership in the same observation.
     /// </summary>
     public static void ReconcileBeastCompanionsLocked(Player player)
     {
+        var items = ItemsOf(player);
+        long invMutations = items.Mutations;
+        var statSources = player.StatSourcesCache;
+        var check = BeastCheckedMutations.GetOrCreateValue(player);
+        if (player.Beasts.Active is null && player.Beasts.Pending is null && player.Beasts.SourceGenerations.Count == 0
+            && check.Mutations == invMutations && ReferenceEquals(check.StatSources, statSources))
+            return;
         var live = AllWornGrantedSkillsOf(player).Where(g => BeastSourceEligible(player, g)).ToArray();
         var identities = live.Select(BeastSourceIdentity).ToHashSet();
         foreach (var stale in player.Beasts.SourceGenerations.Where(s => !identities.Contains(s.Key)).ToArray())
@@ -67,6 +81,11 @@ public static partial class Game
                 output: ReferenceEquals(active.Area, player.Instance) && ReferenceEquals(active.Lifetime, CombatLifetime));
         if (player.Beasts.Pending is { } pending && !BeastSourceGenerationCurrentLocked(player, pending.Source))
             player.Beasts.Pending = null;
+        if (player.Beasts.Active is null && player.Beasts.Pending is null && player.Beasts.SourceGenerations.Count == 0)
+        {
+            check.Mutations = invMutations;
+            check.StatSources = statSources;
+        }
     }
 
     static BeastCompanions.SourceGeneration? CurrentBeastSourceLocked(Player player, WornGrantedSkills.Grant grant)
@@ -134,25 +153,13 @@ public static partial class Game
             { SkillStats = new Dictionary<uint, int>(gem.Stats) };
     }
 
-    sealed class BeastCheck { public long Mutations = -1; }
-    static readonly Store<Player, BeastCheck> BeastCheckedMutations = new();
-
     public static async Task TickBeastCompanions(Player player, double now, object? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
         if (!Current() || player.Closed || player.LeavingArea) return;
-        var items = ItemsOf(player);
-        long invMutations = items.Mutations;
-        var checkedMut = BeastCheckedMutations.GetOrCreateValue(player);
-        if (player.Beasts.Active is null && player.Beasts.Pending is null && player.Beasts.SourceGenerations.Count == 0
-            && checkedMut.Mutations == invMutations)
-            return;
         ReconcileBeastCompanionsLocked(player);
         if (player.Beasts.Active is null && player.Beasts.Pending is null && player.Beasts.SourceGenerations.Count == 0)
-        {
-            checkedMut.Mutations = invMutations;
             return;
-        }
         if (player.Beasts.Active is { } active)
         {
             bool present = player.Minions.Owns(active.Id, active.Monster)

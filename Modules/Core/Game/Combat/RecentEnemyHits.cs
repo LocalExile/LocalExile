@@ -14,6 +14,14 @@ public static partial class Game
 
     public static void AddRecentEnemyHitStatsLocked(Player player, StatMap stats)
     {
+        int perHit = stats.GetValueOrDefault(RecentEnemyHits.PerHit);
+        int generic = stats.GetValueOrDefault(RecentEnemyHits.GenericChance);
+        if (perHit == 0 && generic == 0)
+        {
+            if (stats.GetValueOrDefault(RecentEnemyHits.Counter) != 0) stats[RecentEnemyHits.Counter] = 0;
+            if (stats.GetValueOrDefault(RecentEnemyHits.VirtualChance) != 0) stats[RecentEnemyHits.VirtualChance] = 0;
+            return;
+        }
         var value = RecentEnemyHitStatsLocked(player, stats);
         if (player.RecentEnemyHits.NextChangeIn(AreaTime(player)) is double left) StatsChangeIn(left);
         if (RecentEnemyHits.Counter is var counter) stats[counter] = value.Count;
@@ -35,7 +43,12 @@ public static partial class Game
         Send(player, [], null, atGate: () =>
         {
             if (player.Closed || player.LeavingArea || player.Paused) return null;
-            var value = RecentEnemyHitStatsLocked(player, CharacterPlayerStats(player));
+            var sources = PlayerStatValues(player);
+            if (sources.GetValueOrDefault(RecentEnemyHits.PerHit) == 0
+                && sources.GetValueOrDefault(RecentEnemyHits.GenericChance) == 0
+                && player.PresentedRecentEnemyHits == (0, 0))
+                return null;
+            var value = RecentEnemyHitStatsLocked(player, sources);
             if (player.PresentedRecentEnemyHits == value) return null;
             var stats = new Dictionary<uint, int>();
             if (RecentEnemyHits.Counter is var counter) stats[counter] = value.Count;
