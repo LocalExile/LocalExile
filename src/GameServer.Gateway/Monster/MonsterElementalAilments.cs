@@ -10,6 +10,7 @@ public sealed class MonsterElementalAilments
     public enum Kind { Chill, Freeze, Shock }
     public sealed record Effect(Kind Kind, double From, double Until, double Magnitude)
     {
+        public double Duration { get; init; }
         // Glacial Wave: a chill from a hit of a player with enemies_chilled_by_hits_take_damage_increased_by_chill_effect
         // / ..._deal_damage_lessened_by_chill_effect, as the player had them when it landed.
         public bool MoreTaken { get; init; }
@@ -82,7 +83,21 @@ public sealed class MonsterElementalAilments
     public void Equivalent(MonsterElementalAilments source, Effect shock, double now, Func<string, int> target)
     {
         if (!Immune(shock.Kind, target))
-            effects.Add(shock with { Until = RecipientEffectTime.RetimedDeadline(shock.Until, now, source.expiryRate, expiryRate), Spread = 0, OnKill = false });
+        {
+            double duration = Math.Max(0, shock.Until - now) * source.expiryRate;
+            effects.Add(shock with { From = now, Until = now + duration / expiryRate, Duration = duration, Spread = 0, OnKill = false });
+        }
+    }
+
+    /// <summary>Restarts the stored durations of active chills and shocks applied to this recipient.</summary>
+    public void RefreshChillAndShock(double now)
+    {
+        for (int i = 0; i < effects.Count; i++)
+        {
+            var effect = effects[i];
+            if (effect.Kind is Kind.Chill or Kind.Shock && effect.From <= now && now < effect.Until)
+                effects[i] = effect with { From = now, Until = now + effect.Duration / expiryRate };
+        }
     }
 
     /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
@@ -383,7 +398,7 @@ public sealed class MonsterElementalAilments
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).
         if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker("freeze_minimum_duration_X_ms") / 1000.0);
-        effect = effect with { Until = now + seconds / expiryRate };
+        effect = effect with { Until = now + seconds / expiryRate, Duration = seconds };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
             && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));

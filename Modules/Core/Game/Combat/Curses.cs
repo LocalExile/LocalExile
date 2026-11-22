@@ -90,8 +90,12 @@ public static partial class Game
         if (definition.Mark)
             foreach (var m in conn.Monsters.Values.Where(m => !ReferenceEquals(m, monster)))
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == conn.PeerId && c.Mark).ToArray()) m.Curses.Remove(mark.Caster, mark.Effect);
-        monster.Curses.Put(new(conn.PeerId, effect, skill, definition.Buff, conn.NextBuff++, now,
-            aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats), CurseLimit(conn, player));
+        var curse = new MonsterCurses.Curse(conn.PeerId, effect, skill, definition.Buff, conn.NextBuff++, now,
+            aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats);
+        monster.Curses.Put(curse, CurseLimit(conn, player));
+        if (Get("refresh_duration_of_shock_chill_ignite_on_enemy_when_cursing_enemy") != 0
+            && ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse))
+            monster.Ailments.RefreshChillAndShock(now);
         return true;
     }
 
