@@ -160,8 +160,13 @@ public static partial class Game
     static bool GolemUsable(GolemState.Golem g, GolemState.Ability a) =>
         g.Definition.Kind == "Phantasm" ? a.Effect is 9427 or 9428
         : g.Definition.Kind == "Absolution" ? a.Effect is 11994 or 11995
-        : g.Definition.Kind == "Zombie" ? g.Definition.Id == "RaiseZombieAltX" ? a.Effect == 5590
-            : g.Definition.Id == "RaiseZombieAltY" ? a.Effect == 7133 : a.Effect != 7133 : a.Effect switch
+        : g.Definition.Kind == "AnimatedGuardian" ? a.Effect == (g.Definition.Id == "AnimateGuardianAltX" ? 9638 : 406)
+        : g.Definition.Kind == "Zombie" ? g.Definition.Id switch
+        {
+            "RaiseZombieAltX" => a.Effect is 406 or 5590,
+            "RaiseZombieAltY" => a.Effect == 7133,
+            _ => a.Effect == 406,
+        } : a.Effect switch
     {
         4839 or 5026 or 5268 or 10801 or 10844 or 12032 or 12033 or 10584 => false,
         4336 => !g.Definition.Special,
@@ -323,6 +328,11 @@ public static partial class Game
             return;
         }
         if (a.Effect is 12032 or 12033) { ReaperConsumedLocked(conn, g, action, now); return; }
+        if (a.Effect == 9638)
+        {
+            AnimatedGuardianSmiteLocked(remote, stream, ciphers, conn, g, action, now);
+            return;
+        }
         if (a.Effect is 9927 or 9928) HolyRelicRegenerationLocked(conn, g, a, now);
         if (a.Effect == 5906) { g.WrathUntil = now + GolemStat(a.Stats, "base_skill_effect_duration") / 1000.0; conn.Golems.RefreshAt = 0; return; }
         if (a.Effect == 10801) { conn.Minions.OutputQueue.Add(new([], "golem consumes corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life)); return; }

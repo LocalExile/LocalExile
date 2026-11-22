@@ -298,6 +298,7 @@ public static partial class Game
             string id = catalog.EffectId(effect) ?? "";
             double range = spell ? Math.Max(20, 70 * (1 + Raw("spell_maximum_action_distance_+%") / 100.0)) : variety.AttackRange;
             if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
+            if (effect == 9638) range = Math.Max(range, Raw("smite_lightning_target_range"));
             if (id.Contains("Whirling", StringComparison.Ordinal) || id.Contains("Cyclone", StringComparison.Ordinal) || id.Contains("Leap", StringComparison.Ordinal)) range = 45;
             double radius = Raw("active_skill_base_area_of_effect_radius");
             if (radius <= 0) radius = id.Contains("Slam", StringComparison.Ordinal) ? 15 : 10;
