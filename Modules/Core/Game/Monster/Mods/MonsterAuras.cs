@@ -159,6 +159,7 @@ public static partial class Game
 
     static void InitializeSpeedAura(uint id, SpawnedMonster monster, AuraSpeeds self, AuraSpeeds included)
     {
+        monster.SpeedAura.CapturedInOrigin = self != default;
         monster.SpeedAura.Attack = Initial(AttackSpeedStat, self.Attack, included.Attack);
         monster.SpeedAura.Cast = Initial(CastSpeedStat, self.Cast, included.Cast);
         monster.SpeedAura.Movement = Initial(MoveSpeedStat, self.Movement, included.Movement);

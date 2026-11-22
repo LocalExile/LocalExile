@@ -206,6 +206,8 @@ public struct MonsterSpeedAura
 {
     public (bool Emits, uint Source, int Rate, int Extra) Attack, Cast, Movement;
     public readonly bool Active => Attack.Rate != 0 || Cast.Rate != 0 || Movement.Rate != 0;
+    // A retained creation can include speed granted at spawn or when a Torment mark rewrote the actor.
+    public bool CapturedInOrigin;
 }
 
 public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)

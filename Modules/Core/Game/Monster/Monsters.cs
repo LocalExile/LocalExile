@@ -630,7 +630,7 @@ public static partial class Game
             if (friendly && !instanceOwned) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
             else
             {
-                conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity) { CapturedSpeedAura = selfSpeeds != default };
+                conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
                 // Created on this client where it was spawned (SyncInstanceMonsters creates it on the others).
                 conn.MonsterViews[id] = new((x, y), (x, y), initialDeath ? 0 : initialLife) { ActorStance = monster.ActorStance, OriginStats = monster.Stats,
                     CreatedAsCorpse = initialDeath && conn.Monsters.GetValueOrDefault(id)?.CreatedAsCorpse == true };

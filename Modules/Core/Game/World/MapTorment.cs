@@ -578,9 +578,9 @@ public static partial class MapTorment
                     skillUpdate = InstanceEntities.ActorSkills(id, actor, [.. changed.Values]);
                 }
             }
+            m.SpeedAura.CapturedInOrigin |= m.SpeedAura.Active;
             conn.Instance.World.MonsterOrigins[id] = origin with
             {
-                CapturedSpeedAura = origin.CapturedSpeedAura || m.SpeedAura.Active,
                 Object = origin.Object.WithStats(ClientStats(m)) with
                 {
                     Mods = m.Mods.Mods,
