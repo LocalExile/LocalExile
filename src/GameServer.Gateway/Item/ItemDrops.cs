@@ -207,11 +207,14 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     /// otherwise it is uniform among the client's scarabs. <paramref name="level"/> 0 skips the DropLevel gate.</summary>
     public Drop? Scarab(Random rng, int level = 0) => Scarab(rng, level, null);
 
+    public static bool ScarabsDisabled(MapMods? mods) => mods?.Get("map_disable_scarab_drops") > 0;
+
     /// <summary>A random scarab, with the area's scarab-type stats (ScarabTypes): its <c>MoreLikely</c> stat (the Atlas
     /// "Carapaces" notables, <c>map_&lt;type&gt;_scarab_more_likely_%</c>: "Scarabs found in your Maps are X% more likely to be
     /// &lt;type&gt; Scarabs") multiplies the type's weight by (100 + X)%, and its <c>DisableDrops</c> stat drops none of it.</summary>
     public Drop? Scarab(Random rng, int level, MapMods? mods)
     {
+        if (ScarabsDisabled(mods)) return null;
         if (mods is not null && ScarabFactors(mods) is { Count: > 0 } factors)
         {
             var weights = _scarabWeights.Value;
