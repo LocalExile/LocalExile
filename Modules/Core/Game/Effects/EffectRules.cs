@@ -97,6 +97,9 @@ public static class EffectRules
         public bool Chains { get; init; }
         /// <summary>What the actor's own stats must be for the rule to be live ("need").</summary>
         public Need[] Needs { get; init; } = [];
+        /// <summary>The one carrier (Source.Name) the rule is for, when many carriers share its stat and each has its
+        /// own trigger ("only").</summary>
+        public string? Only { get; init; }
     }
 
     /// <summary>
@@ -105,7 +108,12 @@ public static class EffectRules
     /// Get reads its stats; Data are its own named numbers a row's values may use; Thing is what an effect kind acts on.
     /// </summary>
     public sealed record Source(string Carrier, object Key, Func<string, int> Get, IReadOnlyDictionary<string, double> Data,
-        object Thing, string Label);
+        object Thing, string Label)
+    {
+        /// <summary>What the carrier is called in the game's data (a granted skill's GrantedEffects Id), for a rule
+        /// that is for one carrier only ("only").</summary>
+        public string? Name { get; init; }
+    }
 
     /// <summary>One effect of a rule that fired, with its numbers resolved for this actor.</summary>
     public readonly record struct Fire(ClientState Conn, CombatEvent Event, double Now, Kind Kind, double[] Values, string?[] Names, object? Data)
@@ -176,11 +184,11 @@ public static class EffectRules
     public static bool HasCarrierRules(string carrier) => Enabled && Current().ByCarrier.ContainsKey(carrier);
 
     /// <summary>Whether a loaded rule of this carrier is turned on by one of these stats.</summary>
-    public static bool CarrierRuleFor(string carrier, Func<string, int> get)
+    public static bool CarrierRuleFor(string carrier, Func<string, int> get, string? name = null)
     {
         if (!Enabled || !Current().ByCarrier.TryGetValue(carrier, out var rules)) return false;
         foreach (var rule in rules)
-            if (get(rule.Stat) != 0) return true;
+            if ((rule.Only is null || rule.Only == name) && get(rule.Stat) != 0) return true;
         return false;
     }
 
@@ -228,7 +236,7 @@ public static class EffectRules
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         foreach (var property in root.EnumerateObject())
-            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "need" or "chance" or "cooldown" or "uses" or "depth" or "do"))
+            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "need" or "only" or "chance" or "cooldown" or "uses" or "depth" or "do"))
                 throw new FormatException($"unknown key \"{property.Name}\"");
         string whenName = root.GetProperty("when").GetString() ?? "";
         int when = Array.IndexOf(WhatNames, whenName);
@@ -297,7 +305,8 @@ public static class EffectRules
         int depth = root.TryGetProperty("depth", out var deep) ? deep.GetInt32() : 0;
         if (depth < 0) throw new FormatException("\"depth\" is negative");
         return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects])
-        { Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs] };
+        { Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs],
+          Only = root.TryGetProperty("only", out var only) ? carrier is not null ? only.GetString() : throw new FormatException("\"only\" names a carrier, and the rule has no \"carrier\"") : null };
     }
 
     static Value ParseValue(JsonElement e)
@@ -353,7 +362,8 @@ public static class EffectRules
                 }
                 else if (sources is not null)
                     foreach (var source in sources)
-                        if (source.Carrier == rule.Carrier && source.Get(rule.Stat) is var held and not 0) Add(rule, held, source);
+                        if (source.Carrier == rule.Carrier && (rule.Only is null || rule.Only == source.Name)
+                            && source.Get(rule.Stat) is var held and not 0) Add(rule, held, source);
             }
         // No live rule and nothing kept from before: the usual case, and it makes nothing.
         if (lists is null && !Lives.TryGetValue(conn, out _)) return;

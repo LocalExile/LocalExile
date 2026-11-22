@@ -62,7 +62,7 @@ public static partial class Game
         var key = (SkillsFor(conn), grant.Effect, grant.Level, EffectRules.Revision);
         if (RuleTriggered.TryGetValue(key, out bool known)) return known;
         var stats = GrantedSkillStatsOf(conn, grant);
-        bool triggered = EffectRules.CarrierRuleFor(SkillCarrier, name => Stats.Key(name) is uint stat ? stats.GetValueOrDefault(stat) : 0);
+        bool triggered = EffectRules.CarrierRuleFor(SkillCarrier, name => Stats.Key(name) is uint stat ? stats.GetValueOrDefault(stat) : 0, grant.EffectId);
         if (RuleTriggered.Count > 4096) RuleTriggered.Clear();
         RuleTriggered[key] = triggered;
         return triggered;
@@ -89,7 +89,7 @@ public static partial class Game
                     ["cooldown"] = SkillsFor(conn).CooldownMs(grant.Effect, grant.Level) / 1000.0,
                     ["uses"] = Math.Max(1, SkillsFor(conn).CooldownUses(grant.Effect, grant.Level)),
                     ["level"] = grant.Level,
-                }, grant, $"{grant.EffectId} (level {grant.Level})"));
+                }, grant, $"{grant.EffectId} (level {grant.Level})") { Name = grant.EffectId });
         }
         return sources ?? (IReadOnlyList<EffectRules.Source>)[];
     }
