@@ -75,7 +75,7 @@ public static partial class Game
         if (RepeatMinionAttackLocked(conn, g, now)) return;
         m.Walk.SetSpeed(m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll), now);
         var here = m.Walk.Position(now); var owner = conn.Walk.Position(now);
-        var (aggressive, defensive) = MinionStance(g, now);
+        var (aggressive, defensive) = MinionStance(g.Own, g.Player, g.Definition.IsGolem, now - g.BlockedAt is >= 0 and <= 4);
         bool follows = !conn.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
         follows |= defensive && summon?.Family != "Clone";
         if (follows && Dist(here, owner) > 150)
@@ -116,9 +116,9 @@ public static partial class Game
         var target = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
                 && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
-            .Where(t => IsPrey(conn, g, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
+            .Where(t => IsPrey(conn, g.Own, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
                 && (!(follows || defensive) || Dist(t.At, owner) <= ownerRange))
-            .OrderByDescending(t => IsPrey(conn, g, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
+            .OrderByDescending(t => IsPrey(conn, g.Own, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
         if (target.M is null) { if (follows) GolemFollowLocked(conn, g, owner, now); return; }
         g.Target = target.Key;
         double distance = Dist(target.At, here);
@@ -506,7 +506,7 @@ public static partial class Game
                 GolemStat(g.Own, "bone_golem_damage_per_non_golem_minion_nearby_maximum_%")) / 100.0;
             if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, "bone_golem_damage_+%_final_after_third_combo_index") / 100.0;
         }
-        bool prey = IsPrey(conn, g, id, target, now);
+        bool prey = IsPrey(conn, g.Own, id, target, now);
         var effects = g.Monster.Mods.Effects;
         int roll = effects["never_crit"] == 0 && effects["always_crit"] == 0 ? Random.Shared.Next(10_000) : 0;
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
@@ -658,7 +658,7 @@ public static partial class Game
                     hazard.Carry[id] = now + .3;
                 }
                 double raw = (hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds)
-                    * MeatShieldDamage(conn, g, m, now);
+                    * MeatShieldDamage(conn, g.Own, m, now);
                 double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default, now))[hazard.Type].Min;
                 double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
                     + hazard.DamageCarry.GetValueOrDefault(id);
