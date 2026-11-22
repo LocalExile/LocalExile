@@ -750,7 +750,20 @@ resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 
 `BuffVisualsKey` is 0 `invisible`, so the debuff is the stat alone, no icon); the chaos degen goes through
 `TrapDegenPerSecond` after chaos resistance with buff 100 `monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds`
 / `plague_degen.epk`); the grab teleports with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`).
-The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are not cast.
+The proximity shield (`EssenceDaemonProximityShield`, GE 2842) triggers with Misery's pulse as `BuffDefinitions` 227
+(`proximity_shield_aura`, 5 s, radius 22). Remaining daemon/ground spells confirmed from `client.db`: Sorrow's Vortex
+totems use `GroundEffects[164]` (`frost_bolt/sml_maelstrom.ao`, GE 5663 cold DoT + chill) and Spite's totem uses
+`GroundEffects[47]` (`lightning_ground_01.ao`, GE 5664 shocked ground); Torment's `EssenceOrbOfStormsDaemon` carries
+`SummonEffect` 460 (`lightning_strike_herald.ao`) and `EssenceDaemonBallLightning` (GE 2500, −80% speed); Insanity's
+`EssenceLightningBeacon` (GE 4294) uses `storm_call/stormcall_{idle,impact}.ao` + `stormpulse.ao` (MA 296–298) and its
+`SpectralSummonedSkull.ot` sets `base_cannot_be_damaged = 1`; Hysteria casts `EssenceDaemonVaalFlameblast` (MA 377/380),
+`EssenceFireballBurst` (GE 31) and burning ground (`FireElementalMeteorEssence`, GE 5267); Horror casts `StormCascade`
+(GE 6121, MA 302–303), Maelström chilled ground and `EssenceHorrorCharges1` (BT 233, BD 27–29); Delirium casts
+`EssenceChaosProjectileWithGroundEffects` (GE 5195, piercing `OfferingOfJudgementProjectileChaos` + `caustic_02.ao`) and
+summons `EssenceInsectWildExplosive` (`InsectSuicideExplosionLarge`, GE 2198); Desolation's boulder uses MA 7957/7958
+(`fleshboulderEssence.ao` / `fleshboulder_explode.ao`, GE 12734/12735 with 100% poison); and Remnant of Corruption adds
+`RemnantOfCorruptionMonsterAura` (BT 237, radius 30, BD 768, −30% move speed, 360%/min life + 180%/min ES physical DoT)
+plus on-death `EssenceFleshmonsterSummonedOnDeath` (variation 4) alongside Suffering's `EssenceArcticGolemSummoned` (variation 9).
 
 **How the replica stands (2026-11-20).** The monolith, its mini crystals, the three activations, the essence drops from
 the released rare and the rare's periodic essence spells are implemented (`MapEssences.cs`, `EssenceCorruption.cs`,

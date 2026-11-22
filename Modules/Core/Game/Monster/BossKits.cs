@@ -211,11 +211,15 @@ public static class BossKits
             var (min, max) = Monsters.BaseDamage(variety, actorLevel) ?? (1, 1);
             int more = Raw("active_skill_damage_+%_final");
             damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(native.Multiplier * Math.Max(0, 1 + more / 100d));
+            if (Raw("physical_damage_%_to_add_as_chaos") is > 0 and var addChaos)
+                damage = damage.Convert(new DamageConversion().AddGain(DamageType.Physical, DamageType.Chaos, addChaos)).Round();
         }
         double seconds = (spell && catalog.CastTimeMs(effect) > 0 ? catalog.CastTimeMs(effect) / 1000d : variety.AttackMs / 1000d)
             / Math.Max(.01, 1 + Raw(spell ? "cast_speed_+%" : "attack_speed_+%") / 100d)
             / Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100d);
+        bool flicker = catalog.ActionHash(effect) == FlickerStrike.Action;
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange)
+            : flicker ? Math.Min(Math.Max(variety.AttackRange, variety.AggroRange), FlickerStrike.Range(Raw("flicker_strike_teleport_range_+%"), false))
             : ranged && Raw("spell_maximum_action_distance_+%") is > 0 and var distPct
                 ? Math.Min(Math.Max(variety.AttackRange, variety.AggroRange), variety.AttackRange * (1 + distPct / 100d))
                 : variety.AttackRange;
@@ -224,11 +228,16 @@ public static class BossKits
             reach = 45;
         var summon = catalog.MonsterSummon(effect, actorLevel);
         bool dualWielding = variety.Weapons.Any(l => l.Slot == 1 && l.Stance is not (9 or 10));
+        int poisonChance = Math.Max(Raw("base_chance_to_poison_on_hit_%"), Raw("chance_to_poison_on_hit_with_attacks_%"));
+        double poisonDuration = poisonChance > 0 && Raw("base_skill_effect_duration") is > 0 and var pms ? pms / 1000d : 0;
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,
             DualWielding = dualWielding,
+            Ailments = IncomingAilmentSettings(Raw),
             CorruptedBlood = CorruptedBloodFor(Raw),
+            PoisonChance = poisonChance,
+            PoisonDurationSeconds = poisonDuration,
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,

@@ -97,5 +97,56 @@ public sealed class EssenceEnvyAuraTests
             Assert.True(double.IsNegativeInfinity(Game.PlayerDecayStarted(conn)));
         }
         finally { Game.ClearEnvyAuraExposure(conn); Game.ClearPlayerDecay(conn); conn.Closed = true; }
+        VerifyRemnantAura();
+    }
+
+    static void VerifyRemnantAura()
+    {
+        var conn = new ClientState(new(1, "remnant-aura", 300, 300, 100, 100, null, []), 1, 1)
+            { Pools = new(70, 10000, 100, 0, 0), PlayerLife = 10000 };
+        conn.Walk.Teleport(300, 300, 0);
+        conn.EnergyShield.SetMaximum(2000, refill: true);
+        var mod = Program.Items.Mods.ById(Game.RemnantAuraMod)!;
+        var set = Game.MonsterModRolls.Value.Create([mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Normal, 70);
+        SpawnedMonster Source(int x) => new("remnant", new(x, 300, 30), 60, 8, 100) { Mods = set };
+        var first = Source(330); // radius 30 inclusive
+        var second = Source(310);
+        conn.Monsters[42] = first;
+        conn.Monsters[43] = second;
+        var stats = new Dictionary<uint, int>();
+        int Step(double from, double until) => Game.AdvanceRemnantAuraLocked(conn, from, until, stats, false, double.NegativeInfinity);
+        try
+        {
+            Game.TickRemnantAurasLocked(conn, 0);
+            // 360%/min of 10000 life (600/s) + 180%/min of 2000 ES (60/s) = 660/s physical DoT absorbed by ES first.
+            Assert.Equal(0, Step(0, 1));
+            Assert.Equal(1340u, conn.EnergyShield.Current);
+            Assert.Single(conn.Minions.OutputQueue, p => p.Log == "Remnant of Corruption aura");
+            var slowStats = Game.RemnantAuraStats(conn, new Dictionary<uint, int>());
+            Assert.Equal(-30, slowStats[Program.Stats.Key("base_movement_velocity_+%")!.Value]);
+            conn.EnergyShield.SetMaximum(0, refill: true);
+            Assert.Equal(600, Step(1, 2)); // non-stacking with 2 sources
+            stats[Program.Stats.Key("base_additional_physical_damage_reduction_%")!.Value] = 50;
+            Assert.Equal(300, Step(2, 3));
+            stats.Clear();
+            first.Dead = true;
+            second.Walk.Teleport(331, 300, 3);
+            Assert.Equal(0, Step(3, 4));
+            Assert.Contains(conn.Minions.OutputQueue, p => p.Log == "Remnant of Corruption aura ends");
+            Assert.Empty(Game.RemnantAuraStats(conn, new Dictionary<uint, int>()));
+            Game.ClearRemnantAuraExposure(conn);
+            second.Walk.Teleport(310, 300, 4);
+            var minion = new SpawnedMonster("ally", new(300, 300, 30), 60, 8, 10000) { Hostile = false };
+            var definition = new GolemCatalog.Definition(-1, "test", "Skeleton", "test", 0, [], false, false, false);
+            var g = new GolemState.Golem(44, minion, definition, 0);
+            conn.Summons.Fighters[44] = g;
+            conn.Monsters[44] = minion;
+            Game.TickRemnantAurasLocked(conn, 10);
+            Game.TickRemnantAurasLocked(conn, 11);
+            Assert.Equal(9400u, minion.Life);
+            using (Game.CleanupRemnantAuras()) { }
+            Assert.Equal(0, Step(11, 12));
+        }
+        finally { Game.ClearRemnantAuraExposure(conn); conn.Closed = true; }
     }
 }

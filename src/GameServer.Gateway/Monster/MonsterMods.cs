@@ -186,6 +186,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
             .AddGain(DamageType.Physical, DamageType.Lightning, extra.GetValueOrDefault("physical_damage_%_to_add_as_lightning"));
         var added = hit.Convert(gains);
         if (extra.GetValueOrDefault("damage_+%") is int increased and not 0) added = added.Scale(Math.Max(0, 1 + increased / 100.0));
+        if (extra.GetValueOrDefault("active_skill_damage_+%_final") is int more and not 0) added = added.Scale(Math.Max(0, 1 + more / 100.0));
         return added.Round();
     }
 

@@ -53,6 +53,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public CorruptedBloodOnHit? CorruptedBlood { get; init; }
+    /// <summary>Skill-level chance to poison on hit (%) and base poison duration (seconds, 0 = default).</summary>
+    public int PoisonChance { get; init; }
+    public double PoisonDurationSeconds { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>

@@ -67,7 +67,7 @@ public static partial class Game
                         viewer = null;
                     foreach (var (id, child) in world.Monsters.Concat(world.DormantMonsters))
                         if (!child.Dead && (MonsterSummonParents.TryGetValue(child, out _)
-                            || child.Variety?.Id == EssenceExplosiveInsect && child.SummonerId is not null))
+                            || IsEssenceExplosiveInsect(child.Variety?.Id) && child.SummonerId is not null))
                             EndMonsterSummonLocked(viewer, id, child, world.Clock.Elapsed.TotalSeconds);
                 }
             }

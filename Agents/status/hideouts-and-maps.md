@@ -114,30 +114,21 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
-  Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
-- Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
-  rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
-  [14](../docs/protocol/14-monster-packs.md) §5).
-  Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay and Toughness (damage-taken, not life), the
-  imprisoned pack (mini monoliths release the pack's magic monsters with the rare), the encased monster entities (+0x104
-  carries the monster id, so the gold name/mod/essence panel draws) and the release spells. The encounter is `World/Essence/`,
-  the behaviour a monster carries is `Monster/Mods/`, one file per essence beside the other essence mod consumers.
-  Seen in the client: Hatred's Creeping Frost nova with its chilling trail, Anger's fire nova, Wrath's lobbed lightning-mortar
-  ring with a landing burst, each with its −10% resistance debuff; Misery's chaos aura pulsing on its own cadence and radius
-  (extra stacks on its attacks); Envy's demon-grasp grab; Rage's fire runes as the client's TrapFireRune object, appearing in
-  place without overlap and bursting when stepped on; Suffering's Frost Bomb with −30% cold exposure; Dread's chaos Firestorm
-  and its Guardian Golem; Greed's blood orbs building up, bursting once and applying Corrupted Blood through the shared on-hit
-  handler; Zeal/Loathing/Scorn alternating their two buff halves; Anguish's fracturing Fiery Rubble on death; Insanity's
-  spectral spirits; the Woe Energy Locus, Fear's corsairs, Doubt's spiders and Spite's Arc totem summoning and fighting.
-  The 3.29 Atlas essence cluster applies (monolith count via the CoreLeagues Essence row, additional-essence and 3-additional
-  chances, higher tier, Amplified Energies' max-tier, the Essence Rare Chance essence-modded rare drop, the
-  Remnant-of-Corruption chance and Crystal Resonance's map-boss inheritance with its essence drops).
-  Not right yet: Sorrow's totems do not cast Vortex and Spite's leave no shocked ground (their effect is a ground DoT with no
-  hit damage, so the hit kit drops it); Doubt's spiders chase without casting Viper/Flicker; Torment's orb carrier is still
-  invisible (its own buff is icon-only, the replica gives it a ball-lightning rig); Anguish's meteor Firestorm mod is left out;
-  Insanity's beacon strikes, Horror's storm-cascade line, Hysteria's burning ground and Delirium's carrion casters are not
-  cast; Suffering's Arctic Golem and the Remnant's Fleshmonster on-death summons and the Remnant's slow/physical aura, the
-  crystal/statue visuals (the `rig.ao` shards) and the Adaptation scarab's per-essence enhancement remain partial (#505, #1206).
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
+  the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
+  the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
+  Resonance boss inheritance) and all released rare/daemon behaviours in `Monster/Mods/`: Hatred/Anger/Wrath novas with
+  −10% res debuffs and Hatred's chilling trail, Misery's chaos aura (extra stacks on hit) and triggered proximity shield,
+  Envy's degen aura and grab, Rage's TrapFireRune mines, Suffering's Frost Bomb (−30% exposure) and on-death Arctic Golem,
+  Anguish's Meteor Firestorm and fracturing Fiery Rubble, Dread's chaos Firestorm and Guardian Golem, Greed's blood-orb
+  Corrupted Blood bombs, Torment's Ball Lightning, Sorrow's Vortex totems, Spite's Arc and shocked-ground totem, Doubt's
+  Flicker/Viper Strike spiders, Woe's Energy Locus, Fear's Charging Corsairs, Contempt's invulnerable chasing Karui
+  spirits, Zeal/Loathing/Scorn alternating buffs, Insanity's Storm Call beacons and invulnerable Spectral Spirits,
+  Hysteria's Flameblast, 8-Fireball burst, Meteor Golem and burning ground, Horror's 9-circle ice-explosion cascade,
+  chilled-ground Maelströms and periodic Endurance/Frenzy/Power charges, Delirium's piercing caustic chaos projectile,
+  Explosive Crawlers and on-death insect, Desolation's poison flesh boulder and Remnant of Corruption's slow/physical
+  aura and on-death Fleshmonsters.
+  Not right yet: crystal/statue visuals (`rig.ao` state-1 shards) and Adaptation's per-essence scaling (#505, #1206).
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).

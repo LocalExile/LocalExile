@@ -12,6 +12,107 @@ using static Program;
 public static partial class MapEssences
 {
     const ushort MiseryBuffRow = 744; // repeated_pulse_chaos, "Essence of Misery"
+    const ushort ProximityShieldBuffRow = 227; // proximity_shield_aura (BuffVisuals 233)
+    const double ProximityShieldRadius = 22;
+
+    sealed class ProximityShield
+    {
+        public double Until;
+        public ushort Buff;
+        public bool Active;
+    }
+
+    static int ActiveProximityShields;
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, ProximityShield> ProximityShields = new();
+
+    /// <summary>Misery's <c>EssenceDaemonProximityShield</c> (GE 2842, triggered by <c>RepeatedPulseDegen</c>): raises a
+    /// 5 s proximity bubble around the rare (<c>BuffDefinitions</c> 227) that blocks direct hits from attackers outside
+    /// <see cref="ProximityShieldRadius"/> cells.</summary>
+    public static void ActivateProximityShield(ClientState conn, SpawnedMonster monster, double duration = 5.0)
+    {
+        if (monster.Dead || monster.Life == 0 || duration <= 0) return;
+        var shield = ProximityShields.GetOrCreateValue(monster);
+        ushort buff = 0;
+        bool send = false;
+        lock (shield)
+        {
+            shield.Until = Math.Max(shield.Until, Now + duration);
+            if (!shield.Active)
+            {
+                shield.Active = true;
+                Interlocked.Increment(ref ActiveProximityShields);
+                shield.Buff = conn.NextBuff++;
+                buff = shield.Buff;
+                send = true;
+            }
+        }
+        if (send && !conn.Closed)
+            lock (conn.Monsters)
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(monster.ObjectId, buff, ProximityShieldBuffRow,
+                    u68: BitConverter.SingleToUInt32Bits((float)duration)), "Misery proximity shield", WorldId: monster.ObjectId));
+    }
+
+    /// <summary>Zero-overhead hot-path check called from <see cref="Game.ApplyMonsterHitLocked"/>: blocks direct hits when
+    /// the attacker stands outside an active Misery proximity shield.</summary>
+    public static bool ProximityShieldBlocksLocked(ClientState conn, SpawnedMonster monster, (int X, int Y)? attackerAt)
+    {
+        if (Volatile.Read(ref ActiveProximityShields) == 0) return false;
+        if (!ProximityShields.TryGetValue(monster, out var shield)) return false;
+        lock (shield)
+        {
+            if (!shield.Active) return false;
+            if (Now >= shield.Until)
+            {
+                shield.Active = false;
+                Interlocked.Decrement(ref ActiveProximityShields);
+                return false;
+            }
+        }
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var from = attackerAt ?? conn.Walk.Position(now);
+        var to = monster.Walk.Position(now);
+        return Dist(from, to) > ProximityShieldRadius;
+    }
+
+    /// <summary>Deactivates any proximity shield tracked on <paramref name="monster"/>.</summary>
+    public static void ClearProximityShield(SpawnedMonster monster)
+    {
+        if (!ProximityShields.TryGetValue(monster, out var shield)) return;
+        lock (shield)
+        {
+            if (!shield.Active) return;
+            shield.Active = false;
+            shield.Buff = 0;
+            Interlocked.Decrement(ref ActiveProximityShields);
+        }
+    }
+
+    static void TickProximityShields(ClientState conn)
+    {
+        if (Volatile.Read(ref ActiveProximityShields) == 0 || conn.Closed || !Areas.TryGetValue(conn.Instance, out var area) || area.Monoliths is null)
+            return;
+        double now = Now;
+        foreach (var mono in area.Monoliths)
+        {
+            if (mono.Stage < 4 || mono.Monster == 0) continue;
+            SpawnedMonster? monster;
+            lock (conn.Monsters) conn.Monsters.TryGetValue(mono.Monster, out monster);
+            if (monster is null || !ProximityShields.TryGetValue(monster, out var shield)) continue;
+            ushort remove = 0;
+            lock (shield)
+            {
+                if (!shield.Active || (!monster.Dead && monster.Life > 0 && now < shield.Until)) continue;
+                shield.Active = false;
+                Interlocked.Decrement(ref ActiveProximityShields);
+                remove = shield.Buff;
+                shield.Buff = 0;
+            }
+            if (remove != 0)
+                lock (conn.Monsters)
+                    conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(mono.Monster, remove),
+                        "Misery proximity shield ends", WorldId: mono.Monster));
+        }
+    }
 
     /// <summary>The chaos pulse applies one «Essence of Misery» stack to the players near the rare.</summary>
     static void ChaosDegen(ClientState source, (int X, int Y) at, double range, SpecialSpell spell)

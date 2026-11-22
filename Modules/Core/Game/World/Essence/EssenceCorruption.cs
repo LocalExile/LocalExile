@@ -110,8 +110,8 @@ public static partial class MapEssences
             monolith.X, monolith.Y, mods: mods, unrisen: false, alone: false, extraKit: essenceKit,
             placement: MonsterPlacement.Established, owned: (id, m) =>
             {
-                // The rare keeps only the tier-scaled count of its summon spell alive (not the default summoner cap).
-                m.SummonCap = essenceKit.Where(e => e.Attack.Summon is not null).Select(e => e.Attack.Summon!.Count).DefaultIfEmpty(0).Max();
+                // The rare keeps the sum of its summon spells' tier-scaled counts alive (not the default summoner cap).
+                m.SummonCap = essenceKit.Where(e => e.Attack.Summon is not null).Sum(e => e.Attack.Summon!.Count);
                 area.Monoliths![monolith.Index] = monolith with { Stage = 4, Monster = id, ForcedRelease = false };
                 area.Dirty.Add(monolith.Index);
                 ApplyReleaseEffects(conn, area, monolith.Index);
@@ -187,9 +187,14 @@ public static partial class MapEssences
         // special spells (pulses/grab) alongside their ordinary AI. Runs before the release/dirty work below.
         TickEffects(conn);
         TickBuffs(conn);
+        TickProximityShields(conn);
         TickTrail(conn);
         TickRunes(conn);
         TickOrbBodies(conn);
+        TickTotems(conn);
+        TickHorror(conn);
+        TickHysteriaBurningGround(conn);
+        await TickGroundZones(conn);
         await CastSpecialSpells(conn);
         // Crystal Resonance: apply pending inherited essences to the map boss once it exists (it may be held back far
         // from the player until approached); a cheap check, the Monsters scan runs only while something is pending.

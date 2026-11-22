@@ -1267,6 +1267,7 @@ public static partial class Game
                     ClearPlayerDecay(conn);
                     ClearCorruptedBlood(conn);
                     ClearEnvyAuraExposure(conn);
+                    ClearRemnantAuraExposure(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =
                         conn.ChaosDotBypassCarry = 0;

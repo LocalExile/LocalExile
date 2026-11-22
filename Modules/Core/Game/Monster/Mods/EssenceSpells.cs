@@ -55,14 +55,20 @@ public static partial class MapEssences
         "EssenceDaemonFireRuneTrapCluster" => "rune",
         "EssenceFrostBomb" => "frostbomb",
         "EssenceChaosstorm" => "chaosstorm",
+        "EssenceDaemonMeteorFirestorm" => "meteorfirestorm",
+        "EssenceDaemonSummonOrbOfStormsDaemon" => "torment",
+        "EssenceLightningBeacon" => "beacon",
+        "EssenceDaemonVaalFlameblast" => "flameblast",
+        "EssenceFireballBurst" => "fireball",
+        "EssenceDaemonStormCascadeDaemon" => "stormcascade",
+        "EssenceChaosProjectileWithGroundEffects" => "deliriumchaos",
+        "GTFaridunEssenceDaemonBoulder" => "boulder",
         _ => "",
     };
 
-    /// <summary>The special spells of a rare's essences: the daemon's pulse effect (the trigger that debuffs / deals chaos
-    /// degen) paired with the visual to play. The resistance pulses (Hatred/Anger/Wrath) trigger a projectile nova — the
-    /// daemon's Creeping Frost / flame breath / mortar effect (<c>projectiles_nova</c>, additional projectiles) — so the
-    /// client fires that nova of projectiles; the chaos pulse (Misery) is its own visual. The damage/summon/projectile
-    /// effects stay in the kit (<see cref="EssenceKit"/>); only these are cast here.</summary>
+    /// <summary>The special spells of a rare's essences: every daemon effect handled by the periodic caster (pulses,
+    /// grab, runes, frost bomb, storms, ball lightning, storm call, flameblast, fireball burst, storm cascade, caustic
+    /// chaos projectile, desolation boulder). The remaining damage/summon effects stay in <see cref="EssenceKit"/>.</summary>
     static IReadOnlyList<SpecialSpell> SpecialSpellsOf(ClientState conn, IReadOnlyList<int> essences, int level)
     {
         var skills = SkillsFor(conn);
@@ -72,10 +78,10 @@ public static partial class MapEssences
         {
             int tier = MapEssenceCatalog.Find(row)?.Tier ?? 7;
             foreach (var daemon in DaemonEffects(row))
+            foreach (int pulse in daemon.Effects)
             {
-                int pulse = daemon.Effects.FirstOrDefault(e => EssenceSpellKind(skills.EffectId(e)).Length > 0, -1);
-                if (pulse < 0 || !seen.Add(pulse)) continue;
                 string kind = EssenceSpellKind(skills.EffectId(pulse));
+                if (kind.Length == 0 || !seen.Add(pulse)) continue;
                 int effectLevel = skills.MaxLevelAt(pulse, level);
                 var native = GolemData.Skill(skills, pulse, level);
                 int Get(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
@@ -86,16 +92,29 @@ public static partial class MapEssences
                     "lightning" => Get("base_lightning_damage_resistance_%"),
                     _ => 0,
                 };
-                // The cooldown is the skill's own; the cast window is separate (the repeated pulse pulses across it).
+                // The cooldown is the skill's own; zero-cooldown or windup-heavy specials keep a sensible repeat cadence.
                 double cooldown = Math.Max(Math.Max(0, skills.CooldownMs(pulse, effectLevel) / 1000.0), skills.CastMs(pulse) / 1000.0);
-                // The visual: the daemon's projectile nova if it has one (the Creeping Frost circle), else the pulse itself.
-                int visual = daemon.Effects.FirstOrDefault(e => e != pulse && IsProjectileNova(skills, e), pulse);
+                cooldown = kind switch
+                {
+                    "beacon" or "flameblast" => Math.Max(cooldown, 4.0),
+                    "stormcascade" => Math.Max(cooldown, 5.0),
+                    "deliriumchaos" => Math.Max(cooldown, 2.5),
+                    _ => cooldown,
+                };
+                // Only resistance pulses pair with a separate projectile nova effect on the same daemon.
+                int visual = kind is "cold" or "fire" or "lightning"
+                    ? daemon.Effects.FirstOrDefault(e => e != pulse && IsProjectileNova(skills, e), pulse)
+                    : pulse;
                 list.Add(new(visual, pulse, kind, daemon.Daemon, value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
                     Get("base_skill_effect_duration") / 1000.0, cooldown, tier) { Cast = skills.CastMs(pulse) / 1000.0 });
             }
         }
         return list;
     }
+
+    /// <summary>The periodic special spell kinds resolved for <paramref name="essences"/> at <paramref name="level"/>.</summary>
+    public static IReadOnlyList<string> SpecialSpellKinds(ClientState conn, IReadOnlyList<int> essences, int level) =>
+        [.. SpecialSpellsOf(conn, essences, level).Select(s => s.Kind)];
 
     static bool IsProjectileNova(SkillCatalog skills, int effect)
     {
@@ -128,8 +147,8 @@ public static partial class MapEssences
             lock (state)
                 foreach (var spell in state.Spells)
                 {
-                    if (now < state.Ready.GetValueOrDefault(spell.Effect)) continue;
-                    state.Ready[spell.Effect] = now + spell.Cooldown;
+                    if (now < state.Ready.GetValueOrDefault(spell.Pulse)) continue;
+                    state.Ready[spell.Pulse] = now + spell.Cooldown;
                     _ = CastSpell(conn, monster, target, at, spell);
                 }
         }
@@ -171,6 +190,46 @@ public static partial class MapEssences
                 await CastChaosstorm(conn, monster, target, spell);
                 return;
             }
+            if (spell.Kind == "meteorfirestorm")
+            {
+                await CastMeteorFirestorm(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "torment")
+            {
+                await CastTormentBallLightning(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "beacon")
+            {
+                await CastLightningBeacons(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "flameblast")
+            {
+                await CastFlameblast(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "fireball")
+            {
+                await CastFireballBurst(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "stormcascade")
+            {
+                await CastStormCascade(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "deliriumchaos")
+            {
+                await CastDeliriumChaosProjectile(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "boulder")
+            {
+                await CastDesolationBoulder(conn, monster, target, spell);
+                return;
+            }
             // The cast originates from the rare's live position, not the spot captured when the tick queued it: the rare
             // keeps fighting between the queue and the cast, and a stale origin reads as the cast coming from somewhere the
             // monster no longer is (a client/server position desync).
@@ -184,6 +243,8 @@ public static partial class MapEssences
             uint daemon = await ShowPulseDaemon(conn, spell, at, monster.ObjectId);
             if (spell.Kind == "chaos")
             {
+                // Misery's pulse triggers its 5 s proximity shield (GE 2842, cast_when_triggered_by_other_skill_% = 100).
+                ActivateProximityShield(conn, monster, 5.0);
                 // Misery is the aura itself pulsing, with no wind-up in front of it: the first stack lands with the pulse
                 // the daemon has just played, not half a second after it. It then keeps pulsing across its own cast window
                 // every half debuff-duration (2.5 s / 2 = 1.25 s, inside the 1-2 s cadence seen on retail), so the stacks
@@ -405,6 +466,7 @@ public static partial class MapEssences
             }
         }
         Effects.Remove(conn);
+        GroundExposures.Remove(conn);
     }
 
     static async Task RefreshStats(ClientState c)
