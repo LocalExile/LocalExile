@@ -280,6 +280,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
 {
     /// <summary>Source of placement traces when the contact point is displaced from the actor.</summary>
     public ProjectileVector LaunchSource { get; init; } = Origin;
+    /// <summary>The aimed terrain cell when the action projects its initial flight endpoint beyond that cell.</summary>
+    public ProjectileVector? TerrainAim { get; init; }
     /// <summary>Position of a moving firing actor when delayed children check a displaced source.</summary>
     public Func<long, ProjectileVector>? LaunchSourceAt { get; init; }
     public Func<bool>? CanEmit { get; init; }

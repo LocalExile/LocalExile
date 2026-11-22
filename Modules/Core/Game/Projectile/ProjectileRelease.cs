@@ -82,9 +82,10 @@ public static partial class Game
         }
     }
 
-    // Fireball, Spark, Freezing Pulse and Frostbolt enter the same projectile action start (3.29.3c, 0x141ba58f0).
+    // These player actions enter the same projectile action start (3.29.3c, 0x141ba58f0).
     static bool UsesPlayerProjectileAim(ClientState conn, int effect) =>
-        SkillsFor(conn).ActionHash(effect) is 0xaa4e or 0x7859 or 0x4923 or FrostboltAction;
+        SkillsFor(conn).ActionHash(effect) is 0xaa4e or 0x7859 or 0x4923 or FrostboltAction
+        || GatewayProjectileSkillProfiles.IsBallLightningOrb(SkillsFor(conn).EffectId(effect));
 
     static bool UsesElementalProjectileCast(string? effect) => effect is "Fireball" or "Spark" or "FreezingPulse" or "FrostBolt";
 
@@ -475,8 +476,27 @@ public static partial class Game
         // LightningSlash is released three cells ahead at ground level, not at the sword's contact point
         // (3.29.3c Positioned trace: player (391,352), every bolt starts (388,352) aimed left).
         double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
-        // A point closer than the muzzle must not end up behind the released projectile.
-        if (totem is null && from is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
+        ProjectileVector? terrainAim = null;
+        if (GatewayProjectileSkillProfiles.IsBallLightningOrb(effectId))
+        {
+            terrainAim = target;
+            int offset = Get("projectile_firing_forward_distance_override");
+            bool noOffset = from.HasValue || Get("projectiles_not_offset") != 0;
+            int maximum = ClientProjectileRange(Get);
+            var line = ProjectileFiringLine.Prepare(origin, target, offset, noOffset, maximum, false,
+                () => ProjectileActionAngle(sequence, 0, repeatsLeft, emitter, 6.28318f));
+            origin = ProjectileFiringLine.Cell(line.From);
+            var layout = conn.Layout;
+            admitted = origin.X >= 0 && origin.Y >= 0
+                && (layout.GridW == 0 || origin.X < layout.GridW && origin.Y < layout.GridH);
+            var ray = (line.To - line.From) * ProjectileFiringLine.CellsPerWorld;
+            target = profile.Count == 1 ? line.RangeEnd(maximum) : origin + new ProjectileVector(ray.X, ray.Y);
+        }
+        else if (totem is null && from is null)
+        {
+            // Keep a close target in front of the muzzle for these release profiles.
+            origin += direction * Math.Min(ahead, (target - origin).Length / 2);
+        }
         if (rain) profile = profile with { LandingDelay = ArrowNovaLayout.LandingDelay(releaseDelay) };
         else profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range, (target - origin).Length) };
         if (!spell) profile = NativeVolley(profile, Get);
@@ -614,7 +634,7 @@ public static partial class Game
                 Leech = totem is null ? shot.Leech : new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
         }
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
-            { LaunchSource = ProjectileSession.Vector(at), Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
+            { LaunchSource = ProjectileSession.Vector(at), TerrainAim = terrainAim, Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
                 CanEmit = admitted ? null : static () => false,
                 LaunchSourceAt = rain && totem is null && from is null
                     ? t => ProjectileSession.Vector(conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)) : null,

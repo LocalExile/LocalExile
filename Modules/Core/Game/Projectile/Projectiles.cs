@@ -439,7 +439,7 @@ public static partial class Game
         // A player's primary projectile flies at the ground its aim gives it (ProjectileAimHeight); returns,
         // continuation children and monster shots keep the plain projectile grid.
         int? FlightGround(ProjectileEntity p) => p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 ? null
-            : ProjectileAimHeight.Ground(p.Use.Origin, p.Use.Aim, Height);
+            : ProjectileAimHeight.Ground(p.Use.Origin, p.Use.TerrainAim ?? p.Use.Aim, Height);
 
         public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
             FlightGround(p) is int ground

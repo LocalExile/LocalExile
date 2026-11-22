@@ -1,11 +1,10 @@
 using System.Numerics;
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
+using static ProjectileFiringLine;
 
 internal static class ArrowNovaLayout
 {
-    const float WorldPerCell = 10.869565f, CellsPerWorld = .092f;
-
     // The captured rig landed 415 ms after use. The release may already have consumed part of that time.
     public static long LandingDelay(double releaseDelay) => ProjectileRuntime.Time(Math.Max(.05, .415 - releaseDelay));
 
@@ -60,8 +59,7 @@ internal static class ArrowNovaLayout
                 }
                 if (!usesTargetLocation)
                 {
-                    var ray = to - from;
-                    end = Cell(from + ray * (maximum * WorldPerCell / ray.Length()));
+                    end = new ProjectileFiringLine(from, to).RangeEnd(maximum);
                 }
                 return new(start, end, launch);
             }
@@ -92,22 +90,8 @@ internal static class ArrowNovaLayout
                 };
             }
 
-            var aim = Grid(payload.Use.Aim);
-            if (aim == landing)
-            {
-                var (sin, cos) = MathF.SinCos(Angle(payload.SpawnOrdinal, 6.28318f));
-                aim = landing + new ProjectileVector((int)(60 * sin), (int)(60 * cos));
-            }
-            var destination = World(aim);
-            var delta = destination - origin;
-            float distance = delta.Length();
-            if (distance < 60)
-                destination = origin + delta * (60 / distance);
-            else if (usesTargetLocation && distance > maximum * WorldPerCell)
-                destination = origin + delta * (maximum * WorldPerCell / distance);
-            var unit = Vector2.Normalize(destination - origin);
-            var startPoint = noOffset ? origin : origin + unit * forward;
-            if (!usesTargetLocation && offset != 0 && !noOffset) destination += unit * forward;
+            var (startPoint, destination) = Prepare(landing, Grid(payload.Use.Aim), offset, noOffset, maximum,
+                usesTargetLocation, () => Angle(payload.SpawnOrdinal, 6.28318f));
             var basis = destination - startPoint;
             if (count == 1) return (_, ordinal) => Single(startPoint, destination, ordinal);
             float rayLength = basis.Length();
@@ -152,11 +136,5 @@ internal static class ArrowNovaLayout
         return origin + ray * length;
     }
 
-    static Vector2 World(ProjectileVector cell) =>
-        new(((float)cell.X + .5f) * WorldPerCell, ((float)cell.Y + .5f) * WorldPerCell);
-
     static ProjectileVector Grid(ProjectileVector point) => new(Math.Floor(point.X + .5), Math.Floor(point.Y + .5));
-
-    static ProjectileVector Cell(Vector2 world) =>
-        new(MathF.Floor(world.X * CellsPerWorld), MathF.Floor(world.Y * CellsPerWorld));
 }

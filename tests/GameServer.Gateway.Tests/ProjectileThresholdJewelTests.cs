@@ -47,6 +47,11 @@ public sealed class ProjectileThresholdJewelTests
             Assert.Equal(ProjectileRuntime.Time(2), orb.Lifetime);
             if (effect == "BallLightningAltX")
             {
+                var close = ProjectileFiringLine.Prepare(new(100, 100), new(99, 100), 0, false, 150, false, () => 0);
+                Assert.Equal(new ProjectileVector(97, 100), ProjectileFiringLine.Cell(close.From));
+                Assert.Equal(new ProjectileVector(-53, 100), close.RangeEnd(150));
+                var placed = ProjectileFiringLine.Prepare(new(100, 100), new(99, 100), 0, true, 150, false, () => 0);
+                Assert.Equal(new ProjectileVector(100, 100), ProjectileFiringLine.Cell(placed.From));
                 var legs = orb.Legs!(0);
                 var leg = legs.First(new(100, 100), new(147, 100));
                 Assert.Equal(new ProjectileVector(101, 99), leg.Target);

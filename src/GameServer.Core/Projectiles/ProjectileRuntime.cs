@@ -82,7 +82,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[contact], ProjectilePayloads = null } : use;
             if (launch.Offset != default)
-                projectileUse = projectileUse with { Origin = origin, Aim = use.Aim + launch.Offset };
+                projectileUse = projectileUse with { Origin = origin, Aim = use.Aim + launch.Offset, TerrainAim = use.TerrainAim + launch.Offset };
             if (unresolved.ReturnRolls is { } rolls)
                 projectileUse = projectileUse with { Profile = ResolveReturn(unresolved, rolls[index]) };
             if (launch.GrantsReturn && !projectileUse.Profile.CannotReturn && !projectileUse.Profile.Returns)
@@ -94,7 +94,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 var flight = projectileUse.Profile;
                 if (use.StopAtProjectileTargets)
                     flight = flight with { Range = Math.Max(.001, (target - use.Origin).Length) };
-                projectileUse = projectileUse with { Aim = target, ProjectileTargets = null,
+                projectileUse = projectileUse with { Aim = target, TerrainAim = null, ProjectileTargets = null,
                     Profile = flight };
             }
             if (use.ProjectileSpeeds is { } projectileSpeeds)
