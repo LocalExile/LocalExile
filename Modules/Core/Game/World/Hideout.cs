@@ -36,7 +36,7 @@ public static partial class Game
         if (!PlayerActionCurrent(conn, action)) return;
         conn.GuildStashOpen = true;
         var guild = GuildStashOf(conn);
-        var tabs = guild.Records(null, conn.GuildStashTabsSent);
+        var tabs = guild.Records(null, conn.GuildStashTabsSent, ItemsFor(conn));
         await Send(remote, stream, ciphers, InstanceStash.TabList(tabs, InstanceStash.Guild), $"0x0136 guild stash tab list: {tabs.Count} tab(s)");
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceStash.OpenGuildStashUi, conn.GuildStashObject, InstanceStash.NoAffinity),
             "0x007b open the guild stash", still: () => PlayerActionCurrent(conn, action));

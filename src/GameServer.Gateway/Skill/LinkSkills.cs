@@ -35,7 +35,7 @@ public sealed class LinkSkills
         public ushort SkillId => skillId;
         public string EffectId => effectId;
         public double Until;
-        public double ManaPerMinute;
+        public double ManaPerMinute, LifePerMinute, LifeCarry, LifePaidAt;
         public ushort SourceBuff, TargetBuff;
         public double? AwaySince;
     }

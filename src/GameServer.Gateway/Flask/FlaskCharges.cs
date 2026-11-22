@@ -27,7 +27,11 @@ public static class FlaskCharges
     /// 1 / 3.5 / 6 / 11 as poewiki gives them. Acts 6 to 10 and maps give fewer (poewiki), by an amount the tables do not
     /// have: not applied.</summary>
     public static double KillCharges(MonsterRarity rarity, ModCatalog mods) =>
-        KillBase * (100 + (rarity == MonsterRarity.Normal ? 0 : RarityIncrease(rarity, mods))) / 100.0;
+        KillCharges(rarity, mods, 0);
+
+    public static double KillCharges(MonsterRarity rarity, ModCatalog mods, int grantedPct) =>
+        KillBase * (100 + (rarity == MonsterRarity.Normal ? 0 : RarityIncrease(rarity, mods))) / 100.0
+            * Math.Max(0, 100.0 + grantedPct) / 100.0;
 
     static int RarityIncrease(MonsterRarity rarity, ModCatalog mods) =>
         mods.ById($"Monster{rarity}6")?.Stats.FirstOrDefault(s => s.Id == "monster_slain_flask_charges_granted_+%")?.Min ?? 0;

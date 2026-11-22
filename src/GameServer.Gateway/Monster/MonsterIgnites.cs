@@ -46,15 +46,19 @@ public sealed class MonsterIgnites
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
-            // Shaper of Flames: "Hits always Ignite" (always_ignite).
+            // Shaper of Flames: "Hits always Ignite" (always_ignite). Weapon tincture ignite stats apply to weapon hands only.
+            bool tinctureWeapon = hand is "main_hand" or "off_hand" && get("tincture_applied") != 0;
             long chance = (long)get("base_chance_to_ignite_%") + get("chance_to_freeze_shock_ignite_%")
+                + (tinctureWeapon ? get("chance_to_ignite_%_with_tinctured_weapons") : 0)
                 + (get("always_ignite") != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
-                * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
+                * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")
+                    + (tinctureWeapon ? get("elemental_ailment_duration_+%_with_tinctured_weapons") : 0)) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                FireExposure: get("ignites_apply_fire_resistance_+"), AllDamage: get("all_damage_can_ignite") != 0,
+                FireExposure: get("ignites_apply_fire_resistance_+"),
+                AllDamage: get("all_damage_can_ignite") != 0 || tinctureWeapon && get("all_damage_with_tinctured_weapons_can_ignite") != 0,
                 NeverFromCrit: get("keystone_elemental_overload") != 0,
                 OnlyFromCrit: get("keystone_ailment_crit") != 0);
         }
@@ -94,6 +98,23 @@ public sealed class MonsterIgnites
     public void Aggravate()
     {
         for (int i = 0; i < active.Count; i++) active[i] = active[i] with { Aggravated = true };
+    }
+
+    /// <summary>Refreshes every live ignite's remaining duration to its full duration from <paramref name="now"/>
+    /// (Wildfire Phloem). Returns true when at least one ignite was refreshed.</summary>
+    public bool Refresh(double now)
+    {
+        bool refreshed = false;
+        for (int i = 0; i < active.Count; i++)
+        {
+            var ig = active[i];
+            if (ig.Until <= now) continue;
+            double duration = Math.Max(0, ig.Until - ig.From);
+            if (duration <= 0) continue;
+            active[i] = ig with { From = now, Until = now + duration };
+            refreshed = true;
+        }
+        return refreshed;
     }
 
     // The damage per second of the live instances: the Stacks strongest, plus aggravatedExtra × the strongest aggravated

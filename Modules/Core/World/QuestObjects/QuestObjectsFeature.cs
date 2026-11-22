@@ -7,23 +7,36 @@ using static Program;
 static class QuestObjectsFeature
 {
     // The rooms' server objects a quest manages (Quests.RoomObjectRemovedBy), where the room fit places them, while the
-    // character lacks the flag that takes them away: The Twilight Strand's force wall (Tutorial_Blocker_3) blocks the way to
-    // the gate until Hillock is dead (12-quests.md §6). Ids from QuestRoomObjectFirstId.
+    // character lacks the flag that takes them away: The Twilight Strand's force walls (Tutorial_Blocker_1/2/3) block the
+    // tutorial segments and the way to the gate until their flags are set (12-quests.md §6). Ids from QuestRoomObjectFirstId.
     internal static async Task SpawnQuestRoomObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var notes = new List<string>();
-        var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes)
-            .Select(o => (Object: o, Flag: QuestsOf(conn).RoomObjectRemovedBy(conn.Layout.Id, o.Type)))
+        var quests = QuestsOf(conn);
+        var loaded = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes)
+            .Select(o => (Object: o, Flag: quests.RoomObjectRemovedBy(conn.Layout.Id, o.Type)))
             .Where(o => o.Flag is not null).ToList();
-        if (objects.Count == 0) return;
-        // The walls guard the exits their flag opens; the boss's side is the room's boss point ("mapboss", "mapboss2" …,
-        // AreaPopulation.BossPoint; else the arrival).
+        // AreaPopulation.LoadObjects skips tutorial_01.arm's doodads (early return after adding the chest point), so
+        // supplement any managed walls from the generated level's RoomObjects (which carry exact rotation and scale).
+        if (ServerLevels.For(conn.Layout.Id, conn.Seed)?.RoomObjects is { Count: > 0 } roomObjects)
+        {
+            var seen = loaded.Select(o => (o.Object.Type, o.Object.X, o.Object.Y)).ToHashSet();
+            foreach (var r in roomObjects)
+                if (quests.RoomObjectRemovedBy(conn.Layout.Id, r.Type) is { } flag && seen.Add((r.Type, r.X, r.Y)))
+                    loaded.Add((new AreaPopulation.RoomObject(r.Type, r.Model, r.X, r.Y, r.Rotation, r.Scale), flag));
+        }
+        if (loaded.Count == 0) return;
+        var tutorial = conn.Layout.Id == TutorialObjects.Strand ? CharacterSaves.Load(CharacterName(conn))?.Tutorial : null;
+        var spawn = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
+        // The walls guard either the exits their flag opens (from the boss's side) or the boss's side from the arrival
+        // (tutorial blockers 1 & 2 in The Twilight Strand).
         var boss = AreaPopulation.LoadPoints(conn.Layout.Id, conn.Seed, []).FirstOrDefault(p => AreaPopulation.BossPoint(p.Name) is not null);
-        var from = conn.Layout.Near(boss is null ? (conn.Layout.SpawnX, conn.Layout.SpawnY) : (boss.X, boss.Y));
+        var bossCell = boss is null ? spawn : conn.Layout.Near((boss.X, boss.Y));
         uint id = QuestRoomObjectFirstId;
-        foreach (var (o, flag) in objects)
+        foreach (var (o, flag) in loaded)
         {
             if (ClientHasQuestFlag(conn, flag!)) continue;
+            if (TutorialObjects.IsTutorialWall(o.Type) && !ShouldSpawnTutorialWall(conn, o.Type, tutorial)) continue;
             var blocker = new BlockerObject(o.X, o.Y, o.Angle, o.Scale);
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
                 $"0x02bb create room object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, scale {o.Scale:0.##}, until quest flag {flag}");
@@ -31,8 +44,19 @@ static class QuestObjectsFeature
             // The server's own wall: the walkable cells across the way (QuestBarriers).
             var guarded = conn.Layout.AreaTransitions.Where(t => TransitionFlag(conn, t.Transition) == flag)
                 .Select(t => conn.Layout.Near((t.Transition.GridX, t.Transition.GridY))).ToList();
+            (int X, int Y) from;
+            if (guarded.Count > 0) from = bossCell;
+            else
+            {
+                from = spawn;
+                if (boss is not null) guarded = [bossCell];
+                else guarded = [.. conn.Layout.AreaTransitions.Select(t => conn.Layout.Near((t.Transition.GridX, t.Transition.GridY)))];
+            }
+            bool isForceWall = o.Model.EndsWith("force_wall.ao", StringComparison.OrdinalIgnoreCase);
             var cells = conn.Layout.Walkable is { } walkable
-                ? QuestBarriers.Cells(walkable, conn.Layout.GridW, conn.Layout.GridH, (o.X, o.Y), o.Angle, from, guarded)
+                ? isForceWall
+                    ? QuestBarriers.ForceWallCells(walkable, conn.Layout.GridW, conn.Layout.GridH, (o.X, o.Y), o.Angle, o.Scale, from, guarded)
+                    : QuestBarriers.Cells(walkable, conn.Layout.GridW, conn.Layout.GridH, (o.X, o.Y), o.Angle, from, guarded)
                 : [];
             Console.WriteLine($"[gateway] {remote} room object 0x{id:x}: {cells.Count} walkable cell(s) closed on the server between ({from.X}, {from.Y}) " +
                 $"and {string.Join(", ", guarded)}" + (cells.Count == 0 ? "" : $", from {cells.Min()} to {cells.Max()}"));
@@ -43,6 +67,60 @@ static class QuestObjectsFeature
             }
             id++;
         }
+    }
+
+    static bool ShouldSpawnTutorialWall(ClientState conn, string type, CharacterSaves.OpeningTutorial? tutorial)
+    {
+        if (tutorial is null || ClientHasQuestFlag(conn, Quests.CompletedAllTutorials)) return false;
+        if (type == TutorialObjects.Blocker2 && !LeagueFor(conn).Rules.TutorialGifts) return false;
+        if (type == TutorialObjects.Blocker1 && tutorial.ZombieKilled && HasSocketedGem(conn, support: false)) return false;
+        if (type == TutorialObjects.Blocker2 && tutorial.ChestOpened && HasSocketedGem(conn, support: true)) return false;
+        return true;
+    }
+
+    static bool HasSocketedGem(ClientState conn, bool support)
+    {
+        var catalog = ItemsFor(conn);
+        foreach (var gem in ItemsOf(conn).SocketedGems())
+            if (catalog.ByHash(gem.TypeHash) is { } type && catalog.Gem(type) is { } info && info.IsSupport == support)
+                return true;
+        return false;
+    }
+
+    // Drops Tutorial_Blocker_1/2 live if tutorials are disabled (CompletedAllTutorials set directly) or once the player
+    // sockets the corresponding tutorial gem (in case the client's local tutorial state omitted C→S 0x020a).
+    internal static async Task SyncTutorialWalls(ClientState conn)
+    {
+        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Layout.Id != TutorialObjects.Strand) return;
+        bool hasB1 = false, hasB2 = false;
+        lock (conn.Monsters)
+            foreach (var (_, (flag, _)) in conn.QuestRoomObjects)
+            {
+                if (flag == TutorialObjects.SkillGemTutorialFlag) hasB1 = true;
+                else if (flag == TutorialObjects.SupportGemTutorialFlag) hasB2 = true;
+            }
+        if (!hasB1 && !hasB2) return;
+        var (remote, stream, ciphers) = conn.Wire;
+        if (ClientHasQuestFlag(conn, Quests.CompletedAllTutorials))
+        {
+            List<uint> gone;
+            lock (conn.Monsters)
+            {
+                gone = [.. conn.QuestRoomObjects
+                    .Where(o => o.Value.Flag is TutorialObjects.SkillGemTutorialFlag or TutorialObjects.SupportGemTutorialFlag)
+                    .Select(o => o.Key)];
+                foreach (uint id in gone) conn.QuestRoomObjects.Remove(id);
+                if (gone.Count > 0) conn.UpdateBarrier();
+            }
+            foreach (uint id in gone)
+                await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove room object 0x{id:x} (tutorials skipped)");
+            return;
+        }
+        if (CharacterSaves.TutorialWallProgress(CharacterName(conn)) is not { } tutorial) return;
+        var completed = new List<string>(2);
+        if (hasB1 && tutorial.ZombieKilled && HasSocketedGem(conn, support: false)) completed.Add(TutorialObjects.SkillGemTutorialFlag);
+        if (hasB2 && tutorial.ChestOpened && HasSocketedGem(conn, support: true)) completed.Add(TutorialObjects.SupportGemTutorialFlag);
+        if (completed.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, completed);
     }
 
     internal static async Task SpawnOpeningTutorial(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -192,7 +270,8 @@ static class QuestObjectsFeature
             await Send(remote,stream,ciphers,InstanceNpcs.Talk(0),"0x0084 dying exile: opening scene already started");
             return;
         }
-        bool armed = ItemsOf(conn).Items(PlayerInventories.Weapon1).Count > 0;
+        bool armed = WeaponIn(conn, ActiveMainHand(conn)) is not null
+            || WeaponIn(conn, ActiveOffHand(conn)) is not null;
         var dialogue = TutorialObjects.Dialogue(armed, tutorial.WeaponPromptHeard);
         conn.InNpcTalk = true;
         await Send(remote,stream,ciphers,InstanceNpcs.Talk(id,dialogue.Option),"0x0084 dying exile: class weapon check");
