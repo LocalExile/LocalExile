@@ -1348,6 +1348,7 @@ public static partial class Game
         await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
             $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
         SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
+        await StartGracePeriod(player);
         await GameEvents.RunResurrected(player);
     }
 
