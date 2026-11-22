@@ -14,6 +14,8 @@ public sealed class GameDataStore : IDisposable
 
     /// <summary>One row of <c>effect_rules</c>: the stat that turns the rule on and the rule's JSON, as the game module reads it.</summary>
     public sealed record EffectRuleRow(string Stat, int Ord, string Rule, string? Note);
+    public sealed record EffectSkillRow(string Effect, string How, string? Art, double Scale, double Seconds, int? Radius,
+        int Hits, double Every, int Spread, bool Checked);
     public sealed record SettingRow(string Key, double Value);
     public sealed record UniqueWeightRow(string Name, double Weight, double RuthlessWeight);
     public sealed record CurrencyWeightRow(string CurrencyId, double Weight, int DropLevel, bool Enabled,
@@ -89,6 +91,22 @@ public sealed class GameDataStore : IDisposable
             var result = new List<EffectRuleRow>();
             while (reader.Read())
                 result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3)));
+            return result;
+        }
+    }
+
+    /// <summary>The enabled rows of <c>effect_skills</c>.</summary>
+    public IReadOnlyList<EffectSkillRow> LoadEffectSkills()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT effect, how, art, scale, seconds, radius, hits, every, spread, checked FROM effect_skills WHERE enabled = 1 ORDER BY effect");
+            using var reader = command.ExecuteReader();
+            var result = new List<EffectSkillRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetDouble(3), reader.GetDouble(4), reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                    reader.GetInt32(6), reader.GetDouble(7), reader.GetInt32(8), reader.GetInt32(9) != 0));
             return result;
         }
     }

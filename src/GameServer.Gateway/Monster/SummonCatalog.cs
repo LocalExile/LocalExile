@@ -28,6 +28,11 @@ public sealed class SummonCatalog(string folder = "data")
             new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", "", "active_animated_guardian_count", true),
             new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
             new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
+            // Summons an item triggers (their GrantedEffects are their own, not the gems'): Raging Spirits on kill,
+            // Arakaali's Fang's spiders, The Scourge's and Rigwald's Crest's wolves.
+            new("AshwakerSummonRagingSpiritOnKill", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", "base_number_of_raging_spirits_allowed", "active_raging_spirit_count", Follows: false, Targetable: false),
+            new("RaiseSpiders", "Spider", "Metadata/Monsters/SummonedSpider/SummonedSpider", "number_of_spider_minions_allowed", "number_of_active_spider_minions"),
+            new("SummonSpectralWolf", "Wolf", "Metadata/Monsters/SummonedWolf/SummonedWolf", "number_of_wolves_allowed", "number_of_active_wolves"),
         };
         foreach (var row in effects)
         {

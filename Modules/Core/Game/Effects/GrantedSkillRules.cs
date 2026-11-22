@@ -139,16 +139,50 @@ public static partial class Game
                 }
             }));
 
-        // One area hit of a spell, where the event's monster stands (around the player for a skill that targets
-        // itself, SpellCentre): the triggered action goes to the client, which draws the skill, and the hit lands at
-        // once (AreaSkillHit's immediate form, as a trigger gem's Ice Nova). Only the skills named in
-        // TriggeredAreaSkills: a ground effect, a chain or a storm is not one hit because its stat set has damage.
-        RegisterTriggeredSkillExecutor(new("area", (_, grant) => TriggeredAreaSkills.ContainsKey(grant.EffectId),
+        // A minion the item's skill summons, beside the character or where the event's monster stood: the summon
+        // routine of the gems (CastSummon through ReleaseTriggeredSummon), for a skill the summon catalog knows.
+        RegisterTriggeredSkillExecutor(new("summon", (_, grant) => SummonData.Find(grant.EffectId) is not null,
             (fire, grant) =>
             {
                 var conn = fire.Conn;
                 if (conn.Wire is not (var remote, { } stream, var ciphers)) return;
-                ushort id; (int X, int Y) from, aim; uint mana, life; uint? targetId = null;
+                ushort id; (int X, int Y) aim; uint mana, life;
+                lock (conn.Monsters)
+                {
+                    if (conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea || InTown(conn)
+                        || ActorSkillOf(conn, grant) is not var (actor, gem) || !gem.RequirementsMet
+                        || GemSkillInstanceDisabled(conn, gem.Effect, actor, triggered: true) is not null) return;
+                    double now = AreaTime(conn);
+                    aim = fire.Word("at") != "self" && fire.Event.Monster is { } monster ? monster.Walk.Position(now) : conn.Walk.Position(now);
+                    if (!PayMana(conn, actor, out mana, out life)) return;
+                    id = actor;
+                }
+                int depth = fire.Event.Depth + 1;
+                var lifetime = CombatLifetime;
+                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                bool Current() => session.Active && CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime)
+                    && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && !conn.Paused && conn.PlayerLife > 0
+                    && WornGrantedSkillOwner(conn).StillWorn(grant, ItemsOf(conn).EquipmentSnapshot());
+                session.Enqueue(async () =>
+                {
+                    if (!Current()) return;
+                    using var triggered = EnterTriggered(depth);
+                    await ReleaseTriggeredSummon(conn, session, id, aim, Current);
+                    if (mana > 0 || life > 0) await SendSkillCost(remote, stream, ciphers, conn, life, $"{grant.EffectId} cost");
+                });
+            }));
+
+        // One area hit of a spell, where the event's monster stands (around the player for a skill that targets
+        // itself, SpellCentre): the triggered action goes to the client, which draws the skill, and the hit lands at
+        // once (AreaSkillHit's immediate form, as a trigger gem's Ice Nova). Only the skills named in
+        // effect_skills table (how "area"): a ground effect, a chain or a storm is not one hit because its stat set
+        // has damage. A row may ask for several hits (hits, every, spread): a storm's bolts around the spot.
+        RegisterTriggeredSkillExecutor(new("area", (_, grant) => TriggeredAreaOf(grant.EffectId) is not null,
+            (fire, grant) =>
+            {
+                var conn = fire.Conn;
+                if (conn.Wire is not (var remote, { } stream, var ciphers) || TriggeredAreaOf(grant.EffectId) is not { } area) return;
+                ushort id; (int X, int Y) from, aim; uint mana, life; uint? targetId = null; int? radius = null;
                 lock (conn.Monsters)
                 {
                     if (conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea || InTown(conn)
@@ -163,6 +197,12 @@ public static partial class Game
                         foreach (var (objectId, known) in conn.Monsters)
                             if (ReferenceEquals(known, monster)) { targetId = objectId; break; }
                     }
+                    // Where the skill itself goes off: a self-targeted one around the character wherever it was aimed
+                    // (SpellCentre), so its art and each of a storm's hits are placed from there.
+                    aim = SpellCentre(conn, gem.Effect, from, aim);
+                    // A row's radius is a base radius: the character's area stats grow it as they do the skill's own.
+                    if (area.Radius is int baseRadius)
+                        radius = SkillRadius(conn, baseRadius, gem.Stats, SkillsFor(conn).IsSpell(gem.Effect), gem.Effect);
                     if (!PayMana(conn, actor, out mana, out life)) return;
                     id = actor;
                 }
@@ -192,27 +232,73 @@ public static partial class Game
                             target, sequence, conn.LockstepClient ? (ushort)0x101 : (ushort)0, asTriggered),
                             $"0x01ce {skill.Name} triggered by its item at ({aim.X}, {aim.Y}), drawn as {draw}{(target is { } t ? $" on 0x{t:x}" : "")}");
                     }
-                    // The client accepts the triggered action (and counts the skill's use) but shows nothing for these
-                    // skills from it (live 2026-11-22: 40 accepted, none seen), so the art is an effect object at the
-                    // spot, as a kill explosion's and a herald's are.
-                    if (TriggeredAreaArt && TriggeredAreaSkills.GetValueOrDefault(grant.EffectId) is { } art)
-                        await PresentEffectArt(remote, stream, ciphers, conn, art, aim);
-                    await AreaSkillHit(remote, stream, ciphers, conn, id, skill, from, aim, immediate: true, triggeredCurrent: Current);
+                    await Strike();
                     if (mana > 0 || life > 0) await SendSkillCost(remote, stream, ciphers, conn, life, $"{skill.Name} cost");
                 });
+                // The later hits of a row with several, each on the session's own clock and queue.
+                if (area.Hits > 1)
+                    lock (conn.Monsters)
+                    {
+                        if (!session.Active) return;
+                        long start = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds));
+                        for (int i = 1; i < area.Hits; i++)
+                            session.Runtime.Schedule(start + ProjectileRuntime.Time(i * area.Every), () => session.Enqueue(async () =>
+                            {
+                                if (!Current()) return;
+                                using var triggered = EnterTriggered(depth);
+                                await Strike();
+                            }));
+                    }
+
+                // One hit and its art. The client accepts the triggered action (and counts the skill's use) but shows
+                // nothing for these skills from it (live 2026-11-22: 40 accepted, none seen), so the art is an effect
+                // object at the spot, as a kill explosion's and a herald's are.
+                async Task Strike()
+                {
+                    var at = aim;
+                    if (area.Spread > 0)
+                    {
+                        double angle = Random.Shared.NextDouble() * Math.Tau, far = Math.Sqrt(Random.Shared.NextDouble()) * area.Spread;
+                        at = (aim.X + (int)Math.Round(Math.Cos(angle) * far), aim.Y + (int)Math.Round(Math.Sin(angle) * far));
+                    }
+                    if (TriggeredAreaArt && area.Art is { } art)
+                        await PresentEffectArt(remote, stream, ciphers, conn, art, at, area.Scale, area.Seconds);
+                    // from and to are the same spot, so the hit lands there whatever the skill's own targeting is.
+                    await AreaSkillHit(remote, stream, ciphers, conn, id, skill, at, at, immediate: true,
+                        radiusOverride: radius, triggeredCurrent: Current);
+                }
             }));
     }
 
-    /// <summary>The item-triggered spells that are one area hit at their target, released by the "area" executor, each
-    /// with the art shown where it goes off (a MiscAnimated Id, or an .ao path; null for none). The game's tables
-    /// do not name the art of these three, so each has the nearest of the client's effects until the real one is
-    /// identified. A module or mod adds a skill it has checked with <see cref="AllowTriggeredAreaSkill"/>.</summary>
-    static Dictionary<string, string?> TriggeredAreaSkills = new()
+    /// <summary>How an item-triggered skill that hits an area is carried out and shown: the art where it goes off (a
+    /// MiscAnimated Id or an .ao path; null for none), the art's size and how long it stays, a radius in place of the
+    /// skill's own, and for a skill of several hits their number, the seconds between them and how far from the spot
+    /// each may land.</summary>
+    public sealed record TriggeredArea(string? Art = null, float Scale = 1, double Seconds = 2, int? Radius = null,
+        int Hits = 1, double Every = 0, int Spread = 0);
+
+    sealed record TriggeredAreaTable(int Revision, Dictionary<string, TriggeredArea> Skills);
+    static TriggeredAreaTable triggeredAreas = new(-1, []);
+    static Dictionary<string, TriggeredArea> addedTriggeredAreas = [];
+
+    /// <summary>The skills the "area" executor releases: world.db's <c>effect_skills</c> rows with how "area" (the
+    /// art of most is a best guess until its row is checked against the game), and those a module or mod added
+    /// with <see cref="AllowTriggeredAreaSkill"/>. A row wins over an added one: the table is the user's.</summary>
+    public static TriggeredArea? TriggeredAreaOf(string effectId)
     {
-        ["LightningBolt"] = "HeraldOfThunderStrike",
-        ["FireBurstOnHit"] = "PrismaticBurstFire",
-        ["TriggeredExplosion"] = "FireNovaEnchantment",
-    };
+        var table = Volatile.Read(ref triggeredAreas);
+        int revision = GameData.Current.Revision;
+        if (table.Revision != revision)
+            lock (TriggeredSkillGate)
+            {
+                var skills = new Dictionary<string, TriggeredArea>(addedTriggeredAreas, StringComparer.Ordinal);
+                foreach (var row in GameData.EffectSkills)
+                    if (row.How == "area")
+                        skills[row.Effect] = new(row.Art, (float)row.Scale, row.Seconds, row.Radius, row.Hits, row.Every, row.Spread);
+                Volatile.Write(ref triggeredAreas, table = new(revision, skills));
+            }
+        return table.Skills.GetValueOrDefault(effectId);
+    }
 
     /// <summary>Whether the "area" executor shows its art (the effect object). A switch for testing.</summary>
     public static volatile bool TriggeredAreaArt = true;
@@ -222,9 +308,16 @@ public static partial class Game
     /// "instant-target" (the same with the monster as the action's target), or "none".</summary>
     public static volatile string TriggeredAreaDraw = "triggered";
 
-    public static void AllowTriggeredAreaSkill(string effectId, string? art = null)
+    public static void AllowTriggeredAreaSkill(string effectId, string? art = null) =>
+        AllowTriggeredAreaSkill(effectId, new TriggeredArea(art));
+
+    public static void AllowTriggeredAreaSkill(string effectId, TriggeredArea area)
     {
-        lock (TriggeredSkillGate) TriggeredAreaSkills = new(TriggeredAreaSkills) { [effectId] = art };
+        lock (TriggeredSkillGate)
+        {
+            addedTriggeredAreas = new(addedTriggeredAreas) { [effectId] = area };
+            Volatile.Write(ref triggeredAreas, new(-1, []));
+        }
     }
 
     /// <summary>The .ao file of one of the client's MiscAnimated effects by its Id, or the text itself when it already

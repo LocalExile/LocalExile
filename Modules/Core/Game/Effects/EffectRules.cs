@@ -148,8 +148,8 @@ public static class EffectRules
     /// <summary>The facts each event can answer, for a rule's checks.</summary>
     static readonly Dictionary<What, string[]> Facts = new()
     {
-        [What.Hit] = ["critical", "spell", "attack", "killed", "frozen", "bleeding", "marked", "has_mark", "normal", "magic", "rare", "unique", "rare_or_unique"],
-        [What.Kill] = ["frozen", "poisoned", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Hit] = ["critical", "spell", "attack", "killed", "frozen", "ignited", "bleeding", "marked", "has_mark", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.WhenHit] = ["critical"],
         [What.Block] = ["spell", "attack"],
         [What.Stun] = ["melee"],
@@ -409,6 +409,10 @@ public static class EffectRules
         ("frozen", HitLanded { Monster: { } m }) => Game.MonsterFrozenNow(conn, m),
         ("frozen", ChargeEvent.Kill k) => k.Frozen,
         ("bleeding", HitLanded { Monster: { } m }) => m.Bleeds.Burning,
+        ("ignited", HitLanded { Monster: { } m }) => m.Ignites.Burning,
+        // A kill is read after the death, which ends the monster's ignites and bleeds: they keep that it died with one.
+        ("ignited", ChargeEvent.Kill { Monster: { } m }) => DiedWith(conn, m.Ignites),
+        ("bleeding", ChargeEvent.Kill { Monster: { } m }) => DiedWith(conn, m.Bleeds),
         ("marked", HitLanded { Monster: { } m }) => Game.MarkedBy(conn, m),
         ("has_mark", HitLanded) => Game.HasMarkedEnemy(conn),
         ("poisoned", ChargeEvent.Kill k) => k.Poisons > 0,
@@ -420,6 +424,11 @@ public static class EffectRules
         (_, ChargeEvent.Kill k) => Rarity(fact, k.Rarity),
         _ => false,
     };
+
+    static bool DiedWith(ClientState conn, MonsterIgnites burns)
+    {
+        lock (conn.Monsters) return burns.Burning || burns.DiedBurning;
+    }
 
     static bool Rarity(string fact, GameServer.Core.Protocol.Instance.MonsterRarity rarity) => fact switch
     {
