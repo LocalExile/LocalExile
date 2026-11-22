@@ -291,6 +291,7 @@ public static class StatConditions
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
+            "attack_skills_damage_+%" => "attack_damage_+%",
             "evasion_+%" => "evasion_rating_+%",
             // The tree spells the global one without "global" on its conditional rows (Staff Mastery's "30% increased
             // Defences while wielding a Staff"); the pools read global_defences_+% for armour, evasion, ES and ward.

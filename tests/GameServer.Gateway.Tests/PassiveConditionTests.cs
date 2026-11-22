@@ -6,6 +6,32 @@ namespace GameServer.Gateway.Tests;
 public sealed class PassiveConditionTests
 {
     [Fact]
+    public void Weapon_and_shield_conditioned_attack_skill_damage_reaches_attack_hits()
+    {
+        var damage = DamagePacket.Of(DamageType.Physical, 100, 100);
+        foreach (var (name, matches, misses) in new[]
+        {
+            ("attack_skills_damage_+%_while_dual_wielding",
+                new StatConditions.Subject(DualWield: true), new StatConditions.Subject(DualWield: false)),
+            ("attack_skills_damage_+%_while_holding_shield",
+                new StatConditions.Subject(Shield: true), new StatConditions.Subject(Shield: false))
+        })
+        {
+            uint stat = Program.Stats.Key(name)!.Value;
+            var passives = new Dictionary<uint, int> { [stat] = 10 };
+            double Hit(StatConditions.Subject subject, bool spell)
+            {
+                var folded = Game.FoldPassiveConditions(passives, subject);
+                int Get(string statName) => Program.Stats.Key(statName) is uint key ? folded.GetValueOrDefault(key) : 0;
+                return PlayerHitDamage.Resolve(damage, Get, new(), spell)[DamageType.Physical].Max;
+            }
+            Assert.Equal(110, Hit(matches, spell: false));
+            Assert.Equal(100, Hit(misses, spell: false));
+            Assert.Equal(100, Hit(matches, spell: true));
+        }
+    }
+
+    [Fact]
     public void A_conditional_passive_stat_counts_only_while_its_condition_holds()
     {
         uint conditional = Program.Stats.Key("physical_damage_while_dual_wielding_+%")!.Value;

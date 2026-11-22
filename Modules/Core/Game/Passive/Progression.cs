@@ -838,7 +838,7 @@ public static partial class Game
 
     /// <summary>Moves a conditional passive stat onto its plain name when its condition holds, exactly as an item mod
     /// does (issue #504, #1102): <c>attack_skills_damage_+%_while_dual_wielding</c> counts as
-    /// <c>attack_skills_damage_+%</c> only while dual wielding, and not at all otherwise. A condition this build cannot
+    /// <c>attack_damage_+%</c> only while dual wielding, and not at all otherwise. A condition this build cannot
     /// answer, a stat with a consumer of its own (<c>DedicatedConsumers</c>) and an id whose plain name this build does
     /// not know all keep their previous behaviour, so nothing that counted before stops counting.</summary>
     internal static Dictionary<uint, int> FoldPassiveConditions(IReadOnlyDictionary<uint, int> passives,
