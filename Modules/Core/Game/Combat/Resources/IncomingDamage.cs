@@ -50,6 +50,7 @@ public static partial class Game
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
         CrabPhysicalHitLocked(conn, physical, at, player);
         bool protectsMana = Get("virtual_energy_shield_protects_mana") != 0 || Get("keystone_eldritch_battery") != 0;
+        conn.EnergyShield.SetWickedWard(Get(EnergyShield.WickedWard) != 0);
         int bypass = Get(IncomingResourceDefences.BypassStat);
         int physicalLife = protectsMana ? conn.EnergyShield.Damage(physical, true, at)
             : IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at);
