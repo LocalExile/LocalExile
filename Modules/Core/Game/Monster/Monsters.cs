@@ -2396,7 +2396,8 @@ public static partial class Game
             int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
             value = PlayerHitMitigation.AfterResistance(conn.Pools, type, value,
                 reduction.Physical, reduction.Elemental, armour.EffectiveArmour,
-                PlayerHitMitigation.ArmourPercent(conn.Pools, type, StatOf));
+                PlayerHitMitigation.ArmourPercent(conn.Pools, type, StatOf),
+                imbalancedGuard: StatOf(PlayerHitMitigation.ImbalancedGuard) != 0);
             // Flat damage taken after resistance and armour, then the multipliers: the increased damage taken adds to the
             // shock's, and a blocked hit deals only its share (PlayerDamageTaken). Monster hits are attacks, and melee
             // unless ranged.

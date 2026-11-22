@@ -283,7 +283,8 @@ public static partial class Game
         var reduction = PlayerDamageReduction(conn, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
         int value = Math.Max(0, PlayerHitMitigation.AfterResistance(conn.Pools, type, resisted,
-            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(conn.Pools, type, Get))
+            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(conn.Pools, type, Get),
+            imbalancedGuard: Get(PlayerHitMitigation.ImbalancedGuard) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
         return FortificationDamageTaken(conn, (int)Math.Round(value

@@ -1502,7 +1502,9 @@ static partial class QuestobjectsRules
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
         // The dart is an arrow (its skill's skill_can_fire_arrows): a physical hit, which the player's armour reduces.
         if (LabyrinthTrials.ArrowDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int share) return ProjectileHitResult.Miss;
-        int damage = PlayerHitMitigation.AfterResistance(conn.Pools, GameServer.Core.World.DamageType.Physical, share);
+        bool guard = Stats.Key(PlayerHitMitigation.ImbalancedGuard) is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0;
+        int damage = PlayerHitMitigation.AfterResistance(conn.Pools, GameServer.Core.World.DamageType.Physical, share,
+            imbalancedGuard: guard);
         if (TrapHitLocked(conn, damage, now) is not uint life) return ProjectileHitResult.Miss;
         int poison = LabyrinthTrials.ArrowPoisonBase(conn.PlayerMaxLife) ?? 0;
         session.Enqueue(async () =>

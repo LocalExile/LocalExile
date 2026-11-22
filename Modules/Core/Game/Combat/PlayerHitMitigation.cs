@@ -6,6 +6,7 @@ using GameServer.Core.World;
 public static class PlayerHitMitigation
 {
     public const string ArmourAppliesToChaos = "base_armour_applies_to_chaos_damage";
+    public const string ImbalancedGuard = "keystone_sacred_bastion";
 
     public const string ArmourPercentToElemental = "armour_%_applies_to_fire_cold_lightning_damage",
         ArmourPercentToChaos = "base_armour_%_applies_to_chaos_damage";
@@ -28,13 +29,19 @@ public static class PlayerHitMitigation
     /// damage reduction under the shared cap; additional physical reduction stays physical. A per-hit armour decision
     /// overrides only this calculation and never writes the permanent pools.</summary>
     public static int AfterResistance(CharacterStats.Pools pools, DamageType type, int damage,
-        int physicalReduction = 0, int elementalReduction = 0, int? effectiveArmour = null, int? armourPercent = null)
+        int physicalReduction = 0, int elementalReduction = 0, int? effectiveArmour = null, int? armourPercent = null,
+        bool imbalancedGuard = false)
     {
         int armour = effectiveArmour ?? pools.Armour;
-        if (type == DamageType.Physical) return DamageModel.MitigatePhysical(damage, armour, physicalReduction);
+        int cap = imbalancedGuard ? 50 : DamageModel.DamageReductionCap;
+        if (imbalancedGuard) armour = ActorScale.Saturate(2L * armour);
+        if (type == DamageType.Physical)
+            return DamageModel.Reduce(damage, (int)Math.Min(cap,
+                (long)DamageModel.ArmourReduction(armour, damage) + Math.Max(0, physicalReduction)));
         int share = armourPercent ?? (type == DamageType.Chaos && pools.ArmourAppliesToChaosDamage ? 100 : 0);
         int fromArmour = share > 0 ? DamageModel.ArmourReduction((int)((long)armour * share / 100), damage) : 0;
-        if (DamageTypes.IsElemental(type)) return DamageModel.Reduce(damage, fromArmour + elementalReduction);
-        return share > 0 ? DamageModel.Reduce(damage, fromArmour) : damage;
+        if (DamageTypes.IsElemental(type))
+            return DamageModel.Reduce(damage, (int)Math.Min(cap, (long)fromArmour + elementalReduction));
+        return share > 0 ? DamageModel.Reduce(damage, Math.Min(cap, fromArmour)) : damage;
     }
 }
