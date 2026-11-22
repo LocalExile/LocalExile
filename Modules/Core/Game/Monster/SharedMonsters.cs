@@ -757,6 +757,12 @@ public static partial class Game
             var packets = new WorldRecordBuilder(conn, admission);
             using (conn.Performance.Lock(world.Monsters, "shared-monsters"))
             {
+                List<(uint Id, SpawnedMonster Monster)>? lifeAuras = null;
+                void Remember(uint id, SpawnedMonster monster, MonsterView view)
+                {
+                    conn.MonsterViews[id] = view;
+                    if (LifeAuraChanged(monster, view)) (lifeAuras ??= []).Add((id, monster));
+                }
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
                 double now = conn.Clock.Elapsed.TotalSeconds;
@@ -795,7 +801,7 @@ public static partial class Game
                         foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
                         var firstView = new MonsterView(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance, CreatedAsCorpse = corpse, OriginStats = o.Object.Stats };
-                        conn.MonsterViews[id] = PresentLifeAura(conn, packets, id, m, firstView);
+                        Remember(id, m, firstView);
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
                         continue;
                     }
@@ -829,13 +835,16 @@ public static partial class Game
                     if (life > 0 && bars.Hidden.Remove(id))
                         packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
                     if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
-                    conn.MonsterViews[id] = PresentLifeAura(conn, packets, id, m,
-                        seen with { At = at, To = to, Life = life, OriginStats = o.Object.Stats });
+                    Remember(id, m, seen with { At = at, To = to, Life = life, OriginStats = o.Object.Stats });
                     // A boss the others fight: its life bar here too.
                     if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));
                 }
                 // A rise can follow this create before the next periodic publication. Its queued update must see
                 // the just-admitted view; the recipient's send gate orders that update after these create bytes.
+                // A lower-id recipient can refer to a totem created later in this same projection.
+                if (lifeAuras is not null)
+                    foreach (var (id, monster) in lifeAuras)
+                        conn.MonsterViews[id] = PresentLifeAura(conn, packets, id, monster, conn.MonsterViews[id]);
                 conn.AwakeMonsters = AwakeMonsterIds(conn);
             }
             return packets.Build();

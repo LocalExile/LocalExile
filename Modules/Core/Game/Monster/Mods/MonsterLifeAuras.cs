@@ -109,13 +109,22 @@ public static partial class Game
         else monster.TemporaryStats["monster_aura_life_regen"] = new Dictionary<string, int> { [LifeAuraStat] = extra };
     }
 
+    static bool LifeAuraChanged(SpawnedMonster monster, MonsterView view)
+    {
+        var active = monster.Dead || monster.Life == 0 ? default : monster.LifeAura;
+        var old = view.LifeAura;
+        return (old.EmitterBuff != 0) != active.Emits || old.Source != active.Source || old.Rate != active.Rate;
+    }
+
     // BuffVisuals 94 has separate EPKs for the emitter and the recipient. The latter uses a viewer-local
     // buff instance even when two monsters receive the same emitter's aura.
     static MonsterView PresentLifeAura(ClientState conn, WorldRecordBuilder packets, uint id, SpawnedMonster monster, MonsterView view)
     {
         var old = view.LifeAura;
         var active = monster.Dead || monster.Life == 0 ? default : monster.LifeAura;
-        if ((old.EmitterBuff != 0) == active.Emits && old.Source == active.Source && old.Rate == active.Rate) return view;
+        // A framed observer gets this view again after the new source's birth is written.
+        if (active.Source != 0 && active.Source != id && (!conn.MonsterViews.ContainsKey(active.Source) ||
+            conn.LockstepClient && !conn.WorldOutput.PublishedObject(active.Source).IsReady)) return view;
         ushort emitter = old.EmitterBuff, receiver = old.ReceiverBuff;
         if (active.Emits && emitter == 0)
             packets.Presentation(id, InstanceEntities.AddBuff(id, emitter = conn.NextBuff++, MonsterLifeAuraBuff, id, auraSource: true, displayState: 0));
