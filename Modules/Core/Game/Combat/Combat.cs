@@ -3008,8 +3008,10 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        bool ignorePhys = attack && mods.IgnorePhysicalReductionChance > 0
-            && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared);
+        int ignorePhysicalChance = ActorScale.Saturate((long)mods.IgnorePhysicalReductionChance
+            + (attack ? mods.TincturedWeaponIgnorePhysicalReductionChance : 0));
+        bool ignorePhys = rolled[GameServer.Core.World.DamageType.Physical].Max > 0
+            && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, Random.Shared);
         return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys),
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
@@ -3019,20 +3021,21 @@ public static partial class Game
     {
         var a = HitResistances.Mods.From(player, Stats.Key);
         var b = skill is null ? default : HitResistances.Mods.From(skill, Stats.Key);
-        int ignorePhys = Has("tincture_applied")
-            ? Math.Clamp(Value("hits_ignore_enemy_monster_physical_damage_reduction_%_chance_with_tinctured_weapons"), 0, 100)
-            : 0;
         return new(a.CriticalIgnoreElemental | b.CriticalIgnoreElemental,
             a.AttackCriticalIgnoreElemental | b.AttackCriticalIgnoreElemental,
             a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore,
             IgnoreFire: Has("virtual_hits_ignore_enemy_fire_resistance"),
             IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"),
-            IgnorePhysicalReductionChance: ignorePhys);
+            IgnorePhysicalReductionChance: Value("hits_ignore_enemy_monster_physical_damage_reduction_%_chance"))
+        {
+            TincturedWeaponIgnorePhysicalReductionChance = Has("tincture_applied")
+                ? Value("hits_ignore_enemy_monster_physical_damage_reduction_%_chance_with_tinctured_weapons") : 0
+        };
 
         bool Has(string name) => Stats.Key(name) is uint key
             && (player.GetValueOrDefault(key) != 0 || (skill?.GetValueOrDefault(key) ?? 0) != 0);
         int Value(string name) => Stats.Key(name) is uint key
-            ? player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0) : 0;
+            ? ActorScale.Saturate((long)player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0)) : 0;
     }
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where

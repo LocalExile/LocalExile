@@ -31,6 +31,8 @@ public static class HitResistances
         int NonCriticalPenetration, int CannotPenetrateOrIgnore, bool UnconditionalIgnoreElemental = false,
         bool IgnoreFire = false, bool IgnoreChaos = false, int IgnorePhysicalReductionChance = 0)
     {
+        public int TincturedWeaponIgnorePhysicalReductionChance { get; init; }
+
         /// <summary>The four source stats by name, through the caller's name → key lookup (the client's stat key is the
         /// Stats.dat row + 1). A stat the source does not carry reads 0.</summary>
         public static Mods From(IReadOnlyDictionary<uint, int> stats, Func<string, uint?> key) => new(
