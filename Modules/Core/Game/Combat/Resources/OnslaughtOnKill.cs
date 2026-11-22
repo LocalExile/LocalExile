@@ -24,6 +24,9 @@ public sealed class KillOnslaught
     // otherwise remove and re-add it every tick (#849 review follow-up).
     const double RepresentSeconds = 1;
     public bool Applied => double.IsFinite(SentUntil);
+    /// <summary>Whether the client would be told something new now: the buff starts, or its shown end moved enough.
+    /// A gain on every hit otherwise waits for the player tick, which presents it anyway.</summary>
+    public bool PresentationDue => !Applied || Until - SentUntil >= RepresentSeconds;
 
     public static IReadOnlyList<(int Chance, double Seconds)> From(Func<string, int> get)
     {
@@ -97,12 +100,14 @@ public static partial class Game
     {
         // A stat an effect rule drives is the rule's now: this code reads it as 0 (EffectRules.Unhandled), so each
         // gain is rolled once, by the row that replaced its line here.
-        var rolls = KillOnslaught.From(EffectRules.Unhandled(get));
+        var unhandled = EffectRules.Unhandled(get);
+        var rolls = KillOnslaught.From(unhandled);
+        int hitMs = unhandled("gain_onslaught_on_hit_duration_ms");
         lock (conn.Monsters)
         {
             var onslaught = KillOnslaughtOf(conn);
             onslaught.Rolls = rolls;
-            onslaught.HitMs = get("gain_onslaught_on_hit_duration_ms");
+            onslaught.HitMs = hitMs;
         }
     }
 

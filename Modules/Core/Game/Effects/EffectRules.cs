@@ -65,7 +65,8 @@ public static class EffectRules
     }
 
     public sealed record EffectSpec(Kind Kind, Value[] Values, string?[] Names, object? Data);
-    public sealed record Rule(string Stat, int Ord, What When, Check[] Checks, bool Any, Value Chance, Value? Cooldown, EffectSpec[] Do);
+    /// <summary>Who: whose event fires the rule (CombatActors: "self" unless the row says otherwise); null for anyone's.</summary>
+    public sealed record Rule(string Stat, int Ord, What When, string? Who, Check[] Checks, bool Any, Value Chance, Value? Cooldown, EffectSpec[] Do);
 
     /// <summary>One effect of a rule that fired, with its numbers resolved for this actor.</summary>
     public readonly record struct Fire(ClientState Conn, CombatEvent Event, double Now, Kind Kind, double[] Values, string?[] Names, object? Data)
@@ -92,7 +93,7 @@ public static class EffectRules
     /// <summary>The facts each event can answer, for a rule's checks.</summary>
     static readonly Dictionary<What, string[]> Facts = new()
     {
-        [What.Hit] = ["critical", "spell", "attack", "killed", "primary", "frozen", "bleeding", "marked", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Hit] = ["critical", "spell", "attack", "killed", "frozen", "bleeding", "marked", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Kill] = ["frozen", "poisoned", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.WhenHit] = ["critical"],
         [What.Block] = ["spell", "attack"],
@@ -145,11 +146,15 @@ public static class EffectRules
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         foreach (var property in root.EnumerateObject())
-            if (property.Name is not ("when" or "checks" or "any" or "chance" or "cooldown" or "do"))
+            if (property.Name is not ("when" or "who" or "checks" or "any" or "chance" or "cooldown" or "do"))
                 throw new FormatException($"unknown key \"{property.Name}\"");
         string whenName = root.GetProperty("when").GetString() ?? "";
         int when = Array.IndexOf(WhatNames, whenName);
         if (when < 0) throw new FormatException($"unknown event \"{whenName}\"");
+        // Whose event: the character's own unless the row names another actor of its side, or "any".
+        string? who = root.TryGetProperty("who", out var whose) ? whose.GetString() : CombatActors.Self;
+        if (string.IsNullOrEmpty(who)) throw new FormatException("\"who\" is empty");
+        if (who == "any") who = null;
         var checks = new List<Check>();
         if (root.TryGetProperty("checks", out var list))
             foreach (var item in list.EnumerateArray())
@@ -188,7 +193,7 @@ public static class EffectRules
             effects.Add(new(kind, values, names, kind.Prepare?.Invoke(effect)));
         }
         if (effects.Count == 0) throw new FormatException("\"do\" is empty");
-        return new(stat, ord, (What)when, [.. checks], any, chance, cooldown, [.. effects]);
+        return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects]);
     }
 
     static Value ParseValue(JsonElement e)
@@ -237,13 +242,18 @@ public static class EffectRules
         Volatile.Write(ref live.ByWhat, lists is null ? NoRules : [.. lists.Select(l => l?.ToArray() ?? [])]);
     }
 
-    /// <summary>Runs the actor's live rules for a combat event of its own.</summary>
+    /// <summary>Whether the actor has a live rule for this event: what a per-hit caller asks before it builds one.</summary>
+    public static bool Listens(ClientState conn, What what) =>
+        Enabled && Lives.TryGetValue(conn, out var live) && Volatile.Read(ref live.ByWhat)[(int)what].Length > 0;
+
+    /// <summary>Runs the actor's live rules for a combat event of its side. A hit is <see cref="HitLanded"/>, raised
+    /// where every hit passes; the charge system's own hit record (ChargeEvent.Hit) is not an event here.</summary>
     public static void Run(ClientState conn, CombatEvent e)
     {
         if (!Enabled || !Lives.TryGetValue(conn, out var live)) return;
         int what = e switch
         {
-            ChargeEvent.Hit => 0, ChargeEvent.Kill => 1, ChargeEvent.WhenHit => 2, ChargeEvent.Block => 3,
+            HitLanded => 0, ChargeEvent.Kill => 1, ChargeEvent.WhenHit => 2, ChargeEvent.Block => 3,
             ChargeEvent.Stun => 4, ChargeEvent.SkillUse => 5, _ => -1,
         };
         if (what < 0) return;
@@ -252,7 +262,8 @@ public static class EffectRules
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var rule in rules)
         {
-            if (!Passes(rule.Rule, e)) continue;
+            if (rule.Rule.Who is { } who && who != e.Who) continue;
+            if (!Passes(rule.Rule, e, conn)) continue;
             if (rule.Cooldown > 0)
                 lock (live)
                     if (live.ReadyAt is { } ready && ready.TryGetValue(rule.Rule, out double at) && now < at) continue;
@@ -272,38 +283,39 @@ public static class EffectRules
         }
     }
 
-    static bool Passes(Rule rule, CombatEvent e)
+    static bool Passes(Rule rule, CombatEvent e, ClientState conn)
     {
         if (rule.Checks.Length == 0) return true;
         foreach (var check in rule.Checks)
         {
-            bool holds = Fact(check.Fact, e) != check.Not;
+            bool holds = Fact(check.Fact, e, conn) != check.Not;
             if (holds && rule.Any) return true;
             if (!holds && !rule.Any) return false;
         }
         return !rule.Any;
     }
 
-    static bool Fact(string fact, CombatEvent e) => (fact, e) switch
+    // A hit's facts about the monster are read from the monster when a rule asks (the hit is raised inside the
+    // Monsters lock): nothing is worked out for a hit no rule checks.
+    static bool Fact(string fact, CombatEvent e, ClientState conn) => (fact, e) switch
     {
-        ("critical", ChargeEvent.Hit h) => h.Critical,
+        ("critical", HitLanded h) => h.Critical,
         ("critical", ChargeEvent.WhenHit w) => w.Critical,
-        ("spell", ChargeEvent.Hit h) => h.Spell,
+        ("spell", HitLanded h) => h.Spell,
         ("spell", ChargeEvent.Block b) => b.Spell,
-        ("attack", ChargeEvent.Hit h) => !h.Spell,
+        ("attack", HitLanded h) => !h.Spell,
         ("attack", ChargeEvent.Block b) => !b.Spell,
-        ("killed", ChargeEvent.Hit h) => h.Killed,
-        ("primary", ChargeEvent.Hit h) => h.Primary,
-        ("frozen", ChargeEvent.Hit h) => h.Frozen,
+        ("killed", HitLanded h) => h.Killed,
+        ("frozen", HitLanded { Monster: { } m }) => Game.MonsterFrozenNow(conn, m),
         ("frozen", ChargeEvent.Kill k) => k.Frozen,
-        ("bleeding", ChargeEvent.Hit h) => h.Bleeding,
-        ("marked", ChargeEvent.Hit h) => h.Marked,
+        ("bleeding", HitLanded { Monster: { } m }) => m.Bleeds.Burning,
+        ("marked", HitLanded { Monster: { } m }) => Game.MarkedBy(conn, m),
         ("poisoned", ChargeEvent.Kill k) => k.Poisons > 0,
         ("melee", ChargeEvent.Stun s) => s.Melee,
         ("vaal", ChargeEvent.SkillUse u) => u.Vaal,
         ("curse", ChargeEvent.SkillUse u) => u.Curse,
         ("trap", ChargeEvent.SkillUse u) => u.Trap,
-        (_, ChargeEvent.Hit h) => Rarity(fact, h.Rarity),
+        (_, HitLanded { Monster: { } m }) => Rarity(fact, m.Rarity),
         (_, ChargeEvent.Kill k) => Rarity(fact, k.Rarity),
         _ => false,
     };
@@ -319,7 +331,8 @@ public static class EffectRules
     };
 
     static string Describe(LiveRule rule) =>
-        (rule.Chance < 100 ? $"{rule.Chance:0.##}% chance, " : "")
+        (rule.Rule.Who == CombatActors.Self ? "" : $"by {rule.Rule.Who ?? "anyone"}, ")
+        + (rule.Chance < 100 ? $"{rule.Chance:0.##}% chance, " : "")
         + (rule.Cooldown > 0 ? $"cooldown {rule.Cooldown:0.###} s, " : "")
         + string.Join(" + ", rule.Do.Select(d => d.Kind.Name
             + string.Concat(d.Kind.Names.Select((n, i) => $" {n}={d.Names[i]}"))

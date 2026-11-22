@@ -76,7 +76,8 @@ public static partial class Game
     }
 
     /// <summary>The player gains the buff for <paramref name="seconds"/>, its stats times <paramref name="effect"/>
-    /// (1 = as given). Safe from anywhere: the buff goes out from the thread pool.</summary>
+    /// (1 = as given). Safe from anywhere: the buff goes out from the thread pool when the client would see a change,
+    /// and on the player tick otherwise.</summary>
     public static void GainTimedBuff(ClientState conn, BuffSpec spec, double seconds, double effect = 1)
     {
         bool gained;
@@ -96,7 +97,8 @@ public static partial class Game
         buff.Spec = spec;
         buff.Effect = effect;
         buff.Until = now + seconds;
-        return true;
+        // Whether the client would be told something new now; a gain on every hit otherwise waits for the player tick.
+        return !buff.Applied || buff.StatsChanged || buff.Until - buff.SentUntil >= TimedBuffRepresentSeconds;
     }
 
     /// <summary>What the client is told now about the timed buffs: buffs to remove and add, and, when one starts, ends

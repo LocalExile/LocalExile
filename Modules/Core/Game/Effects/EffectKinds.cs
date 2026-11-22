@@ -11,12 +11,17 @@ public static partial class Game
         _effectKinds = true;
 
         // Onslaught for "seconds": starts it or lengthens it, never shortens the one running (KillOnslaught), and the
-        // buff goes out from the thread pool because an event can be recorded inside the Monsters lock.
+        // buff goes out from the thread pool because an event can be recorded inside the Monsters lock. A rule on every
+        // hit sends only when the client would see a change; the player tick presents the rest.
         EffectRules.Register(new("onslaught", ["seconds"], [], fire =>
         {
             var conn = fire.Conn;
             bool gained;
-            lock (conn.Monsters) gained = conn.PlayerLife > 0 && KillOnslaughtOf(conn).Extend(fire.Now, fire.Number("seconds"));
+            lock (conn.Monsters)
+            {
+                var onslaught = KillOnslaughtOf(conn);
+                gained = conn.PlayerLife > 0 && onslaught.Extend(fire.Now, fire.Number("seconds")) && onslaught.PresentationDue;
+            }
             if (gained && conn.Wire is (var remote, { } stream, var ciphers))
                 _ = Task.Run(() => SendKillOnslaught(remote, stream, ciphers, conn));
         }));

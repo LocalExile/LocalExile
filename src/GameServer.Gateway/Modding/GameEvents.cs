@@ -156,13 +156,23 @@ public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, strin
 
 /// <summary>Something that happened to a player's character in a fight: a hit it dealt, a kill, a hit that reached it, a
 /// block, a stun it caused, a skill it used. The game module's records derive from this and carry the facts of each
-/// (<c>ChargeEvent.Hit</c>, <c>Kill</c>, <c>WhenHit</c>, <c>Block</c>, <c>Stun</c>, <c>SkillUse</c>); handed over by
+/// (<c>HitLanded</c>, <c>ChargeEvent.Kill</c>, <c>WhenHit</c>, <c>Block</c>, <c>Stun</c>, <c>SkillUse</c>); handed over by
 /// <see cref="GameEvents.Combat"/>.</summary>
 public abstract record CombatEvent
 {
     /// <summary>The monster on the other side (hit, killed, stunned, or the attacker), when the place that recorded the
     /// event knows it.</summary>
     public SpawnedMonster? Monster { get; init; }
+    /// <summary>Who of the player's side did it: the character itself, or something it placed or commands
+    /// (<see cref="CombatActors"/>). A handler that means "the player's own" checks for <see cref="CombatActors.Self"/>.</summary>
+    public string Who { get; init; } = CombatActors.Self;
+}
+
+/// <summary>The kinds of actor on a player's side that a combat event can come from. A module or mod may use further
+/// names of its own.</summary>
+public static class CombatActors
+{
+    public const string Self = "self", Totem = "totem", Trap = "trap", Mine = "mine", Minion = "minion";
 }
 
 /// <summary>Where the framework hands over to the league's code, the modules and the mods.</summary>

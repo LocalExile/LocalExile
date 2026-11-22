@@ -576,11 +576,15 @@ public static partial class Game
             if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, target, shot.SkillStats);
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == PlayerId)
                 MirageOnArrowHit(shot);
+            // Who made the hit (HitLanded): a totem's or a placed skill's projectile is not the character's own hit.
+            string who = shot.FromTotem ? CombatActors.Totem
+                : shot.FromTrapOrMine ? shot.FromMine ? CombatActors.Mine : CombatActors.Trap : CombatActors.Self;
             if (!immune)
                 AilmentsOnHitLocked(Conn, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind,
-                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell), who: who);
+            else HitLandedLocked(Conn, target, critical, shot.Spell, shot.SkillStats, who);
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)

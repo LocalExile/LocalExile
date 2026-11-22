@@ -514,7 +514,8 @@ public static partial class Game
             {
                 var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
-                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true } };
+                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true,
+                    FromMine = placed.Mine } };
             });
             return;
         }
@@ -568,7 +569,8 @@ public static partial class Game
             var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
                 CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
             AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, hitMultiplier, player, placed.Own, now,
-                Random.Shared, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own), playerHit: false);
+                Random.Shared, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own), playerHit: false,
+                who: placed.Mine ? CombatActors.Mine : CombatActors.Trap);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,

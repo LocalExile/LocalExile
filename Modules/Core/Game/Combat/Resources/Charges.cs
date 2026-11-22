@@ -36,6 +36,9 @@ public static partial class Game
     public static void RaiseCombatEvent(ClientState conn, ChargeEvent e)
     {
         ChargesOf(conn).Enqueue(e);
+        // The charge system's hit record is its own: the hit event of rules, modules and mods is HitLanded, raised
+        // where every hit passes (brands, heralds and totems too), with who made it.
+        if (e is ChargeEvent.Hit) return;
         EffectRules.Run(conn, e);
         GameEvents.RaiseCombat(conn, e);
     }
