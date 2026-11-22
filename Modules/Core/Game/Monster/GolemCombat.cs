@@ -21,6 +21,7 @@ public static partial class Game
         var currentPlayer = dotScope is null ? g.Player : CharacterPlayerStats(conn);
         // The half-second source cadence is too slow for an exact eight-second window. Re-evaluate only this golem's
         // timed modifier; the input hash leaves an unchanged actor and its ability objects untouched.
+        ExpireMinionChargesLocked(conn, g, now);
         RefreshGolemLocked(conn, g, currentPlayer, now);
         if (m.Dead || m.Life == 0) return;
         double oldLastStep = g.LastStep;
@@ -139,6 +140,12 @@ public static partial class Game
         var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0) && GolemUsable(g, a) && GolemReady(g, a, now)
                 && distance <= a.Attack.Range + LivingCollision.Size(target.M))
             .OrderByDescending(a => a.Cooldown > 0).ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
+        if (g.Definition.Kind == "Spectre"
+            && g.Abilities.FirstOrDefault(a => SpectreChargeRoar(g, a.Effect) is not null && GolemReady(g, a, now)) is { } roar)
+        {
+            GolemReserveLocked(conn, g, roar, 0, null, here, now);
+            return;
+        }
         if (ability is null)
         {
             double range = g.Abilities.Where(a => GolemUsable(g, a)).Select(a => a.Attack.Range).DefaultIfEmpty(8).Min();
@@ -304,6 +311,12 @@ public static partial class Game
     public static void GolemAbilityContactLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         GolemState.Golem g, GolemState.Action action, double now)
     {
+        if (SpectreChargeRoar(g, action.Ability.Effect) is { } charge)
+        {
+            var cast = action.Ability;
+            ReleaseSpectreChargeRoarLocked(conn, g.Monster.Walk.Position(now), charge, cast.Radius, now, cast.Id);
+            return;
+        }
         var a = action.Ability; var at = g.Monster.Walk.Position(now);
         if (a.Effect == 10844)
         {
