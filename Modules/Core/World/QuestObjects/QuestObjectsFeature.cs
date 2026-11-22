@@ -116,7 +116,7 @@ static class QuestObjectsFeature
                 await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove room object 0x{id:x} (tutorials skipped)");
             return;
         }
-        if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial) return;
+        if (CharacterSaves.TutorialWallProgress(CharacterName(conn)) is not { } tutorial) return;
         var completed = new List<string>(2);
         if (hasB1 && tutorial.ZombieKilled && HasSocketedGem(conn, support: false)) completed.Add(TutorialObjects.SkillGemTutorialFlag);
         if (hasB2 && tutorial.ChestOpened && HasSocketedGem(conn, support: true)) completed.Add(TutorialObjects.SupportGemTutorialFlag);
