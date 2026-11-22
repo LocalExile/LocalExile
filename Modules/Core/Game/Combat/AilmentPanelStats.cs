@@ -159,6 +159,7 @@ public static class AilmentPanelStats
                 + (tinctureWeapon ? get("critical_strike_multiplier_+_with_tinctured_weapons") : 0)) / 100.0)
             : Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
                 + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
+                + (context.Spell && ailment == "poison" ? get("poison_dot_multiplier_+_with_spells") : 0)
                 + (tinctureWeapon ? get("damage_over_time_multiplier_+_with_tinctured_weapons") : 0)
                 + (critical && !neverFromCrit ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100);
         double multiplier = dotMultiplier
