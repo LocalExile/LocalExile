@@ -23,7 +23,9 @@ public sealed class MapPlayerDefencesTests
         Assert.Equal(Scale(outside.EnergyShield), inside.EnergyShield);
         Assert.Equal(Scale(outside.Ward), inside.Ward);
         Assert.Equal((outside.Life, outside.Mana), (inside.Life, inside.Mana));
-        conn.Instance = new();
-        Assert.Equal(outside.Armour, Game.BuildPoolsFor(conn, 90).Armour);
+        var returned = new ClientState(conn.Layout, 2, 1)
+            { Instance = new(), Character = conn.Character, Pools = conn.Pools, LeagueModule = conn.LeagueModule };
+        foreach (var row in conn.PlayerStats) returned.PlayerStats[row.Key] = row.Value;
+        Assert.Equal(outside.Armour, Game.BuildPoolsFor(returned, 90).Armour);
     }
 }
