@@ -77,7 +77,7 @@ public static class GameDataFiles
     /// <summary>The files read from data/ itself.</summary>
     public static readonly (string File, string Feature)[] Files =
     [
-        ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
+        ("data/game-files.zip", "levels the Gateway generates itself, monster template regeneration, the Phrecia classes' passive graph check"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>

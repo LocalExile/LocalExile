@@ -359,14 +359,28 @@ public static partial class Game
 
     public const string EnemyRegenerationOnHit = "enemy_life_regeneration_rate_+%_for_4_seconds_on_hit";
 
-    /// <summary>The connection's regeneration step ending at <paramref name="now"/>, with the player's
-    /// <see cref="EnemyRegenerationOnHit"/> (Devout of Ryslatha, Pools.EnemyRegenerationOnHitPct) on the enemies it hit in
-    /// the last 4 s. The client does not step a monster's life from its regeneration stat (no life_recovery_per_minute is
-    /// sent: re/recovery-timing.md), so the 0x1b1 updates alone show it.</summary>
+    static void RecordPlayerHitTime(ClientState player, SpawnedMonster monster, double now)
+    {
+        player.LastEnemyHitAt = monster.PlayerHitAt = now;
+        if (player.Pools.EnemyRegenerationOnHitPct != 0) monster.RegenerationHit = (player, now);
+    }
+
+    /// <summary>The instance runner advances recovery through <paramref name="now"/>. A successor's first
+    /// step can overlap its predecessor's last one. The clients see the resulting life in 0x1b1.</summary>
     public static List<(uint Id, uint Life)> RegenerateConnectionMonsters(ClientState conn, double now, double seconds)
     {
-        int onHit = now - seconds - conn.LastEnemyHitAt <= RecentlySeconds ? conn.Pools.EnemyRegenerationOnHitPct : 0;
-        using (ProjectileMutation(conn)) return RegenerateMonstersLocked(conn.Monsters, seconds, now, onHit);
+        using (ProjectileMutation(conn))
+        {
+            if (!IsMonsterRunner(conn)) return [];
+            if (conn.Instance is { } instance)
+            {
+                double start = Math.Max(now - seconds, instance.World.MonstersRegeneratedThrough);
+                if (start >= now) return [];
+                seconds = now - start;
+                instance.World.MonstersRegeneratedThrough = now;
+            }
+            return RegenerateMonstersLocked(conn.Monsters, seconds, now);
+        }
     }
 
     /// <summary>One regeneration step over the living, damaged monsters (under the Monsters lock): the ones whose life
@@ -379,12 +393,20 @@ public static partial class Game
         foreach (var (id, m) in monsters)
         {
             double spreadRecovery = SpreadPoisonRecovery(m, now);
+            var hit = m.RegenerationHit;
+            if (hit is { } source && now >= source.At + RecentlySeconds) m.RegenerationHit = null;
             if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; continue; }
-            double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
-            if (onHitPct != 0 && seconds > 0)
+            // The trial fills its scripted idols in IzaroIdols, including the faster returning phase.
+            int templateRate = m.Scripted && IzaroIdols.IsIdol(m.Variety) ? 0 : m.TemplateLifeRegeneration;
+            double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife, templateRate);
+            int hitRate = onHitPct;
+            double hitAt = m.PlayerHitAt;
+            if (hitRate == 0 && hit is { } applied)
+                (hitRate, hitAt) = (applied.Player.Pools.EnemyRegenerationOnHitPct, applied.At);
+            if (hitRate != 0 && seconds > 0)
             {
-                double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
-                perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
+                double recently = Math.Max(0, Math.Min(now, hitAt + RecentlySeconds) - Math.Max(now - seconds, hitAt));
+                perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + hitRate / 100.0));
             }
             if (perSecond <= 0 && spreadRecovery <= 0) continue;
             double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;

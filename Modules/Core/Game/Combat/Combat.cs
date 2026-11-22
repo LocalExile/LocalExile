@@ -580,7 +580,7 @@ public static partial class Game
                     stageStarts = false;
                 }
                 life = m.Life;
-                conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
+                RecordPlayerHitTime(conn, m, conn.Clock.Elapsed.TotalSeconds);
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
                 if (ElementalOverloadCritLocked(conn, SkillCatalog.FirstSkillId, null, player, critical) is { } eoBuff)
@@ -3061,7 +3061,7 @@ public static partial class Game
         CaptureUnhingedHitKillLocked(conn, m, playerHit: allyAt is null);
         if (allyAt is null)
         {
-            conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
+            RecordPlayerHitTime(conn, m, ProjectileWorldTime(conn));
             conn.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
         }
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CommitMonsterDeathLocked(conn, m); }

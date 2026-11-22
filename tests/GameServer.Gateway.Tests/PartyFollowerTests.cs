@@ -55,9 +55,15 @@ public sealed class PartyFollowerTests
 
         Game.KeepInstanceMonsters(first);
         Assert.Equal(500u, Assert.Single(instance.Monsters!).Life);
+        monster.Mods = MonsterModSet.None with { Effects = MonsterModEffects.None.Plus("life_regeneration_rate_per_minute_%", 60) };
+        Assert.Empty(Game.RegenerateConnectionMonsters(sleeping, 10, .5));
+        Assert.Equal((id, 505u), Assert.Single(Game.RegenerateConnectionMonsters(first, 10, .5)));
         first.Closed = true;
         Assert.False(Game.ClaimMonsterHost("successor", sleeping));
         Assert.Same(sleeping, instance.World.Runner);
+        Assert.Empty(Game.RegenerateConnectionMonsters(first, 10.25, .5));
+        Assert.Equal((id, 507u), Assert.Single(Game.RegenerateConnectionMonsters(sleeping, 10.25, .5)));
+        Assert.Empty(Game.RegenerateConnectionMonsters(sleeping, 10.25, .5));
         monster.Life = 0;
         monster.Dead = true;
         Game.KeepInstanceMonsters(sleeping);

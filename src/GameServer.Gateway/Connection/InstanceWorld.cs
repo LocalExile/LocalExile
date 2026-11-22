@@ -9,6 +9,8 @@ public sealed class InstanceWorld
     public readonly Dictionary<string, (uint Id, string Type, GameServer.Core.Protocol.Instance.QuestObject Object)> SceneObjects = new(StringComparer.Ordinal);
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
+    // End of the last recovery step on this world's clock, under Monsters. A new runner can overlap that step.
+    public double MonstersRegeneratedThrough = double.NegativeInfinity;
 
     // Numbered boss-room points survive host handoff and a return to a kept instance.
     public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);

@@ -178,6 +178,32 @@ public sealed class LabyrinthLayoutTests
         Assert.True(trials[^1].Trial.Last && LabyrinthDay.IsChamber(trials[^1].Area!));
         Assert.Single(trials.Select(t => t.Trial.Variety).Distinct());
         Assert.Equal(0b0000_0100, LabyrinthDay.Progress([], [2])[2]);
+
+        var idols = IzaroEffects.Of(IzaroChronos.Mechanic, 1, returning: false);
+        foreach (var effect in idols)
+        {
+            CheckIdolRecovery(effect, 360);
+            CheckIdolRecovery(IzaroEffects.ReturningOf(effect.Id)!, 460);
+        }
+    }
+
+    static void CheckIdolRecovery(IzaroEffects.Effect effect, int templateRate)
+    {
+        var variety = Game.Monsters.Find(effect.Variety)!;
+        Assert.Equal(templateRate, variety.LifeRegenerationPerMinute);
+        SpawnedMonster Idol(bool scripted) => new(variety.Name, new(10, 10, 0), 0, 0, 6000)
+        {
+            Variety = variety, Scripted = scripted, Life = 100,
+        };
+        var ordinary = Idol(false);
+        var trial = Idol(true);
+        ordinary.Mods = MonsterModSet.None with
+        {
+            Effects = MonsterModEffects.None.Plus("life_regeneration_rate_per_minute_%", 60),
+        };
+        var monsters = new Dictionary<uint, SpawnedMonster> { [1] = ordinary, [2] = trial };
+        Assert.Equal((1u, (uint)(100 + templateRate + 60)), Assert.Single(Game.RegenerateMonstersLocked(monsters, 1, 1)));
+        Assert.Equal(100u, trial.Life);
     }
 
     // Izaro's weapon as poelab.com's archived layouts of those days give it (all tiers): 0 mace, 1 sword and shield, 2 two swords.

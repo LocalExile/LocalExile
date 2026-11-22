@@ -267,7 +267,10 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     public static int CriticalMultiplierOnPlayer(int selfCriticalReduction) => Math.Max(100, CriticalMultiplier - selfCriticalReduction);
 
     /// <summary>Life regenerated per second: life_regeneration_rate_per_minute_% of the maximum.</summary>
-    public double LifeRegenPerSecond(uint maxLife) => maxLife * this["life_regeneration_rate_per_minute_%"] / 6000.0;
+    public double LifeRegenPerSecond(uint maxLife) => LifeRegenPerSecond(maxLife, 0);
+
+    public double LifeRegenPerSecond(uint maxLife, int templateRate) =>
+        maxLife * ((double)templateRate + this["life_regeneration_rate_per_minute_%"]) / 6000.0;
 
     /// <summary>The factor on damage the monster takes: base_damage_taken_+% with <paramref name="increasedPct"/> (its
     /// shock, Glacial Wave's chill and the player's debuffs on it, which add to it) added (increased/reduced), and for

@@ -265,7 +265,17 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
     public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
-    public MonsterCatalog.Variety? Variety { get; init; }
+    public MonsterCatalog.Variety? Variety
+    {
+        get;
+        init
+        {
+            field = value;
+            TemplateLifeRegeneration = value?.LifeRegenerationPerMinute ?? 0;
+        }
+    }
+    // Resolve the template when the monster is created. Recovery ticks use this number on the instance lock.
+    public int TemplateLifeRegeneration { get; private init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
     // clip through its current ACT; rig indexes are retained as extraction/profile diagnostics.
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];
@@ -297,6 +307,8 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     public double Regen;
     // When the player last hit it (Clock seconds): "enemies you've Hit Recently". Reset at the player's death.
     public double PlayerHitAt = double.NegativeInfinity;
+    // The player whose hit applied a regeneration modifier and the start of its four-second window.
+    public (ClientState Player, double At)? RegenerationHit;
     // When its attack last hit the player (Clock seconds; evaded and blocked attacks do not hit): "enemies that have Hit
     // you with an Attack Recently". Reset at the player's death. Guarded by the Monsters lock.
     public double HitPlayerAt = double.NegativeInfinity;

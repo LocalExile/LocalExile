@@ -19,6 +19,9 @@ public sealed class MonsterCatalog(string folder = "data")
         bool BossHealthBar = false, IReadOnlyList<int>? SpeciesMods = null)
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
+        /// <summary>Percent of maximum life per minute from the object's native Stats component.</summary>
+        public int LifeRegenerationPerMinute => TemplateRegeneration?.Value ?? 0;
+        internal Lazy<int>? TemplateRegeneration { get; init; }
         public bool RangedWeapon { get; init; }
         /// <summary>What its row says it holds (Weapon1, Weapon2: the first of each, with the MainHand and OffHand classes), as
         /// the Inventories component lists it. Only an encounter that passes it on sends it (Izaro's).</summary>
@@ -378,6 +381,7 @@ public sealed class MonsterCatalog(string folder = "data")
             return held;
         }
         var rows = new List<Variety>();
+        bool hasTemplates = File.Exists(GameServer.Data.Ggpk.GamePack.DefaultFile);
         var varieties = ClientTables.Table("MonsterVarieties");
         {
             foreach (var r in varieties)
@@ -397,7 +401,8 @@ public sealed class MonsterCatalog(string folder = "data")
                 // already inherits adds nothing (Abberath2Gauntlet lists itself).
                 var machine = stateMachines.GetValueOrDefault(type);
                 var chain = chains.GetValueOrDefault(type) ?? [];
-                foreach (string addon in r.Texts("AddonMonsterTypeIndex"))
+                var addons = r.Texts("AddonMonsterTypeIndex");
+                foreach (string addon in addons)
                     if (machine is not null && addon != type && !chain.Contains(addon) && stateMachines.GetValueOrDefault(addon) is { } extra)
                         machine = new StateMachineData([.. machine.SharedStates, .. extra.SharedStates], machine.SharedTimers + extra.SharedTimers,
                             [.. machine.Names ?? machine.SharedStates.Select(_ => ""), .. extra.Names ?? extra.SharedStates.Select(_ => "")]);
@@ -416,8 +421,10 @@ public sealed class MonsterCatalog(string folder = "data")
                     r.BoolOrNull("BossHealthBar") == true, speciesMods)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
+                        TemplateRegeneration = hasTemplates ? MonsterTemplateRegeneration.FromTypes(addons.Length == 0
+                            ? chain : [.. chain.Concat(addons.SelectMany(addon => chains.GetValueOrDefault(addon) ?? [])).Distinct()]) : null,
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
-                        SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
+                        SlowAnimationsGoToIdle = addons.Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,

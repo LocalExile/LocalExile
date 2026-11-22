@@ -230,7 +230,11 @@ public static partial class Game
             conn.SpiritChieftains.End(conn.Clock.Elapsed.TotalSeconds);   // the chieftain minion dies with the player
             conn.Totems.KillAll(conn.Clock.Elapsed.TotalSeconds);   // and his totems (the tick sends their deaths)
             // Every "Recently" ends at death, the enemies' "hit by you" and "hit you" recently too.
-            foreach (var monster in conn.Monsters.Values) monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
+            foreach (var monster in conn.Monsters.Values)
+            {
+                monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
+                if (monster.RegenerationHit?.Player == conn) monster.RegenerationHit = null;
+            }
         }
         foreach (var (id, life) in RecoverBossesOnDeath(conn))
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life), $"boss 0x{id:x} recovers to {life} life after player death");
