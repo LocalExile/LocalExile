@@ -50,11 +50,11 @@ public static class GatewayProjectileSkillProfiles
         if (effect == "BallLightning")
         {
             const int basePulseMilliseconds = 200;
-            int rate = 100 + get("ball_lightning_projectile_speed_and_hit_frequency_+%_final");
+            int rate = 100 + get(ProjectileSpeed.BallLightningRate);
             int pulseMilliseconds = basePulseMilliseconds * 100 / rate;
             p = p with
             {
-                Speed = speed * rate / 100d, Lifetime = ProjectileRuntime.Time(2),
+                Lifetime = ProjectileRuntime.Time(2),
                 DirectDamage = false, CannotFork = true, CannotChain = true, CannotSplit = true,
                 Pulse = new("ball-lightning", 0, ProjectileRuntime.Time(pulseMilliseconds / 1000d))
                     { HitOnSpawn = false, AreaDamage = false, ShareIntervalAcrossUse = true }

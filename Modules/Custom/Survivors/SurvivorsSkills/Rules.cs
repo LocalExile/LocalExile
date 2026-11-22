@@ -943,7 +943,8 @@ static partial class SurvivorsSkills
         bool arrows = ArrowsFor(conn, skill.Effect);
         int speedPercent = ProjectileSpeed.EffectivePercent(playerKeys, name => skillStats.GetValueOrDefault(name), arrows);
         merged[ProjectileSpeed.ModifierStat(arrows)] = speedPercent;
-        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, speedPercent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        double speed = ProjectileSpeed.SkillCellsPerSecond(SkillsFor(conn).EffectId(skill.Effect), baseSpeed, speedPercent, Get,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0) return null;
         var profile = definition.Parameters.Resolve(Get, speed, arrows);
         profile = SurvivorsMechanics(skill, Get, profile, spell);

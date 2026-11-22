@@ -440,17 +440,19 @@ public static partial class Game
         int Get(string key) => Stats.Key(key) is uint k ? merged.GetValueOrDefault(k) : 0;
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
-        var definition = ResolveProjectileDefinition(gem.Effect) ?? ArrowRainDefinition(SkillsFor(conn).EffectId(gem.Effect))
+        string? effectId = SkillsFor(conn).EffectId(gem.Effect);
+        var definition = ResolveProjectileDefinition(gem.Effect) ?? ArrowRainDefinition(effectId)
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
         int baseSpeed = SkillsFor(conn).Projectile(metadata)?.Speed ?? 1000;
         bool bowProjectiles = ArrowsFor(conn, gem.Effect);
         int speedPercent = ProjectileSpeed.EffectivePercent(player, Own, bowProjectiles);
         merged[Stats.Key(ProjectileSpeed.ModifierStat(bowProjectiles))!.Value] = speedPercent;
-        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, speedPercent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        double speed = ProjectileSpeed.SkillCellsPerSecond(effectId, baseSpeed, speedPercent, Get,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
-        bool barrageGem = IsBarrageGem(SkillsFor(conn).EffectId(gem.Effect));
+        bool barrageGem = IsBarrageGem(effectId);
         var profile = definition.Parameters.Resolve(Get, speed, bowProjectiles);
         var at = totem?.At ?? from ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);

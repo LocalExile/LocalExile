@@ -11,6 +11,7 @@ public static class ProjectileSpeed
 
     const string MoreMastery = "passive_mastery_more_projectile_speed_+%_final";
     const string LessMastery = "passive_mastery_less_projectile_speed_+%_final";
+    internal const string BallLightningRate = "ball_lightning_projectile_speed_and_hit_frequency_+%_final";
 
     // The character's projectile virtual already contains its raw base. An explicit arrow virtual
     // selects that view in full, including when it is zero.
@@ -58,13 +59,23 @@ public static class ProjectileSpeed
         CellsPerSecond(worldUnitsPerSecond, EffectivePercent(playerFinal(ModifierStat(false)), skillRaw, false,
             playerFinal(MoreMastery), playerFinal(LessMastery)), testOverride);
 
-    public static float CellsPerSecond(int worldUnitsPerSecond, int effectivePercent, string? testOverride = null)
+    public static float CellsPerSecond(int worldUnitsPerSecond, int effectivePercent, string? testOverride = null) =>
+        CellsPerSecond(worldUnitsPerSecond, effectivePercent, 1, testOverride);
+
+    public static float SkillCellsPerSecond(string? effect, int worldUnitsPerSecond, int effectivePercent,
+        Func<string, int> get, string? testOverride = null)
+    {
+        float skillFactor = effect == "BallLightning" ? Factor(get(BallLightningRate)) : 1;
+        return CellsPerSecond(worldUnitsPerSecond, effectivePercent, skillFactor, testOverride);
+    }
+
+    static float CellsPerSecond(int worldUnitsPerSecond, int effectivePercent, float skillFactor, string? testOverride)
     {
         if (float.TryParse(testOverride, NumberStyles.Float, CultureInfo.InvariantCulture, out float forced)
             && float.IsFinite(forced) && forced > 0)
             return forced;
 
-        return Math.Max(0, worldUnitsPerSecond) * .092f * SpeedFactor(effectivePercent);
+        return Math.Max(0, worldUnitsPerSecond) * .092f * SpeedFactor(effectivePercent) * skillFactor;
     }
 
     /// <summary>Keep the longest possible flight within Task.Delay's numeric limit before predicting collisions.
