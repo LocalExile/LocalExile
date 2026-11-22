@@ -933,7 +933,8 @@ public static partial class Game
             $"0x02bb create world item 0x{id:x} at ({x}, {y})", justDropped: true);
     }
 
-    // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
+    // C→S 0x24 / 0x018f on a world item: walk there, then auto-equip into an empty compatible slot (when AutoEquipFlag
+    // is set and the inventory panel is closed) or put it in the cursor / main inventory, and remove the object (0x2bd).
     public static async Task PickUpGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
@@ -992,44 +993,142 @@ public static partial class Game
             await SendPickup(remote, stream, ciphers, conn, id, pickup);
             return;
         }
-        InventoryItem? placed;
-        List<string> pickupFlags;
+        InventoryItem? placed = null;
+        byte[]? inventoryPacket = null;
+        List<string> pickupFlags = [];
         (byte X, byte Y) cell = (0, 0);
-        lock (conn.Monsters)
+        using (ProjectileMutation(conn, advance: false, phase: "ground item pickup"))
         {
             if (HardcoreProgressBlocked(conn)) return;
             if (!toCursor)
             {
-                if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } free)
+                if ((use.Flags & InstanceTransfer.InventoryOpenFlag) == 0 && use.AutoEquip
+                    && AutoEquipSlotLocked(conn, items, ground.Item, shape) is var (equipRow, equipCell))
+                {
+                    row = equipRow;
+                    cell = equipCell;
+                }
+                else if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is { } free)
+                {
+                    cell = free;
+                }
+                else
                 {
                     Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: no room in the inventory");
                     return;
                 }
-                cell = free;
             }
             if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
             // The start weapon stops waiting; the Put below saves both changes at once.
             if (conn.Instance.IsStartWeapon(CharacterName(conn), id) && items.ClaimStartWeapon())
                 Console.WriteLine($"[gateway] {remote} start weapon picked up");
 
+            bool isEquipment = ItemModStats.EquipmentRows.Contains(row);
+            var sourcesBefore = isEquipment ? PlayerSkillSourcesLocked(conn) : [];
+            var itemToPut = row == PlayerInventories.Flask
+                ? FlaskCharges.WhenEquipped(ground.Item, safeArea: InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null)
+                : ground.Item;
+
             // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
             pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(conn, f));
             placed = KeepOnGroundIfNotSaved(conn, ground, () =>
             {
-                InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
+                InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, itemToPut));
                 if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is { } tutorial)
                     foreach (bool support in new[] { false, true })
                         if (conn.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(conn), tutorial, support), id))
                             return TutorialObjects.Claim(CharacterName(conn), support, ground.Item, Put);
                 return questFlags is not null ? QuestItems.Claim(CharacterName(conn), questFlags, Put) : Put();
             }, id);
+            if (placed is not null)
+            {
+                if (isEquipment)
+                {
+                    using (new PlayerStatScope(conn, fresh: true))
+                    {
+                        RecomputePoolsAndSpeed(conn);
+                        ReconcileBeastCompanionsLocked(conn);
+                        ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                    }
+                }
+                inventoryPacket = InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]);
+            }
         }
         await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
-        if (placed is null) return;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
-            toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
+        if (placed is null || inventoryPacket is null) return;
+        uint inventoryId = PlayerInventories.InventoryId(row);
+        await Send(remote, stream, ciphers, inventoryPacket,
+            toCursor ? $"0x00bf cursor: hold item {placed.Id}"
+            : row == PlayerInventories.MainInventory ? $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})"
+            : $"0x00bf inventory {inventoryId}: auto-equip item {placed.Id} at ({cell.X}, {cell.Y})");
+        if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
         if (pickupFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, pickupFlags);
         if (questFlags is not null) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
+    }
+
+    static readonly byte[] AutoEquipRows =
+    [
+        PlayerInventories.Weapon1, PlayerInventories.Offhand1,
+        PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves,
+        PlayerInventories.Boots, PlayerInventories.Belt, PlayerInventories.Amulet,
+        PlayerInventories.Ring1, PlayerInventories.Ring2, PlayerInventories.Flask,
+    ];
+
+    // Finds an empty compatible equipment or flask slot for a ground item when the client's auto_equip flag (0x0008) is
+    // set, checking identification, level/attribute/gem requirements and inventory-refusal hooks. Weapon1/Offhand1 always
+    // hold the active weapon set (SwapWeaponSets trades them with rows 14/15). Call under ProjectileMutation.
+    static (byte Row, (byte X, byte Y) Cell)? AutoEquipSlotLocked(ClientState conn, PlayerInventories items, Item item,
+        PlayerInventories.Shape shape)
+    {
+        if (!item.Identified || string.IsNullOrEmpty(shape.Class)) return null;
+        var catalog = ItemsFor(conn);
+        if (catalog.ByHash(item.TypeHash) is not { } type) return null;
+        List<byte>? candidates = null;
+        foreach (byte candidate in AutoEquipRows)
+        {
+            if (!PlayerInventories.Accepts(candidate, shape.Class)) continue;
+            if (GameEvents.FirstInventoryRefusal(conn, candidate, item) is not null) continue;
+            (candidates ??= []).Add(candidate);
+        }
+        var target = candidates is null ? null : items.FindEmptySlot(candidates, shape, ShapeOf);
+        if (target is null && shape.Class == "Ring"
+            && GameEvents.FirstInventoryRefusal(conn, PlayerInventories.Ring3, item) is null
+            && Stats.Key("enable_ring_slot_3") is uint ring3Key
+            && CharacterPlayerStats(conn).GetValueOrDefault(ring3Key) != 0)
+            target = items.FindEmptySlot([PlayerInventories.Ring3], shape, ShapeOf);
+        if (target is null) return null;
+        return AutoEquipRequirementsMetLocked(conn, catalog, item, type) ? target : null;
+    }
+
+    static bool AutoEquipRequirementsMetLocked(ClientState conn, ItemCatalog catalog, Item item, ItemCatalog.BaseType type)
+    {
+        int reqLevel = ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods);
+        var (rawStr, rawDex, rawInt) = ItemModStats.AttributeRequirements(catalog, item, type);
+        int reqPct = AttributeRequirementsPct(conn);
+        int reqStr = ScaledRequirement(rawStr, reqPct);
+        int reqDex = ScaledRequirement(rawDex, reqPct);
+        int reqInt = ScaledRequirement(rawInt, reqPct);
+        foreach (var socket in item.Sockets)
+        {
+            if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
+                reqLevel = Math.Max(reqLevel, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods));
+            else if (socket.Gem is { } gem)
+            {
+                if (catalog.ByHash(gem.TypeHash) is { } gemBase && !LeagueFor(conn).Rules.AllowsGemBase(gemBase.Id))
+                    return false;
+                var g = SocketedGemRequirements(conn, gem, reqPct);
+                reqLevel = Math.Max(reqLevel, g.Level);
+                reqStr = Math.Max(reqStr, g.Str);
+                reqDex = Math.Max(reqDex, g.Dex);
+                reqInt = Math.Max(reqInt, g.Int);
+            }
+        }
+        if (conn.Pools.Level < reqLevel) return false;
+        if (reqStr > 0 && RequirementAttribute(conn, "strength", conn.Pools.Strength) < reqStr) return false;
+        if (reqDex > 0 && RequirementAttribute(conn, "dexterity", conn.Pools.Dexterity) < reqDex) return false;
+        if (reqInt > 0 && RequirementAttribute(conn, "intelligence", conn.Pools.Intelligence) < reqInt) return false;
+        return true;
     }
 
     public static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;

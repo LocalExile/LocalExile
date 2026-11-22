@@ -12,8 +12,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   life (311 at level 1) and a second stage: at half life he pulls out his sword (ZombieBossExtract, Transitionable → 2)
   and heals at its extracted contact (~750 ms), with separate 3 s recovery; the force wall stands across the
   way to the gate until he dies, and the server closes the way on its own walk map too (`QuestBarriers`), so its
-  position estimate stops where the client stops; after his death the quest log says to enter the gate (every
-  character has `CompletedAllTutorials`); his death levels the character to 2, removes the wall and creates the gate
+  position estimate stops where the client stops; his death levels the character to 2, removes the wall, transitions
+  the Doorman (`Metadata/NPC/Act1/Doorman`, state 1 → 3) and creates the gate
   into Lioneye's Watch (the Gateway checks the flag too); Portal Scrolls do nothing on the Strand (its area mod
   MapNoPortals); no Resurrect in Town before a town.
   Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `Rules.AreaModCatalog.cs` (Portals module).
@@ -198,7 +198,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fresh Duelist and Witch client checks confirmed the corrected lying direction and getup action.
   Skipped long and short speech started the bite within 0.07 seconds of closing, then combat after about 3.1 seconds.
   The combat zombie moved and animated its attacks, and the Duelist claimed Double Strike.
-  Tutorial popup acknowledgements and force walls 1/2 remain unimplemented, and placement still needs local captures.
+  Ground pickups now honour the client's `auto_equip` flag (`0x0008`), `TalkToWoundedExile` checks the active weapon
+  set, `C→S 0x020a` handles tutorial completion, "Skip All Tutorials", Options → "Disable Tutorials" (row 17 sets all
+  tutorial completion flags + `TutorialPanelHideArticlePopups`), and "Hide Popups" (row 77), and `Tutorial_Blocker_1`/`2`
+  block the beach and support-chest segments while tutorials are active (with `force_wall.ao` hull server barriers).
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.

@@ -3521,8 +3521,9 @@ public static partial class Game
     public static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
-        // A stage of a boss that gives no items (Malachai's first form, Abberath, Shavronne's tower, Maligaro's souls).
-        if (BossMods.GivesNoItems(m.Variety)) return;
+        // A stage of a boss that gives no items (Malachai's first form, Abberath, Shavronne's tower, Maligaro's souls),
+        // and the opening tutorial zombie (it drops only the tutorial skill gem via QuestObjects).
+        if (BossMods.GivesNoItems(m.Variety) || m.Variety?.Id == TutorialObjects.Zombie) return;
         // A survivors run keeps the ground clear: no loot, no gold, nothing reaches the client.
         if (!GameEvents.AllowsLoot(conn)) return;
         var balance = LeagueFor(conn).Rules;
@@ -3537,8 +3538,8 @@ public static partial class Game
         {
             if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
                 drops.AddRange(DropsFor(conn).EncounterJewels(boss.Id, m.Level, Random.Shared, DropDataProvider.Default.Current));
-            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
-            // tier lets the rolls add their base card/scarab drops in a map.
+            // A generic map drop (approximate rates): use the open map's tier in a map, or tier 1 in the late campaign
+            // once the monster meets MapKeyTier1's DropLevel. The same tier gates base card/scarab and atlas-base drops.
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));

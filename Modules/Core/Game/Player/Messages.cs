@@ -522,6 +522,8 @@ public static partial class Game
                 uint raw = InstanceEntities.ReadCancelBuff(bytes);
                 if (raw <= ushort.MaxValue) await GameEvents.RunBuffCancel(conn, (ushort)raw);
             }
+            else if (id == InstanceProtocol.TutorialCompleteId)
+                await CompleteTutorial(remote, stream, ciphers, conn, InstanceProtocol.ReadTutorialComplete(bytes));
             else if (id == InstanceItems.DropItemId)
                 await DropItem(remote, stream, ciphers, conn);
             else if (id == InstanceItems.CommandId)

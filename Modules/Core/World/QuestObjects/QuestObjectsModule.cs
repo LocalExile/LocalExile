@@ -53,7 +53,11 @@ public sealed class QuestObjectsModule : IModule
             await SpawnTrickChests(remote, stream, ciphers, conn);
             await TickBeacon(conn);
         });
-        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => TickBeacon(conn));
+        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        {
+            await TickBeacon(conn);
+            await SyncTutorialWalls(conn);
+        });
         // The quests after a kill's flags: quest drops (Hailrake's Medicine Chest), second forms (Merveil), NPCs that appear
         // or are freed, a fight of several bosses, a cleared area (a1q8).
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
@@ -82,6 +86,7 @@ public sealed class QuestObjectsModule : IModule
         {
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.PlayerSent && ids.Any(QuestItems.MovesItems)) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
+            await SyncTutorialWalls(conn);
         });
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {

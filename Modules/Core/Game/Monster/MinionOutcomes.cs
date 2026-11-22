@@ -95,7 +95,8 @@ public static partial class Game
         }
         state.FlaskRewards.Add(new(monster.Rarity));
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
-        if (BossMods.GivesNoItems(variety)) return;
+        if (monster.NoRewards || BossMods.GivesNoItems(variety) || variety.Id == TutorialObjects.Zombie) return;
+        if (!GameEvents.AllowsLoot(conn)) return;
         var balance = LeagueFor(conn).Rules;
         var modded = GameEvents.RunDrops(ConnOf(killer), modMonster);
         var drops = new List<ItemDrops.Drop>();
