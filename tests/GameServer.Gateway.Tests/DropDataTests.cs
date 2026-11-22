@@ -6,6 +6,27 @@ namespace GameServer.Gateway.Tests;
 public sealed class DropDataTests
 {
     [Fact]
+    public void Generic_map_drops_respect_campaign_and_monster_tier_limits()
+    {
+        var atlas = new AtlasCatalog(Program.Items);
+        var drops = new ItemDrops(Program.Items, maps: atlas);
+        var random = new Random(21);
+        int[] Tiers(MonsterRarity rarity, int tier = 1, bool mapBoss = false) => Enumerable.Range(0, 64).Select(_ =>
+            atlas.TierOf(drops.Map(67 + Math.Max(1, tier), rarity, tier, random, chanceFactor: 1000,
+                mapBoss: mapBoss)!.Item.TypeHash)!.Value)
+            .Distinct().Order().ToArray();
+
+        Assert.Equal([1], Tiers(MonsterRarity.Normal));
+        Assert.Equal([1, 2], Tiers(MonsterRarity.Magic));
+        Assert.Equal([1, 2], Tiers(MonsterRarity.Rare));
+        Assert.Equal([1], Tiers(MonsterRarity.Unique));
+        Assert.Equal([1, 2, 3], Tiers(MonsterRarity.Unique, mapBoss: true));
+        Assert.Equal([15, 16], Tiers(MonsterRarity.Unique, 15, mapBoss: true));
+        Assert.Equal([16], Tiers(MonsterRarity.Rare, 16));
+        Assert.Equal([1], Tiers(MonsterRarity.Unique, 0));
+    }
+
+    [Fact]
     public void Drop_tables_come_from_world_db()
     {
         var store = GameData.Store!;

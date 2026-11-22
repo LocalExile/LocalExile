@@ -33,7 +33,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   it. Every character has the epilogue quest flag `EndGameAvailable`, without which the client refuses Atlas activation
   (until Kitava earns it, only in a hideout and the maps, so the Epilogue's gates stay shut; checked offline).
   Live 2026-10-29: selecting Estuary opened Estuary; Cells is the default.
-  Basic monster map drops use a local approximation.
+  Generic maps drop at tier 1 in the late campaign; magic and rare map monsters can drop one tier higher, and map bosses two, with local drop probabilities.
   Atlas passive tree foundation (2026-10-30): the three saved presets are sent with their node lists and point budget
   (S→C 0x3d); C→S 0x3e/0x3f allocate/refund nodes and save them; `/atlas_tree` opens the tree and
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the

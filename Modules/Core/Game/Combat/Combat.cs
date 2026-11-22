@@ -3538,13 +3538,15 @@ public static partial class Game
         {
             if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
                 drops.AddRange(DropsFor(conn).EncounterJewels(boss.Id, m.Level, Random.Shared, DropDataProvider.Default.Current));
-            // A generic map drop (approximate rates): use the open map's tier in a map, or tier 1 in the late campaign
-            // once the monster meets MapKeyTier1's DropLevel. The same tier gates base card/scarab and atlas-base drops.
+            // The run's tier gates base card/scarab and Atlas base drops. Its declared bosses have the higher map cap.
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
+            bool mapBoss = mapTier > 0 && m.Rarity == MonsterRarity.Unique && m.Variety is { } variety
+                && Packs.For(conn.Layout.Id)?.Bosses.Contains(variety.Row) == true;
+            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1,
+                mapBoss: mapBoss) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);

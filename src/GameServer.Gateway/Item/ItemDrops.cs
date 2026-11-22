@@ -503,17 +503,22 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             ? t1Type.DropLevel : 58;
     }
 
-    /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the late campaign once
-    /// monsters meet the tier-1 map's DropLevel). Our own rates until the game pools are known. <paramref name="chanceFactor"/>
-    /// scales the chance (a monster's or league's map-related drop chance).</summary>
-    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0, double chanceFactor = 1)
+    /// <summary>A tier 1 drop in the late campaign, or a generic map within the monster's tier eligibility in a map.
+    /// The drop rate and the distribution across eligible tiers are local approximations.</summary>
+    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0,
+        double chanceFactor = 1, bool mapBoss = false)
     {
         if (maps is null || (mapTier <= 0 && monsterLevel < MinCampaignMapDropLevel())) return null;
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
         chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps") * Math.Max(0, chanceFactor));
         if (chance <= 0 || rng.NextDouble() >= chance) return null;
         int stones = Math.Max(0, voidstones);
-        int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
+        int tier = Math.Clamp(mapTier, 1, 16);
+        int higher = mapTier <= 0 ? 0 : mapBoss && monster == MonsterRarity.Unique ? 2
+            : monster is MonsterRarity.Magic or MonsterRarity.Rare ? 1 : 0;
+        int highest = Math.Min(16, tier + higher);
+        if (highest > tier) tier = rng.Next(tier, highest + 1);
+        if (stones > 0) tier = Math.Min(16, tier + 1);
         // Socketed Voidstones convert found maps below tier 16 to gold (maps.md).
         if (stones > 0 && tier < 16) return Gold(monsterLevel, monster, rng);
         if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type
