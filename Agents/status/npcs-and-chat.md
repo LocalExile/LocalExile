@@ -115,12 +115,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
 - Captured gem grouping is restored; uncaptured classes/vendors use documented ordering, and Kirac refresh UI remains open.
+- Campaign lore interactables (`Metadata/NPC/Info/*` from rooms and tiles, including Letters of Exile, Weathered
+  Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components
+  and read/close via `0x84`/`0x85` (not checked live). Docs: [17](../docs/protocol/17-npcs.md).
 - Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
   `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
-  Players see them walk with their class model and gear.
+  Town bots are not drawn: since the area replicates its own entities, a bot is not yet one of them (party followers,
+  which are controlled players, are).
   Each campaign town maintains 2–5 residents with native level display (Act 1: 1–3; Act 10: 59–75; intermediate acts interpolate the center with ±5).
   Invited bots keep their town-selected level across zones and grow through earned experience, without scaling to monster levels.
   Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,

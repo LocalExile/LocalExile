@@ -10,10 +10,16 @@ using GameServer.Core;
 /// (GrantedEffectsPerLevel CooldownGroup 24, 20 s, one use) and the Leadership buff the summoned chieftain gives the
 /// player for the skill's duration, while the immortal chieftain it summons fights beside him (PlayerMinions,
 /// Game.MinionAttacks). The buff's <c>ancestral_buff_cooldown_does_not_tick</c> stops that cooldown while it lasts.
-/// Guarded by the Monsters lock; times are the connection's game seconds.
+/// Owned by the area's frame; times are the connection's game seconds.
 /// </summary>
 public sealed class SpiritChieftains
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Templates = Load();
+    }
+
     /// <summary>A Leadership buff: its BuffDefinitions row, its stats by client key and when it ends.</summary>
     public sealed record Leadership(ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, double Until);
 
@@ -27,7 +33,9 @@ public sealed class SpiritChieftains
     public Summon? Pending;
     /// <summary>The buff the client was last sent and its instance (Program.SpiritChieftainPresentation).</summary>
     public Leadership? Sent;
-    public ushort SentInstance;
+
+    /// <summary>A Leadership buff started or ended early (the stat steps that read it run again).</summary>
+    public Action? Changed;
 
     public Leadership? Active(double now) => buff is { } b && now < b.Until ? b : null;
 
@@ -41,13 +49,14 @@ public sealed class SpiritChieftains
         if (Active(now) is not null || !cooldown.TryUse(now, plan)) return false;
         buff = new(row, stats, now + seconds);
         cooldown.Refresh(now, 0);
+        Changed?.Invoke();
         return true;
     }
 
     /// <summary>The buff ends now (the player died: the chieftain dies with him); the cooldown recovers from here.</summary>
     public void End(double now)
     {
-        if (buff is { } b && b.Until > now) buff = b with { Until = now };
+        if (buff is { } b && b.Until > now) { buff = b with { Until = now }; Changed?.Invoke(); }
     }
 
     void Settle(double now, double rate)
@@ -64,13 +73,13 @@ public sealed class SpiritChieftains
     /// none.</summary>
     public static (ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, int? Minion)? LeadershipOf(IReadOnlyDictionary<uint, int> own)
     {
-        foreach (var (row, values, stats, minion) in Templates.Value)
+        foreach (var (row, values, stats, minion) in Templates)
             if (values.All(own.ContainsKey))
                 return (row, [.. stats.Zip(values, (stat, value) => (stat, own[value]))], minion);
         return null;
     }
 
-    static readonly Lazy<(ushort Row, uint[] Values, uint[] Stats, int? Minion)[]> Templates = new(Load);
+    static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Templates = default!;
 
     static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Load()
     {

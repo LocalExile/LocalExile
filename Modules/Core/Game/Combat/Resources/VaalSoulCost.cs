@@ -3,14 +3,14 @@
 /// <summary>The bounded inputs read by native 3.29.3c getter 0x141eeef80; no general cost/modifier engine.</summary>
 public static class VaalSoulCost
 {
-    public const string NonAuraMultiplier = "virtual_non_aura_vaal_skill_soul_requirement_multipler";
-    public const string AuraMultiplier = "virtual_aura_vaal_skill_soul_requirement_multipler";
-    public const string FinalPercent = "unique_ring_support_effect_vaal_skill_soul_requirement_+%_final";
-    public const string NoSouls = "virtual_vaal_skill_require_no_souls_per_use";
-    public const string Aura = "skill_is_aura_skill";
-    public static readonly string[] Inputs = [NonAuraMultiplier, AuraMultiplier, FinalPercent, NoSouls, Aura];
+    public const uint NonAuraMultiplier = Stat.VirtualNonAuraVaalSkillSoulRequirementMultipler;
+    public const uint AuraMultiplier = Stat.VirtualAuraVaalSkillSoulRequirementMultipler;
+    public const uint FinalPercent = Stat.UniqueRingSupportEffectVaalSkillSoulRequirementPlusPctFinal;
+    public const uint NoSouls = Stat.VirtualVaalSkillRequireNoSoulsPerUse;
+    public const uint Aura = Stat.SkillIsAuraSkill;
+    public static readonly uint[] Inputs = [NonAuraMultiplier, AuraMultiplier, FinalPercent, NoSouls, Aura];
 
-    public static int Required(int baseCost, Func<string, int> get)
+    public static int Required(int baseCost, Func<uint, int> get)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(baseCost);
         if (get(NoSouls) != 0) return 0;

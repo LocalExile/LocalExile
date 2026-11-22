@@ -4,8 +4,8 @@ namespace GameServer.Gateway.Tests;
 // the same skill stats through SupportedSkill).
 public sealed class AwakenedSubsystemTests
 {
-    static Func<string, int> Get(params (string Name, int Value)[] stats) =>
-        name => stats.Where(s => s.Name == name).Sum(s => s.Value);
+    static Func<uint, int> Get(params (string Name, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Name) == name).Sum(s => s.Value);
 
     [Fact]
     public void Melee_splash_radius_and_damage_follow_its_stats()

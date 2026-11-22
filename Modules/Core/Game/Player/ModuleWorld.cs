@@ -4,109 +4,115 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadModuleWorldData()
+    {
+        StandardCrafting = new(Items!, Rolls!);
+    }
+
     public sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
     {
         public string? Get(string key) => get(key);
         public bool Change(string key, Func<string?, string?> apply) => change(key, apply);
     }
 
-    public static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
-    public static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
+    public static ModuleItemCrafting StandardCrafting = default!;
+    public static ModuleItemCrafting HardModeCrafting = default!;
 
-    public sealed class ModuleWorld(ClientState conn) : IPlayerWorld
+    public sealed class ModuleWorld(Player player) : IPlayerWorld
     {
-        Task Send(byte[] message, string? log) => Program.Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, message, log);
+        Task Send(byte[] message, string? log) => Program.Send(player, message, log);
 
-        public ushort AreaHash => conn.Layout.Hash;
-        public (int X, int Y) Spawn => (conn.Layout.SpawnX, conn.Layout.SpawnY);
-        public bool PlayerReady => conn.PlayerSent;
-        public uint NewObjectId() => conn.TakeObjectId();
-        public void SetBlocker(uint objectId, int x, int y, int size) => conn.SetBlocker(objectId, x, y, size);
-        public void RemoveBlocker(uint objectId) => conn.RemoveBlocker(objectId);
-        public Task PushOutOfCollision() => Game.PushOutOfCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+        public ushort AreaHash => player.Layout.Hash;
+        public (int X, int Y) Spawn => (player.Layout.SpawnX, player.Layout.SpawnY);
+        public bool PlayerReady => player.Connection.PlayerSent;
+        public uint NewObjectId() => player.TakeObjectId();
+        public void SetBlocker(uint objectId, int x, int y, int size) => player.SetBlocker(objectId, x, y, size);
+        public void RemoveBlocker(uint objectId) => player.RemoveBlocker(objectId);
+        public Task PushOutOfCollision() => Game.PushOutOfCollision(player);
 
         public async Task<uint?> SpawnHideoutStation(HideoutSlot slot, string metadataPath, string editorKey, string name)
         {
-            if (conn.CurrentHideoutScene is not { } scene) return null;
+            if (player.CurrentHideoutScene is not { } scene) return null;
             if (HideoutCatalog.TypeOf(metadataPath) is not var (components, _)) return null;
             if (components.Count == 0 || !HideoutObject.CanSerialize(components)) return null;
             var (x, y, rotation) = scene.Station(slot, editorKey);
-            uint id = conn.TakeObjectId();
+            uint id = player.TakeObjectId();
             var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0));
-            await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
+            await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
                 $"0x02bb create {name} 0x{id:x} at ({x}, {y})");
-            await SendWorldRecord(conn, id, () => InstanceProtocol.EnterWakeZone(id));
-            await RegisterStationaryCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, metadataPath, x, y, rotation, editorKey);
+            await SendWorldRecord(player, id, () => InstanceProtocol.EnterWakeZone(id));
+            await RegisterStationaryCollision(player, id, metadataPath, x, y, rotation, editorKey);
             return id;
         }
 
-        public (int X, int Y)? StationAt(uint objectId) => conn.HideoutEditor.PositionOf(objectId) is { } p ? (p.X, p.Y) : null;
+        public (int X, int Y)? StationAt(uint objectId) => player.HideoutEditor.PositionOf(objectId) is { } p ? (p.X, p.Y) : null;
 
         public async Task<bool> WalkUpTo(int x, int y, int reach, double requestedAt)
         {
-            if (!TryBeginObjectWalk(conn, requestedAt, x, y, reach, out var walk)) return false;
-            if (walk.Arrive > walk.Now) await Task.Delay(TimeSpan.FromSeconds(walk.Arrive - walk.Now));
-            return !conn.Closed && PlayerActionCurrent(conn, walk.Action) && PlayerWalk.InWalkUpRange(walk.Stop, (x, y), reach);
+            if (!TryBeginObjectWalk(player, requestedAt, x, y, reach, out var walk)) return false;
+            if (walk.Arrive > walk.Now) await AreaDelay(player, walk.Arrive - walk.Now);
+            return !player.Closed && PlayerActionCurrent(player, walk.Action) && PlayerWalk.InWalkUpRange(walk.Stop, (x, y), reach);
         }
 
         public Task<bool> WalkUpToStation(uint objectId, double requestedAt) => StationAt(objectId) is { } at
-            ? WalkUpTo(at.X, at.Y, (int)conn.StationaryInteractionSize(objectId), requestedAt) : Task.FromResult(false);
+            ? WalkUpTo(at.X, at.Y, (int)player.StationaryInteractionSize(objectId), requestedAt) : Task.FromResult(false);
 
         public async Task OpenWindow(string owner, byte ui, string log)
         {
-            conn.BenchOpen = false;
-            conn.ModuleWindow = owner;
-            await RefreshBenchBalance(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, clear: true);
+            player.BenchOpen = false;
+            player.ModuleWindow = owner;
+            await RefreshBenchBalance(player, clear: true);
             await Send(InstanceWaypoints.OpenUi(ui), log);
         }
 
-        public string? OpenWindowOwner => conn.ModuleWindow;
+        public string? OpenWindowOwner => player.ModuleWindow;
 
-        public Task RefreshStats(string reason) => SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, reason);
+        public Task RefreshStats() => SendCharacterStats(player, PlayerStatChange.Build);
 
         public async Task<bool> TravelTo(string areaId, string reason)
         {
             if (AreaTransitionCatalog.HashOf(areaId) is not { } hash) return false;
-            await ChangeArea(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, new PendingTransfer(hash, 0, false, AtSpawn: true), reason);
+            await ChangeArea(player, new PendingTransfer(hash, 0, false, AtSpawn: true), reason);
             return true;
         }
 
-        public ISavedData AccountData => new ModuleSave(key => PersonalStashOf(conn).ModuleData(key), (key, change) => PersonalStashOf(conn).ChangeModuleData(key, change));
+        public ISavedData AccountData => new ModuleSave(key => PersonalStashOf(player).ModuleData(key), (key, change) => PersonalStashOf(player).ChangeModuleData(key, change));
 
-        public ISavedData CharacterData => new ModuleSave(key => CharacterSaves.ModuleData(CharacterName(conn), key),
-            (key, change) => CharacterSaves.ChangeModuleData(CharacterName(conn), key, change));
+        public ISavedData CharacterData => new ModuleSave(key => CharacterSaves.ModuleData(CharacterName(player), key),
+            (key, change) => CharacterSaves.ChangeModuleData(CharacterName(player), key, change));
 
-        public IItemCrafting Crafting => LeagueFor(conn).HardMode ? HardModeCrafting.Value : StandardCrafting.Value;
+        public IItemCrafting Crafting => LeagueFor(player).HardMode ? HardModeCrafting : StandardCrafting;
 
         SpawnedNpc? TalkingTo()
         {
-            lock (conn.Npcs) return conn.Npcs.GetValueOrDefault(conn.TalkingTo);
+            lock (player.Npcs) return player.Npcs.GetValueOrDefault(player.TalkingTo);
         }
 
         public Task NpcSay(string npc, string option, int index, int row)
         {
-            conn.InNpcTalk = true;
-            return Send(InstanceNpcs.Talk(conn.TalkingTo, (byte)index), $"0x0084 npc 0x{conn.TalkingTo:x} {npc} talks: NPCTalk row {row} \"{option}\" (index {index})");
+            player.InNpcTalk = true;
+            return Send(InstanceNpcs.Talk(player.TalkingTo, (byte)index), $"0x0084 npc 0x{player.TalkingTo:x} {npc} talks: NPCTalk row {row} \"{option}\" (index {index})");
         }
 
-        public void NpcEndTalk() => conn.InNpcTalk = false;
+        public void NpcEndTalk() => player.InNpcTalk = false;
 
         public Task NpcClose(string log)
         {
-            conn.InNpcTalk = false;
-            conn.TalkingTo = 0;
+            player.InNpcTalk = false;
+            player.TalkingTo = 0;
             return Send(InstanceNpcs.Talk(0), log);
         }
 
-        public Task NpcIdentifyItems() => TalkingTo() is { } npc ? IdentifyInventory(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, npc) : Task.CompletedTask;
-        public Task<bool> NpcOfferReward(int offer) => OfferNpcReward(conn, offer);
+        public Task NpcIdentifyItems() => TalkingTo() is { } npc ? IdentifyInventory(player, npc) : Task.CompletedTask;
+        public Task<bool> NpcOfferReward(int offer) => OfferNpcReward(player, offer);
 
-        public uint ItemIdIn(byte row) => ItemsOf(conn).Items(row).FirstOrDefault()?.Id ?? 0;
+        public uint ItemIdIn(byte row) => ItemsOf(player).Items(row).FirstOrDefault()?.Id ?? 0;
 
         public async Task<InventoryItem?> CraftInSlot(byte row, Func<Item, CraftResult?> craft, string log)
         {
-            var items = ItemsOf(conn);
-            var stash = PersonalStashOf(conn);
+            var items = ItemsOf(player);
+            var stash = PersonalStashOf(player);
             if (ItemMoves.CraftInSlot(items, stash, row, craft) is not { } result) return null;
             // Clear and refill the slot in separate changes: a client panel watching the slot sees the item replaced.
             uint inventory = PlayerInventories.InventoryId(row);
@@ -118,29 +124,29 @@ public static partial class Game
                     await Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                         items.NextRevision(PlayerInventories.MainInventory), [.. paid.Removed, .. paid.Changed.Select(c => c.Id)], paid.Changed),
                         $"{log}: paid from inventory");
-                await SendStashPayment(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, stash, payment.Stash);
+                await SendStashPayment(player, stash, payment.Stash);
             }
             return result.Changed;
         }
 
         public async Task<bool> PayCurrency(uint currency, int amount, uint gold, Func<bool> commit, string log)
         {
-            var items = ItemsOf(conn);
-            var stash = PersonalStashOf(conn);
+            var items = ItemsOf(player);
+            var stash = PersonalStashOf(player);
             if (ItemMoves.PayCurrency(items, stash, currency, amount, gold, commit) is not { } paid) return false;
             if (paid.Inventory is { } inventory)
                 await Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                     items.NextRevision(PlayerInventories.MainInventory), [.. inventory.Removed, .. inventory.Changed.Select(c => c.Id)], inventory.Changed),
                     $"{log}: paid from inventory");
-            await SendStashPayment(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, stash, paid.Stash);
+            await SendStashPayment(player, stash, paid.Stash);
             if (gold > 0) await Send(InstanceEntities.Gold(stash.Gold), $"0x02a9 gold: {stash.Gold} ({log})");
             return true;
         }
 
         public async Task<int> ReceiveCurrency(uint currency, int amount, Func<int, bool> commit, string log)
         {
-            if (ItemsFor(conn).ByHash(currency) is not { } type) return 0;
-            var items = ItemsOf(conn);
+            if (ItemsFor(player).ByHash(currency) is not { } type) return 0;
+            var items = ItemsOf(player);
             var (placed, stacks) = ItemMoves.ReceiveCurrency(items, ItemCatalog.Create(type), amount, ShapeOf, commit);
             foreach (var stack in stacks)
                 await Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
@@ -151,17 +157,26 @@ public static partial class Game
 }
 
 /// <summary>The Gateway's item rules for one data set, as modules see them.</summary>
-public sealed class ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls) : IItemCrafting
+public sealed class ModuleItemCrafting : IItemCrafting
 {
-    readonly Lazy<IReadOnlySet<string>> _modTypes = new(() =>
-        catalog.Mods.All.Select(m => m.ModType).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    readonly ItemCatalog catalog;
+    readonly ItemRolls rolls;
+
+    public ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls)
+    {
+        this.catalog = catalog;
+        this.rolls = rolls;
+        _modTypes = catalog.Mods.All.Select(m => m.ModType).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    readonly IReadOnlySet<string> _modTypes;
 
     public uint? TypeHash(string id) => catalog.Find(id)?.Hash;
-    public IReadOnlySet<string> ModTypes => _modTypes.Value;
+    public IReadOnlySet<string> ModTypes => _modTypes;
     public bool Modifiable(Item item) => rolls.Modifiable(item);
 
     public bool HasExplicitStat(Item item, IReadOnlyCollection<string> stats) => item.Mods.Where(m => m.Section == ModSection.Explicit)
-        .Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s => stats.Contains(s.Id)) == true);
+        .Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s => stats.Contains(s.Name)) == true);
 
     public Item? RollRequiredTag(Item item, ItemRarity rarity, Random rng, string tag) => rolls.RollRequiredTag(item, rarity, rng, tag);
     public Item? RollAffinity(Item item, ItemRarity rarity, Random rng, int percent) => rolls.RollAffinity(item, rarity, rng, percent);

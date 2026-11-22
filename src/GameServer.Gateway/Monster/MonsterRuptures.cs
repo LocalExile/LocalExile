@@ -1,7 +1,7 @@
 /// <summary>
 /// The Ruptures a player's critical bleeding hits have put on one monster (Rupture Support): up to four, each lasting
 /// three seconds, and each raising the damage the monster takes from bleeding by the support's share.
-/// Guarded by the connection's Monsters lock; times are projectile-world seconds.
+/// Owned by the area's frame; times are projectile-world seconds.
 /// </summary>
 public sealed class MonsterRuptures
 {
