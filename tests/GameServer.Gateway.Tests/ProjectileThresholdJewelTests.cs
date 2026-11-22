@@ -28,21 +28,33 @@ public sealed class ProjectileThresholdJewelTests
         Assert.Equal(2, Profile("Fireball").Count);
         Assert.Equal(1, Profile("Fireball").Pierce);
         Assert.Equal(5, Profile("IceShot").Pierce);
-        int ballEffect = skills.EffectRow("BallLightning");
-        var ball = Game.ResolveProjectileDefinition(ballEffect)!;
-        Assert.Equal("Metadata/Projectiles/BallLightningPlayer", ball.Metadata);
-        Assert.Equal(ball.Metadata, Game.ResolveProjectileDefinition(skills.EffectRow("BallLightningAltX"))!.Metadata);
-        var gem = skills.EffectStats(ballEffect, 1, 20).ToDictionary(s => Program.Stats.Name(s.Item1)!, s => s.Item2);
-        int BallStat(string name) => gem.GetValueOrDefault(name);
-        int baseSpeed = skills.Projectile(ball.Metadata)!.Value.Speed;
-        float orbSpeed = ProjectileSpeed.SkillCellsPerSecond("BallLightning", baseSpeed, 0, BallStat);
-        var orb = ball.Parameters.Resolve(BallStat, orbSpeed, false);
-        Assert.Equal(48.944, orb.Speed, 3);
-        Assert.Equal(42, ProjectileSpeed.SkillCellsPerSecond("BallLightning", baseSpeed, 0, BallStat, "42"));
-        Assert.False(orb.DirectDamage);
-        Assert.Equal(22, orb.Pulse!.Radius);
-        Assert.Equal(ProjectileRuntime.Time(.15), orb.Pulse.Interval);
-        Assert.Equal(ProjectileRuntime.Time(2), orb.Lifetime);
+        foreach (var (effect, expectedSpeed) in new[] { ("BallLightning", 48.944), ("BallLightningAltX", 130.191) })
+        {
+            int row = skills.EffectRow(effect);
+            var ball = Game.ResolveProjectileDefinition(row)!;
+            Assert.Equal("Metadata/Projectiles/BallLightningPlayer", ball.Metadata);
+            var gem = skills.EffectStats(row, 1, 20).ToDictionary(s => Program.Stats.Name(s.Item1)!, s => s.Item2);
+            int BallStat(string name) => gem.GetValueOrDefault(name);
+            int baseSpeed = skills.Projectile(ball.Metadata)!.Value.Speed;
+            int increased = ProjectileSpeed.EffectivePercent(0, BallStat);
+            float speed = ProjectileSpeed.SkillCellsPerSecond(effect, baseSpeed, increased, BallStat);
+            var orb = ball.Parameters.Resolve(BallStat, speed, false);
+            Assert.Equal(expectedSpeed, orb.Speed, 3);
+            Assert.Equal(42, ProjectileSpeed.SkillCellsPerSecond(effect, baseSpeed, increased, BallStat, "42"));
+            Assert.False(orb.DirectDamage);
+            Assert.Equal(22, orb.Pulse!.Radius);
+            Assert.Equal(ProjectileRuntime.Time(.15), orb.Pulse.Interval);
+            Assert.Equal(ProjectileRuntime.Time(2), orb.Lifetime);
+            if (effect == "BallLightningAltX")
+            {
+                var legs = orb.Legs!(0);
+                var leg = legs.First(new(100, 100), new(147, 100));
+                Assert.Equal(new ProjectileVector(101, 99), leg.Target);
+                while (legs.NextTurn(leg.Target, false) is { } turn) leg = turn.Leg;
+                Assert.Equal(new ProjectileVector(100, 52), leg.Target);
+            }
+            else Assert.Null(orb.Legs);
+        }
         stats["always_pierce"] = 1;
         Assert.Equal(-1, Profile("IceShot").Pierce);
         stats.Remove("freezing_pulse_number_of_additional_projectiles");

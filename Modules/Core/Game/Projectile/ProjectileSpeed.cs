@@ -60,23 +60,28 @@ public static class ProjectileSpeed
             playerFinal(MoreMastery), playerFinal(LessMastery)), testOverride);
 
     public static float CellsPerSecond(int worldUnitsPerSecond, int effectivePercent, string? testOverride = null) =>
-        CellsPerSecond(worldUnitsPerSecond, effectivePercent, 1, testOverride);
+        ApplyOverride(BaseSpeed(worldUnitsPerSecond, effectivePercent), testOverride);
 
     public static float SkillCellsPerSecond(string? effect, int worldUnitsPerSecond, int effectivePercent,
-        Func<string, int> get, string? testOverride = null)
+        Func<string, int> get, string? testOverride = null, float motionVariation = 1)
     {
-        float skillFactor = effect == "BallLightning" ? Factor(get(BallLightningRate)) : 1;
-        return CellsPerSecond(worldUnitsPerSecond, effectivePercent, skillFactor, testOverride);
+        float speed = BaseSpeed(worldUnitsPerSecond, effectivePercent) * motionVariation;
+        if (GatewayProjectileSkillProfiles.IsBallLightningOrb(effect))
+        {
+            float rate = Factor(get(BallLightningRate));
+            speed *= rate;
+            // Orbiting stores the scaled speed at launch and passes it through the same callback on each leg.
+            if (effect == "BallLightningAltX") speed *= rate;
+        }
+        return ApplyOverride(speed, testOverride);
     }
 
-    static float CellsPerSecond(int worldUnitsPerSecond, int effectivePercent, float skillFactor, string? testOverride)
-    {
-        if (float.TryParse(testOverride, NumberStyles.Float, CultureInfo.InvariantCulture, out float forced)
-            && float.IsFinite(forced) && forced > 0)
-            return forced;
+    static float BaseSpeed(int worldUnitsPerSecond, int effectivePercent) =>
+        Math.Max(0, worldUnitsPerSecond) * .092f * SpeedFactor(effectivePercent);
 
-        return Math.Max(0, worldUnitsPerSecond) * .092f * SpeedFactor(effectivePercent) * skillFactor;
-    }
+    static float ApplyOverride(float speed, string? testOverride) =>
+        float.TryParse(testOverride, NumberStyles.Float, CultureInfo.InvariantCulture, out float forced)
+        && float.IsFinite(forced) && forced > 0 ? forced : speed;
 
     /// <summary>Keep the longest possible flight within Task.Delay's numeric limit before predicting collisions.
     /// Ordinary positive overrides remain exact; only a zero/unsafe delay needs a distance-dependent speed floor.</summary>

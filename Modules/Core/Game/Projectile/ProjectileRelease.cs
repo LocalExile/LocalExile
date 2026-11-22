@@ -448,8 +448,11 @@ public static partial class Game
         bool bowProjectiles = ArrowsFor(conn, gem.Effect);
         int speedPercent = ProjectileSpeed.EffectivePercent(player, Own, bowProjectiles);
         merged[Stats.Key(ProjectileSpeed.ModifierStat(bowProjectiles))!.Value] = speedPercent;
+        uint emitter = totem?.Id ?? PlayerId;
+        float motionVariation = effectId == "BallLightningAltX"
+            ? OrbitingBallLightningLegs.SpeedVariation(sequence, emitter, repeatsLeft, Get) : 1;
         double speed = ProjectileSpeed.SkillCellsPerSecond(effectId, baseSpeed, speedPercent, Get,
-            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"), motionVariation);
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         bool barrageGem = IsBarrageGem(effectId);
@@ -610,7 +613,6 @@ public static partial class Game
                 // Pending casts still require their source; released projectiles live with the area session.
                 Leech = totem is null ? shot.Leech : new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
         }
-        uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
             { LaunchSource = ProjectileSession.Vector(at), Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
                 CanEmit = admitted ? null : static () => false,

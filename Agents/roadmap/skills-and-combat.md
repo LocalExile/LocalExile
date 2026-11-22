@@ -212,8 +212,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Open:**
   - Nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
-  - Verify ordinary Ball Lightning's flight, first strike and visible bolts in both clients. The player orb's
-    periodic hits work in gateway tests. Measure the Orbiting variant's spiral and verify its nearby strikes.
+  - Verify both Ball Lightning orbs' visible bolts and the first and last strikes in both clients. Compare
+    Orbiting's release cell, wall response and expiry with its unobstructed 3.29.3c action path.
     The Static variant still needs a separate check (#1101).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
