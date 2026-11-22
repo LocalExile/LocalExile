@@ -276,6 +276,18 @@ public sealed class BeyondTests
                 Assert.Equal(original.Item with { Corrupted = corrupted }, ordinary[i].Item);
             }
 
+            var unentered = new InstanceState();
+            unentered.OpenedWith(new("CorruptedDrops", instance.Map!.Area, new MapMods(
+                new Dictionary<string, int> { ["map_items_drop_corrupted_%"] = 100 })));
+            var entering = new ClientState(layout, 1, seed) { Instance = unentered };
+            var reward = new List<ItemDrops.Drop> { kinds[0] };
+            Game.ApplyMonsterDropCorruption(entering, natural.Id, reward, new Random(8));
+            Assert.True(reward[0].Item.Corrupted);
+            unentered.AreaStats(() => new Dictionary<uint, int>());
+            reward[0] = kinds[0];
+            Game.ApplyMonsterDropCorruption(entering, natural.Id, reward, new Random(8));
+            Assert.Equal(kinds[0], reward[0]);
+
             var beyondXp = new ExperienceGain(owner.Conn, Game.ModMonster(ktash, spot), 1000);
             MapBeyond.Experience(beyondXp);
             Assert.Equal(1500u, beyondXp.Experience);

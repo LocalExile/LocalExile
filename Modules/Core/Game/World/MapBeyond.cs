@@ -101,7 +101,13 @@ public static partial class MapBeyond
     static byte AreaLevel(ClientState conn) =>
         (byte)Math.Clamp(MapRunOf(conn) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
 
-    static int Stat(ClientState conn, string id) => AreaStatValue(conn, id);
+    static int Stat(ClientState conn, string id)
+    {
+        if (MapModsOf(conn) is { } mods) return mods.Get(id);
+        if (conn.Instance?.KeptAreaStats is { Count: > 0 } kept && Program.Stats.Key(id) is uint key)
+            return kept.GetValueOrDefault(key);
+        return 0;
+    }
 
     public static bool IsBoss(MonsterCatalog.Variety? variety) => BeyondCatalog.IsBoss(variety);
     public static StateMachineData? StartStates(MonsterCatalog.Variety variety) => BeyondCatalog.StartStates(variety);
