@@ -28,6 +28,12 @@ public static partial class Game
     static int SkitterAuraRadius(GolemState.Golem fighter) =>
         SkillArea.Radius(30, n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n), spell: true);
 
+    static int PuritySentinelLimit(IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> player)
+    {
+        const string stat = "base_number_of_champions_of_light_allowed";
+        return SupportedSummonLimit((long)GolemStat(own, stat) + GolemStat(player, stat), own);
+    }
+
     static async Task SummonReservationFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         AuraCatalog.Aura aura, string kind)
     {
@@ -42,8 +48,8 @@ public static partial class Game
         if (Monsters.Find(path) is not { Supported: true } variety) return;
         var supported = SupportedSkill(conn, aura.SkillId);
         if (!supported.RequirementsMet) return;
-        int limit = kind == "Purity" ? ReservationStat(conn, aura, "base_number_of_champions_of_light_allowed")
-            + GolemStat(CharacterPlayerStats(conn), "base_number_of_champions_of_light_allowed") : 1;
+        var player = CharacterPlayerStats(conn);
+        int limit = kind == "Purity" ? PuritySentinelLimit(supported.Stats, player) : 1;
         if (limit <= 0) return;
         lock (conn.Monsters)
         {
@@ -64,7 +70,6 @@ public static partial class Game
         byte level = (byte)Math.Clamp(GolemStat(supported.Stats, "base_display_minion_actor_level") is > 0 and var actorLevel
             ? actorLevel : SkillsFor(conn).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
-        var player = CharacterPlayerStats(conn);
         var fighter = new GolemState.Golem(0, null!, definition, aura.SkillId)
         { GemLevel = supported.Level, Quality = supported.Quality, Own = ReservationMinionStats(conn, aura, kind), Player = new(player), Limit = limit };
         var mods = GolemModifiers(conn, fighter, player);

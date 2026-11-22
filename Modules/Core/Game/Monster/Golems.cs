@@ -5,6 +5,9 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    static int GolemSummonLimit(int skillBase, IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> player) =>
+        SupportedSummonLimit(GolemCatalog.Limit(skillBase, n => GolemStat(player, n)), own, ceiling: 100);
+
     public static readonly GolemCatalog GolemData = new();
     const string GolemSaveKey = "Game.Golems";
     static int GolemStat(IReadOnlyDictionary<uint, int> stats, string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -355,8 +358,7 @@ public static partial class Game
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         int Own(string name) => GolemStat(supported.Stats, name);
-        int Player(string name) => GolemStat(player, name);
-        int limit = GolemCatalog.Limit(Own("base_number_of_golems_allowed"), Player);
+        int limit = GolemSummonLimit(Own("base_number_of_golems_allowed"), supported.Stats, player);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own("base_display_minion_actor_level"), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
@@ -571,7 +573,7 @@ public static partial class Game
                         continue;
                     }
                     golem.Own = gem.Stats; golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                    golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, "base_number_of_golems_allowed"), n => GolemStat(player, n));
+                    golem.Limit = GolemSummonLimit(GolemStat(gem.Stats, "base_number_of_golems_allowed"), gem.Stats, player);
                     int level = GolemStat(gem.Stats, "base_display_minion_actor_level");
                     if (level != golem.Monster.Level)
                     {

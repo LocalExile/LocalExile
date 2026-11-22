@@ -64,9 +64,17 @@ public static partial class Game
         if (definition.LimitStat.Length == 0) return 1;
         var player = CharacterPlayerStats(conn);
         string final = definition.LimitStat.Replace("base_", "", StringComparison.Ordinal);
-        int value = GolemStat(gem.Stats, definition.LimitStat) + GolemStat(player, definition.LimitStat) + GolemStat(player, final);
+        long value = (long)GolemStat(gem.Stats, definition.LimitStat) + GolemStat(player, definition.LimitStat)
+            + GolemStat(player, final);
         // Clones have no ordinary cap; duration is their lifetime constraint.
-        return Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+        return value == 0 && definition.Family == "Clone" ? 100 : SupportedSummonLimit(value, gem.Stats);
+    }
+
+    static int SupportedSummonLimit(long count, IReadOnlyDictionary<uint, int> own, int ceiling = 200)
+    {
+        const string stat = "support_undead_army_minion_maximum_count_+%_final";
+        long percent = 100L + Math.Max(0, GolemStat(own, stat));
+        return (int)Math.Min(ceiling, Math.Clamp(count, 0, ceiling) * percent / 100);
     }
 
     static double SummonDuration(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)

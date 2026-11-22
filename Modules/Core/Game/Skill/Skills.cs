@@ -998,8 +998,10 @@ public static partial class Game
                     "number_of_dominated_monsters", "number_of_dominated_vaal_monsters" }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })
-                Publish("number_of_golems_allowed", GolemCatalog.Limit(OwnPanel("base_number_of_golems_allowed"),
-                    n => GolemStat(playerStats, n)));
+                Publish("number_of_golems_allowed", GolemSummonLimit(OwnPanel("base_number_of_golems_allowed"),
+                    own, playerStats));
+            if (SkillsFor(conn).EffectId(effect) == "HeraldOfPurity")
+                Publish("number_of_champions_of_light_allowed", PuritySentinelLimit(own, playerStats));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
             {
