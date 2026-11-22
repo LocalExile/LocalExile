@@ -106,6 +106,8 @@ public sealed class SecondarySkillExecutionTests
 
         uint Detonate(string name, bool mine, params string[] supports)
         {
+            // Each comparison starts on fresh ground. Fire Trap adds damage against a burning target.
+            f.Conn.Placed.Grounds.Clear();
             ushort source = Equip(f, [name, .. supports]);
             var gem = Game.SupportedSkill(f.Conn, source);
             var placed = new PlacedSkills.Placed(777, source, gem.Effect, (100, 100), mine, 0, 10,
