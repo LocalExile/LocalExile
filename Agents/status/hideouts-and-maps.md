@@ -5,7 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
+- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, can be gambled at Faustus, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
   The 3.29.3 clients have no Idol panel, so the Idol inventory is the map device's storage grid: 4 by 5 cells, one loadout.
   Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
@@ -114,7 +114,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
-  Essence: Vaal corruption/transfers, Toughness, enrage, Decay and Envy aura; other skills/scaling stay partial (#505).
+  Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
   rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
   [14](../docs/protocol/14-monster-packs.md) §5).
@@ -123,23 +123,28 @@ Part of [Status](../Status.md); what to build next in this area is in
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
   spawning packs and bosses (K'Tash, Ghorr, Beidat) and shutting down further portals once a boss spawns.
   Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
-  (Endless Tide, Demonic Power 60 s boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
+  (Endless Tide, Demonic Power map-instance boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
   `Game.MapModsOf`.
   Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
 
-- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with wave summoning and permyriad life loss
-  on wave kills, King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
+- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with repeat-wave summoning
+  (`skill_repeat_count`) and permyriad life loss on wave kills, Harbinger/King-helper/Empowered-Obelisk skills and
+  auras (mortars, ball lightning, cold beam, warp flame, minion buffs, curse auras, obelisk damage-reduction and haste
+  auras), King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
   (full-stack conversion and full-orb upgrades), all four Harbinger scarabs, and composed Atlas/Idol map stats.
-  Not yet: the Harbingers', helpers' and obelisks' own skills (they stand still), The Beachhead unique map portal
-  encounter and Harbinger unique piece assembly.
+  Not yet: the sky beam, flameblast and upheaval land once instead of as their trigger cascade, the ball lightning
+  hits once instead of zapping as it flies, The Beachhead unique map portal encounter and Harbinger unique piece
+  assembly.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
   packs stay out of the grove.
   The Harvest module fills 3-4 pairs of crops (Extractor, Irrigator, Pole, Storage Tank, 23 seeds by colour and tier);
   one click hatches the seed monsters and withers the other crop of the pair; they drop Wild/Vivid/Primal lifeforce.
-  The `atlas_harvest_*` passives, the three Harvest scarabs and the Idols' same stats apply, all read from
-  `Game.MapModsOf`, except Crop Rotation, Nature's Favour (lucky Horticrafting outcomes), the Harvest-scarab weighting
+  The `atlas_harvest_*` passives (including Crop Rotation via `atlas_keystone_crop_rotation`: all Tier 1 on spawn and
+  per-seed tier upgrades on idle crops of other colours at crop completion),
+  the three Harvest scarabs and the Idols' same stats apply, all read from
+  `Game.MapModsOf`, except Nature's Favour (lucky Horticrafting outcomes), the Harvest-scarab weighting
   (`map_harvest_scarab_more_likely_%`) and Refiner's Bargain's crops (its monsters drop no lifeforce and nothing else).
   The memory-line grove (`HarvestLeagueMemoryLine`, or its room in a map) has five single crops of 45-47 mixed-colour
   seeds; Corpse-Grown (Faridun) seeds replace Tier 3 seeds wherever `map_harvest_%_chance_for_faridun_seed` is granted.
@@ -214,8 +219,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Delve, first steps (verified live, 2026-10-21):** View Subterranean Chart opens the chart (S→C 0x7b kind 0x1c,
   from the client's screen table); its data request C→S 0x23f is answered with S→C 0x240, and one entry draws the
   first mine section (the other fields are being worked out with `/delve_chart`).
-  Visit Mine Encampment goes to Delve_Hub, which has its tile's waypoint (still drawn inactive: no 0x4c bit), Niko,
-  the stash and the guild stash.
+  Visit Mine Encampment goes to `Delve_Hub` (generated by the server level generator via `server_level_areas`), which
+  has its tile's waypoint (still drawn inactive: no 0x4c bit), `DelveMinerHub` Niko (with `DelveOwner` and clean
+  `NpcClose` transitions from Act 4), the stash and the guild stash; reward trips award Azurite and progress `delve2`.
   The World panel's special pins are all shown (league quest flags for every character, the Labyrinth's waypoint
   always activated). The Hideout, Menagerie, Mine Encampment, Forbidden Sanctum, Kingsmarch, Rogue Harbour and
   Monastery of the Keepers pins lead to their hubs, which have a clickable waypoint back, a stash, a guild stash and

@@ -37,21 +37,33 @@ public static class InstanceWaypoints
     public const int VisitDeepwaterHubLength = 7;
 
     /// <summary>
-    /// C→S 0x17a: the World panel's Hideout button, opened from a waypoint (live 2026-10-20). u16 n + n bytes UTF-8: the
-    /// character whose hideout to go to (the player's own name for its own), u32 BE: the waypoint object the panel was
-    /// opened from, u8 (0 seen). 21-hideouts.md §3.
+    /// C→S 0x17a / 0x17b (class 0x1435ca280, writer 0x141fa1fb0): the World panel's Hideout / Menagerie pin, opened from
+    /// a waypoint. Compact wide string (<see cref="LoginWriter.WStr"/>, 0x140e0b250): the character whose hideout to go
+    /// to (the player's own name for its own), u32 BE: the waypoint object the panel was opened from, u8 (0 seen).
+    /// 21-hideouts.md §3.
     /// </summary>
     public sealed record VisitHideout(string Character, uint Waypoint, byte Flag);
 
-    /// <summary>The length of a 0x17a at the start of <paramref name="data"/>, or null until its header has arrived.</summary>
+    /// <summary>The length of a 0x17a/0x17b at the start of <paramref name="data"/>, or null until complete (or invalid).</summary>
     public static int? VisitHideoutLength(ReadOnlySpan<byte> data) =>
-        data.Length < 4 ? null : 9 + System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
+        MeasureVisitHideoutLength(data, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureVisitHideoutLength(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 2) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(data[2..], out int nameLength);
+        if (status != WireMeasure.Ok) return status;
+        int total = 2 + nameLength + 5;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
 
     public static VisitHideout ReadVisitHideout(ReadOnlySpan<byte> m)
     {
         var r = new LoginReader(m[2..]);
-        string name = System.Text.Encoding.UTF8.GetString(r.Blob());
-        return new(name, r.U32(), r.U8());
+        return new(r.WStr(), r.U32(), r.U8());
     }
 
     /// <summary>Bytes of the unlocked-waypoint bitset (152 bits; the client reads at most 150 waypoint areas).</summary>
@@ -178,7 +190,7 @@ public sealed record WaypointObject(int GridX, int GridY, string? Model = null, 
         w.U8(0).U8(0);                                                              // object flags, base data entry count
         // Positioned as an area transition's: x, y, rotation, u16, flags0 (0x04: the record's fixed height), flags1.
         w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0);
-        if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+        if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
         if (Model is null) w.U8(0); else w.U8(1).WStr32(Model);                    // Animated
         Hideout?.Write(w);                                                          // HideoutDoodad, in a hideout only
         w.U8(0);                                                                    // MinimapIcon flags

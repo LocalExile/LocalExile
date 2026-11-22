@@ -137,8 +137,7 @@ by the same amount.
   0x02's two bytes): i32 −z / 7.8125 and f32 z, the live server's convention for a fixed height (its projectiles,
   [11](11-skills.md) "Sign"; world z points down). Live the NPCs looked the same with either sign of the i32 (Nessa,
   Kira, Oyun, Act 6's Lilly on her pier, 2026-10-25: same pose and name labels at the same height), so for a standing
-  object the client seems to use the f32. The area transitions and waypoints still send +z / 7.8125
-  ([08](08-area-transitions.md) §5); aligning them is left for a later change.
+  object the client seems to use the f32. Every fixed-height writer sends this sign.
 - **Seed.** The origins other than (0, 0) were captured with seed 1, the seed the Gateway gives towns; `TownNpcs`
   stores it with those rooms and leaves a room's NPCs out (with a log line) in an instance of another seed. Oriath's
   rooms are generated around fixed nodes, so their origins could depend on it; the single-room towns' borders
@@ -364,9 +363,11 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   (`0x140740840`) and otherwise shows the ordinary buy window; item and placement messages are the shop's (0x88, 0x8a).
   The shown items are the client's 55 `HiddenItem` rows `…Gamble` ("Random One Hand Sword" … "Random Conqueror Idol",
   BaseItemTypes 5187–5241), drawn with the mystery art; a purchase must answer with another item, which need not have the
-  shown item's size. Prices are poewiki's 3.29 formulas; item level, rarity, unique chance, sockets and affix tiers follow
-  its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
-  Faustus in the hideout). Not done: the alt price floor (the account's highest character in the league).
+  shown item's size. Prices are poewiki's 3.29 formulas, with the 3.29 alt price floor
+  (`max(level, min(highestLeagueLevel − 20, 68))` across the account's characters in the same league, starting at main
+  level 25 and capping at the level-68 price at level 88); item level, rarity, unique chance, sockets and affix tiers
+  follow its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
+  Faustus in the hideout).
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
   QuestRewardOffers `__col3` is a league quest flag taken flag (1911, past the client's 0x776 flags, is none):
   Allflame's pity Sulphur (offer 136) has only LQF 1880. The other rows that have one are once-per-league rewards

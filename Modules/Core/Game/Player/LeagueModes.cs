@@ -12,6 +12,7 @@ public static partial class Game
     public static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
     public static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
     public static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
+    public static readonly Lazy<AtlasCatalog> HardModeAtlas = new(() => new(HardModeItems.Value));
     // Drops read the league's gem rules when they are built, so each HardMode league has its own.
     public static readonly ConcurrentDictionary<string, Lazy<ItemDrops>> HardModeDrops = new();
 
@@ -22,7 +23,8 @@ public static partial class Game
     public static UniqueCatalog UniquesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeUniques.Value : Uniques;
     public static EssenceCrafting EssencesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeEssences.Value : Essences;
     public static ItemDrops DropsFor(ClientState conn) => LeagueFor(conn) is { HardMode: true } league
-        ? HardModeDrops.GetOrAdd(league.Id, _ => new(() => new(HardModeItems.Value, HardModeRolls.Value, hardMode: true, uniques: HardModeUniques.Value, league: league.Rules))).Value : Drops;
+        ? HardModeDrops.GetOrAdd(league.Id, _ => new(() => new(HardModeItems.Value, HardModeRolls.Value, hardMode: true,
+            maps: HardModeAtlas.Value, uniques: HardModeUniques.Value, league: league.Rules))).Value : Drops;
 
     public sealed class VitalsAdmission
     {

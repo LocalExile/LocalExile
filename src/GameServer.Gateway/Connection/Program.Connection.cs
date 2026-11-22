@@ -352,9 +352,9 @@ public partial class Program
             conn.CloseReason = $"the client's stream no longer decodes ({conn.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
         if (MoveTrace)
             foreach (var (id, bytes) in messages)
-                // 0x18e click, 0x192 the held button's newest target, 0x195 release: a lockstep client's whole move
-                // input, beside the predictive 0x24/0x25/0x190/0x191.
-                if (id is 0x0024 or 0x0025 or 0x018e or 0x0190 or 0x0191 or 0x0192 or 0x0195)
+                // 0x18e click, 0x192 the held button's newest target, 0x193 retarget onto an object, 0x195 release:
+                // a lockstep client's whole move input, beside the predictive 0x24/0x25/0x190/0x191.
+                if (id is 0x0024 or 0x0025 or 0x018e or 0x0190 or 0x0191 or 0x0192 or 0x0193 or 0x0195)
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {

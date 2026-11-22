@@ -4,9 +4,11 @@ namespace GameServer.Modules.Harvest;
 /// The Sacred Grove's stats, taken once per instance from the map's composed area stats (<c>Game.MapModsOf</c>: the map's
 /// mods, the Atlas passives with their small-node scaling, scarabs, sextants and Idols, all in one sum). Nothing here
 /// reads allocated Atlas nodes: a passive, an Idol and a scarab that grant the same stat act the same.
-/// Not read: map_harvest_seeds_are_tier_1 and map_harvest_seeds_of_other_colours_have_chance_to_upgrade_on_completing_plot.
-/// No 3.29 passive or mod grants them; the map load's "harvest" league block (MapAreaStats) carries both on maps whose
-/// groves still show Tier 2-4 seeds, so they are no crop rule there.
+/// Crop Rotation is read from <c>atlas_keystone_crop_rotation</c> (Stats row 19304, granted by both the Atlas keystone
+/// and <c>UniqueMapRelicCropRotation</c>). Not read: <c>map_harvest_seeds_are_tier_1</c> and
+/// <c>map_harvest_seeds_of_other_colours_have_chance_to_upgrade_on_completing_plot</c>; no 3.29 passive or mod grants
+/// them, and the map load's "harvest" league block (<c>MapAreaStats</c>) carries both on maps whose groves still show
+/// Tier 2–4 seeds.
 /// </summary>
 public sealed record HarvestStats
 {
@@ -25,6 +27,8 @@ public sealed record HarvestStats
     public int Tier4FlatChance { get; init; }
     public int Tier3ChanceIncrease { get; init; }
     public bool AlwaysHighTier { get; init; }
+    /// <summary>atlas_keystone_crop_rotation: crops start at Tier 1; completing a crop can upgrade idle crops of other colours.</summary>
+    public bool CropRotation { get; init; }
     public bool AtLeastTier2 { get; init; }
     public int Tier2UpgradeChance { get; init; }
     public int Tier3UpgradeChance { get; init; }
@@ -65,6 +69,7 @@ public sealed record HarvestStats
         Tier4FlatChance = mods.Get("map_harvest_plots_%_chance_to_spawn_tier4_seed"),
         Tier3ChanceIncrease = mods.Get("map_harvest_t3_chance_+%"),
         AlwaysHighTier = mods.Get("map_harvest_always_high_tier_seeds") != 0,
+        CropRotation = mods.Get("atlas_keystone_crop_rotation") != 0,
         AtLeastTier2 = mods.Get("map_harvest_seeds_are_at_least_t2") != 0,
         Tier2UpgradeChance = mods.Get("map_harvest_seed_t2_upgrade_%_chance"),
         Tier3UpgradeChance = mods.Get("map_harvest_seed_t3_upgrade_%_chance"),

@@ -49,7 +49,7 @@ public static partial class Game
         if (conn.RageRetired || conn.Closed || conn.LeavingArea || conn.Paused) return;
         // The lethal hit retires combat here, before PlayerDiedAtEpoch: the orb's stage icon must be queued for removal
         // first, or RetireOwnedCombat drops the runtime and the icon keeps the charges the player died with.
-        if (conn.PlayerLife == 0) { conn.Rage.Clear(); conn.Rampage.Clear(); WinterOrbRetire(conn); conn.RetireOwnedCombat(); return; }
+        if (conn.PlayerLife == 0) { conn.Rage.Clear(); conn.Rampage.Clear(); WinterOrbRetire(conn); SnipeRetire(conn); MirageWarriorsRetire(conn); conn.RetireOwnedCombat(); return; }
         if (conn.Character is null) return;
         var stats = CharacterPlayerStats(conn);
         conn.Rage.EnemyHit(ProjectileWorldTime(conn), RageStats.Inputs(name => RageStat(stats, name)),

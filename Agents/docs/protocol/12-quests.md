@@ -114,6 +114,20 @@ itself: an area is reachable only when its WorldAreas `EndQuestFlags` are set (`
 lists, sets or clears them (dev). Session flags (`SessionQuestFlags.dat`, e.g. `a1q6-FairgravesAggro`) are kept in
 memory only: never saved, gone on the next area.
 
+**Player character voice lines (`CharacterAudioEvents`).** There is no dedicated S→C voice-line message in 3.29.3c
+(S→C `0x1c7` is `NPCTextAudio`, S→C `0x1c8` is `NPCConversations`). Server-driven voice lines (261 of 291 rows in
+`Data/CharacterAudioEvents.dat`, 0x52-byte rows) bind their `Event` column (+0x08) to a `QuestFlags` row and fire
+automatically in `CharacterAudioController` (`0x14010bd30`, vtable `0x143027020` +0x10) whenever S→C `0x2bc`
+`PlayerQuestFlagsUpdate` transitions that flag `0 → 1` relative to the baseline snapshotted on player creation
+(`0x140108c80`). Per `0x2bc` update, `0x14010bd30` scans `CharacterAudioEvents` in row order and plays only the
+**first** matching newly-set row via `0x14010cad0` (respecting row `+0x18` delay ms and `+0x1c` cooldown ms, skipped
+when `IsPVPOnlyCharacter` HASH32 `0x24270667` is set). Because `0x140108c80` snapshots the `0x2bb` creation flags and
+checks `WorldAreas.StartQuestFlags` against them, a new area's visit flags (`Visited-*`) must be sent in `0x2bc`
+*after* `0x2bb` `PlayerObject` (`RecordVisit` after `SendPlayer`) so `Enter*` voice lines play once on first entry.
+Level-up milestones (`LevelUp2/3/5/10/15/20/30/50/70/90`) fire locally from `PlayerExperienceUpdate` (`0x140d5b2f0`);
+`NoMana`, `NoLife`, `Cooldown`, `InvFull`, `SkillTown`, `QuestItem`, `KillRare`, `KillRogueExile`, `LowSTR/INT/DEX`,
+`Flask*` and `EventJack*` fire locally in the client via `0x14010c960`.
+
 **One table per quest**, one file per act (`Modules/Core/World/QuestObjects/Acts/Act<n>.cs`, a class deriving
 `Quests.Act`): a `Quests.Quest` with its rules. The QuestObjects module registers every act of its assembly while it is
 loaded (`Quests.Register`); the Gateway and the Game module ask the tables (`Quests.OnMonsterKilled`, `FlagToEnter` …,

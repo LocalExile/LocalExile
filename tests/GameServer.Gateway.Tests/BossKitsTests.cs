@@ -87,6 +87,8 @@ public sealed class BossKitsTests
                 Assert.Contains((artKey, art), arakaaliSkills[slot].Stats!);
             }
 
+            CheckPietyBlood(conn);
+
             // Yugul starts natively untargetable. He must finish his entrance before generic AI can attack; a rebind
             // already recreates a risen monster in state 2, so first entry must reach the same targetable state.
             var yugul = Assert.IsType<MonsterCatalog.Variety>(
@@ -107,6 +109,52 @@ public sealed class BossKitsTests
             Assert.True(waiting.BusyUntil > 10);
             Assert.Equal(2, MonsterEmerge.CreateState(yugul, kind, unrisen: false));
         });
+    }
+
+    static void CheckPietyBlood(ClientState conn)
+    {
+        var piety = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/PietyBeastBoss"));
+        var beam = Assert.Single(BossKits.Kit(conn, piety, 39), entry => entry.Effect == BossKits.PietyBeamEffect).Attack;
+        Assert.Equal(new CorruptedBloodOnHit(3, 5, 2800, 0), beam.CorruptedBlood);
+        conn.PlayerLife = 5000;
+        conn.EnergyShield.SetMaximum(100, refill: true);
+        var stats = new Dictionary<uint, int> { [Program.Stats.Key("additional_physical_damage_reduction_%_against_hits")!.Value] = 90 };
+        void Hit(double at, bool blocked = false) => Game.ApplyCorruptedBloodOnHit(conn, beam, beam.Damage, blocked, at, stats);
+        Hit(1, blocked: true);
+        Assert.Equal(0, Game.CorruptedBloodStacks(conn, 1));
+        Hit(1);
+        // BuffDefinitions 238 is not a recovery buff: the empty list follows duration and stacks directly.
+        Assert.Equal(33, Assert.Single(conn.Minions.OutputQueue, p => p.Log == "player corrupted blood (3)").Packet.Length);
+        Hit(2);
+        Game.AdvancePlayerAilmentsLocked(conn, 0, 3, stats);
+        // The old rate applies until the second hit: 140 + 280 physical damage, 100 absorbed by ES.
+        Assert.Equal(4680u, conn.PlayerLife);
+        Assert.Equal(0u, conn.EnergyShield.Current);
+        Hit(3);
+        Assert.Equal(9, Game.CorruptedBloodStacks(conn, 3));
+        Hit(3);
+        Assert.Equal(10, Game.CorruptedBloodStacks(conn, 3));
+        var flask = new Dictionary<string, int> { ["local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s"] = 6 };
+        Game.ApplyConditionalFlaskAilmentProtectionLocked(conn, flask, 4);
+        Hit(9.99);
+        Assert.Equal(0, Game.CorruptedBloodStacks(conn, 9.99));
+        Hit(10);
+        Assert.Equal(3, Game.CorruptedBloodStacks(conn, 10));
+        Game.AdvancePlayerAilmentsLocked(conn, 3, 16, stats);
+        Assert.Equal(0, Game.CorruptedBloodStacks(conn, 16));
+        Assert.Equal(3514u, conn.PlayerLife); // One second capped, five at three stacks, including the final partial tick.
+        stats[Program.Stats.Key("cannot_be_inflicted_by_corrupted_blood")!.Value] = 1;
+        Hit(17);
+        Assert.Equal(0, Game.CorruptedBloodStacks(conn, 17));
+        stats.Clear();
+        stats[Program.Stats.Key("debuff_time_passed_+%")!.Value] = 100;
+        Hit(18);
+        stats[Program.Stats.Key("unaffected_by_corrupted_blood")!.Value] = 1;
+        Game.AdvancePlayerAilmentsLocked(conn, 18, 20.49, stats);
+        Assert.Equal(3514u, conn.PlayerLife);
+        Assert.Equal(3, Game.CorruptedBloodStacks(conn, 20.49));
+        Assert.Equal(0, Game.CorruptedBloodStacks(conn, 20.5));
+        Assert.Equal(UtilityFlasks.Support.Modelled, UtilityFlasks.SupportOf("immune_to_corrupted_blood"));
     }
 
     [Fact]

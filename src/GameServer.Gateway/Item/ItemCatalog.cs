@@ -24,7 +24,7 @@ public sealed class ItemCatalog
     public void Warm()
     {
         _ = Stash;
-        _ = _gems.Value; _ = _flasks.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
+        _ = _gems.Value; _ = _flasks.Value; _ = _tinctures.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
     }
     private readonly string _folder;
     private readonly Lazy<HashSet<int>> _activeGemEffects;
@@ -46,6 +46,7 @@ public sealed class ItemCatalog
         _defences = new(() => LoadDefences(folder));
         _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows, hardMode));
         _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, hardMode));
+        _tinctures = new(() => Tinctures.Load(folder, _rows.Value.Rows));
         _onslaught = new(() => _utilityFlasks.Value.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null));
         _visualsById = new(() => LoadVisualsById(folder));
         _words = new(() => LoadWords(folder));
@@ -157,18 +158,21 @@ public sealed class ItemCatalog
 
     public ItemCatalog() : this("data") { }
 
-    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows)> _currencyUses;
+    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes)> _currencyUses;
 
     /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
     /// and Vaal variants are picked up from the table instead of an Id list.</summary>
     public string? CurrencyAction(BaseType t) =>
         _currencyUses.Value.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
 
-    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels).</summary>
+    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels and jewellery catalysts).</summary>
     public byte? AlternateQualityOf(BaseType currency) =>
         _currencyUses.Value.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
 
-    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows) LoadCurrencyUses(string folder)
+    /// <summary>AlternateQualityTypes rows for jewellery catalysts (every row with a ModEffectStat: Turbulent..Unstable, Sinistral, Dextral).</summary>
+    public IReadOnlyList<byte> JewelleryCatalystTypes => _currencyUses.Value.CatalystTypes;
+
+    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes) LoadCurrencyUses(string folder)
     {
         var actions = new Dictionary<int, string>();
         if (ClientTables.Has("CurrencyItems"))
@@ -180,6 +184,7 @@ public sealed class ItemCatalog
                     actions.TryAdd(b, action);
         }
         var quality = new Dictionary<int, byte>();
+        var catalysts = new List<byte>();
         int rows = 0;
         if (ClientTables.Has("AlternateQualityTypes"))
         {
@@ -189,11 +194,13 @@ public sealed class ItemCatalog
             {
                 if (r.IntOrNull("Item") is int item)
                     quality.TryAdd(item, row);
+                if (r.IntOrNull("ModEffectStat") is not null)
+                    catalysts.Add(row);
                 row++;
                 rows++;
             }
         }
-        return (actions, quality, rows);
+        return (actions, quality, rows, [.. catalysts]);
     }
 
     public BaseType? Row(int row) => row >= 0 && row < _rows.Value.Rows.Count ? _rows.Value.Rows[row] : null;
@@ -223,7 +230,9 @@ public sealed class ItemCatalog
         })
         {
             var hits = rows.Where(match).ToList();
-            if (hits.Count > 0) return EmptyResonatorType(hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
+            if (hits.Count > 0) return EmptyResonatorType(
+                hits.FirstOrDefault(t => t.Supported && (t.Class != "Tincture" || _tinctures.Value.NativeRows.Contains(t.Row)))
+                ?? hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
         }
         return null;
     }
@@ -473,6 +482,17 @@ public sealed class ItemCatalog
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.Value.GetValueOrDefault(t.Row);
+
+    private readonly Lazy<Tinctures.Catalog> _tinctures;
+
+    /// <summary>A tincture's native timing and buff definition (<see cref="Tinctures"/>), or null for other types.</summary>
+    public Tinctures.Definition? TinctureOf(BaseType t) => _tinctures.Value.ByRow.GetValueOrDefault(t.Row);
+
+    /// <summary>True for the native 3.25+ tincture bases in Tinctures.dat (excluding legacy 3.23 empty-implicit rows).</summary>
+    public bool IsNativeTincture(BaseType t) => _tinctures.Value.NativeRows.Contains(t.Row);
+
+    /// <summary>Shared tincture BuffDefinitions rows (Mana Burn, Weeping Wounds, parent and unique tincture buffs).</summary>
+    public Tinctures.BuffRows TinctureBuffs => _tinctures.Value.Buffs;
 
     private readonly Lazy<UtilityFlasks.ExtraBuff?> _onslaught;
 

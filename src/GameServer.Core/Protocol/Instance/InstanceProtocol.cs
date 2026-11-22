@@ -49,21 +49,30 @@ public static class InstanceProtocol
     /// <summary>
     /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
-    /// (u32, u32), wstr, 24 flag bits, u8 +0x7e, u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler
-    /// (0x14215d6d0) needs the local player entity (0x22 + 0x2bb) to exist already.
+    /// (u32, u32), wstr, 24 flag bits, u8 +0x7e (world frame length in ms, passed to <c>0x141648b50</c> → world +0x11c),
+    /// u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler (0x14215d6d0) needs the local player entity
+    /// (0x22 + 0x2bb) to exist already.
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
     /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
-    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false)
+    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false, byte frameMs = 0)
     {
         var w = new LoginWriter().U16(EnterAreaId);
         InstanceStash.WriteTabs(w, stash ?? []);
-        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(0).U8(0).ToArray();
+        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
     }
 
     /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
     /// first; the client sends "current set is the first"). It then waits (session +0xcfa4 = 1) for S→C 0xde.</summary>
     public const ushort SwapWeaponsId = 0xdd;
+
+    /// <summary>C→S 0x193 (6 bytes, class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active
+    /// held/channelled action onto a target object (u32 BE target object id). Sent in both lockstep and predictive modes.</summary>
+    public const ushort RetargetActionId = 0x0193;
+    public const int RetargetActionLength = 6;
+
+    public static uint ReadRetargetAction(ReadOnlySpan<byte> m) =>
+        BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
 
     /// <summary>C→S 0x197 (10 bytes, live 2026-10-23 while Cyclone was held) and C→S 0x198 (the same 10 bytes, class and
     /// handler, which a channelled spell that stands still — Winter Orb — sends instead, live 2026-11-09): a channelled
@@ -108,7 +117,10 @@ public static class InstanceProtocol
     {
         InstanceDivination.TurnInId => InstanceDivination.TurnInLength,
         InstanceDivination.MoveId => InstanceDivination.MoveLength,
-        InstanceDelve.UpgradesRequestId => 2, InstanceDelve.UpgradeId => 4, InstanceDelve.PurchaseId => 4,
+        InstanceDelve.UpgradesRequestId => 2, InstanceDelve.ChartRequestId => 2, InstanceDelve.UpgradeId => 4, InstanceDelve.PurchaseId => 4,
+        InstanceMonsterStatue.CreateId => InstanceMonsterStatue.CreateLength,
+        InstanceItems.CurrencyApplicationForesightRequestId => InstanceItems.CurrencyApplicationForesightRequestLength,
+        InstanceStash.ColourTabId => InstanceStash.ColourTabLength,
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
         InstanceChat.LinkAnotherId => InstanceChat.LinkAnotherLength,
@@ -139,7 +151,7 @@ public static class InstanceProtocol
         InstanceNpcs.VoteAnswerId => InstanceNpcs.VoteAnswerLength,
         InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TakeAllRewardsId => InstanceNpcs.TakeAllRewardsLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.DeleteFolderId => InstanceStash.DeleteFolderLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
         InstanceEntities.AtlasTreeTabId or InstanceEntities.AtlasRefundAllId or InstanceEntities.AtlasTreeWidgetId => InstanceEntities.AtlasTreeTabLength,
-        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelUpdateAltId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
+        SwapWeaponsId => 3, RetargetActionId => RetargetActionLength, ChannelUpdateId => 10, ChannelUpdateAltId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
         UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceWaypoints.LabyrinthChosenId => InstanceWaypoints.LabyrinthChosenLength,
@@ -155,7 +167,39 @@ public static class InstanceProtocol
         InstanceCurrencyExchange.RequestOrdersId => InstanceCurrencyExchange.RequestOrdersLength, InstanceCurrencyExchange.PlaceOrderId => InstanceCurrencyExchange.PlaceOrderLength,
         InstanceCurrencyExchange.CloseOrderId => InstanceCurrencyExchange.CloseOrderLength, InstanceCurrencyExchange.ClaimId => InstanceCurrencyExchange.ClaimLength,
         InstanceCurrencyExchange.RequestMarketId => InstanceCurrencyExchange.RequestMarketLength, InstanceCurrencyExchange.RequestPartnersId => InstanceCurrencyExchange.RequestPartnersLength,
-        InstanceCurrencyExchange.RequestFeeId => InstanceCurrencyExchange.RequestFeeLength, _ => null,
+        InstanceCurrencyExchange.RequestFeeId => InstanceCurrencyExchange.RequestFeeLength,
+        // Remaining exact fixed-length C→S instance opcodes from 3.29.3c (Agents/docs/protocol/c2s.json), excluding
+        // plaintext opening 0x000e/0x000f.
+        0x0038 or 0x011a or 0x012e or 0x013c or 0x013e or 0x0159 or 0x0168 or 0x0169 or 0x016a or 0x016c or 0x0171
+            or 0x0186 or 0x018a or 0x018d or 0x019b or 0x020e or 0x021e or 0x0224 or 0x0243 or 0x024c or 0x0257
+            or 0x025d or 0x0260 or 0x0264 or 0x027e or 0x0296 or 0x02a6 or 0x02ac or 0x02ce or 0x02d5 => 2,
+        0x001a or 0x005e or 0x0083 or 0x00ac or 0x00d9 or 0x00da or 0x0156 or 0x0187 or 0x01f7 or 0x01f8
+            or 0x0245 or 0x024f or 0x0297 or 0x0298 or 0x02a3 or 0x02a4 => 3,
+        0x011d or 0x0142 or 0x0143 or 0x016b or 0x01fd or 0x021d or 0x0221 or 0x0222 or 0x0247 or 0x0255 or 0x02b1
+            or 0x02d0 or 0x02d1 => 4,
+        0x0249 or 0x027d => 5,
+        0x005c or 0x005d or 0x0066 or 0x0069 or 0x00a2 or 0x00d0 or 0x01fc or 0x0206 or 0x020b
+            or 0x020f or 0x0217 or 0x0218 or 0x0259 or 0x026b or 0x0275 or 0x027a or 0x0284 or 0x0288 or 0x0289
+            or 0x02a1 or 0x02fd => 6,
+        0x002e or 0x0065 or 0x0068 or 0x0107 or 0x0152 or 0x017c or 0x017f or 0x0180 or 0x0185 or 0x01da
+            or 0x01dc or 0x01e0 or 0x01fb or 0x01fe or 0x0216 or 0x028e or 0x02d6 => 7,
+        0x0062 or 0x00ef or 0x00f0 or 0x00f1 or 0x00f2 or 0x00f8 or 0x00fa or 0x00fb or 0x00fc or 0x00ff or 0x0100
+            or 0x0102 or 0x0104 or 0x0105 or 0x0108 or 0x0109 or 0x010d or 0x01ec => 8,
+        0x00e2 or 0x00f4 or 0x00fd or 0x0106 or 0x010a or 0x010b or 0x010c => 9,
+        0x0061 or 0x00f9 or 0x013a or 0x01a7 or 0x01d8 or 0x01d9 or 0x0265 or 0x029b or 0x02d3 => 10,
+        0x0057 or 0x0060 or 0x0063 or 0x0064 or 0x0177 => 11,
+        0x005f or 0x0075 or 0x00b4 or 0x00f5 or 0x00f7 or 0x00fe or 0x0101 or 0x0110 or 0x02b0 => 12,
+        0x002c => 13,
+        0x0067 or 0x00cf => 14,
+        0x005a or 0x0114 => 16,
+        0x0076 or 0x0078 => 17,
+        0x0079 or 0x0283 or 0x0294 or 0x0299 => 18,
+        0x0089 => 20,
+        0x002b => 21,
+        0x029f => 25,
+        0x0073 or 0x0116 => 26,
+        0x029e => 28,
+        _ => null,
     };
 
     /// <summary>
@@ -399,12 +443,17 @@ public static class InstanceProtocol
 
     public const ushort LifeUpdateId = 0x1b1;
 
+    /// <summary>S→C 0x1b1 <c>u2c</c> death kind: 0 plays the ordinary death animation (Animation row 6), while 1, 3 and 4
+    /// select <c>DeathFromDegen</c> (Animation row 0x77, <c>0x141e9c200</c>).</summary>
+    public const byte DeathKindNormal = 0, DeathKindDegen = 1;
+
     /// <summary>
     /// S→C 0x1b1 (world group, class 0x1435e8258, read 0x141fe6fb0; world handler 0x14218ddf0 → the object's Life
     /// component): object header, u32 current (+0x20), u32 reserved (+0x24), u8 pool (+0x28: 0 life, 1 mana, 2 energy
-    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c), all big-endian. 0x141e70550 stores the
-    /// values in the pool. For the life pool the handler also calls the Life component's death slot (vtable +0xe8, with
-    /// the +0x2c byte) when life drops from ≥ 1 to &lt; 1, and its revive slot (+0x100) on the way back.
+    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c death kind: <see cref="DeathKindNormal"/>
+    /// or <see cref="DeathKindDegen"/>), all big-endian. 0x141e70550 stores the values in the pool. For the life pool the
+    /// handler also calls the Life component's death slot (vtable +0xe8, with the +0x2c byte) when life drops from ≥ 1 to
+    /// &lt; 1, and its revive slot (+0x100) on the way back.
     /// </summary>
     public static byte[] LifeUpdate(uint objectId, uint current, uint reserved = 0, byte pool = 0, ushort u2a = 0, byte u2c = 0,
         uint orderKey = 0, ushort checkpoint = 0) =>
@@ -423,15 +472,23 @@ public static class InstanceProtocol
             .U32(BitConverter.SingleToUInt32Bits(seconds)).U8(animationType).U8(checkInterruption ? (byte)1 : (byte)0).ToArray();
 
     /// <summary>
-    /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group; the handler maps it and 0x26f/0x270/0x271 to the
-    /// Animated component's <c>0x141e5d440</c>): object header, u8 kind, then per kind — 0/1: u32 animation index
-    /// (+0x24) and u32 float bits (+0x28), 2: u32 float bits (+0x2c), 3: u32 float bits (+0x28). Kind 0 calls
-    /// <c>0x141dbdbc0</c> ("play animation"), which bails when the index is past the actor's animation count, so a
-    /// wrong index is ignored rather than fatal (live 2026-10-25).
+    /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group, read <c>0x141fe58a0</c>; the handler maps it and
+    /// 0x26f/0x270/0x271 to the Animated component's <c>0x141e5d440</c>): object header (12 B), u8 kind, then per
+    /// kind — 0/1: u32 animation index (+0x24) and u32 float bits (+0x28) (21 B total); 2: u32 float bits (+0x2c)
+    /// (17 B total); 3: u32 float bits (+0x28) (17 B total); ≥4 throws "Bad packet: InstanceClientAnimationUpdate".
+    /// Kind 0 calls <c>0x141dbdbc0</c> ("play animation"), which bails when the index is past the actor's animation
+    /// count, so a wrong index is ignored rather than fatal (live 2026-10-25).
     /// </summary>
-    public static byte[] AnimationUpdate(uint objectId, byte kind, uint index, float speed) =>
-        new LoginWriter().U16(AnimationUpdateId).U32(objectId).U32(0).U16(0).U8(kind).U32(index)
-            .U32(BitConverter.SingleToUInt32Bits(speed)).ToArray();
+    public static int AnimationUpdateLength(byte kind) => kind <= 1 ? 21 : kind <= 3 ? 17 : -1;
+
+    public static byte[] AnimationUpdate(uint objectId, byte kind, uint index = 0, float speed = 1f)
+    {
+        if (kind > 3) throw new ArgumentOutOfRangeException(nameof(kind), kind, "S→C 0x1b2 AnimationUpdate only accepts kinds 0..3");
+        var w = new LoginWriter().U16(AnimationUpdateId).U32(objectId).U32(0).U16(0).U8(kind);
+        if (kind <= 1) w.U32(index).U32(BitConverter.SingleToUInt32Bits(speed));
+        else w.U32(BitConverter.SingleToUInt32Bits(speed));
+        return w.ToArray();
+    }
 
     /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
     public const uint FollowTerrain = 0x7fffffff;
@@ -583,9 +640,10 @@ public static class InstanceProtocol
     }
 
     /// <summary>
-    /// Splits decrypted C→S bytes into messages of known length (fixed, or parsed for 0x15 chat). Stops at the first unknown id (there is no length
-    /// prefix, so the rest cannot be framed) and returns it as <paramref name="unknown"/>; a known message cut off at the
-    /// end is returned as <paramref name="partial"/> to prepend to the next chunk.
+    /// Splits decrypted C→S bytes into messages of known length (fixed or variable). Stops at the first unknown id or
+    /// malformed variable-length field (there is no length prefix, so the rest cannot be framed) and returns it as
+    /// <paramref name="unknown"/>; a known message cut off at the end is returned as <paramref name="partial"/> to
+    /// prepend to the next chunk. Never throws on malformed wire fields.
     /// </summary>
     public static List<(ushort Id, byte[] Bytes)> SplitClientMessages(ReadOnlySpan<byte> data, out byte[] partial, out byte[] unknown)
     {
@@ -595,29 +653,159 @@ public static class InstanceProtocol
         while (pos < data.Length)
         {
             if (data.Length - pos < 2) { partial = data[pos..].ToArray(); break; }
-            ushort id = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[pos..]);
-            int? known = id == InstanceDelve.RouteId ? InstanceDelve.RouteLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceChat.ChatId ? InstanceChat.Length(data[pos..]) ?? int.MaxValue
-                : id == InstanceItems.CommandId ? InstanceItems.CommandLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceNpcs.BuyId ? InstanceNpcs.BuyLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.ReorderTabsId ? InstanceStash.ReorderTabsLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.RenameTabId ? InstanceStash.RenameTabLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.ColourTabId ? InstanceStash.ColourTabLength
-                : id == InstanceStash.MoveToAffinityTabId ? InstanceStash.MoveToAffinityTabLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.SetAffinitiesId ? InstanceStash.SetAffinitiesLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceNpcs.CtrlBuyId ? InstanceNpcs.CtrlBuyLength(data[pos..]) ?? int.MaxValue
-                : id is InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId ? InstanceWaypoints.VisitHideoutLength(data[pos..]) ?? int.MaxValue
-                : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
-                    ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceRulesets.ActionId ? InstanceRulesets.ActionLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
-            if (known is not int len) { unknown = data[pos..].ToArray(); break; }
-            if (data.Length - pos < len) { partial = data[pos..].ToArray(); break; }
+            ushort id = BinaryPrimitives.ReadUInt16BigEndian(data[pos..]);
+            var status = TryClientMessageLength(id, data[pos..], out int len);
+            if (status == WireMeasure.Invalid) { unknown = data[pos..].ToArray(); break; }
+            if (status == WireMeasure.Incomplete || data.Length - pos < len) { partial = data[pos..].ToArray(); break; }
             result.Add((id, data.Slice(pos, len).ToArray()));
             pos += len;
         }
         return result;
+    }
+
+    static WireMeasure TryClientMessageLength(ushort id, ReadOnlySpan<byte> data, out int length)
+    {
+        switch (id)
+        {
+            case InstanceDelve.RouteId: return FromNullableLength(InstanceDelve.RouteLength(data), out length);
+            case InstanceChat.ChatId: return InstanceChat.MeasureLength(data, out length);
+            case InstanceItems.CommandId: return InstanceItems.MeasureCommandLength(data, out length);
+            case InstanceNpcs.BuyId: return FromNullableLength(InstanceNpcs.BuyLength(data), out length);
+            case InstanceNpcs.CtrlBuyId: return FromNullableLength(InstanceNpcs.CtrlBuyLength(data), out length);
+            case InstanceStash.ReorderTabsId: return FromNullableLength(InstanceStash.ReorderTabsLength(data), out length);
+            case InstanceStash.RenameTabId: return InstanceStash.MeasureRenameTabLength(data, out length);
+            case InstanceStash.MoveToAffinityTabId: return FromNullableLength(InstanceStash.MoveToAffinityTabLength(data), out length);
+            case InstanceStash.SetAffinitiesId: return FromNullableLength(InstanceStash.SetAffinitiesLength(data), out length);
+            case InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId:
+                return InstanceWaypoints.MeasureVisitHideoutLength(data, out length);
+            case InstanceSocial.FriendAddId: return InstanceSocial.MeasureFriendAddLength(data, out length);
+            // 2 + WStr (writer 0x141f98140).
+            case InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
+                or 0x0097 or 0x00ca or 0x0140 or 0x0141 or 0x0145 or 0x014d or 0x014e or 0x014f or 0x0155:
+                return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 0, out length);
+            // 2 + WStr + u8 (writer 0x141f9baf0).
+            case 0x0098 or 0x0144 or 0x0179:
+                return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 1, out length);
+            // 2 + u8 + WStr (Atlas tree rename, writer 0x141fa5e60).
+            case 0x02a7:
+                return MeasureWStrMessage(data, prefixBytes: 3, suffixBytes: 0, out length);
+            // 2 + WStr + WStr (writer 0x141f9b950; 0x0280 sent on area entry by 0x140d59480).
+            case 0x0081 or 0x0280:
+                return MeasureTwoWStrMessage(data, suffixBytes: 0, out length);
+            // 2 + WStr + WStr + u32 + u8 (shop buy, writer 0x141fa1160).
+            case 0x012c:
+                return MeasureTwoWStrMessage(data, suffixBytes: 5, out length);
+            // u16 id, u8 flags, optional u32 when bit 0 is clear (writer 0x141fa1b30, main frame loop 0x140d551f0).
+            case 0x0158:
+                return Measure0158(data, out length);
+            // u16 id, u16 BE len, len bytes (0x02cd writer 0x141fa6480; 0x02fc writer 0x141fa62c0).
+            case InstanceTransfer.LeaveAreaAckId or 0x02fc:
+                return MeasureBlob16(data, out length);
+            // u16 id, u16 BE len1, len1 bytes, u16 BE len2, len2 bytes (writer 0x141fa4140).
+            case 0x0281:
+                return MeasureTwoBlob16(data, out length);
+            // u16 id, u32 BE, u16 BE n, n * u32 BE (salvage box open, writer 0x141fa3bf0 → 0x141faa4a0).
+            case 0x026e:
+                return MeasureSalvageBox(data, out length);
+            // u16 id, u8, u8 n1, n1 bytes, u8 n2, n2 bytes, u8, u8 (recombine, writer 0x141fa49e0).
+            case 0x028f:
+                return MeasureRecombine(data, out length);
+            // u16 id, u8 ruleset, CompactUInt(len), len bytes (ruleset message, writer 0x141fa7c10 / reader 0x141fa7ca0).
+            case InstanceRulesets.ActionId:
+                return InstanceRulesets.MeasureActionLength(data, out length);
+            default:
+                if (KnownClientLength(id) is int fixedLen) { length = fixedLen; return WireMeasure.Ok; }
+                length = 0;
+                return WireMeasure.Invalid;
+        }
+    }
+
+    static WireMeasure FromNullableLength(int? len, out int length)
+    {
+        if (len is int v) { length = v; return WireMeasure.Ok; }
+        length = 0;
+        return WireMeasure.Incomplete;
+    }
+
+    static WireMeasure MeasureWStrMessage(ReadOnlySpan<byte> data, int prefixBytes, int suffixBytes, out int length)
+    {
+        length = 0;
+        if (data.Length < prefixBytes) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(data[prefixBytes..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        int total = prefixBytes + textLength + suffixBytes;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureTwoWStrMessage(ReadOnlySpan<byte> data, int suffixBytes, out int length)
+    {
+        length = 0;
+        if (data.Length < 2) return WireMeasure.Incomplete;
+        var s1 = LoginReader.TryMeasureWStr(data[2..], out int len1);
+        if (s1 != WireMeasure.Ok) return s1;
+        int secondAt = 2 + len1;
+        var s2 = LoginReader.TryMeasureWStr(data[secondAt..], out int len2);
+        if (s2 != WireMeasure.Ok) return s2;
+        int total = secondAt + len2 + suffixBytes;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure Measure0158(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 3) return WireMeasure.Incomplete;
+        int total = (data[2] & 1) != 0 ? 3 : 7;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureBlob16(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 4) return WireMeasure.Incomplete;
+        int total = 4 + BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureTwoBlob16(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 4) return WireMeasure.Incomplete;
+        int secondAt = 4 + BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
+        if (data.Length - secondAt < 2) return WireMeasure.Incomplete;
+        int total = secondAt + 2 + BinaryPrimitives.ReadUInt16BigEndian(data[secondAt..]);
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureSalvageBox(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 8) return WireMeasure.Incomplete;
+        int total = 8 + BinaryPrimitives.ReadUInt16BigEndian(data[6..]) * 4;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureRecombine(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 4) return WireMeasure.Incomplete;
+        int n2At = 4 + data[3];
+        if (n2At >= data.Length) return WireMeasure.Incomplete;
+        int total = n2At + 1 + data[n2At] + 2;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
     }
 
     /// <summary>Parses the client's plaintext opening, or null if fewer than <see cref="OpeningLength"/> bytes arrived.</summary>

@@ -68,6 +68,12 @@ public static partial class Game
         ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, bool applyRowRules)
     {
         if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
+        if (!applyRowRules && talk.StartLeagueFlag is int startLeague && GameEvents.UsesNpcLeagueFlags(conn, npc.Npc))
+        {
+            bool has;
+            lock (conn.Monsters) has = conn.LeagueQuestFlags.Contains(startLeague);
+            if (!has) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [startLeague]);
+        }
         if (applyRowRules && QuestsOf(conn).OnTalkRow(talk.Row) is { Count: > 0 } byRow)
             await SetQuestFlags(remote, stream, ciphers, conn, byRow);
         await OnQuestTalk(remote, stream, ciphers, conn, npcId, npc, talk);

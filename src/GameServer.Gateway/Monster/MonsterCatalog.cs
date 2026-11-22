@@ -91,6 +91,14 @@ public sealed class MonsterCatalog(string folder = "data")
 
     private readonly Lazy<Dictionary<string, int?>?> _corpse = new(LoadCorpse);
 
+    /// <summary>The variety's DeathFromDegen clip clears the body at another time than its Death clip (client.db's
+    /// monster_takehit death_unblockByKind_DeathFromDegen: five Faridun Flesh Hulks, 166 ms against 150).</summary>
+    public bool DegenDeathClipDiffers(string id) => _degenDeath.Value.Contains(id);
+
+    private readonly Lazy<HashSet<string>> _degenDeath = new(() =>
+        [.. ClientTables.TableOrEmpty("monster_takehit").Where(r => !r.IsNull("death_unblockByKind_DeathFromDegen"))
+            .Select(r => r.Text("variety")!)]);
+
     static Dictionary<string, int?>? LoadCorpse()
     {
         if (ClientTables.TableOrNull("monster_takehit") is not { } table) return null;
@@ -322,6 +330,7 @@ public sealed class MonsterCatalog(string folder = "data")
         static int Column(ClientRow row, string name) =>
             (row.IntOrNull(name) ?? 0);
         var (visualHashes, classStances) = WeaponTables();
+        const byte noWeaponType = 0x68, noStance = 0xff;
         int bowClass = ClientTables.Has("ItemClasses")
             ? Array.FindIndex(ClientTables.Table("ItemClasses").ToArray(), r => r.Text("Id") == "Bow") : -1;
         IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
@@ -334,9 +343,23 @@ public sealed class MonsterCatalog(string folder = "data")
                 if (visual < visualHashes.Count && type < classStances.Count && type < 255)
                     held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
             }
+            void Visual(byte slot, int visual)
+            {
+                if (visual >= 0 && visual < visualHashes.Count)
+                    held.Add(new(slot, visualHashes[visual], noStance, noWeaponType));
+            }
             bool bow = bowClass >= 0 && row.IntOrNull("MainHand_ItemClassesKey") == bowClass;
-            Hold(0, bow ? "Weapon2_ItemVisualIdentityKeys" : "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
-            Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+            Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
+            if (bow)
+            {
+                // Bow monsters use the same model-slot layout as bow players (13-items.md "Bow model records"):
+                // slot 0 carries the right-hand arrow visual with the Bow class/stance, slot 1 carries the left-hand
+                // held bow, and slot 7 carries the back quiver.
+                Visual(1, row.Ints("Weapon2_ItemVisualIdentityKeys").FirstOrDefault(-1));
+                if (row.IntOrNull("Back_ItemVisualIdentityKey") is int back) Visual(7, back);
+            }
+            else
+                Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
             return held;
         }
         var rows = new List<Variety>();

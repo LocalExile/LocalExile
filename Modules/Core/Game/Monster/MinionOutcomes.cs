@@ -31,6 +31,7 @@ public static partial class Game
     public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         HitSummonsOnDeathLocked(conn, victimId, monster, now);
+        QueueEssenceDeathSpawnLocked(conn, victimId, monster);
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
@@ -259,7 +260,8 @@ public static partial class Game
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {
-                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life),
+                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life,
+                            u2c: output.Target.Life == 0 ? output.DeathKind : InstanceProtocol.DeathKindNormal),
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action

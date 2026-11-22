@@ -69,6 +69,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
             : throw new ArgumentOutOfRangeException(nameof(DefenceBaseRoll), value, "Defence base roll must be 0..32.");
     }
     public int Charges { get; init; }
+    /// <summary>Tincture component (+0x20): 1 while active in the flask belt, 0 otherwise. Live session state only;
+    /// stored and saved tinctures are always inactive.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool TinctureActive { get; init; }
     public ushort StackSize { get; init; } = 1;
     public IReadOnlyList<ItemSocket> Sockets { get; init => field = Owned.List(value); } = [];
 
@@ -162,7 +166,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -181,7 +185,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
         init { requiredLevel = value; requiredLevelMods = Mods; requiredLevelSockets = Sockets; }
     }
 
-    public static bool CanSerialize(IEnumerable<string> components) => components.All(c => c == "Tincture" || Supported.Contains(c));
+    public static bool CanSerialize(IEnumerable<string> components) => components.All(Supported.Contains);
 
     /// <summary>
     /// The item data the reader 0x1421f2d00 takes (all little-endian: it reads with memcpy): u32 type hash, u16 flags
@@ -245,8 +249,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     else w.U32(0);
                     break;
                 case "Charges": w.CompactI(Charges); break;           // 0x1424a3f80: signed compact (0x141e4c7e0)
-                // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20. Stored tinctures are inactive.
-                case "Tincture": w.U8(0); break;
+                // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20 (1 active in belt, 0 inactive/stored).
+                case "Tincture": w.U8((byte)(TinctureActive ? 1 : 0)); break;
                 case "Stack": w.U16(StackSize); break;                // 0x1423fb5f0
                 // 0x1423fa9d0 (write 0x1423fa920): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.
@@ -473,22 +477,40 @@ public static class InstanceItems
         return new(id, r.WStr());
     }
 
-    /// <summary>The length of a 0x16 at the start of <paramref name="data"/>, or null until its header has arrived.</summary>
-    public static int? CommandLength(ReadOnlySpan<byte> data)
+    /// <summary>The length of a 0x16 at the start of <paramref name="data"/>, or null until its header has arrived (or if invalid).</summary>
+    public static int? CommandLength(ReadOnlySpan<byte> data) =>
+        MeasureCommandLength(data, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureCommandLength(ReadOnlySpan<byte> data, out int length)
     {
-        if (data.Length < 5) return null;
-        int count = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[3..]), at = 5;
-        for (int i = 0; i < count; i++)
-        {
-            if (at >= data.Length) return null;
-            at += data[at] switch { < 0x80 => 1, 0x80 => 3, _ => 5 };
-        }
-        return at <= data.Length ? at : null;
+        length = 0;
+        if (data.Length < 3) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(data[3..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        length = 3 + textLength;
+        return WireMeasure.Ok;
     }
 
     // C→S 0x29 (class 0x1431768d8, id only, sender 0x140117ee0): drop the held item into the world. Outside town the
     // client sends it at once; in town (and for quest items) it shows the Keep / Destroy popup instead and sends nothing
     // unless Destroy is chosen (0x16, DestroyCursorItemCommand).
+
+    /// <summary>
+    /// C→S 0x29d CurrencyApplicationForesightRequest (class 0x1435caf18, writer 0x141fa52d0, sender 0x142173fa0; 20 bytes):
+    /// u16 id, u16 BE key, u32 BE currency inventory, u32 BE currency item id, u32 BE target inventory, u32 BE target item id.
+    /// Answered with S→C 0x2a0 using the same key.
+    /// </summary>
+    public const ushort CurrencyApplicationForesightRequestId = 0x29d;
+    public const int CurrencyApplicationForesightRequestLength = 20;
+
+    public sealed record CurrencyApplicationForesightRequest(ushort Key, uint CurrencyInventory, uint CurrencyId,
+        uint TargetInventory, uint TargetId);
+
+    public static CurrencyApplicationForesightRequest ReadCurrencyApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32());
+    }
 
     public const ushort CurrencyApplicationForesightResultId = 0x2a0;
 

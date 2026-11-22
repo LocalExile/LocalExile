@@ -223,7 +223,7 @@ public static class BanditChoices
             if (set is not null) await PublishQuestFlags(remote, stream, ciphers, conn, set);
             conn.InNpcTalk = true;
             conn.NpcFinishFlag = null;
-        conn.NpcFinishLeagueFlag = null;
+            conn.NpcFinishLeagueFlag = null;
             conn.NpcTalkScript = null;
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(id, (byte)talk.Index), $"0x0084 {bandit.Name} accepts the amulets");
         }

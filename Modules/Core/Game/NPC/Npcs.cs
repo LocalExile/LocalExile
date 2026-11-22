@@ -83,6 +83,7 @@ public static partial class Game
         conn.NpcFinishFlag = null;
         conn.NpcFinishLeagueFlag = null;
         conn.NpcRewardOffer = null;
+        await CharacterVoiceLines.OnNpcTalked(conn, npc.Npc.Id);
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
         // Ctrl, Alt or both held on the click (0x24 flags 0x0004, 0x0200): the NPC's option with that shortcut, as if it
@@ -117,7 +118,9 @@ public static partial class Game
             if (conn.NpcFinishLeagueFlag is int finishLeague)
             {
                 conn.NpcFinishLeagueFlag = null;
-                await SetLeagueQuestFlags(remote, stream, ciphers, conn, [finishLeague]);
+                bool has;
+                lock (conn.Monsters) has = conn.LeagueQuestFlags.Contains(finishLeague);
+                if (!has) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [finishLeague]);
             }
             // The row's script decides what follows its talk: the next page, or the end of the dialogue.
             if (conn.NpcTalkScript is { } script)
@@ -225,7 +228,13 @@ public static partial class Game
             else
             {
                 if (conn.NpcFinishFlag is { } finish) { conn.NpcFinishFlag = null; await SetQuestFlags(remote, stream, ciphers, conn, [finish]); }
-                if (conn.NpcFinishLeagueFlag is int finishLeague) { conn.NpcFinishLeagueFlag = null; await SetLeagueQuestFlags(remote, stream, ciphers, conn, [finishLeague]); }
+                if (conn.NpcFinishLeagueFlag is int finishLeague)
+                {
+                    conn.NpcFinishLeagueFlag = null;
+                    bool has;
+                    lock (conn.Monsters) has = conn.LeagueQuestFlags.Contains(finishLeague);
+                    if (!has) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [finishLeague]);
+                }
                 // Let the owning module execute its no-audio script before generic FinishNPCChat consumes it.
                 offeredScript = true;
                 if (await GameEvents.AnyNpcOption(option)) return true;
