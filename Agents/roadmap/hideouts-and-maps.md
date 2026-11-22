@@ -37,7 +37,7 @@ bench.
   are implemented; see Status. The native Atlas panel/progress and the map stash are not.
 - **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
   Voidstones; the map stash tab's layout (18 A5); the official drop pools. Measure class-specific corruption
-  outcomes on monster loot and the same area modifier on other sources of found items.
+  outcomes on monster and strongbox loot. Check the area modifier on other sources of found items.
 - **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
 
 ### Idols: what the side panel leaves out

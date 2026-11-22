@@ -41,6 +41,37 @@ public sealed class StrongboxTests
         Assert.Equal(chanced.Rarity == 3, chanced.Unique is not null);
         Assert.Equal("the box is corrupted", Use(corrupted, CurrencyEffects.ChaosOrb).Why);
         Assert.Equal("the box is open", Use(normal with { Phase = 1 }, CurrencyEffects.OrbOfTransmutation).Why);
+        CheckArmoryCorruption();
+    }
+
+    static void CheckArmoryCorruption()
+    {
+        const string stat = "map_items_drop_corrupted_%";
+        var box = StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/Armory")!;
+        var conn = new ClientState(new(1, "strongbox", 100, 100, 20, 20, null, []), 1, 1) { Instance = new() };
+        List<ItemDrops.Drop> Roll(int chance, bool mirrored = false, bool corrupted = false) => StrongboxLoot.Roll(conn, box,
+            id => mirrored && id == "dropped_items_are_duplicated" ? 1 : 0, 83,
+            new MapMods(new Dictionary<string, int> { [stat] = chance }), new Random(43), corrupted);
+
+        var normal = new MapStrongboxes.Box(1, 0, 20, 20, box.Id);
+        var vaaled = MapStrongboxes.Change(Program.Items.Mods, box, normal, CurrencyEffects.VaalOrb, 83, MapMods.None, new Random(43)).Box!;
+        Assert.All(Roll(0, corrupted: vaaled.Corrupted), drop => Assert.True(drop.Item.Corrupted));
+        var guaranteed = Roll(100);
+        Assert.NotEmpty(guaranteed);
+        Assert.All(guaranteed, drop => Assert.True(drop.Item.Corrupted));
+
+        var paired = Roll(50, mirrored: true);
+        Assert.Equal(guaranteed.Count * 2, paired.Count);
+        Assert.Contains(paired, drop => drop.Item.Corrupted);
+        Assert.Contains(paired, drop => !drop.Item.Corrupted);
+        for (int i = 0; i < guaranteed.Count; i++)
+        {
+            Assert.True(paired[i].Item.Mirrored);
+            Assert.Equal(paired[i].Item, paired[i + guaranteed.Count].Item);
+        }
+
+        conn.Instance.AreaStats(() => new Dictionary<uint, int>());
+        Assert.All(Roll(100), drop => Assert.False(drop.Item.Corrupted));
     }
 
     // A unique box is a UniqueChests row on its strongbox: rarity 3, its own model and its Words name on the wire.

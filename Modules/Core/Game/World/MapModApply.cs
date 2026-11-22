@@ -24,17 +24,22 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
-    internal static int AreaDropStat(ClientState conn, string id)
+    internal static int AreaDropStat(ClientState conn, string id, MapMods? areaMods = null)
     {
         if (conn.Instance?.KeptAreaStats is { } kept)
             return kept.GetValueOrDefault(Program.Stats.Key(id)!.Value);
-        return MapRunOf(conn)?.Mods.Get(id) ?? 0;
+        return (areaMods ?? MapRunOf(conn)?.Mods)?.Get(id) ?? 0;
     }
 
     internal static void ApplyMonsterDropCorruption(ClientState conn, string? varietyId, List<ItemDrops.Drop> drops, Random random)
     {
         if (MapBeyond.CorruptsDrops(conn, varietyId)) CorruptDrops(drops);
-        int chance = AreaDropStat(conn, "map_items_drop_corrupted_%");
+        ApplyAreaDropCorruption(conn, drops, random);
+    }
+
+    internal static void ApplyAreaDropCorruption(ClientState conn, List<ItemDrops.Drop> drops, Random random, MapMods? areaMods = null)
+    {
+        int chance = AreaDropStat(conn, "map_items_drop_corrupted_%", areaMods);
         if (chance > 0)
             CorruptDrops(drops, chance, random, static type => type.CanBeCorrupted || type.Components.Contains("Map"));
     }

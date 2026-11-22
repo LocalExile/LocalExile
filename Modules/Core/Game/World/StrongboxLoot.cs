@@ -205,6 +205,13 @@ public static class StrongboxLoot
             }
             result[i] = new(item, type);
         }
+        if (corrupted || boxStat("dropped_items_are_corrupted") != 0)
+        {
+            for (int i = 0; i < result.Count; i++)
+                if (!result[i].Type.Stackable) result[i] = result[i] with { Item = result[i].Item with { Corrupted = true } };
+        }
+        else ApplyAreaDropCorruption(conn, result, rng, stats);
+
         // Copies: "Contains Mirrored Items" (Kalandra) and the area's mirrored drops copy every item, mirrored where it
         // can be; the atlas's duplication stats copy their kind.
         bool mirrored = boxStat("dropped_items_are_duplicated") != 0 || Stat("map_strongbox_items_dropped_are_mirrored") != 0;
@@ -217,9 +224,6 @@ public static class StrongboxLoot
             for (int i = 0; i < result.Count; i++)
                 if (result[i].Type.MaxStack <= 1) result[i] = result[i] with { Item = result[i].Item with { Mirrored = true } };
         result.AddRange(copies.Select(c => mirrored && c.Type.MaxStack <= 1 ? c with { Item = c.Item with { Mirrored = true } } : c));
-        if (corrupted || boxStat("dropped_items_are_corrupted") != 0)
-            for (int i = 0; i < result.Count; i++)
-                if (result[i].Type.MaxStack <= 1) result[i] = result[i] with { Item = result[i].Item with { Corrupted = true } };
         return result;
 
         ItemDrops.Drop? One()
