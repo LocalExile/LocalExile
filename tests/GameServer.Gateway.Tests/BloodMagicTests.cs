@@ -56,6 +56,26 @@ public sealed class BloodMagicTests
         Assert.Equal(2, BloodCharges.Settle(2, 0, 0, 5));
     }
 
+    // Blood Magic removes all Mana and grants 10% more maximum Life (ReminderTextKeystoneBloodMagic).
+    [Fact]
+    public void Blood_magic_keystone_removes_mana_and_raises_life()
+    {
+        var stats = new Dictionary<uint, int>
+        {
+            [Stat.BaseMaximumLife] = 100,
+            [Stat.MaximumLifePlusPct] = 50,
+            [Stat.BaseMaximumMana] = 50,
+        };
+        var without = CharacterStats.For(SkillCatalog.ClassInfo.Witch, 1, Game.PassiveBonus(stats, default, default));
+        stats[Stat.KeystoneBloodMagic] = 1;
+        var with = CharacterStats.For(SkillCatalog.ClassInfo.Witch, 1, Game.PassiveBonus(stats, default, default));
+        // (38 + 12 + 7 from strength + 100) x 150% = 235.5, then 10% more = 259.05.
+        Assert.Equal(235u, without.Life);
+        Assert.Equal(259u, with.Life);
+        Assert.True(without.Mana > 0);
+        Assert.Equal(0u, with.Mana);
+    }
+
     // The Blood Magic keystone turns a skill's whole Mana cost into a Life cost: Tornado Shot's 9 Mana is paid as
     // 9 Life, Mana stays full, and no Lifetap buff comes with it (that buff belongs to the support gem).
 }

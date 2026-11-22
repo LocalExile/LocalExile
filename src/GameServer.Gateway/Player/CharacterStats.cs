@@ -127,7 +127,9 @@ public static class CharacterStats
         bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0,
         // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
         // can add spell suppression chance per complete group of 15 Dexterity.
-        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0)
+        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0,
+        // A source that removes the whole Mana pool (maximum 0), and a final "more" multiplier on maximum Life.
+        bool NoMana = false, int LifeMorePct = 0)
     {
         public bool ConvertSuppressionToSpellDodge { get; init; }
         public int BaseSpellDodgeChance { get; init; }
@@ -214,7 +216,7 @@ public static class CharacterStats
         long flatMana = c.BaseMaxMana + 6L * level + intelligenceMana + b.Mana
             + LifeManaPoolSources.AdditionalMana(level, b) + b.AdditionalMana;
         uint life = b.ChaosInoculation ? 1 : (uint)Math.Clamp(decimal.Floor(flatLife
-            * (100m + b.LifePct) / 100m), 1m, int.MaxValue);
+            * (100m + b.LifePct) / 100m * Math.Max(0m, 100m + b.LifeMorePct) / 100m), 1m, int.MaxValue);
         uint mana = b.ManaPerFourStrength == 0
             ? (uint)Math.Clamp(decimal.Floor(flatMana
                 * (100m + b.ManaPct) / 100m), 0m, int.MaxValue)
@@ -286,6 +288,7 @@ public static class CharacterStats
                 + (b.NoManaFromIntelligence || b.NoIntelligenceBonuses ? 0 : intel), long.MinValue, long.MaxValue);
             (mana, armour) = PowerOfPurpose.Pools(rawFlatManaTwice, b, intel);
         }
+        if (b.NoMana) mana = 0;
         // Native ClientStrings IntelligenceDescription: 10 Intelligence grants 1% increased ES.
         // Pinned PoB CalcPerform applies complete groups after resolving final attributes.
         long totalEnergyShieldPct = (b.NoIntelligenceBonuses ? 0L : intel / 10L) + b.EnergyShieldPct
