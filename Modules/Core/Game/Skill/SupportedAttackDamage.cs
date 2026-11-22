@@ -58,11 +58,12 @@ public static class SupportedAttackDamage
     /// wands, claws and both dagger classes take their corresponding weapon-family ranges.
     /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
     public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get, AttackAccuracyProfile accuracy,
-        int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
+        int baseMultiplier = 10_000, int addedEffectiveness = 10_000, double addedPhysical = 0)
     {
         var local = weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
             new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
         var added = DamageStats.RawAdded(DamagePacket.Empty, get, spell: false);
+        if (addedPhysical != 0) added = added.Add(DamageType.Physical, new(addedPhysical, addedPhysical));
         // Use the hand/skill's resolved rating, before target-conditional hit-chance modifiers.
         long accuracyGroups = Math.Max(0, accuracy.Rating) / 200;
         added = added.Add(DamageType.Lightning, new(

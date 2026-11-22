@@ -673,11 +673,24 @@ public static partial class Game
         if (!plan.CanHit) return null;
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(conn) : null;
+        bool armed = attackWeapon is not null && WeaponAttributeDamage.Armed(attackWeapon);
+        double lowLifeAddedPhysical = 0;
+        if (attack && !secondary && !totem)
+        {
+            int lifeAsDamage = GolemStat(gem.Stats, "blood_price_gain_%_maximum_life_as_added_physical_damage_with_weapons_while_on_low_life");
+            int lowLifeIncrease = GolemStat(gem.Stats, "damage_+%_when_on_low_life");
+            if ((armed && lifeAsDamage != 0 || lowLifeIncrease != 0) && CriticalOnLowLife(conn, caster))
+            {
+                if (armed) lowLifeAddedPhysical = conn.PlayerMaxLife * (lifeAsDamage / 100d);
+                if (lowLifeIncrease != 0 && Stats.Key("damage_+%") is uint damageKey)
+                    stats[damageKey] = stats.GetValueOrDefault(damageKey) + lowLifeIncrease;
+            }
+        }
         var coefficients = SkillsFor(conn).DamageCoefficients(gem.Effect, gem.Level);
         var raw = secondary ? SecondaryRawHit(conn, gem, plan.SpellBaseWith(Get), Get)
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(conn, weapon, caster, gem.Stats)),
-                coefficients.Base, coefficients.Added)
+                coefficients.Base, coefficients.Added, lowLifeAddedPhysical)
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
@@ -732,7 +745,7 @@ public static partial class Game
         {
             FrozenStats = new Dictionary<uint, int>(stats),
             WeaponIncreased = attackWeapon is null ? 0 : SupportedAttackDamage.WeaponIncrease(attackWeapon, Get),
-            Armed = attackWeapon is not null && WeaponAttributeDamage.Armed(attackWeapon),
+            Armed = armed,
         };
     }
 

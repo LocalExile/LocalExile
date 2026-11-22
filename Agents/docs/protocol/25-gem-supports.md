@@ -200,8 +200,10 @@ kill (`ItemQuantityFactor`) and Item Rarity's `base_killed_monster_dropped_item_
 chances (`IncreasedItemRarity`); both also fill the selected skill's panel rows
 (`display_skill_increased_item_quantity_+%`/`..._rarity_+%`); a damage-over-time kill keeps no skill attribution; Iron Grip's `keystone_strong_bowman`
 adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
-(`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
-maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
+(`DamageStats.StrengthDamageBonus`). Bloodthirst adds physical damage from maximum Life to supported weapon attacks
+at the player's Low Life threshold. It uses added damage effectiveness before conversion and hit modifiers. Its quality
+adds increased damage to the supported skill on Low Life. Immolate's added fire against burning enemies,
+Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
 shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
 Devour recovers its life/mana on a killing blow and consumes the corpse (the object is removed); Sacrifice pays current life once at
 the original player cast's first valid release (including Fireball/Spark), shared by repeats and cascades.
