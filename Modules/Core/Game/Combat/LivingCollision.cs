@@ -190,6 +190,12 @@ public static partial class Game
                 bool exists = conn.SeenPlayers.TryGetValue(peer.Id, out var previous);
                 if (conn.LockstepClient && exists && (previous!.Life == 0 && peer.Life > 0
                     || !conn.WorldOutput.PublishedObject(peer.Id).IsReady)) return null;
+                void PresentSlow()
+                {
+                    lock (conn.Monsters)
+                        PresentReceivedSlow(conn, packets, peer.Id, peer.Life > 0 ? peer.EnemySlow.Source : 0,
+                            peer.EnemySlow.Movement, peer.WalkSpeed);
+                }
                 if (!exists || previous!.Life == 0 && peer.Life > 0)
                 {
                     if (exists)
@@ -218,6 +224,7 @@ public static partial class Game
                     if (conn.LockstepClient)
                         lock (conn.Monsters)
                             conn.PeerWalks[peer.Id] = conn.NewPeerWalk(peer.Id, peer.X, peer.Y, peer.WalkSpeed);
+                    PresentSlow();
                     packets.Presentation(peer.Id, InstanceProtocol.EnterWakeZone(peer.Id));
                     // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e9da30)
                     // when its equipment changes, not when it is created: without this every other player stood in the
@@ -226,6 +233,7 @@ public static partial class Game
                 }
                 else
                 {
+                    PresentSlow();
                     // A walk is the Move action the client paths and animates (as monsters walk), started when the walk's
                     // destination changes; a glide (MoveTo) slid a standing body across the floor. A jump without a walk
                     // (a /tp, a resurrection) stays a teleport.
@@ -276,8 +284,6 @@ public static partial class Game
                     if (scale != before)
                         packets.World(peer.Id, InstanceEntities.StatsUpdate(peer.Id, [(ActorScale.Final, scale)]));
                 }
-                lock (conn.Monsters)
-                    PresentReceivedSlow(conn, packets, peer.Id, peer.Life > 0 ? peer.EnemySlow.Source : 0, peer.EnemySlow.Movement, peer.WalkSpeed);
                 conn.SeenPlayers[peer.Id] = peer;
                 return packets.Build();
             }, transport: (remote, stream, ciphers));

@@ -159,7 +159,7 @@ public static partial class Game
                     {
                         var at = m.Walk.Position(now);
                         minions.Add(new(id, origin, m, at.X, at.Y, m.Walk.Destination, m.Life, origin.Object.EnergyShield,
-                            SnapshotMaximumEnergyShield(origin.Object)) { EnemySlow = (EnemySlowOn(m).Source, CompanionMovementPct(m, now)) });
+                            SnapshotMaximumEnergyShield(origin.Object)));
                     }
             }
             conn.PublishedMinions = [.. minions];
@@ -588,15 +588,19 @@ public static partial class Game
             }
             foreach (var (key, (owner, m)) in shown)
             {
+                // The actor and its aura belong to this shared instance. Only its displayed ID is local to the observer.
+                (uint Source, int Movement) slow;
+                lock (conn.Monsters)
+                    slow = (EnemySlowOn(m.Source).Source, CompanionMovementPct(m.Source, conn.Clock.Elapsed.TotalSeconds));
                 if (!conn.SeenMinions.TryGetValue(key, out var before))
                 {
                     uint id = (uint)Interlocked.Increment(ref conn.NextMirroredObject);
                     conn.MirroredObjects[key] = id;
                     var o = m.Origin;
-                    if (m.EnemySlow.Source != 0)
+                    if (slow.Source != 0)
                     {
-                        o = o with { Object = o.Object.WithStats([(StatKeys.MovementVelocityPct, m.EnemySlow.Movement)]) };
-                        conn.EnemySlowViews[id] = (0, 0, m.EnemySlow.Movement, false);
+                        o = o with { Object = o.Object.WithStats([(StatKeys.MovementVelocityPct, slow.Movement)]) };
+                        conn.EnemySlowViews[id] = (0, 0, slow.Movement, false);
                     }
                     if (o.Object.Parent == PlayerId)
                         o = o with { Object = o.Object with { Parent = owner.PeerId } };
@@ -627,7 +631,7 @@ public static partial class Game
                         packets.World(id, InstanceProtocol.LifeUpdate(id, m.EnergyShield, pool: 2));
                 }
                 lock (conn.Monsters)
-                    PresentReceivedSlow(conn, packets, conn.MirroredObjects[key], m.EnemySlow.Source, m.EnemySlow.Movement);
+                    PresentReceivedSlow(conn, packets, conn.MirroredObjects[key], slow.Source, slow.Movement);
                 if (conn.LockstepClient && before is null)
                 {
                     births.Add(conn.WorldOutput.PublishedObject(conn.MirroredObjects[key]));
