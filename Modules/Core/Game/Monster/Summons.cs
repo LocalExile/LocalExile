@@ -194,7 +194,7 @@ public static partial class Game
                 if (definition.Family == "Spectre") path = corpse.Variety!.Id;
                 aim = corpse.Walk.Position(AreaTime(conn));
             }
-            if (definition.Family is "AnimatedWeapon" or "AnimatedGuardian" or "Clone")
+            if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" or "Clone")
             {
                 animated = preparedEquipment ?? AnimatedItems(conn, definition, gem, aim, target, restoredEquipment);
                 if (animated is null) return 0;
@@ -431,5 +431,5 @@ public static partial class Game
                 stats[key] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == kind && !g.Monster.Dead && g.Monster.Life > 0);
     }
     static readonly IReadOnlyDictionary<string, string> SummonCountNames = new Dictionary<string, string> { ["Absolution"] = "absolution_sentinels", ["VaalAbsolution"] = "vaal_absolution_sentinels", ["Phantasm"] = "phantasms", ["Zombie"] = "zombies", ["Spectre"] = "spectres", ["Skeleton"] = "skeletons",
-            ["RagingSpirit"] = "raging_spirits", ["HolyRelic"] = "relics", ["Reaper"] = "reapers", ["AnimatedWeapon"] = "animated_weapons", ["AnimatedGuardian"] = "animated_armour" };
+            ["RagingSpirit"] = "raging_spirits", ["HolyRelic"] = "relics", ["Reaper"] = "reapers", ["VaalAnimatedWeapon"] = "vaal_animated_weapons", ["AnimatedWeapon"] = "animated_weapons", ["AnimatedGuardian"] = "animated_armour" };
 }

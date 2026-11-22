@@ -17,6 +17,25 @@ public sealed class VaalAnimateWeaponTests
     }
 
     [Fact]
+    public async Task Ordinary_and_Vaal_weapons_keep_separate_limits()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Vaal Animate Weapon", 1));
+        var sword = ItemCatalog.Create(Program.Items.Find("Rusted Sword")!);
+        uint Drop() => f.Conn.Instance.Ground.Add(new(100, 100, sword));
+        uint ordinary = await f.Summon("AnimateWeapon", Drop());
+        Assert.NotEqual(0u, ordinary);
+        var skill = Game.GemSkillEffects(f.Conn).Single(g => Program.Skills.EffectId(g.Effect) == "VaalAnimateWeapon");
+        for (int i = 0; i < 6; i++) Drop();
+        await Game.ReleaseVaalMinions("test", f.Stream, f.Ciphers, f.Conn, skill.Id, (100, 100), () => true);
+        Assert.Contains(ordinary, f.Conn.Summons.Fighters.Keys);
+        Assert.Equal(6, f.Conn.Summons.Fighters.Count);
+        var stats = Game.CharacterPlayerStats(f.Conn);
+        Assert.Equal(1, stats[Program.Stats.Key("number_of_active_animated_weapons")!.Value]);
+        Assert.Equal(5, stats[Program.Stats.Key("number_of_active_vaal_animated_weapons")!.Value]);
+    }
+
+    [Fact]
     public async Task Vaal_cast_consumes_only_eligible_sources_and_summons_temporary_unique_weapons()
     {
         using var f = new MinionUtilityTests.Fixture();
