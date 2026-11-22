@@ -7,7 +7,7 @@ public static partial class Game
     sealed record AnimatedGuardianGear(Dictionary<byte, Item> Reference, Dictionary<byte, Item> Equipment);
 
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment,
-        AnimatedGuardianGear? GuardianGear = null);
+        AnimatedGuardianGear? GuardianGear = null, BladefallTrarthusState? BladeSource = null);
 
     static string AnimatedGuardianDeathKey(ClientState conn) =>
         "Game.AnimatedGuardianDeath:" + CharacterName(conn).ToUpperInvariant();
@@ -85,7 +85,7 @@ public static partial class Game
         if (WeaponIn(conn, (item, type)) is { } weapon)
         {
             if (definition.Family == "AnimatedGuardian") return weapon.Melee ? (byte)2 : (byte)0;
-            if (definition.Family != "AnimatedWeapon" || item.Sockets.Count >= 6) return 0;
+            if (definition.Family is not ("AnimatedWeapon" or "VaalAnimatedWeapon") || item.Sockets.Count >= 6) return 0;
             bool allowed = definition.Id == "AnimateWeaponAltY" ? !weapon.Melee : weapon.Melee;
             return allowed ? (byte)2 : (byte)0;
         }
@@ -121,7 +121,7 @@ public static partial class Game
         WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
-        if (skill.Name is null || SummonData.Find(SkillsFor(conn).EffectId(skill.Effect)) is not { Family: "AnimatedWeapon" or "AnimatedGuardian" }) return false;
+        if (skill.Name is null || SummonData.Find(SkillsFor(conn).EffectId(skill.Effect)) is not { Family: "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" }) return false;
         var here = conn.Walk.Position(AreaTime(conn)); var aim = (ground.GridX, ground.GridY);
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, skill.Effect, CooldownForSkill(conn, use.SkillId), false,
             () => { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(here.X, here.Y, AreaTime(conn)); }, out var accepted, requestedAt: requestedAt)) return true;
