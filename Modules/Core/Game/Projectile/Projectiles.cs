@@ -532,8 +532,7 @@ public static partial class Game
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random));
-            if (shot.FromTrapOrMine) damage = MonsterTakesTrapOrMineHit(target, mitigated, shot.Spell, at);
+                shot.Penetration, gambler.InvertsResistance(random), shot.FromTrapOrMine);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
             LeechOnHitLocked(Conn, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage, shot.Leech);

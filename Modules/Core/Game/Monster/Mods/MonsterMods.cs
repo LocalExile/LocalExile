@@ -211,8 +211,14 @@ public static partial class Game
         double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
             + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
             + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
-        return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
-            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
+        double damage = (total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
+            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor;
+        if (spell && GameServer.Core.World.RandomRolls.Chance(e["base_spell_suppression_chance_%"], 100, Random.Shared))
+        {
+            int prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + e["base_spell_damage_%_suppressed"], 0, 100);
+            damage *= (100 - prevented) / 100d;
+        }
+        return (int)Math.Round(damage);
     }
 
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch

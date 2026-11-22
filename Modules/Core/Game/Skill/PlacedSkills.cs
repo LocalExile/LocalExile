@@ -157,7 +157,7 @@ public static partial class Game
     {
         if (SupportedHitInputsFor(conn, skill, capturedGem: gem) is not { } inputs) return null;
         inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
-        bool spell = !inputs.Attack;
+        bool spell = !inputs.Attack && !inputs.Secondary;
         long additionalIncreased = inputs.Get(PlayerHitDamage.VsBlindedDamageStat);
         PlacedSkills.DamageProfile Profile(long increased) => new(
             SupportedHitFrom(inputs, suppress: true, additionalIncreased: increased),

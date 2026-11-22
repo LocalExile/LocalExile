@@ -53,6 +53,7 @@ public static partial class Game
         Gain("map_monsters_additional_physical_damage_reduction", "base_additional_physical_damage_reduction_%");
         Gain("map_monsters_additional_elemental_resistance", "base_resist_all_elements_%");
         Gain("map_monsters_additional_chaos_resistance", "base_chaos_damage_resistance_%");
+        Gain("map_monsters_spell_suppression_chance_%", "base_spell_suppression_chance_%");
         if (mods.Get("map_monsters_are_hexproof") != 0)
             extra["hexproof"] = 1;
         Gain("map_monsters_curse_effect_on_self_+%_final", "map_monsters_curse_effect_on_self_+%_final");

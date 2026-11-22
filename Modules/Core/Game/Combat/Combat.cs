@@ -2997,7 +2997,12 @@ public static partial class Game
     // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
     public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
-        bool invertElemental = false)
+        bool invertElemental = false) =>
+        MonsterHitDamage(m, rolled, critical, attack, now, mods, pen, invertElemental, fromTrapOrMine: false);
+
+    static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
+        bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen, bool invertElemental,
+        bool fromTrapOrMine)
     {
         var described = new List<string>();
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
@@ -3008,10 +3013,11 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        bool ignorePhys = attack && mods.IgnorePhysicalReductionChance > 0
+        bool ignorePhys = !fromTrapOrMine && attack && mods.IgnorePhysicalReductionChance > 0
             && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared);
-        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys),
-            described.Count > 0 ? string.Join(", ", described) : null, mitigated);
+        int damage = fromTrapOrMine ? MonsterTakesTrapOrMineHit(m, mitigated, spell: !attack, now)
+            : MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys);
+        return (damage, described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 
     public static HitResistances.Mods HitResistMods(IReadOnlyDictionary<uint, int> player,
