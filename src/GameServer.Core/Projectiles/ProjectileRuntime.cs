@@ -6,7 +6,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 {
     public const long QuantaPerSecond = 120000, TickQuanta = 4000;
     readonly SortedDictionary<long, ProjectileEntity> projectiles = [];
-    readonly PriorityQueue<Action, (long At, long Order)> scheduled = new();
+    readonly PriorityQueue<(Action Run, bool AfterContacts), (long At, long Order)> scheduled = new();
     readonly ProjectileHitLedger ledger = new();
     readonly Dictionary<long, ProjectileEntity> pendingAreas = [];
     readonly HashSet<long> pendingEmissions = [];
@@ -15,10 +15,12 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     public IReadOnlyCollection<ProjectileEntity> Projectiles => projectiles.Values;
     public static long Time(double seconds) => checked((long)Math.Round(seconds * QuantaPerSecond));
 
-    public void Schedule(long at, Action command)
+    public void Schedule(long at, Action command) => Schedule(at, command, afterContacts: false);
+
+    void Schedule(long at, Action command, bool afterContacts)
     {
         if (at < Now) throw new ArgumentOutOfRangeException(nameof(at), "Cannot insert a command in committed history.");
-        scheduled.Enqueue(command, (at, ++commandSequence));
+        scheduled.Enqueue((command, afterContacts), (at, ++commandSequence));
     }
 
     public long Release(ProjectileUse use)
@@ -204,14 +206,18 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         if (until < Now) throw new ArgumentOutOfRangeException(nameof(until));
         var search = Interlocked.Exchange(ref spareSearch, null) ?? new ContactSearch();
+        bool contactsPending = true;
         try
         {
             while (true)
             {
-                while (scheduled.TryPeek(out _, out var due) && due.At <= Now)
+                while (scheduled.TryPeek(out var command, out var due) && due.At <= Now)
                 {
-                    contactEpoch++;
-                    scheduled.Dequeue()();
+                    if (command.AfterContacts && contactsPending && projectiles.Count > 0) break;
+                    long epoch = ++contactEpoch;
+                    scheduled.Dequeue().Run();
+                    // Ordinary commands can change the world. A pulse does so only when a hit reaches the host.
+                    contactsPending = !command.AfterContacts || contactEpoch != epoch;
                 }
                 if (projectiles.Count == 0)
                 {
@@ -220,7 +226,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                     continue;
                 }
                 long horizon = Math.Min(until, (Now / TickQuanta + 1) * TickQuanta);
-                if (scheduled.TryPeek(out _, out var next)) horizon = Math.Min(horizon, next.At);
+                bool hasScheduled = scheduled.TryPeek(out _, out var next);
+                if (hasScheduled) horizon = Math.Min(horizon, next.At);
+                bool pulseDue = hasScheduled && next.At == Now;
                 var actors = world.Actors(Now, horizon);
                 // Every projectile used to sort the same actors and evaluate their walks repeatedly.
                 // This snapshot lasts only until the next contact/scheduled callback: deaths, new actors
@@ -229,8 +237,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 Contact? first = null;
                 foreach (var p in projectiles.Values)
                 {
-                    var candidate = NextContact(p, horizon, search);
+                    var candidate = NextContact(p, horizon, search, pulseDue);
                     if (candidate is { } c && (first is null || c.CompareTo(first.Value) < 0)) first = c;
+                }
+                // A timed pulse samples the flights still active after all contacts at this instant.
+                if (first is null && pulseDue)
+                {
+                    contactsPending = false;
+                    continue;
                 }
                 // The upper bound is inclusive: another flight may have a contact at the same instant.
                 if (first is null && Now == until) break;
@@ -245,6 +259,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                     p.Distance += distance;
                 }
                 Now = at;
+                contactsPending = first.HasValue;
                 if (first is { } contact) Resolve(contact, actors);
             }
         }
@@ -274,7 +289,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     readonly record struct ActorMotion(ProjectileActor Actor, ProjectileVector From, ProjectileVector To);
 
-    Contact? NextContact(ProjectileEntity p, long horizon, ContactSearch search)
+    Contact? NextContact(ProjectileEntity p, long horizon, ContactSearch search, bool pulseDue)
     {
         if (p.Profile.LandingDelay.HasValue)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Landing, default, Point: p.Use.Aim) : null;
@@ -287,7 +302,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         Contact? best = end == p.ExpiresAt ? new(end, p, null, ProjectileEndReason.Lifetime, default)
             : end == rangeEnd ? new(end, p, null, p.Profile.Lobbed ? ProjectileEndReason.Landing
                 : p.Phase == 0 ? ProjectileEndReason.Distance : ProjectileEndReason.Returned, default) : null;
-        if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && world.TraceFlight(p, p.Position, to) is { } wall)
+        // At a due pulse the sweep has zero length. From an exact cell edge the incident cell may still be open.
+        // Trace in the travel direction to distinguish touching the next cell from reaching it later.
+        var terrainTo = pulseDue ? p.Position + p.Direction * Math.Min(1, p.Remaining) : to;
+        if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && world.TraceFlight(p, p.Position, terrainTo) is { } wall
+            && (!pulseDue || wall.Fraction <= 0))
         {
             double fraction = Math.Clamp(wall.Fraction, 0, 1);
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
@@ -524,10 +543,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         var (history, hitGroup, phase) = acrossUse
             ? (p.Release.SharedPulseHits ??= new(), p.UseId, 0)
             : (ledger, group ?? (rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId), p.Phase);
-        contactEpoch++;
         var result = ProjectileHitResult.Blocked;
         history.TryHit(hitGroup, phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
         {
+            contactEpoch++;
             result = world.Hit(new(p, target.Key, Now, stage, p.Position, multiplier * p.DamageMultiplier) { IsArea = isArea });
             return result != ProjectileHitResult.Miss;
         });

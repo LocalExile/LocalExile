@@ -44,10 +44,10 @@ public sealed partial class ProjectileRuntime
                     }
                 }
                 finally { Return(targets, listed); }
-                Schedule(Now + pulse.Interval, Pulse);
+                Schedule(Now + pulse.Interval, Pulse, afterContacts: true);
             }
             if (pulse.HitOnSpawn) Pulse();
-            else Schedule(Now + pulse.Interval, Pulse);
+            else Schedule(Now + pulse.Interval, Pulse, afterContacts: true);
         }
         if (p.Profile.TravelEmission is { Interval: > 0 } emission)
         {

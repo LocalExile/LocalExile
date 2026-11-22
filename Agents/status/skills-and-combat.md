@@ -157,7 +157,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ritual boots' accuracy lightning. Docs: [20](../docs/protocol/20-damage.md) Â§2a-2b.
   Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles. Ball Lightning and Ball Lightning of Orbiting strike nearby enemies every
-  150 ms and share the interval per enemy within each cast. Players and spell totems release them from a cell
+  150 ms and share the interval per enemy within each cast. At each strike, only orbs still flying after
+  same-time terrain impacts, range limits and expiry can hit. Players and spell totems release them from a cell
   ahead of the caster. Traps and mines release them at their own cell. Orbiting follows the player action's
   outward spiral. Both orbs use the aimed ground height when checking for a blocking rise.
   Server-drawn projectiles glide and stop in the last open cell before a wall or a blocking rise in the ground.
