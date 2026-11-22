@@ -31,9 +31,10 @@ public sealed class QuestObjectsModule : IModule
         module.Lifetime.Own(Quests.Register(module.Manifest.Id, acts));
         GameEvents.Packet(InstanceNpcs.VoteAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            if (bytes[2] <= 1) await BanditChoices.VoteAnswer(conn, bytes[2] == 1);
+            if (bytes.Length >= InstanceNpcs.VoteAnswerLength && bytes[2] <= 1) await BanditChoices.VoteAnswer(conn, bytes[2] == 1);
             return true;
         });
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => BanditChoices.OnPlayerLeaving(conn, why));
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
         GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
@@ -52,6 +53,7 @@ public sealed class QuestObjectsModule : IModule
             await SpawnLoreObjects(remote, stream, ciphers, conn);
             await SpawnTrickChests(remote, stream, ciphers, conn);
             await TickBeacon(conn);
+            await BanditChoices.OnAreaGenerated(conn);
         });
         GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
         {
