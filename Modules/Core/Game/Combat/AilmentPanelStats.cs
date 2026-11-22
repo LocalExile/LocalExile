@@ -132,7 +132,8 @@ public static class AilmentPanelStats
             };
         bool bowAttack = context.Attack && !context.Spell
             && get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type") == WeaponTypeStats.Bow;
-        if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_ailment_damage_+%") + get("bow_hit_and_ailment_damage_+%");
+        if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_ailment_damage_+%")
+            + get("bow_hit_and_ailment_damage_+%") + get("damage_over_time_+%_with_bow_skills");
         // The tree's "with <weapon type>" rows reach an ailment as they reach the hit (issue #1102): the plain and
         // hit-and-ailment rows, the family's own ailment row, and the two families' shared ailment rows.
         (int weaponAny, HitIncreases weaponExtra) = context.Attack && !context.Spell
