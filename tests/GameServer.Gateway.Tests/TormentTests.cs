@@ -80,8 +80,11 @@ public sealed class TormentTests
                 .Select(e => Game.Monsters.Find(e.Variety.ToString())).First(v => v is { Supported: true })!;
             uint normal = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Normal,
                 spirit.X, spirit.Y, unrisen: false, placement: Game.MonsterPlacement.Established);
+            // The retained creation already carries this rare's own haste when a peer enters after possession.
+            var rolls = Game.MonsterModRolls.Value;
+            var haste = rolls.Mods.ById("MonsterModSpeedAura")!.Roll(ModSection.Explicit, new Random(7));
             uint rare = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Rare,
-                spirit.X, spirit.Y, unrisen: false, placement: Game.MonsterPlacement.Established);
+                spirit.X, spirit.Y, unrisen: false, mods: rolls.Create([haste], [], MonsterRarity.Rare, 70), placement: Game.MonsterPlacement.Established);
             ShrineRegistry.RegisterDefaults();
             var massive = ShrineCatalog.Find("Massive")!;
             var shrine = new ShrineInstance { Definition = massive, At = (spirit.X, spirit.Y), Before = ShrineRegistry.Before(massive) };

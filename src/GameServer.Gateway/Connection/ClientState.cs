@@ -205,9 +205,16 @@ public sealed record MonsterMovement
 public struct MonsterSpeedAura
 {
     public (bool Emits, uint Source, int Rate, int Extra) Attack, Cast, Movement;
-    public readonly bool Active => Attack.Rate != 0 || Cast.Rate != 0 || Movement.Rate != 0;
-    // A retained creation can include speed granted at spawn or when a Torment mark rewrote the actor.
-    public bool CapturedInOrigin;
+    public readonly ((int Attack, int Cast) Timing, int Movement) Rates => ((Attack.Rate, Cast.Rate), Movement.Rate);
+    public ((int Attack, int Cast) Timing, int Movement) OriginRates;
+    public (int Attack, int Cast) OriginSkillRates;
+
+    // Torment can update the retained root stats without rewriting the Actor's skills.
+    public void Capture(bool skills)
+    {
+        OriginRates = Rates;
+        if (skills) OriginSkillRates = OriginRates.Timing;
+    }
 }
 
 public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)

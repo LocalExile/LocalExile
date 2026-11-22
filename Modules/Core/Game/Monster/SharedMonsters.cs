@@ -727,11 +727,15 @@ public static partial class Game
             if (!actual.All(s => (stats?.FirstOrDefault(old => old.Key == s.Key).Value ?? 0) == s.Value))
                 origin = origin.WithStats(actual);
         }
-        // A mark can retain speed values from an aura which has since gone away.
-        if (!monster.SpeedAura.Active && !monster.SpeedAura.CapturedInOrigin) return origin;
-        var skills = SpeedAuraSkills(monster, origin);
-        if (skills.Count > 0) origin = origin with { Skills = [.. origin.Skills!.Select(s => skills.GetValueOrDefault(s.Id, s))] };
-        return origin.WithStats(MonsterSpeedStats(monster, now, movement: true, timing: true));
+        var speed = monster.SpeedAura;
+        var rates = speed.Rates;
+        if (rates.Timing != speed.OriginSkillRates)
+        {
+            var skills = SpeedAuraSkills(monster, origin);
+            if (skills.Count > 0) origin = origin with { Skills = [.. origin.Skills!.Select(s => skills.GetValueOrDefault(s.Id, s))] };
+        }
+        return rates == speed.OriginRates ? origin : origin.WithStats(MonsterSpeedStats(monster, now,
+            movement: rates.Movement != speed.OriginRates.Movement, timing: rates.Timing != speed.OriginRates.Timing));
     }
 
     // Every client's frame: the instance's monsters as this client should have them. The ones it was not shown are created
