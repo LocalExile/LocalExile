@@ -16,8 +16,11 @@ public abstract record ChargeEvent : CombatEvent
         bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false) : ChargeEvent;
 
     /// <summary>The player killed a hostile monster; <paramref name="Frozen"/>: it was frozen when it died, shattered
-    /// included (MonsterElementalAilments.FrozenAtDeath); <paramref name="Poisons"/>: the poisons on it when it died.</summary>
-    public sealed record Kill(MonsterRarity Rarity, bool Frozen = false, int Poisons = 0) : ChargeEvent;
+    /// included (MonsterElementalAilments.FrozenAtDeath); <paramref name="Poisons"/>: the poisons on it when it died;
+    /// <paramref name="Skill"/>: the stats of the skill whose hit killed it (its supports' included), when the kill came
+    /// from a hit that had them: a support's "on Kill" chance (Ice Bite's Frenzy Charge on Killing a Frozen Enemy) is
+    /// its skill's stat, not the character's.</summary>
+    public sealed record Kill(MonsterRarity Rarity, bool Frozen = false, int Poisons = 0, Func<string, int>? Skill = null) : ChargeEvent;
 
     /// <summary>A monster's hit reached the player: it landed or was blocked, not evaded (blocking keeps the defender's
     /// when-hit effects, wiki Blocking). <paramref name="Critical"/>: the monster's hit was a critical strike.</summary>
@@ -192,7 +195,7 @@ public static class ChargeGains
                 if (spend.Count > 0) gains.Add(new(spend.Type, -spend.Count, spend.Why));
                 return gains;
         }
-        var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Stun s => s.Skill, _ => null };
+        var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Stun s => s.Skill, ChargeEvent.Kill k => k.Skill, _ => null };
         foreach (var rule in Rules)
         {
             if (!rule.When(e, weapon)) continue;

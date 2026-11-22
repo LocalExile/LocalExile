@@ -25,6 +25,11 @@ public static partial class Game
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(conn), (from, until) => conn.Walk.MovingSeconds(from, until)));
 
+    // The stats of the skill whose hit killed a monster, kept from that hit until its kill is recorded (the hit comes
+    // first on every path that has them).
+    sealed class KillingSkill { public Func<string, int>? Stats; }
+    static readonly RuleTable<SpawnedMonster, KillingSkill> KillingSkills = new();
+
     // The one place a combat event of a player's is recorded: the charge rules take it (applied at the charge ticker's
     // next step), then the other modules and the mods (GameEvents.Combat). Charge commands (Grant, Set, Spend) are not
     // events and go to the session directly.
@@ -56,6 +61,7 @@ public static partial class Game
             var own = SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
             skill = name => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         }
+        if (skill is not null && (m.Dead || m.Life == 0)) KillingSkills.GetOrCreateValue(m).Stats = skill;
         bool frozen, bleeding, marked, selfBleeding, selfPoisoned;
         lock (conn.Monsters)
         {
@@ -97,7 +103,8 @@ public static partial class Game
             if (conn.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(conn, CharacterPlayerStats(conn));
             TryGainElusiveLocked(conn, critical: false, kill: true, now);
         }
-        RaiseCombatEvent(conn, new ChargeEvent.Kill(m.Rarity, frozen, poisons) { Monster = m });
+        var killingSkill = KillingSkills.TryGetValue(m, out var by) ? by.Stats : null;
+        RaiseCombatEvent(conn, new ChargeEvent.Kill(m.Rarity, frozen, poisons, killingSkill) { Monster = m });
         SelfBuffsOnKill(conn);
         CurseCharges(conn, m, true);
     }
