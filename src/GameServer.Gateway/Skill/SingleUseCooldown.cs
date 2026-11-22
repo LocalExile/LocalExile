@@ -34,6 +34,8 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         // Warcry recovery is an increase for the Warcry type (PoB ModParser); the client adds it when is_warcry (0x142824b50).
         if (skills.IsWarcry(effect))
             recovery += (long)Get(player, "warcry_cooldown_speed_+%") + Get(own, "warcry_cooldown_speed_+%");
+        if (skills.IsMovement(effect))
+            recovery += (long)Get(player, "movement_skills_cooldown_speed_+%") + Get(own, "movement_skills_cooldown_speed_+%");
         if (skills.EffectId(effect) is "GeneralsCry" or "GeneralsCryAltX" or "GeneralsCryAltY")
             recovery += (long)Get(player, "generals_cry_cooldown_speed_+%") + Get(own, "generals_cry_cooldown_speed_+%");
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
