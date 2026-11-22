@@ -3054,6 +3054,8 @@ public static partial class Game
         // EncounterStats, whether it was there when the shrine spawned or walked in later) takes no hit at all, so every
         // path through this funnel leaves its life alone.
         if (m.Effects["base_cannot_be_damaged"] > 0) return null;
+        if (MapEssences.ProximityShieldBlocksLocked(conn, m, allyAt)) return null;
+        if (damage > 0 && m.Effects["avoid_damage_%"] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
         uint before = m.Life;
         if (allyAt is null) SpiderHitRewardsLocked(conn, m, ProjectileWorldTime(conn), player);
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player, cullPlayer);

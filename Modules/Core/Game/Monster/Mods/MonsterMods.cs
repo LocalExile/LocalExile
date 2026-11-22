@@ -272,11 +272,16 @@ public static partial class Game
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(conn, m, damage);
 
     /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no
-    /// extra damage from critical strikes (of Toughness).</summary>
+    /// extra damage from critical strikes (of Toughness), or reduced by <c>base_self_critical_strike_multiplier_-%</c>
+    /// (Essence of Scorn's 75% reduced extra critical damage).</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
-        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
-        CriticalHitMultiplier((long)multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"],
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
+    {
+        int full = CriticalHitMultiplier((long)multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"],
             noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own));
+        int reduction = Math.Clamp(m.Effects["base_self_critical_strike_multiplier_-%"], 0, 100);
+        return reduction > 0 && full > 100 ? 100 + (full - 100) * (100 - reduction) / 100 : full;
+    }
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,

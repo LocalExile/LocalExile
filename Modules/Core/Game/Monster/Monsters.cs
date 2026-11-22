@@ -92,7 +92,8 @@ public static partial class Game
                 && stats.All(s => s.Item1 != key) ? [.. stats, (key, art)] : stats;
         if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(conn, effect, level, attack));
         var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
-        if (catalog.EffectId(effect) == "InsectSuicideExplosionHuge") return EssenceInsectSkillStats(conn, attack, own, effects);
+        if (catalog.EffectId(effect) is ("InsectSuicideExplosionHuge" or "InsectSuicideExplosionLarge") and var insectEffect)
+            return EssenceInsectSkillStats(conn, attack, own, effects, insectEffect);
         if (!attack.Ranged) return own;
         var raw = catalog.EffectStats(effect, level);
         int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
@@ -253,9 +254,16 @@ public static partial class Game
         IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
         uint ownedEnergyShield = 0,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
+        IReadOnlyList<MonsterKitSkill>? extraKit = null,
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
         MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
+        // A monster the client is never told to wake: it renders but shows no life bar and takes no orders (an
+        // imprisoned essence monster before its crystal breaks).
+        bool asleep = false,
+        // The rarity glow buff (magic blue, rare yellow) tints the encased effect; an imprisoned monster keeps its
+        // own crystal colour instead.
+        bool rarityGlow = true,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
         bool bulk = false, bool nonBlocking = false)
@@ -397,7 +405,7 @@ public static partial class Game
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         };
-        if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(conn, level, skillId, mods.Effects);
+        if (IsEssenceExplosiveInsect(variety.Id)) attack = EssenceInsectAttack(conn, level, skillId, mods.Effects, EssenceInsectEffectFor(variety.Id));
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
                 MonsterActionSkillStats(conn, effect, level, attack, mods.Effects)) : null;
@@ -420,15 +428,22 @@ public static partial class Game
         // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
         // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
+        bool ownKit = kit.Count > 0;
+        kit = BossKits.WithExtra(kit, extraKit);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
             : kit.Count > 0 ? [.. BossKits.SkillsOf(conn, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
+        // An extra kit (an essence monster's spells) is specials on top of the default attack, not a replacement: the
+        // default attack is not one of its entries, so keep its own skill alongside the kit's. A monster with a kit of
+        // its own already carries the default attack as that kit's first entry.
+        if (!ownKit && kit.Count > 0 && kingSkills is null && skill is not null)
+            skills = [skill, .. (skills ?? [])];
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = Yugul.AddSkills(conn, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(conn, variety, level, skills);
-        List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
+        List<(uint, int)>? stats = skill is null || attack is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
@@ -512,11 +527,11 @@ public static partial class Game
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
             // A boss waiting to rise (Yugul) stays out of conn.Monsters until it does, where nothing would wake it: it is
             // created awake, as every other buried monster is; its bar only comes after the rise.
-            bool farBoss = !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
+            bool farBoss = asleep || !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
             // Bulk (an area's population): the create carries its wake and its rarity glow, so the client reads them in the
             // same admission and the producer waits for neither — each waited for a birth otherwise, a frame per object on
             // a lockstep client (746 monsters, 3.2 s). A far boss still wakes when the player comes near.
-            ushort glow = MonsterRarityBuffs.Row(rarity) ?? 0;
+            ushort glow = rarityGlow ? MonsterRarityBuffs.Row(rarity) ?? 0 : (ushort)0;
             ushort buff = 0;
             if (glow != 0) lock (conn.Monsters) buff = conn.NextBuff++;
             byte[]? glowBytes = glow != 0 ? InstanceEntities.AddBuff(id, buff, glow) : null;
@@ -541,7 +556,7 @@ public static partial class Game
         }
         if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Value.Describe(mods)}" +
             (mods.NameWords.Count > 0 ? $", named {MonsterModRolls.Value.NameOf(mods.NameWords)}" : ""));
-        if (log && attack.Projectile is { } shot)
+        if (log && attack?.Projectile is { } shot)
             Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ranged attack projectile {shot.Metadata} ({shot.Speed} units/s{(shot.Lobbed ? ", mortar" : "")})");
         if (owned is null)
             using (ProjectileMutation(conn))
@@ -2031,11 +2046,24 @@ public static partial class Game
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
             // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
             if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
-            return walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, 0, PlayerId)
+            // Flicker Strike's native action strikes without moving the actor (FlickerStrike.cs), so teleport the monster
+            // beside the player when the strike begins.
+            byte[]? flickerTeleport = null;
+            if (BossKits.EffectOf(m, a) is >= 0 and var fx && SkillsFor(conn).ActionHash(fx) == FlickerStrike.Action)
+            {
+                double fdx = from.X - player.X, fdy = from.Y - player.Y, fdist = Math.Sqrt(fdx * fdx + fdy * fdy);
+                var land = fdist <= 4 ? from
+                    : conn.Layout.Near((player.X + (int)Math.Round(fdx / fdist * 3), player.Y + (int)Math.Round(fdy / fdist * 3)));
+                m.Walk.Teleport(land.X, land.Y, now);
+                from = land;
+                flickerTeleport = InstanceProtocol.Teleport(id, land.X, land.Y);
+            }
+            var started = walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, 0, PlayerId)
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, conn.MonsterOrderFlags, targetObjectId: PlayerId);
+            return flickerTeleport is null ? started : [.. flickerTeleport, .. started];
         }, a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
             : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
-        if (m.Variety?.Id == EssenceExplosiveInsect)
+        if (IsEssenceExplosiveInsect(m.Variety?.Id))
         {
             if (await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds))
                 await ExplodeEssenceInsect(remote, stream, ciphers, conn, id, m, a, action);
@@ -2101,10 +2129,10 @@ public static partial class Game
     /// Immolators keep bringing skeletons while the player is near).</summary>
     public const int MaxSummoned = 5;
 
-    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than MaxSummoned
+    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than its alive cap
     // of its monsters alive); any other attack may.
     public static bool SummonReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned;
+        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < (m.SummonCap > 0 ? m.SummonCap : MaxSummoned);
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
@@ -2127,11 +2155,30 @@ public static partial class Game
             at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
         }
         int created = 0;
+        var summonKit = BossKits.SummonKit(conn, variety, m.Level);
+        // A batch scatters around its point rather than stacking on one cell: summon_specific_monsters_radius_+% scales the
+        // summoner's own footprint into the spread (Greed's blood orbs +50%, Contempt's spirits -50%). One summon keeps the
+        // point exactly.
+        double spread = Math.Max(1, LivingCollision.Size(m)) * Math.Max(0, 1 + summon.RadiusPercent / 100.0);
         for (int k = 0; k < summon.Count; k++)
-            if (await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
+        {
+            var spot = at;
+            if (summon.Count > 1 && spread > 0)
+            {
+                double angle = Random.Shared.NextDouble() * Math.Tau, d = Math.Sqrt(Random.Shared.NextDouble()) * spread;
+                var want = ((int)Math.Round(at.X + Math.Cos(angle) * d), (int)Math.Round(at.Y + Math.Sin(angle) * d));
+                if (conn.Layout.WalkableFor(want.Item1, want.Item2, 0)) spot = conn.Layout.Near(want);
+            }
+            if (await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, spot.X, spot.Y, alone: true,
                 extraMods: EssenceSummonModifiers(variety),
+                extraKit: summonKit,
                 ownedAdmission: () => MonsterSummonerCurrentLocked(conn, id, m) && EssenceSummonCanSpawnLocked(conn, id, variety),
-                owned: (_, summoned) => RegisterMonsterSummonLocked(summoned, id, m, summon)) != 0) created++;
+                owned: (_, summoned) => RegisterMonsterSummonLocked(summoned, id, m, summon)) != 0)
+            {
+                created++;
+                MapEssences.OnSummonSpawned(conn, variety.Id, spot);
+            }
+        }
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {created}/{summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
 
@@ -2291,7 +2338,9 @@ public static partial class Game
             outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, conn.Walk.Position(now), m.Walk.Position(now), checkRange: true, sequence: sequence);
             return outcome?.HitPacket;
         }, $"0x01af monster 0x{id:x} hit on the player (kind 3, sequence 0x{sequence:x4})")) return;
-        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        if (outcome is null) return;
+        MapEssences.MiseryOnAttack(conn, m, conn); // a Misery rare's attack adds an «Essence of Misery» stack
+        await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
     }
 
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
@@ -2451,7 +2500,8 @@ public static partial class Game
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
         AlternateAilmentsOnPlayerLocked(conn, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
-        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats);
+        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
+            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonDurationSeconds);
         ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(conn, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);

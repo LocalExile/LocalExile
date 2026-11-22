@@ -75,7 +75,8 @@ public static partial class Game
         {
             MinionUtilityTick(conn, now);
             InfernalLegionTickLocked(conn, now);
-            TickEssenceAurasLocked(conn, now);
+            TickEnvyAurasLocked(conn, now);
+            TickRemnantAurasLocked(conn, now);
         }
         await GolemsTick(remote, stream, ciphers, conn, now);
         if (!Current()) return;

@@ -88,7 +88,8 @@ public static partial class Game
             conn.IncomingAilments.Clear();
             ClearPlayerDecay(conn);
             ClearCorruptedBlood(conn);
-            ClearEssenceAuraExposure(conn);
+            ClearEnvyAuraExposure(conn);
+            ClearRemnantAuraExposure(conn);
             return 0;
         }
         double previousAction = conn.ElementalAilments.ActionFactor(from);
@@ -99,8 +100,10 @@ public static partial class Game
         double dotStart = Math.Max(Math.Max(conn.IncomingAilments.LatestStart, conn.ElementalAilments.LatestIgniteStart), PlayerDecayStarted(conn));
         var immunities = PlayerImmunities(conn, stats);
         if (Blood.TryGetValue(conn, out var blood)) dotStart = Math.Max(dotStart, blood.Started);
-        int auraDamage = AdvanceEssenceAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
-        dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(conn));
+        int auraDamage = AdvanceEnvyAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
+        dotStart = Math.Max(dotStart, PlayerEnvyAuraStarted(conn));
+        auraDamage = (int)Math.Min(int.MaxValue, (long)auraDamage + AdvanceRemnantAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Physical), dotStart));
+        dotStart = Math.Max(dotStart, PlayerRemnantAuraStarted(conn));
         double letheFactor = Get("keystone_lethe_shade") != 0 && until - dotStart < 1 ? .5 : 1;
         int damage = 0, lifeDamage = auraDamage;
         if (conn.ElementalAilments.HasEffects)
@@ -135,7 +138,8 @@ public static partial class Game
             conn.InvalidateIncomingHits();
             ClearPlayerDecay(conn);
             ClearCorruptedBlood(conn);
-            ClearEssenceAuraExposure(conn);
+            ClearEnvyAuraExposure(conn);
+            ClearRemnantAuraExposure(conn);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(conn);
         }
@@ -149,7 +153,8 @@ public static partial class Game
     /// by the shared incoming owner; an evaded, blocked or damage-immune contact never reaches here.
     /// </summary>
     public static void ApplyMonsterDamagingAilmentsLocked(ClientState conn, uint source, SpawnedMonster m,
-        DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null)
+        DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null,
+        int skillPoisonChance = 0, double skillPoisonSeconds = 0)
     {
         if (blocked || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
         var effects = m.Mods.Effects;
@@ -158,8 +163,8 @@ public static partial class Game
         int bleedChance = Math.Max(effects["global_bleed_on_hit"] != 0 ? 100 : 0,
             attack ? effects["bleed_on_hit_with_attacks_%"] : 0);
         if (attack) bleedChance += Player("receive_bleeding_chance_%_when_hit_by_attack");
-        int poisonChance = Math.Max(effects["global_poison_on_hit"] != 0 ? 100 : 0,
-            effects["base_chance_to_poison_on_hit_%"]);
+        int poisonChance = Math.Max(Math.Max(effects["global_poison_on_hit"] != 0 ? 100 : 0,
+            effects["base_chance_to_poison_on_hit_%"]), skillPoisonChance);
         if (attack) poisonChance = Math.Max(poisonChance,
             effects["base_attacks_poison"] != 0 ? 100 : effects["chance_to_poison_on_hit_with_attacks_%"]);
         if (bleedChance <= 0 && poisonChance <= 0) return;
@@ -190,7 +195,8 @@ public static partial class Game
             && !GameServer.Core.World.RandomRolls.Chance(Player("avoid_poison_%"), 100, conn.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects["base_poison_damage_+%"] / 100.0);
-            double seconds = Ailments.PoisonDurationSeconds
+            double baseDuration = skillPoisonSeconds > 0 ? skillPoisonSeconds : Ailments.PoisonDurationSeconds;
+            double seconds = baseDuration
                 * Math.Max(0, 1 + effects["base_poison_duration_+%"] / 100.0);
             conn.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
                 * Math.Max(0, 1 + effects["monster_poison_damage_+%_final"] / 100.0), seconds, source,

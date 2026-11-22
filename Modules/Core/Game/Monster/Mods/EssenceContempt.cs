@@ -1,6 +1,10 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 
+// Essence of Contempt: the chasing Karui spirits its EssenceDaemonSummonMovingKaruiSpirit1 monster mod brings (the mod
+// appears from tier 5 up). This is the only essence summon this file implements — the EssenceSummon* names below are the
+// summon path's hand-overs, called for every monster summon and answering only for this variety, not a general essence
+// summon engine. Another essence's summon gets its own file, as its other spells do.
 public static partial class Game
 {
     public const string EssenceKaruiSummonMod = "EssenceDaemonSummonMovingKaruiSpirit1";
@@ -14,14 +18,14 @@ public static partial class Game
     }
     static readonly RuleTable<SpawnedMonster, EssenceSummonCycle> EssenceSummonCycles = new();
     static readonly Lazy<ushort?> EssenceKaruiModHash = new(() => Items.Mods.ById(EssenceKaruiSummonMod)?.Hash);
-    // EssenceMovingAncestor.ot: these are untargetable, damage-immune spirits, not ordinary killable guards.
+    // EssenceMovingAncestor.ot and spectralsummonedskull.ot: both are untargetable, damage-immune spirits.
     static readonly MonsterModSet EssenceKaruiDefences = new([], [], new MonsterModEffects(new Dictionary<string, int>
     {
         ["base_cannot_be_damaged"] = 1, ["base_cannot_be_stunned"] = 1, ["cannot_be_knocked_back"] = 1,
         ["immune_to_curses"] = 1, ["immune_to_auras_from_other_entities"] = 1,
     }));
     public static MonsterModSet? EssenceSummonModifiers(MonsterCatalog.Variety variety) =>
-        variety.Id == EssenceKaruiSpirit ? EssenceKaruiDefences : null;
+        variety.Id is EssenceKaruiSpirit or MapEssences.EssenceSpectralSkull ? EssenceKaruiDefences : null;
     public static bool EssenceSummonCanSpawnLocked(ClientState conn, uint parent, MonsterCatalog.Variety variety) =>
         variety.Id != EssenceKaruiSpirit || conn.Monsters.Values.Count(m => m.SummonerId == parent
             && m.Variety?.Id == EssenceKaruiSpirit && !m.Dead && m.Life > 0) < EssenceKaruiLimit;

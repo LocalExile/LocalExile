@@ -52,7 +52,7 @@ static partial class Sirus
         return new(Skill(v, effect), Math.Max(.1, Game.SkillsFor(c).CastTimeMs(effect) / 1000d), 200, damage)
         {
             Spell = true, Scripted = true,
-            CorruptedBlood = CorruptedBloodOnHit.From(name => Stat(c, effect, level, name)),
+            CorruptedBlood = Game.CorruptedBloodFor(name => Stat(c, effect, level, name)),
             Ailments = IncomingAilmentSettings(name => Stat(c, effect, level, name)),
         };
     }

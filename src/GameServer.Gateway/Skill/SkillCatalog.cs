@@ -1130,6 +1130,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         public bool DiesWithParent { get; init; }
         public bool DiesWhenParentDeleted { get; init; }
+        /// <summary>The skill's summon_specific_monsters_radius_+%: how far a batch spreads around its point.</summary>
+        public int RadiusPercent { get; init; }
     }
 
     public MonsterSummonInfo? MonsterSummon(int effectRow, int level)
@@ -1164,6 +1166,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         {
             DiesWithParent = Get("minion_dies_when_parent_dies") != 0,
             DiesWhenParentDeleted = Get("minion_dies_when_parent_deleted") != 0,
+            RadiusPercent = Get("summon_specific_monsters_radius_+%"),
         };
     }
 

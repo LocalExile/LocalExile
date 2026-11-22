@@ -46,7 +46,8 @@ public sealed class GameModule : IModule, IDisposable
     {
         Rules.CombatLifetime = module.Lifetime;
         module.Lifetime.Own(Rules.CleanupTemporaryAuras());
-        module.Lifetime.Own(Rules.CleanupEssenceAuras());
+        module.Lifetime.Own(Rules.CleanupEnvyAuras());
+        module.Lifetime.Own(Rules.CleanupRemnantAuras());
         module.Lifetime.Own(Rules.CleanupMonsterSummons());
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
@@ -73,6 +74,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemOn);
         GameEvents.Tick.Add(module.Manifest.Id, MapEssences.Tick);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapEssences.EssenceDebuffStats);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.RemnantAuraStats);
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
@@ -257,7 +260,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(conn);
         Rules.ClearCorruptedBlood(conn);
-        Rules.ClearEssenceAuraExposure(conn);
+        Rules.ClearEnvyAuraExposure(conn);
+        Rules.ClearRemnantAuraExposure(conn);
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);

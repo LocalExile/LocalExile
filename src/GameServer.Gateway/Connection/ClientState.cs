@@ -53,6 +53,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public CorruptedBloodOnHit? CorruptedBlood { get; init; }
+    /// <summary>Skill-level chance to poison on hit (%) and base poison duration (seconds, 0 = default).</summary>
+    public int PoisonChance { get; init; }
+    public double PoisonDurationSeconds { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
@@ -236,6 +239,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double SummonReadyAt;
     /// <summary>When a non-kit monster's cooldown-gated attack (e.g. BatScreech, MotherOfFlamesMagmaOrb) is ready again.</summary>
     public double CooldownReadyAt;
+    /// <summary>A summoner's own alive cap when it differs from <see cref="Game.MaxSummoned"/> (an essence rare keeps the
+    /// tier-scaled count of its summon spell); 0 uses the default.</summary>
+    public int SummonCap;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>

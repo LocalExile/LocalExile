@@ -21,6 +21,20 @@ public static partial class Game
 
     static readonly RuleTable<ClientState, BloodState> Blood = new();
 
+    /// <summary>The Corrupted Blood a monster skill applies, from its own stats: the record's reader, plus the stack count
+    /// the blood-projectile and bonespire family leaves out. Those rows (EssenceBloodProjectileNova — Greed's essence
+    /// daemons — BellyTotemBloodProjectile, BellyTotemBonespire, BreachBonespire, BreachBonespireBoss,
+    /// IntMissionDaemonBloodProjectile, IntMissionDaemonBonespire, PyramidBeamSmash, SkeletonSoldierBloodProjectileNova,
+    /// VaalSideAreaVendigoBonespire) declare a duration and a per-stack percentage but no count, and apply one stack. A
+    /// duration with no damage source is still not a Corrupted Blood skill.</summary>
+    public static CorruptedBloodOnHit? CorruptedBloodFor(Func<string, int> stat)
+    {
+        if (CorruptedBloodOnHit.From(stat) is { } declared) return declared;
+        int duration = stat("corrupted_blood_on_hit_duration");
+        int perStack = stat("corrupted_blood_on_hit_%_average_damage_to_deal_per_minute_per_stack");
+        return duration > 0 && perStack > 0 ? new(1, duration / 1000d, 0, perStack) : null;
+    }
+
     public static void ApplyCorruptedBloodOnHit(ClientState conn, MonsterAttack attack, DamagePacket hit,
         bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
     {

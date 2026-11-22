@@ -1266,7 +1266,8 @@ public static partial class Game
                     AdvanceTincturesLocked(conn, now, seconds, recoveryStats, out _, out _, ref deactivatedTinctures);
                     ClearPlayerDecay(conn);
                     ClearCorruptedBlood(conn);
-                    ClearEssenceAuraExposure(conn);
+                    ClearEnvyAuraExposure(conn);
+                    ClearRemnantAuraExposure(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =
                         conn.ChaosDotBypassCarry = 0;
