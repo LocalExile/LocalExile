@@ -1,20 +1,23 @@
 using GameServer.Core;
+using GameServer.Core.World;
 using static Game;
 using static Program;
 
-/// <summary>Anguish's Fiery Rubble: the wiki's behaviour is a summon <b>on the rare's death</b> — "Summons Fiery Rubble that
-/// fractures into smaller variants on death, which is a unique Cinder Elemental". Its display mod carries
-/// <c>essence_anguish_spawn_monster_on_death_variation</c> 6, which selects SummonedSpecificMonstersOnDeath row 5: the 1st
-/// stage, <b>four</b> of them. Each stage's own death brings the next — row 6 (2nd, ×2) then row 7 (3rd, ×2) — so the swarm
-/// fractures down instead of dying once. The shared on-death queue (EssenceDeathEffects) drives it; only the stat, the
-/// varieties and the chain are Anguish's.
-/// <para>The essence also carries an <c>EssenceDaemonMeteorFirestorm</c> monster mod. It is a firestorm-shaped spell (one
-/// ball per second for three seconds), but it is not the behaviour the wiki describes for Anguish and a storm aimed at the
-/// player read as nothing like the encounter, so it is left out until it can be checked against retail.</para></summary>
+/// <summary>Anguish's Fiery Rubble and Meteor Firestorm: its display mod carries
+/// <c>essence_anguish_spawn_monster_on_death_variation</c> 6 (SummonedSpecificMonstersOnDeath row 5: four 1st-stage
+/// rubble that fracture into 2nd → 3rd stages via <c>EssenceDeathEffects.cs</c>), and its monster mod
+/// <c>EssenceDaemonMeteorFirestorm</c> (GE 1409) calls down a 3 s meteor Firestorm (1 ball/s, 25% ignite chance) using
+/// the shared <see cref="CastStorm"/> loop.</summary>
 public static partial class MapEssences
 {
+    public const string AnguishMeteorMod = "EssenceDaemonMeteorFirestorm";
     public const string AnguishDeathStat = "essence_anguish_spawn_monster_on_death_variation";
     public const string AnguishRubbleFirst = "Metadata/Monsters/MossMonster/EssenceElementalSummonedOnDeath1stStage";
     public const string AnguishRubbleSecond = "Metadata/Monsters/MossMonster/EssenceElementalSummonedOnDeath2ndStage";
     public const string AnguishRubbleThird = "Metadata/Monsters/MossMonster/EssenceElementalSummonedOnDeath3rdStage";
+    const string AnguishStormArt = "Metadata/Effects/Spells/firestorm/rig.ao";
+    const string AnguishMeteorImpactArt = "Metadata/Effects/Spells/monsters_effects/fire_elemental/meteor/meteorexplosion.ao";
+
+    static Task CastMeteorFirestorm(ClientState conn, SpawnedMonster monster, ClientState target, SpecialSpell spell)
+        => CastStorm(conn, monster, target, spell, AnguishMeteorImpactArt, AnguishStormArt, "meteor firestorm");
 }

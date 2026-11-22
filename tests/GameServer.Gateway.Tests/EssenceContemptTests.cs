@@ -70,6 +70,19 @@ public sealed class EssenceContemptTests : IDisposable
         var spirit = Monster();
         spirit.Mods = Game.EssenceSummonModifiers(variety)!;
         Assert.Equal(0, Game.MonsterTakes(spirit, DamagePacket.Of(DamageType.Physical, 1000, 1000), new Random(505), false));
+        // Insanity's Spectral Spirits (spectralsummonedskull.ot) share invulnerability; Doubt's spiders keep Flicker + Viper Strike.
+        var skull = Game.Monsters.Find(MapEssences.EssenceSpectralSkull)!;
+        var skullActor = Monster();
+        skullActor.Mods = Game.EssenceSummonModifiers(skull)!;
+        Assert.Equal(0, Game.MonsterTakes(skullActor, DamagePacket.Of(DamageType.Physical, 1000, 1000), new Random(505), false));
+        var spider = Game.Monsters.Find("Metadata/Monsters/Spiders/EssenceSpiderThornViperStrike")!;
+        var spiderKit = BossKits.SummonKit(Connection(), spider, 70);
+        var flicker = Assert.Single(spiderKit, k => Program.Skills.EffectId(k.Effect) == "MonsterFlickerStrike");
+        Assert.True(flicker.Attack.Range >= 30);
+        var viper = Assert.Single(spiderKit, k => Program.Skills.EffectId(k.Effect) == "MonsterViperStrike");
+        Assert.True(viper.Attack.Damage[DamageType.Chaos].Max > 0);
+        Assert.Equal(100, viper.Attack.PoisonChance);
+        Assert.Equal(4, viper.Attack.PoisonDurationSeconds);
         conn.Closed = false;
         var capped = Monster();
         capped.Mods = source.Mods;
@@ -260,6 +273,29 @@ public sealed class EssenceContemptTests : IDisposable
         Assert.False(Game.InEssenceInsectBlast(blast, (331, 300)));
         Assert.Empty(peer.Minions.Rewarded);
         Assert.DoesNotContain(peer.Minions.OutputQueue, o => o.Kind == PlayerMinions.OutputKind.PlayerKill);
+        // Delirium's summoned Explosive Crawler uses InsectSuicideExplosionLarge (radius 18) and self-destructs cleanly.
+        Assert.True(Game.IsEssenceExplosiveInsect(Game.EssenceExplosiveCrawler));
+        Assert.Equal(18, Game.EssenceInsectRadius(peer, effectId: Game.EssenceInsectEffectFor(Game.EssenceExplosiveCrawler)));
+        var crawler = new SpawnedMonster("crawler", new(300, 300, 30), 105, 6, 100)
+        { Variety = Game.Monsters.Find(Game.EssenceExplosiveCrawler), Level = 70, ActionGeneration = 5 };
+        peer.Monsters[45] = crawler;
+        var crawlerBlast = Game.CommitEssenceInsectExplosionLocked(peer, 45, crawler, 5)!;
+        Assert.True(crawler.Dead);
+        Assert.Equal(18, crawlerBlast.Radius);
+        // A multi-essence death queues all matching on-death spawns (Suffering Arctic Golem + Remnant Fleshmonsters).
+        var multi = Monster();
+        multi.Dead = true; multi.Life = 0;
+        multi.EncounterStats = new Dictionary<string, int>
+        {
+            [Game.SufferingDeathStat] = 9,
+            [Game.RemnantDeathStat] = 4,
+        };
+        peer.Monsters[46] = multi;
+        Assert.True(Game.QueueEssenceDeathSpawnLocked(peer, 46, multi));
+        var multiDue = Game.ClaimEssenceDeathSpawnsLocked(peer);
+        Assert.Equal(2, multiDue.Count);
+        Assert.Contains(multiDue, s => Game.Monsters.Find(s.Definition.Variety.ToString())!.Id == Game.SufferingArcticGolem && s.Definition.Count == 1);
+        Assert.Contains(multiDue, s => Game.Monsters.Find(s.Definition.Variety.ToString())!.Id == Game.RemnantFleshmonster && s.Definition.Count == 2);
         conn.Closed = peer.Closed = true;
     }
 }

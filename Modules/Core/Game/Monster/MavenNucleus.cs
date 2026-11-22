@@ -101,6 +101,8 @@ public static partial class Game
                 "MavenBrainProjectileBlastMPS" => Named("MavenBrainProjectileBlast", 750),
                 "MavenBrainLargeProjectileBarrageMPS" => Named("MavenBrainLargeProjectileBarrage", 300),
                 "MavenBrainSmallProjectileBarrage" => Named("MavenBrainSmallProjectileBarrage", 750),
+                "EssenceDaemonBallLightning" => Named("BallLightning", 60),
+                "EssenceFireballBurst" => Named("Fireball", 1040),
                 _ => null,
             };
         }

@@ -92,7 +92,8 @@ public static partial class Game
                 && stats.All(s => s.Item1 != key) ? [.. stats, (key, art)] : stats;
         if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(conn, effect, level, attack));
         var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
-        if (catalog.EffectId(effect) == "InsectSuicideExplosionHuge") return EssenceInsectSkillStats(conn, attack, own, effects);
+        if (catalog.EffectId(effect) is ("InsectSuicideExplosionHuge" or "InsectSuicideExplosionLarge") and var insectEffect)
+            return EssenceInsectSkillStats(conn, attack, own, effects, insectEffect);
         if (!attack.Ranged) return own;
         var raw = catalog.EffectStats(effect, level);
         int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
@@ -404,7 +405,7 @@ public static partial class Game
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         };
-        if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(conn, level, skillId, mods.Effects);
+        if (IsEssenceExplosiveInsect(variety.Id)) attack = EssenceInsectAttack(conn, level, skillId, mods.Effects, EssenceInsectEffectFor(variety.Id));
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
                 MonsterActionSkillStats(conn, effect, level, attack, mods.Effects)) : null;
@@ -2045,11 +2046,24 @@ public static partial class Game
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
             // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
             if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
-            return walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, 0, PlayerId)
+            // Flicker Strike's native action strikes without moving the actor (FlickerStrike.cs), so teleport the monster
+            // beside the player when the strike begins.
+            byte[]? flickerTeleport = null;
+            if (BossKits.EffectOf(m, a) is >= 0 and var fx && SkillsFor(conn).ActionHash(fx) == FlickerStrike.Action)
+            {
+                double fdx = from.X - player.X, fdy = from.Y - player.Y, fdist = Math.Sqrt(fdx * fdx + fdy * fdy);
+                var land = fdist <= 4 ? from
+                    : conn.Layout.Near((player.X + (int)Math.Round(fdx / fdist * 3), player.Y + (int)Math.Round(fdy / fdist * 3)));
+                m.Walk.Teleport(land.X, land.Y, now);
+                from = land;
+                flickerTeleport = InstanceProtocol.Teleport(id, land.X, land.Y);
+            }
+            var started = walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, 0, PlayerId)
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, conn.MonsterOrderFlags, targetObjectId: PlayerId);
+            return flickerTeleport is null ? started : [.. flickerTeleport, .. started];
         }, a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
             : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
-        if (m.Variety?.Id == EssenceExplosiveInsect)
+        if (IsEssenceExplosiveInsect(m.Variety?.Id))
         {
             if (await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds))
                 await ExplodeEssenceInsect(remote, stream, ciphers, conn, id, m, a, action);
@@ -2159,7 +2173,11 @@ public static partial class Game
                 extraMods: EssenceSummonModifiers(variety),
                 extraKit: summonKit,
                 ownedAdmission: () => MonsterSummonerCurrentLocked(conn, id, m) && EssenceSummonCanSpawnLocked(conn, id, variety),
-                owned: (_, summoned) => RegisterMonsterSummonLocked(summoned, id, m, summon)) != 0) created++;
+                owned: (_, summoned) => RegisterMonsterSummonLocked(summoned, id, m, summon)) != 0)
+            {
+                created++;
+                MapEssences.OnSummonSpawned(conn, variety.Id, spot);
+            }
         }
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {created}/{summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
@@ -2482,7 +2500,8 @@ public static partial class Game
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
         AlternateAilmentsOnPlayerLocked(conn, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
-        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats);
+        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
+            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonDurationSeconds);
         ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(conn, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);

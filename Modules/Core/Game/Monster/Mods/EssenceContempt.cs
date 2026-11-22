@@ -18,14 +18,14 @@ public static partial class Game
     }
     static readonly RuleTable<SpawnedMonster, EssenceSummonCycle> EssenceSummonCycles = new();
     static readonly Lazy<ushort?> EssenceKaruiModHash = new(() => Items.Mods.ById(EssenceKaruiSummonMod)?.Hash);
-    // EssenceMovingAncestor.ot: these are untargetable, damage-immune spirits, not ordinary killable guards.
+    // EssenceMovingAncestor.ot and spectralsummonedskull.ot: both are untargetable, damage-immune spirits.
     static readonly MonsterModSet EssenceKaruiDefences = new([], [], new MonsterModEffects(new Dictionary<string, int>
     {
         ["base_cannot_be_damaged"] = 1, ["base_cannot_be_stunned"] = 1, ["cannot_be_knocked_back"] = 1,
         ["immune_to_curses"] = 1, ["immune_to_auras_from_other_entities"] = 1,
     }));
     public static MonsterModSet? EssenceSummonModifiers(MonsterCatalog.Variety variety) =>
-        variety.Id == EssenceKaruiSpirit ? EssenceKaruiDefences : null;
+        variety.Id is EssenceKaruiSpirit or MapEssences.EssenceSpectralSkull ? EssenceKaruiDefences : null;
     public static bool EssenceSummonCanSpawnLocked(ClientState conn, uint parent, MonsterCatalog.Variety variety) =>
         variety.Id != EssenceKaruiSpirit || conn.Monsters.Values.Count(m => m.SummonerId == parent
             && m.Variety?.Id == EssenceKaruiSpirit && !m.Dead && m.Life > 0) < EssenceKaruiLimit;

@@ -49,7 +49,7 @@ public static partial class Game
         if (hit is null || hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
         double now = AreaTime(conn); var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
         hit.Started = true;
-        hit.ContactAt = now + hit.Attack.Seconds * (hit.Monster.Variety?.Id == EssenceExplosiveInsect ? 1 : hit.Attack.Release?.Fraction ?? .5);
+        hit.ContactAt = now + hit.Attack.Seconds * (IsEssenceExplosiveInsect(hit.Monster.Variety?.Id) ? 1 : hit.Attack.Release?.Fraction ?? .5);
         hit.Monster.BusyUntil = now + hit.Attack.Seconds;
         hit.Monster.Walk.Order(from.X, from.Y, now);
         return InstanceProtocol.ActionStarted(hit.Enemy, from.X, from.Y, to.X, to.Y, hit.Attack.SkillId,
@@ -71,7 +71,7 @@ public static partial class Game
             if (!hit.Started || now < hit.ContactAt) continue;
             conn.Golems.IncomingHits.Remove(hit);
             if (MonsterActionFactor(hit.Monster, now) == 0) continue;
-            if (hit.Monster.Variety?.Id == EssenceExplosiveInsect)
+            if (IsEssenceExplosiveInsect(hit.Monster.Variety?.Id))
             {
                 QueueEssenceInsectContactLocked(conn, hit.Enemy, hit.Monster, hit.Attack, hit.Generation);
                 continue;

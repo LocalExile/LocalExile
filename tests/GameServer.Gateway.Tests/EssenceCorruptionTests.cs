@@ -15,20 +15,18 @@ public sealed class EssenceCorruptionTests
     public void Released_essences_report_their_pending_skills_without_misreporting_implemented_behaviours()
     {
         int[] Carriers(string mod) => [.. MapEssenceCatalog.All.Where(e => e.MonsterMods.Contains(Program.Items.Mods.ById(mod)!.Row)).Select(e => e.Row)];
-        foreach (string id in new[] { "EssenceDaemonMeteorFirestorm", "EssenceHorrorCharges1" })
+        foreach (string id in new[]
         {
-            var carriers = Carriers(id);
-            Assert.NotEmpty(carriers);
-            Assert.Contains(id, MapEssenceCatalog.PendingEffects(carriers));
-        }
-        foreach (string id in new[] { Game.EnvyLifeDegenMod, Game.EssenceKaruiSummonMod, Game.EssenceInsectDeathMod, "EssenceEnrageOnLowLife", "DecayOnHitEssenceMonster1" })
+            Game.EnvyLifeDegenMod, Game.RemnantAuraMod, Game.EssenceKaruiSummonMod, Game.EssenceInsectDeathMod,
+            MapEssences.AnguishMeteorMod, MapEssences.EssenceHorrorChargesMod, "SpiritMinionEssenceMonster1",
+            "EssenceEnrageOnLowLife", "DecayOnHitEssenceMonster1",
+        })
         {
             var carriers = Carriers(id);
             Assert.NotEmpty(carriers);
             Assert.DoesNotContain(id, MapEssenceCatalog.PendingEffects(carriers));
         }
-        var rage = Carriers("EssenceDaemonMeteorFirestorm");
-        Assert.Equal(MapEssenceCatalog.PendingEffects(rage), MapEssenceCatalog.PendingEffects(rage.Concat(rage)));
+        Assert.Empty(MapEssenceCatalog.PendingEffects(MapEssenceCatalog.All.Select(e => e.Row)));
     }
 
     [Fact]
@@ -38,6 +36,7 @@ public sealed class EssenceCorruptionTests
         LowLifeEffects();
         DecayEffects();
         ToughnessEffects();
+        VerifySpecialSpellsAndBuffConsumers();
         foreach (var (suffix, element) in new[] { ("Fire", DamageType.Fire), ("Cold", DamageType.Cold), ("Lightning", DamageType.Lightning) })
         {
             var mod = Program.Items.Mods.ById("EssenceDaemonPhysicalAddedAndConvertedTo" + suffix)!;
@@ -481,6 +480,72 @@ public sealed class EssenceCorruptionTests
         Advance(41, 42);
         Assert.True(double.IsNegativeInfinity(Game.PlayerDecayStarted(conn)));
         conn.Closed = true;
+    }
+
+    static void VerifySpecialSpellsAndBuffConsumers()
+    {
+        var conn = CombatClient();
+        try
+        {
+            int RowByType(string typeId, int tier = -1)
+            {
+                var types = ClientTables.Table("EssenceType");
+                int key = Enumerable.Range(0, types.Count).Single(i => types[i].Text("Id") == typeId);
+                return MapEssenceCatalog.All.Last(e => e.Type == key && (tier < 0 || e.Tier == tier)).Row;
+            }
+            Assert.Contains("meteorfirestorm", MapEssences.SpecialSpellKinds(conn, [RowByType("Anguish", 7)], 75));
+            Assert.Contains("torment", MapEssences.SpecialSpellKinds(conn, [RowByType("Torment", 7)], 75));
+            Assert.Contains("beacon", MapEssences.SpecialSpellKinds(conn, [RowByType("Insanity", 8)], 75));
+            var hysteria = MapEssences.SpecialSpellKinds(conn, [RowByType("Hysteria", 8)], 75);
+            Assert.Contains("flameblast", hysteria);
+            Assert.Contains("fireball", hysteria);
+            Assert.Contains("stormcascade", MapEssences.SpecialSpellKinds(conn, [RowByType("Horror", 8)], 75));
+            Assert.Contains("deliriumchaos", MapEssences.SpecialSpellKinds(conn, [RowByType("Delirium", 8)], 75));
+            var desolation = MapEssenceCatalog.All.Single(e => e.Item.Contains("Faridun", StringComparison.Ordinal)).Row;
+            Assert.Contains("boulder", MapEssences.SpecialSpellKinds(conn, [desolation], 75));
+
+            var variety = Game.Monsters.Find("Metadata/Monsters/OriathanCitizen/OriathanCitizenZombieMale1")!;
+            int horrorRow = RowByType("Horror", 8);
+            var horrorKit = MapEssences.EssenceKit(conn, variety, 75, [horrorRow], MapEssenceCatalog.Mods(conn, variety, 75, [horrorRow]));
+            Assert.Contains(horrorKit, k => Program.Skills.EffectId(k.Effect) == "EssenceDaemonSummonCycloneSpirals");
+            Assert.DoesNotContain(horrorKit, k => Program.Skills.EffectId(k.Effect) == "EssenceDaemonStormCascadeDaemon");
+
+            int contemptRow = RowByType("Contempt", 7), woeRow = RowByType("Woe", 7);
+            var combinedKit = MapEssences.EssenceKit(conn, variety, 75, [contemptRow, woeRow],
+                MapEssenceCatalog.Mods(conn, variety, 75, [contemptRow, woeRow]));
+            Assert.Contains(combinedKit, k => Program.Skills.EffectId(k.Effect) == "EssenceSummonLivingCrystal");
+
+            // Loathing's active_skill_damage_+%_final and Scorn's base_self_critical_strike_multiplier_-%.
+            var boosted = MonsterModEffects.AddedTo(DamagePacket.Of(DamageType.Physical, 100, 200),
+                new Dictionary<string, int> { ["active_skill_damage_+%_final"] = 50 });
+            Assert.Equal(new DamageRange(150, 300), boosted[DamageType.Physical]);
+            var scorn = new SpawnedMonster("scorn", new(300, 300, 0), 60, 8, 1000);
+            scorn.TemporaryStats["EssenceBuff/757"] = new Dictionary<string, int> { ["base_self_critical_strike_multiplier_-%"] = 75 };
+            Assert.Equal(150, Game.CriticalMultiplierOn(scorn, 300));
+
+            // Horror's Endurance / Frenzy / Power charges cap at 3 each and publish monster stats.
+            var horror = new SpawnedMonster("horror", new(300, 300, 0), 60, 8, 1000);
+            for (int i = 0; i < 4; i++) MapEssences.ApplyHorrorCharge(horror, 0, 1);
+            MapEssences.ApplyHorrorCharge(horror, 1, 1);
+            MapEssences.ApplyHorrorCharge(horror, 2, 1);
+            Assert.Equal(45, horror.Effects["base_resist_all_elements_%"]);
+            Assert.Equal(45, horror.Effects["base_additional_physical_damage_reduction_%"]);
+            Assert.Equal(15, horror.Effects["attack_speed_+%"]);
+            Assert.Equal(4, horror.Effects["active_skill_damage_+%_final"]);
+            Assert.Equal(200, horror.Effects["critical_strike_chance_+%"]);
+
+            // Misery's Proximity Shield blocks hits outside radius 22 and allows hits inside.
+            var misery = new SpawnedMonster("misery", new(300, 300, 0), 60, 8, 1000) { ObjectId = 99 };
+            MapEssences.ActivateProximityShield(conn, misery, 5.0);
+            try
+            {
+                Assert.True(MapEssences.ProximityShieldBlocksLocked(conn, misery, (330, 300)));
+                Assert.False(MapEssences.ProximityShieldBlocksLocked(conn, misery, (310, 300)));
+            }
+            finally { MapEssences.ClearProximityShield(misery); }
+            Assert.False(MapEssences.ProximityShieldBlocksLocked(conn, misery, (330, 300)));
+        }
+        finally { conn.Closed = true; }
     }
 
     sealed class OutcomeRoll(int outcome) : Random

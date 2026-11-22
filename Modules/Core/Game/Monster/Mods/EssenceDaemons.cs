@@ -75,14 +75,15 @@ public static partial class MapEssences
                 // cooldown specials, and BossKits.Choose then has no chase attack between their cooldowns, freezing the
                 // rare in place; the rare keeps its default attack and fights normally instead.
                 if (Get("cast_when_triggered_by_other_skill_%") != 0) continue;
-                // A spell the periodic caster handles on its own timer (a pulse, the grab, a rune cluster, a frost bomb) is
-                // not a swung hit: it stays out of the hit kit so it is not cast twice.
-                if (EssenceSpellKind(catalog.EffectId(effect)).Length > 0) continue;
+                // A spell the periodic caster handles on its own timer (a pulse, the grab, a rune cluster, a frost bomb,
+                // storm, boulder, etc.) is not a swung hit: it stays out of the hit kit so it is not cast twice.
+                string? effectId = catalog.EffectId(effect);
+                if (EssenceSpellKind(effectId).Length > 0 || effectId == "GSFaridunEssenceDaemonBoulderImpact") continue;
                 double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
                 ushort id = (ushort)(0x4000 + kit.Count);
                 var attack = BossKits.AttackFor(conn, variety, level, effect, id);
                 if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
-                if (karuiOwned && attack.Summon is not null) continue;
+                if (karuiOwned && effectId is "EssenceDaemonSummonKaruiSpirit" or "EssenceDaemonSummonMovingKaruiSpirit") continue;
                 // An essence spell is cast alongside the rare's own fighting, not instead of its positioning. A spell's
                 // AttackFor reach is the variety's aggro range (60+), and MonsterSurround stands a ranged chaser off at
                 // reach - 1 — so a long-reach essence spell in the kit made the rare back away to its aggro edge instead
@@ -95,5 +96,16 @@ public static partial class MapEssences
             }
         }
         return kit;
+    }
+
+    const string DoubtSpiderVariety = "Metadata/Monsters/Spiders/EssenceSpiderThornViperStrike";
+    const string SpiderMortarImpactArt = "Metadata/Effects/Spells/monsters_effects/essence/spidermortar/spidermortarimpact.ao";
+
+    /// <summary>Spawns essence-specific summon landing visuals (Doubt's spider mortar burst).</summary>
+    public static void OnSummonSpawned(ClientState conn, string varietyId, (int X, int Y) spot)
+    {
+        if (varietyId != DoubtSpiderVariety || conn.Closed || conn.LeavingArea) return;
+        uint burst = SpawnEffect(conn, spot, SpiderMortarImpactArt);
+        _ = RemovePulseLater(conn, burst, 0.9);
     }
 }

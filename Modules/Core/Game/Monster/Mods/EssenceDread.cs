@@ -19,25 +19,26 @@ public static partial class MapEssences
     const string ChaosImpactArt = "Metadata/Effects/Spells/monsters_effects/League_Incursion/diversefx/projectiles/chaos/chaosimpact.ao";
 
     static Task CastChaosstorm(ClientState conn, SpawnedMonster monster, ClientState target, SpecialSpell spell)
-        => CastStorm(conn, monster, target, spell, DamageType.Chaos, ChaosImpactArt, ChaosstormArt, "chaosstorm");
+        => CastStorm(conn, monster, target, spell, ChaosImpactArt, ChaosstormArt, "chaosstorm");
 
     /// <summary>A Firestorm-shaped essence spell: a storm over the target within the skill's own action distance, dropping
     /// one ball every <c>fire_storm_fireball_delay_ms</c> for its duration, each an area hit where it lands with its own
     /// impact art. Shared by Dread's chaos Firestorm and Anguish's meteor Firestorm — the same skill shape, a different
     /// element and art. The hit kit cannot represent either: it would land one instant hit at the action's contact.</summary>
     static async Task CastStorm(ClientState conn, SpawnedMonster monster, ClientState target, SpecialSpell spell,
-        DamageType type, string impactArt, string stormArt, string label)
+        string impactArt, string stormArt, string label)
     {
         var catalog = SkillsFor(conn);
-        var stats = catalog.EffectStats(spell.Effect, catalog.MaxLevelAt(spell.Effect, monster.Level)).ToDictionary(s => s.Item1, s => s.Item2);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        // The storm's own area, then Firestorm's separate area modifier on top (the strongbox storms read it the same way).
-        double area = SkillArea.Radius(SkillArea.BaseRadius(catalog.EffectId(spell.Effect), Get), Get, true)
-            * Math.Sqrt(Math.Max(0, 1 + Get("firestorm_base_area_of_effect_+%") / 100.0));
-        int impact = Math.Max(4, (int)Math.Round(area / 2));
+        var native = GolemData.Skill(catalog, spell.Pulse, monster.Level);
+        int Get(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
+        // Impact radius comes from the skill's own area stats (e.g. Dread 10, Anguish 10 × 2.5 = 25); Firestorm's separate
+        // firestorm_base_area_of_effect_+% modifies the storm's scatter radius, not the individual impact radius.
+        int impact = Math.Max(6, SkillArea.Radius(SkillArea.BaseRadius(catalog.EffectId(spell.Pulse), Get), Get, true));
+        double area = Math.Max(4, impact * Math.Sqrt(Math.Max(0, 1 + Get("firestorm_base_area_of_effect_+%") / 100.0)));
         double delay = Math.Max(0.05, Get("fire_storm_fireball_delay_ms") / 1000.0);
         double seconds = Math.Max(delay, Get("base_skill_effect_duration") / 1000.0);
-        var damage = catalog.HitDamage(spell.Effect, monster.Level);
+        var damage = EssenceSkillDamage(conn, spell.Pulse, monster.Level);
+        if (damage.IsZero) damage = catalog.HitDamage(spell.Pulse, monster.Level);
         // The storm is aimed where the target stands, pulled into the skill's own reach: its
         // spell_maximum_action_distance_+% is -50, half the rare's normal casting distance.
         var from = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -55,17 +56,7 @@ public static partial class MapEssences
             var spot = conn.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * d), at.Y + (int)Math.Round(Math.Sin(angle) * d)));
             uint hit = SpawnEffect(conn, spot, impactArt);
             _ = RemovePulseLater(conn, hit, 0.8);
-            foreach (var player in PlayersNear(conn, spot, impact).ToArray())
-            {
-                if (player.Immune || InGracePeriod(player)) continue;
-                int amount = (int)Math.Clamp(damage.Roll(Random.Shared).MinTotal, 0, int.MaxValue);
-                if (amount <= 0 || !TrySyntheticEnemyHit(player, type, amount, block: true, spell: true, suppress: true, out _)) continue;
-                var (remote, stream, ciphers) = player.Wire;
-                await SendWorldRecord(remote, stream, ciphers, player, PlayerId,
-                    InstanceProtocol.LifeUpdate(PlayerId, player.PlayerLife, player.PlayerReservedLife), $"essence {label}");
-                await SendPlayerEnergyShield(remote, stream, ciphers, player);
-                if (player.PlayerLife == 0) await PlayerDied(remote, stream, ciphers, player, $"death from an essence {label}");
-            }
+            await EssenceSpellHit(conn, monster, spell.Pulse, damage, impact, spot);
             balls++;
             await Task.Delay(TimeSpan.FromSeconds(delay));
         }

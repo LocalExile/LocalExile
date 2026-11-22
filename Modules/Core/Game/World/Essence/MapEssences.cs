@@ -50,6 +50,8 @@ public static partial class MapEssences
         public readonly List<TrailZone> Trail = [];
         /// <summary>Rage's fire runes (EssenceRage.cs): armed traps on the ground that burst when stepped on.</summary>
         public readonly List<Rune> Runes = [];
+        /// <summary>Shared essence ground-effect zones (EssenceGroundZones.cs): Vortex, shocked, burning, chilled and caustic ground.</summary>
+        public readonly List<GroundZone> GroundZones = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
@@ -70,7 +72,7 @@ public static partial class MapEssences
         if (opening.Mods.Get("map_has_monoliths") > 0 || opening.Mods.Get("map_rare_monsters_trapped_in_essences") > 0
             || opening.Mods.Get("map_essences_are_1_tier_higher_chance_%") > 0)
             request.ContentWarnings.Add(("Essence.Parity",
-                $"area={opening.Area.Id} content=Essence: release/corruption/reward lifecycle enabled; base essence multiplicity/weights use replica balance; specialised essence skills (resistance/chaos pulses, grab) cast, the remaining daemon summons use the hit kit"));
+                $"area={opening.Area.Id} content=Essence: release/corruption/reward lifecycle and monster skills enabled; base essence multiplicity/weights use replica balance"));
     }
 
     static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
