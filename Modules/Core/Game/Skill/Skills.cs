@@ -287,6 +287,9 @@ public static partial class Game
             AddItemUtilityFlaskRawStats(built, UtilityStats(conn, FlaskGet)
                 .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
             AddSelfVulnerabilityStats(conn, built);
+            if (MapModsOf(conn)?.Get(PanelStats.MapLifeAndEnergyShieldRecovery) is int mapRecovery and not 0
+                && Stats.Key(PanelStats.MapLifeAndEnergyShieldRecovery) is uint recoveryKey)
+                built[recoveryKey] = mapRecovery;
             if (Stats.Key("currently_has_onslaught") is uint onslaughtFlag)
                 built[onslaughtFlag] = HasOnslaught(conn) ? 1 : 0;
             WithVaalPrevention(conn, built);

@@ -1252,6 +1252,8 @@ public static partial class Game
                 double recoveryFrom = last;
                 double life, mana;
                 (life, mana, ended) = AdvanceFlaskRecovery(conn, last, now);
+                double mapRecovery = PanelStats.MapRecoveryMultiplier(RecoveryStat);
+                life *= mapRecovery;
                 last = now;
                 lifeBefore = conn.PlayerLife;
                 manaBefore = conn.PlayerMana;
@@ -1304,27 +1306,28 @@ public static partial class Game
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
-                    conn.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
+                    conn.EnergyShield.Gain(leeched.EnergyShield * mapRecovery + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
                     double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
                     if (convertLifeRegen) conn.EnergyShield.Gain(fortificationLife);
-                    double antiquarianLife = conn.Antiquarian.TakeRecovery(now);
+                    double antiquarianLife = conn.Antiquarian.TakeRecovery(now) * mapRecovery;
                     if (convertLifeRegen) conn.EnergyShield.Gain(antiquarianLife);
-                    double enduringCryLife = conn.EnduringCryRecovery.Take(now);
-                    double unhingedHitLife = conn.Unhinged.HitRecovery.Take(now);
+                    double enduringCryLife = conn.EnduringCryRecovery.Take(now) * mapRecovery;
+                    double unhingedHitLife = conn.Unhinged.HitRecovery.Take(now) * mapRecovery;
                     if (convertLifeRegen) conn.EnergyShield.Gain(enduringCryLife);
-                    double preventedLife = PreventedDamageOf(conn).Take(recoveryFrom, now, preventedPerSecond);
+                    double preventedLife = PreventedDamageOf(conn).Take(recoveryFrom, now, preventedPerSecond) * mapRecovery;
                     if (convertLifeRegen) conn.EnergyShield.Gain(preventedLife);
                     if (convertLifeRegen) conn.EnergyShield.Gain(unhingedHitLife);
-                    double recoupLife = conn.LifeRecoup.Take(now);
+                    double recoupLife = conn.LifeRecoup.Take(now) * mapRecovery;
+                    double leechLife = leeched.Life * mapRecovery;
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
-                        + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
+                        + leechLife + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
                     if (!zealotsOath) nonFlaskLife += unhingedHitLife;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
-                    if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    if (vaalPact) { nonFlaskLife = leechLife; life = 0; }
                     AdvanceTincturesLocked(conn, now, seconds, recoveryStats, out double tinctureManaDrain,
                         out double tinctureLifeDrain, ref deactivatedTinctures);
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);

@@ -534,12 +534,16 @@ public static class PanelStats
 
     static int RecoveryValue(double rate) => (int)Math.Clamp(Math.Round(rate), int.MinValue, int.MaxValue);
 
+    public const string MapLifeAndEnergyShieldRecovery = "map_player_life_and_es_recovery_speed_+%_final";
+    public static double MapRecoveryMultiplier(Func<string, int> get) =>
+        Math.Max(0, 1 + get(MapLifeAndEnergyShieldRecovery) / 100d);
+
     /// <summary>Ordinary Life regeneration increases and recovery increases are distinct multiplicative buckets.
     /// Shared with the expiry-aware Fortification recovery writer so its added source follows the same rules.</summary>
     public static double LifeRegenerationMultiplier(Func<string, int> get) =>
         get("no_life_regeneration") != 0 || get("cannot_recover_life") != 0 ? 0 :
         Math.Max(0, 1 + get("life_regeneration_rate_+%") / 100.0)
-        * Math.Max(0, 1 + get("life_recovery_rate_+%") / 100.0);
+        * Math.Max(0, 1 + get("life_recovery_rate_+%") / 100.0) * MapRecoveryMultiplier(get);
 
     /// <summary>Flat plus percentage Life regeneration, scaled by regeneration and recovery increases.
     /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.
