@@ -35,7 +35,7 @@ static class CatalystQuality
                 foreach (var row in ClientTables.Table("AlternateQualityTypes"))
                 {
                     int at = index++;
-                    if (!row.Bool("IsCatalyst") || row.IntOrNull("ModEffectStat") is not int effect || effect < 0 || effect >= effects.Length) continue;
+                    if (row.IntOrNull("ModEffectStat") is not int effect || effect < 0 || effect >= effects.Length) continue;
                     var rule = effects[effect];
                     next.Add(checked((byte)at), new(rule.Ints("TagsKeys").Select(t => tags[t]).ToHashSet(StringComparer.Ordinal),
                         rule.Bool("ApplyToExplicit"), rule.Bool("ApplyToImplicit"), rule.Bool("ApplyToPrefix"), rule.Bool("ApplyToSuffix"), rule.Bool("ApplyToEnchant")));

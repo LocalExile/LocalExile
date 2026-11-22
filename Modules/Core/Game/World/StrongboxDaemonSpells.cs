@@ -319,7 +319,7 @@ public static partial class MapStrongboxes
     /// <summary>Every corpse near the box explodes (and is consumed): each an area hit around it.</summary>
     static async Task ExplodeCorpses(ClientState conn, (int X, int Y) at, int radius, DamagePacket damage)
     {
-        var corpses = new List<(uint Id, (int X, int Y) At)>();
+        var corpses = new List<(uint Id, (int X, int Y) At, bool Remove)>();
         double now = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters)
             foreach (var (id, m) in conn.Monsters)
@@ -328,12 +328,12 @@ public static partial class MapStrongboxes
                 var spot = m.Walk.Position(now);
                 if (Distance(spot, at) > radius * 2) continue;
                 m.CorpseConsumed = true;
-                corpses.Add((id, spot));
+                corpses.Add((id, spot, !m.CreatedAsCorpse));
             }
         var (remote, stream, ciphers) = conn.Wire;
-        foreach (var (id, spot) in corpses)
+        foreach (var (id, spot, remove) in corpses)
         {
-            await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            if (remove) await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
             await ShowArt(conn, spot, KillExplosionAo, 1.5);
             await HitPlayers(conn, spot, radius, DamageType.Fire, damage);
         }
@@ -343,7 +343,7 @@ public static partial class MapStrongboxes
     /// as the box's guards: its loot waits for them too.</summary>
     static async Task Revive(ClientState conn, Area area, Box box, int radius)
     {
-        var dead = new List<(uint Id, MonsterCatalog.Variety Variety, byte Level, MonsterRarity Rarity, (int X, int Y) At)>();
+        var dead = new List<(uint Id, MonsterCatalog.Variety Variety, byte Level, MonsterRarity Rarity, (int X, int Y) At, bool Remove)>();
         double now = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters)
             foreach (var (id, m) in conn.Monsters)
@@ -351,7 +351,7 @@ public static partial class MapStrongboxes
                     && Distance(m.Walk.Position(now), (box.X, box.Y)) <= radius * 2)
                 {
                     m.CorpseConsumed = true;
-                    dead.Add((id, variety, (byte)m.Level, m.Rarity, m.Walk.Position(now)));
+                    dead.Add((id, variety, (byte)m.Level, m.Rarity, m.Walk.Position(now), !m.CreatedAsCorpse));
                 }
         if (dead.Count == 0) return;
         var onslaught = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int>
@@ -360,9 +360,9 @@ public static partial class MapStrongboxes
         }));
         var (remote, stream, ciphers) = conn.Wire;
         var risen = new List<uint>();
-        foreach (var (id, variety, level, rarity, at) in dead)
+        foreach (var (id, variety, level, rarity, at, remove) in dead)
         {
-            await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            if (remove) await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
             uint again = await SpawnMonster(remote, stream, ciphers, conn, variety, level, rarity, at.X, at.Y, alone: false, log: false,
                 extraMods: onslaught, owned: (_, m) => m.Aggro = true);
             if (again != 0) risen.Add(again);

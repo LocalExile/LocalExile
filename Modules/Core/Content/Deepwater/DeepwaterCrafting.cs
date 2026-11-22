@@ -318,6 +318,7 @@ public static class DeepwaterCrafting
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         conn.NpcTalkScript = null;
         await player.Send(InstanceNpcs.Talk(0), $"0x0084 object 0: Vesper's dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
         await player.Send(InstanceWaypoints.OpenUi(CraftingUi), $"0x007b open DeepwaterCraftingWindow (kind 0x{CraftingUi:x2}, NPCTalk {talk.Row})");

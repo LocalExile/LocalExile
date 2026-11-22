@@ -648,6 +648,7 @@ internal static class DeepwaterProgression
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         conn.NpcTalkScript = null;
     }
 
