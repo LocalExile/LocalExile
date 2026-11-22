@@ -40,7 +40,10 @@ public static partial class Game
                 conn.LockstepHold.Update((here.X + dx, here.Y + dy));
                 conn.LockstepSkill.Update((here.X + dx, here.Y + dy));
                 if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
+                {
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+                    SnipeAimedAt(conn, (here.X + dx, here.Y + dy));
+                }
             }
             else if (id == InstanceProtocol.LockstepMoveStopId)
             {
@@ -67,8 +70,10 @@ public static partial class Game
     }
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
+    // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
     static bool LockstepRepeats(ClientState conn, ushort skill) =>
-        !(GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem && SkillsFor(conn).IsChannelled(gem.Effect));
+        !(GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
+            && SkillsFor(conn).IsChannelled(gem.Effect) && !IsTotemSkill(conn, skill));
 
     static ushort NextLockstepSequence(ClientState conn)
     {
@@ -126,6 +131,7 @@ public static partial class Game
                 ended = channel;
                 conn.ChannelSkill = 0;
                 conn.ChannelGeneration++;
+                SnipeWakeChannel(conn);
             }
             // Readiness belongs to the client's frame. Projectile time may already be ahead of it; using that
             // clock can start a Move before pickup completion, whose cleanup then discards the new path.
@@ -362,6 +368,17 @@ public static partial class Game
     {
         if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
         {
+            var supported = SupportedSkill(conn, skill);
+            var placed = PlacedKind(supported);
+            if (placed.Trap || placed.Mine)
+            {
+                var player = CharacterPlayerStats(conn);
+                return Math.Max(TickSeconds, PlacedThrowSeconds(
+                    n => GolemStat(supported.Stats, n) + GolemStat(player, n),
+                    placed.Mine, ChargesOf(conn).Effective(ChargeType.Frenzy)) / PlayerActionFactor(conn));
+            }
+            if (IsTotemSkill(conn, skill))
+                return Math.Max(TickSeconds, TotemPlacementSeconds(conn, skill, gem.Effect));
             if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
             // The native spell duration divides the virtual base by cast speed (0x1419f1960).
             // The repeat counter restarts the same action (0x1419e6370); hold through every cast, not just its first.

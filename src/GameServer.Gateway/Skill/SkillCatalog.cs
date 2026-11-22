@@ -873,6 +873,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
+        ["Snipe"] = "Metadata/Projectiles/ChannelledSnipeDefaultProjectile",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
         ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
         ["EssenceDrain"] = "Metadata/Projectiles/Siphon",
@@ -1130,8 +1131,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Count = Math.Max(1, count),
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
             // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
-            Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
-                || Get("projectile_ballistic_angle_from_target_distance") != 0,
+            // Straight spell projectiles (MonsterProjectileSpell) start with Lobbed false and stay straight.
+            Lobbed = projectile.Lobbed && (projectile.Variation == 0
+                || Get("projectile_ballistic_angle_from_reference_event") != 0
+                || Get("projectile_ballistic_angle_from_target_distance") != 0),
         };
     }
 
@@ -1140,16 +1143,59 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// (world units ahead of the summoner) and <c>summoned_monsters_no_drops_or_experience</c>, with the effect's cast time
     /// and cooldown (seconds). The Labyrinth's Immolator (<c>SummonLabyrinthFireSkeleton</c>): one Ember Claimant 114
     /// units ahead, a 2.17 s cast, 3 s cooldown. Null for any other skill.</summary>
-    public sealed record MonsterSummonInfo(int Variety, int Count, double Offset, bool NoRewards, double CastSeconds, double CooldownSeconds);
+    public sealed record MonsterSummonInfo(int Variety, int Count, double Offset, bool NoRewards, double CastSeconds, double CooldownSeconds)
+    {
+        public bool DiesWithParent { get; init; }
+        public bool DiesWhenParentDeleted { get; init; }
+    }
 
     public MonsterSummonInfo? MonsterSummon(int effectRow, int level)
     {
         var stats = EffectStats(effectRow, level);
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        string? effectId = EffectId(effectRow);
+        // Monster Raging Spirit uses alternate_minion as an art variant (1 = ghostflame for Fairgraves), NOT a
+        // SummonedSpecificMonsters Id (where 1 is Adolescent Rhoa). Merveil's statue/daughter/spawn skills likewise
+        // omit alternate_minion and name their summons by skill type.
+        if (effectId is "SummonRagingSpiritFairgraves" or "MonsterSummonRagingSpirit"
+            or "MerveilSummonStatue" or "MerveilSummonDaughters" or "MerveilSummonSpawn")
+        {
+            string targetId = effectId switch
+            {
+                "SummonRagingSpiritFairgraves" => "Metadata/Monsters/MonsterSummonedSkull/MonsterSummonedSkullGhostly",
+                "MonsterSummonRagingSpirit" => "Metadata/Monsters/MonsterSummonedSkull/MonsterSummonedSkull",
+                "MerveilSummonStatue" => "Metadata/Monsters/Statue/GoldStatueFemaleSwordMerveil",
+                "MerveilSummonDaughters" => "Metadata/Monsters/Seawitch/SeaWitchMerveilSummonFire",
+                _ => "Metadata/Monsters/Seawitch/SeaWitchSpawnExploding",
+            };
+            if (!_monsterVarietyRowsById.Value.TryGetValue(targetId, out int specialVariety)) return null;
+            int rawCount = Get("number_of_monsters_to_summon");
+            int count = effectId == "MerveilSummonSpawn" ? Math.Clamp(rawCount > 0 ? rawCount : 3, 1, 4)
+                : Math.Max(1, rawCount > 0 ? rawCount : 2);
+            return new(specialVariety, count, Get("summon_specific_monsters_in_front_offset"),
+                NoRewards: true, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
+        }
         if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.Value.TryGetValue(minion, out int variety)) return null;
         return new(variety, Math.Max(1, Get("number_of_monsters_to_summon")), Get("summon_specific_monsters_in_front_offset"),
-            Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
+            Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0)
+        {
+            DiesWithParent = Get("minion_dies_when_parent_dies") != 0,
+            DiesWhenParentDeleted = Get("minion_dies_when_parent_deleted") != 0,
+        };
     }
+
+    private readonly Lazy<Dictionary<string, int>> _monsterVarietyRowsById = new(() =>
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (!ClientTables.Has("MonsterVarieties")) return result;
+        int row = 0;
+        foreach (var r in ClientTables.Table("MonsterVarieties"))
+        {
+            if (r.TextOrNull("Id") is { Length: > 0 } id) result.TryAdd(id, row);
+            row++;
+        }
+        return result;
+    });
 
     // SummonedSpecificMonsters: Id → MonsterVarietiesKey.
     private readonly Lazy<Dictionary<int, int>> _summonedMonsters = new(() =>
@@ -1204,11 +1250,36 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             foreach (var r in attacks)
                 if (r.IntOrNull("Id") is int id && r.IntOrNull("Projectile") is int p)
                     attackRows.TryAdd(id, p);
+        var spellRows = new Dictionary<int, (int Projectile, string? AnimationKey)>();
+        if (ClientTables.TableOrNull("MonsterProjectileSpell") is { } spells)
+            foreach (var r in spells)
+                if (r.IntOrNull("Id") is int id && r.IntOrNull("Projectile") is int p)
+                {
+                    string? key = r.IntOrNull("Animation") is int a
+                        && a >= 0 && a < animationIds.Count && animationIds[a].Length > 0
+                        ? animationIds[a] : null;
+                    spellRows.TryAdd(id, (p, key));
+                }
         var active = ClientTables.Table("ActiveSkills");
         var mortarSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
             .ToDictionary(a => a.i, a => a.r.Text("Id") == "monster_mortar_attack");
+        var spellProjectileSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") == "monster_projectile_spell")
+            .Select(a => a.i).ToHashSet();
+        var rollingMagmaSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") == "rolling_magma")
+            .Select(a => a.i).ToHashSet();
+        int magmaOrbRow = rows.FindIndex(p => p.Id == "Metadata/Projectiles/MagmaOrbShort");
+        var merveilIceSpearSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") == "merveil_ice_spear")
+            .Select(a => a.i).ToHashSet();
+        int iceSpearRow = rows.FindIndex(p => p.Id == "Metadata/Projectiles/IceSpear");
+        var spectralThrowSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") == "spectral_throw")
+            .Select(a => a.i).ToHashSet();
+        int fairgravesThrowRow = rows.FindIndex(p => p.Id == "Metadata/Projectiles/SpectralThrowFairgraves");
         var equipmentProjectileSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") == "monster_projectile_weapon")
             .Select(a => a.i).ToHashSet();
@@ -1229,6 +1300,30 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     || !mortarRows.TryGetValue(skill, out var mortar)) continue;
                 (projectileRow, animationKey, lobbed) = (mortar.Projectile, mortar.AnimationKey, true);
                 variation = attackForm ? skill : 0;
+            }
+            else if (spellProjectileSkills.Contains(activeRow))
+            {
+                // MonsterProjectileSpell rows index by monster_projectile_variation, defaulting to 0 (e.g. HeiTiki).
+                // Keep Variation 0 so the server publishes the projectile object instead of expecting a client mortar.
+                int variationRow = variationKey is uint key
+                    ? EffectStats(row, 1).Where(s => s.Item1 == key).Select(s => (int?)s.Item2).FirstOrDefault() ?? 0
+                    : 0;
+                if (!spellRows.TryGetValue(variationRow, out var spell)) continue;
+                (projectileRow, animationKey, lobbed, variation) = (spell.Projectile, spell.AnimationKey ?? "SpellProjectile", false, 0);
+            }
+            else if (rollingMagmaSkills.Contains(activeRow) && magmaOrbRow >= 0)
+            {
+                // Rolling Magma (Flame Mother): Frida-verified MagmaOrbShort lobbed projectile, server-published.
+                (projectileRow, animationKey, lobbed, variation) = (magmaOrbRow, "SpellProjectile", true, 0);
+            }
+            else if (merveilIceSpearSkills.Contains(activeRow) && iceSpearRow >= 0)
+            {
+                (projectileRow, animationKey, lobbed, variation) = (iceSpearRow, "SpellProjectile", false, 0);
+            }
+            else if (spectralThrowSkills.Contains(activeRow) && fairgravesThrowRow >= 0
+                && e.TextOrNull("Id") == "FairgravesThrownWeapon")
+            {
+                (projectileRow, animationKey, lobbed, variation) = (fairgravesThrowRow, "Attack", false, 0);
             }
             else if (includeWeaponAttacks && equipmentProjectileSkills.Contains(activeRow) && variationKey is uint key)
             {

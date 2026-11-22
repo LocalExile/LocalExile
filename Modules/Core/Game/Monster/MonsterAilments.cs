@@ -21,6 +21,7 @@ public static partial class Game
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
             + PerAilmentTypeTakenPct(m, now)
+            + BrandMonsterTakenPctLocked(m)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0))
         * MonsterToughnessFactor(m.Effects);
 
@@ -292,7 +293,24 @@ public static partial class Game
             * (critical ? criticalMultiplier / 100.0 : 1) * (type == DamageType.Physical
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
-        int Attacker(string name) => Player(name) + PanelStats.Of(name, Skill);
+        bool tinctureWeapon = !spell && Player("tincture_applied") != 0;
+        int Attacker(string name)
+        {
+            int value = Player(name) + PanelStats.Of(name, Skill);
+            if (!tinctureWeapon) return value;
+            return name switch
+            {
+                "chance_to_freeze_%" => value + Player("chance_to_freeze_%_with_tinctured_weapons"),
+                "chance_to_shock_%" => value + Player("chance_to_shock_%_with_tinctured_weapons"),
+                "virtual_chill_effect_+%" => value + Player("chill_effect_+%_with_tinctured_weapons"),
+                "virtual_shock_effect_+%" => value + Player("shock_effect_+%_with_tinctured_weapons"),
+                "virtual_chill_duration_+%" or "virtual_freeze_duration_+%" or "virtual_shock_duration_+%" =>
+                    value + Player("elemental_ailment_duration_+%_with_tinctured_weapons"),
+                "all_damage_can_freeze" => value | Player("all_damage_with_tinctured_weapons_can_freeze"),
+                "all_damage_can_shock" => value | Player("all_damage_with_tinctured_weapons_can_shock"),
+                _ => value,
+            };
+        }
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
@@ -416,7 +434,9 @@ public static partial class Game
                 foreach (var (kind, removed, added, magnitude) in a.Present(now))
                 {
                     if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now),
+                        AilmentArtVisual(conn, kind switch { Kind.Chill => "chill", Kind.Freeze => "freeze", _ => "shock" })),
+                        $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
                 }
             }
             double action = MonsterActionFactor(m, now, freeze: false);
@@ -424,8 +444,9 @@ public static partial class Game
             // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
             bool speedFloored = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0;
             var movement = MaimedMovementFactor(m, now);
-            if (trap != 1 && !(speedFloored && trap < 1))
-                movement = (movement.Factor * trap, (int)Math.Round((100 + movement.Pct) * trap - 100));
+            double lessMove = trap * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
+            if (lessMove != 1 && !(speedFloored && lessMove < 1))
+                movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
             double walk = (speedFloored ? Math.Max(1, action) : action)
                 * movement.Factor;
             if (!speedFloored) walk *= vines;
@@ -483,10 +504,11 @@ public static partial class Game
     /// </summary>
     // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
     // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
-    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
+    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0, ushort? visual = null) =>
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
-            u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
+            u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null,
+            visual: visual);
     public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,

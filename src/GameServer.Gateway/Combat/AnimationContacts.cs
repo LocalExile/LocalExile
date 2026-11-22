@@ -61,7 +61,8 @@ public sealed class AnimationContacts
 
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
         Dictionary<string, AnimationClip> AllClips, Dictionary<string, DefaultAttackClip[]> AttackPools,
-        Dictionary<(string Stance, int Variation), AnimationClip> ProjectileCasts);
+        Dictionary<(string Stance, int Variation), AnimationClip> ProjectileCasts,
+        Dictionary<(string Stance, string Skill), string> SkillClips);
 
     private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo;
     private readonly Lazy<string[]> _itemStances;
@@ -182,6 +183,15 @@ public sealed class AnimationContacts
             || found.Clip.Events is not { } events || !events.TryGetValue(eventName, out var times) || times.Count == 0)
             return null;
         return (found.Name, found.Clip.Length, times.Min(), times.Max());
+    }
+
+    /// <summary>The exact single clip selected by a supported skill's ACT stance, if the data resolves it.</summary>
+    public (string Name, double Contact)? ActAttackContact(string animatedObject, WeaponProfile weapon, string skill)
+    {
+        if (weapon.DualWield || !_byAo.Value.TryGetValue(animatedObject, out var actor)
+            || StanceFor(weapon) is not { } stance || !actor.SkillClips.TryGetValue((stance, skill), out string? name)
+            || !actor.Clips.TryGetValue(name, out var clip) || clip.Length <= 0) return null;
+        return (name, (double)clip.Contact / clip.Length);
     }
 
     private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip,
@@ -339,6 +349,7 @@ public sealed class AnimationContacts
         var attacksByRig = By("animation_default_attacks", "rig");
         var projectileCastsByRig = By("animation_projectile_casts", "rig");
         var projectileVariantsByRig = By("animation_projectile_cast_variants", "rig");
+        var skillClipsByRig = By("animation_skill_clips", "rig");
         foreach (var rig in rigs)
         {
             string ao = rig.Text("ao")!;
@@ -396,7 +407,9 @@ public sealed class AnimationContacts
                     throw new InvalidDataException($"Projectile variation {ao}/{pool.Key} needs per-candidate timing.");
                 casts.Add(pool.Key, times[0]);
             }
-            result[ao] = new ActorAnimations(clips, allClips, pools, casts);
+            var skillClips = skillClipsByRig[rig.Index].ToDictionary(
+                r => (r.Text("stance")!, r.Text("skill")!), r => r.Text("animation")!);
+            result[ao] = new ActorAnimations(clips, allClips, pools, casts, skillClips);
         }
         return result;
     }

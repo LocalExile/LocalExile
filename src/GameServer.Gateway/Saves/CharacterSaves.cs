@@ -97,6 +97,9 @@ public static class CharacterSaves
     public sealed record OpeningTutorial(SavedItem SkillGem, SavedItem SupportGem,
         bool Talked = false, bool ZombieKilled = false, bool ChestOpened = false, bool SkillClaimed = false, bool SupportClaimed = false,
         string? Id = null, bool WeaponPromptHeard = false, bool WakeUpShown = false);
+    public static (bool ZombieKilled, bool ChestOpened)? TutorialWallProgress(string character) =>
+        Look(character)?.Tutorial is { } tutorial ? (tutorial.ZombieKilled, tutorial.ChestOpened) : null;
+
     public static void ChangeTutorial(string character, Func<OpeningTutorial, OpeningTutorial> change) =>
         Update(character, s => s.Tutorial is { } tutorial ? s with { Tutorial = change(tutorial) } : s);
     public static void SetTutorial(string character, OpeningTutorial tutorial) => Update(character, s => s with { Tutorial = tutorial });

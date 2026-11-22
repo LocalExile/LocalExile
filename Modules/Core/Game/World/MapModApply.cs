@@ -115,7 +115,7 @@ public static partial class Game
             double expected = CurrencyDropExpected(rarity) * (currency - 1);
             int whole = (int)expected + (rng.NextDouble() < expected - (int)expected ? 1 : 0);
             for (int i = 0; i < whole; i++)
-                if (RollWeightedCurrency(ItemsFor(conn), monsterLevel, rng) is { } extraCurrency) yield return extraCurrency;
+                if (drops.CurrencyDrop(monsterLevel, rng) is { } extraCurrency) yield return extraCurrency;
         }
     }
 
@@ -127,20 +127,43 @@ public static partial class Game
         _ => 0.15,
     };
 
+    sealed record CachedCurrencyPool(object Snapshot, (ItemCatalog.BaseType Type, double Weight, int DropLevel)[] Pool);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog, CachedCurrencyPool> CurrencyPoolsByCatalog = new();
+
     public static ItemDrops.Drop? RollWeightedCurrency(ItemCatalog catalog, int level, Random rng)
     {
+        var snapshot = DropDataProvider.Default.Current;
+        if (!CurrencyPoolsByCatalog.TryGetValue(catalog, out var cached) || !ReferenceEquals(cached.Snapshot, snapshot))
+        {
+            var list = new List<(ItemCatalog.BaseType Type, double Weight, int DropLevel)>();
+            if (snapshot.CurrencyWeights.Count > 0)
+            {
+                foreach (var row in snapshot.CurrencyWeights.Values)
+                    if (row.Weight > 0 && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
+                        list.Add((t, row.Weight, Math.Max(t.DropLevel, row.DropLevel)));
+            }
+            if (list.Count == 0)
+            {
+                for (int i = 0; i < ItemDrops.Currency.Length; i++)
+                    if (catalog.Find(ItemDrops.Currency[i].Id) is { Supported: true } t)
+                        list.Add((t, ItemDrops.Currency[i].Weight, t.DropLevel));
+            }
+            cached = new CachedCurrencyPool(snapshot, [.. list]);
+            CurrencyPoolsByCatalog.AddOrUpdate(catalog, cached);
+        }
+        var pool = cached.Pool;
         double total = 0;
-        for (int i = 0; i < ItemDrops.Currency.Length; i++)
-            if (catalog.Find(ItemDrops.Currency[i].Id) is { Supported: true } t && t.DropLevel <= level)
-                total += ItemDrops.Currency[i].Weight;
+        for (int i = 0; i < pool.Length; i++)
+            if (pool[i].DropLevel <= level && pool[i].Weight > 0) total += pool[i].Weight;
         if (total <= 0) return null;
         double roll = rng.NextDouble() * total;
         ItemCatalog.BaseType? picked = null;
-        for (int i = 0; i < ItemDrops.Currency.Length; i++)
+        for (int i = 0; i < pool.Length; i++)
         {
-            if (catalog.Find(ItemDrops.Currency[i].Id) is not { Supported: true } t || t.DropLevel > level) continue;
-            picked = t;
-            if ((roll -= ItemDrops.Currency[i].Weight) < 0) break;
+            var entry = pool[i];
+            if (entry.DropLevel > level || entry.Weight <= 0) continue;
+            picked = entry.Type;
+            if ((roll -= entry.Weight) < 0) break;
         }
         return picked is null ? null : new(ItemCatalog.Create(picked) with { StackSize = 1, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, picked);
     }

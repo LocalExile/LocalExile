@@ -213,7 +213,8 @@ public static class GatewayProjectileSkillProfiles
         var secondary = KineticBoltSecondary(parent);
         return parent with
         {
-            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i + 1 : 0, parent.ZigZags,
+            // Simultaneous fans use the volley index. Sequential Barrage contacts start at offset one.
+            Legs = i => new KineticBoltLegs(sequence, i + (parent.SequentialDelay > 0 ? 1 : 0), parent.ZigZags,
                 parent.Speed, parent.Range, secondary),
             LegLeash = 0
         };

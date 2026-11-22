@@ -512,6 +512,8 @@ public static partial class Game
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
+            if (ReferenceEquals(shot.BrandedTarget, target))
+                more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, "trigger_brand_support_hit_damage_+%_final_vs_branded_enemy") / 100.0);
             if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
             if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
@@ -566,6 +568,13 @@ public static partial class Game
                 target.KilledWithItemRarityPct = shot.SkillStats.GetValueOrDefault(rarityKey);
             // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
             SoulEaterHit(Conn, target);
+            if (shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage && target.Hostile)
+            {
+                Conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                if (hit.Value.Life == 0) RecordTinctureKill(target, shot.TinctureKill);
+            }
+            if (shot.ActualCaster is null && !shot.Spell && Conn.TinctureEffects.AnyEffective)
+                TinctureOnWeaponHitLocked(Conn, player, target, lifeBefore, at, contact.Projectile.ReactionRandomSource);
             if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, target, shot.SkillStats);
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == PlayerId)
                 MirageOnArrowHit(shot);

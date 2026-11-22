@@ -986,6 +986,7 @@ static partial class SurvivorsSkills
         var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : accuracy.Rating,
             CriticalChance: crit, CriticalMultiplier: multiplier, Label: skill.Name)
         {
+            WeaponAttack = armedAttack && !SkillsFor(conn).RequiresShield(skill.Effect),
             AreaHit = areaHit,
             // The survivor projectile is the server's own (ClientPredicted=false), so it carries its flight and impact
             // clips; the client's instant action only starts the bar's cooldown and the cast animation.

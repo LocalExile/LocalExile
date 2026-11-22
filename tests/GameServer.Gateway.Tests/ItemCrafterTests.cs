@@ -114,5 +114,23 @@ public class ItemCrafterTests
         var medium = lines.Single(l => (string?)l["type"] == "base" && (string?)l["name"] == "Medium Cluster Jewel")["cluster"]!["themes"]!.AsArray();
         Assert.Equal(19, medium.Count);
         Assert.DoesNotContain(medium, t => ((string)t!["tag"]!).StartsWith("old_do_not_use", StringComparison.Ordinal));
+
+        // The Gateway's `crafter` mode runs before normal server startup opens world.db; it must still load system
+        // settings so ordinary socketable bases report their configured socket capacities instead of 0.
+        GameData.Close();
+        Assert.Equal(0, SystemSettings.Default.SocketMax("Body Armour"));
+        try
+        {
+            var crafter = Program.CrafterCatalog(TestEnvironment.ScratchWorld)
+                .Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
+            var plateVest = crafter.Single(l => (string?)l["type"] == "base" && (string?)l["name"] == "Plate Vest");
+            Assert.Equal(6, (int)plateVest["sockets"]!);
+            var boots = crafter.First(l => (string?)l["type"] == "base" && (string?)l["class"] == "Boots");
+            Assert.Equal(4, (int)boots["sockets"]!);
+        }
+        finally
+        {
+            if (GameData.Store is null) GameData.Open(TestEnvironment.ScratchWorld);
+        }
     }
 }

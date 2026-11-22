@@ -493,12 +493,15 @@ public static partial class Game
             + Own(PlayerHitDamage.VsBlindedDamageStat);
         var blindedRows = hitInputs is null || additionalBlindedIncreased == 0 ? null
             : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
+        bool weaponAttack = !spell && local is not null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).RequiresShield(gem.Effect);
         var shot = new ProjectileOffense(
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
             spell, handWeapon is null ? PlayerAccuracy(conn, player) : HandAccuracy(conn, swingHand, player),
             SupportedCriticalChanceFor(conn, skillId, release: true, weaponCritical: handCritical),
             SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
+            WeaponAttack = weaponAttack,
+            TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(conn, player, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(player, own),
             FinalSpellRepeat = spell && repeat > 0 && repeatsLeft == 0,
             // Child stages and release specialization can introduce areas after this root is resolved.

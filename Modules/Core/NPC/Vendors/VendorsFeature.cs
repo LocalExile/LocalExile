@@ -121,7 +121,11 @@ static class VendorsFeature
                 await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                     items.NextRevision(PlayerInventories.Cursor),[],[displaced]),"0x00bf replaced equipment to cursor");
             await SendEquipment(remote,stream,ciphers,conn,items);
-            if (equipped.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote,stream,ciphers,conn);
+            if (equipped.Row == PlayerInventories.Flask)
+            {
+                await ReconcileTincturesAfterFlaskBarChange(remote,stream,ciphers,conn);
+                await RefreshMagebloodFlasks(remote,stream,ciphers,conn);
+            }
         }
         else if (row is byte destination && destination != PlayerInventories.MainInventory)
             await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
@@ -148,6 +152,7 @@ static class VendorsFeature
         // Keep the durable item in its reserved server cell, but show it only in the offer grid.
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(fromInventory, items.NextRevision(row), [offered.Id], []),
             $"0x00bf inventory {fromInventory}: hide offered item {offered.Id}");
+        if (row == PlayerInventories.Flask) await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
         var inOffer = offered with { X = x, Y = y };
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [], [inOffer], NpcShops.Manager),
             $"0x00bf sell offer: item {inOffer.Id} at ({x}, {y})");

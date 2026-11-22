@@ -50,13 +50,15 @@ public static partial class Game
 
     internal static void ReleaseArrowRain(ProjectileSession session, ushort skill,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll critical, ushort sequence, bool mirage = false)
+        SkillCriticalRoll critical, ushort sequence, bool mirage = false,
+        Func<ProjectileOffense, ProjectileOffense>? transform = null, double podDamageFactor = 1)
     {
         var conn = session.Conn;
         string id = SkillsFor(conn).EffectId(gem.Effect)!;
         var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence);
         var shot = (ProjectileOffense)use.Payload!;
         if (mirage) shot = MirageOffense(conn, shot);
+        if (transform is not null) shot = transform(shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };
         var own = SupportedSkill(conn, skill).Stats;
         var player = CharacterPlayerStats(conn);
@@ -92,7 +94,7 @@ public static partial class Game
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
         double dps = toxic && !damageContext.Suppressed
-            ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) : 0;
+            ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
         // The falling arrow's art is one clip (index 0: spore_drop.ao and blast_rain's arrow_drop.ao "animate",
         // rain_of_arrows/rig.ao "rainofarrows", which has no default animation) that reaches the ground part-way in:
         // its impact particles at 0.224 s and 0.218 s, Blast Rain's "contact" at 0.333 s. So it starts that long before

@@ -69,6 +69,7 @@ public static partial class Game
             ("base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)),
             ("virtual_base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)) })
             if (Stats.Key(name) is uint key) payload[key] = value;
+        payload[StatKeys.SkillIsNonPathing] = 1;
         if (!SkillsFor(conn).IsAttack(gem.Effect) && TotemCastSeconds(conn, skill) is double seconds && Stats.Key("cast_speed_+%") is uint speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(conn).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(conn).IsAttack(gem.Effect))

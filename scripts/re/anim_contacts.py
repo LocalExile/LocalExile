@@ -188,6 +188,24 @@ def projectile_casts(text, animations):
     return result, variants
 
 
+def stances(tokens, inherited, out, resolve):
+    """Visit nested stances with the resolved value inherited from their parent."""
+    i = 0
+    while i < len(tokens):
+        if tokens[i:i + 1] == ["stance"] and tokens[i + 2:i + 3] == ["{"]:
+            name, end = tokens[i + 1], closing_brace(tokens, i + 2)
+            body = tokens[i + 3:end]
+            current = resolve(body, inherited)
+            out.setdefault(name, current)
+            stances(body, current, out, resolve)
+            i = end + 1
+        elif tokens[i] == "{":
+            i = closing_brace(tokens, i) + 1
+        else:
+            i += 1
+    return out
+
+
 def default_attack_pools(text, animations, views):
     """{stance: [entries]}: each stance's Melee animations in ACT order, resolved to a rig clip or a view of one, with
     the contact and slow span (ms from the entry's start), the ACT attack_time budget (seconds) and whether the clip is
@@ -273,6 +291,37 @@ def placed_barrage(act, fetch_missing):
                 "contacts": every_contact([clip]), "indices": {fire: index}, "clips": named_clips([clip])}
 
 
+def single_skill_clips(text, animations):
+    """Only unambiguous, single-clip ACT actions with a contact. Chained actions need their own selector."""
+    tracked = {"HeavyStrike"}
+
+    def resolve(body, inherited):
+        current = dict(inherited)
+        i = 0
+        while i < len(body):
+            if body[i] == "{":
+                i = closing_brace(body, i) + 1
+                continue
+            if body[i] in tracked and body[i + 1:i + 2] == ["="]:
+                end = body.index(";", i + 2)
+                value = body[i + 2:end]
+                # A chain may follow a semicolon. An override with no exact clip masks an inherited mapping.
+                current[body[i]] = value[0][1:-1] if len(value) == 1 and value[0].startswith('"') \
+                    and body[end + 1:end + 2] != ["then"] else None
+                i = end
+            i += 1
+        return current
+
+    tokens = act_tokens(text)
+    start = tokens.index("{")
+    root = tokens[start + 1:closing_brace(tokens, start)]
+    base = resolve(root, {})
+    valid = contacts(animations)
+    return [{"stance": stance, "skill": skill, "animation": clip}
+            for stance, actions in stances(root, base, {"Unarmed": base}, resolve).items()
+            for skill, clip in actions.items() if clip in valid]
+
+
 def main():
     dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "animation-contacts.json")
     fetch_missing = "--cached-only" not in sys.argv
@@ -299,6 +348,7 @@ def main():
                       "contacts": every_contact(animations),
                       "indices": {a["name"]: i for i, a in enumerate(animations)},
                       "clips": named_clips(animations), "projectileCasts": ordinary, "projectileCastVariants": variants,
+                      "singleSkillClips": single_skill_clips(text, animations),
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao, fetch_missing=fetch_missing))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
               f"{len(result[ao]['defaultAttack'])} default attack stances", file=sys.stderr)
