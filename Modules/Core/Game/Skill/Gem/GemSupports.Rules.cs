@@ -684,6 +684,9 @@ public static partial class Game
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(conn, gem.Effect, gem.Level)));
         if ((lightningStrike || volcanicFissure) && projectile)
             raw = raw.Scale(Math.Max(0, 1 + Get("active_skill_hit_ailment_damage_with_projectile_+%_final") / 100.0));
+        if (!attack && !secondary && Get("keystone_battlemage") != 0
+            && WeaponIn(conn, ActiveMainHand(conn))?.LocalDamage is { } mainHandDamage)
+            raw = raw.Add(mainHandDamage.Scale(AddedEffectiveness(conn, gem.Effect, gem.Level)));
         // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
         // scaled by the spell's damage effectiveness like any other added damage.
         if (!attack && !secondary && Get("support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage") is int bladeGain and > 0)
