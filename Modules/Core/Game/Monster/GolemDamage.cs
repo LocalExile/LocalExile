@@ -171,6 +171,7 @@ public static partial class Game
         else sourceHits.Add((g.Id, m, hitPacket));
         conn.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
         if (m.Life == 0) GolemDieLocked(conn, g, now);
+        else if (MinionInstabilityLocked(conn, g, now)) return true;
         else if (g.Definition.Kind == "Ice" && g.Definition.Special && !g.DeathBurstDone && m.Life * 2L <= m.MaxLife)
         {
             g.DeathBurstDone = true;
