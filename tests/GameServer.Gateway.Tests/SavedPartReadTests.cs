@@ -25,6 +25,28 @@ public class SavedPartReadTests : IDisposable
         finally { CharacterSaves.ForgetExperience("SavedExperience"); CharacterSaves.ForgetExperience("NoSavedExperience"); }
     }
 
+    [Fact]
+    public void Voidstone_awards_survive_unsocketing_and_legacy_grants()
+    {
+        TestEnvironment.OpenOwnSaves("voidstone-awards");
+        const string eater = "Metadata/Monsters/AtlasInvaders/ConsumeMonsters/ConsumeBoss",
+            exarch = "Metadata/Monsters/AtlasInvaders/CleansingMonsters/CleansingBoss";
+        var fights = MapBossFights.Current;
+        CharacterSaves.Write("NewStone", new([]));
+
+        Assert.Null(fights.Unlock("NewStone", eater));
+        var stone = Assert.IsType<MapBossFights.Stone>(fights.Unlock("NewStone", exarch));
+        Assert.Empty(MapBossFights.Socketed("NewStone"));
+        Assert.True(fights.SetSocketed("NewStone", stone.Slot, true));
+        Assert.True(fights.SetSocketed("NewStone", stone.Slot, false));
+        Assert.Null(fights.Unlock("NewStone", exarch));
+
+        Assert.NotEmpty(stone.Flag);
+        CharacterSaves.Write("OldStone", new([], QuestFlags: [stone.Flag]));
+        Assert.Null(fights.Unlock("OldStone", eater));
+        Assert.Null(fights.Unlock("OldStone", exarch));
+    }
+
     // Every kill publishes the character's experience twice (Game.CurrentExperience): it must not read the save's items.
     static void CheckExperience(string name, string unsaved)
     {

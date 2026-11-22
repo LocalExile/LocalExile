@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core;
+using GameServer.Storage;
 
 /// <summary>
 /// Device-recipe fights the area does not play by itself (21-hideouts.md §5). Maven invitations spawn
@@ -14,7 +15,7 @@ public sealed class MapBossFights
     public const int StormCount = 4;
     public const string WalkingSirus = "Metadata/Monsters/AtlasExiles/AtlasExile5";
 
-    const string StonesKey = "voidstones", PartsKey = "voidstone_parts";
+    const string StonesKey = "voidstones", PartsKey = "voidstone_parts", AwardsKey = "voidstone_awards";
 
     public sealed record Invitation(string Id, int ItemRow, int Count, IReadOnlyList<string> Bosses);
 
@@ -81,12 +82,12 @@ public sealed class MapBossFights
 
     public static bool StormsWith(string formed) => formed == WalkingSirus;
 
-    /// <summary>Which Voidstone this kill unlocks (and an AllOf part to remember), given the slots and parts already saved.</summary>
-    public (Stone? Ready, string? Part) Resolve(string varietyId, IReadOnlySet<int> haveSlots, IReadOnlySet<string> haveParts)
+    /// <summary>Which Voidstone this kill awards (and an AllOf part to remember), given the prior awards and parts.</summary>
+    public (Stone? Ready, string? Part) Resolve(string varietyId, IReadOnlySet<int> awardedSlots, IReadOnlySet<string> haveParts)
     {
         foreach (var stone in _stones)
         {
-            if (haveSlots.Contains(stone.Slot)) continue;
+            if (awardedSlots.Contains(stone.Slot)) continue;
             if (stone.Defeat.Contains(varietyId)) return (stone, null);
             if (stone.AllOf is { Count: > 0 } need && need.Contains(varietyId))
             {
@@ -113,20 +114,31 @@ public sealed class MapBossFights
         return true;
     }
 
-    /// <summary>Remembers a Voidstone part or sockets the slot. Returns the stone when it is newly unlocked.</summary>
+    /// <summary>Remembers a Voidstone part or records the one-time award independently of the socket.</summary>
     public Stone? Unlock(string character, string varietyId)
     {
         // Every kill asks: only a monster some Voidstone names needs the character's save looked at.
         if (!_stones.Any(s => s.Defeat.Contains(varietyId) || s.AllOf?.Contains(varietyId) == true)) return null;
-        var have = Socketed(character);
-        var parts = ParseParts(CharacterSaves.ModuleData(character, PartsKey));
-        var (ready, part) = Resolve(varietyId, have, parts);
-        if (part is not null && !parts.Contains(part))
-            CharacterSaves.ChangeModuleData(character, PartsKey, _ => string.Join(',', parts.Append(part).Order(StringComparer.Ordinal)));
-        if (ready is null || have.Contains(ready.Slot)) return null;
-        CharacterSaves.ChangeModuleData(character, StonesKey, _ =>
-            string.Join(',', have.Append(ready.Slot).Order()));
-        return ready;
+        return Saves.Atomically(() =>
+        {
+            var saved = CharacterSaves.Load(character);
+            var data = saved?.ModuleData;
+            var awarded = ParseSlots(data?.GetValueOrDefault(AwardsKey));
+            // Old saves recorded the award in the socket key. The grant flag still identifies stones already unsocketed.
+            awarded.UnionWith(ParseSlots(data?.GetValueOrDefault(StonesKey)));
+            if (saved?.QuestFlags is { } flags)
+                foreach (var stone in _stones)
+                    if (stone.Flag.Length > 0 && flags.Contains(stone.Flag)) awarded.Add(stone.Slot);
+            var parts = ParseParts(data?.GetValueOrDefault(PartsKey));
+            var (ready, part) = Resolve(varietyId, awarded, parts);
+            if (part is not null && parts.Add(part))
+                CharacterSaves.ChangeModuleData(character, PartsKey, _ => string.Join(',', parts.Order(StringComparer.Ordinal)));
+            if (ready is not null) awarded.Add(ready.Slot);
+            string awards = string.Join(',', awarded.Order());
+            if (awards.Length > 0 && awards != data?.GetValueOrDefault(AwardsKey))
+                CharacterSaves.ChangeModuleData(character, AwardsKey, _ => awards);
+            return ready;
+        });
     }
 
     public static MapBossFights Load(string folder)
