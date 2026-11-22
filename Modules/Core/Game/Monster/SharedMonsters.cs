@@ -715,16 +715,24 @@ public static partial class Game
 
     // Earlier Torment marks kept the maximum life and scale they saw at possession, even across shrine expiry.
     // Other spawners can specify their own presentation stats. An omitted scale has the native value zero.
-    static MonsterObject CurrentMonsterCreation(MonsterObject origin, SpawnedMonster monster)
+    static MonsterObject CurrentMonsterCreation(SharedMonsterOrigin captured, SpawnedMonster monster, double now)
     {
+        var origin = captured.Object;
         var stats = origin.Stats;
         bool temporarySize = monster.TemporaryStats.Values.Any(source => source.ContainsKey("base_actor_scale_+%"));
         bool marked = monster.Mods.Mods.Count != 0
             && (TormentCatalog.Has(monster.Mods, grip: true) || TormentCatalog.Has(monster.Mods, grip: false));
-        if (!temporarySize && !marked) return origin;
-        var actual = MonsterLifeAndScale(monster);
-        return actual.All(s => (stats?.FirstOrDefault(old => old.Key == s.Key).Value ?? 0) == s.Value)
-            ? origin : origin.WithStats(actual);
+        if (temporarySize || marked)
+        {
+            var actual = MonsterLifeAndScale(monster);
+            if (!actual.All(s => (stats?.FirstOrDefault(old => old.Key == s.Key).Value ?? 0) == s.Value))
+                origin = origin.WithStats(actual);
+        }
+        // A mark can retain speed values from an aura which has since gone away.
+        if (!monster.SpeedAura.Active && !captured.CapturedSpeedAura) return origin;
+        var skills = SpeedAuraSkills(monster, origin);
+        if (skills.Count > 0) origin = origin with { Skills = [.. origin.Skills!.Select(s => skills.GetValueOrDefault(s.Id, s))] };
+        return origin.WithStats(MonsterSpeedStats(monster, now, movement: true, timing: true));
     }
 
     // Every client's frame: the instance's monsters as this client should have them. The ones it was not shown are created
@@ -788,7 +796,7 @@ public static partial class Game
                         if (life == 0 && !corpse) continue;
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
-                        var shown = CurrentMonsterCreation(o.Object, m) with { GridX = at.X, GridY = at.Y, Life = corpse ? 1u : life };
+                        var shown = CurrentMonsterCreation(o, m, now) with { GridX = at.X, GridY = at.Y, Life = corpse ? 1u : life };
                         if (!corpse && !dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
                             && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
                             && v.ComponentsOrBase.Contains("Transitionable"))
@@ -816,7 +824,7 @@ public static partial class Game
                     }
                     if (dormant || conn.AsleepMonsters.Contains(id)
                         || conn.LockstepClient && !conn.WorldOutput.PublishedObject(id).IsReady) continue;
-                    if (!ReferenceEquals(seen.OriginStats, o.Object.Stats) && CurrentMonsterCreation(o.Object, m).Stats is { } updated)
+                    if (!ReferenceEquals(seen.OriginStats, o.Object.Stats) && CurrentMonsterCreation(o, m, now).Stats is { } updated)
                     {
                         uint? scale = Stats.Key("actor_scale_+%");
                         var vitals = updated.Where(s => s.Key == StatKeys.MaximumLife || s.Key == scale).ToArray();

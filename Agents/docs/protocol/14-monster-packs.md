@@ -387,11 +387,9 @@ its name (live 2026-11-18). Its stats still come only from the server (0x1b3).
 | `reflect_non_damaging_ailments_%_chance` (Mirrored) | the chill, freeze and shock a player hit inflicts on it act on the player too |
 | `monster_chance_to_not_flee_%` (the rarity's MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100) | its chance to ignore a player hit's flee ([11](11-skills.md) §6) |
 
-**Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the
-server never does to monsters: Hexproof, of Congealment, Reflector's, the wither parts of the resistance mods) and 6
-in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
-Haste / of Damaging: the aura reaches only the monster itself; of Precision: its accuracy, not its increased critical
-strike chance, which raises a base of 0). The other 74 need a system the server does not have: an aura or buff without
+**Monster affix pool.** Of the 111 weighted monster prefixes and suffixes, 35 have full support and four have partial support.
+The partial rows are of Flames, of Rime and of Electricity (extra damage) and of Precision (the owner's accuracy).
+Of Haste and of Damaging also grant their buff to nearby monsters. The other 72 require additional systems, including an aura or buff without
 stats of its own, a granted or retaliation skill, a monster or ground on death, ailments, curses, blind or stun on the
 player, charges, energy shield, leech, projectiles, area of effect, minions; Berserking's buff has a trigger of its
 own; of Incision only increases a critical strike chance monster attacks do not have. Such a mod's name would promise something that does not happen, so the
@@ -424,6 +422,15 @@ The physical damage totems use `MonsterTotemAuraDamage1_`. BuffTemplates row 356
 `[1,2]` (self and allies). The unique map damage-and-evasion totem uses row 62, 50 cells and `[2]` (allies).
 Both use BuffDefinitions row 88, stat 26 (`physical_damage_+%`) and a +50 roll. BuffVisuals row 92 has separate
 emitter and recipient effects. Rows 88 and 90 both clear `IsRecovery` and `__col44`, so neither adds the optional words to 0x1c1.
+
+The three speed totems carry `MonsterTotemAuraSpeed1___`. BuffTemplates row 357 targets self and allies within 60 cells.
+BuffDefinitions row 89 grants attack speed, cast speed and movement speed (stats 70, 218 and 179). The totem grants
+35%, 35% and 75%. BuffVisuals row 93 supplies emitter and receiver effects. The Gateway takes the highest roll per
+stat across the eligible sources. The displayed buff uses the attack-speed source, with equal rolls resolved by object ID.
+A range crossing retimes the current walk and updates the durations for future orders. An accepted swing keeps its
+deadline. Observers receive the final movement and timing stats and the updated Actor skills. Four Ledge and four
+Ancient Pyramid Gateway instances checked movement, melee and casts. Official mixed-source priority and client art
+remain to be captured.
 
 **Open:** other variety modifiers and their aura recipients are incomplete; monsters have no base
 resistance or armour yet (open PRs #225 / #226 add base resistance), the player no penetration, so the mods'

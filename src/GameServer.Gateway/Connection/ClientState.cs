@@ -202,6 +202,12 @@ public sealed record MonsterMovement
     public double? ReorderSeconds { get; init; }
 }
 
+public struct MonsterSpeedAura
+{
+    public (bool Emits, uint Source, int Rate, int Extra) Attack, Cast, Movement;
+    public readonly bool Active => Attack.Rate != 0 || Cast.Rate != 0 || Movement.Rate != 0;
+}
+
 public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public uint ObjectId { get; set; }
@@ -281,6 +287,7 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     // Current species aura on the shared actor. Extra is the portion outside its rolled modifier set.
     public (bool Emits, uint Source, int Rate, int Extra) LifeAura;
     public (bool Emits, uint Source, int Rate, int Extra) PhysicalDamageAura;
+    public MonsterSpeedAura SpeedAura;
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
     // clip through its current ACT; rig indexes are retained as extraction/profile diagnostics.
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];

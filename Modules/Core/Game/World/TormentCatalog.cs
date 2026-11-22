@@ -103,7 +103,7 @@ public static class TormentCatalog
     {
         var rolls = mods.Mods.Where(m => TouchAndGripHashes.Value.Contains(m.Hash)).ToArray();
         return rolls.Length == 0 ? MonsterModEffects.None
-            : Game.SeparatePhysicalAura(new(Game.MonsterModRolls.Value.RolledStats(rolls)), rolls).Effects;
+            : Game.SeparateAttackAuras(new(Game.MonsterModRolls.Value.RolledStats(rolls)), rolls).Effects;
     }
 
     static readonly Lazy<(ushort Touched, ushort Possessed)> EffectHashes = new(() =>

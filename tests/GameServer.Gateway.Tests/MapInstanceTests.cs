@@ -150,6 +150,11 @@ public sealed class MapInstanceTests
             conn.Monsters[damageSource].Walk.Teleport(30, 30, 0);
             restored.Walk.Teleport(90, 30, 0);
             var outsideHit = restored.Kit[1].Attack.Damage[DamageType.Physical];
+            var speedTotem = Game.Monsters.Find("Metadata/Monsters/Totems/TikiTotemMonsterSpeed")!;
+            uint speedSource = await Game.SpawnMonster(remote, stream, ciphers, conn, speedTotem, level, MonsterRarity.Normal, 30, 30, bulk: true);
+            neighbors[speedSource] = conn.Monsters[speedSource];
+            neighbors[speedSource].Walk.Teleport(30, 30, 0);
+            double outsideWalk = again.Walk.Speed, outsideSeconds = restored.Kit[1].Attack.Seconds;
             conn.Monsters[source].Walk.Teleport(30, 30, 0);
             again.Walk.Teleport(90, 30, 0);
             Game.RegenerateMonstersLocked(neighbors, .5, .5);
@@ -161,6 +166,11 @@ public sealed class MapInstanceTests
             var insideHit = restored.Mods.Effects.Plus(physical, 50).Hit(ordered.BaseDamage)[DamageType.Physical];
             Assert.True(insideHit.Max > outsideHit.Max);
             Assert.Equal(insideHit, ordered.Damage[DamageType.Physical]);
+            Assert.Equal(speedSource, again.SpeedAura.Attack.Source);
+            Assert.Equal(35, again.SpeedAura.Cast.Rate);
+            Assert.Equal(75, again.SpeedAura.Movement.Rate);
+            Assert.Equal(1.75 * outsideWalk, again.Walk.Speed, 6);
+            Assert.True(ordered.Seconds < outsideSeconds);
             Assert.Equal(damageSource, again.PhysicalDamageAura.Source);
             Assert.Equal(source, again.LifeAura.Source);
             Assert.Equal(again.Mods.Effects[physical], Assert.Single(SavedMonster.Save([again], .5)).Mods.Effects[physical]);
@@ -169,6 +179,9 @@ public sealed class MapInstanceTests
             Game.RegenerateMonstersLocked(neighbors, .5, 1);
             Assert.Equal(80, again.Effects["life_regeneration_rate_per_minute_%"]);
 
+            Assert.Equal(outsideWalk, again.Walk.Speed, 6);
+            Assert.Equal(outsideSeconds, restored.Kit[1].Attack.Seconds);
+            Assert.True(ordered.Seconds < restored.Kit[1].Attack.Seconds);
             Assert.Equal(outsideHit, restored.Kit[1].Attack.Damage[DamageType.Physical]);
             Assert.Equal(insideHit, ordered.Damage[DamageType.Physical]);
 

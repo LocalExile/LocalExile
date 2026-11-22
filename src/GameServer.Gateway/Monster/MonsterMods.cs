@@ -360,9 +360,13 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "self_wither_duration_+%", "hexproof", "reflect_hexes_chance_%",
     };
 
-    /// <summary>Monster-buff templates whose stats are the mod's own and apply to the monster that has the aura
-    /// (Speed, Large Physical Damage, Accuracy and Crits aura): the allies around it get nothing yet.</summary>
-    static readonly HashSet<string> SelfAuraMods = ["MonsterModSpeedAura", "MonsterModPhysicalDamageAura", "MonsterModAccuracyAndCritAura"];
+    // Rolled aura affixes admitted to the pool. Precision still applies only to its owner.
+    static readonly Dictionary<string, Support> AuraSupport = new(StringComparer.Ordinal)
+    {
+        ["MonsterModSpeedAura"] = Support.Full,
+        ["MonsterModPhysicalDamageAura"] = Support.Full,
+        ["MonsterModAccuracyAndCritAura"] = Support.Partial,
+    };
 
     /// <summary>Whether a monster mod can be honoured (the pool's filter, and the PR's table). A mod with a buff, a
     /// granted skill, a monster on death or no stats needs a system the server lacks; Berserking's buff has its own
@@ -371,11 +375,11 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     public static Support SupportOf(ModCatalog.Mod m)
     {
         if (m.Stats.Count == 0 || m.GrantedEffects > 0 || m.MonsterOnDeath.Length > 0) return Support.None;
-        bool aura = m.BuffTemplate is not null;
-        if (aura && !SelfAuraMods.Contains(m.Id)) return Support.None;
+        var support = m.BuffTemplate is null ? Support.Full : AuraSupport.GetValueOrDefault(m.Id);
+        if (support == Support.None) return Support.None;
         int modelled = m.Stats.Count(s => Modelled.Contains(s.Id)), vacuous = m.Stats.Count(s => Vacuous.Contains(s.Id));
         // Hexproof and the like: every stat stops what the server never does, so the mod holds as it stands.
-        if (modelled + vacuous == m.Stats.Count) return aura ? Support.Partial : Support.Full;
+        if (modelled + vacuous == m.Stats.Count) return support;
         return modelled > 0 ? Support.Partial : Support.None;
     }
 

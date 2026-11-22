@@ -544,19 +544,6 @@ public static partial class MapTorment
         Console.WriteLine($"[torment] {(grip ? "possessed" : "touched")} 0x{id:x} {m.Variety?.Id} ({m.Rarity}) by {spirit.Variety}");
     }
 
-    // Replace the ordinary actions' final values while keeping each granted record's native stats and extra sets.
-    static Dictionary<ushort, GrantedSkill> AttackSkills(SpawnedMonster m, IReadOnlyList<GrantedSkill> skills)
-    {
-        var changed = new Dictionary<ushort, GrantedSkill>();
-        foreach (var skill in skills)
-        {
-            if (BossKits.AttackById(m, skill.Id) is not { } attack || skill.Stats is null) continue;
-            var values = attack.SkillStats().ToDictionary(s => s.Item1, s => s.Item2);
-            changed.Add(skill.Id, skill with { Stats = [.. skill.Stats.Select(s => (s.Key, values.GetValueOrDefault(s.Key, s.Value)))] });
-        }
-        return changed;
-    }
-
     // A mark outlives temporary auras. Read the host's current values for the player receiving the mark.
     static List<(uint Key, int Value)> ClientStats(SpawnedMonster m)
     {
@@ -581,7 +568,7 @@ public static partial class MapTorment
             var skills = origin.Object.Skills;
             if (refreshSkills)
             {
-                var changed = skills is not null && !m.Scripted && m.Attack is { Scripted: false } ? AttackSkills(m, skills) : [];
+                var changed = skills is not null && !m.Scripted && m.Attack is { Scripted: false } ? BossKits.UpdatedSkills(m, skills) : [];
                 if (changed.Count > 0) skills = [.. skills!.Select(s => changed.GetValueOrDefault(s.Id, s))];
                 skills = TormentCatalog.WithMartyrSkill(conn, m.Mods, skills, out var martyr);
                 if (martyr is not null) changed[martyr.Id] = martyr;
@@ -593,6 +580,7 @@ public static partial class MapTorment
             }
             conn.Instance.World.MonsterOrigins[id] = origin with
             {
+                CapturedSpeedAura = origin.CapturedSpeedAura || m.SpeedAura.Active,
                 Object = origin.Object.WithStats(ClientStats(m)) with
                 {
                     Mods = m.Mods.Mods,

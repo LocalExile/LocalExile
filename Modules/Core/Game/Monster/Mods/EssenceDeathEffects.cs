@@ -116,13 +116,16 @@ public static partial class Game
     }
 
     public static MonsterAttack EssenceInsectAttack(ClientState conn, byte level, ushort skillId, MonsterModEffects mods)
+        => EssenceInsectAttack(conn, level, skillId, mods, default);
+
+    static MonsterAttack EssenceInsectAttack(ClientState conn, byte level, ushort skillId, MonsterModEffects mods, AuraSpeeds speeds)
     {
         var (effect, stats) = EssenceInsectStats(conn, level);
         int Get(string n) => Stats.Key(n) is uint k ? stats.GetValueOrDefault(k) : 0;
         var damage = DamagePacket.Of(DamageType.Fire, Get("secondary_minimum_base_fire_damage"), Get("secondary_maximum_base_fire_damage"));
         double seconds = SkillsFor(conn).CastTimeMs(effect) / 1000d;
         double reach = 6 * Math.Max(0, 1 + Get("spell_maximum_action_distance_+%") / 100d);
-        return WithMonsterMods(new(skillId, seconds, reach, damage) { Spell = true, Secondary = true, SkillSpeed = (0, 0) }, mods);
+        return WithMonsterMods(new(skillId, seconds, reach, damage) { Spell = true, Secondary = true, SkillSpeed = (0, 0) }, mods, speedAura: speeds);
     }
 
     public static IReadOnlyList<(uint, int)> EssenceInsectSkillStats(ClientState conn, MonsterAttack attack,

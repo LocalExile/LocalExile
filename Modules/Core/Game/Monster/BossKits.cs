@@ -81,15 +81,15 @@ public static class BossKits
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
         int defaultEffect = -1, MonsterAttack? defaultAttack = null) =>
-        Kit(conn, variety, level, defaultEffect, defaultAttack, null, false, 0);
+        Kit(conn, variety, level, defaultEffect, defaultAttack, null, false, 0, default);
 
     internal static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect, MonsterAttack? defaultAttack, MonsterModSet? mods, bool mapBoss, int physicalAura)
+        int defaultEffect, MonsterAttack? defaultAttack, MonsterModSet? mods, bool mapBoss, int physicalAura, AuraSpeeds speedAura)
     {
         var catalog = SkillsFor(conn);
         if (!IsKitBoss(catalog, variety)) return [];
         var secondaryEffects = mods is null ? MonsterModEffects.None
-            : mapBoss ? SeparatePhysicalAura(mods.Effects, mods.Mods).Effects : TormentCatalog.AttackEffectsOn(mods);
+            : mapBoss ? SeparateAttackAuras(mods.Effects, mods.Mods).Effects : TormentCatalog.AttackEffectsOn(mods);
         List<MonsterKitSkill> kit = [];
         IReadOnlyList<int> effects = Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
@@ -102,8 +102,8 @@ public static class BossKits
             else
             {
                 attack = AttackFor(conn, variety, level, effect, id);
-                attack = secondaryEffects.Stats.Count > 0 ? WithMonsterMods(attack, secondaryEffects, physicalAura)
-                    : WithPhysicalAura(attack, physicalAura);
+                attack = secondaryEffects.Stats.Count > 0 ? WithMonsterMods(attack, secondaryEffects, physicalAura, speedAura)
+                    : WithPhysicalAura(attack, physicalAura) with { Seconds = MonsterAttackSeconds(attack, secondaryEffects, speedAura) };
             }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
@@ -120,12 +120,20 @@ public static class BossKits
     // The AI keeps its selected slot and cooldowns for its next order.
     internal static void RefreshAttacks(ClientState conn, SpawnedMonster monster)
     {
-        var physical = SeparatePhysicalAura(monster.Mods.Effects, monster.Mods.Mods);
-        int strength = monster.Hostile ? Math.Max(monster.PhysicalDamageAura.Rate, physical.Self) : 0;
+        var authored = SeparateAttackAuras(monster.Mods.Effects, monster.Mods.Mods);
+        int strength = monster.Hostile ? Math.Max(monster.PhysicalDamageAura.Rate, authored.Physical.Self) : 0;
+        var speeds = monster.Hostile ? new AuraSpeeds(Math.Max(monster.SpeedAura.Attack.Rate, authored.SpeedSelf.Attack),
+            Math.Max(monster.SpeedAura.Cast.Rate, authored.SpeedSelf.Cast), Math.Max(monster.SpeedAura.Movement.Rate, authored.SpeedSelf.Movement)) : default;
         var secondary = monster.Kit.Count == 0 || IsMapBoss(conn, monster.Variety!, monster.Rarity)
-            ? physical.Effects : TormentCatalog.AttackEffectsOn(monster.Mods);
-        UpdateAttacks(monster, (attack, index) => WithMonsterMods(attack, index == 0 ? physical.Effects : secondary, strength));
+            ? authored.Effects : TormentCatalog.AttackEffectsOn(monster.Mods);
+        UpdateAttacks(monster, (attack, index) => WithMonsterMods(attack, index == 0 ? authored.Effects : secondary, strength, speeds));
     }
+
+    internal static void RefreshSpeedAura(SpawnedMonster monster, AuraSpeeds speeds) =>
+        UpdateAttacks(monster, (attack, _) => attack with
+        {
+            Seconds = MonsterAttackSeconds(attack, attack.DamageBasis?.Modifiers ?? MonsterModEffects.None, speeds),
+        });
 
     internal static void RefreshPhysicalAura(SpawnedMonster monster) =>
         UpdateAttacks(monster, (attack, _) => WithPhysicalAura(attack, monster.PhysicalDamageAura.Rate));
@@ -140,6 +148,19 @@ public static class BossKits
         monster.Kit = [.. monster.Kit.Select((skill, index) => skill with { Attack = update(skill.Attack, index) })];
         if (monster.Attack is { } selected)
             monster.Attack = monster.Kit.First(skill => skill.Attack.SkillId == selected.SkillId).Attack;
+    }
+
+    // Replace the ordinary actions' final values while keeping each granted record's native stats and extra sets.
+    internal static Dictionary<ushort, GrantedSkill> UpdatedSkills(SpawnedMonster m, IReadOnlyList<GrantedSkill> skills)
+    {
+        var changed = new Dictionary<ushort, GrantedSkill>();
+        foreach (var skill in skills)
+        {
+            if (BossKits.AttackById(m, skill.Id) is not { } attack || skill.Stats is null) continue;
+            var values = attack.SkillStats().ToDictionary(s => s.Item1, s => s.Item2);
+            changed.Add(skill.Id, skill with { Stats = [.. skill.Stats.Select(s => (s.Key, values.GetValueOrDefault(s.Key, s.Value)))] });
+        }
+        return changed;
     }
 
     internal static MonsterAttack? AttackById(SpawnedMonster monster, ushort id) =>

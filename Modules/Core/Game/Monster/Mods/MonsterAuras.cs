@@ -21,13 +21,19 @@ public static partial class Game
 {
     const string LifeAuraStat = "life_regeneration_rate_per_minute_%";
     const string PhysicalAuraStat = "physical_damage_+%";
-    const ushort LifeAuraBuff = 90, PhysicalAuraBuff = 88;
+    const string AttackSpeedStat = "attack_speed_+%", CastSpeedStat = "base_cast_speed_+%", MoveSpeedStat = "base_movement_velocity_+%";
+    const ushort LifeAuraBuff = 90, PhysicalAuraBuff = 88, SpeedAuraBuff = 89;
     sealed record AuraEffect(ushort Buff, string Stat);
     static readonly AuraEffect RecoveryAura = new(LifeAuraBuff, LifeAuraStat);
     static readonly AuraEffect PhysicalAura = new(PhysicalAuraBuff, PhysicalAuraStat);
 
-    sealed record AuraMod(MonsterAuraTemplate Template, int StatIndex);
-    readonly record struct AuraRoll(MonsterAuraTemplate Template, int Value);
+    static readonly AuraEffect AttackSpeedAura = new(SpeedAuraBuff, AttackSpeedStat);
+    static readonly AuraEffect CastSpeedAura = new(SpeedAuraBuff, CastSpeedStat);
+    static readonly AuraEffect MoveSpeedAura = new(SpeedAuraBuff, MoveSpeedStat);
+    static readonly AuraEffect[] GrantedAuraStats = [RecoveryAura, PhysicalAura, AttackSpeedAura, CastSpeedAura, MoveSpeedAura];
+
+    sealed record AuraMod(MonsterAuraTemplate Template, (AuraEffect Effect, int Index)[] Stats);
+    readonly record struct AuraRoll(MonsterAuraTemplate Template, AuraEffect Effect, int Value);
     readonly record struct AuraField(uint Source, int X, int Y, double RadiusSquared, AuraRoll Roll);
     sealed class AuraFields
     {
@@ -41,14 +47,11 @@ public static partial class Game
         if (!ClientTables.Has("BuffTemplates")) return rows;
         foreach (var mod in Items.Mods.All)
         {
-            if (mod.Domain != MonsterModCatalog.Domain || mod.BuffTemplate is null) continue;
-            for (int i = 0; i < mod.Stats.Count; i++)
-            {
-                var stat = mod.Stats[i].Id;
-                if (stat is not (LifeAuraStat or PhysicalAuraStat) || MonsterAuraTemplate.Read(mod) is not { } template) continue;
-                if ((template.Buff, stat) is (LifeAuraBuff, LifeAuraStat) or (PhysicalAuraBuff, PhysicalAuraStat))
-                    rows.Add(mod.Hash, new(template, i));
-            }
+            if (mod.Domain != MonsterModCatalog.Domain || mod.BuffTemplate is null || MonsterAuraTemplate.Read(mod) is not { } template) continue;
+            var granted = (from effect in GrantedAuraStats where effect.Buff == template.Buff
+                           from i in Enumerable.Range(0, mod.Stats.Count) where mod.Stats[i].Id == effect.Stat
+                           select (effect, i)).ToArray();
+            if (granted.Length > 0) rows.Add(mod.Hash, new(template, granted));
         }
         return rows;
     });
@@ -59,28 +62,49 @@ public static partial class Game
         [.. from roll in mods
             let def = MonsterAuraMods.Value.GetValueOrDefault(roll.Hash)
             where def is not null
-            select new AuraRoll(def.Template, roll.Values[def.StatIndex])];
+            from stat in def.Stats
+            select new AuraRoll(def.Template, stat.Effect, roll.Values[stat.Index])];
 
     static AuraRoll[] AuraRolls(IReadOnlyList<ItemMod> mods) =>
         mods.Count == 0 ? [] : MonsterAuraRolls.GetValue(mods, ReadAuraRolls);
 
-    // Rolled stats include the aura's granted value on its owner, even for an allies-only template.
-    // Separate that value before binding the attack. Direct physical increases stay in the hit calculation.
-    internal static (MonsterModEffects Effects, int Self, int Included) SeparatePhysicalAura(MonsterModEffects effects, IReadOnlyList<ItemMod> mods)
+    internal readonly record struct AuraSpeeds(int Attack, int Cast, int Movement)
     {
-        int included = 0, self = 0;
-        foreach (var roll in AuraRolls(mods))
-            if (roll.Template.Buff == PhysicalAuraBuff)
-            {
-                included += roll.Value;
-                if (roll.Template.Self) self = Math.Max(self, roll.Value);
-            }
-        return (effects.Plus(PhysicalAuraStat, -included), self, included);
+        public MonsterModEffects AddTo(MonsterModEffects effects, int sign = 1) =>
+            effects.Plus(AttackSpeedStat, sign * Attack).Plus(CastSpeedStat, sign * Cast).Plus(MoveSpeedStat, sign * Movement);
     }
 
-    static Dictionary<ushort, AuraFields>? GatherMonsterAuras(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double now)
+    // A rolled aura stat is in the owner's permanent mods even when its template grants it only to allies.
+    // Remove all such rolls before binding an action, then apply the active grant once.
+    internal static (MonsterModEffects Effects, (int Self, int Included) Physical, AuraSpeeds SpeedSelf, AuraSpeeds SpeedIncluded)
+        SeparateAttackAuras(MonsterModEffects effects, IReadOnlyList<ItemMod> mods)
     {
-        Dictionary<ushort, AuraFields>? groups = null;
+        var rolls = AuraRolls(mods);
+        if (rolls.Length == 0) return (effects, default, default, default);
+        var physical = Own(PhysicalAura);
+        var attack = Own(AttackSpeedAura);
+        var cast = Own(CastSpeedAura);
+        var move = Own(MoveSpeedAura);
+        var included = new AuraSpeeds(attack.Included, cast.Included, move.Included);
+        return (included.AddTo(effects.Plus(PhysicalAuraStat, -physical.Included), -1), physical,
+            new(attack.Self, cast.Self, move.Self), included);
+
+        (int Self, int Included) Own(AuraEffect effect)
+        {
+            int self = 0, included = 0;
+            foreach (var roll in rolls)
+                if (roll.Effect == effect)
+                {
+                    included += roll.Value;
+                    if (roll.Template.Self) self = Math.Max(self, roll.Value);
+                }
+            return (self, included);
+        }
+    }
+
+    static Dictionary<AuraEffect, AuraFields>? GatherMonsterAuras(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double now)
+    {
+        Dictionary<AuraEffect, AuraFields>? groups = null;
         foreach (var (id, monster) in monsters)
         {
             var rolls = AuraRolls(monster.Mods.Mods);
@@ -91,8 +115,7 @@ public static partial class Game
             double area = Math.Max(0, 1 + monster.Mods.Effects["base_aura_area_of_effect_+%"] / 100d);
             foreach (var roll in rolls)
             {
-                ushort buff = roll.Template.Buff;
-                if (!groups.TryGetValue(buff, out var fields)) groups.Add(buff, fields = new());
+                if (!groups.TryGetValue(roll.Effect, out var fields)) groups.Add(roll.Effect, fields = new());
                 fields.IncludedInMods[id] = fields.IncludedInMods.GetValueOrDefault(id) + roll.Value;
                 if (active)
                 {
@@ -134,6 +157,39 @@ public static partial class Game
         return magnitudeChanged;
     }
 
+    static void InitializeSpeedAura(uint id, SpawnedMonster monster, AuraSpeeds self, AuraSpeeds included)
+    {
+        monster.SpeedAura.Attack = Initial(AttackSpeedStat, self.Attack, included.Attack);
+        monster.SpeedAura.Cast = Initial(CastSpeedStat, self.Cast, included.Cast);
+        monster.SpeedAura.Movement = Initial(MoveSpeedStat, self.Movement, included.Movement);
+
+        AuraState Initial(string stat, int granted, int rolled)
+        {
+            int extra = granted - rolled;
+            if (extra != 0) monster.SetGrantedStat(stat, extra);
+            return (monster.Hostile, granted == 0 ? 0 : id, granted, extra);
+        }
+    }
+
+    static void ApplySpeedAura(uint id, SpawnedMonster monster, AuraFields? attack, AuraFields? cast, AuraFields? movement, double now)
+    {
+        ref var speed = ref monster.SpeedAura;
+        if (attack is null && cast is null && movement is null && speed.Attack == default && speed.Cast == default && speed.Movement == default) return;
+        int previousMove = speed.Movement.Extra;
+        bool attackChanged = ApplyMonsterAura(id, monster, attack, now, AttackSpeedAura, ref speed.Attack);
+        bool castChanged = ApplyMonsterAura(id, monster, cast, now, CastSpeedAura, ref speed.Cast);
+        ApplyMonsterAura(id, monster, movement, now, MoveSpeedAura, ref speed.Movement);
+        if (attackChanged || castChanged)
+            BossKits.RefreshSpeedAura(monster, new(speed.Attack.Rate, speed.Cast.Rate, speed.Movement.Rate));
+        if (previousMove != speed.Movement.Extra)
+        {
+            int pct = monster.Effects.MovementPct;
+            int oldPct = pct + previousMove - speed.Movement.Extra;
+            double scale = MonsterWalkSpeedAt(monster, pct) / MonsterWalkSpeedAt(monster, oldPct);
+            SetMonsterWalkFactor(monster, MonsterWalkState(monster, now).Factor, now, scale);
+        }
+    }
+
     internal static MonsterAttack WithPhysicalAura(MonsterAttack attack, int strength)
     {
         var basis = attack.DamageBasis ?? (Modifiers: null, Unbuffed: attack.Damage);
@@ -153,6 +209,26 @@ public static partial class Game
     static DamagePacket IncreasePhysical(DamagePacket damage, int strength) => damage[DamageType.Physical].IsZero ? damage
         : damage.Select((type, range) => type == DamageType.Physical ? range.Scale(1 + strength / 100d).Round() : range);
 
+    static List<(uint Key, int Value)> MonsterSpeedStats(SpawnedMonster monster, double now, bool movement, bool timing)
+    {
+        List<(uint, int)> stats = [];
+        if (movement) stats.Add((StatKeys.MovementVelocityPct, MonsterWalkState(monster, now).Pct));
+        if (timing && (monster.Kit.Count > 0 ? monster.Kit[0].Attack : monster.Attack) is { } attack)
+        {
+            if (monster.Target is { } target)
+                attack = attack with { Seconds = MonsterSwingSeconds(target, monster, attack, now) };
+            // Non-pathing belongs to the skill. Putting it on the actor also disables its Move action.
+            stats.AddRange(attack.SkillStats().Where(s => s.Item1 is StatKeys.MainHandAttackDurationMs or StatKeys.MainHandTotalAttackDurationMs
+                or StatKeys.OffHandAttackDurationMs or StatKeys.OffHandTotalAttackDurationMs or StatKeys.HundredTimesAttacksPerSecond
+                or StatKeys.BaseSpellCastTimeMs or StatKeys.VirtualBaseSpellCastTimeMs or StatKeys.HundredTimesCastsPerSecond));
+        }
+        return stats;
+    }
+
+    static Dictionary<ushort, GrantedSkill> SpeedAuraSkills(SpawnedMonster monster, MonsterObject origin) =>
+        !monster.Scripted && monster.Attack is { Scripted: false } && origin.Skills is { } skills
+            ? BossKits.UpdatedSkills(monster, skills) : [];
+
     static bool AuraChanged(AuraState state, AuraView view) =>
         (view.EmitterBuff != 0) != state.Emits || view.Source != state.Source || view.Rate != state.Rate;
 
@@ -160,7 +236,10 @@ public static partial class Game
     {
         bool dead = monster.Dead || monster.Life == 0;
         return AuraChanged(dead ? default : monster.LifeAura, view.LifeAura)
-            || AuraChanged(dead ? default : monster.PhysicalDamageAura, view.PhysicalDamageAura);
+            || AuraChanged(dead ? default : monster.PhysicalDamageAura, view.PhysicalDamageAura)
+            || AuraChanged(dead ? default : monster.SpeedAura.Attack, view.SpeedAura.Buff)
+            || (dead ? 0 : monster.SpeedAura.Cast.Rate) != view.SpeedAura.Cast
+            || (dead ? 0 : monster.SpeedAura.Movement.Rate) != view.SpeedAura.Movement;
     }
 
     static MonsterView PresentMonsterAuras(ClientState conn, WorldRecordBuilder packets, uint id, SpawnedMonster monster, MonsterView view)
@@ -170,7 +249,31 @@ public static partial class Game
         {
             LifeAura = Present(RecoveryAura, dead ? default : monster.LifeAura, view.LifeAura),
             PhysicalDamageAura = Present(PhysicalAura, dead ? default : monster.PhysicalDamageAura, view.PhysicalDamageAura),
+            SpeedAura = PresentSpeed(),
         };
+
+        (AuraView Buff, int Cast, int Movement) PresentSpeed()
+        {
+            var active = dead ? default : monster.SpeedAura;
+            var old = view.SpeedAura;
+            var buff = Present(AttackSpeedAura, active.Attack, old.Buff);
+            if (buff.Source != active.Attack.Source) return old;
+            bool movement = active.Movement.Rate != old.Movement;
+            bool timing = buff.Rate != old.Buff.Rate || active.Cast.Rate != old.Cast;
+            if (!dead && (movement || timing))
+            {
+                var stats = MonsterSpeedStats(monster, conn.Clock.Elapsed.TotalSeconds, movement, timing);
+                if (stats.Count != 0) packets.Presentation(id, InstanceEntities.StatsUpdate(id, stats));
+                if (timing)
+                {
+                    var origin = conn.Instance.World.MonsterOrigins[id].Object;
+                    var skills = SpeedAuraSkills(monster, origin);
+                    if (skills.Count > 0)
+                        packets.Presentation(id, InstanceEntities.ActorSkills(id, checked((byte)origin.Components.ToList().IndexOf("Actor")), [.. skills.Values]));
+                }
+            }
+            return (buff, active.Cast.Rate, active.Movement.Rate);
+        }
 
         AuraView Present(AuraEffect effect, AuraState active, AuraView old)
         {
@@ -193,7 +296,7 @@ public static partial class Game
                 if (active.Source != 0)
                     packets.Presentation(id, InstanceEntities.AddBuff(id, receiver = conn.NextBuff++, effect.Buff, active.Source));
             }
-            if (old.Rate != active.Rate && !dead)
+            if (effect.Buff != SpeedAuraBuff && old.Rate != active.Rate && !dead)
                 packets.Presentation(id, InstanceEntities.StatsUpdate(id, [(Stats.Key(effect.Stat)!.Value, monster.Effects[effect.Stat])]));
             return (emitter, receiver, active.Source, active.Rate);
         }

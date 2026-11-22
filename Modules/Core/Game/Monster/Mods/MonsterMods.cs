@@ -408,13 +408,17 @@ public static partial class Game
     {
         var changed = new List<(uint, uint)>();
         var auras = GatherMonsterAuras(monsters, now);
-        var recovery = auras?.GetValueOrDefault(LifeAuraBuff);
-        var physical = auras?.GetValueOrDefault(PhysicalAuraBuff);
+        var recovery = auras?.GetValueOrDefault(RecoveryAura);
+        var physical = auras?.GetValueOrDefault(PhysicalAura);
+        var attackSpeed = auras?.GetValueOrDefault(AttackSpeedAura);
+        var castSpeed = auras?.GetValueOrDefault(CastSpeedAura);
+        var movementSpeed = auras?.GetValueOrDefault(MoveSpeedAura);
         foreach (var (id, m) in monsters)
         {
             ApplyMonsterAura(id, m, recovery, now, RecoveryAura, ref m.LifeAura);
             if (ApplyMonsterAura(id, m, physical, now, PhysicalAura, ref m.PhysicalDamageAura))
                 BossKits.RefreshPhysicalAura(m);
+            ApplySpeedAura(id, m, attackSpeed, castSpeed, movementSpeed, now);
             double spreadRecovery = SpreadPoisonRecovery(m, now);
             var hit = m.RegenerationHit;
             if (hit is { } source && now >= source.At + RecentlySeconds) m.RegenerationHit = null;

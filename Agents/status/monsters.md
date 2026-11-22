@@ -85,12 +85,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their life, hit, attack time, walk (sent as movement_velocity_+%, the client walks at the same speed), resistances,
   physical reduction, block, evasion, critical strikes and regeneration act on the server (each checked live); the
   instance keeps them. Hostile monsters keep their variety's own life regeneration on spawn and re-entry.
-  Grinning Totems grant nearby hostile monsters their variety's life regeneration or increased physical damage.
-  The strongest source of each buff applies. Physical increases add together before hit conversion and gain as extra.
+  Grinning Totems grant nearby hostile monsters life regeneration, increased physical damage, or attack, cast and movement speed.
+  The speed totem grants 35% increased attack and cast speed and 75% increased movement speed within 60 cells.
+  The runner applies the strongest grant per stat to the current walk and the next attack or cast. Physical increases add together before hit conversion and gain as extra.
   Each observer receives the source and recipient buffs.
   The instance runner adds template and modifier recovery once per interval, including across a party handoff.
   Izaro's trial script fills its own idols.
-  Only the 37 mods the server can honour roll; the other 74 are listed in [14](../docs/protocol/14-monster-packs.md)
+  Of 111 weighted monster affixes, 39 can roll. The other 72 are discussed in [14](../docs/protocol/14-monster-packs.md)
   §5.
   Code: `MonsterMods.cs`, `Modules/Core/Game/Monster/Mods/MonsterMods.cs`, `MagicProperties.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
@@ -347,7 +348,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Act 1 Twilight Strand caps new populations at a provisional 45 including Hillock and the tutorial zombie, with
   scattered packs kept Normal rarity only (Hillock is the sole non-normal monster).
   The reference capture misses its opening, so this is calibration rather than a verified official total;
-  74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
+  72 weighted monster affixes still need systems such as additional aura effects, monster skills or ailments on the player and do
   not roll;
   how near the player must come before an emerge monster rises is our choice;
   a boss's stages exist for Hillock only (`BossFights.cs`; other bosses with `BossHealthBar` get the bar, and a

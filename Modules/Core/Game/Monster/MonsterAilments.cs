@@ -236,12 +236,35 @@ public static partial class Game
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         if ((maimPct != 0 || hinderPct != 0 || lowLife != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
             totalPct = Math.Max(0, totalPct);
-        double Movement(double pct) => m.Variety is { } variety
-            ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
-            : Math.Max(.01, 1 + pct / 100.0);
-        double before = Movement(basePct);
-        double after = Movement(totalPct);
-        return (after / before, totalPct);
+        return (MonsterWalkSpeedAt(m, totalPct) / MonsterWalkSpeedAt(m, basePct), totalPct);
+    }
+
+    static double MonsterWalkSpeedAt(SpawnedMonster m, int pct) => m.Variety is { } variety
+        ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
+        : Math.Max(.01, 1 + pct / 100.0);
+
+    static (double Factor, int Pct) MonsterWalkState(SpawnedMonster m, double now) =>
+        MonsterWalkState(m, now, MonsterActionFactor(m, now, freeze: false), BearTrapWalkFactor(m, now), ToxicWalkFactor(m));
+
+    static (double Factor, int Pct) MonsterWalkState(SpawnedMonster m, double now, double action, double trap, double vines)
+    {
+        bool floored = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0;
+        var movement = MaimedMovementFactor(m, now);
+        double less = trap * (now < m.CoveredInAshUntil ? .8 : 1);
+        if (less != 1 && !(floored && less < 1))
+            movement = (movement.Factor * less, (int)Math.Round((100 + movement.Pct) * less - 100));
+        return ((floored ? Math.Max(1, action) : action * vines) * movement.Factor, movement.Pct);
+    }
+
+    static void SetMonsterWalkFactor(SpawnedMonster m, double factor, double now, double baseScale = 1)
+    {
+        var ailments = m.Ailments;
+        if (factor == ailments.WalkFactor && baseScale == 1) return;
+        double baseline = (ailments.WalkFactor > 0 ? m.Walk.Speed / ailments.WalkFactor : m.WalkSpeedAtZeroFactor) * baseScale;
+        // PlayerWalk has no zero-speed segment. Retain the current base, including aura changes, until movement resumes.
+        if (factor <= 0) m.WalkSpeedAtZeroFactor = baseline;
+        else if (baseline > 0) m.Walk.SetSpeed(baseline * factor, now);
+        ailments.WalkFactor = factor;
     }
 
     /// <summary>
@@ -438,31 +461,8 @@ public static partial class Game
             double action = MonsterActionFactor(m, now, freeze: false);
             // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed. So does
             // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
-            bool speedFloored = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0;
-            var movement = MaimedMovementFactor(m, now);
-            double lessMove = trap * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
-            if (lessMove != 1 && !(speedFloored && lessMove < 1))
-                movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
-            double walk = (speedFloored ? Math.Max(1, action) : action)
-                * movement.Factor;
-            if (!speedFloored) walk *= vines;
-            if (walk != a.WalkFactor)
-            {
-                // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
-                // it without dividing by a zero factor.
-                if (walk <= 0)
-                {
-                    if (a.WalkFactor > 0) m.WalkSpeedAtZeroFactor = m.Walk.Speed / a.WalkFactor;
-                }
-                else
-                {
-                    double baseline = a.WalkFactor > 0
-                        ? m.Walk.Speed / a.WalkFactor
-                        : m.WalkSpeedAtZeroFactor;
-                    if (baseline > 0) m.Walk.SetSpeed(baseline * walk, now);
-                }
-                a.WalkFactor = walk;
-            }
+            var movement = MonsterWalkState(m, now, action, trap, vines);
+            SetMonsterWalkFactor(m, movement.Factor, now);
             int speed = (int)Math.Round(100 * (action - 1));
             if (speed != a.SentActionSpeed && Stats.Key("virtual_action_speed_+%") is uint key)
             {

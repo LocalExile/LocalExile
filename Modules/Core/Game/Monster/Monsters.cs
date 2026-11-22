@@ -258,19 +258,24 @@ public static partial class Game
         && (variety.BossHealthBar || Packs.BossesFor(conn.Layout.Id, mapsOnly: true).Contains(variety.Row)
             || MapScarabBosses.IsBoss(variety) || MapBeyond.IsBoss(variety) || MapValdoUniques.IsHarvestBoss(variety.Row));
 
-    internal static MonsterAttack WithMonsterMods(MonsterAttack attack, MonsterModEffects effects, int physicalAura = 0)
+    internal static MonsterAttack WithMonsterMods(MonsterAttack attack, MonsterModEffects effects, int physicalAura = 0, AuraSpeeds speedAura = default)
     {
         var unbuffed = effects.Hit(attack.BaseDamage);
         return attack with
         {
             DamageBasis = (effects, unbuffed),
             Damage = physicalAura == 0 ? unbuffed : effects.Hit(attack.BaseDamage, physicalAura),
-            Seconds = attack.Summon is { CastSeconds: > 0 } summon ? summon.CastSeconds
-                : attack.SkillSpeed is { } speed
-                    ? attack.Spell ? effects.CastSeconds(attack.BaseSeconds, speed.Increased, speed.More)
-                        : effects.AttackSeconds(attack.BaseSeconds, speed.Increased, speed.More)
-                    : effects.AttackSeconds(attack.BaseSeconds, attack.Spell),
+            Seconds = MonsterAttackSeconds(attack, effects, speedAura),
         };
+    }
+
+    internal static double MonsterAttackSeconds(MonsterAttack attack, MonsterModEffects effects, AuraSpeeds aura)
+    {
+        if (attack.Summon is { CastSeconds: > 0 } summon) return summon.CastSeconds;
+        effects = attack.Spell ? effects.Plus(CastSpeedStat, aura.Cast) : effects.Plus(AttackSpeedStat, aura.Attack);
+        if (attack.SkillSpeed is not { } speed) return effects.AttackSeconds(attack.BaseSeconds, attack.Spell);
+        return attack.Spell ? effects.CastSeconds(attack.BaseSeconds, speed.Increased, speed.More)
+            : effects.AttackSeconds(attack.BaseSeconds, speed.Increased, speed.More);
     }
 
     public static Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
@@ -415,8 +420,10 @@ public static partial class Game
             : KingInMists.IsBoss3(variety) ? KingInMists.Boss3AttackSkill
             : summon is null && !kingActor && effect >= 0 && catalog.ActionHash(effect) is ushort hash ? (ushort)(hash & 0x3fff)
             : SkillCatalog.FirstSkillId;
-        var physicalAura = SeparatePhysicalAura(mods.Effects, mods.Mods);
-        int selfDamageAura = friendly ? 0 : physicalAura.Self;
+        var authored = SeparateAttackAuras(mods.Effects, mods.Mods);
+        int selfDamageAura = friendly ? 0 : authored.Physical.Self;
+        var selfSpeeds = friendly ? default : authored.SpeedSelf;
+        var birthEffects = selfSpeeds == authored.SpeedIncluded ? mods.Effects : selfSpeeds.AddTo(authored.SpeedIncluded.AddTo(mods.Effects, -1));
         var attack = WithMonsterMods(new MonsterAttack(skillId, swing, reach, baseDamage)
         {
             Spell = spell,
@@ -432,8 +439,8 @@ public static partial class Game
             Summon = summon,
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
-        }, physicalAura.Effects, selfDamageAura);
-        if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(conn, level, skillId, mods.Effects);
+        }, authored.Effects, selfDamageAura, selfSpeeds);
+        if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(conn, level, skillId, authored.Effects, selfSpeeds);
         var skill = effect >= 0
             ? catalog.FindMonsterSkill(attack.SkillId, effect, level,
                 MonsterActionSkillStats(conn, effect, attack, effectStats, mods.Effects)) : null;
@@ -456,7 +463,7 @@ public static partial class Game
         // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
         // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
-            : BossKits.Kit(conn, variety, level, effect, attack, mods, mapBoss, selfDamageAura);
+            : BossKits.Kit(conn, variety, level, effect, attack, mods, mapBoss, selfDamageAura, selfSpeeds);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
@@ -469,7 +476,7 @@ public static partial class Game
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
-        foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
+        foreach (var stat in MonsterModClientStats(birthEffects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
         if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((StatKeys.HideMiniLifeBar, 1));
         uint maximumEnergyShieldValue = owned is null ? 0 : NativeEnergyShield(ownedMaximumEnergyShield);
         uint energyShieldValue = maximumEnergyShieldValue == 0 ? 0
@@ -520,7 +527,7 @@ public static partial class Game
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
         // (MonsterSpeedRoll.cs); the walk estimate uses the same speed so arrival, swing range and contact agree with it.
         int speedRoll = MonsterSpeedRoll.Percent(id, type, variety);
-        double walkSpeed = mods.Effects.MovementSpeed(variety.MovementSpeed) * MonsterSpeedRoll.Factor(speedRoll) * movement.SpeedFactor;
+        double walkSpeed = birthEffects.MovementSpeed(variety.MovementSpeed) * MonsterSpeedRoll.Factor(speedRoll) * movement.SpeedFactor;
         // An owned spawn must not send a native object and then lose its roster callback across reload.
         // Commit the neutral identity with its create/wake bytes at one current send gate.
         bool admitted = false;
@@ -608,12 +615,14 @@ public static partial class Game
                 EntranceGrace = waitingForBanditChoice || !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             };
-            if (physicalAura.Included != 0)
+            if (authored.Physical.Included != 0)
             {
-                int extra = selfDamageAura - physicalAura.Included;
+                int extra = selfDamageAura - authored.Physical.Included;
                 spawned.PhysicalDamageAura = (!friendly, selfDamageAura == 0 ? 0 : id, selfDamageAura, extra);
                 spawned.SetGrantedStat(PhysicalAuraStat, extra);
             }
+            if (authored.SpeedIncluded != default)
+                InitializeSpeedAura(id, spawned, selfSpeeds, authored.SpeedIncluded);
             MonsterEmerge.AddLocked(conn, id, spawned, emerge, waits);
             if (sideAreaGuard >= 0) SideAreaVessels.PlaceGuard(conn.Instance, sideAreaGuard, id);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
@@ -621,7 +630,7 @@ public static partial class Game
             if (friendly && !instanceOwned) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
             else
             {
-                conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
+                conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity) { CapturedSpeedAura = selfSpeeds != default };
                 // Created on this client where it was spawned (SyncInstanceMonsters creates it on the others).
                 conn.MonsterViews[id] = new((x, y), (x, y), initialDeath ? 0 : initialLife) { ActorStance = monster.ActorStance, OriginStats = monster.Stats,
                     CreatedAsCorpse = initialDeath && conn.Monsters.GetValueOrDefault(id)?.CreatedAsCorpse == true };
