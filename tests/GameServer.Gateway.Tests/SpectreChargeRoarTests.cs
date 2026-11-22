@@ -41,8 +41,8 @@ public sealed class SpectreChargeRoarTests
         {
             var stats = Game.GolemModifiers(f.Conn, caster, caster.Player, 2);
             Assert.Equal(caster.Monster.Mods.Effects["critical_strike_chance_+%"] + 50, stats.Effects["critical_strike_chance_+%"]);
-            Assert.True(Game.GolemCriticalChance(attack with { Crit = 500 }, stats)
-                > Game.GolemCriticalChance(melee with { Crit = 500 }, caster.Monster.Mods));
+            Assert.Equal(500, Game.GolemCriticalChance(melee, caster.Monster.Mods));
+            Assert.Equal(750, Game.GolemCriticalChance(attack, stats));
         }
 
         Game.GolemAbilityContactLocked("test", f.Stream, f.Ciphers, f.Conn, caster, cast, 8);

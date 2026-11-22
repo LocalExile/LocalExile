@@ -230,6 +230,7 @@ public static partial class Game
                 }
             else if (catalog.IsAttack(effect) && Raw("base_deal_no_damage") == 0)
             {
+                if (crit == 0) crit = MinionWeaponCritical(conn, golem);
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = (golem.Weapon is { } equipped ? equipped.LocalDamage ?? DamagePacket.Of(DamageType.Physical, equipped.MinDamage, equipped.MaxDamage)
                     : DamagePacket.Of(DamageType.Physical, min, max)).Scale(multiplier);
@@ -338,6 +339,16 @@ public static partial class Game
             MinionAilmentProfiles.Add(ability, new(ignite, bleed, poison, chance));
         }
         return result;
+    }
+
+    static int MinionWeaponCritical(ClientState conn, GolemState.Golem golem)
+    {
+        // Natural minion weapons have 5% base crit. Animated weapons use the equipped item's local chance.
+        if (golem.Weapon is not { } weapon || golem.Equipment.GetValueOrDefault((byte)2) is not { } item
+            || ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return 500;
+        return AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(conn).WeaponCritical(type),
+            weapon.LocalSources?.GetValueOrDefault("local_critical_strike_chance") ?? 0,
+            weapon.LocalSources?.GetValueOrDefault("local_critical_strike_chance_+%") ?? 0);
     }
 
     static int GolemTether(IReadOnlyDictionary<uint, int> player, string kind)
