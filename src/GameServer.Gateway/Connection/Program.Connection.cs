@@ -159,7 +159,7 @@ public partial class Program
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
-                var moduleHeader = GameEvents.RunAreaHeader(conn);
+                var moduleHeader = MergeAreaHeaders(conn);
                 byte headerLevel = moduleHeader?.Level ?? areaLevel;
                 bool levelChanged = headerLevel > 0 && headerLevel != areaLevel;
                 areaLevel = headerLevel;
@@ -641,6 +641,32 @@ public partial class Program
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone
     // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
+
+    // Composes every AreaHeader subscriber so an AchievementSets-only contributor cannot shadow a later module's
+    // Terrain or Level override (e.g. Delve mine terrain or Simulacrum wave level).
+    static AreaHeader? MergeAreaHeaders(ClientState conn)
+    {
+        byte[]? terrain = null;
+        byte? level = null;
+        List<byte>? sets = null;
+        bool any = false;
+        foreach (var (owner, run) in GameEvents.AreaHeader.Subscribers(conn))
+        {
+            AreaHeader? next = null;
+            GameEventOwners.Guard(owner, nameof(GameEvents.AreaHeader), () => next = run(conn));
+            if (next is null) continue;
+            any = true;
+            terrain ??= next.Terrain;
+            if (level is null && next.Level is > 0) level = next.Level;
+            if (next.AchievementSets is { Count: > 0 } nextSets)
+            {
+                sets ??= [];
+                foreach (byte set in nextSets)
+                    if (!sets.Contains(set)) sets.Add(set);
+            }
+        }
+        return any ? new AreaHeader(terrain, sets) { Level = level } : null;
+    }
 
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();

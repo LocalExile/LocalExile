@@ -131,7 +131,11 @@ public static partial class Game
         foreach (uint id in change.Removed)
             await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { lock (conn.Monsters) return conn.Closed || conn.LeavingArea || conn.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
-        if (on) await CharacterVoiceLines.OnQuestFlagsPublishedHeld(conn, change.Effective);
+        if (on)
+        {
+            await CharacterVoiceLines.OnQuestFlagsPublishedHeld(conn, change.Effective);
+            await CheckQuestFlagAchievements(conn, change.Changed);
+        }
     }
 
     // Whole flag sets are projections, not snapshots: combat can commit while a normal setter awaits the cipher gate.

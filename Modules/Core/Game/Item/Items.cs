@@ -262,6 +262,7 @@ public static partial class Game
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(next)} levels to {level + 1}");
+        await CheckGemLevelAchievements(conn, next, level + 1);
     }
 
     static void ReconcileLeveledGemSourcesLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
@@ -299,6 +300,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} levels to " +
                 $"{ItemsFor(conn).GemLevel(after)} (from {ItemsFor(conn).GemLevel(before)})");
         await SendSkills(remote, stream, ciphers, conn);
+        foreach (var (_, after) in changed.SelectMany(c => c.Gems))
+            await CheckGemLevelAchievements(conn, after, ItemsFor(conn).GemLevel(after));
     }
 
     // C→S 0xd7: a right-click on a socketed gem toggles its level lock (SkillGem +0x10 bit 2); the item is replaced with the
@@ -1611,6 +1614,7 @@ public static partial class Game
         }
         if (targetTab is null && targetRow == PlayerInventories.Flask)
             await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
+        await CheckCraftingAchievements(conn, type!.Id, target.Item, identified.Item);
         Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
             : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))

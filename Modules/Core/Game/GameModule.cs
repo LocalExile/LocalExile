@@ -38,6 +38,7 @@ public sealed class GameModule : IModule, IDisposable
     public void Dispose()
     {
         Rules.ForgetClaimedCharacters();
+        Rules.ResetAchievementCache();
         RuleTables.Empty();
     }
 
@@ -171,6 +172,10 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
+        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
+        GameEvents.AreaGenerated.Add(id, Rules.CheckAreaEntryAchievements);
+        GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);
     }
 }
 

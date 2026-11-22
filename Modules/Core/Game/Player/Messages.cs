@@ -516,7 +516,11 @@ public static partial class Game
                 await ChangePassives(remote, stream, ciphers, conn, nodes, allocate: false, "Respecialisation, Refund All", goldRespec: true);
             }
             else if (id == InstanceEntities.PanelToggleId)
-                Console.WriteLine($"[gateway] {remote} <= 0x0123 panel {(bytes[2] != 0 ? "opened" : "closed")}");
+            {
+                bool opened = bytes.Length >= 3 && bytes[2] != 0;
+                Console.WriteLine($"[gateway] {remote} <= 0x0123 panel {(opened ? "opened" : "closed")}");
+                if (opened) await SendAchievementProgress(remote, stream, ciphers, conn);
+            }
             else if (id == InstanceEntities.CancelBuffId)
             {
                 uint raw = InstanceEntities.ReadCancelBuff(bytes);

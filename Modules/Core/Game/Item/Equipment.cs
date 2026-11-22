@@ -350,6 +350,7 @@ public static partial class Game
             lock (conn.Monsters) return PlayerLifeUpdate(conn);
         });
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
+        await CheckEquipmentAchievements(conn, items);
     }
 
     public static async Task SendModel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
