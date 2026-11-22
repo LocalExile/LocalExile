@@ -48,6 +48,15 @@ public sealed class KillOnslaught
         return true;
     }
 
+    /// <summary>A gain of <paramref name="seconds"/> at <paramref name="now"/> (an effect rule's): whether it started
+    /// or lengthened Onslaught. A gain never shortens the Onslaught running.</summary>
+    public bool Extend(double now, double seconds)
+    {
+        if (seconds <= 0 || now + seconds <= Until) return false;
+        Until = now + seconds;
+        return true;
+    }
+
     /// <summary>One hit at <paramref name="now"/>: whether it started or lengthened Onslaught ("You gain Onslaught for
     /// X seconds on Hit"). A gain never shortens the Onslaught running.</summary>
     public bool Hit(double now)
@@ -86,7 +95,9 @@ public static partial class Game
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
     public static void ConfigureKillOnslaught(ClientState conn, Func<string, int> get)
     {
-        var rolls = KillOnslaught.From(get);
+        // A stat an effect rule drives is the rule's now: this code reads it as 0 (EffectRules.Unhandled), so each
+        // gain is rolled once, by the row that replaced its line here.
+        var rolls = KillOnslaught.From(EffectRules.Unhandled(get));
         lock (conn.Monsters)
         {
             var onslaught = KillOnslaughtOf(conn);

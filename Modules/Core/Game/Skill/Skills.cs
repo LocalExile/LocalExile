@@ -330,6 +330,7 @@ public static partial class Game
         ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
         bool lowLife = CriticalOnLowLife(conn, stats);
         ConfigureLeech(conn, Get, rawOverrides, lowLife);
+        EffectRules.Configure(conn, Get);
         ConfigureKillOnslaught(conn, Get);
         WithLeechConditions(conn, stats);
         // The low-life flag the damage pipeline reads (Pain Attunement's "30% more Spell Damage when on Low Life"), kept

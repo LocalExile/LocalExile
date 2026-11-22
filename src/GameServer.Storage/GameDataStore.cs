@@ -11,6 +11,9 @@ public sealed class GameDataStore : IDisposable
 {
     public sealed record ModStatOverride(string ModId, int StatIndex, int Minimum, int Maximum);
     public sealed record LimitOverride(string Key, int Value);
+
+    /// <summary>One row of <c>effect_rules</c>: the stat that turns the rule on and the rule's JSON, as the game module reads it.</summary>
+    public sealed record EffectRuleRow(string Stat, int Ord, string Rule, string? Note);
     public sealed record SettingRow(string Key, double Value);
     public sealed record UniqueWeightRow(string Name, double Weight, double RuthlessWeight);
     public sealed record CurrencyWeightRow(string CurrencyId, double Weight, int DropLevel, bool Enabled,
@@ -72,6 +75,20 @@ public sealed class GameDataStore : IDisposable
             var result = new List<ModStatOverride>();
             while (reader.Read())
                 result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3)));
+            return result;
+        }
+    }
+
+    /// <summary>The enabled, reviewed rows of <c>effect_rules</c>, in stat and ord order.</summary>
+    public IReadOnlyList<EffectRuleRow> LoadEffectRules()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT stat, ord, rule, note FROM effect_rules WHERE enabled = 1 AND reviewed = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<EffectRuleRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3)));
             return result;
         }
     }

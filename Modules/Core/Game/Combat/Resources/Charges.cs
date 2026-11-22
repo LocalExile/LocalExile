@@ -31,11 +31,12 @@ public static partial class Game
     static readonly RuleTable<SpawnedMonster, KillingSkill> KillingSkills = new();
 
     // The one place a combat event of a player's is recorded: the charge rules take it (applied at the charge ticker's
-    // next step), then the other modules and the mods (GameEvents.Combat). Charge commands (Grant, Set, Spend) are not
+    // next step), the effect rules run (EffectRules), then the other modules and the mods (GameEvents.Combat). Charge commands (Grant, Set, Spend) are not
     // events and go to the session directly.
     public static void RaiseCombatEvent(ClientState conn, ChargeEvent e)
     {
         ChargesOf(conn).Enqueue(e);
+        EffectRules.Run(conn, e);
         GameEvents.RaiseCombat(conn, e);
     }
 
