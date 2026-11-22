@@ -16,6 +16,7 @@
     "Core/Player/Commands",
     "Core/Player/Pantheon",
     "Core/Player/Social",
+    "Core/Village",
     "Core/World/Atlas",
     "Core/World/HideoutEditing",
     "Core/World/Portals",

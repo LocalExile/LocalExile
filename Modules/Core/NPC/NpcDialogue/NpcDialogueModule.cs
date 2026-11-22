@@ -7,29 +7,25 @@ namespace GameServer.Modules.NpcDialogue;
 /// <summary>What every NPC's dialogue options do: their text, quest rewards, hideout selection, respec and identifying.</summary>
 public sealed class NpcDialogueModule : IModule
 {
-    // The Settlers (Kingsmarch) screens: the S->C 0x7b kind of each SendOpenScreen(<name>) in an NPCTalk row's script, from
-    // the client's screen table at 0x142fd89f0 (0x54 Recombinator, 0x55 Recruitment, 0x56 TownMap, 0x57 Mine, 0x58 Port,
-    // 0x59 Farm, 0x5a BlackSmith, 0x5b Disenchanting, 0x5c MapRunners, 0x5d Fishing, 0x5e CurrencyExchange). No row opens
-    // KalguurFarm: that panel comes from the town map (0x56), not from an NPC.
+    // The Settlers (Kingsmarch) screens: the S->C 0x7b kind of each SendOpenScreen(<name>) in an NPCTalk row's script.
+    // The kinds were read off the live client, one panel at a time: 0x56 opens the KINGSMARCH town map and 0x55 opens the
+    // RECRUITMENT panel (the town's "Hire Workers" button sends 0x55 too). The client's own screen-name table
+    // (0x142fd8c00, records of kind / name) is a different id space - it names 0x54 KalguurRecruitmentWindow and 0x55
+    // KalguurTownMapWindow - so its numbers must not be used here; only a kind seen on screen counts. The other kinds are
+    // still unverified. No row opens KalguurFarm: that panel comes from the town map, not from an NPC.
     private static readonly Dictionary<string, byte> Screens = new(StringComparer.Ordinal)
     {
-        ["KalguurRecruitmentWindow"] = 0x55,   // Raulf, the Recruiter: Town Recruitment (NPCTalk category 54).
         ["KalguurTownMapWindow"] = 0x56,       // the King's Hand: Manage Town (category 57), and the three noticeboards.
-        ["KalguurDisenchantingWindow"] = 0x5b, // Rog, the Disenchanter (category 55).
-        ["KalguurPortWindow"] = 0x58,          // Tujen, the Harbourmaster (category 56). The client's window for this kind is an
-                                               // empty stub (0x1400f1180), so sending it shows nothing: logged as known.
-        ["CurrencyExchangeWindow"] = 0x5e,     // Faustus, the Financier (category 53).
+        ["KalguurRecruitmentWindow"] = 0x55,   // Raulf, the Recruiter: Town Recruitment (NPCTalk category 54).
+        ["KalguurDisenchantingWindow"] = 0x5a, // Rog, the Disenchanter (category 55). Not seen on screen yet.
+        ["KalguurPortWindow"] = 0x57,          // Tujen, the Harbourmaster: Shipping (category 56). Not seen on screen yet.
+        ["CurrencyExchangeWindow"] = 0x4a,     // Faustus, the Financier (category 53). Not seen on screen yet.
     };
 
     private static readonly Regex ScreenScript = new(@"SendOpenScreen\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled);
-    /// <summary>The Kingsmarch screens this client cannot build (its village UI element is never created, so the 0x7b that
-    /// opens them shows nothing), and what to do instead of standing in front of an empty screen.</summary>
-    private static readonly Dictionary<byte, string> Hints = new()
-    {
-        [0x55] = "The recruitment window does not open in this client yet: /village hire hires a worker, /village assign <worker> <plot> puts one on a plot.",
-        [0x56] = "The town map does not open in this client yet: /village reports the farm, its crops and its workers.",
-        [0x58] = "The port window does not open in this client yet (shipping is not written).",
-    };
+    /// <summary>Kingsmarch screens whose panel still shows nothing beyond its frame: tells the player what the dev
+    /// commands do instead. Empty once a panel draws its own state.</summary>
+    private static readonly Dictionary<byte, string> Hints = new();
 
     /// <summary>The screen a script's <c>SendOpenScreen( Name )</c> names.</summary>
     private static string? OpenedScreen(string? script) =>
@@ -52,6 +48,14 @@ public sealed class NpcDialogueModule : IModule
                     $"0x007b open hideout selection ({(talk.OpensGuildHideouts ? "guild" : "character")})");
                 return true;
             case "QuestReward" when talk.RewardOffer is { } offer && await world.NpcOfferReward(offer):
+                return true;
+            // The King's Hand's "Invest in Recruitment" (NPCTalk 3613, category Quests): the row carries no script, so the
+            // recruitment panel is opened here. The client draws the row's own text, so the option reads "Invest in
+            // Recruitment" and the panel it opens is the RECRUITMENT one (kind 0x55).
+            case "Quests" when talk.Option == "Invest in Recruitment":
+                await world.NpcClose($"0x0084 close {talk.Npc}'s dialogue for the recruitment panel");
+                await player.Send(InstanceWaypoints.OpenUi(Screens["KalguurRecruitmentWindow"]),
+                    $"0x007b 0x{Screens["KalguurRecruitmentWindow"]:x2} open the recruitment panel (NPCTalk {talk.Row})");
                 return true;
             case "Gossip" or "Quests" or "QuestReward" when talk.HasText && Settled(talk.Option):
                 // Another module owns this option (Johan's "Fund the Treasury" moves gold into Kingsmarch's treasury):

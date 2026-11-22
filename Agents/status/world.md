@@ -98,9 +98,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Kingsmarch (Settlers of Kalguur): the hub's villagers stand on their room cells and talk, the farm plots grow and
   harvest (workers, wages, a saved store), the treasury takes gold from Johan's "Fund the Treasury", and the harbour
-  sends crops to the seven ports with travel time, risk and the shipping failure rows. The league's own panels cannot
-  open in this client (its village UI is never built and its gold has no message), so the same actions are commands
-  (`/village`, `/recruit`, `/treasury`, `/port`); the town's floor and buildings come from a client-side doodad patch
+  sends crops to the seven ports with travel time, risk and the shipping failure rows. The client's own town panel opens
+  (its "Toggle Town Map" button) once the server sends the settlement records with the area's own messages (wire
+  `0x1f`, kind `0x9b`, before `0x21`): the client reads them once, when it builds the area, and a record that arrives
+  later is never read. The panel draws but its numbers are empty — the records carry no data yet, so population, gold
+  and the work rows are zero and the same actions are commands (`/village`, `/recruit`, `/treasury`, `/port`); the
+  town's floor and buildings come from a client-side doodad patch
   (`scripts/dev/kingsmarch-doodads.py`), not from the protocol. Mining/smelting, workers in maps and shipping quotas are
   not written. Source: `Modules/Core/Game/World/KingsmarchTown.cs`, `KingsmarchPort.cs`,
   [settlers](../docs/game/settlers.md).

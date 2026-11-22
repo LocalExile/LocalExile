@@ -1870,6 +1870,9 @@ public static partial class Game
         {
             var tabs = PersonalStashOf(conn).Records((int)StashSelectAffinity);
             bool secondSet = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn)).WeaponSet == 1;
+            // Data the client must have before the area starts: it builds the area's windows when the area starts and reads
+            // what it needs once, there (a settlement's records, for one).
+            messages.AddRange(GameEvents.RunAreaEntryMessages(conn));
             messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), last {PersonalStashOf(conn).LastTab}, weapon set {(secondSet ? 2 : 1)}",
                 InstanceProtocol.EnterArea(tabs, secondSet)));
             messages.AddRange(GameEvents.RunEnterMessages(conn));

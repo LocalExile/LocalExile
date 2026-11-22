@@ -28,6 +28,16 @@ public static class InstanceProtocol
     /// (instance dispatcher 0x142150ae0 case 8, slot 8 0x1415a6800); client code finds a ruleset there by its row.</summary>
     public static byte[] AddRuleset(byte row, uint value = 0) => new LoginWriter().U16(AddRulesetId).U8(row).U32(value).ToArray();
 
+    public const ushort VillageEventId = 0x1e;
+
+    /// <summary>S→C 0x1e: u32 settlement record kind, then the event name as a narrow string (u16 length + bytes).
+    /// The client's settlement record handles events in its vtable slot 3 (client 0x14176a8e0) and matches the name
+    /// against "village_imgui" (0x14348e980), "reroll_recruits" (0x14348e990) and "super_reroll_recruits"
+    /// (0x14348e928). "village_imgui" is the one that builds the village UI (the town panel): the dispatcher case for
+    /// 0x1e (0x1421514af) looks the record up by kind (0x141ec5880) and hands the name to every record
+    /// (0x1421714f0 -> record-&gt;vtable[3]).</summary>
+    public static byte[] VillageEvent(uint kind, string name) => new LoginWriter().U16(VillageEventId).U32(kind).Str(name).ToArray();
+
     /// <summary>
     /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
@@ -580,7 +590,8 @@ public static class InstanceProtocol
                 : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
                     ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
+                : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue
+                : id == InstanceVillage.ActionId ? InstanceVillage.ActionLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
             if (known is not int len) { unknown = data[pos..].ToArray(); break; }
             if (data.Length - pos < len) { partial = data[pos..].ToArray(); break; }
             result.Add((id, data.Slice(pos, len).ToArray()));

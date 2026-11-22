@@ -168,6 +168,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Tick.Add(id, async (conn, now) => await KingsmarchTown.Tick(Program.PlayerOf(conn), now));
         GameEvents.AreaGenerated.Add(id, conn => { KingsmarchTown.Entered(Program.PlayerOf(conn)); return Task.CompletedTask; });
         GameEvents.ObjectUse.Add(id, async (conn, use, _) => await KingsmarchTown.Use(Program.PlayerOf(conn), use.TargetId));
+        // The settlement records go out with the area's own messages: the client reads them once, when it builds the area.
+        GameEvents.AreaEntryMessages.Add(id, conn => KingsmarchTown.AreaEntryMessages(conn));
         // The harbour: one shipment at a time per port, resolved on a timer (World/KingsmarchPort.cs).
         GameEvents.Tick.Add(id, async (conn, now) => await KingsmarchPort.Tick(Program.PlayerOf(conn), now));
         // Johan's "Fund the Treasury" (NPCTalk 667, category Quests) moves gold from the account's stash into the town: the

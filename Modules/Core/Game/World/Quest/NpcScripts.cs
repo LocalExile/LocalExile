@@ -10,8 +10,9 @@ using GameServer.Core.Protocol.Login;
 //   Script2): what happens when the row's talk ends (or at once for a row without text).
 public static partial class Game
 {
-    // S→C 0x7b kinds of the screens the scripts open (the client's screen table at 0x142fd89f0, campaign/pantheon.md §3).
-    public static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal) { ["PantheonScreen"] = 0x14 };
+    // S→C 0x7b kinds of the screens the scripts open (the client's screen table at 0x142fd8000, records of u32 kind, u32
+    // pad and a wide name pointer; the kinds are not in name order, so a name has to be looked up).
+    public static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal) { ["PantheonScreen"] = 0x0d };
 
     /// <summary>Whether the row does something when its talk ends (or at once without a talk).</summary>
     public static bool EndsWithScript(NpcCatalog.Talk talk) =>

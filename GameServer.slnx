@@ -14,6 +14,7 @@
   </Folder>
   <Folder Name="/Modules/">
     <Project Path="Modules/Core/Game/Game.csproj" />
+    <Project Path="Modules/Core/Village/Village.csproj" />
     <Project Path="Modules/Core/Content/Delve/Delve.csproj" />
     <Project Path="Modules/Core/Content/Delirium/Delirium.csproj" />
     <Project Path="Modules/Core/Content/Harvest/Harvest.csproj" />
