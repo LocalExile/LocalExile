@@ -79,7 +79,8 @@ static partial class Game
             corpse.CorpseConsumed = true;
             NoteCorpseConsumedLocked(conn, corpse);
             conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
+            if (!corpse.CreatedAsCorpse)
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
         }
         int extra = Math.Max(0, corpses.Length - 1);
         string kind = effect == "FleshOffering" ? "flesh" : effect == "BoneOffering" ? "bone" : "spirit";

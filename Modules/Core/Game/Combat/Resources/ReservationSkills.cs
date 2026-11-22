@@ -116,7 +116,7 @@ public static partial class Game
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
         return (increased, webs, ignited, bleeding, lowLife) =>
         {
-            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
+            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
             increased += SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(conn, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
@@ -264,7 +264,8 @@ public static partial class Game
                 m.LastHitBy = conn;
                 if (m.HeraldBurns.Buff is not null) continue;
                 m.HeraldBurns.Buff = conn.NextBuff++;
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId), "Herald of Ash burn", id, m, WorldId: id));
+                ushort? burnVisual = aura.ArtVariation != 0 ? Art.BuffVisual("herald_of_ash_burning_buff", aura.ArtVariation) : null;
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId, visual: burnVisual), "Herald of Ash burn", id, m, WorldId: id));
             }
     }
 
