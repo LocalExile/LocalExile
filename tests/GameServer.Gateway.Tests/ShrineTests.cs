@@ -163,9 +163,38 @@ public sealed class ShrineTests
     sealed class ProbeEffect : IShrineEffect
     {
         public int Applied, Expired, Unloaded;
-        public Task OnBuffApplied(ShrineContext ctx, ShrineInstance shrine) { Applied++; return Task.CompletedTask; }
+        public double Duration;
+        public Task OnBuffApplied(ShrineContext ctx, ShrineInstance shrine) { Applied++; Duration = shrine.Duration; return Task.CompletedTask; }
         public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) { Expired++; return Task.CompletedTask; }
         public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) { Unloaded++; return Task.CompletedTask; }
+    }
+
+    [Fact]
+    public async Task Atlas_duration_extends_a_claimed_map_shrine()
+    {
+        ShrineRegistry.RegisterDefaults();
+        var probe = new ProbeEffect();
+        ShrineRegistry.Register(new ShrineDefinition { Id = "Acceleration", Duration = 45, AfterActivation = [() => probe] });
+        var instance = new InstanceState();
+        await using var wire = await ShrineWire.Open(instance);
+        var player = wire.Player;
+        var area = new MapDevice.MapArea(player.Layout.Hash, "MapWorldsStrand", "Test map", 16);
+        var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapShrineGrantedPlayerBuffDurationPlusPct] = 25 });
+        instance.OpenedWith(new MapDevice.Run(player.Character.Name ?? "shrine-test", area, mods));
+        try
+        {
+            Assert.Equal(1, await ShrineManager.SpawnAroundPlayer(player, ["Acceleration"]));
+            uint shrine = uint.Parse(instance.ContentState["Shrines/id/112/100"]);
+            player.Walk.Teleport(112, 100, 0);
+            Assert.True(await ShrineManager.Use(player, new(shrine, 0, 1, 0), 0));
+            Assert.Equal(1, probe.Applied);
+            Assert.Equal(56.25, probe.Duration);
+        }
+        finally
+        {
+            await ShrineManager.LeaveArea(player);
+            ShrineRegistry.RegisterDefaults();
+        }
     }
 
     static void NovaSpells()
@@ -250,6 +279,33 @@ public sealed class ShrineTests
             Assert.False(await ShrineManager.Use(player, new(expiredId, 0, 3, 0), 0));
         }
         finally { await ShrineManager.LeaveArea(player); }
+    }
+
+    [Fact]
+    public async Task Atlas_effect_scales_shrine_values_and_keeps_flags()
+    {
+        ShrineRegistry.RegisterDefaults();
+        var instance = new InstanceState();
+        await using var wire = await ShrineWire.Open(instance);
+        var player = wire.Player;
+        var area = new MapDevice.MapArea(player.Layout.Hash, "MapWorldsStrand", "Test map", 16);
+        var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapShrineGrantedPlayerBuffEffectPlusPct] = 20 });
+        instance.OpenedWith(new MapDevice.Run(player.Character.Name ?? "shrine-test", area, mods));
+        try
+        {
+            Assert.Equal(1, await ShrineManager.SpawnAroundPlayer(player, ["Acceleration"]));
+            uint shrine = uint.Parse(instance.ContentState["Shrines/id/112/100"]);
+            player.Walk.Teleport(112, 100, 0);
+            Assert.True(await ShrineManager.Use(player, new(shrine, 0, 1, 0), 0));
+            var stats = ShrineManager.AddStats(player, []);
+            Assert.Equal(96, stats.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct));
+            Assert.Equal(1, stats.GetValueOrDefault(Stat.HasShrineEffect));
+        }
+        finally
+        {
+            await ShrineManager.LeaveArea(player);
+            ShrineRegistry.RegisterDefaults();
+        }
     }
 
     static async Task Lifecycle()

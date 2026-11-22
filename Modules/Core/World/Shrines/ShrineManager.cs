@@ -297,8 +297,10 @@ public static class ShrineManager
         var playerStats = CharacterPlayerStats(player);
         int Stat(uint key) => playerStats.GetValueOrDefault(key);
         int duration = Stat(global::Stat.ShrineEffectDurationPlusPct) + (MapModsOf(player)?.Get(global::Stat.MapPlayerShrineEffectDurationPlusPct) ?? 0);
+        if (!definition.Lesser) duration += MapModsOf(player)?.Get(global::Stat.MapShrineGrantedPlayerBuffDurationPlusPct) ?? 0;
         shrine.Duration = Math.Clamp(shrine.Duration * Math.Max(0L, 100L + duration) / 100, 0, int.MaxValue);
         int effectPercent = Stat(global::Stat.ShrineBuffEffectOnSelfPlusPct) + (MapModsOf(player)?.Get(global::Stat.MapPlayerShrineBuffEffectOnSelfPlusPct) ?? 0);
+        if (!definition.Lesser) effectPercent += MapModsOf(player)?.Get(global::Stat.MapShrineGrantedPlayerBuffEffectPlusPct) ?? 0;
         if (effectPercent != 0 && (definition.Monster is not null || definition.Lesser))
             shrine.Stats = shrine.Stats.Select(s => (s.Key, s.Key is global::Stat.HasShrineEffect or global::Stat.AlwaysCrit or global::Stat.BaseCannotBeDamaged or global::Stat.GlobalKnockback or global::Stat.ExtraGore
                 ? s.Value : (int)Math.Clamp((long)s.Value * Math.Max(0L, 100L + effectPercent) / 100, int.MinValue, int.MaxValue))).ToArray();

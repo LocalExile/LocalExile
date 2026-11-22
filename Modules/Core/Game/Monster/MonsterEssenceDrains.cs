@@ -35,9 +35,11 @@ static partial class Game
         double perSecond = Get(Stat.BaseChaosDamageToDealPerMinute) / 60.0;
         if (!(perSecond > 0) || DamageStats.Prohibited(DamageType.Chaos, Get)) return null;
         double increased = (double)Get(Stat.DamagePlusPct) + Get(Stat.SpellDamagePlusPct) + Get(Stat.ChaosDamagePlusPct)
-            + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct) + Get(Stat.EssenceDrainDamagePlusPct);
+            + Get(Stat.DamageOverTimePlusPct) + Get(Stat.DamageOverTimePlusPctWithSpells)
+            + Get(Stat.ChaosDamageOverTimePlusPct) + Get(Stat.EssenceDrainDamagePlusPct);
         double more = EssenceDrainSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
-        double multiplier = 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100.0;
+        double multiplier = 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)
+            + Get(Stat.DamageOverTimeMultiplierPlusWithSpells)) / 100.0;
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
             * Math.Max(0, 1 + Get(Stat.SiphonDurationPlusPct) / 100.0);
