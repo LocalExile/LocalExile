@@ -296,4 +296,16 @@ Removed and created again with `opened` = 1 it shows opened with no minimap mark
 A unique box (live 2026-11-18, Strange Barrel and Redblade Cache) is its base strongbox's object with rarity 3, the
 UniqueChests row's `AOFile` as the Animated model, its Words row's HASH32 as the name (flags bit 8, as a unique item),
 and its UniqueChests mods in the explicit list: the nameplate shows the name in unique colour and the mod lines. A currency used on it is C→S 0x74 ([13](13-items.md)).
-Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.
+Its opening is the model's one clip: `Art/Models/Chests/Strongboxes/<box>.amd` declares `1 "open" once 1166`, and the
+`.ao`'s client `SoundEvents` bind the model's lid sounds to it (`Small_Open`/`Small_Stop_01`, `Large_Open`/`Large_Stop`,
+`Armoury_Open`/`Armoury_Stop`, `Ornate_Open`/`Ornate_Close`, `SB_Open`/`SB_Stop`, or a unique box's `Kaoms`,
+`Malachais`, `Pendarus`, `Vase`+`VaseMagic`, `BaroqueVase_01`+`_02`+`BaroqueVaseMagic`, `ChestMetal`+`ChestMetalMagic`).
+Live (2026-11-22): the client's own opened-flag path (Chest vtable +0xc0, `0x141e17130`) looks the clip up by name and
+resolves nothing for these objects, so the server plays clip 0 with S→C 0x1b2; the Chest component has **no 0x2bc
+reader** (slot 20 is `ret`), so `opened` = 1 reaches the client only in a created object, and the box is created again
+opened once the clip is over (nameplate and marker gone). `Chests.ChestEffectsKey` names the `ChestEffects` row that
+gives the per-rarity `…_Closed_AOFile` looping glow (no SoundEvents) and the `…_Open_AOFile` open effect, whose
+`openfx` clip carries `Chests/Strongbox/Effect_$(#)`; the boxes' monster-spawn art is `MiscAnimated
+SummonedMonsterEffect` (`chestsummon.ao`: `Chests/TrapTrigger/MonsterSpawn/Spawn_$(#)` and `Layer_$(#)`) and
+`StrongboxCorpseExplode`'s is `MiscAnimated StrongboxExplosion` (`strongbox_explode/rig.ao`: `NewStrongBoxExplode`).
+What `started` does is not verified.

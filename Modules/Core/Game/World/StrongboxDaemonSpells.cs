@@ -29,6 +29,10 @@ public static partial class MapStrongboxes
     /// <summary>The radius (cells) of a daemon whose skill gives none: OUR choice, the reach of an Ice Nova (26).</summary>
     const int DefaultRadius = 26;
 
+    /// <summary>The official art of a strongbox's corpse explosion (MiscAnimated <c>StrongboxExplosion</c>): its one-shot
+    /// "animate" clip (1000 ms) carries Audio/…/Chests/Strongbox/NewStrongBoxExplode.ogg.</summary>
+    const string StrongboxExplodeAo = "Metadata/Effects/Spells/monsters_effects/strongbox_explode/rig.ao";
+
     static readonly Dictionary<string, (string Curse, ushort Buff)> CurseSkills = new(StringComparer.Ordinal)
     {
         ["SkeletonTemporalChains"] = ("temporal_chains", 69), ["MonsterEnfeeble"] = ("enfeeble", 76),
@@ -316,7 +320,10 @@ public static partial class MapStrongboxes
         await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsUpdateAtGate(c, PlayerStatsWithCleared(c)), null);
     }
 
-    /// <summary>Every corpse near the box explodes (and is consumed): each an area hit around it.</summary>
+    /// <summary>Every corpse near the box explodes (and is consumed): each an area hit around it. The art is the official
+    /// one: MiscAnimated <c>StrongboxExplosion</c> (Metadata/Effects/Spells/monsters_effects/strongbox_explode/rig.ao),
+    /// whose one-shot "animate" clip carries <c>Audio/…/Chests/Strongbox/NewStrongBoxExplode.ogg</c> — the box's own
+    /// explosion sound.</summary>
     static async Task ExplodeCorpses(ClientState conn, (int X, int Y) at, int radius, DamagePacket damage)
     {
         var corpses = new List<(uint Id, (int X, int Y) At, bool Remove)>();
@@ -334,7 +341,7 @@ public static partial class MapStrongboxes
         foreach (var (id, spot, remove) in corpses)
         {
             if (remove) await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
-            await ShowArt(conn, spot, KillExplosionAo, 1.5);
+            await ShowArt(conn, spot, StrongboxExplodeAo, 1.5, playClip: true);
             await HitPlayers(conn, spot, radius, DamageType.Fire, damage);
         }
     }
@@ -409,7 +416,9 @@ public static partial class MapStrongboxes
         }
     }
 
-    static async Task ShowArt(ClientState conn, (int X, int Y) at, string art, double seconds)
+    /// <summary>An effect object at a spot for a while; <paramref name="playClip"/> starts its first clip, which is what
+    /// fires the clip's SoundEvents (an effect created by the server does not play them by itself).</summary>
+    static async Task ShowArt(ClientState conn, (int X, int Y) at, string art, double seconds, bool playClip = false)
     {
         uint id = conn.TakeObjectId();
         lock (conn.Monsters)
@@ -417,6 +426,7 @@ public static partial class MapStrongboxes
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, art).Blob()), null, WorldId: id, CreatesObject: true));
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+            if (playClip) conn.Minions.OutputQueue.Add(new(InstanceProtocol.AnimationUpdate(id, 0, 0, 1), null, WorldId: id));
         }
         await Task.Delay(TimeSpan.FromSeconds(seconds));
         lock (conn.Monsters)

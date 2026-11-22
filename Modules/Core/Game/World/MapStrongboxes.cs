@@ -65,6 +65,8 @@ public static partial class MapStrongboxes
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    /// <summary>The looping closed-glow effect each viewer shows on each box (<see cref="Wear"/>).</summary>
+    static readonly RuleTable<ClientState, Dictionary<uint, uint>> Worn = new();
 
     public static void Opening(MapOpening request)
     {
@@ -338,13 +340,115 @@ public static partial class MapStrongboxes
         if (shown.Contains(box.Id)) await SendWorldRemoval(remote, stream, ciphers, conn, box.Id, null);
         await SendWorldCreate(remote, stream, ciphers, conn, box.Id,
             InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
-                StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase == 2, box.Rarity,
+                StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase > 0, box.Rarity,
                     box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : null, null,
                     box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null)),
             $"strongbox 0x{box.Id:x} {Label(conn, box)} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
         await SendWorldRecord(remote, stream, ciphers, conn, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
         conn.SetBlocker(box.Id, box.X, box.Y, 1);
         shown.Add(box.Id);
+        await Wear(conn, box);
+    }
+
+    /// <summary>The rarity's looping glow on a closed box, and none on an opened one: the ChestEffects row's
+    /// <c>…_Closed_AOFile</c> (white/blue/gold/brown for normal/magic/rare/unique; their default animation is "loop") is
+    /// an effect object at the box, replaced or removed whenever the box is presented again. Without it every box looks
+    /// alike — the client never wears it by itself, and the base model is the same for all rarities.</summary>
+    static async Task Wear(ClientState conn, Box box)
+    {
+        var worn = Worn.GetOrCreateValue(conn);
+        var (remote, stream, ciphers) = conn.Wire;
+        if (worn.Remove(box.Id, out uint old)) await SendWorldRemoval(remote, stream, ciphers, conn, old, null);
+        if (box.Phase != 0 || StrongboxCatalog.Find(box.Type) is not { } type
+            || StrongboxCatalog.ClosedEffect(type, box.Rarity) is not { } art) return;
+        uint id = conn.TakeObjectId();
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(box.X, box.Y, art).Blob()),
+            $"strongbox 0x{box.Id:x} closed glow {art}");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        worn[box.Id] = id;
+    }
+
+    /// <summary>The client's summoned-monster effect (MiscAnimated <c>SummonedMonsterEffect</c>): a dust column whose
+    /// one-shot "animate" clip (4958 ms, `.amd`) starts the spawn sounds, which the client files under the chests'
+    /// trap triggers (Audio/…/Chests/TrapTrigger/MonsterSpawn/Spawn_$(#).ogg and Layer_$(#).ogg) — the effect the
+    /// official game plays where a chest's monsters appear. Nothing creates it for a monster the server spawns, so the
+    /// guards of a strongbox appear with it.</summary>
+    const string SummonEffectAo = "Metadata/Effects/Environment/chests/Strongboxes/chestsummon.ao";
+    const double SummonEffectSeconds = 5;
+
+    /// <summary>The spawn column and its sound at a cell, removed when its 5 s clip is over.</summary>
+    static async Task SummonEffect(ClientState conn, int x, int y)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        uint id = conn.TakeObjectId();
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(x, y, SummonEffectAo).Blob()),
+            $"summoned monster effect at ({x}, {y})");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+            "summoned monster effect: the spawn sounds");
+        SendAfter(SummonEffectSeconds, async () =>
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+        });
+    }
+
+    /// <summary>The box's "open" clip's length (its .amd: 1166 ms) and a margin: after it the box is presented opened.</summary>
+    const double OpenClipSeconds = 1.2;
+
+    /// <summary>How long the open effect object lives: its "openfx" clip is 166 ms (the animation metadata), and the
+    /// particle bursts it starts need a little longer to play out.</summary>
+    const double OpenEffectSeconds = 2;
+
+    /// <summary>A box's opening, on the object <see cref="Present"/> made. The box's .ao declares one animation, "open"
+    /// (Art/Models/Chests/Strongboxes/<c>&lt;box&gt;.amd</c>: <c>1 "open" once 1166</c>), whose SoundEvents are the
+    /// model's own lid sounds (Small_Open, Large_Open, Armoury_Open, Ornate_Open, SB_Open, or a unique box's
+    /// Kaoms/Malachais/Pendarus). The client's chest code looks the clip up by name when the opened flag changes
+    /// (<c>0x141e17130</c>, Chest vtable +0xc0), but live that lookup resolves to nothing for these objects; selecting
+    /// clip index 0 fires the sounds. The Chest component itself has no 0x2bc reader (slot 20 is <c>ret</c>), so the
+    /// opened flag only reaches the client in a created object: when the clip ends the box is presented again, opened
+    /// and without its nameplate. The StateMachine's opened state hides the marker at once (the .ot's
+    /// <c>on_or_create_state_opened_1</c>). The ChestEffects row's open effect
+    /// (<see cref="StrongboxCatalog.OpenEffect"/>, by rarity) is created at the box and its own default "openfx" clip
+    /// started, as the Delve effects start theirs: its SoundEvents are the open swoosh and it starts its particles.</summary>
+    static async Task OpenPresentation(ClientState conn, Box box)
+    {
+        if (StrongboxCatalog.Find(box.Type) is not { } type) return;
+        var (remote, stream, ciphers) = conn.Wire;
+        var components = type.Components.ToList();
+        if (components.IndexOf("StateMachine") is int machine and >= 0 && type.States is { } states)
+            await SendWorldRecord(remote, stream, ciphers, conn, box.Id,
+                InstanceEntities.StateMachineUpdate(box.Id, (byte)machine, states.Set("started", 1).Set("opened", 1)),
+                $"strongbox 0x{box.Id:x} opened state (the marker hides)");
+        // The clip itself: the opened flag alone does not start it. Index 0 is the .ao's only animation, "open", and
+        // playing it is what fires the model's SoundEvents (live: the lid's creak, 0 s and 0.52 s).
+        await SendWorldRecord(remote, stream, ciphers, conn, box.Id, InstanceProtocol.AnimationUpdate(box.Id, 0, 0, 1),
+            $"strongbox 0x{box.Id:x} plays its open clip (lid sound)");
+        await Wear(conn, box);
+        // The opened flag only arrives in a created object: once the clip has played, present the box opened, which
+        // drops its nameplate (and the marker, should the state script not).
+        SendAfter(OpenClipSeconds, async () =>
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            await Present(conn, box, true);
+        });
+        if (StrongboxCatalog.OpenEffect(type, box.Rarity) is not { } art) return;
+        uint id = conn.TakeObjectId();
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(box.X, box.Y, art).Blob()),
+            $"strongbox 0x{box.Id:x} open effect {art}");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        // As the Delve completion effect does: an effect object's own clip must be started for its SoundEvents to fire
+        // (its default "openfx" animation's sound is Audio/…/Chests/Strongbox/Effect_$(#).ogg).
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+            $"strongbox 0x{box.Id:x} open effect sound");
+        SendAfter(OpenEffectSeconds, async () =>
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+        });
     }
 
     public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
@@ -412,10 +516,14 @@ public static partial class MapStrongboxes
             Console.WriteLine($"[map-content] strongbox {box.Type}: no supported guards or free cells; remains closed");
             return;
         }
-        box = ReleaseWaves(box with { Phase = 1, Pending = guards, Waves = waves }, now);
+        // The guards erupt when the box's open clip is over: the lid's creak finishes (its stop is at 0.52 s) before
+        // their dust columns and spawn sounds, as in the game; Tick releases the wave and spawns it with them.
+        var opening = new Wave(now.AddSeconds(OpenClipSeconds).Ticks, guards);
+        box = ReleaseWaves(box with { Phase = 1, Pending = [], Waves = [.. new[] { opening }.Concat(waves).OrderBy(w => w.AtTicks)] }, now);
         area.Boxes![box.Index] = box;
         Keep(conn, area);
-        foreach (var member in Members(conn)) await Present(member, box, true);
+        // The object the client has stays while its clip plays; OpenPresentation presents it opened once the clip is over.
+        foreach (var member in Members(conn)) await OpenPresentation(member, box);
         await SpawnPending(conn, area, box);
         if (StrongboxCatalog.Find(box.Type) is { } exiled
             && StrongboxMods.Stat(ItemsFor(conn).Mods, exiled, box.Explicits, "chest_spawn_rogue_exiles") is int exiles and > 0)
@@ -428,7 +536,13 @@ public static partial class MapStrongboxes
                 (RogueExiles.Any ? "" : " (no module spawns rogue exiles)"));
         }
         if (StrongboxCatalog.Find(box.Type) is { } opened)
-            CastDaemons(conn, area, opened, box, new Random(unchecked((int)conn.Seed ^ box.Index * 9973 ^ box.Cycle * 31)));
+            // After the lid's creak, as the guards: a daemon's spell at 0 s buried it under the skill's own sound.
+            SendAfter(OpenClipSeconds, () =>
+            {
+                if (!conn.Closed && !conn.LeavingArea)
+                    CastDaemons(conn, area, opened, box, new Random(unchecked((int)conn.Seed ^ box.Index * 9973 ^ box.Cycle * 31)));
+                return Task.CompletedTask;
+            });
     }
 
     public static List<AreaPopulation.Spawn> Guards(ClientState conn, Box box) => Guards(conn, box, false);
@@ -580,10 +694,35 @@ public static partial class MapStrongboxes
                     if (quantity != 0) monster.EncounterStats = new Dictionary<string, int> { [MapSulphite.EnragedQuantity] = quantity * 100 };
                 });
             if (id == 0) return;
+            await SummonEffect(conn, spawn.X, spawn.Y);
             box.Guards.Add(id);
             box.Pending.RemoveAt(0);
             Keep(conn, area);
         }
+    }
+
+    /// <summary>The tests' way past the opening clip's real-time wait (tests never wait on real time): release every
+    /// waiting wave of the opened boxes and spawn it now.</summary>
+    internal static async Task SpawnWavesNow(ClientState conn)
+    {
+        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is null) return;
+        await area.Gate.WaitAsync();
+        try
+        {
+            foreach (var waiting in area.Boxes.ToArray())
+            {
+                if (waiting.Phase != 1 || waiting.Waves.Count == 0) continue;
+                var released = waiting with
+                {
+                    Pending = [.. waiting.Pending, .. waiting.Waves.SelectMany(w => w.Spawns)],
+                    Waves = [],
+                };
+                area.Boxes[waiting.Index] = released;
+                Keep(conn, area);
+                await SpawnPending(conn, area, released);
+            }
+        }
+        finally { area.Gate.Release(); }
     }
 
     public static async Task Tick(ClientState conn)
@@ -610,7 +749,7 @@ public static partial class MapStrongboxes
                 var opened = prior with { Phase = 2 };
                 area.Boxes[prior.Index] = opened;
                 Keep(conn, area);
-                foreach (var member in Members(conn)) await Present(member, opened, true);
+                // No re-present: the client's box was opened by the component change (OpenPresentation) and stays so.
                 await Rewards(conn, opened);
                 int close = AreaMods(conn).Get("map_strongbox_close_after_opening_chance_%")
                     + (StrongboxCatalog.Find(opened.Type) is { } type

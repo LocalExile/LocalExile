@@ -117,7 +117,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   The content, item and guard mods act; warband caches bring their warband. The daemon mods act when the box opens
   (each daemon sends its skill; the server applies its hit, ailment or ground at the area level; live: Ice Nova,
   Firestorm, Lightning Storm, a curse, corpse detonation, the torment and sandstorm streams): the summons arrive in
-  waves and guard the box, Revive raises the dead near it. Gems with experience drop at a random level up to 20;
+  waves and guard the box, Revive raises the dead near it. An opening plays as the game's (live 2026-11-22): the
+  model's own `open` clip with its lid sounds, the rarity's `ChestEffects` glow while closed and its open effect, the
+  box shown opened once the clip is over, then the guards' dust columns with the spawn sounds (their wave waits for the
+  clip, as the daemons do). Gems with experience drop at a random level up to 20;
   Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
   Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
   "Vaal Vessels"). Currency changes a closed
