@@ -309,6 +309,7 @@ public static class ShrineManager
         var playerStats = CharacterPlayerStats(conn);
         int Stat(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
         int duration = Stat("shrine_effect_duration_+%") + (MapModsOf(conn)?.Get("map_player_shrine_effect_duration_+%") ?? 0);
+        if (!definition.Lesser) duration += MapModsOf(conn)?.Get("map_shrine_granted_player_buff_duration_+%") ?? 0;
         shrine.Duration = Math.Clamp(shrine.Duration * Math.Max(0L, 100L + duration) / 100, 0, int.MaxValue);
         int effectPercent = Stat("shrine_buff_effect_on_self_+%") + (MapModsOf(conn)?.Get("map_player_shrine_buff_effect_on_self_+%") ?? 0);
         if (effectPercent != 0 && (definition.Monster is not null || definition.Lesser))
