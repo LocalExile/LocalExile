@@ -66,7 +66,10 @@ public static partial class Game
             new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects["damage_+%"] / 100.0)));
         var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
-        return ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is { } hit ? (hit, damage, HitCode(mitigated)) : null;
+        if (ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is not { } hit) return null;
+        if (!t.Dead && damage > 0 && supported is not null && conn.Beasts.Active is { } beast)
+            MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);
+        return (hit, damage, HitCode(mitigated));
     }
 
     // A fighting minion attacks its target: its skill aimed at it (0x1ab with the target's id, as a monster's swing at the

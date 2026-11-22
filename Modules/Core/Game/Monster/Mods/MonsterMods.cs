@@ -218,12 +218,20 @@ public static partial class Game
             * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
             * (1 + e["physical_damage_taken_+%"] / 100.0);
         // Its fire, cold and lightning damage taken (Izaro's statues' buffs, Covered in Ash) on those parts.
-        double typed = mitigated[DamageType.Fire].Min * (e["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now))
-            + mitigated[DamageType.Cold].Min * e["cold_damage_taken_+%"]
-            + mitigated[DamageType.Lightning].Min * e["lightning_damage_taken_+%"];
+        double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
+            + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
+            + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
     }
+
+    static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
+    {
+        DamageType.Fire => (double)effects["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now),
+        DamageType.Cold => effects["cold_damage_taken_+%"],
+        DamageType.Lightning => effects["lightning_damage_taken_+%"],
+        _ => 0,
+    };
 
     public static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
         double now = double.NaN) =>

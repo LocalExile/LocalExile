@@ -214,6 +214,9 @@ public static partial class Game
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
             actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
+        if (inheritedMods is null && definition.Family == "RagingSpirit")
+            inheritedMods = MonsterModRolls.Value.Create(MonsterModRolls.Value.Species(variety.SpeciesModsOrEmpty, Random.Shared),
+                [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
         var fighter = new GolemState.Golem(0, null!, native, source)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = gem.Stats, Player = new(player), Limit = limit,

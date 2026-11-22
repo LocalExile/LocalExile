@@ -251,7 +251,8 @@ public static partial class Game
             {
                 string slug = type.ToString().ToLowerInvariant();
                 conversion.AddSkill(DamageType.Physical, type, Raw($"base_physical_damage_%_to_convert_to_{slug}") + Raw($"skill_physical_damage_%_to_convert_to_{slug}"));
-                conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]);
+                conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]
+                    + mods[$"base_physical_damage_%_to_convert_to_{slug}"]);
                 conversion.AddGain(DamageType.Physical, type, mods[$"physical_damage_%_to_add_as_{slug}"]);
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
