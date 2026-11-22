@@ -117,7 +117,7 @@ public static class CharacterStats
         bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0,
         // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
         // can add spell suppression chance per complete group of 15 Dexterity.
-        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0)
+        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0, bool NoMana = false)
     {
         public static readonly Bonus None = new();
     }
@@ -191,7 +191,7 @@ public static class CharacterStats
             + LifeManaPoolSources.AdditionalMana(level, b) + b.AdditionalMana;
         uint life = b.ChaosInoculation ? 1 : (uint)Math.Clamp(decimal.Floor(flatLife
             * (100m + b.LifePct) / 100m), 1m, int.MaxValue);
-        uint mana = b.ManaPerFourStrength == 0
+        uint mana = b.NoMana ? 0 : b.ManaPerFourStrength == 0
             ? (uint)Math.Clamp(decimal.Floor(flatMana
                 * (100m + b.ManaPct) / 100m), 0m, int.MaxValue)
             : StrengthMana.Maximum(flatMana, str, b.ManaPerFourStrength, b.ManaPct);
@@ -261,6 +261,7 @@ public static class CharacterStats
                 + LifeManaPoolSources.AdditionalMana(level, b) + b.AdditionalMana + StrengthMana.Flat(str, b.ManaPerFourStrength))
                 + (b.NoManaFromIntelligence || b.NoIntelligenceBonuses ? 0 : intel), long.MinValue, long.MaxValue);
             (mana, armour) = PowerOfPurpose.Pools(rawFlatManaTwice, b, intel);
+            if (b.NoMana) mana = 0;
         }
         // Native ClientStrings IntelligenceDescription: 10 Intelligence grants 1% increased ES.
         // Pinned PoB CalcPerform applies complete groups after resolving final attributes.

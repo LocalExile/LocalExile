@@ -972,6 +972,15 @@ public static partial class Game
                     Publish("mana_cost_per_minute", 0);
                 }
             }
+            bool reservesLifeInstead = Get("keystone_blood_magic") != 0
+                || Get("base_skill_reserve_life_instead_of_mana") != 0 || Get("skill_reserve_life_instead_of_mana") != 0
+                || supported.Supports.Any(s => IsBlasphemySupport(s.Effect.Id)) && Get("curse_aura_skills_reserve_life") != 0
+                || Supports.Of(effect)?.Types.Contains(35) == true && Get("skills_that_throw_mines_reserve_life") != 0;
+            if (reservesLifeInstead)
+            {
+                Publish("base_skill_reserve_life_instead_of_mana", 1);
+                Publish("skill_reserve_life_instead_of_mana", 1);
+            }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get("bladefall_base_volley_frequency_ms") is int volleyMs and > 0)
                 Publish("bladefall_volley_frequency_ms", BladefallVolleys.FrequencyMs(volleyMs,
@@ -1510,16 +1519,19 @@ public static partial class Game
                 var gem = SupportedSkill(conn, id);
                 if (gem.Effect < 0 || SupportedReservationCost(conn, id) is not { } reservation) continue;
                 var before = conn.Auras[id];
+                var context = ReservationContext(conn, id);
                 var skillStats = gem.Stats.Select(kv => (kv.Key, kv.Value)).ToArray();
                 conn.Auras[id] = before with
                 {
                     ManaFlat = reservation.ManaFlat, ManaPercent = reservation.ManaPercent,
                     LifeFlat = reservation.LifeFlat, LifePercent = reservation.LifePercent,
+                    ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
                     Level = gem.Level, Quality = gem.Quality, WornGrant = gem.WornGrant,
                     SkillStats = skillStats
                 };
                 conn.AuraStatsDirty |= before.ManaFlat != reservation.ManaFlat || before.ManaPercent != reservation.ManaPercent
                     || before.LifeFlat != reservation.LifeFlat || before.LifePercent != reservation.LifePercent
+                    || before.ReservesLife != context.Life || before.ReservationEfficiencyPct != context.Efficiency
                     || before.Level != gem.Level || before.Quality != gem.Quality || before.WornGrant != gem.WornGrant
                     || before.SkillStats is null || !before.SkillStats.SequenceEqual(skillStats);
             }
@@ -1533,9 +1545,10 @@ public static partial class Game
                 {
                     var stats = PetrifiedBloodEffectStats(conn, gem.Effect, gem.Level, gem.Quality);
                     var context = ReservationContext(conn, id);
+                    int reservationPct = context.Life ? reservation.LifePercent : reservation.ManaPercent;
                     conn.PetrifiedBlood.Refresh(gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                         Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                        reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(conn)), context.Life, context.Efficiency);
+                        reservationPct, LowLifeThresholdPct(CharacterPlayerStats(conn)), context.Life, context.Efficiency);
                     if (!ReservationBudgetFits(conn)) conn.PetrifiedBlood.Suspend();
                     ClampReservedResources(conn);
                     conn.AuraStatsDirty = true;

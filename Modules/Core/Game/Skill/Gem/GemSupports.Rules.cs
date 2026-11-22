@@ -847,6 +847,7 @@ public static partial class Game
         bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
         bool mine = Supports.Of(gem.Effect)?.Types.Contains(35) == true;
         bool lifeInstead = SkillsFor(conn).LifeReservation(gem.Effect, gem.Level)
+            || Get("keystone_blood_magic") != 0
             || Get("base_skill_reserve_life_instead_of_mana") != 0 || Get("skill_reserve_life_instead_of_mana") != 0
             || curse && Get("curse_aura_skills_reserve_life") != 0
             || mine && Get("skills_that_throw_mines_reserve_life") != 0;
