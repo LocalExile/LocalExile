@@ -1372,6 +1372,10 @@ public static partial class Game
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsBrandSkill(conn, gem.Effect))
             return await CastBrand(remote, stream, ciphers, conn, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll);
+        if (gem.Name is not null && IsFirestorm(conn, gem.Effect) && CastMs(conn, gem.Effect, skillId) is int firestormCast)
+            return ProjectilesFor(remote, stream, ciphers, conn).ScheduleFirestorm(gem, to,
+                firestormCast / 1000d * Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject),
+                () => Current() && recoveryGeneration == conn.ActionInterruptionGeneration, triggered: false);
         if (gem.Name is not null && IsBrandRecall(conn, gem.Effect))
             return await CastBrandRecall(remote, stream, ciphers, conn, skillId, gem, Current);
         if (gem.Name is not null && IsBrandsurge(conn, gem.Effect))

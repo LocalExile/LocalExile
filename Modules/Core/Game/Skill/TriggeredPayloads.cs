@@ -13,7 +13,7 @@ public static partial class Game
             || MinionUtility(SkillsFor(conn).EffectId(gem.Effect))) return true;
         if (CurseCatalog.All.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
-                || TriggerAreaSpell(conn, gem))
+                || TriggerAreaSpell(conn, gem) || IsFirestorm(conn, gem.Effect))
             && SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality).CanHit;
     }
 
@@ -29,6 +29,8 @@ public static partial class Game
                 ? () => StartTriggeredGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds) : null;
         if (TriggerSummonSpell(conn, gem))
             return () => session.Enqueue(() => ReleaseTriggeredSummon(conn, session, id, aim, current));
+        if (IsFirestorm(conn, gem.Effect))
+            return () => session.ScheduleFirestorm(skill, aim, 0, current, triggered: true);
         if (UsesProjectileRuntime(gem.Effect))
         {
             var sacrifice = new SacrificeUse(conn, id, skill.Effect, skill.Gem, triggered: true);
