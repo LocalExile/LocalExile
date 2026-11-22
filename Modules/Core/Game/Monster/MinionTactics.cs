@@ -68,10 +68,15 @@ public static partial class Game
         double more = MinionTacticsBaseDamage(conn, fighter, now);
         if (IsPrey(conn, fighter, id, target, now))
             more *= Math.Max(0, 1 + GolemStat(fighter.Own, "support_minion_focus_fire_damage_+%_final_vs_focussed_target") / 100d);
+        return more * MeatShieldDamage(conn, fighter, target, now);
+    }
+
+    static double MeatShieldDamage(ClientState conn, GolemState.Golem fighter, SpawnedMonster target, double now)
+    {
         int nearby = GolemStat(fighter.Own, "support_minion_defensive_stance_minion_damage_+%_final_against_enemies_near_you");
         if (nearby != 0 && Dist(conn.Walk.Position(now), target.Walk.Position(now)) <= MeatShieldNearbyRange)
-            more *= Math.Max(0, 1 + nearby / 100d);
-        return more;
+            return Math.Max(0, 1 + nearby / 100d);
+        return 1;
     }
 
     static void MinionTauntOnHitLocked(ClientState conn, GolemState.Golem fighter, GolemState.Ability ability,

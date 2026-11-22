@@ -238,6 +238,20 @@ public sealed class MinionTacticsTests
                 Assert.Equal(action.Aim, fighter.Monster.Walk.Position(1));
                 Assert.Equal(life, monster.Life);
             }
+
+            // Chaos Golems have a 50-cell native scan range. Feeding Frenzy raises it to 80.
+            using var golems = new MinionUtilityTests.Fixture();
+            gems[0] = ("Summon Chaos Golem", 20);
+            golems.Equip([.. gems]); Link(golems, (byte)gems.Count);
+            var definition = Game.GolemData.Find("SummonChaosGolem")!;
+            var id = await Game.SummonGolem("test", golems.Stream, golems.Ciphers, golems.Conn,
+                Source(golems, definition.Id), definition, (100, 100));
+            var golem = golems.Conn.Golems.All[id];
+            golems.Conn.Walk.Teleport(100, 100, 0);
+            golem.Monster.Walk.Teleport(100, 100, 0);
+            Enemy(golems, 900, 180);
+            Game.GolemStepLocked("test", golems.Stream, golems.Ciphers, golems.Conn, golem, 1);
+            Assert.Equal(feeding && !meatShield ? 900u : 0u, golem.Target);
         }
     }
 
@@ -255,5 +269,10 @@ public sealed class MinionTacticsTests
         Assert.True(Hit(f, fighter, 901, far, 1));
         Assert.Equal(130u, near.MaxLife - near.Life);
         Assert.Equal(100u, far.MaxLife - far.Life);
+
+        fighter.Hazards.Add(new(4336, (125, 100), 2, 25, 100, DamageType.Chaos) { LastAt = 1 });
+        Game.GolemHazardsLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, 2);
+        Assert.Equal(260u, near.MaxLife - near.Life);
+        Assert.Equal(200u, far.MaxLife - far.Life);
     }
 }

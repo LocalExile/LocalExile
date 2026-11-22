@@ -652,7 +652,8 @@ public static partial class Game
                     m.Withered.Add((now + 4, 6 * (1 + GolemStat(g.Own, "minion_withered_effect_+%") / 100.0)));
                     hazard.Carry[id] = now + .3;
                 }
-                double raw = hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds;
+                double raw = (hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds)
+                    * MeatShieldDamage(conn, g, m, now);
                 double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default, now))[hazard.Type].Min;
                 double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
                     + hazard.DamageCarry.GetValueOrDefault(id);
