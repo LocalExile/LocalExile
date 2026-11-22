@@ -178,13 +178,19 @@ public sealed partial class DeepwaterModule : IModule
         });
         GameEvents.PlayerEntered.Add(id, async player =>
         {
-            await SpawnRowboat(module, player);
-            await SpawnDeck(module, player);
-            await StartRun(module, player);
-            await DeepwaterFairgraves.Enter(module, player);
-            // The Coral Nest, Cursed Treasure and Brinerot Plunder rooms of an ordinary area.
-            string area = PlayerOf(player).AreaId;
-            if (area != HubId && !DeepwaterGrid.IsEncounter(area)) await DeepwaterEncounters.Enter(module, player);
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
+            {
+                await SpawnRowboat(module, player);
+                await SpawnDeck(module, player);
+                await StartRun(module, player);
+                await DeepwaterFairgraves.Enter(module, player);
+                // The Coral Nest, Cursed Treasure and Brinerot Plunder rooms of an ordinary area.
+                string area = PlayerOf(player).AreaId;
+                if (area != HubId && !DeepwaterGrid.IsEncounter(area)) await DeepwaterEncounters.Enter(module, player);
+            }
+            finally { Program.ViewOf.Value = previousView; }
         });
         // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons) and the hub ruleset's (the
         // Loot window's Take All, the planner's ops: DeepwaterHub).

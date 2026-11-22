@@ -12,6 +12,9 @@ public sealed class AreaObjectRecords(GameArea area)
     readonly Dictionary<uint, List<AreaDelta.Record>> objects = [];
     readonly Dictionary<uint, HashSet<Player>> directRecipients = [];
 
+    static bool IsPlayer(uint id) => (id & 0xF0000000) == 0x20000000;
+    static bool IsSharedMonster(uint id) => (id & 0xF8000000) == 0x08000000;
+
     internal void Written(AreaDelta.Record record)
     {
         if (record.Only is not null || record.Except is not null || record.Kind == AreaDelta.Kind.Message || record.Bytes.Length < 12) return;
@@ -19,7 +22,7 @@ public sealed class AreaObjectRecords(GameArea area)
         {
             uint id = record.Entity;
             if (record.Kind == AreaDelta.Kind.Remove) { objects.Remove(id); directRecipients.Remove(id); return; }
-            if (area.Monsters.ContainsKey(id) || area.DormantMonsters.ContainsKey(id)) return;
+            if (IsPlayer(id) || IsSharedMonster(id) || area.Monsters.ContainsKey(id) || area.DormantMonsters.ContainsKey(id)) return;
             if (record.Kind == AreaDelta.Kind.Create) { objects[id] = [record]; directRecipients.Remove(id); return; }
             if (!objects.TryGetValue(id, out var records)) return;
             ushort message = BinaryPrimitives.ReadUInt16BigEndian(record.Bytes);
@@ -42,14 +45,14 @@ public sealed class AreaObjectRecords(GameArea area)
         lock (objects)
         {
             if (kind == AreaDelta.Kind.Remove) { objects.Remove(entity); directRecipients.Remove(entity); return; }
-            if (area.Monsters.ContainsKey(entity) || area.DormantMonsters.ContainsKey(entity)) return;
+            if (IsPlayer(entity) || IsSharedMonster(entity) || area.Monsters.ContainsKey(entity) || area.DormantMonsters.ContainsKey(entity)) return;
             var copy = bytes.ToArray();
             if (kind == AreaDelta.Kind.Create && copy.Length >= 12)
             {
                 BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(6), uint.MaxValue);
                 BinaryPrimitives.WriteUInt16BigEndian(copy.AsSpan(10), 0);
             }
-            var order = kind == AreaDelta.Kind.Create ? WorldOrder.First
+            var order = kind == AreaDelta.Kind.Create ? WorldOrder.Last
                 : new WorldOrder(BinaryPrimitives.ReadUInt32BigEndian(copy.AsSpan(6)), BinaryPrimitives.ReadUInt16BigEndian(copy.AsSpan(10)));
             var record = new AreaDelta.Record(entity, copy, log, order, kind);
             if (kind == AreaDelta.Kind.Create)
@@ -82,7 +85,7 @@ public sealed class AreaObjectRecords(GameArea area)
         {
             foreach (var (id, records) in objects)
             {
-                if (area.Monsters.ContainsKey(id) || area.DormantMonsters.ContainsKey(id)) continue;
+                if (IsPlayer(id) || IsSharedMonster(id) || area.Monsters.ContainsKey(id) || area.DormantMonsters.ContainsKey(id)) continue;
                 if (directRecipients.TryGetValue(id, out var sent) && sent.Contains(player)) continue;
                 foreach (var record in records) area.Delta.Add(record with { Only = player, Except = null });
             }

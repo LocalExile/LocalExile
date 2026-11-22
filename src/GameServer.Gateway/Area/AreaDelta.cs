@@ -32,8 +32,10 @@ public sealed class AreaDelta(GameArea area)
 
     /// <summary>The player a record about a private entity goes to when <paramref name="sender"/> made it: the sender when
     /// it is one of its viewers (null otherwise: the record goes to each viewer).</summary>
-    public Player? ViewerOf(uint entity, Player sender) =>
-        viewers.TryGetValue(entity, out var those) && those.Contains(sender) ? sender : null;
+    public Player? ViewerOf(uint entity, Player sender)
+    {
+        lock (viewers) return viewers.TryGetValue(entity, out var those) && those.Contains(sender) ? sender : null;
+    }
 
     public int Count => records.Count;
 
@@ -42,18 +44,30 @@ public sealed class AreaDelta(GameArea area)
         area.AssertOwner();
         if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null && !area.Monsters.ContainsKey(record.Entity))
         {
-            if (!viewers.TryGetValue(record.Entity, out var those)) viewers[record.Entity] = those = [];
-            if (!those.Contains(owner)) those.Add(owner);
+            lock (viewers)
+            {
+                if (!viewers.TryGetValue(record.Entity, out var those)) viewers[record.Entity] = those = [];
+                if (!those.Contains(owner)) those.Add(owner);
+            }
         }
-        else if (record.Only is null && record.Entity != 0 && viewers.TryGetValue(record.Entity, out var all))
+        else if (record.Only is null && record.Entity != 0)
         {
-            foreach (var viewer in all.ToArray()) Add(record with { Only = viewer, Except = null });
-            return;
+            Player[]? snapshot;
+            lock (viewers) snapshot = viewers.TryGetValue(record.Entity, out var all) ? all.ToArray() : null;
+            if (snapshot is not null)
+            {
+                foreach (var viewer in snapshot) Add(record with { Only = viewer, Except = null });
+                return;
+            }
         }
-        if (record.Kind == Kind.Remove && record.Only is { } gone && viewers.TryGetValue(record.Entity, out var left))
+        if (record.Kind == Kind.Remove && record.Only is { } gone)
         {
-            left.Remove(gone);
-            if (left.Count == 0) viewers.Remove(record.Entity);
+            lock (viewers)
+                if (viewers.TryGetValue(record.Entity, out var left))
+                {
+                    left.Remove(gone);
+                    if (left.Count == 0) viewers.Remove(record.Entity);
+                }
         }
         area.Objects.Written(record);
         if (record.Kind == Kind.Create) created.Add(record.Entity);

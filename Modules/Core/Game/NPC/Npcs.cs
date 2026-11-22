@@ -20,8 +20,14 @@ public static partial class Game
         }
         else
         {
-            await SendWorldCreate(player, id, InstanceEntities.CreateObject(id, type, obj.Blob()), log);
-            await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 npc 0x{id:x} enters wake zone");
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
+            {
+                await SendWorldCreate(player, id, InstanceEntities.CreateObject(id, type, obj.Blob()), log);
+                await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 npc 0x{id:x} enters wake zone");
+            }
+            finally { Program.ViewOf.Value = previousView; }
         }
         lock (player.Npcs) player.Npcs[id] = new SpawnedNpc(npc, x, y);
         await RegisterPlayerCollision(player, id, npc.Id, x, y, rotation,

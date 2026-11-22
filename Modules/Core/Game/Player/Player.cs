@@ -1614,36 +1614,44 @@ public static partial class Game
             // component's getter); live 2026-10-18 the cache held 0 while the getter returned 14/14/32.
             messages.Add(("0x01b3 class attributes", []));
         }
-        foreach (var (label, bytes) in messages)
-            if (label == creationLabel)
-                await SendWorldCreate(player, player.Id, () =>
-                {
-                    if (player.Closed || player.LeavingArea || player.RageRetired) return null;
-                    ReconcileOwnAuras(player, validateSkills: true);
-                    var playerObject = PlayerForCreation(player);
-                    player.PeerTemplate = playerObject;
-                    player.ClientSkillIds = [.. playerObject.Skills!.Select(s => s.Id)];
-                    player.SentVaalSouls.Clear();
-                    foreach (var budget in playerObject.Souls ?? [])
-                        player.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
-                    // A new player object has no buffs: every system's are written again.
-                    player.Area.Buffs.Removed(player.Id);
-                    player.LeechDisplay.Clear();
-                    player.PetrifiedBlood.PresentedLossBuff = 0;
-                    player.PetrifiedBlood.SentLossPerMinute = 0;
-                    player.PetrifiedBlood.SentLossExpiry = 0;
-                    player.AuraStatsDirty = false;
-                    player.Connection.PlayerObjectCreated = true;
-                    return InstanceEntities.CreateObject(player.Id, player.PeerType, playerObject.Blob());
-                }, label);
-            else if (label == "0x01b3 class attributes")
-                await SendPlayerStatSnapshot(player,
-                    () => PublishPlayerStats(player), label);
-            else if (creates.TryGetValue(bytes, out uint created))
-                await SendWorldCreate(player, created, bytes, label);
-            else if (world.TryGetValue(bytes, out uint target))
-                await SendWorldRecord(player, target, bytes, label);
-            else await Send(player, bytes, label);
+        // Every connecting player receives its own bootstrap player, transitions, effects and waypoint before 0x0021;
+        // mark them as this player's view so they are never recorded in Area.Objects and replayed to later joiners.
+        var previousView = Program.ViewOf.Value;
+        Program.ViewOf.Value = player;
+        try
+        {
+            foreach (var (label, bytes) in messages)
+                if (label == creationLabel)
+                    await SendWorldCreate(player, player.Id, () =>
+                    {
+                        if (player.Closed || player.LeavingArea || player.RageRetired) return null;
+                        ReconcileOwnAuras(player, validateSkills: true);
+                        var playerObject = PlayerForCreation(player);
+                        player.PeerTemplate = playerObject;
+                        player.ClientSkillIds = [.. playerObject.Skills!.Select(s => s.Id)];
+                        player.SentVaalSouls.Clear();
+                        foreach (var budget in playerObject.Souls ?? [])
+                            player.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
+                        // A new player object has no buffs: every system's are written again.
+                        player.Area.Buffs.Removed(player.Id);
+                        player.LeechDisplay.Clear();
+                        player.PetrifiedBlood.PresentedLossBuff = 0;
+                        player.PetrifiedBlood.SentLossPerMinute = 0;
+                        player.PetrifiedBlood.SentLossExpiry = 0;
+                        player.AuraStatsDirty = false;
+                        player.Connection.PlayerObjectCreated = true;
+                        return InstanceEntities.CreateObject(player.Id, player.PeerType, playerObject.Blob());
+                    }, label);
+                else if (label == "0x01b3 class attributes")
+                    await SendPlayerStatSnapshot(player,
+                        () => PublishPlayerStats(player), label);
+                else if (creates.TryGetValue(bytes, out uint created))
+                    await SendWorldCreate(player, created, bytes, label);
+                else if (world.TryGetValue(bytes, out uint target))
+                    await SendWorldRecord(player, target, bytes, label);
+                else await Send(player, bytes, label);
+        }
+        finally { Program.ViewOf.Value = previousView; }
         // An area change creates a new player object, so the running auras' buffs must be put on it again.
         await SendOwnAuraChanges(player, replay: true);
         await SendPhysicalAegis(player);

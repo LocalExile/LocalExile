@@ -25,6 +25,7 @@ public partial class Program
         var output = player.Connection.WorldOutput;
         var admission = new WorldAdmission(output, reservations);
         bool admitted = false;
+        var view = ViewOf.Value;
         try
         {
             if (dependencies.Intersect(reservations).Any())
@@ -47,6 +48,8 @@ public partial class Program
                     var immediate = output.Admit(batch, admission, output.Started && player.Connection.LockstepClient);
                     admitted = true;
                     admission.Finish(true);
+                    if (!quest && view is null)
+                        RecordDirectAreaObjects(player, batch);
                     // No module callback is retained in the frame queue or invoked while flushing it.
                     atGate = null!; still = null; rules = null;
                     foreach (var packet in immediate)
@@ -61,6 +64,24 @@ public partial class Program
             finally { if (quest) player.Character.QuestGate.Release(); }
         }
         finally { if (!admitted) admission.Finish(false); }
+    }
+
+    static void RecordDirectAreaObjects(Player player, OutputBatch batch)
+    {
+        var delta = player.Area.Delta;
+        var objects = player.Area.Objects;
+        foreach (var record in batch.Records)
+        {
+            if (record.Kind == OutputRecord.RecordKind.Immediate || record.Object is not { } target) continue;
+            if (delta.ViewerOf(target.Id, player) is not null) continue;
+            var kind = record.Kind switch
+            {
+                OutputRecord.RecordKind.Create => AreaDelta.Kind.Create,
+                OutputRecord.RecordKind.Remove => AreaDelta.Kind.Remove,
+                _ => AreaDelta.Kind.World,
+            };
+            objects.RecordDirect(target.Id, record.CopyBytes(), kind, player, record.Log);
+        }
     }
 
     static readonly Task<bool> Admitted = Task.FromResult(true), NotAdmitted = Task.FromResult(false);
