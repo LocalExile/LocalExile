@@ -31,6 +31,7 @@ public sealed class ProjectileThresholdJewelTests
         int ballEffect = skills.EffectRow("BallLightning");
         var ball = Game.ResolveProjectileDefinition(ballEffect)!;
         Assert.Equal("Metadata/Projectiles/BallLightningPlayer", ball.Metadata);
+        Assert.Equal(ball.Metadata, Game.ResolveProjectileDefinition(skills.EffectRow("BallLightningAltX"))!.Metadata);
         var gem = skills.EffectStats(ballEffect, 1, 20).ToDictionary(s => Program.Stats.Name(s.Item1)!, s => s.Item2);
         int BallStat(string name) => gem.GetValueOrDefault(name);
         int baseSpeed = skills.Projectile(ball.Metadata)!.Value.Speed;

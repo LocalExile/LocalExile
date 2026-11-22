@@ -10,8 +10,8 @@ public static partial class Game
                 definitions.Add(effect, SkillProjectileDefinition(effect, projectile.Id,
                     SkillProjectileParameters(effect, projectile.Id)));
         string ball = Art.ProjectileByArt("ball_lightning", 0);
-        definitions.Add("BallLightning", SkillProjectileDefinition("BallLightning", ball,
-            SkillProjectileParameters("BallLightning", ball)));
+        foreach (string effect in new[] { "BallLightning", "BallLightningAltX" })
+            definitions.Add(effect, SkillProjectileDefinition(effect, ball, SkillProjectileParameters(effect, ball)));
         foreach (string effect in new[] { "Barrage", "BarrageAltX" })
         {
             var parameters = new ProjectileSkillParameters((get, speed, bow) => GatewayProjectileSkillProfiles.Resolve(
