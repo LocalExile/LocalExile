@@ -20,7 +20,7 @@ static partial class Game
     /// spell_damage_modifiers_apply_to_skill_dot admits spell damage; it is not area damage, and projectile damage does not
     /// apply to its damage over time), essence_drain_damage_+%, the supports' more multipliers and the damage over time
     /// multipliers. Duration: base_skill_effect_duration with skill effect duration and siphon_duration_+%. Leech:
-    /// siphon_life_leech_from_damage_permyriad. Of Desperation's life loss is not modelled.</summary>
+    /// siphon_life_leech_from_damage_permyriad. Desperation spends the same fraction of its damage from Life and Energy Shield.</summary>
     internal static MonsterEssenceDrain.Cast? EssenceDrainCast(ClientState conn, ushort skillId, int effect)
     {
         string? id = SkillsFor(conn).EffectId(effect);
@@ -41,7 +41,10 @@ static partial class Game
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)
             * Math.Max(0, 1 + Get("siphon_duration_+%") / 100.0);
-        return new(dps, seconds, Math.Max(0, Get("siphon_life_leech_from_damage_permyriad")), skillId, conn);
+        return new(dps, seconds, Math.Max(0, Get("siphon_life_leech_from_damage_permyriad")), skillId, conn)
+        {
+            LossPermyriad = id == "EssenceDrainAltX" ? Math.Max(0, Own("essence_drain_lose_life_from_damage_permyriad")) : 0,
+        };
     }
 
     /// <summary>A projectile hit that the monster survived: puts the shot's Essence Drain debuff on it.</summary>
@@ -82,10 +85,42 @@ static partial class Game
         TrimLeechLocked(conn);
     }
 
+    sealed class EssenceDrainLoss { public double Fraction; }
+    static readonly RuleTable<ClientState, EssenceDrainLoss> EssenceDrainLosses = new();
+
+    static bool ApplyEssenceDrainLossLocked(ClientState caster, double amount)
+    {
+        if (!(amount > 0) || caster.Closed || caster.LeavingArea || caster.PlayerLife == 0) return false;
+        var loss = EssenceDrainLosses.GetOrCreateValue(caster);
+        double total = loss.Fraction + amount;
+        uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(total));
+        loss.Fraction = total - Math.Floor(total);
+        if (whole == 0) return false;
+
+        caster.PlayerLife = VaalImmortalCallLife(caster, caster.PlayerLife - Math.Min(whole, caster.PlayerLife), ProjectileWorldTime(caster));
+        caster.EnergyShield.Spend(Math.Min(caster.EnergyShield.Current, whole));
+        if (caster.PlayerLife == 0)
+        {
+            caster.InvalidateIncomingHits();
+            ClearAntiquarianOnDeath(caster);
+            RecordHardcoreDeath(caster);
+            loss.Fraction = 0;
+        }
+        return true;
+    }
+
+    static async Task PresentEssenceDrainLoss(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState caster)
+    {
+        await SendWorldRecord(remote, stream, ciphers, caster, PlayerId, [], "Essence Drain of Desperation resource loss",
+            atGate: () => PlayerLifeUpdate(caster));
+        await SendPlayerEnergyShield(remote, stream, ciphers, caster);
+    }
+
     internal static async Task TickEssenceDrains(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
         double leeched = 0;
+        bool casterLostResources = false;
         using (ProjectileMutation(conn))
         {
             if (conn.Closed || conn.LeavingArea) return;
@@ -104,8 +139,26 @@ static partial class Game
                 var (damage, leech) = m.EssenceDrain.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now),
                     (cast, dealt, life) =>
                     {
-                        if (winner is null && (sum += dealt) >= before) winner = cast;
+                        double actual = Math.Min(Math.Max(0, before - sum), dealt);
+                        sum += dealt;
+                        if (winner is null && sum >= before) winner = cast;
                         CreditSiphonLeechLocked(conn, cast.Caster, m, life);
+                        if (cast.LossPermyriad == 0 || actual <= 0 || DotOwner(conn, cast.Caster) is not { } caster) return;
+                        double loss = actual * cast.LossPermyriad / 10000d;
+                        if (ReferenceEquals(conn, caster)) casterLostResources |= ApplyEssenceDrainLossLocked(caster, loss);
+                        else
+                        {
+                            var instance = caster.Instance;
+                            int epoch = caster.ProjectileEpoch;
+                            caster.KillShares.Enqueue(async (r, s, c) =>
+                            {
+                                bool changed;
+                                using (ProjectileMutation(caster))
+                                    changed = ReferenceEquals(caster.Instance, instance) && caster.ProjectileEpoch == epoch
+                                        && ApplyEssenceDrainLossLocked(caster, loss);
+                                if (changed) await PresentEssenceDrainLoss(r, s, c, caster);
+                            });
+                        }
                     });
                 if (damage <= 0) continue;
                 leeched += leech;
@@ -125,6 +178,7 @@ static partial class Game
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
             }
         }
+        if (casterLostResources) await PresentEssenceDrainLoss(remote, stream, ciphers, conn);
         foreach (var (id, m, life, damage, owner) in hits)
         {
             if (life == 0)

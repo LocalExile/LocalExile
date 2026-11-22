@@ -10,7 +10,10 @@ public sealed class MonsterEssenceDrain
     /// the damage dealt that the caster leeches as life (siphon_life_leech_from_damage_permyriad), the caster's skill id and
     /// the caster: only that player leeches, also from a Contagion spread of it.</summary>
     public sealed record Cast(double DamagePerSecond, double Seconds, int LeechPermyriad = 0, ushort SkillId = 0,
-        ClientState? Caster = null);
+        ClientState? Caster = null)
+    {
+        public int LossPermyriad { get; init; }
+    }
 
     // Each hit's instance counts from Start (when it landed) to Until.
     readonly List<(Cast Cast, double Start, double Until)> instances = [];
