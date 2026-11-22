@@ -350,7 +350,8 @@ public static partial class Game
                 EndDot(player, id, ref m.Poisons.Buff, m.Poisons.BuffSource);
             }
             if (life == 0 && DotDeathKind(m, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
-                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind),
+                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
+                        orderKey: player.Connection.LockstepClient ? uint.MaxValue : 0u),
                     $"0x01b1 monster 0x{id:x} ({m.Label}) {died}");
             else
                 Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);

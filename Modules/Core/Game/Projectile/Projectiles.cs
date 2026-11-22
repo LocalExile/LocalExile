@@ -790,7 +790,10 @@ public static partial class Game
                 && value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Distance
                     or ProjectileEndReason.Lifetime or ProjectileEndReason.Landing)
                 Enqueue(() => onEnd((x, y)));
-            if (valid && value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { CausticCloud: { } cloud })
+            // Caustic Arrow's caustic ground is placed once on End by CausticGroundAtEnd (CausticGround.cs) using the
+            // real multi-piece GroundArt and rig clips; only non-CausticArrow callers use CausticClouds directly.
+            if (valid && value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { CausticCloud: { } cloud }
+                && SkillsFor(Player).EffectId(p.Use.Payload is ProjectileOffense o ? o.Effect : -1)?.StartsWith("CausticArrow", StringComparison.Ordinal) != true)
                 PlaceCausticCloud(value.Position, cloud);
             if (valid && presentation.EventEffect?.Invoke(value) is { } eventEffect)
             {

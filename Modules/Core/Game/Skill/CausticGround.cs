@@ -77,7 +77,8 @@ public static partial class Game
             int PlayerStat(uint stat) => player.GetValueOrDefault(stat);
             int Get(uint stat) => Own(stat) + PlayerStat(stat);
             if (Own(Stat.BaseChaosDamageToDealPerMinute) <= 0) return;
-            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), PlayerStat, Own);
+            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), PlayerStat,
+                k => k == Stat.SkillEffectDurationPlusPct ? Own(k) + Get(Stat.CausticArrowDurationPlusPct) : Own(k));
             if (duration <= 0) return;
             double dps = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player).Suppressed
                 ? 0 : ChaosGroundDps(Get, Own, Stat.CausticArrowDamagePlusPct) * (shot.Mirage ? MirageDamageFactor(own) : 1);
@@ -156,14 +157,19 @@ public static partial class Game
                     monster.Life = life;
                     monster.Aggro = life > 0;
                     if (stage) CommitProjectileBossStage(this, id, monster, now);
-                    World(id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(monster, life)));
                     if (life == 0)
                     {
+                        SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
+                        if (DotDeathKind(monster, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                            World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
+                                orderKey: Player.Connection.LockstepClient ? uint.MaxValue : 0u));
                         monster.Dead = true;
                         monster.LastHitBy = Player;
                         CollectVaalSoulAtDeathLocked(Player, monster);
                         Enqueue(() => DotKilled(Player, id, monster));
                     }
+                    else if (!Player.Connection.LockstepClient)
+                        World(id, InstanceProtocol.LifeUpdate(id, life));
                 }
                 previous = now;
                 if (now < end) Runtime.Schedule(Math.Min(end, now + ProjectileRuntime.QuantaPerSecond / 10), Tick);

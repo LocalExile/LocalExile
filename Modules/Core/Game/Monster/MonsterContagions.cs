@@ -269,7 +269,8 @@ static partial class Game
             if (life == 0)
                 SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
             if (life == 0 && DotDeathKind(m, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
-                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind),
+                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
+                        orderKey: player.Connection.LockstepClient ? uint.MaxValue : 0u),
                     $"0x01b1 monster 0x{id:x} ({m.Label}) died of {effect}");
             else
                 Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of {effect}" : null);

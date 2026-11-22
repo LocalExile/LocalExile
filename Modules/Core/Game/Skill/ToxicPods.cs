@@ -88,15 +88,19 @@ public static partial class Game
                     monster.Life = life;
                     monster.Aggro = life > 0;
                     if (stage) CommitProjectileBossStage(this, id, monster, now);
-                    World(id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(monster, life)));
                     if (life == 0)
                     {
                         SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
+                        if (DotDeathKind(monster, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                            World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
+                                orderKey: Player.Connection.LockstepClient ? uint.MaxValue : 0u));
                         monster.Dead = true;
                         monster.LastHitBy = Player;
                         CollectVaalSoulAtDeathLocked(Player, monster);
                         Enqueue(() => DotKilled(Player, id, monster));
                     }
+                    else if (!Player.Connection.LockstepClient)
+                        World(id, InstanceProtocol.LifeUpdate(id, life));
                 }
                 if (now < end) Runtime.Schedule(Math.Min(end, now + ProjectileRuntime.QuantaPerSecond / 10), Tick);
                 else

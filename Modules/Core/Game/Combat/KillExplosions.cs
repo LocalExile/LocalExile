@@ -151,7 +151,11 @@ public static partial class Game
             if (ServerTrace.Combat)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
             if (hit.StageStarts) _ = RunBossStage(player, id, m);
-            if (hit.Life == 0) await MonsterKilled(player, id, m);
+            if (hit.Life == 0)
+            {
+                SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+                await MonsterKilled(player, id, m);
+            }
         }
         return removeCorpse;
     }
