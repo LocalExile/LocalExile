@@ -106,7 +106,7 @@ public static partial class Game
                 || NativeProjectileTotem(conn, effect) && ResolveProjectileDefinition(effect) is not null
                 // A dedicated totem skill the local path runs (TotemUseLocked): its own hit, the corpse meal or the taunt.
                 // A ranged attack totem is a ballista and Holy Flame Totem flies its own projectile: both place only
-                // through their own clause, so what that clause refuses (Focused Ballista off a bow) stays refused, and
+                // through their own clause, so a missing payload or an invalid weapon stays refused, and
                 // the hit lookup below is never paid on SpellTotemCurrent's per-tick check for them.
                 || SkillsFor(conn).HasType(effect, TotemSkillType) && !NativeProjectileTotem(conn, effect)
                     && GolemStat(SupportedSkill(conn, skill).Stats, "is_ranged_attack_totem") == 0

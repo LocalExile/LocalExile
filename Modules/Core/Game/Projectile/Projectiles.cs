@@ -607,6 +607,7 @@ public static partial class Game
             var p = value.Projectile;
             bool valid = p.Use.Payload is not ProjectileOffense owned || owned.Valid?.Invoke() != false;
             if (!valid && value.Kind != ProjectileEventKind.End) return;
+            if (value.Kind == ProjectileEventKind.Spawn) FocusBallistasOnOwnerShot(Conn, p);
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
             // A gem skill's server-drawn projectile plays its rig's impact clip where it stops (Projectiles.dat

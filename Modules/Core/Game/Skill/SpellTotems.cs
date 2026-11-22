@@ -25,7 +25,9 @@ public static partial class Game
             .SequenceEqual(b.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality)));
     public static void BindTotemSource(ClientState conn, TotemState.Totem totem)
     {
-        TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(conn, totem.SkillId));
+        var source = SupportedSkill(conn, totem.SkillId);
+        TotemSources.AddOrUpdate(totem, source);
+        BindFocusedBallista(totem, source);
     }
 
     public static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
@@ -115,13 +117,20 @@ public static partial class Game
             if (conn.Paused || now < totem.NextCast) continue;
             // A lockstep client's totem exists from the end of the frame its create is written in: no order before that.
             if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(totem.Id).IsReady) continue;
+            var targetNear = totem.At;
+            if (FocusedBallistas.TryGetValue(totem, out var focus))
+            {
+                if (focus.Aim is not { } ownerAim) continue;
+                targetNear = ownerAim;
+                focus.Aim = null;
+            }
             double range = TotemTargetRange(conn, totem.SkillId);
             var gem = GemSkillEffects(conn).First(g => g.Id == totem.SkillId);
             var summon = TotemSummon(conn, gem.Effect);
             var golem = GolemData.Find(SkillsFor(conn).EffectId(gem.Effect));
             var target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
                 && Dist(p.Value.Walk.Position(now), totem.At) <= range)
-                .OrderBy(p => Dist(p.Value.Walk.Position(now), totem.At)).FirstOrDefault();
+                .OrderBy(p => Dist(p.Value.Walk.Position(now), targetNear)).FirstOrDefault();
             if (target.Value is null && summon is null && golem is null
                 || TotemCastSeconds(conn, totem.SkillId) is not double seconds) continue;
             var aim = target.Value?.Walk.Position(now) ?? totem.At;

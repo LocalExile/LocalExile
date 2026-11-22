@@ -2771,8 +2771,8 @@ transfer and module retirement stop pending releases.
 Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun` actions bypass the generic projectile lookup;
 their projectile rows are `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`, with skins 2373/8203.
 Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.35 s; `base_totem_range` is targeting range.
-Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
-before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
+Artillery Ballista's mortar sequence requires its own executor. Enemy targeting of totems, placement range and the
+aura buff's totem source remain open.
 
 Dedicated totem skills (ActiveSkillType `SummonsTotem`; `SkillTotemId` is on every row) carry the spell totems'
 proxy `0x4000` plus their radius and `skill_is_non_pathing`; with the gem's own `is_totem` the client plays no action. Shockwave Totem is a `Nova`: it casts while a hostile is

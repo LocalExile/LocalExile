@@ -69,6 +69,7 @@ Nothing yet.
   Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
+  Focused Ballista grants its attack speed and fires only after its owner releases an attack projectile.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.

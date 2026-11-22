@@ -556,10 +556,10 @@ public sealed class SpellTotemExecutionTests
             { Sockets = [new(SocketColour.White, Gem("SkillGemSiegeBallista")),
                 new(SocketColour.White, Gem("SupportGemFocusedBallista"))], Links = [2] });
             var focused = Game.GemSkillEffects(conn).Single();
-            Assert.False(Game.BallistaPathAvailable(conn, focused.Id));
-            // The dedicated-skill clause must not place what the ballista path refuses: this is a SummonsTotem skill,
-            // so the clause alone admitted it, and SpellTotemCurrent kept it alive through the same gate.
-            Assert.False(Game.TotemPathAvailable(conn, focused.Id, focused.Effect));
+            Assert.True(Game.BallistaPathAvailable(conn, focused.Id));
+            Assert.True(Game.TotemPathAvailable(conn, focused.Id, focused.Effect));
+            // Siege Ballista's 50% base attack rate becomes 62% after the support and final-speed rounding.
+            Assert.Equal(Game.SupportedAttackSeconds(conn, focused.Id) * 50 / 62, Game.TotemAttackSeconds(conn, focused.Id), 5);
         }
         finally
         {
@@ -567,6 +567,79 @@ public sealed class SpellTotemExecutionTests
             PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
+    [Fact]
+    public async Task Focused_ballista_responds_only_to_its_owners_emitted_attack_projectiles()
+    {
+        TestEnvironment.OpenOwnSaves("focused-ballista");
+        var previous = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("FocusedBallista");
+        conn.Clock.Restart();
+        using var wire = new Wire();
+        var session = new Game.ProjectileSession("focused", wire.Stream, wire.Ciphers, conn);
+        conn.ProjectileRuntimeState = session;
+        try
+        {
+            var items = Game.ItemsOf(conn);
+            items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
+            var host = items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+            {
+                Sockets = [new(SocketColour.White, Gem("SkillGemSiegeBallista")),
+                    new(SocketColour.White, Gem("SupportGemFocusedBallista"))],
+                Links = [2],
+            });
+            var skill = Game.GemSkillEffects(conn).Single();
+            uint totemId = Assert.IsType<uint>(await Game.CreateTotem("focused", wire.Stream, wire.Ciphers, conn,
+                skill.Id, skill.Effect, skill.Level, Game.TotemVariety(conn, skill.Effect)!, (100, 100)));
+            var totem = Assert.Single(conn.Totems.Living(0));
+            conn.Monsters[901] = new("near the totem", new(106, 105, 0), 0, 0, 100000) { Hostile = true };
+            conn.Monsters[902] = new("near the owner aim", new(130, 100, 0), 0, 0, 100000) { Hostile = true };
+            var shot = Game.CaptureOrdinaryRangedProjectile(conn, session, (132, 100),
+                OrdinaryRangedAttack.Arrow, 1, new(0), null);
+            var offense = Assert.IsType<ProjectileOffense>(shot.Payload);
+
+            Assert.Empty(Tick());
+            foreach (var other in new[] { shot with { CanEmit = () => false },
+                shot with { Payload = offense with { Spell = true } },
+                shot with { Payload = offense with { FromTrapOrMine = true } },
+                shot with { Emitter = shot.Emitter with { Id = totemId } } })
+            {
+                session.ReleaseNow(other);
+                Assert.Empty(Tick());
+            }
+
+            session.ReleaseNow(shot);
+            Assert.NotEmpty(Tick());
+            Assert.Equal((ushort)1, totem.Sequence);
+            session.ReleaseNow(shot); // The ballista is still busy and does not store a second attack.
+            session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
+            var fired = Assert.Single(session.Runtime.Projectiles, p => p.Use.Emitter.Id == totemId);
+            Assert.Equal(new ProjectileVector(130, 100), fired.Use.Aim);
+            totem.NextCast = 0;
+            Assert.Empty(Tick()); // Neither the busy request nor the ballista's own projectile can trigger it.
+            session.ReleaseNow(shot);
+            items.Change(PlayerInventories.BodyArmour, host.Id, item => item with { Links = [1, 1] });
+            Assert.Empty(Tick());
+            Assert.NotNull(totem.DiedAt);
+
+            List<byte> Tick()
+            {
+                var records = new List<byte>();
+                Game.TickSpellTotemsLocked("focused", wire.Stream, wire.Ciphers, conn, records);
+                return records;
+            }
+        }
+        finally
+        {
+            session.Invalidate(); conn.Closed = true;
+            lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime;
+            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
     internal sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);

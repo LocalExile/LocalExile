@@ -516,7 +516,8 @@ public static partial class Game
             * Math.Max(.01, 1 + Get("support_pulverise_attack_speed_+%_final") / 100.0)
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
-        if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d);
+        if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d)
+            * Math.Max(.01, 1 + Get("support_focused_ballista_totem_attack_speed_+%_final") / 100d);
         int barrageTime = Get("support_barrage_attack_time_+%_per_projectile_fired");
         if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
         {
