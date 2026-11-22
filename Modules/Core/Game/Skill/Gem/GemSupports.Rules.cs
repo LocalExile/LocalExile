@@ -332,6 +332,12 @@ public static partial class Game
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var skill = SupportedSkill(conn, skillId);
+        if (SkillsFor(conn).IsSpell(skill.Effect) && Stats.Key(ItemChargeCosts.ManaEfficiency) is uint efficiency)
+        {
+            const string spellEfficiency = "base_spell_mana_cost_efficiency_+%";
+            long bonus = (long)GolemStat(player, spellEfficiency) + GolemStat(skill.Stats, spellEfficiency);
+            if (bonus != 0) player[efficiency] = ActorScale.Saturate(player.GetValueOrDefault(efficiency) + bonus);
+        }
         return MergeSkillStats(player, WithBlessingCost(conn, skill), SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
     }
 
