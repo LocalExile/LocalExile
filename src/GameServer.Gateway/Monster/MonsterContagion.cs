@@ -12,7 +12,10 @@ public sealed class MonsterContagion
     /// the caster's Contagion skin art drawn at each spread (null: the default). Caster owns it, also through spreads: a
     /// kill by its damage and its owner-only gains are that player's, never the connection running the world.</summary>
     public sealed record Cast(double DamagePerSecond, double Seconds, int Radius, double SpreadMore = 1, ushort SkillId = 0,
-        string? SpreadAo = null, ClientState? Caster = null);
+        string? SpreadAo = null, ClientState? Caster = null)
+    {
+        public int SpreadOnHitChance { get; init; }
+    }
 
     // Each application counts from Start (when it landed) to Until.
     readonly List<(Cast Cast, double Start, double Until)> instances = [];
@@ -32,6 +35,9 @@ public sealed class MonsterContagion
 
     /// <summary>When the last application ends.</summary>
     public double Until => instances.Count == 0 ? 0 : instances.Max(i => i.Until);
+
+    public Cast? ForHitSpread(double now) => Strongest(instances, now) is { Cast.SpreadOnHitChance: > 0 } active
+        ? active.Cast with { Seconds = active.Until - now } : null;
 
     public void Apply(double now, Cast cast)
     {
@@ -116,7 +122,7 @@ public sealed class MonsterContagion
         instances.Clear();
         ended.Clear();
         carry = 0;
-        return cast is { Seconds: > 0 } ? cast : null;
+        return cast is { Seconds: > 0, SpreadOnHitChance: 0 } ? cast : null;
     }
 
     static (Cast Cast, double Start, double Until)? Strongest(IEnumerable<(Cast Cast, double Start, double Until)> list, double t)

@@ -26,6 +26,17 @@ public sealed class MonsterEssenceDrain
     /// <summary>When the last instance ends.</summary>
     public double Until => instances.Count == 0 ? 0 : instances.Max(i => i.Until);
 
+    public Cast? ForHitSpread(double now) => Strongest(now) is { } active
+        ? active.Cast with { Seconds = active.Until - now } : null;
+
+    public void ApplySpread(double now, Cast cast)
+    {
+        double expiry = now + cast.Seconds;
+        if (instances.Any(active => active.Until >= expiry && active.Cast.Caster == cast.Caster
+            && active.Cast.SkillId == cast.SkillId && active.Cast.DamagePerSecond >= cast.DamagePerSecond)) return;
+        Apply(now, cast);
+    }
+
     public void Apply(double now, Cast cast)
     {
         if (!(cast.DamagePerSecond > 0) || !(cast.Seconds > 0)) return;
