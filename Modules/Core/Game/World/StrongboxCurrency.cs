@@ -5,7 +5,9 @@ using static Program;
 /// <summary>
 /// Currency used on a box (C→S 0x74, <see cref="InstanceItems.UseItemOnObject"/>): the orbs that change an item's rarity
 /// and explicit mods change a closed, uncorrupted box's the same way; one leaves its stack only when the box changed, and
-/// the box is created again (same id) with its new rarity and mods, as when it opens.
+/// the box is created again (same id) with its new rarity and mods, as when it opens. The orb may sit in a character
+/// inventory or in the open stash / currency tab — the client sends the tab's inventory id either way — and is consumed
+/// from whichever source holds it (character <c>ConsumeOne</c>, stash <c>Pay</c> + <c>SendStashPayment</c>).
 /// </summary>
 public static partial class MapStrongboxes
 {
@@ -25,10 +27,17 @@ public static partial class MapStrongboxes
         var (remote, stream, ciphers) = conn.Wire;
         string Log(string text) => $"[map-content] {remote} <= 0x0074 item {use.ItemId} (inventory {use.InventoryId}) on strongbox 0x{use.TargetObjectId:x}: {text}";
         var items = ItemsOf(conn);
-        if (items.RowOf(use.ItemId) is not byte row || PlayerInventories.InventoryId(row) != use.InventoryId
-            || items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } used)
+        // The orb may sit in a character inventory or in the open stash / currency tab: the client sends 0x74 with that
+        // inventory's id either way (live: a currency-tab orb clicked on a box). Resolve the source before the gate.
+        byte row = 0; bool fromChar = false; InventoryItem? used = null;
+        if (items.RowOf(use.ItemId) is byte r && PlayerInventories.InventoryId(r) == use.InventoryId
+            && items.Items(r).FirstOrDefault(i => i.Id == use.ItemId) is { } ci) { row = r; fromChar = true; used = ci; }
+        AccountStash? stash = null;
+        if (used is null && StashOf(conn) is { } s && s.TabOf(use.InventoryId) is int t
+            && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; used = si; }
+        if (used is null)
         {
-            Console.WriteLine(Log("no such item in the character's inventories (currency from the stash is not handled)"));
+            Console.WriteLine(Log("no such item in the character's inventories or the open stash"));
             return true;
         }
         var currency = ItemsFor(conn).ByHash(used.Item.TypeHash);
@@ -43,17 +52,26 @@ public static partial class MapStrongboxes
                 Console.WriteLine(Log($"{currency?.Name ?? $"0x{used.Item.TypeHash:x8}"} refused: {refusal}"));
                 return true;
             }
-            if (items.ConsumeOne(row, used.Id) is not { } taken)
+            // Consume one orb from whichever source holds it; only then commit the box.
+            Func<Task> notify;
+            if (fromChar)
             {
-                Console.WriteLine(Log("the item is gone"));
-                return true;
+                if (items.ConsumeOne(row, used.Id) is not { } taken) { Console.WriteLine(Log("the item is gone")); return true; }
+                uint inventory = PlayerInventories.InventoryId(row);
+                notify = () => Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventory, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
+                    $"0x00bf inventory {inventory}: {currency!.Name} used" + (taken.Left is { } l ? $", {l.Item.StackSize} left" : ", stack gone"));
+            }
+            else
+            {
+                // One orb of the clicked type from the stash (its stacks, smallest first); the currency tab holds one stack
+                // per orb, so this is the clicked one. SendStashPayment notifies every tab it touched.
+                if (stash!.Pay(used.Item.TypeHash, 1) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
+                notify = () => SendStashPayment(remote, stream, ciphers, conn, stash, paid);
             }
             area.Boxes[box.Index] = changed;
             Keep(conn, area);
-            uint inventory = PlayerInventories.InventoryId(row);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventory, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
-                $"0x00bf inventory {inventory}: {currency!.Name} used" + (taken.Left is { } l ? $", {l.Item.StackSize} left" : ", stack gone"));
-            Console.WriteLine(Log($"{currency.Name}: {Label(conn, box)} → {Label(conn, changed)}"));
+            await notify();
+            Console.WriteLine(Log($"{currency!.Name}: {Label(conn, box)} → {Label(conn, changed)}"));
             foreach (var member in Members(conn)) await Present(member, changed, true);
         }
         finally { area.Gate.Release(); }

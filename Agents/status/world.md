@@ -122,7 +122,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
   "Vaal Vessels"). Currency changes a closed
   box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
-  unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). Our own:
+  unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). The orb is
+  consumed from the character inventory or the open stash / currency tab (live: an orb right-clicked in the currency tab
+  and clicked on the box), the source's stack updated. Our own:
   `__col2` as the item count, Jumbled Abundance's one-in-four, the freeze's one second, stand-ins for the summons the
   tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
   [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
