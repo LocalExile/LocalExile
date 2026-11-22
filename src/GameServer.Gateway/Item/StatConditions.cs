@@ -789,8 +789,8 @@ public static class StatConditions
         new(@"_if_(?:other_ring_is_(?:shaper|elder)_item|(?:left|right)_ring_is_magic_item)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // These table-local values describe a relationship to the source, then project onto the recipient's stats.
-    public static bool SourceLocalCondition(string id) => RingConditionId.IsMatch(id)
-        && id.Contains("_if_other_ring_", StringComparison.Ordinal);
+    public static bool SourceLocalCondition(string id) => id == "spell_chance_to_shock_frozen_enemies_%"
+        || RingConditionId.IsMatch(id) && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 
     static State And(State left, State right) => left is State.Fails || right is State.Fails ? State.Fails
         : left is State.NotModelled || right is State.NotModelled ? State.NotModelled

@@ -290,9 +290,12 @@ public static partial class Game
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         bool tinctureWeapon = !spell && Player("tincture_applied") != 0;
+        int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
+            ? Player("spell_chance_to_shock_frozen_enemies_%") + Skill("spell_chance_to_shock_frozen_enemies_%") : 0;
         int Attacker(string name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
+            if (name == "chance_to_shock_%") value += frozenShock;
             if (!tinctureWeapon) return value;
             return name switch
             {
