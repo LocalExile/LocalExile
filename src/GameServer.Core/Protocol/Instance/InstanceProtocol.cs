@@ -124,8 +124,9 @@ public static class InstanceProtocol
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
         InstanceChat.LinkAnotherId => InstanceChat.LinkAnotherLength,
-        // Primary 3.29.3c writers: 0x140e27920 (u16 + u8), 0x141f99e90 (u16 + 4/2/2/4/1/1 bytes).
-        0x020a => 3, 0x0059 => 16, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
+        TutorialCompleteId => TutorialCompleteLength,
+        // Primary 3.29.3c writer: 0x141f99e90 (u16 + 4/2/2/4/1/1 bytes).
+        0x0059 => 16, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
         InstanceSocial.TradeRequestAcceptId => InstanceSocial.TradeRequestAcceptLength,
         InstanceSocial.PartyAcceptId => InstanceSocial.PartyAcceptLength,
         InstanceSocial.PartyLeaveId => InstanceSocial.PartyLeaveLength,
@@ -580,6 +581,13 @@ public static class InstanceProtocol
     /// <summary>C→S 0x54 (class 0x1435ca9d8, write 0x141f99ba0), sent by the death screen's buttons (0x140291180):
     /// u8 flags, bit0 set by the "Resurrect in Town" button, clear for the checkpoint one.</summary>
     public static bool ReadResurrectInTown(ReadOnlySpan<byte> m) => (m[2] & 1) != 0;
+
+    /// <summary>C→S 0x020a (3 bytes, vtable 0x14346cd00, writer 0x140e27920): a tutorial step or Help Panel article
+    /// completed or dismissed; payload byte is the Tutorial.dat row index (0..18 tutorials, 17 = AllTutorials,
+    /// 23..76 Help Panel articles, 77 = HidePopups).</summary>
+    public const ushort TutorialCompleteId = 0x020a;
+    public const int TutorialCompleteLength = 3;
+    public static byte ReadTutorialComplete(ReadOnlySpan<byte> m) => m[2];
 
     /// <summary>Relocate and stop a glide. Unlike MoveTo, height is Positioned's signed fixed-height marker and
     /// worldZ is its float z, copied directly by the client. Marker 0x7fffffff (<see cref="FollowTerrain"/>, the default)

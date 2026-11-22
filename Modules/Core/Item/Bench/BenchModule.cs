@@ -145,6 +145,12 @@ static class BenchFeature
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.CraftingBench),
             items.NextRevision(PlayerInventories.CraftingBench), [result.Changed.Id], [result.Changed]), $"bench recipe {request.Recipe}: crafted item {result.Changed.Id}");
         await RefreshBenchBalance(remote, stream, ciphers, conn);
+        if (HideoutCatalog.ByArea(conn.Layout.Hash) is not null)
+        {
+            bool crafted;
+            lock (conn.Monsters) crafted = conn.LeagueQuestFlags.Contains(Quests.League.CraftedItemAtBench);
+            if (!crafted) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [Quests.League.CraftedItemAtBench]);
+        }
     }
 
 }

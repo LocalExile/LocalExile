@@ -29,7 +29,7 @@ public static class HitResistances
     /// elemental resistance without requiring a critical strike; it is kept separate from the critical flags.</summary>
     public readonly record struct Mods(int CriticalIgnoreElemental, int AttackCriticalIgnoreElemental,
         int NonCriticalPenetration, int CannotPenetrateOrIgnore, bool UnconditionalIgnoreElemental = false,
-        bool IgnoreFire = false, bool IgnoreChaos = false)
+        bool IgnoreFire = false, bool IgnoreChaos = false, int IgnorePhysicalReductionChance = 0)
     {
         /// <summary>The four source stats by name, through the caller's name → key lookup (the client's stat key is the
         /// Stats.dat row + 1). A stat the source does not carry reads 0.</summary>

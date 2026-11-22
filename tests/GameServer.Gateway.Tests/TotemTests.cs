@@ -165,6 +165,58 @@ public sealed class TotemTests
         }
     }
 
+    [Fact]
+    public async Task Decoy_totem_is_a_monster_target_until_it_dies()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        var conn = f.Conn;
+        var gem = ItemCatalog.Create(Program.Items.Find("Decoy Totem")!);
+        var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!, [new(SocketColour.White, gem)], [1]);
+        var items = Game.ItemsOf(conn);
+        items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+        items.Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
+        var source = Game.GemSkillEffects(conn).Single(g => g.Name == "Decoy Totem");
+        var variety = Game.TotemVariety(conn, source.Effect);
+        Assert.NotNull(variety);
+        Assert.True(Game.TotemPathAvailable(conn, source.Id, source.Effect));
+        Assert.NotNull(await Game.CreateTotem("test", f.Stream, f.Ciphers, conn, source.Id, source.Effect,
+            source.Level, variety, (110, 100)));
+        var totem = Assert.Single(conn.Totems.All);
+        Assert.Equal(60, totem.DecoyRadius);
+        Assert.NotEqual(0, totem.GrantedId);
+
+        var attack = new MonsterAttack(0x3188, 1, 8, DamagePacket.Of(DamageType.Physical, 100, 100));
+        SpawnedMonster Enemy(int x) => new("enemy", new(x, 100, 8), 100, 2, 100) { Attack = attack, Target = conn };
+        var near = Enemy(116);
+        var far = Enemy(171);
+        // Two out of reach on the same side: each gets its own cell around the totem, not one on the line to it.
+        var packA = Enemy(150);
+        var packB = new SpawnedMonster("enemy", new(150, 102, 8), 100, 2, 100) { Attack = attack, Target = conn };
+        conn.Monsters[0x3100] = near;
+        conn.Monsters[0x3101] = far;
+        conn.Monsters[0x3102] = packA;
+        conn.Monsters[0x3103] = packB;
+        Game.TickTotemUses("test", f.Stream, f.Ciphers, conn);
+        Assert.NotNull(totem.TauntAt);
+        double now = totem.TauntAt.Value;
+        Game.ApplyDecoyTauntLocked(conn, totem, now);
+        Assert.Same(totem, Game.DecoyTarget(near, now)?.Source);
+        Assert.Null(Game.DecoyTarget(far, now));
+        var plan = Game.PlanMonsterAi(conn, new(), now);
+        var swing = Assert.Single(plan.DecoySwings);
+        Assert.Same(totem, swing.Totem);
+        Assert.Same(near, swing.Monster);
+        var chases = plan.Moves.Where(m => m.Monster == packA || m.Monster == packB).Select(m => m.To).ToArray();
+        Assert.Equal(2, chases.Length);
+        Assert.NotEqual(chases[0], chases[1]);
+
+        uint life = conn.PlayerLife;
+        Assert.True(Game.DecoyTakeHitLocked(conn, totem, near, attack, now, 100));
+        Assert.Equal(0u, totem.Life);
+        Assert.Equal(life, conn.PlayerLife);
+        Assert.Null(Game.DecoyTarget(near, now));
+    }
+
     sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);

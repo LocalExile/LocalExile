@@ -32,7 +32,7 @@ public sealed partial class ClientState
     // death was written before (its body has come and gone). Under Monsters.
     public bool RetainCorpseBody(uint id, SpawnedMonster monster, int ticks)
     {
-        if (!LockstepClient || LivingCollision.Size(monster) < 0 || monster.Variety?.PositionedBlocking == false) return false;
+        if (!LockstepClient || LivingCollision.Size(monster) < 0 || monster.NonBlocking || monster.Variety?.PositionedBlocking == false) return false;
         if (CorpseWalks(id, monster)) return true;
         if (DeathWritten(id, monster)) return false;
         ReleaseCorpseBody(id);

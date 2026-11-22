@@ -1,3 +1,6 @@
+using GameServer.Core.Accounts;
+using GameServer.Core.Protocol.Instance;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class DropDataTests
@@ -30,5 +33,27 @@ public sealed class DropDataTests
         // Oshabi's guaranteed unique: Forbidden Shako's share of the one pick.
         Assert.Equal(0.50, drops.BossItems[("Metadata/Monsters/LeagueHarvest/Oshabi/OshabiBoss", "Forbidden Shako")].Chance);
         Assert.Equal("3.27.0", drops.ItemWeights[("card", "Metadata/Items/DivinationCards/DivinationCardRainOfChaos")].Patch);
+    }
+
+    [Fact]
+    public void HardMode_drops_include_atlas_maps()
+    {
+        var ruthless = new League("Ruthless", "Standard", false, false) { DataSet = "HardMode" };
+        var conn = new ClientState(new(1, "ruthless-drops-test", 100, 100, 10, 10, null, []), 1, 1)
+        {
+            League = ruthless.Name,
+            LeagueModule = new(ruthless, new HashSet<string>(["Game"])),
+        };
+        var drops = Game.DropsFor(conn);
+        var rng = new Random(1);
+        // Force a successful chance roll to isolate base eligibility and the selected tier.
+        Assert.Null(drops.Map(1, MonsterRarity.Normal, 0, rng, chanceFactor: 1000));
+        var first = drops.Map(58, MonsterRarity.Normal, 0, rng, chanceFactor: 1000);
+        Assert.NotNull(first);
+        Assert.Equal(1, Game.HardModeAtlas.Value.TierOf(first.Item.TypeHash));
+        var map = drops.Map(72, MonsterRarity.Unique, 5, rng, chanceFactor: 1000);
+        Assert.NotNull(map);
+        Assert.True(map.Type.Supported);
+        Assert.Equal(5, Game.HardModeAtlas.Value.TierOf(map.Item.TypeHash));
     }
 }
