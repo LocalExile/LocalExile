@@ -86,16 +86,23 @@ public static partial class Game
 
     /// <summary>An enemy killed at <paramref name="at"/>: one soul for the flask source ("during any Flask Effect"),
     /// when the source is active and the player is near. Soul Ascension's hit source does not feed on kills.</summary>
-    public static void SoulEaterSoul(ClientState conn, uint id, (int X, int Y) at)
+    public static void SoulEaterSoul(ClientState conn, uint id, (int X, int Y) at) =>
+        SoulEaterSoul(conn, id, at, null);
+
+    static void SoulEaterSoul(ClientState conn, uint id, (int X, int Y) at, double? acceptedAt)
     {
-        if (!conn.SoulEater.FlaskFed) return;
+        if (!conn.SoulEater.FlaskFed && !ActiveSpectreSoulEaters.TryGetValue(conn, out _)) return;
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
-            if (Dist(at, conn.Walk.Position(now)) > SoulEaterRadius) return;
-            conn.SoulEater.Soul(now);
-            QueueSoul(conn, id, at);
+            if (conn.SoulEater.FlaskFed && Dist(at, conn.Walk.Position(now)) <= SoulEaterRadius)
+            {
+                conn.SoulEater.Soul(now);
+                QueueSoul(conn, id, at);
+                return;
+            }
+            FeedSpectreSoulEaterLocked(conn, id, at, acceptedAt ?? AreaTime(conn));
         }
     }
 

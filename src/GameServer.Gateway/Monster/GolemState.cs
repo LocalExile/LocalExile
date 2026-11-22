@@ -39,6 +39,8 @@ public sealed class GolemState
         public Dictionary<string, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;
         public double HolyRegenerationUntil, HolyRegenerationPerSecond;
+        public SoulEaterState? SoulEater;
+        public double SoulEaterUntil;
         public readonly Dictionary<int, Queue<double>> Charges = [];
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];

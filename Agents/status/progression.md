@@ -34,7 +34,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   radius rules and the vendor recipe are missing. Docs: [cluster jewels](../docs/game/cluster-jewels.md).
 - Timeless jewels: the alternate tree in radius and Militant Faith's Devotion mods; conqueror keystone mechanics are
   missing. Docs: [timeless jewels](../docs/game/timeless-jewels.md).
-- Radius unique jewels: 42 implemented and the 33 threshold jewels; skill-specific consumers are partial.
+- Radius unique jewels: 42 implemented and the 33 threshold jewels, including Unending Hunger’s Soul Eater for Raised Spectres. Other skill-specific consumers are partial.
   Docs: [radius jewels](../docs/game/radius-jewels.md), [list](../docs/game/radius-jewel-list.md).
 - Impossible Escape and Rational Doctrine. Docs: [radius jewels](../docs/game/radius-jewels.md),
   [13](../docs/protocol/13-items.md), "What some flasks and Rational Doctrine make".

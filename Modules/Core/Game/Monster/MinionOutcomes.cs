@@ -8,14 +8,14 @@ public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, StunHit? stun = null)
+        double now, string by, StunHit? stun = null, GolemState.Golem? fighter = null)
     {
         OwnedKillLocked(monster, hit.Life);
-        CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+        CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun, fighter: fighter);
     }
 
     static void CommitAcceptedHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
+        double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null, GolemState.Golem? fighter = null)
     {
         var state = conn.Minions;
         if (hit.Life == 0) state.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
@@ -25,10 +25,15 @@ public static partial class Game
                 PlayerMinions.OutputKind.Flinch, monster.FlinchUntil, monster.ActionGeneration));
         state.OutputQueue.Add(new([], $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {hit.Life}/{monster.MaxLife}{(hit.Life == 0 ? " (dies)" : "")}",
             id, monster, PlayerMinions.OutputKind.Life));
-        if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill);
+        if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill, null, fighter);
     }
 
-    public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
+    public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now,
+        bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null) =>
+        CommitAcceptedKillLocked(conn, victimId, monster, now, playerKill, chargeBatch, null);
+
+    static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now,
+        bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch, GolemState.Golem? fighter)
     {
         HitSummonsOnDeathLocked(conn, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(conn, victimId, monster);
@@ -39,7 +44,8 @@ public static partial class Game
         var at = monster.Walk.Position(now);
         var partyShares = PartyExperienceShares(conn, at);
         ShareKill(conn, victimId, monster, variety, at, partyShares);
-        SoulEaterSoul(conn, victimId, at);
+        SoulEaterSoul(conn, victimId, at, now);
+        if (fighter is { Definition.Kind: "Spectre" }) StartSpectreSoulEaterLocked(conn, fighter, now, conn.Minions.Random);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)

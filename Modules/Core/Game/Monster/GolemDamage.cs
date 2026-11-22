@@ -182,6 +182,11 @@ public static partial class Game
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
+        if (g.SoulEater is not null)
+        {
+            g.SoulEaterUntil = 0;
+            PublishSpectreSoulEaterLocked(conn, g, now);
+        }
         g.ShieldPool.Empty();
         PublishEnergyShieldLocked(conn, g);
         foreach (var hazard in g.Hazards) if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true));

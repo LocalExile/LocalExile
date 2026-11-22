@@ -25,15 +25,18 @@ public static class ThresholdJewels
 
     /// <summary>A stat whose local name does not match its client stat key, or whose local value is a flag/ms
     /// value that has to be converted.</summary>
-    sealed record Alias(string Target, int? FixedValue = null);
+    sealed record Alias(string Target, int? FixedValue = null, int? Required = null);
 
     static readonly IReadOnlyDictionary<string, Alias> Aliases = new Dictionary<string, Alias>
     {
         ["disable_combust"] = new("combust_is_disabled", 1),
         ["frostbolt_additional_projectiles"] = new("frostbolt_number_of_additional_projectiles"),
         ["ice_shot_explosion_skill_area_of_effect_+%"] = new("ice_shot_radius_+%"),
+        // The historical stat IDs still say 50 Intelligence. The pinned client's descriptions say 40.
         ["spectres_gain_soul_eater_on_kill_%_chance"] =
-            new("spectres_gain_soul_eater_for_20_seconds_on_kill_%_chance"),
+            new("spectres_gain_soul_eater_for_20_seconds_on_kill_%_chance", Required: 40),
+        ["zombie_slam_cooldown_speed_+%"] = new("zombie_slam_cooldown_speed_+%", Required: 40),
+        ["zombie_slam_damage_+%"] = new("zombie_slam_damage_+%", Required: 40),
         ["molten_strike_projectiles_chain_count_+"] = new("molten_strike_chain_count_+"),
         ["molten_strike_projectiles_count_+%_final"] =
             new("threshold_jewel_molten_strike_damage_projectile_count_+%_final"),
@@ -65,6 +68,7 @@ public static class ThresholdJewels
                 {
                     target = alias.Target;
                     value = alias.FixedValue ?? value;
+                    required = alias.Required ?? required;
                 }
                 if (value == 0 || Program.Stats.Key(target) is not uint key) continue;
                 effects.Add(new(attributes, required, key, value));

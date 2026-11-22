@@ -31,6 +31,7 @@ public static partial class Game
                     name = name[7..] switch
                     {
                         "elemental_resistance_%" => "base_resist_all_elements_%",
+                        "skill_area_of_effect_+%" => "base_skill_area_of_effect_+%",
                         "fire_damage_resistance_%" => "base_fire_damage_resistance_%",
                         "cold_damage_resistance_%" => "base_cold_damage_resistance_%",
                         "lightning_damage_resistance_%" => "base_lightning_damage_resistance_%",
@@ -56,6 +57,9 @@ public static partial class Game
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
         int Get(string n) => GolemStat(player, n);
+        int souls = SpectreSoulEaterCount(golem, at);
+        if (souls > 0)
+            values["attack_and_cast_speed_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("attack_and_cast_speed_+%") + 5 * souls);
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
         // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
         // maximum kernel as the owner's charge session; its maximum already includes Character.ot's base three.
@@ -371,6 +375,12 @@ public static partial class Game
         var hash = new HashCode();
         hash.Add(CombatLifetime);
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
+        if (golem.Definition.Kind == "Spectre")
+        {
+            PublishSpectreSoulEaterLocked(conn, golem, now);
+            hash.Add(SpectreSoulEaterCount(golem, now));
+            hash.Add(GolemStat(player, SpectreSoulEaterChance));
+        }
         hash.Add(SkeletonShieldChaos(conn, golem, player));
         foreach (var p in player.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
