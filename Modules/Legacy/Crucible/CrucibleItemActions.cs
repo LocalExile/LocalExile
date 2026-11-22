@@ -12,12 +12,12 @@ namespace GameServer.Modules.Crucible;
 public static class CrucibleItemActions
 {
     /// <summary>Handles C→S <c>0x0116</c> (Orb of Scouring unallocation of a weapon passive tree node).</summary>
-    public static async Task<bool> HandleUnallocate(ClientState conn, byte[] bytes)
+    public static async Task<bool> HandleUnallocate(Player player, byte[] bytes)
     {
         var req = InstanceCrucible.ReadWeaponPassiveUnallocate(bytes);
-        var (remote, stream, ciphers) = conn.Wire;
-        var items = ItemsOf(conn);
-        var stash = StashOf(conn);
+        string remote = player.Connection.Remote;
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
 
         if (!TryLocateItem(items, stash, req.CurrencyInventoryId, req.CurrencyItemId, out var curTab, out var curRow, out var curItem)
             || !TryLocateItem(items, stash, req.TargetInventoryId, req.TargetItemId, out var tgtTab, out var tgtRow, out var tgtItem))
@@ -26,7 +26,7 @@ public static class CrucibleItemActions
             return true;
         }
 
-        var currencyType = ItemsFor(conn).ByHash(curItem.Item.TypeHash);
+        var currencyType = ItemsFor(player).ByHash(curItem.Item.TypeHash);
         if (currencyType?.Id != CurrencyEffects.OrbOfScouring)
         {
             Console.WriteLine($"[crucible] {remote} <= 0x0116 unallocate: currency is {currencyType?.Id ?? "?"}, expected Orb of Scouring");
@@ -64,9 +64,9 @@ public static class CrucibleItemActions
         async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what)
         {
             if (tab is int t)
-                await SendTabChange(remote, stream, ciphers, conn, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
+                await SendTabChange(player, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
             else
-                await Send(remote, stream, ciphers,
+                await Send(player,
                     InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
                     $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
         }
@@ -85,18 +85,18 @@ public static class CrucibleItemActions
         }
 
         if (tgtTab is null && IsEquipmentRow(tgtRow))
-            await WorldOf(conn).RefreshStats("Crucible node unallocated");
+            await WorldOf(player).RefreshStats();
 
-        Console.WriteLine($"[crucible] {CharacterName(conn)} unallocated node ({req.Column},{req.Row}) on item {tgtItem.Id} with Orb of Scouring");
+        Console.WriteLine($"[crucible] {CharacterName(player)} unallocated node ({req.Column},{req.Row}) on item {tgtItem.Id} with Orb of Scouring");
         return true;
     }
 
     /// <summary><see cref="GameEvents.CurrencyApply"/> handler for <c>Magmatic Ore</c>.</summary>
-    public static Item? ApplyCurrency(ClientState conn, Item target, ItemCatalog.BaseType currencyType, Item? currencyItem, Random random)
+    public static Item? ApplyCurrency(Player player, Item target, ItemCatalog.BaseType currencyType, Item? currencyItem, Random random)
     {
         if (!currencyType.Id.Equals(CrucibleTables.MagmaticOreId, StringComparison.OrdinalIgnoreCase))
             return null;
-        var catalog = ItemsFor(conn);
+        var catalog = ItemsFor(player);
         if (catalog.ByHash(target.TypeHash) is not { } targetType) return null;
         return CrucibleTreeEngine.ApplyMagmaticOre(target, targetType, catalog.Mods, random, currencyItem?.StoredExperience ?? 0u);
     }
@@ -105,8 +105,8 @@ public static class CrucibleItemActions
     public static void OnVendorQuote(VendorSaleQuote quote)
     {
         if (quote.BasicSale) return;
-        var catalog = ItemsFor(quote.Conn);
-        var uniques = UniquesFor(quote.Conn);
+        var catalog = ItemsFor(quote.Player);
+        var uniques = UniquesFor(quote.Player);
         bool addedAny = false;
 
         foreach (var offered in quote.Offered)
@@ -117,7 +117,7 @@ public static class CrucibleItemActions
                 allocated.Add(new ItemMod(ModSection.Implicit, node.ModHash, node.Values));
             if (allocated.Count == 0) continue;
 
-            var rewards = CrucibleSellRewards.Evaluate(allocated, catalog.ByHash(offered.Item.TypeHash), catalog, uniques, Random.Shared);
+            var rewards = CrucibleSellRewards.Evaluate(allocated, catalog.ByHash(offered.Item.TypeHash), catalog, uniques, AreaRng(quote.Player));
             if (rewards.Count == 0) continue;
             quote.Rewards.AddRange(rewards);
             addedAny = true;

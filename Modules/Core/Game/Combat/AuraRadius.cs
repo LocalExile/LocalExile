@@ -10,9 +10,8 @@ public static class AuraRadius
     {
         var own = (aura.SkillStats ?? skills.EffectStats(aura.Effect, aura.Level, aura.Quality))
             .ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        int Get(string name) => (stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0)
-            + (name == SkillArea.BaseIncreased ? auraAreaPct : 0);
-        int basis = aura.EffectId == "Smite" ? Get("active_skill_base_secondary_area_of_effect_radius") : AuraCatalog.BaseRadius;
+        int Get(uint key) => own.GetValueOrDefault(key) + (key == SkillArea.BaseIncreased ? auraAreaPct : 0);
+        int basis = aura.EffectId == "Smite" ? Get(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius) : AuraCatalog.BaseRadius;
         return SkillArea.Radius(basis, Get, spell: false);
     }
 }

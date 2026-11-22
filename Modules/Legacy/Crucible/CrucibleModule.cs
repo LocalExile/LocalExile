@@ -13,8 +13,15 @@ public sealed class CrucibleModule : IModule
 
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
 
+    public static void LoadData()
+    {
+        CrucibleTables.LoadGameData();
+        CrucibleMonsters.LoadGameData();
+    }
+
     public void Load(IModuleContext module)
     {
+        LoadData();
         var choices = module.Settings<Choices>();
         string id = module.Manifest.Id;
         module.Log($"Crucible loaded (XP ×{choices.ExperienceMultiplier:0.##}, geode drop rate ×{choices.GeodeDropRate:0.##})");
@@ -31,8 +38,7 @@ public sealed class CrucibleModule : IModule
             [CrucibleTables.MonsterMoreDamageStat], [CrucibleTables.MonsterDamageTakenStat]));
 
         // 2. Inject map_crucible_league (1-based stat 17912) so ExtraTerrainFeatures rolls "Crucible" rooms.
-        InstanceEvents.AreaStats.Add(id, _ =>
-            Stats.Key(CrucibleTables.LeagueStat) is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
+        InstanceEvents.AreaStats.Add(id, _ => new Dictionary<uint, int> { [CrucibleTables.LeagueStat] = 1 });
 
         // 3. Map Device: attach Remnant Domain 33 mods onto Forge of the Titans openings.
         GameEvents.MapOpening.Add(id, CrucibleRemnants.OnMapOpening);
@@ -41,8 +47,8 @@ public sealed class CrucibleModule : IModule
         GameEvents.ItemUse.Add(id, CrucibleRemnants.TryOpenGeode);
 
         // 5. Magmatic Ore currency application (C→S 0x71 / 0x72).
-        GameEvents.CurrencyApply.Add(id, (conn, target, currencyType, currencyItem, rng) =>
-            CrucibleItemActions.ApplyCurrency(conn, target, currencyType, currencyItem, rng));
+        GameEvents.CurrencyApply.Add(id, (player, target, currencyType, currencyItem, rng) =>
+            CrucibleItemActions.ApplyCurrency(player, target, currencyType, currencyItem, rng));
 
         // 6. Crucible SellBonus vendor rewards.
         GameEvents.VendorQuote.Add(id, CrucibleItemActions.OnVendorQuote);
@@ -57,69 +63,81 @@ public sealed class CrucibleModule : IModule
         GameEvents.Stats.Add(id, CrucibleEncounter.OnStats);
         GameEvents.GrantedSkills.Add(id, CrucibleEncounter.GrantedSkills);
         GameEvents.SkillBarBuilding.Add(id, CrucibleEncounter.OnSkillBarBuilding);
-        GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(id, (conn, bytes) =>
+        GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(id, (player, bytes) =>
         {
             var use = InstanceProtocol.ReadUseSkillAtLocation(bytes.AsSpan());
-            return CrucibleEncounter.HandleChannelSkill(conn, use.SkillId, use.Slot, use.Flags);
+            return CrucibleEncounter.HandleChannelSkill(player, use.SkillId, use.Slot, use.Flags);
         });
-        GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(id, (conn, bytes) =>
+        GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(id, (player, bytes) =>
         {
             var use = InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan());
-            return CrucibleEncounter.HandleChannelSkill(conn, use.SkillId, use.Sequence, use.Flags);
+            return CrucibleEncounter.HandleChannelSkill(player, use.SkillId, use.Sequence, use.Flags);
         });
         // A channeller's aim updates (C→S 0x0197 / 0x0198) are taken while they hold.
-        Task<bool> Holding(ClientState conn, byte[] _) => Task.FromResult(CrucibleEncounter.IsHolding(conn));
+        Task<bool> Holding(Player player, byte[] _) => Task.FromResult(CrucibleEncounter.IsHolding(player));
         GameEvents.Packet(InstanceProtocol.ChannelUpdateId).Add(id, Holding);
         GameEvents.Packet(InstanceProtocol.ChannelUpdateAltId).Add(id, Holding);
-        GameEvents.Packet(InstanceProtocol.ChannelEndId).Add(id, (conn, _) =>
-            CrucibleEncounter.HandleChannelEnd(conn));
+        GameEvents.Packet(InstanceProtocol.ChannelEndId).Add(id, (player, _) =>
+            CrucibleEncounter.HandleChannelEnd(player));
         // Lockstep equivalents (0x018e/0x018f start, 0x0195/0x0196 release) for local/auto-lockstep clients.
-        Task<bool> LockstepChannel(ClientState conn, ushort skillId, ushort flags)
+        Task<bool> LockstepChannel(Player player, ushort skillId, ushort flags)
         {
             // Another skill goes on to the game; the encounter only ends a hold on it.
-            if (skillId != InstanceCrucible.CrucibleChannelSkillHash) return CrucibleEncounter.HandleChannelSkill(conn, skillId, 0, flags);
-            conn.NoteLockstepClient(conn.Wire.Remote);
+            if (skillId != InstanceCrucible.CrucibleChannelSkillHash) return CrucibleEncounter.HandleChannelSkill(player, skillId, 0, flags);
             // A held popup click repeats the start every frame: only a new channel takes a sequence.
-            if (!CrucibleEncounter.IsHolding(conn)) conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
-            return CrucibleEncounter.HandleChannelSkill(conn, skillId, (ushort)(conn.LockstepSequence | 0x8000), flags);
+            if (!CrucibleEncounter.IsHolding(player)) player.LockstepSequence = (ushort)((player.LockstepSequence + 1) & 0x7fff);
+            return CrucibleEncounter.HandleChannelSkill(player, skillId, (ushort)(player.LockstepSequence | 0x8000), flags);
         }
-        GameEvents.Packet(InstanceProtocol.LockstepMoveStartId).Add(id, (conn, bytes) =>
+        GameEvents.Packet(InstanceProtocol.LockstepMoveStartId).Add(id, (player, bytes) =>
         {
             var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
-            return LockstepChannel(conn, click.SkillId, click.Flags);
+            return LockstepChannel(player, click.SkillId, click.Flags);
         });
-        GameEvents.Packet(InstanceProtocol.LockstepUseOnObjectId).Add(id, (conn, bytes) =>
+        GameEvents.Packet(InstanceProtocol.LockstepUseOnObjectId).Add(id, (player, bytes) =>
         {
             var use = InstanceProtocol.ReadLockstepUseOnObject(bytes);
-            return LockstepChannel(conn, use.SkillId, use.Flags);
+            return LockstepChannel(player, use.SkillId, use.Flags);
         });
         // The releases are only watched: 0x0192 and 0x0195 are also those of a Move held since before the channel, so
         // the game still gets them.
-        GameEvents.Packet(InstanceProtocol.LockstepMoveStopId).Add(id, async (conn, _) =>
+        GameEvents.Packet(InstanceProtocol.LockstepMoveStopId).Add(id, async (player, _) =>
         {
-            await CrucibleEncounter.HandleChannelEnd(conn);
+            await CrucibleEncounter.HandleChannelEnd(player);
             return false;
         });
-        GameEvents.Packet(InstanceProtocol.LockstepSkillStopId).Add(id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceProtocol.LockstepSkillStopId).Add(id, async (player, bytes) =>
         {
             if (InstanceProtocol.ReadLockstepSkillStop(bytes) == InstanceCrucible.CrucibleChannelSkillHash)
-                await CrucibleEncounter.HandleChannelEnd(conn);
+                await CrucibleEncounter.HandleChannelEnd(player);
             return false;
         });
 
         // The pick in the Forge popup, from a client changed to send it (C→S 0x02ca for CrucibleRules).
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, CrucibleEncounter.HandleRulesetAction);
 
-        // 10. Area generation, world object interaction, ticks, kills and leaving.
-        GameEvents.AreaGenerated.Add(id, async conn =>
+        // 10. Rulesets, area generation, player entry, world object interaction, ticks, kills and leaving.
+        GameEvents.EnterMessages.Add(id, player =>
         {
-            await CrucibleForgeOfTheTitans.Enter(conn);
-            await CrucibleEncounter.Enter(conn);
+            if (CrucibleTables.IsForgeArea(player.Layout.Id))
+                return [("0x001f ruleset CrucibleMapRules", InstanceProtocol.AddRuleset(InstanceCrucible.CrucibleMapRulesetRow))];
+            if (CrucibleEncounter.HasForgePlacement(player))
+                return [("0x001f ruleset CrucibleRules", InstanceProtocol.AddRuleset(InstanceCrucible.CrucibleRulesetRow))];
+            return [];
+        });
+        GameEvents.AreaGenerated.Add(id, async player =>
+        {
+            await CrucibleForgeOfTheTitans.AreaGenerated(player);
+            await CrucibleEncounter.AreaGenerated(player);
+        });
+        GameEvents.PlayerEntered.Add(id, async player =>
+        {
+            CrucibleForgeOfTheTitans.PlayerEntered(player);
+            await CrucibleEncounter.PlayerEntered(player);
         });
 
         GameEvents.ObjectUse.Add(id, CrucibleForgeOfTheTitans.UseObject);
-        GameEvents.Tick.Add(id, CrucibleEncounter.Tick);
+        GameEvents.AreaTick.Add(id, player => CrucibleEncounter.HasForgePlacement(player) ? CrucibleEncounter.Tick : null);
         GameEvents.Kill.Add(id, CrucibleEncounter.OnKill);
-        GameEvents.PlayerLeaving.Add(id, (conn, _) => CrucibleEncounter.OnPlayerLeaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => CrucibleEncounter.OnPlayerLeaving(player));
     }
 }

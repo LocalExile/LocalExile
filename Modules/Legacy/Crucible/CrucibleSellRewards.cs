@@ -9,27 +9,27 @@ namespace GameServer.Modules.Crucible;
 /// </summary>
 public static class CrucibleSellRewards
 {
-    static readonly Dictionary<string, string> CurrencyByStat = new(StringComparer.Ordinal)
+    static readonly Dictionary<uint, string> CurrencyByStat = new()
     {
-        ["weapon_tree_local_sell_price_scouring_orb"] = "Metadata/Items/Currency/CurrencyConvertToNormal",
-        ["weapon_tree_local_sell_price_chaos_orb"] = "Metadata/Items/Currency/CurrencyRerollRare",
-        ["weapon_tree_local_sell_price_orb_of_regret"] = "Metadata/Items/Currency/CurrencyPassiveRefund",
-        ["weapon_tree_local_sell_price_regal_orb"] = "Metadata/Items/Currency/CurrencyUpgradeMagicToRare",
-        ["weapon_tree_local_sell_price_vaal_orb"] = "Metadata/Items/Currency/CurrencyCorrupt",
-        ["weapon_tree_local_sell_price_gemcutters_prism"] = "Metadata/Items/Currency/CurrencyGemQuality",
-        ["weapon_tree_local_sell_price_blessed_orb"] = "Metadata/Items/Currency/CurrencyRerollImplicit",
-        ["weapon_tree_local_sell_price_awakened_sextant"] = "Metadata/Items/Currency/CurrencyAddAtlasModHigh",
-        ["weapon_tree_local_sell_price_orb_of_annulment"] = "Metadata/Items/Currency/CurrencyRemoveMod",
-        ["weapon_tree_local_sell_price_exalted_orb"] = "Metadata/Items/Currency/CurrencyAddModToRare",
-        ["weapon_tree_local_sell_price_divine_orb"] = "Metadata/Items/Currency/CurrencyModValues",
-        ["weapon_tree_local_sell_price_sacred_orb"] = "Metadata/Items/Currency/CurrencyRerollDefences",
-        ["weapon_tree_local_sell_price_igneous_geode"] = CrucibleTables.IgneousGeodeId,
-        ["weapon_tree_local_sell_price_crystalline_geode"] = CrucibleTables.CrystallineGeodeId,
-        ["weapon_tree_local_sell_price_for_additional_crucible_experience"] = CrucibleTables.MagmaticOreId,
+        [Stat.WeaponTreeLocalSellPriceScouringOrb] = "Metadata/Items/Currency/CurrencyConvertToNormal",
+        [Stat.WeaponTreeLocalSellPriceChaosOrb] = "Metadata/Items/Currency/CurrencyRerollRare",
+        [Stat.WeaponTreeLocalSellPriceOrbOfRegret] = "Metadata/Items/Currency/CurrencyPassiveRefund",
+        [Stat.WeaponTreeLocalSellPriceRegalOrb] = "Metadata/Items/Currency/CurrencyUpgradeMagicToRare",
+        [Stat.WeaponTreeLocalSellPriceVaalOrb] = "Metadata/Items/Currency/CurrencyCorrupt",
+        [Stat.WeaponTreeLocalSellPriceGemcuttersPrism] = "Metadata/Items/Currency/CurrencyGemQuality",
+        [Stat.WeaponTreeLocalSellPriceBlessedOrb] = "Metadata/Items/Currency/CurrencyRerollImplicit",
+        [Stat.WeaponTreeLocalSellPriceAwakenedSextant] = "Metadata/Items/Currency/CurrencyAddAtlasModHigh",
+        [Stat.WeaponTreeLocalSellPriceOrbOfAnnulment] = "Metadata/Items/Currency/CurrencyRemoveMod",
+        [Stat.WeaponTreeLocalSellPriceExaltedOrb] = "Metadata/Items/Currency/CurrencyAddModToRare",
+        [Stat.WeaponTreeLocalSellPriceDivineOrb] = "Metadata/Items/Currency/CurrencyModValues",
+        [Stat.WeaponTreeLocalSellPriceSacredOrb] = "Metadata/Items/Currency/CurrencyRerollDefences",
+        [Stat.WeaponTreeLocalSellPriceIgneousGeode] = CrucibleTables.IgneousGeodeId,
+        [Stat.WeaponTreeLocalSellPriceCrystallineGeode] = CrucibleTables.CrystallineGeodeId,
+        [Stat.WeaponTreeLocalSellPriceForAdditionalCrucibleExperience] = CrucibleTables.MagmaticOreId,
     };
 
-    const string DoubleStat = "weapon_tree_local_sell_price_of_tree_nodes_doubled";
-    const string SpecificUniqueStat = "weapon_tree_local_sell_price_for_additional_specific_unique";
+    const uint DoubleStat = Stat.WeaponTreeLocalSellPriceOfTreeNodesDoubled;
+    const uint SpecificUniqueStat = Stat.WeaponTreeLocalSellPriceForAdditionalSpecificUnique;
 
     /// <summary>
     /// Computes bonus vendor items granted by <paramref name="allocatedMods"/> on a sold weapon/shield.
@@ -53,7 +53,7 @@ public static class CrucibleSellRewards
             if (catalog.Mods.ByHash(itemMod.Hash) is not { } mod) continue;
             for (int i = 0; i < mod.Stats.Count; i++)
             {
-                string statId = mod.Stats[i].Id;
+                uint statId = mod.Stats[i].Id;
                 int value = i < itemMod.Values.Count ? itemMod.Values[i] : mod.Stats[i].Min;
                 if (statId == DoubleStat && value > 0)
                 {

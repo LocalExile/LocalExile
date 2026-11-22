@@ -11,9 +11,12 @@ public sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? 
 public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
+    public bool WeaponAttack { get; init; }
+    public Game.TinctureKillBonus? TinctureKill { get; init; }
     public bool NoExtraCriticalDamage { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
+    public SpawnedMonster? BrandedTarget { get; init; }
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
     public double HitProfileMore { get; init; } = 1;
@@ -34,6 +37,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public MonsterPoisons.Settings Poison { get; init; }
     /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
+    /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
+    public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
+    public CausticCloudSpec? CausticCloud { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
@@ -43,7 +49,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>Thrown by a trap or mine: Bear Trap's damage taken from traps and mines applies (MonsterTakesTrapOrMineHit).</summary>
     public bool FromTrapOrMine { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
-    public IReadOnlyDictionary<string, int>? WeaponLocal { get; init; }
+    public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
     public ushort SourceSkill { get; init; }
@@ -56,6 +62,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public int Quality { get; init; }
     public int AccuracyMoreUnique { get; init; }
     public int AccuracyMoreClose { get; init; }
+    public int LocalStunThresholdReduction { get; init; }
     public bool AlwaysHits { get; init; }
     /// <summary>A hybrid strike's melee victim cannot also take that strike's projectile damage.</summary>
     public GameServer.Core.Projectiles.ProjectileActorKey? ExcludedTarget { get; init; }

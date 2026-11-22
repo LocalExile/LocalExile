@@ -14,9 +14,9 @@ public static class CrucibleTreeEngine
     static readonly HashSet<int> TwoHandWeaponClasses = [13, 14, 15, 16, 17, 37, 57];
     const int ShieldClass = 26;
 
-    const string UniqueShieldTreeStat = "local_unique_can_have_shield_weapon_passive_tree";
-    const string Unique2HSwordTreeStat = "local_unique_can_have_two_handed_sword_weapon_passive_tree";
-    const string UniqueStaffTreeStat = "local_unique_can_have_crucible_unique_staff_passive_tree_mods";
+    const uint UniqueShieldTreeStat = Stat.LocalUniqueCanHaveShieldWeaponPassiveTree;
+    const uint Unique2HSwordTreeStat = Stat.LocalUniqueCanHaveTwoHandedSwordWeaponPassiveTree;
+    const uint UniqueStaffTreeStat = Stat.LocalUniqueCanHaveCrucibleUniqueStaffPassiveTreeMods;
 
     public enum WeaponCategory { None, OneHand, TwoHand, Shield }
 
@@ -65,7 +65,7 @@ public static class CrucibleTreeEngine
         return tags;
     }
 
-    static bool HasModStat(Item item, ModCatalog mods, string statId)
+    static bool HasModStat(Item item, ModCatalog mods, uint statId)
     {
         foreach (var im in item.Mods)
         {
@@ -275,10 +275,10 @@ public static class CrucibleTreeEngine
     public sealed record CombineModifiers(bool CannotDowngradeTiers, int ExtraUpgradeTierChance, bool MoreLikelySkillsKept, bool Quality30)
     {
         public static CombineModifiers From(MapMods mods) => new(
-            CannotDowngradeTiers: mods.Get("map_crucible_combining_tiers_cannot_be_downgraded") > 0,
-            ExtraUpgradeTierChance: Math.Max(0, mods.Get("map_crucible_combining_+_chance_%_for_upgraded_tiers")),
-            MoreLikelySkillsKept: mods.Get("map_crucible_combining_more_likely_skills_are_kept") > 0,
-            Quality30: mods.Get("map_crucible_combining_item_has_30_quality") > 0);
+            CannotDowngradeTiers: mods.Get(Stat.MapCrucibleCombiningTiersCannotBeDowngraded) > 0,
+            ExtraUpgradeTierChance: Math.Max(0, mods.Get(Stat.MapCrucibleCombiningPlusChancePctForUpgradedTiers)),
+            MoreLikelySkillsKept: mods.Get(Stat.MapCrucibleCombiningMoreLikelySkillsAreKept) > 0,
+            Quality30: mods.Get(Stat.MapCrucibleCombiningItemHas30Quality) > 0);
     }
 
     // ESTIMATE, in per mille: the only measured combining odds, counted over 30 to 40 combines by the player Poe Noob
@@ -309,7 +309,7 @@ public static class CrucibleTreeEngine
             if (item.Mirrored) return 1223;
             if (uber) continue;
             if (item.Rarity == ItemRarity.Unique) return 1392;
-            if (item.Corrupted && !HasModStat(item, mods, "local_item_allow_modification_while_corrupted")) return 1203;
+            if (item.Corrupted && !HasModStat(item, mods, Stat.LocalItemAllowModificationWhileCorrupted)) return 1203;
         }
         if (bottomType.Unmodifiable) return 6401;
         if (!CanHaveTree(bottom, bottomType, mods)) return 6792;

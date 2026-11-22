@@ -18,6 +18,12 @@ using GameServer.Core;
 /// </summary>
 public static class IzaroGargoyles
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Rows = LoadRows();
+    }
+
     public const string Mechanic = "Gargoyles";
 
     /// <summary>How long the risen gargoyles stand before the first beam, and each beam (the original, Normal).</summary>
@@ -29,8 +35,8 @@ public static class IzaroGargoyles
 
     /// <summary>The MiscBeams row of the beam (IzaroGargoyleBeam, 31) and the buff on the gargoyle under it
     /// (awaken_gargoyle, BuffVisuals beamhit.epk).</summary>
-    public static ushort BeamRow => Rows.Value.Beam;
-    public static ushort? AwakenBuff => Rows.Value.Awaken;
+    public static ushort BeamRow => Rows.Beam;
+    public static ushort? AwakenBuff => Rows.Awaken;
 
     /// <summary>His line after the trial's end line: how many gargoyles live.</summary>
     public static string FinishLine(int alive) => $"IzaroFinishGargoyles{Math.Clamp(alive, 0, 3)}";
@@ -38,7 +44,9 @@ public static class IzaroGargoyles
     /// <summary>His line when the last of the arena's gargoyles dies.</summary>
     public const string AllDeadLine = "IzaroAllGargoylesDead";
 
-    static readonly Lazy<(ushort Beam, ushort? Awaken)> Rows = new(() =>
+    static (ushort Beam, ushort? Awaken) Rows = default!;
+
+    static (ushort Beam, ushort? Awaken) LoadRows()
     {
         ushort beam = 31;
         ushort? awaken = null;
@@ -54,5 +62,5 @@ public static class IzaroGargoyles
             Console.WriteLine($"[gateway] Izaro's gargoyles: {ex.Message}");
         }
         return (beam, awaken);
-    });
+    }
 }

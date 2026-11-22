@@ -1,7 +1,7 @@
 /// <summary>
 /// One continuous lifetime of a physical gem source on this connection. A local lease can observe a shared marker owned
 /// by the character's actual <see cref="PlayerInventories"/>. Every local access is made under
-/// <see cref="ClientState.Monsters"/>. A retired lifetime is irrevocable; a later source with the same key gets a new one.
+/// <see cref="Player.Monsters"/>. A retired lifetime is irrevocable; a later source with the same key gets a new one.
 /// </summary>
 public sealed class GemSourceLifetimes
 {
@@ -137,7 +137,7 @@ public sealed class GemSourceLifetimes
     }
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     /// <summary>The connection's current physical gem-source lifetimes, under <see cref="Monsters"/>.</summary>
     public readonly GemSourceLifetimes GemSourceLifetimes = new();

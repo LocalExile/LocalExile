@@ -7,19 +7,19 @@ public sealed partial class DeliriumModule
     static readonly string[] EncounterUniques = ["Voices", "Megalomaniac", "Split Personality", "Assailum", "Algor Mortis", "Perfidy",
         "The Front Line", "The Interrogation", "Natural Affinity"];
 
-    List<Item> RollRewards(ClientState conn, Run run)
+    List<Item> RollRewards(Player player, Run run)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return [];
-        var random = Random.Shared;
-        var catalog = ItemsFor(conn);
-        var drops = DropsFor(conn);
-        var uniques = UniquesFor(conn);
-        var rolls = RollsFor(conn);
+        var random = AreaRng(player);
+        var catalog = ItemsFor(player);
+        var drops = DropsFor(player);
+        var uniques = UniquesFor(player);
+        var rolls = RollsFor(player);
         byte level = (byte)SimulacrumRules.RewardLevel(run.Wave);
         var all = catalog.All.Where(t => t.Supported && t.DropLevel <= level && !t.Components.Contains("Quest")).ToArray();
         var gemRows = GemSources.DropPool(catalog);
         // The server's reward-tier rate is tunable; its population/clear-speed formula is not published by GGG.
-        int tier = Math.Clamp(2 + run.Kills / 40 + (conn.Clock.Elapsed.TotalSeconds - run.Started < 90 ? 1 : 0), 2, 7);
+        int tier = Math.Clamp(2 + run.Kills / 40 + (AreaTime(player) - run.Started < 90 ? 1 : 0), 2, 7);
         var result = new List<Item>();
         UniqueCatalog.Definition[]? uniquePool = null;
         foreach (int kind in run.Rewards)

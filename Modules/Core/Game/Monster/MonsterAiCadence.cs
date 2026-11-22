@@ -4,12 +4,13 @@ using System.Runtime.CompilerServices;
 /// <summary>
 /// AI decisions use elapsed game time; a slow frame or pause never creates a backlog of decisions to replay.
 /// Chase repaths have a separate budget so responsive attack/aggro checks do not keep restarting the same walk.
-/// Access under the connection's Monsters lock.
+/// Access in the area's frame.
 /// </summary>
 public sealed class MonsterAiCadence
 {
-    public const int StepMilliseconds = 50;
-    public const double StepSeconds = StepMilliseconds / 1000.0;
+    // One decision step a frame of the area.
+    public static int StepMilliseconds => Program.FrameMs;
+    public static double StepSeconds => StepMilliseconds / 1000.0;
     public const double RepathSeconds = 0.1;
     // A chase aimed at the player repeats about every 200 ms (GGG's cadence), near or far.
     public const double AttackChaseSeconds = 0.2;
@@ -67,11 +68,14 @@ public sealed class MonsterAiCadence
         return true;
     }
 
-    public bool TryAttackChase(SpawnedMonster monster, double now)
+    public bool TryAttackChase(SpawnedMonster monster, double now, double staggerSeconds = 0)
     {
         var schedule = monsters.GetValue(monster, _ => new());
         if (!Due(now, schedule.NextChase)) return false;
-        schedule.NextChase = now + AttackChaseSeconds;
+        // On a large pack's first chase, spread each monster's subsequent 200 ms repath across the frames of the
+        // window so hundreds of monsters do not all pathfind on the same 7th frame while the other 6 sit idle.
+        double offset = double.IsNegativeInfinity(schedule.NextChase) && staggerSeconds > 0 ? staggerSeconds : 0;
+        schedule.NextChase = now + AttackChaseSeconds + offset;
         schedule.LastChase = now;
         return true;
     }

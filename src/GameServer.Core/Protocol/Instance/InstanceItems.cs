@@ -69,6 +69,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
             : throw new ArgumentOutOfRangeException(nameof(DefenceBaseRoll), value, "Defence base roll must be 0..32.");
     }
     public int Charges { get; init; }
+    /// <summary>Tincture component (+0x20): 1 while active in the flask belt, 0 otherwise. Live session state only;
+    /// stored and saved tinctures are always inactive.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool TinctureActive { get; init; }
     public ushort StackSize { get; init; } = 1;
     public IReadOnlyList<ItemSocket> Sockets { get; init => field = Owned.List(value); } = [];
 
@@ -166,7 +170,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "StoredExperience"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "StoredExperience"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -185,7 +189,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
         init { requiredLevel = value; requiredLevelMods = Mods; requiredLevelSockets = Sockets; }
     }
 
-    public static bool CanSerialize(IEnumerable<string> components) => components.All(c => c == "Tincture" || Supported.Contains(c));
+    public static bool CanSerialize(IEnumerable<string> components) => components.All(Supported.Contains);
 
     /// <summary>
     /// The item data the reader 0x1421f2d00 takes (all little-endian: it reads with memcpy): u32 type hash, u16 flags
@@ -251,8 +255,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     else w.U32(0);
                     break;
                 case "Charges": w.CompactI(Charges); break;           // 0x1424a3f80: signed compact (0x141e4c7e0)
-                // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20. Stored tinctures are inactive.
-                case "Tincture": w.U8(0); break;
+                // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20 (1 active in belt, 0 inactive/stored).
+                case "Tincture": w.U8((byte)(TinctureActive ? 1 : 0)); break;
                 case "Stack": w.U16(StackSize); break;                // 0x1423fb5f0
                 case "StoredExperience": w.U32(StoredExperience); break; // 0x141ebaec0 (vtable 0x143648350 slot 5): u32 LE
                 // 0x1423fa9d0 (write 0x1423fa920): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a

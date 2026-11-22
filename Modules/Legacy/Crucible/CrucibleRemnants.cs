@@ -10,23 +10,23 @@ namespace GameServer.Modules.Crucible;
 public static class CrucibleRemnants
 {
     /// <summary>Handles C→S 0x58 right-click on an Igneous Geode or Crystalline Geode.</summary>
-    public static async Task<bool> TryOpenGeode(ClientState conn, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    public static async Task<bool> TryOpenGeode(Player player, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         bool uber;
         if (type.Id.Equals(CrucibleTables.IgneousGeodeId, StringComparison.OrdinalIgnoreCase)) uber = false;
         else if (type.Id.Equals(CrucibleTables.CrystallineGeodeId, StringComparison.OrdinalIgnoreCase)) uber = true;
         else return false;
 
-        var catalog = ItemsFor(conn);
-        var rolls = RollsFor(conn);
+        var catalog = ItemsFor(player);
+        var rolls = RollsFor(player);
         string remnantId = uber ? CrucibleTables.PrimordialRemnantId : CrucibleTables.PrimevalRemnantId;
         if (catalog.Find(remnantId) is not { Supported: true } remnantBase)
         {
-            await PlayerOf(conn).Tell($"Cannot open {type.Name}: {remnantId} is unavailable.");
+            await PlayerOf(player).Tell($"Cannot open {type.Name}: {remnantId} is unavailable.");
             return true;
         }
 
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         // Reserve space before consuming the geode (unless the stack is size 1, in which case its own cell frees up).
         bool singleStack = item.Item.StackSize <= 1;
         var free = singleStack
@@ -34,11 +34,11 @@ public static class CrucibleRemnants
             : items.FreeCell(PlayerInventories.MainInventory, remnantBase.Width, remnantBase.Height, ShapeOf);
         if (free is not var (tx, ty))
         {
-            await PlayerOf(conn).Tell("Not enough inventory space to open the Geode.");
+            await PlayerOf(player).Tell("Not enough inventory space to open the Geode.");
             return true;
         }
 
-        var remnant = RollRemnant(remnantBase, rolls, uber, Random.Shared);
+        var remnant = RollRemnant(remnantBase, rolls, uber, AreaRng(player));
         byte targetRow = singleStack ? row : PlayerInventories.MainInventory;
 
         PlayerInventories.Consumption? consumed;
@@ -49,28 +49,27 @@ public static class CrucibleRemnants
             : default((PlayerInventories.Consumption?, InventoryItem?)));
         if (consumed is null || created is null) return true;
 
-        var (remote, stream, ciphers) = conn.Wire;
         if (targetRow == row)
         {
             var added = new List<InventoryItem>();
             if (consumed.Left is { } left) added.Add(left);
             added.Add(created);
-            await Send(remote, stream, ciphers,
+            await Send(player,
                 InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [item.Id], added),
                 $"0x00bf inventory {row}: opened {type.Name} -> {remnantBase.Name}");
         }
         else
         {
-            await Send(remote, stream, ciphers,
+            await Send(player,
                 InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [item.Id],
                     consumed.Left is { } left ? [left] : []),
                 $"0x00bf inventory {row}: consumed {type.Name}");
-            await Send(remote, stream, ciphers,
+            await Send(player,
                 InstanceItems.InventoryChange(PlayerInventories.InventoryId(targetRow), items.NextRevision(targetRow), [], [created]),
                 $"0x00bf inventory {targetRow}: created {remnantBase.Name}");
         }
 
-        Console.WriteLine($"[crucible] {CharacterName(conn)} opened {type.Name} -> {remnantBase.Name} ({remnant.Mods.Count} mods)");
+        Console.WriteLine($"[crucible] {CharacterName(player)} opened {type.Name} -> {remnantBase.Name} ({remnant.Mods.Count} mods)");
         return true;
     }
 
@@ -109,18 +108,18 @@ public static class CrucibleRemnants
             || s.BaseId.Equals(CrucibleTables.PrimordialRemnantId, StringComparison.OrdinalIgnoreCase));
         if (remnantSlot.TypeHash == 0) return;
 
-        var modCatalog = ItemsFor(request.Conn).Mods;
-        var explicitMods = new List<IReadOnlyDictionary<string, int>>();
-        var implicitStats = new Dictionary<string, int>(StringComparer.Ordinal);
-        var sum = new Dictionary<string, int>(StringComparer.Ordinal);
+        var modCatalog = ItemsFor(request.Player).Mods;
+        var explicitMods = new List<IReadOnlyDictionary<uint, int>>();
+        var implicitStats = new Dictionary<uint, int>();
+        var sum = new Dictionary<uint, int>();
 
         foreach (var itemMod in remnantSlot.Mods)
         {
             if (modCatalog.ByHash(itemMod.Hash) is not { } mod) continue;
-            var target = itemMod.Section == ModSection.Explicit ? new Dictionary<string, int>(StringComparer.Ordinal) : implicitStats;
+            var target = itemMod.Section == ModSection.Explicit ? new Dictionary<uint, int>() : implicitStats;
             for (int i = 0; i < mod.Stats.Count && i < itemMod.Values.Count; i++)
             {
-                string statId = mod.Stats[i].Id;
+                uint statId = mod.Stats[i].Id;
                 int val = itemMod.Values[i];
                 target[statId] = target.GetValueOrDefault(statId) + val;
                 sum[statId] = sum.GetValueOrDefault(statId) + val;

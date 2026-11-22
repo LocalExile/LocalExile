@@ -4,7 +4,7 @@
 # SettleSeconds, records private bytes / working set / GC heap (dotnet-counters, when artifacts/tools has it), and
 # stops exactly the processes it started. Never touches the default ports; the Patch server is not part of it.
 # Run from the repository root after `dotnet build`.
-# PortBase: a block of 10 ports of the worktree's own; the defaults of stack.ps1 (23000), watch.ps1 (23010) and
+# PortBase: a block of 10 ports of the worktree's own; the defaults of stack.ps1 (23000) and
 # startup.ps1 (23020) do not overlap. The shell's location and environment are as they were afterwards.
 param(
     [int] $PortBase = 23020,

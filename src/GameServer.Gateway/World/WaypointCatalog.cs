@@ -10,21 +10,30 @@ using GameServer.Core;
 /// </summary>
 public static class WaypointCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Order = LoadOrder();
+        VisitFlags = AreaVisitFlags.Load(ClientTables.TableOrNull("WorldAreas"), ClientTables.TableOrNull("MapPins"));
+    }
+
     const string Folder = "data/walkability";
 
     /// <summary>The waypoint's server object id (area transitions use 0x2000…, monsters 0x3000…).</summary>
     public const uint ObjectId = 0x2f00;
 
-    static readonly Lazy<WorldAreaWaypoints> Order = new(() =>
+    static WorldAreaWaypoints Order = default!;
+
+    static WorldAreaWaypoints LoadOrder()
     {
         var w = WorldAreaWaypoints.Load(ClientTables.TableOrNull("WorldAreas"));
         Console.WriteLine(w.Entries.Count == 0
             ? $"[gateway] waypoints: no WorldAreas table in {ClientTables.DefaultPath}, waypoints are off"
             : $"[gateway] waypoints: {w.Entries.Count} waypoint areas");
         return w;
-    });
+    }
 
-    public static WorldAreaWaypoints Areas => Order.Value;
+    public static WorldAreaWaypoints Areas => Order;
 
     /// <summary>The Azurite Mine Encampment (WorldAreas Delve_Hub), where Niko's Visit Mine Encampment leads.</summary>
     public const string DelveHub = "Delve_Hub";
@@ -47,10 +56,10 @@ public static class WaypointCatalog
     /// <summary>The Aspirants' Plaza (WorldAreas Labyrinth_Airlock), the World panel's Labyrinth pin.</summary>
     public const string LabyrinthPlaza = "Labyrinth_Airlock";
 
-    static readonly Lazy<AreaVisitFlags> VisitFlags = new(() => AreaVisitFlags.Load(ClientTables.TableOrNull("WorldAreas"), ClientTables.TableOrNull("MapPins")));
+    static AreaVisitFlags VisitFlags = default!;
 
     /// <summary>The quest flags entering an area sets (AreaVisitFlags), and the areas with a World panel pin.</summary>
-    public static AreaVisitFlags Visits => VisitFlags.Value;
+    public static AreaVisitFlags Visits => VisitFlags;
 
     // Lioneye's Watch without a capture: the town tile's .tmd record beachencampment_v01_01_v2_waypoint1 as the client
     // places it (TerrainTests.Town_area_transition_and_waypoint_placement; live capture 2026-10-18).

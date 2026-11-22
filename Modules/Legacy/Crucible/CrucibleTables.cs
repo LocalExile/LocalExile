@@ -11,15 +11,15 @@ namespace GameServer.Modules.Crucible;
 /// </summary>
 public sealed class CrucibleTables
 {
-    public const string LeagueStat = "map_crucible_league";
-    public const string InZoneStat = "in_crucible_zone";
-    public const string ChannelWeaponAnimStat = "crucible_channel_selected_weapon_animation_set";
-    public const string ChannelWeaponVisualStat = "crucible_channel_selected_weapon_visual_identity_hash";
+    public const uint LeagueStat = Stat.MapCrucibleLeague;
+    public const uint InZoneStat = Stat.InCrucibleZone;
+    public const uint ChannelWeaponAnimStat = Stat.CrucibleChannelSelectedWeaponAnimationSet;
+    public const uint ChannelWeaponVisualStat = Stat.CrucibleChannelSelectedWeaponVisualIdentityHash;
     /// <summary>The more life of <c>CrucibleLifeScalingPerLevel</c> (<c>set_additional_life_scaling_index = 14</c> in
     /// <c>CrucibleMonsterBase.ot</c>). The name is ours: the client has no stat for it.</summary>
-    public const string LevelMoreLifeStat = "crucible_level_scaling_life_+%_final";
-    public const string MonsterMoreDamageStat = "map_crucible_monster_damage_+%_final";
-    public const string MonsterDamageTakenStat = "map_crucible_monster_damage_taken_+%_final";
+    public static uint LevelMoreLifeStat { get; private set; }
+    public const uint MonsterMoreDamageStat = Stat.MapCrucibleMonsterDamagePlusPctFinal;
+    public const uint MonsterDamageTakenStat = Stat.MapCrucibleMonsterDamageTakenPlusPctFinal;
 
     public const string MagmaticOreId = "Metadata/Items/Currency/CurrencyAddCrucibleExperience";
     public const string IgneousGeodeId = "Metadata/Items/Currency/CrucibleGeode";
@@ -90,8 +90,13 @@ public sealed class CrucibleTables
     readonly int[] _moreLife;
     readonly Dictionary<int, int?> _classCategory;
 
-    static readonly Lazy<CrucibleTables> Loaded = new(() => new CrucibleTables());
-    public static CrucibleTables Current => Loaded.Value;
+    public static CrucibleTables Current { get; private set; } = default!;
+
+    public static void LoadGameData()
+    {
+        LevelMoreLifeStat = Stat.Of("crucible_level_scaling_life_+%_final");
+        Current = new CrucibleTables();
+    }
 
     CrucibleTables()
     {

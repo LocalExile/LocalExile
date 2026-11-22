@@ -171,47 +171,47 @@ public class WeaponPassiveTreeTests : IDisposable
         // Allocated local weapon stats apply; unallocated nodes do not.
         var localAlloc = ItemModStats.Local(bow, catalog.Mods);
         var localUnalloc = ItemModStats.Local(unallocatedBow, catalog.Mods);
-        Assert.Equal(2, localAlloc.GetValueOrDefault("local_minimum_added_physical_damage"));
-        Assert.Equal(6, localAlloc.GetValueOrDefault("local_maximum_added_physical_damage"));
-        Assert.Equal(0, localUnalloc.GetValueOrDefault("local_minimum_added_physical_damage"));
+        Assert.Equal(2, localAlloc.GetValueOrDefault(Stat.LocalMinimumAddedPhysicalDamage));
+        Assert.Equal(6, localAlloc.GetValueOrDefault(Stat.LocalMaximumAddedPhysicalDamage));
+        Assert.Equal(0, localUnalloc.GetValueOrDefault(Stat.LocalMinimumAddedPhysicalDamage));
 
         // Granted passive hash resolves signed int16 (-28849) -> ushort 36687 (Avatar of the Hunt).
         ushort avatarOfTheHunt = unchecked((ushort)-28849);
         Assert.Equal([avatarOfTheHunt], ItemModStats.GrantedPassives([bow], catalog.Mods).ToArray());
         Assert.Empty(ItemModStats.GrantedPassives([unallocatedBow], catalog.Mods));
 
-        var conn = new ClientState(new(1, "crucible", 100, 100, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "crucible", 100, 100, 100, 100, null, []), 1, 1)
         {
-            Character = "CrucibleStats" + Guid.NewGuid().ToString("N"),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
         };
+        player.Character.Name = "CrucibleStats" + Guid.NewGuid().ToString("N");
         try
         {
-            var passiveTree = Game.PassivesFor(conn);
+            var passiveTree = Game.PassivesFor(player);
             var grantedNode = passiveTree.Find(avatarOfTheHunt)!;
             var (statKey, statVal) = grantedNode.Stats[0];
 
-            int baseline = Game.CharacterStatSources(conn).Stats.GetValueOrDefault(statKey);
-            Game.ItemsOf(conn).Put(PlayerInventories.Weapon1, new(50, 0, 0, bow));
-            Assert.Equal(baseline + statVal, Game.CharacterStatSources(conn).Stats.GetValueOrDefault(statKey));
+            int baseline = Game.CharacterStatSources(player).Stats.GetValueOrDefault(statKey);
+            Game.ItemsOf(player).Put(PlayerInventories.Weapon1, new(50, 0, 0, bow));
+            Assert.Equal(baseline + statVal, Game.CharacterStatSources(player).Stats.GetValueOrDefault(statKey));
 
             // Already allocating the same passive on the character's tree must not double-count it.
-            conn.Passives.Add(avatarOfTheHunt);
-            Assert.Equal(baseline + statVal, Game.CharacterStatSources(conn).Stats.GetValueOrDefault(statKey));
+            player.Character.Passives.Add(avatarOfTheHunt);
+            Assert.Equal(baseline + statVal, Game.CharacterStatSources(player).Stats.GetValueOrDefault(statKey));
 
             // Removing the weapon passive allocation removes the granted notable once not allocated on the tree.
-            conn.Passives.Remove(avatarOfTheHunt);
-            Game.ItemsOf(conn).Remove(PlayerInventories.Weapon1, 50);
-            Game.ItemsOf(conn).Put(PlayerInventories.Weapon1, new(50, 0, 0, unallocatedBow));
-            Assert.Equal(baseline, Game.CharacterStatSources(conn).Stats.GetValueOrDefault(statKey));
+            player.Character.Passives.Remove(avatarOfTheHunt);
+            Game.ItemsOf(player).Remove(PlayerInventories.Weapon1, 50);
+            Game.ItemsOf(player).Put(PlayerInventories.Weapon1, new(50, 0, 0, unallocatedBow));
+            Assert.Equal(baseline, Game.CharacterStatSources(player).Stats.GetValueOrDefault(statKey));
 
             // Generic framework hooks: GameEvents.VendorQuote and GameEvents.CurrencyApply.
-            string owner = Program.LeagueFor(conn).Modules.First();
+            string owner = Program.LeagueFor(player).Modules.First();
             var rewards = new List<Item>();
             var recipes = new List<string>();
             using (GameEvents.VendorQuote.Add(owner, q => { q.Rewards.Add(unallocatedBow); q.Recipes.Add("test-sell-bonus"); }))
             {
-                GameEvents.RunVendorQuote(new VendorSaleQuote(conn, [new(50, 0, 0, bow)], rewards, recipes, basicSale: true));
+                GameEvents.RunVendorQuote(new VendorSaleQuote(player, [new(50, 0, 0, bow)], rewards, recipes, basicSale: true));
             }
             Assert.Single(rewards);
             Assert.Equal(["test-sell-bonus"], recipes);
@@ -222,7 +222,7 @@ public class WeaponPassiveTreeTests : IDisposable
             using (GameEvents.CurrencyApply.Add(owner, (_, target, _, currencyItem, _) =>
                 target with { Quality = (byte)(currencyItem?.StoredExperience == 12345 ? 17 : 0) }))
             {
-                applied = GameEvents.RunCurrencyApply(conn, bow, oreType, oreItem, new Random(1));
+                applied = GameEvents.RunCurrencyApply(player, bow, oreType, oreItem, new Random(1));
             }
             Assert.NotNull(applied);
             Assert.Equal(17, applied!.Quality);
@@ -316,7 +316,7 @@ public class WeaponPassiveTreeTests : IDisposable
             {
                 var sold = bow with { WeaponPassiveTree = new(84, 0, true, Layout: 1, Allocation: 1, Nodes: [new(sellMod.Hash, [value])]) };
                 rewards.Clear();
-                CrucibleItemActions.OnVendorQuote(new VendorSaleQuote(conn, [new(50, 0, 0, sold)], rewards, recipes, basicSale: false));
+                CrucibleItemActions.OnVendorQuote(new VendorSaleQuote(player, [new(50, 0, 0, sold)], rewards, recipes, basicSale: false));
                 var unique = Assert.Single(rewards);
                 Assert.Equal(ItemRarity.Unique, unique.Rarity);
                 Assert.Equal(paid.Hash, unique.TypeHash);
@@ -324,7 +324,7 @@ public class WeaponPassiveTreeTests : IDisposable
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
         }
     }
 }

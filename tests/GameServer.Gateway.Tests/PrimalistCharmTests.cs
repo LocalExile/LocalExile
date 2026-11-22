@@ -9,14 +9,14 @@ public class PrimalistCharmTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"charm-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "charms", 100, 100, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "charms", 100, 100, 100, 100, null, []), 1, 1)
         {
-            Character = "Primalist" + Guid.NewGuid().ToString("N"),
-            Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+            Character = { Name = "Primalist" + Guid.NewGuid().ToString("N") },
+            Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000)
         };
         try
         {
-            var tree = Game.PassivesFor(conn);
+            var tree = Game.PassivesFor(player);
             int cell = Enumerable.Range(0, 60).First(i => tree.CharmNodeForSlot(i) is not null);
             ushort node = tree.CharmNodeForSlot(cell)!.Value;
             Assert.True(tree.IsCharmSocket(node));
@@ -29,25 +29,25 @@ public class PrimalistCharmTests
                 Mods = [new ItemMod(ModSection.Explicit, mod.Hash, [2])],
             };
 
-            Assert.NotNull(Game.PassiveJewelRefusal(conn, cell, 0, charm));
-            conn.DescendancyRow = 3;
-            conn.DescendancyNodes.Add(node);
-            Assert.Null(Game.PassiveJewelRefusal(conn, cell, 0, charm));
+            Assert.NotNull(Game.PassiveJewelRefusal(player, cell, 0, charm));
+            player.Character.DescendancyRow = 3;
+            player.Character.DescendancyNodes.Add(node);
+            Assert.Null(Game.PassiveJewelRefusal(player, cell, 0, charm));
 
-            uint fire = Program.Stats.Key("base_maximum_fire_damage_resistance_%")!.Value;
-            int before = Game.CharacterStatSources(conn).Stats.GetValueOrDefault(fire);
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(90, (byte)cell, 0, charm));
-            Assert.Equal(before + 2, Game.CharacterStatSources(conn).Stats.GetValueOrDefault(fire));
+            uint fire = Stat.BaseMaximumFireDamageResistancePct;
+            int before = Game.CharacterStatSources(player).Stats.GetValueOrDefault(fire);
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(90, (byte)cell, 0, charm));
+            Assert.Equal(before + 2, Game.CharacterStatSources(player).Stats.GetValueOrDefault(fire));
 
-            conn.DescendancyNodes.Clear();
-            Game.NormalizePassiveJewels(conn);
-            Assert.Empty(Game.ItemsOf(conn).Items(PlayerInventories.PassiveJewels));
-            Assert.Single(Game.ItemsOf(conn).Items(PlayerInventories.MainInventory));
-            Assert.Equal(before, Game.CharacterStatSources(conn).Stats.GetValueOrDefault(fire));
+            player.Character.DescendancyNodes.Clear();
+            Game.NormalizePassiveJewels(player);
+            Assert.Empty(Game.ItemsOf(player).Items(PlayerInventories.PassiveJewels));
+            Assert.Single(Game.ItemsOf(player).Items(PlayerInventories.MainInventory), i => i.Item.TypeHash == charm.TypeHash);
+            Assert.Equal(before, Game.CharacterStatSources(player).Stats.GetValueOrDefault(fire));
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             TestEnvironment.ReleaseSaves(path);
         }
     }

@@ -23,8 +23,8 @@ public static class CrucibleMonsters
         ("Demon", "Metadata/Monsters/LeagueCrucible/CriticalSpeed/"),
     ];
 
-    static readonly Lazy<IReadOnlyList<ThemePool>> PoolsLazy = new(LoadPools);
-    public static IReadOnlyList<ThemePool> Pools => PoolsLazy.Value;
+    public static IReadOnlyList<ThemePool> Pools { get; private set; } = [];
+    public static void LoadGameData() => Pools = LoadPools();
 
     static IReadOnlyList<ThemePool> LoadPools()
     {
@@ -72,7 +72,7 @@ public static class CrucibleMonsters
     /// damage and less damage taken ("more damage and damage reduction", GGG Q&amp;A).</summary>
     public static MonsterModSet ScalingMods(int areaLevel, int moreDamage = 0, int damageTaken = 0)
     {
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var stats = new Dictionary<uint, int>();
         if (CrucibleTables.Current.MoreLife(areaLevel) is int life and not 0) stats[CrucibleTables.LevelMoreLifeStat] = life;
         if (moreDamage != 0) stats[CrucibleTables.MonsterMoreDamageStat] = moreDamage;
         if (damageTaken != 0) stats[CrucibleTables.MonsterDamageTakenStat] = damageTaken;

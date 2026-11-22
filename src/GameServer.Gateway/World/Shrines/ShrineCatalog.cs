@@ -15,6 +15,12 @@ using GameServer.Core;
 /// </summary>
 public static class ShrineCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Data = Load();
+    }
+
     /// <summary>A pack row that guards a shrine (Shrines.MonsterPacks → MonsterPacks): its row, Id, spawn count and the
     /// MonsterVarieties rows it rolls (MonsterPackEntries: MonsterPacksKey → MonsterVarietiesKey, with a weight).</summary>
     public sealed record GuardPack(int Row, string Id, int MinCount, int MaxCount,
@@ -30,13 +36,13 @@ public static class ShrineCatalog
         bool PvPOnly, int Sound, ushort BuffRow, string BuffId, IReadOnlyList<(uint Key, int Value)> Stats,
         MonsterBuff? Monster, IReadOnlyList<GuardPack> GuardPacks, IReadOnlyList<int> Visuals);
 
-    static readonly Lazy<(ShrineDefinition[] Rows, string[] Skipped)> Data = new(Load);
+    static (ShrineDefinition[] Rows, string[] Skipped) Data = default!;
 
     /// <summary>Every shrine type, by Shrines row. Rows without a resolvable player buff template are left out.</summary>
-    public static IReadOnlyList<ShrineDefinition> All => Data.Value.Rows;
+    public static IReadOnlyList<ShrineDefinition> All => Data.Rows;
 
     /// <summary>The Shrines rows left out because their template values did not match, for the log.</summary>
-    public static IReadOnlyList<string> Skipped => Data.Value.Skipped;
+    public static IReadOnlyList<string> Skipped => Data.Skipped;
 
     /// <summary>The shrine type with this Shrines row id (Acceleration, GodMode, …), or null.</summary>
     public static ShrineDefinition? Find(string id) => All.FirstOrDefault(s => s.Id == id);

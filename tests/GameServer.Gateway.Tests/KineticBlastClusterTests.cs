@@ -28,11 +28,11 @@ public sealed class KineticBlastClusterTests
     {
         var profile = GatewayProjectileSkillProfiles.Resolve(effect, "Metadata/Projectiles/WandProjectile", name => name switch
         {
-            "cluster_burst_spawn_amount" => 4,
-            "kinetic_blast_%_chance_for_additional_blast" => 100,
-            "active_skill_base_area_of_effect_radius" => blastRadius,
-            "active_skill_base_secondary_area_of_effect_radius" => placement,
-            "active_skill_area_damage_+%_final" => areaFinal,
+            Stat.ClusterBurstSpawnAmount => 4,
+            Stat.KineticBlastPctChanceForAdditionalBlast => 100,
+            Stat.ActiveSkillBaseAreaOfEffectRadius => blastRadius,
+            Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius => placement,
+            Stat.ActiveSkillAreaDamagePlusPctFinal => areaFinal,
             _ => 0
         }, 100, attack: true);
         // Five sectors (4 + the 100% extra): all three candidates of sector 0 and the first of sector 1 are blocked.
