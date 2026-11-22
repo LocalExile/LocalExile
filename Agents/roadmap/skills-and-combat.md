@@ -236,6 +236,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   2.72 ms per cell against live's 3.25), add the 300 ms stun bit on hits, find why a level 1 Sand Spitter hits for 5–7
   here and a constant 4 on live, and decode S→C `0x1b4` (player only, the attack's skill id and a point list).
 - **Start:** user-run Fireball/KB checks from the skill guide, including return, terrain and overlapping explosions.
+  Check a near-wall Fireball impact and a stuck arrow when the server first presents them after contact.
   Check the aimed-height model live, then find the client's own projectile height/terrain rule for its predicted gem
   projectiles and replace the 12-step clearance; send the wall-hit sound of a server `DefaultArrow` at terrain.
   Calibrate cluster radial distribution, sequence timing and native art against client evidence.

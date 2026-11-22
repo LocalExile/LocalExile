@@ -69,8 +69,8 @@ public static partial class Game
             public ProjectileHeight Height = height;
             public bool Created, Ended, SecondFormStarted;
             public ProjectileArc? Arc;
-            // Where the object is created (the release point) and whether its first move has been sent from there.
-            public ProjectileVector SpawnedAt;
+            // A flying object starts at release. A retained impact can reach its stop before the first output.
+            public ProjectileVector CreateAt;
             public bool Glided;
             // The move the client has to make to follow the flight as it stands now, and whether one intent is already
             // queued to write it. A redirect replaces the pending move instead of being dropped as superseded.
@@ -660,7 +660,7 @@ public static partial class Game
                 // A shot aimed at higher ground flies at that ground's height, so its object clears the cliff it passes over.
                 var height = ProjectileHeight.Flight(FlightGround(p) ?? TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
                     Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
-                var visual = new Visual(id, height) { SpawnedAt = value.Position };
+                var visual = new Visual(id, height) { CreateAt = value.Position };
                 visuals[p.Id] = visual; Conn.ProjectileObjects.Add(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
                 CreateFlight(id, () =>
@@ -668,11 +668,9 @@ public static partial class Game
                     // A flight that ended before this snapshot is created only when its stop keeps the object (the impact
                     // clip or stuck arrow then shows where it hit); otherwise a create followed by its removal is a flash.
                     if (visual.Ended && !visual.StaysAfterEnd) return null;
-                    // Created where it was released, not where the simulation has it when this snapshot is taken: an arrow
-                    // covers a cell every 3 ms, so the late snapshot put it one to ten cells past the bow (live 2026-10-29).
-                    // The first glide starts here too; the visual trails the simulation by the output delay and catches
-                    // up at its stop.
-                    var at = visual.SpawnedAt;
+                    // While the shot is flying, its first glide starts at release. An arrow can already be one to ten
+                    // cells past the bow by the time this snapshot runs (live 2026-10-29).
+                    var at = visual.CreateAt;
                     var obj = new ProjectileObject(p.Profile.Id, (int)Math.Round(at.X), (int)Math.Round(at.Y),
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
@@ -711,6 +709,12 @@ public static partial class Game
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : end.Height;
                 if (end.StaysAfterEnd)
                 {
+                    if (!end.Created)
+                    {
+                        // The first record now shows the impact, including the last open cell at a wall.
+                        end.CreateAt = new(x, y);
+                        end.PendingGlide = null;
+                    }
                     // The stop ends the glide and the object stays for ImpactLifetime of game time: for the rig's own impact
                     // clip (an ordinary wand bolt, with its particles and sound), or as the arrow left in its target or a
                     // wall. Its removal follows on the same pause- and transfer-aware game clock as an effect's lifetime.
@@ -916,7 +920,7 @@ public static partial class Game
             // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)
             // first stop at the simulated position. A move replaced before it was projected was never the first.
             bool first = !visual.Glided;
-            var start = first ? visual.SpawnedAt : p.Position;
+            var start = first ? visual.CreateAt : p.Position;
             float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
             var (x, y) = contact?.LastOpenCell ?? ((int)Math.Round(end.X), (int)Math.Round(end.Y));
             byte[] move = endHeight.MoveTo(visual.Id, x, y, duration);

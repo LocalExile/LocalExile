@@ -163,7 +163,7 @@ the aimed cell with a splash (`Game_MONSTER_MORTAR_RADIUS`, default 10 cells) or
 Monster projectiles are known for mortar skills (`SkillCatalog.MonsterProjectile`); weapon-projectile skills still
 hit instantly at half the attack time. A mortar leaves at its clip's contact keyframe and from that keyframe's point
 (`MonsterRelease`, `data/monster-contacts.json`), no closer to the monster than the skill's minimum range; an ordinary
-arrow or bolt leaves from the class clip's keyframe (`data/animation-contacts.json` positions). Objects are created at
+arrow or bolt leaves from the class clip's keyframe (`data/animation-contacts.json` positions). Flights in progress are created at
 the release point and their first move runs from there; the visual trails the simulation by the output delay and
 catches up at the stop. GGG's server sends no object for a player's bow shot, default attack or gem: the live client
 draws its own arrows, which fly about 308 cells/s after a release about 258 ms into the attack. It sends none for a
@@ -172,9 +172,8 @@ Here a gem use's primary projectiles get no object (`ProjectileOffense.ClientPre
 action makes them itself, Fireball's and Spark's alike ([protocol §10](../protocol/11-skills.md#10-projectiles-experimental)).
 The client still needs the skill's stats to draw them right: its sparks live `skill_effect_duration`, which the
 Gateway now sends with every gem skill that has a base duration.
-A flight that has already ended when its creation snapshot runs is still created when its stop keeps the object
-(impact clip, stuck arrow), so
-a short shot on a busy connection appears at its impact instead of not at all; other ended flights are skipped.
+If the flight ends before its creation snapshot, a retained impact clip or stuck arrow is created at the stop.
+The first output contains no flight move. Other ended flights are skipped.
 Area event effects use the actual event radius and the selected art's exported radius to set uniform native scale.
 Both callback and payload effects use this conversion; art without a known radius keeps its native scale.
 Endpoint logs include the stop reason, position and projectile-grid state; area logs include art, radius and scale.
