@@ -38,6 +38,15 @@ public sealed class MinionVariantCombatTests
             f.Conn.Monsters[900] = Enemy(103);
             Step(f, guardian);
             Assert.Equal(expected, guardian.Pending?.Ability.Effect);
+            if (expected == 9638)
+            {
+                int x = 101 + (int)guardian.Pending!.Ability.Attack.Range;
+                f.Conn.Monsters[900].Walk.Teleport(x, 100, 1);
+                f.Conn.Monsters[901] = Enemy(x + 3);
+                Game.GolemAbilityContactLocked("test", f.Stream, f.Ciphers, f.Conn, guardian, guardian.Pending!, 1);
+                Assert.True(f.Conn.Monsters[900].Life < 100000);
+                Assert.True(f.Conn.Monsters[901].Life < 100000);
+            }
         }
         foreach (var (name, effect, expected) in new[]
             { ("Raise Zombie", "RaiseZombie", 406), ("Raise Zombie of Slamming", "RaiseZombieAltX", 5590) })

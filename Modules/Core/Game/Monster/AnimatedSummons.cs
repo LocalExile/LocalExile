@@ -109,7 +109,7 @@ public static partial class Game
         var enemies = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0,
                 Invulnerable: false, Asleep: false } && !conn.AsleepMonsters.Contains(p.Key))
             .Select(p => (Id: p.Key, Monster: p.Value, At: p.Value.Walk.Position(now))).ToArray();
-        var centres = enemies.Where(e => Dist(origin, e.At) <= range)
+        var centres = enemies.Where(e => Dist(origin, e.At) <= range + LivingCollision.Size(e.Monster))
             .OrderByDescending(e => e.Id == action.Target).ThenBy(e => Dist(e.At, action.Aim)).ThenBy(e => e.Id)
             .Take(count).Select(e => e.At).ToArray();
         foreach (var enemy in enemies)
