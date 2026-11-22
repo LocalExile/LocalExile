@@ -158,7 +158,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles. Ball Lightning and Ball Lightning of Orbiting strike nearby enemies every
   150 ms and share the interval per enemy within each cast. Orbiting follows the player action's outward spiral.
-  The two clients' on-screen flight, terminal timing and wall contacts still need verification.
+  Server-drawn projectiles glide and stop in the last open cell before a wall or a blocking rise in the ground.
+  The orbs' on-screen flight, wall impacts and expiry still need verification in both clients.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).

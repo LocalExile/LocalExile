@@ -260,7 +260,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     }
 
     readonly record struct Contact(long At, ProjectileEntity Projectile, ProjectileActor? Target,
-        ProjectileEndReason? End, ProjectileVector Normal, ProjectileInteraction? Interaction = null,
+        ProjectileEndReason? End, TerrainContact Terrain, ProjectileInteraction? Interaction = null,
         ProjectileVector? Point = null) : IComparable<Contact>
     {
         public int CompareTo(Contact other)
@@ -291,7 +291,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             double fraction = Math.Clamp(wall.Fraction, 0, 1);
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
-                ProjectileEndReason.Terrain, wall.Normal, Point: p.Position + (to - p.Position) * fraction);
+                ProjectileEndReason.Terrain, wall, Point: p.Position + (to - p.Position) * fraction);
         }
         if (Interactions.Count > 0)
             foreach (var interaction in Interactions.OrderBy(w => w.Id))
@@ -429,9 +429,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             End(p, ProjectileEndReason.Enemy, victim: target);
         }
         else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0
-            && blockedLegs.NextTurn(p.Position + c.Normal * .001, blocked: true) is { } blockedTurn)
+            && blockedLegs.NextTurn(p.Position + c.Terrain.Normal * .001, blocked: true) is { } blockedTurn)
         {
-            p.Position += c.Normal * .001;
+            p.Position += c.Terrain.Normal * .001;
             ApplyLegTurn(p, blockedTurn);
             p.WaitUntil = (Now / TickQuanta + 1) * TickQuanta;
         }
@@ -444,33 +444,34 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
         else if (c.End == ProjectileEndReason.Terrain)
         {
+            var normal = c.Terrain.Normal;
             if (AllowsTerminalArea(p) && (p.Phase == 0 || p.Profile.ContactAreaOnReturn)
                 && p.Profile.ContactArea is { } area) Area(p, area);
             if (p.Profile.SplitOnTerrain && !p.Profile.CannotSplit && p.Split > 0)
             {
-                p.Position += c.Normal * .001; // Children start on the incident side of the blocking surface.
-                if (Split(p, actors, c.Normal)) return;
+                p.Position += normal * .001; // Children start on the incident side of the blocking surface.
+                if (Split(p, actors, normal)) return;
             }
             // "chance to be able to Chain when colliding with terrain": the Chain off the wall needs and spends one of the
             // projectile's remaining chains, and its target must be in sight of the point hit (as a terrain split's). Every
             // wall it meets with chains left may chain it again, and the client's terminal tries the Chain before a Bounce
             // (Agents/docs/re/projectiles/continuation-and-memory.md: eligibility 0x141bb0250, "Chain before Bounce").
             if (p.TerrainChainChance > 0 && p.CanChain
-                && Nearby(p, actors).FirstOrDefault(a => world.TraceTerrain(p.Position + c.Normal * .001, a.Position(Now)) is null)
+                && Nearby(p, actors).FirstOrDefault(a => world.TraceTerrain(p.Position + normal * .001, a.Position(Now)) is null)
                     is { } chainTarget
                 && p.Random.Next(100) < p.TerrainChainChance)
             {
-                p.Position += c.Normal * .001;
+                p.Position += normal * .001;
                 Chain(p, chainTarget, p.Position);
             }
             else if (p.TerrainBounces > 0)
             {
                 p.TerrainBounces--;
-                p.Direction = (p.Direction - c.Normal * (2 * p.Direction.Dot(c.Normal))).Unit;
-                p.Position += c.Normal * .001;
+                p.Direction = (p.Direction - normal * (2 * p.Direction.Dot(normal))).Unit;
+                p.Position += normal * .001;
                 Redirect(p, p.Position);
             }
-            else End(p, c.End.Value, terrainNormal: c.Normal);
+            else End(p, c.End.Value, terrain: c.Terrain);
         }
         else End(p, c.End!.Value);
     }
@@ -624,13 +625,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     }
 
     void End(ProjectileEntity p, ProjectileEndReason reason, bool allowReturn = true, ProjectileActor? victim = null,
-        ProjectileVector? terrainNormal = null)
+        TerrainContact? terrain = null)
     {
         if (allowReturn && ReturnAnchor(p, reason) is { } anchor)
         {
             if (p.Profile.EndAreaOnReturnTurnaround && AllowsEndArea(p, reason) && p.Profile.EndArea is { } turnArea)
                 Area(p, turnArea, victim?.Key);
-            if (terrainNormal is { } normal) p.Position += normal * .001;
+            if (terrain is { } wall) p.Position += wall.Normal * .001;
             p.Phase = 1; p.Contacts.Clear();
             if (p.Profile.ExcludeTurnaroundTarget) p.TurnaroundTarget = victim?.Key;
             var delta = anchor.Position(Now) - p.Position;
@@ -658,7 +659,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             return;
         }
         projectiles.Remove(p.Id);
-        Publish(ProjectileEventKind.End, p, reason);
+        world.Publish(new(ProjectileEventKind.End, p, Now, p.Position, reason) { TerrainCell = terrain?.LastOpenCell });
     }
 
     ProjectileActor? ReturnAnchor(ProjectileEntity p, ProjectileEndReason reason) =>
@@ -680,8 +681,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         Publish(ProjectileEventKind.Redirect, p);
     }
 
-    void Publish(ProjectileEventKind kind, ProjectileEntity p, ProjectileEndReason? reason = null) =>
-        world.Publish(new(kind, p, Now, p.Position, reason));
+    void Publish(ProjectileEventKind kind, ProjectileEntity p) =>
+        world.Publish(new(kind, p, Now, p.Position));
 
     /// <summary>Retires one owner's live flights and delayed areas without disturbing other actors' uses.</summary>
     public void Discard(Func<ProjectileUse, bool> matches)

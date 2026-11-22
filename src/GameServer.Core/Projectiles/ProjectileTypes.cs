@@ -22,7 +22,11 @@ public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long
     /// −1 is no footprint, which the client never contacts.</summary>
     public int Size { get; init; }
 }
-public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal);
+public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal)
+{
+    /// <summary>The last open cell before a grid crossing. A trace starting inside a blocker has none.</summary>
+    public (int X, int Y)? LastOpenCell { get; init; }
+}
 public enum ProjectileHitResult { Miss, Blocked, Hit }
 public enum ProjectileHitScope { Emission, Projectile }
 public enum ProjectileRepeat { Once, Interval, Window }
@@ -426,7 +430,11 @@ public sealed record ProjectileDamage(ProjectileEntity Projectile, ProjectileAct
 }
 
 public sealed record ProjectileEvent(ProjectileEventKind Kind, ProjectileEntity Projectile, long At,
-    ProjectileVector Position, ProjectileEndReason? Reason = null, double Radius = 0, string? Stage = null);
+    ProjectileVector Position, ProjectileEndReason? Reason = null, double Radius = 0, string? Stage = null)
+{
+    /// <summary>Cell for presenting a terminal grid contact. Position stays on the collision surface.</summary>
+    public (int X, int Y)? TerrainCell { get; init; }
+}
 
 /// <summary>All methods run synchronously under the host's combat lock. Hit commits gameplay before returning.
 /// Publish records presentation intents; it must not perform network IO or delay simulation.</summary>

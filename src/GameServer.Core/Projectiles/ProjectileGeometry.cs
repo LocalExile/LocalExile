@@ -49,7 +49,8 @@ public static class ProjectileGeometry
             bool cx = tx <= ty + 1e-12, cy = ty <= tx + 1e-12;
             if ((cx && blocked(x + sx, y)) || (cy && blocked(x, y + sy))
                 || (cx && cy && blocked(x + sx, y + sy)))
-                return new(Math.Max(0, Math.Min(tx, ty)), new ProjectileVector(cx ? -sx : 0, cy ? -sy : 0).Unit);
+                return new TerrainContact(Math.Max(0, Math.Min(tx, ty)), new ProjectileVector(cx ? -sx : 0, cy ? -sy : 0).Unit)
+                    { LastOpenCell = (x, y) };
             if (cx) { x += sx; tx += stepX; }
             if (cy) { y += sy; ty += stepY; }
         }

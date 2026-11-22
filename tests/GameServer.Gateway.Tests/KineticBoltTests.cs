@@ -118,6 +118,15 @@ public sealed class KineticBoltTests
         Assert.Equal(2, runtime.Projectiles.Count(p => p.ParentId != 0));
         Assert.Equal(1, primary.Phase);
 
+        // The straight secondary reaches the wall just above its corner. Its visual stops on the approach side.
+        world.Walls.Add((40, 25));
+        runtime.AdvanceTo(ProjectileRuntime.Time(.7));
+        var impact = Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End && e.Projectile.Id == firstSecondary.Id);
+        Assert.Equal(ProjectileEndReason.Terrain, impact.Reason);
+        Assert.Equal(39.5, impact.Position.X, 8);
+        Assert.InRange(impact.Position.Y, 24.5, 24.501);
+        Assert.Equal((39, 25), impact.TerrainCell);
+
         // 2. Enemy hit & wall hit before turns run out: shared EmissionId blocks secondary from hitting trigger enemy,
         //    and wall hit does not stall or lose remaining zig-zags.
         var hitWorld = new TestWorld();

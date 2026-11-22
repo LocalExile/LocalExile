@@ -609,7 +609,7 @@ public static partial class Game
             var p = value.Projectile;
             bool valid = p.Use.Payload is not ProjectileOffense owned || owned.Valid?.Invoke() != false;
             if (!valid && value.Kind != ProjectileEventKind.End) return;
-            int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
+            var (x, y) = value.TerrainCell ?? ((int)Math.Round(value.Position.X), (int)Math.Round(value.Position.Y));
             var presentation = PresentationFor(p);
             // A gem skill's server-drawn projectile plays its rig's impact clip where it stops (Projectiles.dat
             // ImpactAnimationIds: Fireball's fireball_explode), as a monster's does. Without one the object was only
@@ -908,7 +908,8 @@ public static partial class Game
                 end = p.Position + p.Direction * Math.Min(p.Remaining, (next - fraction) * arc.Distance);
                 startHeight = arc.Height(fraction);
             }
-            if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceTerrain(p.Position, end) is { } wall)
+            var contact = p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn ? null : TraceFlight(p, p.Position, end);
+            if (contact is { } wall)
                 end = p.Position + (end - p.Position) * wall.Fraction;
             if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
             // The first move starts where the object was created (the release point), without a stop there and with
@@ -917,7 +918,8 @@ public static partial class Game
             bool first = !visual.Glided;
             var start = first ? visual.SpawnedAt : p.Position;
             float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
-            byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
+            var (x, y) = contact?.LastOpenCell ?? ((int)Math.Round(end.X), (int)Math.Round(end.Y));
+            byte[] move = endHeight.MoveTo(visual.Id, x, y, duration);
             if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile glide object={visual.Id} entity={p.Id}"
                     + $" from={start} to={end} duration={duration:0.###}"
