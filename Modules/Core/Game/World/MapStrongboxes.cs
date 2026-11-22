@@ -338,11 +338,14 @@ public static partial class MapStrongboxes
         if (StrongboxCatalog.Find(box.Type) is not { } type) return;
         var (remote, stream, ciphers) = conn.Wire;
         if (shown.Contains(box.Id)) await SendWorldRemoval(remote, stream, ciphers, conn, box.Id, null);
+        // Chest bit 1 tells the client the box plays a warning sound (chest_play_warning_sound, the trap mods' hidden
+        // stat); the client plays it from its own stat checks.
+        byte chestFlags = StrongboxMods.Stat(ItemsFor(conn).Mods, type, box.Explicits, "chest_play_warning_sound") != 0 ? (byte)0x02 : (byte)0;
         await SendWorldCreate(remote, stream, ciphers, conn, box.Id,
             InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
                 StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase > 0, box.Rarity,
                     box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : null, null,
-                    box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null)),
+                    box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null, chestFlags)),
             $"strongbox 0x{box.Id:x} {Label(conn, box)} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
         await SendWorldRecord(remote, stream, ciphers, conn, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
         conn.SetBlocker(box.Id, box.X, box.Y, 1);

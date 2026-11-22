@@ -28,6 +28,9 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false, ushort Team = 0)
 {
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
+    /// <summary>The Chest component's other flag bits (bit 0 is <see cref="Opened"/>): bit 1 makes the client play the
+    /// object's warning sound, its own stat checks deciding (a strongbox's <c>chest_play_warning_sound</c>).</summary>
+    public byte ChestFlags { get; init; }
     /// <summary>Suppress the object's own map marker without removing its model or interaction.</summary>
     public bool HideMinimapIcon { get; init; }
     public StateMachineData? StateMachine { get; init; }
@@ -98,7 +101,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                     break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "Transitionable": w.U8((byte)(Math.Max((byte)1, TransitionState) & 0x7f)); break;
-                case "Chest": w.U8((byte)(Opened ? 1 : 0)).U8(0).U8(0); break;
+                case "Chest": w.U8((byte)((Opened ? 1 : 0) | (ChestFlags & 0xfe))).U8(0).U8(0); break;
                 // As a monster's (0x1421c98b0): compact count + pairs, u32, f32, u8.
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // Stationary initially; the server drives the rail with MoveTo (as for the Labyrinth's roombas).
