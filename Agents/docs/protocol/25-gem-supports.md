@@ -290,6 +290,9 @@ In the 3.29.3c release, `0x142706610` reads the count (`0x2d5`, or bow alias `0x
 This does not establish individual release times: Barrage still needs its sequential release, cancellation and hit admission.
 Focused Channelling's paid ticks use the channel's elapsed game time. Its cost grows at 20% per completed second, capped
 at 100% more, before payment and resource conversion. Each new channel starts at the base cost.
+Infused Channelling's hit damage multiplier comes from the paid channel, including quality (12% less at zero quality,
+14% less at 20%). The multiplier is applied once to incoming hits while the player's channel is current. Damage over
+time and the totem owner's defences are unaffected.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
 needs warcry exertion.

@@ -490,15 +490,24 @@ public static partial class Game
     public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(conn, skillId, out cost, out lifeCost, 100);
 
-    internal static bool PayChannelTick(ClientState conn, ushort skillId, double elapsed, out uint mana, out uint life) =>
-        PayMana(conn, skillId, out mana, out life, 100, elapsed);
+    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent) =>
+        PayMana(conn, skillId, out cost, out lifeCost, out _, costPercent);
 
-    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent, double channelSeconds = 0)
+    internal static bool PayChannelTick(ClientState conn, ushort skillId, double elapsed, out uint mana, out uint life,
+        out int hitTakenFinalPct)
+    {
+        bool paid = PayMana(conn, skillId, out mana, out life, out var supported, 100, elapsed);
+        hitTakenFinalPct = paid ? GolemStat(supported.Stats, InfusedChannelHitTaken) : 0;
+        return paid;
+    }
+
+    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, out SupportedGem supported,
+        int costPercent, double channelSeconds = 0)
     {
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            var supported = SupportedSkill(conn, skillId);
+            supported = SupportedSkill(conn, skillId);
             if (!SkillCostLocked(conn, supported, out uint manaCost, out int life, out uint es, out uint fromEs, out var player,
                 costPercent, channelSeconds))
             {

@@ -286,8 +286,9 @@ public static partial class Game
             reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(conn.Pools, type, Get))
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
+        double now = conn.Clock.Elapsed.TotalSeconds;
         return FortificationDamageTaken(conn, (int)Math.Round(value
-            * conn.ElementalAilments.DamageTakenFactor(conn.Clock.Elapsed.TotalSeconds, increased)));
+            * conn.ElementalAilments.DamageTakenFactor(now, increased) * ChannelHitTakenFactor(conn, now)));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every

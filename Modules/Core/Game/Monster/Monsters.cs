@@ -2391,6 +2391,7 @@ public static partial class Game
         var ailmentTaken = DamagePacket.Empty;
         int blindedPct = DamageTakenFromBlindedPct(conn, id, stats);
         double reservationFactor = ReservationHitTakenFactor(conn, m, now);
+        double channelFactor = ChannelHitTakenFactor(conn, now);
         foreach (var (type, range) in mitigated.Components)
         {
             int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
@@ -2405,7 +2406,7 @@ public static partial class Game
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
                     blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
-                * reservationFactor * ReservationTypedHitTakenFactor(conn, type, now)
+                * reservationFactor * ReservationTypedHitTakenFactor(conn, type, now) * channelFactor
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
             // belongs to that hit too (as in the synthetic spell-hit path).

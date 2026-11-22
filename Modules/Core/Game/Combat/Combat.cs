@@ -12,8 +12,11 @@ using HitResistances = GameServer.Core.World.HitResistances;
 
 public static partial class Game
 {
+    const string InfusedChannelHitTaken = "support_storm_barrier_damage_taken_when_hit_+%_final_while_channelling";
+
     // Record the first paid use of a channel before asynchronous output. Under conn.Monsters.
-    public static int BeginPaidChannel(ClientState conn, ushort skill, int effect, int action, ushort sequence)
+    public static int BeginPaidChannel(ClientState conn, ushort skill, int effect, int action, ushort sequence,
+        int? hitTakenFinalPct = null)
     {
         int generation = ++conn.ChannelGeneration;
         conn.ChannelSkill = skill;
@@ -21,8 +24,20 @@ public static partial class Game
         conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
         if (conn.LockstepClient) conn.LockstepSkill.Channelling(sequence);
         conn.PaidChannel = CombatLifetime is { IsActive: true } rules
-            ? new(skill, effect, action, generation, rules) : null;
+            ? new(skill, effect, action, generation, rules)
+            { HitTakenFinalPct = hitTakenFinalPct ?? GolemStat(SupportedSkill(conn, skill).Stats, InfusedChannelHitTaken) }
+            : null;
         return generation;
+    }
+
+    // The current paid stage carries its own support value. An incoming hit never resolves the gem links again.
+    static double ChannelHitTakenFactor(ClientState conn, double now)
+    {
+        if (conn.PaidChannel is not { HitTakenFinalPct: < 0 } paid || !paid.Rules.IsActive
+            || !ReferenceEquals(paid.Rules, CombatLifetime) || conn.Paused
+            || !ChannelCurrent(conn, paid.Skill, paid.Action, paid.Generation) || PlayerActionBlocked(conn, now, now))
+            return 1;
+        return Math.Max(0, 1 + paid.HitTakenFinalPct / 100d);
     }
 
     // Sample both moving actors at the hit time, after the approach and contact delay.
@@ -1281,7 +1296,8 @@ public static partial class Game
                 // single cast. Starting an owner channel would tie the placement to the input that movement clears.
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true && !IsTotemSkill(conn, skillId))
                 {
-                    channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
+                    channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence,
+                        GolemStat(paymentGem.Stats, InfusedChannelHitTaken));
                     bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
                     conn.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
                     if (walkChanges) conn.ApplyMovementSpeed();
@@ -1990,12 +2006,13 @@ public static partial class Game
                         cost = lifeCost = 0;
                         firstSnipeStage = false;
                     }
-                    else if (!PayChannelTick(conn, skillId, now - channelStarted, out cost, out lifeCost))
+                    else if (!PayChannelTick(conn, skillId, now - channelStarted, out cost, out lifeCost, out int hitTakenFinalPct))
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
                     else
                     {
                         conn.PaidChannel = CombatLifetime is { IsActive: true } rules
-                            ? new(skillId, gem.Effect, action, generation, rules) : null;
+                            ? new(skillId, gem.Effect, action, generation, rules) { HitTakenFinalPct = hitTakenFinalPct }
+                            : null;
                         // Overheat: every paid channel tick is a use, so it consumes the Fortification gained since the
                         // last one; the first tick's use already consumed in LaunchProjectile.
                         if (overheatPerThree > 0)
