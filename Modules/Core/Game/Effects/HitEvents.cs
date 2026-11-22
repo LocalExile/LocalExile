@@ -10,6 +10,20 @@ public sealed record HitLanded(bool Critical, bool Spell, bool Killed, IReadOnly
 
 public static partial class Game
 {
+    // How deep in triggered effects the work running now is: set around the release of a triggered skill, and it
+    // follows that work through its awaits, so the events it causes carry it (CombatEvent.Depth).
+    static readonly AsyncLocal<int> TriggerDepthNow = new();
+    public static int TriggerDepth => TriggerDepthNow.Value;
+
+    sealed class TriggerDepthScope(int before) : IDisposable { public void Dispose() => TriggerDepthNow.Value = before; }
+    /// <summary>Marks the work from here to the dispose as caused by a triggered effect at this depth.</summary>
+    public static IDisposable EnterTriggered(int depth)
+    {
+        int before = TriggerDepthNow.Value;
+        TriggerDepthNow.Value = depth;
+        return new TriggerDepthScope(before);
+    }
+
     public static bool MonsterFrozenNow(ClientState conn, SpawnedMonster m) =>
         m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, ProjectileWorldTime(conn)) > 0;
 
@@ -39,7 +53,7 @@ public static partial class Game
     {
         bool rules = EffectRules.Listens(conn, EffectRules.What.Hit);
         if (!rules && !GameEvents.Combat.Any) return;
-        var hit = new HitLanded(critical, spell, m.Dead || m.Life == 0, skill) { Monster = m, Who = who };
+        var hit = new HitLanded(critical, spell, m.Dead || m.Life == 0, skill) { Monster = m, Who = who, Depth = TriggerDepth };
         if (rules) EffectRules.Run(conn, hit);
         GameEvents.RaiseCombat(conn, hit);
     }

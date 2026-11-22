@@ -39,6 +39,8 @@ public static partial class Game
         // The charge system's hit record is its own: the hit event of rules, modules and mods is HitLanded, raised
         // where every hit passes (brands, heralds and totems too), with who made it.
         if (e is ChargeEvent.Hit) return;
+        // An event caused by a triggered skill says so (CombatEvent.Depth), for the loop guard.
+        if (TriggerDepth != 0 && e.Depth == 0) e = e with { Depth = TriggerDepth };
         EffectRules.Run(conn, e);
         GameEvents.RaiseCombat(conn, e);
     }

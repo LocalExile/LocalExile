@@ -24,7 +24,12 @@ public static partial class Game
         // A kill credited to the player through another path (a brand's, a herald's, a granted skill's) is the player's
         // kill for rules and mods too. Its hits were raised where they landed (HitLanded).
         foreach (var e in events)
-            if (e is not ChargeEvent.Hit) { EffectRules.Run(conn, e); GameEvents.RaiseCombat(conn, e); }
+            if (e is not ChargeEvent.Hit)
+            {
+                var raised = TriggerDepth != 0 ? e with { Depth = TriggerDepth } : e;
+                EffectRules.Run(conn, raised);
+                GameEvents.RaiseCombat(conn, raised);
+            }
         foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Wire.Remote} {line} (accepted contact)");
         // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of
         // rebuilding the full skill list per hit (the 2026-11-05 log: 4 PlayerSkills builds in 80 ms, each inside the

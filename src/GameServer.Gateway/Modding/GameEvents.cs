@@ -166,6 +166,9 @@ public abstract record CombatEvent
     /// <summary>Who of the player's side did it: the character itself, or something it placed or commands
     /// (<see cref="CombatActors"/>). A handler that means "the player's own" checks for <see cref="CombatActors.Self"/>.</summary>
     public string Who { get; init; } = CombatActors.Self;
+    /// <summary>How many triggered effects stand between the actor's own action and this event: 0 for a hit of a skill
+    /// the player used, 1 for a hit of a skill that hit triggered. What a loop guard reads.</summary>
+    public int Depth { get; init; }
 }
 
 /// <summary>The kinds of actor on a player's side that a combat event can come from. A module or mod may use further

@@ -82,6 +82,7 @@ public static partial class Game
                 new Dictionary<string, double>
                 {
                     ["cooldown"] = SkillsFor(conn).CooldownMs(grant.Effect, grant.Level) / 1000.0,
+                    ["uses"] = Math.Max(1, SkillsFor(conn).CooldownUses(grant.Effect, grant.Level)),
                     ["level"] = grant.Level,
                 }, grant, $"{grant.EffectId} (level {grant.Level})"));
         }
@@ -110,11 +111,14 @@ public static partial class Game
     {
         EffectRules.RegisterCarrier(SkillCarrier);
 
-        // Releases the granted skill whose stat turned the rule on.
-        EffectRules.Register(new("skill", [], [], fire =>
+        // Releases the granted skill whose stat turned the rule on, "at" the event's monster (the hit or killed one)
+        // or at the character itself ("self": a skill that targets its user). What it releases can hit and kill, so the
+        // loop guard applies (Chains): by default a triggered skill's own hits and kills trigger no further skill.
+        EffectRules.Register(new("skill", [], ["at"], fire =>
         {
             if (fire.Source?.Thing is WornGrantedSkills.Grant grant) TriggeredSkillExecutorFor(fire.Conn, grant)?.Run(fire, grant);
-        }));
+        }, (_, word) => word is "monster" or "self")
+        { Chains = true, NameDefaults = new Dictionary<string, string> { ["at"] = "monster" } });
 
         // A curse or mark on the monster of the event (the one hit): paid for like a cast, and never on a corpse.
         RegisterTriggeredSkillExecutor(new("curse", (_, grant) => CurseCatalog.All.ContainsKey(CurseFamily(grant.EffectId)),
@@ -130,5 +134,57 @@ public static partial class Game
                     ApplyCurseLocked(conn, monster, id, AreaTime(conn), false, gem, CharacterPlayerStats(conn));
                 }
             }));
+
+        // One area hit of a spell, where the event's monster stands (around the player for a skill that targets
+        // itself, SpellCentre): the triggered action goes to the client, which draws the skill, and the hit lands at
+        // once (AreaSkillHit's immediate form, as a trigger gem's Ice Nova). Only the skills named in
+        // TriggeredAreaSkills: a ground effect, a chain or a storm is not one hit because its stat set has damage.
+        RegisterTriggeredSkillExecutor(new("area", (_, grant) => TriggeredAreaSkills.Contains(grant.EffectId),
+            (fire, grant) =>
+            {
+                var conn = fire.Conn;
+                if (conn.Wire is not (var remote, { } stream, var ciphers)) return;
+                ushort id; (int X, int Y) from, aim; uint mana, life;
+                lock (conn.Monsters)
+                {
+                    if (conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea || InTown(conn)
+                        || ActorSkillOf(conn, grant) is not var (actor, gem) || !gem.RequirementsMet
+                        || GemSkillInstanceDisabled(conn, gem.Effect, actor, triggered: true) is not null) return;
+                    double now = AreaTime(conn);
+                    from = conn.Walk.Position(now);
+                    aim = fire.Word("at") != "self" && fire.Event.Monster is { } monster ? monster.Walk.Position(now) : from;
+                    if (!PayMana(conn, actor, out mana, out life)) return;
+                    id = actor;
+                }
+                var skill = GemSkillEffects(conn).FirstOrDefault(s => s.Id == id);
+                if (skill.Name is null) return;
+                int depth = fire.Event.Depth + 1;
+                var lifetime = CombatLifetime;
+                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                bool Current() => session.Active && CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime)
+                    && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && !conn.Paused && conn.PlayerLife > 0
+                    && WornGrantedSkillOwner(conn).StillWorn(grant, ItemsOf(conn).EquipmentSnapshot());
+                session.Enqueue(async () =>
+                {
+                    if (!Current()) return;
+                    using var triggered = EnterTriggered(depth);
+                    ushort sequence;
+                    lock (conn.Monsters) sequence = conn.LockstepClient ? NextLockstepSequence(conn) : ++conn.Twister.Sequence;
+                    await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y,
+                        sequence: sequence, flags: conn.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true),
+                        $"0x01ce {skill.Name} triggered by its item at ({aim.X}, {aim.Y})");
+                    await AreaSkillHit(remote, stream, ciphers, conn, id, skill, from, aim, immediate: true, triggeredCurrent: Current);
+                    if (mana > 0 || life > 0) await SendSkillCost(remote, stream, ciphers, conn, life, $"{skill.Name} cost");
+                });
+            }));
+    }
+
+    /// <summary>The item-triggered spells that are one area hit at their target, released by the "area" executor.
+    /// A module or mod adds one it has checked with <see cref="AllowTriggeredAreaSkill"/>.</summary>
+    static HashSet<string> TriggeredAreaSkills = ["LightningBolt", "FireBurstOnHit", "TriggeredExplosion"];
+
+    public static void AllowTriggeredAreaSkill(string effectId)
+    {
+        lock (TriggeredSkillGate) TriggeredAreaSkills = [.. TriggeredAreaSkills, effectId];
     }
 }

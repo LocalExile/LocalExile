@@ -25,6 +25,11 @@ public static class EffectRules
     /// <summary>Turns every rule off (the code a rule replaced runs again from the next stat build). A testing switch.</summary>
     public static volatile bool Enabled = true;
 
+    /// <summary>The loop guard: an effect kind that can cause events of its own (<see cref="Kind.Chains"/>: a released
+    /// skill) does not run for an event deeper than its rule allows ("depth" on the row, 0 unless it says otherwise:
+    /// a triggered skill does not trigger another). Off: every event fires, whatever caused it.</summary>
+    public static volatile bool LoopGuard = true;
+
     /// <summary>A rule fired (its roll passed): for tools that show it. Text is built only while someone listens.</summary>
     public static readonly GameEvent<Action<ClientState, string>> Fired = new();
 
@@ -68,6 +73,10 @@ public static class EffectRules
         public IReadOnlyDictionary<string, double> Defaults { get; init; } = new Dictionary<string, double>();
         /// <summary>Further keys the kind reads itself in <see cref="Prepare"/>.</summary>
         public string[] Extra { get; init; } = [];
+        /// <summary>What the kind does can cause combat events of its own (it releases a skill): the loop guard applies.</summary>
+        public bool Chains { get; init; }
+        /// <summary>Name parameters a row may leave out, with the word used then.</summary>
+        public IReadOnlyDictionary<string, string> NameDefaults { get; init; } = new Dictionary<string, string>();
         /// <summary>Reads the kind's own keys when a row loads: what it returns is handed to <see cref="Fire.Data"/>, and
         /// a <see cref="FormatException"/> refuses the row.</summary>
         public Func<JsonElement, object?>? Prepare { get; init; }
@@ -80,6 +89,12 @@ public static class EffectRules
     public sealed record Rule(string Stat, int Ord, What When, string? Who, Check[] Checks, bool Any, Value Chance, Value? Cooldown, EffectSpec[] Do)
     {
         public string? Carrier { get; init; }
+        /// <summary>How many uses the cooldown holds: each comes back one cooldown after the one before. 1 when the row
+        /// does not say.</summary>
+        public Value? Uses { get; init; }
+        /// <summary>The deepest event (CombatEvent.Depth) the rule's chaining effects run for (LoopGuard).</summary>
+        public int MaxDepth { get; init; }
+        public bool Chains { get; init; }
     }
 
     /// <summary>
@@ -100,11 +115,26 @@ public static class EffectRules
     }
 
     sealed record LiveEffect(Kind Kind, double[] Values, string?[] Names, object? Data);
-    sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do, Source? Source = null);
+    sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do, Source? Source = null, int Uses = 1);
     sealed class Live
     {
         public LiveRule[][] ByWhat = NoRules;
-        public Dictionary<(Rule Rule, object? Source), double>? ReadyAt;
+        // A rule's cooldown uses: how many are held and when the next comes back.
+        public Dictionary<(Rule Rule, object? Source), (int Held, double NextAt)>? Cooldowns;
+
+        // Takes one use at now, or says there is none. Uses come back one at a time, a cooldown apart.
+        public bool TakeUse(LiveRule rule, double now)
+        {
+            var key = (rule.Rule, rule.Source?.Key);
+            int uses = Math.Max(1, rule.Uses);
+            var (held, nextAt) = (Cooldowns ??= []).TryGetValue(key, out var state) ? state : (uses, 0d);
+            held = Math.Min(held, uses);
+            while (held < uses && now >= nextAt) { held++; nextAt += rule.Cooldown; }
+            if (held == 0) { Cooldowns[key] = (held, nextAt); return false; }
+            if (held == uses) nextAt = now + rule.Cooldown;
+            Cooldowns[key] = (held - 1, nextAt);
+            return true;
+        }
     }
     sealed record Table(int Revision, Rule[] Rules, HashSet<string> Stats, Dictionary<string, Rule[]> ByCarrier);
 
@@ -195,7 +225,7 @@ public static class EffectRules
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         foreach (var property in root.EnumerateObject())
-            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "chance" or "cooldown" or "do"))
+            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "chance" or "cooldown" or "uses" or "depth" or "do"))
                 throw new FormatException($"unknown key \"{property.Name}\"");
         string whenName = root.GetProperty("when").GetString() ?? "";
         int when = Array.IndexOf(WhatNames, whenName);
@@ -235,6 +265,7 @@ public static class EffectRules
             for (int i = 0; i < names.Length; i++)
             {
                 names[i] = effect.TryGetProperty(kind.Names[i], out var n) ? n.GetString()
+                    : kind.NameDefaults.TryGetValue(kind.Names[i], out string? word) ? word
                     : throw new FormatException($"the effect \"{kindName}\" needs \"{kind.Names[i]}\"");
                 if (kind.NameOk is { } ok && !ok(kind.Names[i], names[i] ?? ""))
                     throw new FormatException($"the effect \"{kindName}\" does not know {kind.Names[i]} \"{names[i]}\"");
@@ -244,9 +275,13 @@ public static class EffectRules
         if (effects.Count == 0) throw new FormatException("\"do\" is empty");
         string? carrier = root.TryGetProperty("carrier", out var carried) ? carried.GetString() : null;
         if (carrier is not null && !KnownCarriers.Contains(carrier)) throw new FormatException($"unknown carrier \"{carrier}\"");
-        if (carrier is null && (chance.Data ?? cooldown?.Data ?? effects.SelectMany(e => e.Values).FirstOrDefault(v => v.Data is not null)?.Data) is { } data)
+        var uses = root.TryGetProperty("uses", out var u) ? ParseValue(u) : null;
+        if (carrier is null && (chance.Data ?? cooldown?.Data ?? uses?.Data ?? effects.SelectMany(e => e.Values).FirstOrDefault(v => v.Data is not null)?.Data) is { } data)
             throw new FormatException($"the value \"{data}\" is a carrier's, and the rule has no \"carrier\"");
-        return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects]) { Carrier = carrier };
+        int depth = root.TryGetProperty("depth", out var deep) ? deep.GetInt32() : 0;
+        if (depth < 0) throw new FormatException("\"depth\" is negative");
+        return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects])
+        { Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains) };
     }
 
     static Value ParseValue(JsonElement e)
@@ -288,7 +323,8 @@ public static class EffectRules
                 effects[i] = new(spec.Kind, numbers, spec.Names, spec.Data);
             }
             lists ??= new List<LiveRule>?[WhatNames.Length];
-            (lists[(int)rule.When] ??= []).Add(new(rule, chance, rule.Cooldown?.Resolve(own, read, source?.Data) ?? 0, effects, source));
+            (lists[(int)rule.When] ??= []).Add(new(rule, chance, rule.Cooldown?.Resolve(own, read, source?.Data) ?? 0, effects, source,
+                (int)Math.Round(rule.Uses?.Resolve(own, read, source?.Data) ?? 1)));
         }
         if (table is not null)
             foreach (var rule in table.Rules)
@@ -328,13 +364,12 @@ public static class EffectRules
         foreach (var rule in rules)
         {
             if (rule.Rule.Who is { } who && who != e.Who) continue;
+            if (rule.Rule.Chains && e.Depth > rule.Rule.MaxDepth && LoopGuard) continue;
             if (!Passes(rule.Rule, e, conn)) continue;
-            if (rule.Cooldown > 0)
-                lock (live)
-                    if (live.ReadyAt is { } ready && ready.TryGetValue((rule.Rule, rule.Source?.Key), out double at) && now < at) continue;
             if (rule.Chance < 100 && Random.Shared.NextDouble() * 100 >= rule.Chance) continue;
             if (rule.Cooldown > 0)
-                lock (live) (live.ReadyAt ??= [])[(rule.Rule, rule.Source?.Key)] = now + rule.Cooldown;
+                lock (live)
+                    if (!live.TakeUse(rule, now)) continue;
             foreach (var effect in rule.Do)
                 try { effect.Kind.Run(new(conn, e, now, effect.Kind, effect.Values, effect.Names, effect.Data) { Source = rule.Source }); }
                 catch (Exception ex) { Console.WriteLine($"[rules] {rule.Rule.Stat}: the effect {effect.Kind.Name} failed: {ex.Message}"); }
@@ -399,7 +434,7 @@ public static class EffectRules
     static string Describe(LiveRule rule) =>
         (rule.Rule.Who == CombatActors.Self ? "" : $"by {rule.Rule.Who ?? "anyone"}, ")
         + (rule.Chance < 100 ? $"{rule.Chance:0.##}% chance, " : "")
-        + (rule.Cooldown > 0 ? $"cooldown {rule.Cooldown:0.###} s, " : "")
+        + (rule.Cooldown > 0 ? $"cooldown {rule.Cooldown:0.###} s{(rule.Uses > 1 ? $" x {rule.Uses} uses" : "")}, " : "")
         + string.Join(" + ", rule.Do.Select(d => d.Kind.Name
             + string.Concat(d.Kind.Names.Select((n, i) => $" {n}={d.Names[i]}"))
             + (d.Data is { } data ? $" {data}" : "")
