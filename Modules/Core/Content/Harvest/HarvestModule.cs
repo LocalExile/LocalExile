@@ -6,7 +6,7 @@ namespace GameServer.Modules.Harvest;
 
 /// <summary>Horticrafting (the station in the hideout, its recipe browser and its crafts), the Sacred Grove of a map
 /// (<see cref="SacredGrove"/>) and Oshabi's fight (<see cref="OshabiEncounter"/>).</summary>
-public sealed class HarvestModule : IModule
+public sealed class HarvestModule : IModule, IDisposable
 {
     const string StationType = "Metadata/MiscellaneousObjects/Harvest/CraftingSilo_Hideout";
     const string Window = "harvest";
@@ -16,6 +16,12 @@ public sealed class HarvestModule : IModule
     sealed class State { public uint Station; }
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     readonly ConditionalWeakTable<ItemCatalog, HarvestCrafting> _recipes = new();
+
+    public void Dispose()
+    {
+        _states.Clear();
+        _recipes.Clear();
+    }
 
     sealed record SlotOutcome(uint RemovedId, InventoryItem? Changed, IReadOnlyList<ItemMoves.Price> Payments);
 

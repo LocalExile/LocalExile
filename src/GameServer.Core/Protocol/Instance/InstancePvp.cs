@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Login;
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
-/// PvP queue bar messages on the instance connection (Agents/docs/protocol/30-hud-signals-and-timers.md §3).
+/// PvP queue bar messages on the instance connection (3.29.3c S→C 0x118 / 0x119, C→S 0x11a / 0x18d).
 /// </summary>
 public static class InstancePvp
 {

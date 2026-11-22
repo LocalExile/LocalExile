@@ -367,16 +367,28 @@ public static partial class Game
             InstanceAchievements.AchievementProgress(InstanceAchievements.PermanentAchievementSetId, bitset))];
     }
 
+    static Task SendAchievementPacket(ClientState conn, byte[] bytes, string log)
+    {
+        if (conn.Outbox is { } outbox) return outbox(bytes, log);
+        var (remote, stream, ciphers) = conn.Wire;
+        return stream is not null && ciphers is not null
+            ? Send(remote, stream, ciphers, bytes, log)
+            : Task.CompletedTask;
+    }
+
     /// <summary>Sends <c>S->C 0x126</c> achievement progress bitset for <paramref name="setId"/>.</summary>
     public static Task SendAchievementProgress(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, byte setId = InstanceAchievements.PermanentAchievementSetId)
     {
-        if (conn.Controlled || conn.Closed || conn.LeavingArea || ciphers is null) return Task.CompletedTask;
+        if (conn.Controlled || conn.Closed || conn.LeavingArea) return Task.CompletedTask;
         var catalog = AchievementsCatalog();
         if (!catalog.Sets.ContainsKey(setId)) return Task.CompletedTask;
         byte[] bitset = BuildAchievementProgressBitset(catalog, ReadCompletedItems(conn), setId);
-        return Send(remote, stream, ciphers, InstanceAchievements.AchievementProgress(setId, bitset),
-            $"0x0126 achievement progress (set {setId}, {bitset.Length} bytes)");
+        byte[] packet = InstanceAchievements.AchievementProgress(setId, bitset);
+        string log = $"0x0126 achievement progress (set {setId}, {bitset.Length} bytes)";
+        if (stream is not null && ciphers is not null)
+            return Send(remote, stream, ciphers, packet, log);
+        return conn.Outbox is { } outbox ? outbox(packet, log) : Task.CompletedTask;
     }
 
     /// <summary>Sends <c>S->C 0x126</c> achievement progress bitset on <paramref name="conn"/>'s active wire.</summary>
@@ -450,16 +462,15 @@ public static partial class Game
 
         if (!added || afterSet is null) return false;
 
-        var (remote, stream, ciphers) = conn.Wire;
-        if (conn.PlayerSent && !conn.Closed && !conn.LeavingArea && ciphers is not null)
+        if (conn.PlayerSent && !conn.Closed && !conn.LeavingArea)
         {
-            await Send(remote, stream, ciphers, InstanceAchievements.AchievementItemComplete(item.Row),
+            await SendAchievementPacket(conn, InstanceAchievements.AchievementItemComplete(item.Row),
                 $"0x0125 achievement item complete: {item.Id} (row {item.Row})");
             byte[] bitset = BuildAchievementProgressBitset(catalog, afterSet, parent.SetId);
-            await Send(remote, stream, ciphers, InstanceAchievements.AchievementProgress(parent.SetId, bitset),
+            await SendAchievementPacket(conn, InstanceAchievements.AchievementProgress(parent.SetId, bitset),
                 $"0x0126 achievement progress (set {parent.SetId}, {bitset.Length} bytes)");
             if (parentCompletedNow)
-                await Send(remote, stream, ciphers, InstanceAchievements.AchievementComplete(parent.Row),
+                await SendAchievementPacket(conn, InstanceAchievements.AchievementComplete(parent.Row),
                     $"0x0124 achievement complete: {parent.Id} (row {parent.Row})");
         }
         return true;
@@ -478,10 +489,9 @@ public static partial class Game
     /// <summary>Notifies the client via <c>S->C 0x127</c> that an achievement/challenge item failed (0-based row).</summary>
     public static Task FailAchievementItem(ClientState conn, ushort itemRow)
     {
-        var (remote, stream, ciphers) = conn.Wire;
-        if (conn.Controlled || !conn.PlayerSent || conn.Closed || conn.LeavingArea || ciphers is null)
+        if (conn.Controlled || !conn.PlayerSent || conn.Closed || conn.LeavingArea)
             return Task.CompletedTask;
-        return Send(remote, stream, ciphers, InstanceAchievements.AchievementItemFailed(itemRow),
+        return SendAchievementPacket(conn, InstanceAchievements.AchievementItemFailed(itemRow),
             $"0x0127 achievement item failed (row {itemRow})");
     }
 
