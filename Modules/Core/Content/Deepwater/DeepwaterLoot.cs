@@ -874,8 +874,9 @@ internal static class DeepwaterLoot
             {
                 double expected = global::Game.CurrencyDropExpected(roll.Monster.Rarity) * (cr.ExtraCurrencyFactor - 1.0);
                 int whole = (int)expected + (Random.Shared.NextDouble() < expected - (int)expected ? 1 : 0);
+                var roller = DropsFor(roll.Conn);
                 for (int i = 0; i < whole; i++)
-                    if (global::Game.RollWeightedCurrency(ItemsFor(roll.Conn), roll.Monster.Level, Random.Shared) is { } extraCur)
+                    if (roller.CurrencyDrop(roll.Monster.Level, Random.Shared) is { } extraCur)
                         roll.Made.Add(extraCur.Item);
             }
             if (isRare)

@@ -213,6 +213,19 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         / Math.Max(0.1, 1 + this[spell ? "base_cast_speed_+%" : "attack_speed_+%"] / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 
+    /// <summary>The attack time with a skill's own increased and more/less attack speed modifiers.</summary>
+    public double AttackSeconds(double baseSeconds, int skillIncreasedPct, int skillMorePct) => baseSeconds
+        / Math.Max(0.1, 1 + (this["attack_speed_+%"] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + skillMorePct / 100.0)
+        / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
+
+    /// <summary>The cast time with monster cast-speed mods and the skill's own base_cast_speed_+% /
+    /// active_skill_cast_speed_+%_final modifiers (e.g. Flame Mother -66%, Inua Totem -33%).</summary>
+    public double CastSeconds(double baseSeconds, int skillIncreasedPct = 0, int skillMorePct = 0) => baseSeconds
+        / Math.Max(0.1, 1 + (this["base_cast_speed_+%"] + this["attack_and_cast_speed_+%"] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + skillMorePct / 100.0)
+        / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
+
     /// <summary>An attack time of <see cref="AttackSeconds"/> with <paramref name="extraPct"/> more increased attack speed (a
     /// debuff on the monster, additive with its own attack_speed_+%).</summary>
     public double AttackSeconds(double seconds, int extraPct) => extraPct == 0 ? seconds

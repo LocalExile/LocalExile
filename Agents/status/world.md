@@ -476,7 +476,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   An "entranceN" with no object of its own (the portal to Highgate after Malachai, Weylam's boat) is an exit without a
   model at its point, there from the start.
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
-  its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
+  its animation ([12](../docs/protocol/12-quests.md) §6); the Doorman and opening tutorial force walls 1/2 are now created.
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed, and whose generated layout places no
   waypoint either, puts the player at an arbitrary cell; every act area has a seed-1 capture, so this is what any other

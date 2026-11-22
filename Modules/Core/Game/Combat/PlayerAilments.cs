@@ -87,6 +87,7 @@ public static partial class Game
             conn.ElementalAilments.Clear();
             conn.IncomingAilments.Clear();
             ClearPlayerDecay(conn);
+            ClearCorruptedBlood(conn);
             ClearEssenceAuraExposure(conn);
             return 0;
         }
@@ -97,6 +98,7 @@ public static partial class Game
         // damaging-ailment DoT the player takes is halved (a new application refreshes the window).
         double dotStart = Math.Max(Math.Max(conn.IncomingAilments.LatestStart, conn.ElementalAilments.LatestIgniteStart), PlayerDecayStarted(conn));
         var immunities = PlayerImmunities(conn, stats);
+        if (Blood.TryGetValue(conn, out var blood)) dotStart = Math.Max(dotStart, blood.Started);
         int auraDamage = AdvanceEssenceAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
         dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(conn));
         int groundDamage = MapStrongboxes.AdvanceCausticGroundLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), ref dotStart);
@@ -125,11 +127,15 @@ public static partial class Game
         }
         lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvancePlayerDecayLocked(conn, until, stats,
             immunities.Contains(DamageType.Chaos), letheFactor));
+        if (blood is not null)
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvanceCorruptedBlood(conn, blood, until, stats,
+                immunities.Contains(DamageType.Physical), letheFactor));
         conn.PlayerLife = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage), until);
         if (conn.PlayerLife == 0)
         {
             conn.InvalidateIncomingHits();
             ClearPlayerDecay(conn);
+            ClearCorruptedBlood(conn);
             ClearEssenceAuraExposure(conn);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(conn);

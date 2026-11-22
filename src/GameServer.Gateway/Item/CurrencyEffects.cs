@@ -80,12 +80,13 @@ public static class CurrencyEffects
     public const string TaintedJewellersOrb = "Metadata/Items/Currency/CurrencyHellscapeRerollSocketNumbers";
     public const string TaintedArmourersScrap = "Metadata/Items/Currency/CurrencyHellscapeArmourQuality";
     public const string TaintedBlacksmithsWhetstone = "Metadata/Items/Currency/CurrencyHellscapeWeaponQuality";
+    public const string TaintedCatalyst = "Metadata/Items/Currency/CurrencyJewelleryQualityVaal";
 
     /// <summary>The Tainted (Scourge) currencies this class applies: the ordinary effect, but only on a corrupted item.</summary>
     public static readonly IReadOnlySet<string> TaintedIds = new HashSet<string>
     {
         TaintedChaosOrb, TaintedExaltedOrb, TaintedChromaticOrb, TaintedOrbOfFusing, TaintedJewellersOrb,
-        TaintedArmourersScrap, TaintedBlacksmithsWhetstone,
+        TaintedArmourersScrap, TaintedBlacksmithsWhetstone, TaintedCatalyst,
     };
 
     /// <summary>Tainted currency (the client's CurrencyItems descriptions): only on a corrupted item, which stays
@@ -110,6 +111,7 @@ public static class CurrencyEffects
             TaintedJewellersOrb => TaintedJewellers(plain, type, random),
             TaintedArmourersScrap => RandomQuality(plain, "Armour", random),
             TaintedBlacksmithsWhetstone => RandomQuality(plain, "Weapon", random),
+            TaintedCatalyst => RandomJewelleryQuality(plain, type, Program.Items.JewelleryCatalystTypes, random),
             _ => null,
         };
         return result is { } changed ? changed with { Corrupted = true } : null;
@@ -311,7 +313,8 @@ public static class CurrencyEffects
     public static bool HandlesAction(string? action) =>
         action is { Length: > 0 } && (action.StartsWith("add_cleansing_fire_implicit_", StringComparison.Ordinal)
             || action.StartsWith("add_great_tangle_implicit_", StringComparison.Ordinal)
-            || action is "add_map_alt_quality" or "add_armour_quality" or "add_weapon_quality" or "add_flask_quality"
+            || action is "add_map_alt_quality" or "add_jewellery_quality" or "add_random_jewellery_quality"
+                or "add_armour_quality" or "add_weapon_quality" or "add_flask_quality"
                 or "add_gem_quality" or "corrupt_item" or "special_corrupt_item"
                 or "identify" or "reroll" or "transmute_to_magic" or "transmute_to_rare" or "transmute_to_random"
                 or "add_mod_to_magic" or "reroll_magic" or "convert_to_normal" or "add_mod_to_rare"
@@ -328,7 +331,7 @@ public static class CurrencyEffects
             or GemcuttersPrism or FracturingOrb or CartographersChisel or EldritchChaosOrb or EldritchExaltedOrb
             or EldritchAnnulmentOrb or OrbOfBinding or OrbOfUnmaking
             or TaintedChaosOrb or TaintedExaltedOrb or TaintedChromaticOrb or TaintedOrbOfFusing or TaintedJewellersOrb
-            or TaintedArmourersScrap or TaintedBlacksmithsWhetstone
+            or TaintedArmourersScrap or TaintedBlacksmithsWhetstone or TaintedCatalyst
             or LesserEldritchIchor or GreaterEldritchIchor or GrandEldritchIchor or ExceptionalEldritchIchor
             or LesserEldritchEmber or GreaterEldritchEmber or GrandEldritchEmber or ExceptionalEldritchEmber
             or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling;
@@ -350,6 +353,10 @@ public static class CurrencyEffects
             "identify" => target.Identified || !target.Components.Contains("Mods") ? null : target with { Identified = true },
             "add_map_alt_quality" => targetType is not null && items.AlternateQualityOf(currency) is byte qualityType
                 ? Chisel(target, targetType, qualityType) : null,
+            "add_jewellery_quality" => targetType is not null && items.AlternateQualityOf(currency) is byte catalystType
+                ? Catalyst(target, targetType, catalystType) : null,
+            "add_random_jewellery_quality" => targetType is not null && target.Corrupted && !target.Mirrored
+                ? RandomJewelleryQuality(target, targetType, items.JewelleryCatalystTypes, random) : null,
             "add_armour_quality" => ArmourerScrap(target, random),
             "add_weapon_quality" => Whetstone(target, random),
             "add_flask_quality" => Glassblower(target, random),
@@ -407,10 +414,46 @@ public static class CurrencyEffects
             AlternateQualityType = qualityType,
         };
 
+    /// <summary>Whether the base type is jewellery (ring, amulet or belt) that accepts Catalysts.</summary>
+    public static bool IsJewellery(ItemCatalog.BaseType type) =>
+        type.Class is "Ring" or "Amulet" or "Belt";
+
+    /// <summary>Any jewellery Catalyst (CurrencyItems Action add_jewellery_quality): adds 5% quality to normal,
+    /// 2% to magic, and 1% to rare/unique rings, amulets and belts, up to 20%. Switching to a different catalyst type
+    /// replaces the old quality type and starts from the new gain. Refused on corrupted/mirrored/non-jewellery items,
+    /// or when already at 20% of the same catalyst type.</summary>
+    public static Item? Catalyst(Item item, ItemCatalog.BaseType type, byte qualityType)
+    {
+        if (!IsJewellery(type) || !item.Components.Contains("Mods") || item.Corrupted || item.Mirrored) return null;
+        if (item.AlternateQualityType == qualityType && item.Quality >= MaximumQuality) return null;
+        int gain = item.Rarity switch
+        {
+            ItemRarity.Normal => 5,
+            ItemRarity.Magic => 2,
+            _ => 1,
+        };
+        int start = item.AlternateQualityType == qualityType ? item.Quality : 0;
+        return item with
+        {
+            Quality = (byte)Math.Min(MaximumQuality, start + gain),
+            AlternateQualityType = qualityType,
+        };
+    }
+
+    /// <summary>Tainted Catalyst (add_random_jewellery_quality): applies a random catalyst quality type and random
+    /// quality (1-20%) to a corrupted ring, amulet or belt.</summary>
+    public static Item? RandomJewelleryQuality(Item item, ItemCatalog.BaseType type, IReadOnlyList<byte> catalystTypes, Random random) =>
+        !IsJewellery(type) || !item.Components.Contains("Mods") || item.Mirrored || catalystTypes.Count == 0 ? null
+            : item with
+            {
+                AlternateQualityType = catalystTypes[random.Next(catalystTypes.Count)],
+                Quality = (byte)random.Next(1, MaximumQuality + 1),
+            };
+
     public const string GlassblowersBauble = "Metadata/Items/Currency/CurrencyFlaskQuality";
 
     public static Item? Glassblower(Item item, Random? random = null) =>
-        AddQuality(item, "Flask", QualityGain(item, random ?? Random.Shared));
+        AddQuality(item, item.Components.Contains("Tincture") ? "Tincture" : "Flask", QualityGain(item, random ?? Random.Shared));
 
     public const string FracturingOrb = "Metadata/Items/Currency/CurrencyFractureRare";
 

@@ -408,16 +408,29 @@ public static class InstanceEntities
     /// <summary>
     /// The player's experience (0x2bc to the Player component, reader <c>0x141e85520</c>): u16 flags, bit0 = u32 experience,
     /// which goes through the same setter as creation (<c>0x141e85da0</c>): the level is derived again from it and, when
-    /// it changed, the component's level-change handler (vtable +0x108) runs. The other flags stay off.
+    /// it changed, the component's level-change handler (vtable +0x108) runs and <c>InGameState::OnPlayerLevelUp</c>
+    /// (<c>0x140d5b2f0</c>, vtable <c>0x1431f6458</c> +0x08) automatically plays matching <c>CharacterAudioEvents</c> rows
+    /// (<c>LevelUp&lt;N&gt;</c>: 2, 3, 5, 10, 15, 20, 30, 50, 70, 90). The other flags stay off.
     /// </summary>
     public static byte[] PlayerExperienceUpdate(uint playerId, uint experience) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(1).U32(experience).ToArray());
 
     /// <summary>
-    /// The player's quest flags (0x2bc to the Player component, reader 0x141e85520): u16 flags, bit1 (0x02) = the whole
+    /// The player's quest flags (0x2bc to the Player component, reader <c>0x141e85520</c>): u16 flags, bit1 (0x02) = the whole
     /// quest-flag set again (<see cref="PlayerObject.WriteFlagSet"/>, QuestFlags.dat rows). The World panel shows an area's
-    /// pin only when the area's access flags (WorldAreas +0x54) are all set (0x14077ecf0). Bit3 (0x08) would replace the
+    /// pin only when the area's access flags (WorldAreas +0x54) are all set (<c>0x14077ecf0</c>). Bit3 (0x08) would replace the
     /// second set (+0x1d0), bit9 (0x200) the 9 raw bytes (+0x1e8).
+    /// <para>
+    /// <b>Player voice lines (3.29.3c verified):</b> there is no dedicated S→C <c>CharacterAudioEvents</c> packet (S→C
+    /// <c>0x1c7</c> is <c>NPCTextAudio</c>, S→C <c>0x1c8</c> is <c>NPCConversations</c>). Instead, updating quest flags
+    /// notifies <c>CharacterAudioController</c> (<c>0x14010bd30</c>, vtable <c>0x143027020</c> +0x10), which diffs the
+    /// bitset against the baseline snapshotted on player creation (<c>0x140108c80</c>), scans <c>Data/CharacterAudioEvents.dat</c>
+    /// (<c>0x14012b660</c>, 0x52-byte rows), and plays the <b>first</b> row whose <c>Event</c> (<c>QuestFlags</c> row)
+    /// transitioned 0 → 1 via <c>0x14010cad0</c> (using row +0x18 delay ms and +0x1c cooldown ms; skipped if
+    /// <c>IsPVPOnlyCharacter</c> HASH32 <c>0x24270667</c> is set). Because <c>0x140108c80</c> snapshots the <c>0x2bb</c>
+    /// creation flags, a new area's <c>StartQuestFlags</c> (<c>Visited-*</c>) must arrive in <c>0x2bc</c> after <c>0x2bb</c>
+    /// for <c>Enter*</c> voice lines to play.
+    /// </para>
     /// </summary>
     public static byte[] PlayerQuestFlagsUpdate(uint playerId, IEnumerable<int> questFlags)
     {
@@ -747,6 +760,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
     public byte AttachFlags { get; init; }
 
+    /// <summary>Whether the monster blocks walkers on the client (<c>Positioned.blocking</c> in its <c>.ot</c>).
+    /// Non-blocking monsters such as Mirage Archer (<c>Mirage.ot</c>: <c>blocking = false</c>) clear the blocking byte
+    /// and set <c>flags1 0x08</c> (skip walker collision) so they do not trap the player inside a blocking footprint
+    /// where client A* favours 45-degree diagonals.</summary>
+    public bool Blocking { get; init; } = true;
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -782,8 +801,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
             switch (c)
             {
                 // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
-                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
+                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, blocking 1/0); non-blocking monsters also set
+                // flags1 0x08 + 1 (+0x1e6 bit 0x40, as PetObject does) so walkers pass through them.
+                case "Positioned":
+                    if (Blocking) w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1);
+                    else w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x0a).U8(0).U8(0).U8(1);
+                    break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142208700, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod

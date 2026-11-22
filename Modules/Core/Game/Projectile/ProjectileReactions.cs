@@ -117,9 +117,11 @@ public static partial class Game
     {
         var conn = session.Conn;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
+        TinctureKillBonus? tinctureKill;
         bool destroyCorpse;
         lock (conn.Monsters)
         {
+            tinctureKill = playerKill ? TakeTinctureKill(conn, monster) : null;
             destroyCorpse = playerKill && TakeUnhingedHitKillLocked(conn, monster);
             if (playerKill) QueueMadnessExplosionLocked(conn, id, monster);
         }
@@ -146,7 +148,7 @@ public static partial class Game
             session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
-            RecoverOnKill(conn, monster);
+            RecoverOnKill(conn, monster, tinctureKill);
             GainPhasingOnKill(conn);
             session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
@@ -185,7 +187,7 @@ public static partial class Game
             }
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
-            : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
+            : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods, tinctureKill?.FlaskChargesPct ?? 0));
         // The map overlay's "X monsters remain" (S→C 0x1a0): a projectile's kill is committed here, not through
         // Game.MonsterKilled (MonsterRemaining.cs).
         session.Enqueue(() => SendRemainingMonsters(session.remote, session.stream, session.ciphers, conn));
@@ -205,6 +207,7 @@ public static partial class Game
     {
         var conn = session.Conn;
         if (!session.Active || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || monster.NoRewards
+            || BossMods.GivesNoItems(monster.Variety) || monster.Variety?.Id == TutorialObjects.Zombie
             || !GameEvents.AllowsLoot(conn)) return;
         var random = Random.Shared;
         var balance = LeagueFor(conn).Rules;

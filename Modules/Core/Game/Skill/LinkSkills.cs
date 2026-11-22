@@ -58,9 +58,11 @@ public static partial class Game
             if (conn.Links.Count == 0) conn.Links.PaidAt = now; // the cost runs from the first link
             foreach (var old in conn.Links.All.Where(l => l.SkillId == skillId || l.Target == target).ToArray())
                 EndLinkLocked(conn, old, bytes);
+            bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, player);
             link = new(target, skillId, effectId)
             {
-                Until = now + seconds, ManaPerMinute = Own("mana_cost_per_minute"),
+                Until = now + seconds, ManaPerMinute = paysLife ? 0 : Own("mana_cost_per_minute"),
+                LifePerMinute = paysLife ? Own("mana_cost_per_minute") : 0, LifePaidAt = now,
                 SourceBuff = conn.NextBuff++, TargetBuff = conn.NextBuff++,
             };
             conn.Links.Add(link);
@@ -69,7 +71,7 @@ public static partial class Game
             bytes.AddRange(InstanceEntities.AddBuff(target, link.TargetBuff, rows.Target, PlayerId, skillId, u68: duration));
             LinksChangedLocked(conn);
         }
-        await Send(remote, stream, ciphers, [.. bytes], $"0x01c1 {effectId} links 0x{link.Target:x} for {seconds:0.##} s at level {gem.Level}, {link.ManaPerMinute / 60.0:0.#} mana per second");
+        await Send(remote, stream, ciphers, [.. bytes], $"0x01c1 {effectId} links 0x{link.Target:x} for {seconds:0.##} s at level {gem.Level}, {(link.ManaPerMinute + link.LifePerMinute) / 60.0:0.#} {(link.LifePerMinute > 0 ? "life" : "mana")} per second");
         await SendCharacterStats(remote, stream, ciphers, conn, $"{effectId} linked");
         return true;
     }
@@ -128,6 +130,7 @@ public static partial class Game
         var bytes = new List<byte>();
         var ended = new List<string>();
         bool died = false, paid = false;
+        uint lifePaid = 0;
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
@@ -151,11 +154,13 @@ public static partial class Game
                 all = $"its target 0x{lost.Target:x} died";
                 died = true;
             }
+            double elapsed = Math.Max(0, now - links.PaidAt);
+            bool outOfMana = false;
             if (all is null && links.Count > 0)
             {
-                double due = links.ManaCarry + links.All.Sum(l => l.ManaPerMinute) / 60 * Math.Max(0, now - links.PaidAt);
+                double due = links.ManaCarry + links.All.Sum(l => l.ManaPerMinute) / 60 * elapsed;
                 uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(due));
-                if (conn.PlayerMana < whole) all = $"not enough mana for the cost ({conn.PlayerMana} < {whole})";
+                if (conn.PlayerMana < whole) outOfMana = true;
                 else (conn.PlayerMana, links.ManaCarry, paid) = (conn.PlayerMana - whole, due - whole, whole > 0);
             }
             links.PaidAt = now;
@@ -163,7 +168,17 @@ public static partial class Game
             int range = LinkSkills.Range(Stats.Key("link_skill_range_+%") is uint r ? player.GetValueOrDefault(r) : 0);
             foreach (var link in links.All.ToArray())
             {
-                string? why = all;
+                string? why = all ?? (outOfMana && link.ManaPerMinute > 0 ? "not enough mana" : null);
+                if (why is null && link.LifePerMinute > 0)
+                {
+                    double seconds = Math.Max(0, Math.Min(now, link.Until) - link.LifePaidAt);
+                    uint payment = Lifetap.PayOngoingLife(conn.PlayerLife, link.LifePerMinute * seconds / 60,
+                        ref link.LifeCarry, out bool exhausted);
+                    conn.PlayerLife -= payment;
+                    lifePaid += payment;
+                    link.LifePaidAt = now;
+                    if (exhausted) why = "not enough life";
+                }
                 if (why is null && now >= link.Until) why = "its duration ended";
                 else if (why is null)
                 {
@@ -185,7 +200,7 @@ public static partial class Game
         }
         if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], $"0x01c2 links end: {string.Join("; ", ended)}");
         if (died) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, a linked target died)");
-        else if (paid) await SendPlayerMana(remote, stream, ciphers, conn, null);
+        else if (paid || lifePaid > 0) await SendSkillCost(remote, stream, ciphers, conn, lifePaid, null);
         if (ended.Count > 0) await SendCharacterStats(remote, stream, ciphers, conn, "links ended");
     }
 

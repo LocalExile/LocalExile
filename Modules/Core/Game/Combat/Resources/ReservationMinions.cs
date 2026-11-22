@@ -21,6 +21,13 @@ public static partial class Game
         return own;
     }
 
+    static IReadOnlyList<(uint Key, int Value)> SkitterMinionStats =>
+        [.. MinionStats, (StatKeys.HideMiniLifeBar, 1),
+            .. (Stats.Key("base_cannot_be_damaged") is uint undamageable ? new[] { (undamageable, 1) } : [])];
+
+    static int SkitterAuraRadius(GolemState.Golem fighter) =>
+        SkillArea.Radius(30, n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n), spell: true);
+
     static async Task SummonReservationFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         AuraCatalog.Aura aura, string kind)
     {
@@ -72,8 +79,9 @@ public static partial class Game
             fighter.Skills = GolemNativeSkills(conn, level, fighter.Abilities);
         }
         var at = NextToPlayer(conn);
+        bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
         await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, at.X, at.Y,
-            friendly: true, mods: mods, unrisen: false, extraStats: MinionStats, ownedSkills: fighter.Skills,
+            friendly: true, mods: mods, unrisen: false, extraStats: skitter ? SkitterMinionStats : MinionStats, ownedSkills: fighter.Skills,
             ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield, damagedLife: pools.Fatal ? 1 : transportMaximum,
             ownedInitialDeath: pools.Fatal,
@@ -139,18 +147,23 @@ public static partial class Game
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
                 var pending = fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= fighter.NextOrb
                     ? conn.Placed.All.Values.Where(p => !p.SkitterTriggered && now >= p.Armed
-                        && Dist(p.At, conn.Walk.Position(now)) <= 100).MinBy(p => Dist(p.At, fighter.Monster.Walk.Position(now))) : null;
+                        && Dist(p.At, conn.Walk.Position(now)) <= 100
+                        && ReferenceEquals(fighter, state.Fighters.Values
+                            .Where(g => g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && !g.Monster.Dead && now >= g.NextOrb)
+                            .MinBy(g => Dist(g.Monster.Walk.Position(now), p.At))))
+                        .MinBy(p => Dist(p.At, fighter.Monster.Walk.Position(now))) : null;
                 if (pending is not null) GolemMoveLocked(conn, fighter, pending.At, now);
                 else GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0
                     || !fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
                 bool cold = fighter.Definition.Kind == "SkitterCold";
+                int auraRadius = SkitterAuraRadius(fighter);
+                var botAt = fighter.Monster.Walk.Position(now);
                 foreach (var monster in conn.Monsters.Values)
                     if (monster is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(monster.Walk.Position(now), fighter.Monster.Walk.Position(now)) <= SkillArea.Radius(30,
-                            n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n), spell: true))
+                        && Dist(monster.Walk.Position(now), botAt) <= auraRadius)
                         monster.Ailments.WithoutDamage(cold ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock,
-                            .2, now, n => SkitterAilmentStat(fighter, n),
+                            .5, now, n => SkitterAilmentStat(fighter, n),
                             n => monster.Mods.Effects[n]);
             }
         }

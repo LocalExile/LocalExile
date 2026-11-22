@@ -129,8 +129,9 @@ public static partial class Game
         // The quest engine's objects and chests whose state follows a flag (World/Quest/QuestEngine.cs).
         await UpdateQuestObjectStates(remote, stream, ciphers, conn, change.Effective);
         foreach (uint id in change.Removed)
-            await Send(remote, stream, ciphers, [], $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { lock (conn.Monsters) return conn.Closed || conn.LeavingArea || conn.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
+        if (on) await CharacterVoiceLines.OnQuestFlagsPublishedHeld(conn, change.Effective);
     }
 
     // Whole flag sets are projections, not snapshots: combat can commit while a normal setter awaits the cipher gate.
@@ -362,6 +363,23 @@ public static partial class Game
     }
 
     public static bool LyingOnBeach(ClientState conn) => conn.PeerTemplate is { WashedUp: true } && !conn.TutorialGettingUp;
+
+    // C→S 0x020a: a tutorial step or Help Panel article completed or dismissed (u8 Tutorial.dat row).
+    // Row 17 (AllTutorials, from "Skip All Tutorials" or Options → "Disable Tutorials") sets every tutorial completion
+    // flag (rows 0..18, including CompletedSkillGemTutorial checked by TutorialManager at 0x140d46d50) plus
+    // TutorialPanelHideArticlePopups (row 77, checked by the Help Panel at 0x140a901ec/0x140a910e3/0x140a92dca); every
+    // other row sets its own QuestFlagComplete.
+    public static async Task CompleteTutorial(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    {
+        if (Quests.TutorialFlag(row) is not { } flag)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x020a tutorial row {row}: no completion flag, ignored");
+            return;
+        }
+        IReadOnlyList<string> flags = flag == Quests.CompletedAllTutorials ? Quests.AllTutorialFlags : [flag];
+        Console.WriteLine($"[gateway] {remote} <= 0x020a tutorial row {row} -> {(flags.Count == 1 ? flag : $"{flag} ({flags.Count} flags)")}");
+        await SetQuestFlags(remote, stream, ciphers, conn, flags);
+    }
 
     // Ids of the invisible SunkenPassageBlockers on the server's walk estimate (blockers only: the client spawns them).
     public const uint PassageBlockerFirstId = 0xff000000;
