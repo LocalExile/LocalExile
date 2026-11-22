@@ -1,5 +1,12 @@
 namespace GameServer.Gateway.Tests;
 
+using System.Buffers.Binary;
+using System.Text.Json.Nodes;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Data.Ggpk;
+using GameServer.Data.Terrain.Generation;
+using GameServer.Modding;
+
 public sealed class StrongboxTests
 {
     // Currency on a closed box changes its rarity and chest mods as on an item, and goes on the wire with them; a Vaal Orb
@@ -62,5 +69,71 @@ public sealed class StrongboxTests
         Assert.Equal(150, StrongboxMods.RarityStat(Program.Items.Mods, 3, "chest_hidden_item_rarity_+%"));
         var word = BitConverter.GetBytes(kaom.NameWord);
         Assert.True(named.AsSpan().IndexOf(word) >= 0 || named.AsSpan().IndexOf(word.Reverse().ToArray()) >= 0);
+    }
+
+    // A Vaal Orb right-clicked in the currency stash tab and clicked on a closed box (C→S 0x74 with the tab's inventory id)
+    // corrupts the box and consumes one orb from that tab — the case the character-inventory-only handler refused.
+    [GameFilesFact]
+    public async Task Currency_from_the_stash_tab_corrupts_a_closed_box()
+    {
+        TestEnvironment.OpenOwnSaves("strongbox-stash");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        var instance = new InstanceState();
+        var world = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
+        var mods = MapMods.None;
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
+        uint seed = ServerLevels.PlayableSeed(world.Id, 0x506, 70, stats);
+        ServerLevels.For(world.Id, seed, 70);
+        var layout = AreaLayouts.For(world.Hash16, seed);
+        instance.OpenedWith(new("BoxOwner", new(layout.Hash, world.Id, "Strand", 3) { Level = 70 }, mods));
+        await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+        try
+        {
+            Assert.True(await MapStrongboxes.SpawnAt(owner.Conn,
+                [new MapStrongboxes.SpawnRequest(100, 100, StrongboxCatalog.Contents.Currency, 70, MapMods.None)], new Random(7)) > 0);
+            var box = ReadBoxes(owner.Conn)[0]!;
+            uint id = box["Id"]!.GetValue<uint>();
+            Assert.NotEqual(3, box["Rarity"]!.GetValue<byte>()); // a unique box takes no currency; this seed rolls none
+
+            var catalog = Program.Items;
+            var vaal = catalog.Find(CurrencyEffects.VaalOrb)!;
+            var stash = Game.StashOf(owner.Conn);
+            var item = ItemCatalog.Create(vaal) with { StackSize = 5 };
+            Assert.NotNull(stash.AddStacked(0, item, i => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null, out _));
+            uint orb = stash.Inventory(0).Items.Single(i => i.Item.TypeHash == vaal.Hash).Id;
+            Assert.Equal(5, stash.CountOf(vaal.Hash));
+
+            Assert.True(await MapStrongboxes.UseItemOn(owner.Conn, UseMsg(stash.InventoryOf(0), orb, id)));
+            Assert.True(ReadBoxes(owner.Conn)[0]!["Corrupted"]!.GetValue<bool>());
+            Assert.Equal(4, stash.CountOf(vaal.Hash));
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    static JsonNode ReadBoxes(ClientState conn)
+    {
+        var state = new JsonObject();
+        MapStrongboxes.Describe(conn, state);
+        return state["strongboxes"]!;
+    }
+
+    static byte[] UseMsg(uint inventory, uint item, uint target)
+    {
+        var b = new byte[InstanceItems.UseItemOnObjectLength];
+        BinaryPrimitives.WriteUInt16BigEndian(b, InstanceItems.UseItemOnObjectId);
+        BinaryPrimitives.WriteUInt32BigEndian(b.AsSpan(2), inventory);
+        BinaryPrimitives.WriteUInt32BigEndian(b.AsSpan(6), item);
+        BinaryPrimitives.WriteUInt32BigEndian(b.AsSpan(10), target);
+        return b;
     }
 }
