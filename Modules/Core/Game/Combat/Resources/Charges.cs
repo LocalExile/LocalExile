@@ -253,7 +253,7 @@ public static partial class Game
         _ = AreaFrames.Start(async () =>
         {
             // The game clock: a pause holds the cry.
-            while (!player.Closed && AreaTime(player) < until) await Task.Delay(16);
+            while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
             foreach (var (k, v) in own) playerStats[k] = v;
@@ -432,9 +432,16 @@ public static partial class Game
         }
         await SendPlayerStatSnapshot(player,
             () => PublishPlayerStats(player), $"0x01b3 player stats ({why})");
+        bool skillsSent = false;
         await SendPlayerStatSnapshot(player,
-            () => PlayerSkillsIfChanged(player, PlayerSkills(player)),
+            () =>
+            {
+                var bytes = PlayerSkillsIfChanged(player, PlayerSkills(player));
+                skillsSent = bytes.Length > 0;
+                return bytes;
+            },
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
+        if (skillsSent) await RestoreSkillBarAfterActorUpdate(player);
         await SendPlayerEnergyShield(player);
     }
 }

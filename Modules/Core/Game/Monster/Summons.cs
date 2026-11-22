@@ -32,7 +32,9 @@ public static partial class Game
     static SummonedMinions.Saved SavedSummon(Player player, GolemState.Golem fighter, double now)
     {
         var gem = SupportedSkill(player, fighter.Source);
-        var place = ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
+        object? sourceId = gem.SourceGem is not null ? PlayerInventories.GemIdentity(gem.SourceGem) : null;
+        var place = sourceId is null ? default : ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p =>
+            ReferenceEquals(PlayerInventories.GemIdentity(p.Gem), sourceId));
         return new(fighter.Definition.Id, fighter.Source, fighter.Monster.Variety!.Id,
             SavedLifeFraction(fighter.Monster),
             fighter.Equipment.Count > 0 ? fighter.Equipment : null,
@@ -49,8 +51,10 @@ public static partial class Game
         if (host is uint item && socket is int index)
         {
             var place = ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p => p.ItemId == item && p.Socket == index);
-            return place.Gem is null ? (ushort)0 : candidates.FirstOrDefault(g =>
-                ReferenceEquals(SupportedSkill(player, g.Id).SourceGem, place.Gem)).Id;
+            if (place.Gem is null) return 0;
+            object placeId = PlayerInventories.GemIdentity(place.Gem);
+            return candidates.FirstOrDefault(g => SupportedSkill(player, g.Id).SourceGem is { } sg
+                && ReferenceEquals(PlayerInventories.GemIdentity(sg), placeId)).Id;
         }
         var exact = candidates.FirstOrDefault(g => g.Id == source);
         return exact.Name is not null ? exact.Id : candidates.FirstOrDefault().Id;
@@ -90,13 +94,13 @@ public static partial class Game
             .MinBy(m => Dist(m.Walk.Position(AreaTime(player)), aim));
     }
 
-    internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem)
+    internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem, Random random)
     {
         if (definition.Family == "Skeleton")
             return Math.Max(1, new[] { Stat.NumberOfMeleeSkeletonsToSummon, Stat.NumberOfArcherSkeletonsToSummon,
                 Stat.NumberOfMageSkeletonsToSummon }.Sum(n => GolemStat(gem.Stats, n)));
         if (definition.Family == "RagingSpirit")
-            return Random.Shared.Next(100) < Math.Clamp(GolemStat(gem.Stats, Stat.SummonedRagingSpiritChanceToSpawnAdditionalMinionPct), 0, 100) ? 2 : 1;
+            return random.Next(100) < Math.Clamp(GolemStat(gem.Stats, Stat.SummonedRagingSpiritChanceToSpawnAdditionalMinionPct), 0, 100) ? 2 : 1;
         return Math.Max(1, GolemStat(gem.Stats, Stat.NumberOfMonstersToSummon));
     }
 
@@ -106,7 +110,7 @@ public static partial class Game
         RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
             var gem = SupportedSkill(player, source);
-            int count = SummonCount(definition, gem);
+            int count = SummonCount(definition, gem, AreaRng(player));
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
@@ -351,6 +355,7 @@ public static partial class Game
                     }
             }
         }
+        if (state.Fighters.Count == 0 && state.HolyBuff == 0) return;
         bool changed = false;
         var rescaled = new List<(GolemState.Golem Old, SummonCatalog.Definition Definition,
             Dictionary<byte, Item>? Equipment, string Variety, (int X, int Y) Aim)>();
@@ -405,18 +410,21 @@ public static partial class Game
 
     static void AddSummonCounts(Player player, StatMap stats)
     {
-        foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
-            if (Stats.Key("number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters") is uint count)
-                stats[count] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind == "Dominating" + rarity && !g.Monster.Dead);
+        foreach (var (rarity, count) in new[] { (MonsterRarity.Normal, Stat.NumberOfDominatedNormalMonsters),
+            (MonsterRarity.Magic, Stat.NumberOfDominatedMagicMonsters), (MonsterRarity.Rare, Stat.NumberOfDominatedRareMonsters) })
+            stats[count] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind == "Dominating" + rarity && !g.Monster.Dead);
         if (Stat.NumberOfDominatedVaalMonsters is var ascended)
             stats[ascended] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind == "VaalDomination" && !g.Monster.Dead);
         if (Stat.NumberOfDominatedMonsters is var dominated)
             stats[dominated] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) && !g.Monster.Dead);
-        var names = SummonCountNames;
-    foreach (var (kind, name) in names)
-        if (Stats.Key("number_of_active_" + name) is uint key)
+        foreach (var (kind, key) in SummonCountNames)
             stats[key] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind == kind && !g.Monster.Dead && g.Monster.Life > 0);
     }
-    static readonly IReadOnlyDictionary<string, string> SummonCountNames = new Dictionary<string, string> { ["Absolution"] = "absolution_sentinels", ["VaalAbsolution"] = "vaal_absolution_sentinels", ["Phantasm"] = "phantasms", ["Zombie"] = "zombies", ["Spectre"] = "spectres", ["Skeleton"] = "skeletons",
-            ["RagingSpirit"] = "raging_spirits", ["HolyRelic"] = "relics", ["Reaper"] = "reapers", ["AnimatedWeapon"] = "animated_weapons", ["AnimatedGuardian"] = "animated_armour" };
+    static readonly IReadOnlyDictionary<string, uint> SummonCountNames = new Dictionary<string, uint>
+    {
+        ["Absolution"] = Stat.NumberOfActiveAbsolutionSentinels, ["VaalAbsolution"] = Stat.NumberOfActiveVaalAbsolutionSentinels,
+        ["Phantasm"] = Stat.NumberOfActivePhantasms, ["Zombie"] = Stat.NumberOfActiveZombies, ["Spectre"] = Stat.NumberOfActiveSpectres,
+        ["Skeleton"] = Stat.NumberOfActiveSkeletons, ["RagingSpirit"] = Stat.NumberOfActiveRagingSpirits, ["HolyRelic"] = Stat.NumberOfActiveRelics,
+        ["Reaper"] = Stat.NumberOfActiveReapers, ["AnimatedWeapon"] = Stat.NumberOfActiveAnimatedWeapons, ["AnimatedGuardian"] = Stat.NumberOfActiveAnimatedArmour,
+    };
 }

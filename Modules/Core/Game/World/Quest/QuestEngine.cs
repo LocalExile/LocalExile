@@ -260,7 +260,7 @@ public static partial class Game
             {
                 QueueDoorRefresh(player, [opened]);
                 foreach (var peer in player.Instance.PlayersExcept(player.Id))
-                    if (peer.Owner is { } other) QueueDoorRefresh(other, [opened]);
+                    if (peer is { } other) QueueDoorRefresh(other, [opened]);
             }
         }
         foreach (string item in dropsCommitted ? [] : QuestsOf(player).DropsOnKill(area, variety.Id))
@@ -472,7 +472,7 @@ public static partial class Game
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player uses quest object 0x{use.TargetId:x} {rule.ObjectType.Split('/')[^1]} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s",
                 still: () => PlayerActionCurrent(player, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         try
         {
@@ -502,7 +502,7 @@ public static partial class Game
                 await UpdateShownTransitions(player, $"instance state {string.Join(", ", instance)}");
                 await UpdateQuestObjectStates(player, instance);
                 foreach (var peer in player.Instance.PlayersExcept(player.Id))
-                    if (peer.Owner is { } other) QueueDoorRefresh(other, instance);
+                    if (peer is { } other) QueueDoorRefresh(other, instance);
             }
             if (flags.Where(f => !Quests.IsInstanceFlag(f)).ToList() is { Count: > 0 } own)
                 await ConsumeQuestItemsAndSet(player, own, rule.ObjectType.Split('/')[^1]);
@@ -753,7 +753,7 @@ public static partial class Game
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player opens quest chest 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s",
                 still: () => PlayerActionCurrent(player, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         if (!GameServer.Core.World.PlayerWalk.InReach(stop, (at.X, at.Y), QuestChestSize, player.Layout.Walkable) || !player.Instance.OpenChest(at.X, at.Y, QuestChestOwner(player, rule)))
         {

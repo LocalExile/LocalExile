@@ -111,6 +111,7 @@ public static class ClientPackets
         P(InstanceProtocol.AttackInPlaceId, 4),
         P(InstanceProtocol.SlotMask52Id, 4),
         P(InstanceProtocol.ExitToCharacterSelectId, 2),
+        P(InstanceProtocol.ExitToLoginId, 3),
         P(InstanceItems.LevelUpGemId, 14),
         P(InstanceItems.LevelUpAllGemsId, InstanceItems.LevelUpAllGemsLength),
         P(InstanceItems.LockGemId, InstanceItems.LockGemLength),

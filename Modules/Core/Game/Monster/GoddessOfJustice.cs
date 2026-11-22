@@ -73,7 +73,7 @@ static class GoddessOfJustice
         {
             while (fighting())
             {
-                await Task.Delay(TimeSpan.FromSeconds(TickSeconds));
+                await AreaDelay(player, TickSeconds);
                 if (!fighting()) return;
                 bool volley;
                 if (goddess.Dead || izaro.Dead) return;
@@ -104,7 +104,7 @@ static class GoddessOfJustice
             if (goddess.Dead) return false;
             double now = AreaTime(player);
             if (cast.Fighting && now >= cast.Until) { cast.Until = now + seconds; return true; }
-            await Task.Delay(100);
+            await AreaDelay(player, 0.1);
         }
     }
 

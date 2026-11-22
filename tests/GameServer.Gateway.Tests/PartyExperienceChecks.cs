@@ -29,7 +29,7 @@ static class PartyExperienceChecks
             var template = new PlayerObject(name, 0, i == 4 ? 1000 : 100, 100, player.PlayerLife, 1000,
                 Experience: player.Character.Experience);
             player.PeerTemplate = template;
-            instance.PublishPlayer(new(player.Id, 1, template, template.GridX, 100, player.PlayerLife, player));
+            instance.AddPlayer(player);
             return player;
         }).ToArray();
         var host = players[0];

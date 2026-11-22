@@ -155,14 +155,14 @@ public static partial class Game
     public static void ResyncAfter(Player player, double seconds, string why)
     {
         player.LandingUntil = Math.Max(player.LandingUntil, AreaTime(player) + seconds);
-        SendAfter(seconds, () => SendResync(player, why));
+        SendAfter(player, seconds, () => SendResync(player, why));
     }
 
     // Something to send later, on its own: the connection may be gone by then.
-    public static void SendAfter(double seconds, Func<Task> send) =>
+    public static void SendAfter(Player player, double seconds, Func<Task> send) =>
         _ = AreaFrames.Start(async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            await AreaDelay(player, seconds);
             try { await send(); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });

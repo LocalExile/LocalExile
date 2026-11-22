@@ -122,6 +122,36 @@ public static partial class Game
             finally { Invalidate(); }
         }
 
+        uint pendingGemXp;
+        int remainingMonstersQueued;
+
+        public void AddGemExperience(uint gemXp)
+        {
+            if (gemXp == 0) return;
+            long sum = (long)pendingGemXp + gemXp;
+            pendingGemXp = (uint)Math.Min(sum, uint.MaxValue);
+        }
+
+        void FlushPendingGemExperience()
+        {
+            if (pendingGemXp == 0) return;
+            uint gain = pendingGemXp;
+            pendingGemXp = 0;
+            var (gemPackets, leveled) = CommitGemExperience(Player, gain);
+            foreach (var packet in gemPackets) Packet(packet);
+            if (leveled) Enqueue(() => SendSkills(Player));
+        }
+
+        public void QueueRemainingMonsters()
+        {
+            if (Interlocked.Exchange(ref remainingMonstersQueued, 1) != 0) return;
+            EnqueueLater(() =>
+            {
+                Interlocked.Exchange(ref remainingMonstersQueued, 0);
+                return SendRemainingMonsters(Player);
+            });
+        }
+
         public void Advance()
         {
             // Match the existing XP -> connection lock order. Kill reactions may gain XP synchronously.
@@ -132,6 +162,7 @@ public static partial class Game
                 {
                     TickChannelTriggers(Player, this, AreaTime(Player));
                     Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
+                    FlushPendingGemExperience();
                 }
             }
         }
@@ -142,6 +173,7 @@ public static partial class Game
             {
                 if (!Active) { Invalidate(); return; }
                 Runtime.AdvanceTo(at);
+                FlushPendingGemExperience();
             }
         }
 
@@ -178,6 +210,7 @@ public static partial class Game
             invalid = true;
             lifetime?.Dispose();
             ClearPods();
+            ClearCausticClouds();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
@@ -241,7 +274,7 @@ public static partial class Game
                     return snapshot();
                 });
                 if (completed) return;
-                await Task.Delay(16);
+                await AreaDelay(Player, 0.016);
             }
         }, keepsWorldGroup: true);
 
@@ -306,7 +339,7 @@ public static partial class Game
                         return new([.. batch]);
                     });
                 if (completed || Player.Connection.WorldOutput.Closed) return;
-                await Task.Delay(16);
+                await AreaDelay(Player, 0.016);
             }
         });
         public void WorldRecords(uint id, Func<byte[][]?> snapshot, string? log = null, bool create = false,
@@ -365,7 +398,7 @@ public static partial class Game
                 // the gate) and not for a pause: record by record, as before.
                 if (admitted || completed || world.Closed) return;
                 if (!paused) break;
-                await Task.Delay(16);
+                await AreaDelay(Player, 0.016);
             }
             if (Active) foreach (var (id, snapshot, log) in group) await SendWorldRecordsNow(id, snapshot, log, false, false, false);
         }
@@ -401,7 +434,7 @@ public static partial class Game
                     });
                 }
                 if (completed || Player.Connection.WorldOutput.Closed) return;
-                await Task.Delay(16);
+                await AreaDelay(Player, 0.016);
             }
         }
 
@@ -676,7 +709,8 @@ public static partial class Game
                 contact.Projectile.ReactionRandomSource, player);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
-                OwnerStun(Player, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
+                OwnerStun(Player, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
+                    localStunReduction: shot.LocalStunThresholdReduction));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(Player, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;
         }
@@ -696,6 +730,8 @@ public static partial class Game
                 && value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Distance
                     or ProjectileEndReason.Lifetime or ProjectileEndReason.Landing)
                 Enqueue(() => onEnd((x, y)));
+            if (valid && value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { CausticCloud: { } cloud })
+                PlaceCausticCloud(value.Position, cloud);
             if (valid && presentation.EventEffect?.Invoke(value) is { } eventEffect)
             {
                 bool spawn = value.Kind == ProjectileEventKind.Spawn;

@@ -46,10 +46,26 @@ public static partial class Game
             _ = AsPlayer(player, updates, () => work(player));
         });
 
-    // In the area's frame, once its world exists (a player's updates start before the frames' first member joined).
+    /// <summary>Waits <paramref name="seconds"/> of the area's time: its frames, which a pause holds. What a rule's script
+    /// (a boss fight, a trap, a portal) awaits between its steps; it goes on in the area's frame. A module reload or the
+    /// area's end drops the timer and the script with it. Outside running frames (no area yet), real time, as the frames'
+    /// own waits (AreaFrames.Wait).</summary>
+    public static Task AreaDelay(Player player, double seconds, CancellationToken stopping = default)
+    {
+        if (!player.Frames.Running) return Task.Delay(TimeSpan.FromSeconds(Math.Max(0, seconds)), stopping);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        long frames = Math.Max(1, (long)Math.Ceiling(Math.Max(0, seconds) * 1000 / Program.FrameMs));
+        InArea(player, a => a.Timers.After(a.Frame, frames, _ => done.TrySetResult(), source: CombatLifetime));
+        if (stopping.CanBeCanceled) stopping.Register(() => done.TrySetCanceled(stopping));
+        return done.Task;
+    }
+
+    // In the area's frame, once its world exists (a player's updates start before the frames' first member joined): at once
+    // when this is the frame (a timer added now counts from this frame, not the next one).
     static void InArea(Player player, Action<GameArea> work)
     {
-        if (player.Frames.Area is { } area) area.Defer(work);
+        if (player.Frames.Area is { Owned: true } owned) work(owned);
+        else if (player.Frames.Area is { } area) area.Defer(work);
         else _ = player.Frames.AreaReady.ContinueWith(t => t.Result.Defer(work),
             TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously);
     }

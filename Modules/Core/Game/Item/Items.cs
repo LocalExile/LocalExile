@@ -862,12 +862,27 @@ public static partial class Game
     {
         if (!GameEvents.AllowsLoot(player)) return;
         if (ItemsOf(player).StartWeapon is not { } weapon || WaypointCatalog.Areas.Find(player.Layout.Hash) is { IsTown: true }) return;
-        var (x, y) = player.Layout.Near((player.Layout.SpawnX, player.Layout.SpawnY));
+        // PoE's isometric screen-up axis is (+1, +1). Place the starter weapon ~100 px forward/up on screen from the
+        // player's spawn (~(+10, +10) grid cells) rather than Layout.Near's (-6, -6) behind the player toward the water.
+        var (x, y) = PlaceForwardOfSpawn(player.Layout);
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
         if (player.Instance.PlaceStartWeapon(CharacterName(player), ground, player) is not { } id) return;
         await SendGroundItem(player, id, ground,
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(player).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({player.Layout.SpawnX}, {player.Layout.SpawnY})");
+    }
+
+    static (int X, int Y) PlaceForwardOfSpawn(AreaLayout layout)
+    {
+        int tx = layout.SpawnX + 10, ty = layout.SpawnY + 10;
+        if (layout.Walkable is not { } walkable) return (tx, ty);
+        if (walkable(tx, ty)) return (tx, ty);
+        for (int r = 1; r <= 12; r++)
+            for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dy)) == r && walkable(tx + dx, ty + dy))
+                        return (tx + dx, ty + dy);
+        return layout.Near((layout.SpawnX, layout.SpawnY));
     }
 
     // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2bb + wake zone 0x1a9).
@@ -901,8 +916,14 @@ public static partial class Game
                 await Game.SendWorldRemoval(player, id, $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
             return;
         }
-        if (!TryBeginObjectWalk(player, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupToleranceOf(player, ground.Item))) return;
+        int tolerance = PickupToleranceOf(player, ground.Item);
+        if (!TryBeginObjectWalk(player, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: tolerance)) return;
         var (action, now, here, stop, arrive) = objectWalk;
+        if (!player.Walk.InReachOf(stop, (ground.GridX, ground.GridY), (int)PickupReach, tolerance))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) from ({here.X}, {here.Y}): out of reach (stopped at ({stop.X}, {stop.Y}))");
+            return;
+        }
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its
         // own pickup range itself. An echo sent on arrival carried the server's estimated stop, and the client snapped to it.
@@ -910,8 +931,9 @@ public static partial class Game
         if (!use.Started)
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
                 $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(player, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
+        if (!player.Walk.InReachOf(player.Walk.Position(AreaTime(player)), (ground.GridX, ground.GridY), (int)PickupReach, tolerance)) return;
         // Interaction's default completion lasts 0.1 s (3.29.3c, 0x1419478b0). A Move queued before it ends
         // starts in Actor's completion callback, then its path is discarded by 0x141e9b860. Keep the request
         // pending on the server until that completion has passed; the walk-up itself remains interruptible.
@@ -938,15 +960,23 @@ public static partial class Game
         InventoryItem? placed;
         List<string> pickupFlags;
         (byte X, byte Y) cell = (0, 0);
+        bool autoEquipped = false;
         if (HardcoreProgressBlocked(player)) return;
         if (!toCursor)
         {
-            if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } free)
+            if (use.AutoEquip && questFlags is null && items.FindAutoEquipSlot(ground.Item, ShapeOf) is { } equip
+                && LevelTooLow(player, equip.Row, ground.Item) is null)
+            {
+                row = equip.Row;
+                cell = (equip.X, equip.Y);
+                autoEquipped = true;
+            }
+            else if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } free)
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} world item 0x{id:x}: no room in the inventory");
                 return;
             }
-            cell = free;
+            else cell = free;
         }
         if (player.Instance.Ground.Take(id) is null) return;   // already picked up
         // The start weapon stops waiting; the Put below saves both changes at once.
@@ -955,9 +985,24 @@ public static partial class Game
 
         // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
         pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f));
+        bool visibleEquip = autoEquipped && PlayerInventories.ShowsOnModel(row);
         placed = KeepOnGroundIfNotSaved(player, ground, () =>
         {
-            InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
+            InventoryItem Put()
+            {
+                if (!visibleEquip)
+                    return items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
+                using (ProjectileMutation(player, advance: false, phase: "auto-equip pickup"))
+                using (new PlayerStatScope(player, fresh: true))
+                {
+                    var sourcesBefore = PlayerSkillSourcesLocked(player);
+                    var equipped = items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
+                    RecomputePoolsAndSpeed(player);
+                    ReconcileBeastCompanionsLocked(player);
+                    ReconcileEquipmentSourceLifetimesLocked(player, sourcesBefore);
+                    return equipped;
+                }
+            }
             if (CharacterSaves.Load(CharacterName(player))?.Tutorial is { } tutorial)
                 foreach (bool support in new[] { false, true })
                     if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(player), tutorial, support), id))
@@ -966,8 +1011,12 @@ public static partial class Game
         }, id);
         await Game.SendWorldRemoval(player, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
-        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
-            toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
+        if (row == PlayerInventories.Flask) placed = EmptyIfEquippedInHostileArea(player, items, placed);
+        uint invId = PlayerInventories.InventoryId(row);
+        await Send(player, InstanceItems.InventoryChange(invId, items.NextRevision(row), [], [placed]),
+            toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory {invId}: add item {placed.Id} at ({cell.X}, {cell.Y})");
+        if (visibleEquip) await SendEquipment(player, items);
+        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(player);
         if (pickupFlags.Count > 0) await SetQuestFlags(player, pickupFlags);
         if (questFlags is not null) await SyncQuestItems(player, removeItems: false);
     }

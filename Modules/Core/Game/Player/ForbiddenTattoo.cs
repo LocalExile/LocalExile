@@ -45,7 +45,7 @@ public static class ForbiddenTattoo
     /// <paramref name="node"/> (the replaced notable) and whose back-passive row does not list the replaced passive:
     /// a rolled duplicate would count its stats twice, and the client's TattooBlockingPassive forbids the swap.
     /// Null when the name is not a Forbidden tattoo or no free notable is left.</summary>
-    public static ushort? Pick(string name, ushort node, IReadOnlyCollection<ushort>? allocated = null)
+    public static ushort? Pick(string name, ushort node, IReadOnlyCollection<ushort>? allocated, Random random)
     {
         if (Pool(name) is not { } pool) return null;
         var data = Pools;
@@ -53,7 +53,7 @@ public static class ForbiddenTattoo
         int replaced = data.Positions.GetValueOrDefault(node, -1);
         var candidates = pool.Where(id => !taken.Contains(id)
             && !(data.Blocking.TryGetValue(id, out var blocked) && blocked.Contains(replaced))).ToArray();
-        return candidates.Length == 0 ? null : candidates[Random.Shared.Next(candidates.Length)];
+        return candidates.Length == 0 ? null : candidates[random.Next(candidates.Length)];
     }
 
     /// <summary>Whether the client's row for this granted notable lists the replaced passive as TattooBlockingPassive.</summary>

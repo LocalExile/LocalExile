@@ -73,10 +73,12 @@ public static partial class Game
         // them, else one of the area's packs at that pack's own count. A shrine too close to an entrance or waypoint is not
         // guarded (the 1.0.0d note). The guards are planned with the area's monsters, so an instance keeps them and a
         // re-entry or an activation never spawns them again.
+        var safePoints = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
+        if (layout.Waypoint is { } wp) safePoints.Add((wp.GridX, wp.GridY));
         var shrineGuards = ServerLevels.For(layout.Id, player.Seed) is { } shrineLevel
             ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed)
                 .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
-                    [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], AreaPopulation.TransitionClearance))
+                    safePoints, AreaPopulation.TransitionClearance))
                 .Select(p =>
                 {
                     var (rule, packs) = ShrineGuards.Resolve(p.Shrine, MapDevices.IsMapArea(layout.Hash), Packs.Find);
@@ -115,7 +117,7 @@ public static partial class Game
         var mapMods = MapModsOf(player);
         var scale = mapMods?.Packs ?? default;
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
-            [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
+            safePoints, points,
             AreaPopulation.PopulationSeed(layout.Hash, player.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.

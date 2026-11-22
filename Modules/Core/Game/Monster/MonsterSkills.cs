@@ -390,7 +390,7 @@ public static partial class MonsterSkills
         bool shots = use.Reach > use.Radius;
         for (int pulse = 0; pulse < use.Pulses; pulse++)
         {
-            if (pulse > 0) await Task.Delay(TimeSpan.FromSeconds(use.PulseSeconds));
+            if (pulse > 0) await AreaDelay(player, use.PulseSeconds);
             if (player.Closed || m.Dead) return;
             foreach (var from in corpses)
             {
@@ -400,7 +400,7 @@ public static partial class MonsterSkills
                 var corpse = from;
                 _ = AreaFrames.Start(async () =>
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(flight));
+                    await AreaDelay(player, flight);
                     var playerAt = player.Walk.Position(AreaTime(player));
                     if (Dist(corpse, playerAt) <= use.Reach) await HitFrom(player, id, m, action, seq, a, playerAt, LandingRadius);
                 });
@@ -510,7 +510,7 @@ public static partial class MonsterSkills
 
     static async Task EndBuff(Player player, uint id, SpawnedMonster m, MonsterSkillUse use, Buffs buffs, ushort buff, object area)
     {
-        await Task.Delay(TimeSpan.FromSeconds(use.Seconds));
+        await AreaDelay(player, use.Seconds);
         buffs.Active.RemoveAll(b => b.Buff == buff);
         m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
         if (use.BuffRow > 0 && !player.Closed && !m.Dead && ReferenceEquals(area, player.Layout))

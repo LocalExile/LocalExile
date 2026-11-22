@@ -194,11 +194,20 @@ public sealed class MonsterIgnites
     public bool Add(double now, double perSecond, double seconds, bool aggravated = false, int spread = 0) =>
         Add(now, perSecond, seconds, aggravated, spread, 0);
 
+    static long spreadsAdded;
+    /// <summary>True once any ignite with a proliferation radius has been added anywhere in the process.</summary>
+    public static bool AnySpreadAdded => Volatile.Read(ref spreadsAdded) > 0;
+
+    /// <summary>True when this monster has any active or corpse-retained ignite that might spread.</summary>
+    public bool MaySpread => active.Count > 0 || corpse.Count > 0;
+
     public bool Add(double now, double perSecond, double seconds, bool aggravated, int spread, int damageTakenPct)
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
-        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated, Math.Max(0, spread),
+        int radius = Math.Max(0, spread);
+        if (radius > 0) Interlocked.Increment(ref spreadsAdded);
+        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated, radius,
             DamageTakenPct: Math.Max(0, damageTakenPct)));
         LastApplied = now;
         return true;

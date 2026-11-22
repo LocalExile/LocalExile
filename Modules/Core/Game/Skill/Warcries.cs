@@ -124,7 +124,7 @@ public static partial class Game
         if (art.Count > 0)
             _ = AreaFrames.Start(async () =>
             {
-                await Task.Delay(CorpseExplosionArtMs);
+                await AreaDelay(player, CorpseExplosionArtMs / 1000.0);
                 foreach (uint effect in art)
                     if (player.ProjectileActive(epoch)) await Game.SendWorldRemoval(player, effect, null);
             });

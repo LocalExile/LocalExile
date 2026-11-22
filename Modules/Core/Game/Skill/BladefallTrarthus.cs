@@ -105,7 +105,7 @@ public static partial class Game
                     double interval = BladefallVolleySeconds(player, n => n is var k ? own.GetValueOrDefault(k) : 0);
                     state.NextVolley = Math.Max(now, state.NextVolley + interval);
                 }
-                await Task.Delay(25);
+                await AreaDelay(player, 0.025);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

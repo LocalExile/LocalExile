@@ -68,13 +68,18 @@ public static partial class Game
                     foreach (var (id, monster) in player.Area.Monsters)
                         if (monster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                             && !MonsterAsleep(player, id) && Dist(here, monster.Walk.Position(now)) <= radius)
+                        {
+                            player.Area.HasSpiderWebs = true;
                             monster.SpiderWebs.Apply(player.Id, now, seconds, maximum, taken,
                                 Get(Stat.ResistAllPctForEnemiesYouInflictSpidersWebUpon),
                                 Get(Stat.DamagePlusPctForEnemiesYouInflictSpidersWebUpon));
+                        }
                 }
             }
             else { state.SpiderOwner = null; state.NextSpiderWeb = 0; }
         }
+        if (root is null && !player.Area.HasSpiderWebs) return;
+        bool anyWebs = false;
         foreach (var (id, monster) in player.Area.Monsters)
         {
             var webs = monster.SpiderWebs;
@@ -83,6 +88,7 @@ public static partial class Game
             if (monster.Dead || monster.Life == 0) webs.Webs.Clear();
             webs.Expire(now);
             int count = webs.Count(now);
+            if (count > 0 || webs.Webs.Count > 0) anyWebs = true;
             double until = webs.Until(now);
             // The webs' count, and the countdown to the last one's end (a new web moves it).
             if (count > 0 && (count != webs.PresentedCount || until != webs.PresentedUntil))
@@ -112,6 +118,7 @@ public static partial class Game
                 if (on) player.Area.Buffs.Keep(id, new(row, player.Id)); else player.Area.Buffs.Clear(id, row, player.Id);
             }
         }
+        player.Area.HasSpiderWebs = anyWebs;
     }
 
     public static int SpiderHinder(SpawnedMonster target, double now) => target.SpiderWebs.Count(now) > 0

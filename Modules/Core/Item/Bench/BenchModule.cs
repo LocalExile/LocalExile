@@ -95,7 +95,7 @@ static class BenchFeature
         if (!TryBeginObjectWalk(player, requestedAt, player.CraftingBenchAt.X, player.CraftingBenchAt.Y, player.StationaryInteractionSize(player.CraftingBenchObject), out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 crafting bench (0x{use:x}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (player.Closed || !PlayerActionCurrent(player, action)
             || !PlayerWalk.InWalkUpRange(stop, player.CraftingBenchAt, player.StationaryInteractionSize(player.CraftingBenchObject))) return;
         player.BenchOpen = true;

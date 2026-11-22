@@ -299,7 +299,9 @@ public static partial class Game
     static GolemState.Saved SavedGolem(Player player, GolemState.Golem golem, double now)
     {
         var gem = SupportedSkill(player, golem.Source);
-        var place = ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
+        object? sourceId = gem.SourceGem is not null ? PlayerInventories.GemIdentity(gem.SourceGem) : null;
+        var place = sourceId is null ? default : ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p =>
+            ReferenceEquals(PlayerInventories.GemIdentity(p.Gem), sourceId));
         return new(golem.Definition.Id, golem.Source,
             SavedLifeFraction(golem.Monster),
             golem.Monster.Dead ? SavedPositiveDelay(golem.ReviveAt - now) : 0,
@@ -491,6 +493,7 @@ public static partial class Game
                     legacyArrival: old.Resources is null);
             }
         }
+        if (player.Golems.All.Count == 0 && player.Golems.Waiting.Count == 0) return;
         bool changed = false;
         List<(GolemState.Awaiting Waiting, bool Current, ushort Source)> dueWaiting;
         dueWaiting = player.Golems.Waiting.Where(w => player.PlayerLife > 0 && now >= w.At)

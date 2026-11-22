@@ -258,7 +258,7 @@ public static partial class Game
                 return RampageStunPacket(player, token, Now());
             });
             if (completed) return;
-            await Task.Delay(16);
+            await AreaDelay(player, 0.016);
         }
     }
 
@@ -286,7 +286,6 @@ public static partial class Game
     static bool RampageBlindWork(Player player)
     {
         if (!CurrentRampageWork || player.OwnedCombatState is not RampageWorld world) return false;
-        if (world.PendingBuffRemoval.Count > 0) return true;
         double now = ProjectileWorldTime(player);
         foreach (var (id, entry) in world.Blinds)
             if (RampageBlindEndsLocked(player, world, id, entry.Until, now)
@@ -308,7 +307,6 @@ public static partial class Game
             var playerStats = world.Blinds.Count > 0 ? CharacterPlayerStats(player) : null;
             if (!CurrentRampageWork || !ReferenceEquals(player.OwnedCombatState, world)) return null;
             List<byte> bytes = [];
-            world.PendingBuffRemoval.Clear();
             double now = ProjectileWorldTime(player);
             foreach (var (id, entry) in world.Blinds.ToArray())
                 if (RampageBlindEndsLocked(player, world, id, entry.Until, now))

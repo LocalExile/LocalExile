@@ -95,8 +95,8 @@ public sealed class HitDebuffTests
             Assert.Equal((true, true), Game.HitDebuffRolls(Chances("chance_to_intimidate_on_hit_%", "chance_to_unnerve_on_hit_%"), true, false, random));
 
             var m = new SpawnedMonster("intimidated", new(105, 100, 0), 0, 0, 100);
-            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 10);
-            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 12);
+            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 10, random: new Random(1));
+            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 12, random: new Random(1));
             Assert.Equal(16, m.IntimidatedUntil);
             Assert.Equal(10, Game.HitDebuffTaken(m, spell: false, 15.9));
             Assert.Equal(0, Game.HitDebuffTaken(m, spell: true, 15.9));

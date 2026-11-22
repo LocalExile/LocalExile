@@ -111,9 +111,9 @@ public static partial class Game
         {
             try
             {
-                await Task.Delay(afterMs);
+                await AreaDelay(player, afterMs / 1000.0);
                 if (!await SendSinglePortals(player, what, id)) return;
-                await Task.Delay(MapPortalRelistMs);
+                await AreaDelay(player, MapPortalRelistMs / 1000.0);
                 await SendSinglePortals(player, what + ", listed again", id);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

@@ -272,6 +272,7 @@ public static partial class Game
     {
         int action;
         (int X, int Y) here;
+        double getupSeconds = 0;
         using (ProjectileMutation(player))
         {
             double now = ProjectileWorldTime(player);
@@ -280,12 +281,21 @@ public static partial class Game
             requestedAt = Math.Max(requestedAt, player.ProjectileRuntime?.Runtime.Now / 120000d ?? requestedAt);
             player.TutorialGettingUp = true;
             action = Interlocked.Increment(ref player.ActionCount);
+            // The client plays its class's getup clip in place (0x141c6fd70, speed 1) and takes nothing else until it
+            // ends (0x141c6fe10): hold provisionally here and anchor to the send frame's countdown in atGate so a Move
+            // sent during getup never arrives before the client finishes getting up (which would discard its path).
+            string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
+            if (Animations.ClipLengthMs(ao, "getup") is int getup)
+            {
+                getupSeconds = getup / 1000.0;
+                player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, AreaTime(player) + getupSeconds + player.LockstepActionTail);
+            }
             here = player.Walk.Position(requestedAt);
             player.Walk.Order(here.X, here.Y, requestedAt);
             player.ChannelSkill = 0;
         }
         var (x, y) = target ?? here;
-        await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags),
+        await SendWorldRecord(player, player.Id, [],
             $"0x01ab player gets up on the beach at ({here.X}, {here.Y})",
             still: () =>
             {
@@ -293,6 +303,13 @@ public static partial class Game
                 // Dropped: the client is still down, so its next request tries again.
                 player.TutorialGettingUp = false;
                 return false;
+            },
+            atGate: () =>
+            {
+                if (getupSeconds > 0 && player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame
+                    && LockstepCountdownFrames((float)getupSeconds) is { } frames)
+                    player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, frame.Start + (frames + 1) * (frame.End - frame.Start));
+                return InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags);
             });
     }
 

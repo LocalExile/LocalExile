@@ -64,7 +64,7 @@ sealed class SmokeCloudEffect : IShrineEffect
         return Task.CompletedTask;
     }
 
-    const string CloudZones = "shrine cloud";
+    const ZoneKind CloudZones = ZoneKind.ShrineCloud;
 
     public async Task Tick(ShrineContext ctx, ShrineInstance shrine)
     {
@@ -99,11 +99,11 @@ sealed class SmokeCloudEffect : IShrineEffect
         // The cloud is a zone at it (OwnedZones): the unclaimed shrine's reaches the players, the claimed one's the
         // hostile monsters.
         var hostile = ReachesHostileMonsters(player, body: false);
-        SyncZones(player, player.Id, CloudZones, [((object)shrine, (int)Math.Round(reach), _at)],
+        SyncZones(player, player.Id, CloudZones, [(shrine.ObjectId, (int)Math.Round(reach), _at)],
             new(id => shrine.State == ShrineState.Inactive ? IsPlayerId(id.Value) ? 0 : null : hostile(id)));
         if (now < _nextBlind) return;
         _nextBlind = now + BlindRefresh;
-        var members = ZoneMembers(player, player.Id, CloudZones, shrine).Select(e => e.Value).ToArray();
+        var members = ZoneMembers(player, player.Id, CloudZones, shrine.ObjectId).Select(e => e.Value).ToArray();
         // The unclaimed shrine's fog blinds whoever walks into it; the claimed shrine's blinds the monsters in it.
         if (shrine.State == ShrineState.Inactive) fogged = [.. members.Select(id => AreaPlayer(player, id)).OfType<Player>().Where(p => p.PlayerLife > 0)];
         else

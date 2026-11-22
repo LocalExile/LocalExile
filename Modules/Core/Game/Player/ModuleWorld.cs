@@ -51,7 +51,7 @@ public static partial class Game
         public async Task<bool> WalkUpTo(int x, int y, int reach, double requestedAt)
         {
             if (!TryBeginObjectWalk(player, requestedAt, x, y, reach, out var walk)) return false;
-            if (walk.Arrive > walk.Now) await Task.Delay(TimeSpan.FromSeconds(walk.Arrive - walk.Now));
+            if (walk.Arrive > walk.Now) await AreaDelay(player, walk.Arrive - walk.Now);
             return !player.Closed && PlayerActionCurrent(player, walk.Action) && PlayerWalk.InWalkUpRange(walk.Stop, (x, y), reach);
         }
 

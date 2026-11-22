@@ -118,7 +118,7 @@ static partial class QuestobjectsRules
                     .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaising),
                     .. InstanceProtocol.AnimationUpdate(g.Id, 0, AscendingClip, 1)]);
             await Send(player, [.. bytes], $"0x02bc Izaro's {own.Count} gargoyles rise");
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
+            await AreaDelay(player, IzaroStatues.RiseSeconds);
             bytes = [];
             if (!here()) return;
             foreach (var g in own)
@@ -128,7 +128,7 @@ static partial class QuestobjectsRules
                     .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaised)]);
             }
             await Send(player, [.. bytes], "0x02bc Izaro's gargoyles up");
-            await Task.Delay(TimeSpan.FromSeconds(IzaroGargoyles.StandSeconds));
+            await AreaDelay(player, IzaroGargoyles.StandSeconds);
             foreach (var g in own.OrderBy(_ => AreaRng(player).Next()))
             {
                 uint beam;
@@ -156,7 +156,7 @@ static partial class QuestobjectsRules
                 // The beam runs its time, or until the gargoyle dies or Izaro leaves (live: it goes with the gargoyle).
                 for (double waited = 0; waited < IzaroGargoyles.BeamSeconds; waited += 0.2)
                 {
-                    await Task.Delay(200);
+                    await AreaDelay(player, 0.2);
                     if (!here() || arena.Over || GargoyleDead(player, g)) break;
                 }
                 if (!here()) return;
@@ -199,7 +199,7 @@ static partial class QuestobjectsRules
                     allDead = arena.AllGargoylesDeadSaid = true;
                 foreach (var (g, _) in gone) player.Area.Buffs.Clear(arena.Izaro, g.Effect.Buff, g.Id);
                 if (allDead) await IzaroSays(player, arena.Izaro, IzaroGargoyles.AllDeadLine);
-                await Task.Delay(200);
+                await AreaDelay(player, 0.2);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

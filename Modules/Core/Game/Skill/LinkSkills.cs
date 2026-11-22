@@ -20,7 +20,7 @@ public static partial class Game
         ushort skillId, int effect, uint targetId, Func<bool> current)
     {
         if (CastMs(player, effect, skillId) is not int ms) return false;
-        await Task.Delay(ms);
+        await AreaDelay(player, ms / 1000.0);
         await WhilePaused(player);
         return current() && await StartLink(player, skillId, targetId);
     }

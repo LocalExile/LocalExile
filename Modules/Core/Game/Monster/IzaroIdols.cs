@@ -66,7 +66,7 @@ static class IzaroIdols
                 // Its life fills; hits take it down meanwhile.
                 while (true)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(TickSeconds));
+                    await AreaDelay(player, TickSeconds);
                     if (!up()) return;
                     bool full;
                     if (idol.Dead) return;
@@ -80,7 +80,7 @@ static class IzaroIdols
                 spots = Spots(player);
                 await Send(player, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 1, SummonAnimation)], $"idol 0x{id:x} casts {spots.Count} circles");
                 _ = Circles(player, id, idol, burst, element, spots);
-                await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.SitSeconds));
+                await AreaDelay(player, IzaroChronos.SitSeconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -129,10 +129,10 @@ static class IzaroIdols
                     new EffectObject(s.X, s.Y, IzaroChronos.OrbArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(orb)]);
             }
             await Send(player, [.. show], null);
-            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.OrbStartSeconds));
+            await AreaDelay(player, IzaroChronos.OrbStartSeconds);
             if (Gone()) return;
             await Send(player, [.. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbLoopClip, 1))], null);
-            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.FuseSeconds - IzaroChronos.OrbStartSeconds));
+            await AreaDelay(player, IzaroChronos.FuseSeconds - IzaroChronos.OrbStartSeconds);
             if (Gone()) return;
             var bursts = new List<uint>();
             List<byte> burstBytes = [.. circles.SelectMany(InstanceProtocol.RemoveObject),
@@ -157,7 +157,7 @@ static class IzaroIdols
                 return outcome?.HitPacket;
             });
             if (outcome is not null) await PresentMonsterHit(player, id, outcome);
-            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.ExplodeSeconds));
+            await AreaDelay(player, IzaroChronos.ExplodeSeconds);
             if (!Gone()) await Send(player, [.. bursts.Concat(orbs).SelectMany(InstanceProtocol.RemoveObject)], null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

@@ -105,10 +105,10 @@ public sealed class MinionTacticsTests
             var relic = f.Player.Summons.Fighters[relicId];
             var target = Enemy(f, 900, 105);
             f.Player.Minions.Random = new ZeroRandom();
-            Assert.True(Hit(f, relic, 900, target, clock.Time)); Assert.Equal(0, f.Player.Summons.FeedingFrenzyBuff);
+            Assert.True(Hit(f, relic, 900, target, clock.Time)); Assert.False(f.Player.Area.Buffs.HasRow(f.Player.Id, 1372));
             Assert.True(Hit(f, fighter, 900, target, clock.Time));
             Assert.Equal(6.9, f.Player.Summons.FeedingFrenzyUntil, 5);
-            ushort buff = f.Player.Summons.FeedingFrenzyBuff; Assert.NotEqual(0, buff);
+            Assert.True(f.Player.Area.Buffs.HasRow(f.Player.Id, 1372));
             int Stat(uint name) => Game.CharacterPlayerStats(f.Player).GetValueOrDefault(name);
             Assert.Equal(1, Stat(global::Stat.HasPuppetMaster));
             Assert.Equal(10, relic.Monster.Mods.Effects[global::Stat.AttackSpeedPlusPct]);
@@ -121,13 +121,13 @@ public sealed class MinionTacticsTests
             Assert.Equal(7.9, f.Player.Summons.FeedingFrenzyUntil, 5);
             Assert.Equal(10, relic.Monster.Mods.Effects[global::Stat.AttackSpeedPlusPct]);
             clock.Time = 7.9; Game.MinionUtilityTick(f.Player, clock.Time);
-            Assert.Equal(0, f.Player.Summons.FeedingFrenzyBuff); Assert.Equal(0, Stat(global::Stat.HasPuppetMaster));
+            Assert.False(f.Player.Area.Buffs.HasRow(f.Player.Id, 1372)); Assert.Equal(0, Stat(global::Stat.HasPuppetMaster));
             Assert.Equal(0, relic.Monster.Mods.Effects[global::Stat.AttackSpeedPlusPct]);
             Assert.False(f.Player.Area.Buffs.Has(f.Player.Id, 1372, f.Player.Id));
             before = target.Life; Assert.True(Hit(f, relic, 900, target, clock.Time)); Assert.Equal(100u, before - target.Life);
             Game.FeedingFrenzyOnHitLocked(f.Player, fighter, clock.Time);
             f.Player.PlayerLife = 0; Game.MinionUtilityTick(f.Player, clock.Time);
-            Assert.Equal(0, f.Player.Summons.FeedingFrenzyBuff);
+            Assert.False(f.Player.Area.Buffs.HasRow(f.Player.Id, 1372));
         }
         finally { Game.AreaUpdateContext.Value = outer; }
     }

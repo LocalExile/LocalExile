@@ -103,6 +103,7 @@ public static partial class Game
             MaimChance = Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             CriticalRoll = criticalRoll, Leech = captured.Leech,
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
+            LocalStunThresholdReduction = sourceWeapon.LocalSources?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
             AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,
             PointBlank = Get(Stat.KeystonePointBlank) != 0,
             ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindHitInput.Capture(character),

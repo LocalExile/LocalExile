@@ -48,7 +48,7 @@ public static partial class Game
             return;
         }
         // The clock is the instance's (InstanceWorld): with another player in it, it goes on.
-        if (pause && player.Instance.Presence.PlayersExcept(player.Id).Any(p => p.Owner is { Closed: false }))
+        if (pause && player.Instance.Presence.PlayersExcept(player.Id).Any(p => p is { Closed: false }))
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01d4 pause: another player is in the instance, not paused");
             return;
@@ -60,7 +60,7 @@ public static partial class Game
         if (!pause && player.PauseHeld)
         {
             if (player.Instance?.World is { } held && ReferenceEquals(held.PausedBy, player)) held.PausedBy = null;
-            await Send(player, InstancePause.State(true),
+            await SendPausedWorldPacket(player, InstancePause.State(true),
                 "0x01d3 still paused (C→S 0x01d4 0 ignored; a module holds the pause)");
             return;
         }
@@ -70,7 +70,7 @@ public static partial class Game
             if (pause) player.Clock.Stop(); else player.Clock.Start();
             if (player.Instance?.World is { } world) world.PausedBy = pause ? player : null;
         }
-        await Send(player, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
+        await SendPausedWorldPacket(player, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
     }
 
     // The menu's "Exit to character selection" sends C→S 0x153 without a 0x1d4 0 first (issue #991): the pause ends with
@@ -95,7 +95,7 @@ public static partial class Game
         Player? resumed;
         var world = instance.World;
         if (world.Clock.IsRunning) return;
-        var here = instance.Presence.PlayersExcept(player.Id).Select(p => p.Owner).OfType<Player>()
+        var here = instance.Presence.PlayersExcept(player.Id)
             .Where(other => !other.Closed).ToList();
         if (here.Any(other => other.PauseHeld)) return;
         resumed = world.PausedBy is { } pauser && here.Contains(pauser) && EndEscapePause(pauser) ? pauser : null;

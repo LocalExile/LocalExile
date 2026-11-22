@@ -120,6 +120,12 @@ public sealed class GameModule : IModule, IDisposable
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickMapRunBoss(player)));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(kill.Player, force: true));
+        // A dead monster's debuffs come off: each player's step for it.
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
+        {
+            foreach (var p in kill.Player.Frames.Players()) global::Game.MonsterDebuffsChanged(p, kill.Monster.ObjectId);
+            return Task.CompletedTask;
+        });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);

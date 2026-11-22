@@ -32,6 +32,8 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
+    public static bool IsCausticArrow(string? effect) =>
+        effect is "CausticArrow" or "CausticArrowAltX" or "CausticArrowAltY" or "VaalCausticArrow";
 
     public static ProjectileProfile Resolve(string effect, string metadata, Func<uint, int> get, double speed, bool attack,
         bool arrows = false)
@@ -104,6 +106,12 @@ public static class GatewayProjectileSkillProfiles
 
         else if (effect == "HolyFlameTotem")
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
+        else if (IsCausticArrow(effect))
+            p = p with
+            {
+                ContactArea = new("caustic-arrow-explosion", 0) { ExcludeContactTarget = true },
+                EndAreaReasons = NonContactStops,
+            };
 
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
         // pass below adds the skill's and the support's extra arrows to it.
@@ -310,6 +318,14 @@ public static class GatewayProjectileSkillProfiles
                 ? get(name) + get(Stat.MoltenStrikeRadiusPlusPct) : get(name);
             int baseRadius = Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 9);
             return p with { EndArea = moltenArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) } };
+        }
+        if (IsCausticArrow(effect) && p.ContactArea is { } causticArea)
+        {
+            int AreaStat(uint name) => name == SkillArea.BaseIncreased
+                ? get(name) + get(Stat.CausticArrowRadiusPlusPct) : get(name);
+            int baseRadius = Value(Stat.CausticArrowExplodeOnHitBaseAreaOfEffectRadius, 12);
+            var scaled = causticArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) };
+            return p with { ContactArea = scaled, EndArea = scaled };
         }
         if (p.EndArea is { } terminal)
             return p with { EndArea = terminal with

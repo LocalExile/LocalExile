@@ -160,8 +160,8 @@ Console.WriteLine($"[gateway] listening on {bind}:{port}");
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-// What waits in memory to be saved (experience, flask charges from kills) is saved every few seconds, and at the end.
-var saving = SaveUnsavedProgress(cts.Token);
+// Character and stash saves stay in memory during active gameplay and flush to SQLite on area leave, exit, disconnect,
+// or Gateway shutdown (no periodic background SQLite writes during gameplay).
 AppDomain.CurrentDomain.ProcessExit += (_, _) => SaveUnsavedProgressNow("the Gateway stops");
 
 while (!cts.IsCancellationRequested)
@@ -180,22 +180,9 @@ while (!cts.IsCancellationRequested)
 }
 
 listener.Stop();
-await saving;
 SaveUnsavedProgressNow("the Gateway stopped");
 Console.WriteLine("[gateway] stopped");
 return 0;
-
-// Experience and flask charges from kills wait in memory (CharacterSaves.AddExperience, PlayerInventories.ChangeUnsaved)
-// and are saved here at least every few seconds: a crash or a power cut loses at most those seconds of them.
-static async Task SaveUnsavedProgress(CancellationToken stop)
-{
-    using var timer = new PeriodicTimer(CharacterSaves.ExperienceSaveInterval);
-    try
-    {
-        while (await timer.WaitForNextTickAsync(stop)) SaveUnsavedProgressNow(null);
-    }
-    catch (OperationCanceledException) { }
-}
 
 public sealed partial class Program
 {

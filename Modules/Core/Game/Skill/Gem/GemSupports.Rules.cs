@@ -319,9 +319,7 @@ public static partial class Game
     {
         if (BuildScopeOf(player) is not { Building: true } && CurrentActiveSkills(player) is { } current)
         {
-            var skill = SupportedSkill(player, skillId);
-            return current.SkillGraphOf(skillId, skill, SkillsFor(player).IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
-                FinalPlayerStatMap(player, current));
+            return current.SkillGraphOf(player, skillId, SupportedSkill(player, skillId)).Stats;
         }
         return SupportedStatsNow(player, skillId);
     }

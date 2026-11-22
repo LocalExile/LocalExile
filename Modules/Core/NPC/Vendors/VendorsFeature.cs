@@ -112,7 +112,7 @@ static class VendorsFeature
         var offered = items.Offered().OrderBy(i => i.Id).ToList();
         sale.QuoteError = null;
         VendorRecipes.Quote quote;
-        try { quote = VendorSales.Evaluate(offered,
+        try { quote = VendorSales.Evaluate(offered, Game.AreaRng(player),
             basicSaleMultiplier: LeagueFor(player).Rules.VendorRewardMultiplier); }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
         {

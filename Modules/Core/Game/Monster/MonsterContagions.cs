@@ -66,7 +66,7 @@ static partial class Game
             * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
         int radius = (int)Math.Round(cast.Radius * radiusMore);
         var centre = SpellCentre(player, effect, from, to);
-        await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
+        await AreaDelay(player, Math.Max(0.05, delay));
         await WhilePaused(player);
         if ((!instant && player.ActionCount != action) || player.Closed || !current()) return;
         int affected = 0;
@@ -194,7 +194,7 @@ static partial class Game
                 InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, ao) { Scale = scale }.Blob()),
                 $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
             await SendWorldRecord(viewer, effect, InstanceProtocol.EnterWakeZone(effect), null);
-            SendAfter(ContagionSpreadArtSeconds, async () =>
+            SendAfter(viewer, ContagionSpreadArtSeconds, async () =>
             {
                 if (viewer.Closed || viewer.LeavingArea) return;
                 await SendWorldRemoval(viewer, effect, null);
@@ -202,12 +202,13 @@ static partial class Game
         }
         await Show(player);
         foreach (var peer in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
-            if (peer.Owner is { } other && !other.Closed && !other.LeavingArea && other.Connection.PlayerSent)
+            if (peer is { } other && !other.Closed && !other.LeavingArea && other.Connection.PlayerSent)
                 other.KillShares.Enqueue(_ => Show(other));
     }
 
     internal static async Task TickContagions(Player player)
     {
+        if (!MonsterContagion.AnyApplied) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner)>();
         using (ProjectileMutation(player))
         {

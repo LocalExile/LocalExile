@@ -40,7 +40,7 @@ static class PortalsFeature
         if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, AreaTransitionObjectSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 map portal 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action) || player.PendingTransfer is not null) return;
         lock (player.MapPortals)
             if (!player.MapPortals.ContainsKey(use.TargetId) || player.MapPortalRun?.Run != run.Run) return;
@@ -161,7 +161,7 @@ static class PortalsFeature
         if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, AreaTransitionObjectSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 portal back 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         if (MapReturnOrigin(player) is { } origin)
             await ChangeArea(player,
@@ -180,7 +180,7 @@ static class PortalsFeature
         if (!TryBeginObjectWalk(player, requestedAt, device.X, device.Y, StashReach, out var objectWalk, centreRange: true)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 {device.Name} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.HideoutMapDeviceUi, use.TargetId),
             "0x007b open the map device window", still: () => PlayerActionCurrent(player, action));

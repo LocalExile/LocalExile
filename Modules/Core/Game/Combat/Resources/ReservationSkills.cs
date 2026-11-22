@@ -258,6 +258,7 @@ public static partial class Game
             if (m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } && Dist(m.Walk.Position(now), at) <= radius
                 && m.HeraldBurns.Add(now, dps, ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 4000)))
             {
+                player.Area.ActiveHeraldBurnMonsters.Add(id);
                 m.LastHitBy = player;
                 if (m.HeraldBurns.Buff is not null) continue;
                 m.HeraldBurns.Buff = 1;
@@ -313,7 +314,7 @@ public static partial class Game
         await PresentSiphoningCharges(player);
         foreach (var aura in summons) await SummonReservationFighter(player, aura, "Purity");
         await ReservationFightersTick(player, now);
-        await TickStrongestDots(player, m => m.HeraldBurns,
+        await TickStrongestDots(player, player.Area.ActiveHeraldBurnMonsters, m => m.HeraldBurns,
             (m, t) => MonsterDotTaken(m, DamageType.Fire, t), "burnt to death by Herald of Ash");
         await PublishMinionOutcomes(player);
     }
@@ -343,6 +344,7 @@ public static partial class Game
             AddChilledGroundLocked(player, at, now + ReservationDuration(player, arctic, Stat.BaseSkillEffectDuration, 2500),
                 4, "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd_arctic_armour.ao");
         }
+        if (state.Trail.Count == 0) return;
         foreach (var m in player.Area.Monsters.Values)
             if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= t.Radius))
                 m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10);

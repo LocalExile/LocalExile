@@ -101,13 +101,13 @@ public static partial class Game
         for (double tick = AreaTime(player); tick < Arrival(); tick += ShieldChargePathSeconds)
         {
             double wait = tick - AreaTime(player);
-            if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
+            if (wait > 0) await AreaDelay(player, wait);
             await WhilePaused(player);
             if (!Current()) return;
             await Hit(player.Walk.Position(AreaTime(player)), ShieldChargePathRadius, pathHit);
         }
         double rest = Arrival() - AreaTime(player);
-        if (rest > 0) await Task.Delay(TimeSpan.FromSeconds(rest));
+        if (rest > 0) await AreaDelay(player, rest);
         if (!ShieldChargeRuns.TryGetValue(player, out var run) || run.Token != token || player.Closed) return;
         await Hit(player.Walk.Position(AreaTime(player)), ShieldChargeEndRadius, null);
         run.Percent = 0;

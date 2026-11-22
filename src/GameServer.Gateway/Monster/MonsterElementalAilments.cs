@@ -85,7 +85,10 @@ public sealed class MonsterElementalAilments
     public void Equivalent(MonsterElementalAilments source, Effect shock, double now, Func<uint, int> target)
     {
         if (!Immune(shock.Kind, target))
+        {
             effects.Add(shock with { Until = RecipientEffectTime.RetimedDeadline(shock.Until, now, source.expiryRate, expiryRate), Spread = 0, OnKill = false });
+            Interlocked.Increment(ref anyAdded);
+        }
     }
 
     /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
@@ -332,6 +335,13 @@ public sealed class MonsterElementalAilments
     /// target's increase on itself add up (PoB CalcOffence: Enemy…Duration INC + Self…Duration INC); a positive
     /// base_self_*_duration_-% is a reduction.</summary>
     /// <summary>No chill, freeze or shock lands while set (an encounter's grace: SpawnedMonster.EntranceGrace).</summary>
+    static long spreadsAdded;
+    static long anyAdded;
+    /// <summary>True once any spreading elemental ailment has been applied anywhere in the process.</summary>
+    public static bool AnySpreadAdded => Volatile.Read(ref spreadsAdded) > 0;
+    /// <summary>True once any elemental ailment has been applied anywhere in the process.</summary>
+    public static bool AnyApplied => Volatile.Read(ref anyAdded) > 0;
+
     public bool Grace { get; set; }
 
     Effect? Apply(Effect effect, Func<uint, int> attacker, Func<uint, int> target)
@@ -350,6 +360,8 @@ public sealed class MonsterElementalAilments
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
             && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));
         effects.Add(effect);
+        Interlocked.Increment(ref anyAdded);
+        if (effect.Spread > 0) Interlocked.Increment(ref spreadsAdded);
         return effect;
     }
 

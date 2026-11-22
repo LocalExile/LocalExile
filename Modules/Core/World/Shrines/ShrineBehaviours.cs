@@ -30,7 +30,7 @@ sealed class GuardedPacksEffect : IShrineEffect
                 int made = 0;
                 for (int i = 0; i < count; i++)
                 {
-                    if (Roll(pack.Monsters) is not { Supported: true } variety) break;
+                    if (Roll(pack.Monsters, AreaRng(player)) is not { Supported: true } variety) break;
                     var (x, y) = Around(shrine.At.X, shrine.At.Y, i, count);
                     uint guard = await SpawnMonster(player, variety, level,
                         MonsterRarity.Normal, x, y, alone: false, log: false);
@@ -70,11 +70,11 @@ sealed class GuardedPacksEffect : IShrineEffect
     }
 
     /// <summary>One of a pack's varieties: its MonsterPackEntries rows by their weight.</summary>
-    static MonsterCatalog.Variety? Roll(IReadOnlyList<(ushort Variety, int Weight)> monsters)
+    static MonsterCatalog.Variety? Roll(IReadOnlyList<(ushort Variety, int Weight)> monsters, Random random)
     {
         int total = monsters.Sum(m => Math.Max(0, m.Weight));
         if (monsters.Count == 0 || total <= 0) return null;
-        int roll = Random.Shared.Next(total);
+        int roll = random.Next(total);
         foreach (var (variety, weight) in monsters)
             if ((roll -= Math.Max(0, weight)) < 0) return Monsters.Find(variety.ToString());
         return Monsters.Find(monsters[^1].Variety.ToString());

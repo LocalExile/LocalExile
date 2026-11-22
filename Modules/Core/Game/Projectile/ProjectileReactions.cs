@@ -32,7 +32,15 @@ public static partial class Game
         if (HitReaction.TryFlinch(target, stun, now, random))
         {
             double until = target.FlinchUntil;
-            session.World(id, () => TakeHitPacket(player, id, target, until, now));
+            float stunSeconds = MathF.Max(0.05f, (float)(until - now));
+            session.World(id, () =>
+            {
+                double gateNow = AreaTime(player);
+                if (target.Walk.OnFrames(gateNow)) target.Walk.Cancel(gateNow);
+                if (player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame && target.FlinchUntil == until)
+                    target.FlinchUntil = LockstepRecoveryEnds(frame, stunSeconds);
+                return InstanceProtocol.ActorAnimation(id, stunSeconds, PlayerHitRecovery.TakeHitAnimation);
+            }, $"0x01d1 monster 0x{id:x} TakeHit recovery {stunSeconds:0.000} s (projectile {shot.Label})");
         }
         // The life update follows its hit message in the attacker's turn (HitOrder); one with no hit message stays.
         (uint Key, ushort Hit, ushort Life) order = default;
@@ -42,20 +50,24 @@ public static partial class Game
             // shot's action with blood (0x0001), the generic particles (0x4000) of its largest damage type, the critical
             // bit when it crit, and the main-hand bit (0x0200: the weapon's own effect and stat selection), which GGG's
             // server sets on every bow hit (live capture 2026-10-29, Agents/docs/protocol/11-skills.md §17).
-            // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
+            // Derived byte 2 matches the retained projectile action in Actor +0x1e8..+0x1f0 after the root attack ends.
             var direction = contact.Projectile.Direction;
-            ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
+            byte code = HitCode(shot.Hit, damage, target.MaxLife, critical || hit.Life == 0);
+            ushort flags = (ushort)(0x4000 | HitTypeFlag(code) | (shot.Spell ? 0 : 0x0200) | (critical ? 0x0020 : 0));
             // The emitter is the attacker: the player, or his totem. Only the player's own hit goes into his turn of the frame
             // (HitOrder); a totem's stays at the frame's start, as monsters' and minions' hits do.
             uint attacker = contact.Projectile.Use.Emitter.Id;
             if (attacker == player.Id) order = HitOrder(player, player.Id);
-            session.World(attacker, InstanceProtocol.ActionHit(attacker, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
-                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000)),
+            byte derived = shot.ActionSequence is not null && !shot.Spell ? (byte)2 : (byte)0;
+            session.World(attacker, InstanceProtocol.ActionHit(attacker, shot.ActionSequence ?? 0xffff, id, skillIndex: derived,
+                flags: flags, kind: 0x03, code: code,
+                angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000)),
                 orderKey: order.Key, checkpoint: order.Hit));
         }
-        Note($"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
-            + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
-            + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
+        if (GameServer.Core.Diagnostics.ServerTrace.Projectiles)
+            Note($"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
+                + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
+                + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
         if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
         if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
@@ -85,12 +97,24 @@ public static partial class Game
         long recoveryAt = at + ProjectileRuntime.Time(stage.CastSeconds);
         long effectAt = at + ProjectileRuntime.Time(stage.EffectSeconds(monster.Variety is { } variety
             ? SkillsFor(session.Player).MonsterContact(variety.Id, "Throw", 0xffff) : null));
-        monster.Walk.Order(pos.X, pos.Y, now); monster.LastTarget = null;
+        monster.LastTarget = null;
         monster.BusyUntil = recoveryAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageEffectAt = effectAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageActionStarted = true;
-        session.World(id, InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, session.Player.MonsterOrderFlags),
-            $"monster 0x{id:x} starts stage t={now:0.000000}; effect={monster.StageEffectAt:0.000000}, recovery={monster.BusyUntil:0.000000}");
+        if (!session.Player.Connection.LockstepClient) monster.Walk.Order(pos.X, pos.Y, now);
+        ushort stageSeq = monster.NextSequence();
+        session.World(id, () =>
+        {
+            double gateAt = session.Player.Connection.LockstepClient && session.Player.Connection.LockstepFrame is { } frame
+                ? frame.Start : AreaTime(session.Player);
+            if (session.Player.Connection.LockstepClient)
+            {
+                StepWalkers(session.Player, gateAt);
+                pos = monster.Walk.Position(gateAt);
+                monster.Walk.Cancel(gateAt);
+            }
+            return [.. InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, stageSeq, session.Player.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(id)];
+        }, $"monster 0x{id:x} starts stage t={now:0.000000}; effect={monster.StageEffectAt:0.000000}, recovery={monster.BusyUntil:0.000000}");
         session.Runtime.Schedule(effectAt, Publish);
         session.Runtime.Schedule(recoveryAt, Publish);
         void Publish()
@@ -148,9 +172,7 @@ public static partial class Game
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
             (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
                 player.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, player));
-        var (gemPackets, leveled) = CommitGemExperience(player, gemXp);
-        foreach (var packet in gemPackets) session.Packet(packet);
-        if (leveled) session.Enqueue(() => SendSkills(player));
+        session.AddGemExperience(gemXp);
         if (QuestsOf(player).LevelAfterKill(player.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - player.Character.Experience));
         if (xp > 0 && RecordExperienceGain(player, xp) is { } change)
@@ -172,9 +194,8 @@ public static partial class Game
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods));
-        // The map overlay's "X monsters remain" (S→C 0x1a0): a projectile's kill is committed here, not through
-        // Game.MonsterKilled (MonsterRemaining.cs).
-        session.EnqueueLater(() => SendRemainingMonsters(player));
+        // The map overlay's "X monsters remain" (S→C 0x1a0): coalesced once per batch instead of once per kill.
+        session.QueueRemainingMonsters();
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
         // that lock 100-200 ms on a pack kill, and the stat sends and input handlers wait for the same lock. The session's
         // output task runs after it, behind the hits queued with it (EnqueueLater).
@@ -183,7 +204,8 @@ public static partial class Game
             CommitProjectileLoot(session, monster, position);
             return Task.CompletedTask;
         });
-        session.Enqueue(() => PublishUnhingedCorpseDestruction(player, id, monster, destroyCorpse));
+        if (destroyCorpse)
+            session.Enqueue(() => PublishUnhingedCorpseDestruction(player, id, monster, destroyCorpse));
     }
 
     static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position)

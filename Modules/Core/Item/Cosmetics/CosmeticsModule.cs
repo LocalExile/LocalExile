@@ -246,12 +246,11 @@ public static class CosmeticsFeature
         return percent;
     }
 
-    internal static byte[]? PetSpeedUpdate(Player player, uint id, SpawnedPet pet, double now)
+    internal static void PetSpeedUpdate(Player player, uint id, SpawnedPet pet, double now)
     {
         double previous = pet.Walk.Speed;
         int percent = ApplyPetSpeed(player, id, pet, now);
         if (previous != pet.Walk.Speed) global::Game.SetStats(player, id, [(Stat.MovementVelocityPlusPct, percent)]);
-        return null;
     }
 
     // Pets follow the player, every frame (GameEvents.AreaTick): when one is farther than PetFollowRange from the player
@@ -261,15 +260,9 @@ public static class CosmeticsFeature
     {
         try
         {
-            uint[] pets;
-            lock (player.Pets) pets = [.. player.Pets.Keys];
-            foreach (uint id in pets)
-                await global::Game.SendWorldRecord(player, id, () =>
-                {
-                    lock (player.Pets)
-                        return !player.Closed && !player.LeavingArea && player.Pets.TryGetValue(id, out var pet)
-                            ? PetSpeedUpdate(player, id, pet, AreaTime(player)) : null;
-                });
+            lock (player.Pets)
+                if (!player.Closed && !player.LeavingArea)
+                    foreach (var (id, pet) in player.Pets) PetSpeedUpdate(player, id, pet, AreaTime(player));
             double now = AreaTime(player);
             var playerAt = player.Walk.Position(now);
             var orders = new List<(uint Id, (int X, int Y) To, byte[] Move)>();

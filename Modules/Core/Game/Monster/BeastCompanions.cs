@@ -134,13 +134,25 @@ public static partial class Game
             { SkillStats = new Dictionary<uint, int>(gem.Stats) };
     }
 
+    sealed class BeastCheck { public long Mutations = -1; }
+    static readonly Store<Player, BeastCheck> BeastCheckedMutations = new();
+
     public static async Task TickBeastCompanions(Player player, double now, object? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
         if (!Current() || player.Closed || player.LeavingArea) return;
-
-        if (!Current() || player.Closed || player.LeavingArea) return;
+        var items = ItemsOf(player);
+        long invMutations = items.Mutations;
+        var checkedMut = BeastCheckedMutations.GetOrCreateValue(player);
+        if (player.Beasts.Active is null && player.Beasts.Pending is null && player.Beasts.SourceGenerations.Count == 0
+            && checkedMut.Mutations == invMutations)
+            return;
         ReconcileBeastCompanionsLocked(player);
+        if (player.Beasts.Active is null && player.Beasts.Pending is null && player.Beasts.SourceGenerations.Count == 0)
+        {
+            checkedMut.Mutations = invMutations;
+            return;
+        }
         if (player.Beasts.Active is { } active)
         {
             bool present = player.Minions.Owns(active.Id, active.Monster)

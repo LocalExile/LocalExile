@@ -219,7 +219,7 @@ public static class ShrineManager
                 InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, shrine.At.X, shrine.At.Y, use.SkillId,
                     use.Sequence, use.Flags, targetObjectId: use.TargetId), null,
                 still: () => PlayerActionCurrent(player, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         await state.Area.Gate.WaitAsync();
         try
         {

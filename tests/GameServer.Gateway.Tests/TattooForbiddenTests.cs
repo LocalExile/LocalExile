@@ -65,14 +65,14 @@ public sealed class TattooForbiddenTests
         ushort[] allocated = [27096, 37127, 31344];
         for (int i = 0; i < 20; i++)
         {
-            ushort picked = ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 27096, allocated)!.Value;
+            ushort picked = ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 27096, allocated, new Random(i))!.Value;
             Assert.Contains(picked, witchPool);
             Assert.DoesNotContain(picked, allocated);
             var stats = ForbiddenTattoo.Stats(tree, picked);
             Assert.NotNull(stats);
             Assert.NotEmpty(stats!);
         }
-        Assert.Null(ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 0, witchPool));
+        Assert.Null(ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 0, witchPool, new Random(1)));
         Assert.Null(ForbiddenTattoo.Stats(tree, null));
         // TattooBlockingPassive: the Duelist's Overwhelm row (hash 17315) blocks Sightless (passive row 5471, graph
         // id 24698) from being replaced, and the pick never offers it for that node.

@@ -54,12 +54,12 @@ static partial class PortalsRules
         {
             try
             {
-                if (firstAfterMs > 0) await Task.Delay(firstAfterMs);
+                if (firstAfterMs > 0) await AreaDelay(player, firstAfterMs / 1000.0);
                 int n = 0;
                 foreach (int index in open.Left)
                 {
                     if (!Current()) return;
-                    if (n++ > 0) await Task.Delay(MapPortalGapMs);
+                    if (n++ > 0) await AreaDelay(player, MapPortalGapMs / 1000.0);
                     if (!Current()) return;
                     if (!Available(index)) continue;
                     uint id = player.TakeObjectId();
@@ -80,14 +80,14 @@ static partial class PortalsRules
                         await global::Game.SendWorldRemoval(player, id, null);
                         continue;
                     }
-                    await Task.Delay(MapPortalListMs);
+                    await AreaDelay(player, MapPortalListMs / 1000.0);
                     if (!Current()) return;
                     await SendMapPortals(player, deviceId, open.Area.Hash16);
                 }
                 // Every portal but the last was listed again with the next one; the last gets its second listing here
                 // (Game.ListPortal says why one listing can be lost).
                 if (n == 0) return;
-                await Task.Delay(MapPortalRelistMs);
+                await AreaDelay(player, MapPortalRelistMs / 1000.0);
                 if (Current()) await SendMapPortals(player, deviceId, open.Area.Hash16);
             }
             catch (Exception e) when (e is IOException or ObjectDisposedException) { } // The visitor left during the sequence.

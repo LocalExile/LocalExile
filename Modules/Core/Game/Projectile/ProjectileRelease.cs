@@ -46,7 +46,7 @@ public static partial class Game
     // Presentation only: Burning Arrow's real local input emits its own primary. Keep its existing simulation
     // geometry separate from ClientPredicted, which also selects native range/contact/volley specialization.
     public static bool ClientDrawsPrimaryProjectile(bool predicted, string? effect) =>
-        predicted || effect == "BurningArrow";
+        predicted || effect is "BurningArrow" or "CausticArrow" or "CausticArrowAltX" or "CausticArrowAltY" or "VaalCausticArrow";
 
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
@@ -84,7 +84,10 @@ public static partial class Game
         var session = ProjectilesFor(player);
         session.Advance();
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
-        bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
+        // On a lockstep client every action the server starts is one the client runs: a Move started before the release
+        // (the early cancel it allows, LockstepPlayerFree) ended the client's attack there, so it ends this release too.
+        bool cancelOnNewAction = !attack || player.Connection.LockstepClient
+            || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
         int? cast = attack ? 0 : CastMs(player, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
@@ -374,6 +377,7 @@ public static partial class Game
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(player, skillId, release: true),
             ActualCaster = totem is null ? null : TotemCasterStats(playerStats),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
+            HitPacket = true, ActionSequence = sequence,
             SkillStats = new Dictionary<uint, int>(own),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), local: local,
@@ -409,6 +413,7 @@ public static partial class Game
                 WithOverheat(player, skillId, MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: !spell))),
             MaimChance = spell ? 0 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct,
+            LocalStunThresholdReduction = spell ? 0 : local?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
             AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,
             PointBlank = Get(Stat.KeystonePointBlank) != 0,

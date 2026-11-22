@@ -71,7 +71,7 @@ static partial class QuestobjectsRules
                     .. InstanceEntities.TransitionableUpdate(i.Id, i.Transitionable, IzaroChronos.Rising),
                     .. InstanceProtocol.AnimationUpdate(i.Id, 0, IzaroChronos.LiftRaiseClip, 1)]);
             await Send(player, [.. bytes], $"0x02bc Izaro's {own.Count} idols rise");
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
+            await AreaDelay(player, IzaroStatues.RiseSeconds);
             bytes = [];
             if (arena.Over || !here()) return;
             foreach (var i in own)
@@ -129,12 +129,12 @@ static partial class QuestobjectsRules
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.LowerAfterSeconds));
+                await AreaDelay(player, IzaroChronos.LowerAfterSeconds);
                 if (Gone()) return;
                 await Send(player, [.. risen.SelectMany(i => (byte[])[.. InstanceEntities.TransitionableUpdate(i.Id, i.Transitionable, IzaroChronos.Lowering),
                     .. InstanceProtocol.AnimationUpdate(i.Id, 0, IzaroChronos.LiftLowerClip, 1), .. LiftState(player, i.Lift!.Value.Id, i.Lift.Value.At, IzaroFights.Lowering)])],
                     $"0x02bc Izaro's {risen.Count} idols go down");
-                await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.LowerSeconds));
+                await AreaDelay(player, IzaroStatues.LowerSeconds);
                 if (Gone()) return;
                 await Send(player, [.. risen.SelectMany(i => (byte[])[.. InstanceEntities.TransitionableUpdate(i.Id, i.Transitionable, IzaroChronos.Lowered),
                     .. InstanceProtocol.AnimationUpdate(i.Id, 0, IzaroChronos.LiftIdleDownClip, 1), .. LiftState(player, i.Lift!.Value.Id, i.Lift.Value.At, IzaroFights.Down)])], null);

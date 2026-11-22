@@ -517,7 +517,7 @@ static partial class SurvivorsRunRules
                 last = now;
                 if (player.Paused || step <= 0)
                 {
-                    await Task.Delay(SurvivorsStepMs, token);
+                    await AreaDelay(player, SurvivorsStepMs / 1000.0, token);
                     continue;
                 }
                 run.Advance(step);
@@ -653,7 +653,7 @@ static partial class SurvivorsRunRules
                     Console.WriteLine($"[gateway] {player.Connection.Remote} survivors {SurvivorsClock(run.Elapsed)}: horde {alive}/{run.TargetAlive}, " +
                         $"{run.Kills} kills, run level {run.Level}, {run.Skills.Count} skills, {run.Blessings.Count} blessings, level {stage + 1}");
                 }
-                await Task.Delay(SurvivorsStepMs, token);
+                await AreaDelay(player, SurvivorsStepMs / 1000.0, token);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -691,7 +691,7 @@ static partial class SurvivorsRunRules
                 ? ranged[AreaRng(player).Next(ranged.Count)]
                 : roster.Varieties[pool[AreaRng(player).Next(pool.Length)]];
             if (SurvivorsSpawnCell(player, 60) is not { } cell) continue;
-            horde.Add(await SpawnMonster(player, variety, roster.Level, SurvivorsRarity(run), cell.X, cell.Y,
+            horde.Add(await SpawnMonster(player, variety, roster.Level, SurvivorsRarity(run, AreaRng(player)), cell.X, cell.Y,
                 log: false, extraMods: SurvivorsMonsterMods(run, isRanged)));
         }
     }
@@ -714,7 +714,7 @@ static partial class SurvivorsRunRules
             int x = (int)Math.Round(px + Math.Cos(angle) * 44), y = (int)Math.Round(py + Math.Sin(angle) * 44);
             if (player.Layout.GridW > 0 && (x < 0 || y < 0 || x >= player.Layout.GridW || y >= player.Layout.GridH)) continue;
             if (!player.Layout.WalkableFor(x, y, 0) || player.Barrier.Contains((x, y))) continue;
-            horde.Add(await SpawnMonster(player, variety, roster.Level, SurvivorsRarity(run), x, y,
+            horde.Add(await SpawnMonster(player, variety, roster.Level, SurvivorsRarity(run, AreaRng(player)), x, y,
                 log: false, extraMods: SurvivorsMonsterMods(run, ranged: true)));
             spawned++;
         }
@@ -760,7 +760,7 @@ static partial class SurvivorsRunRules
             return 0;
         }
         uint id = await SpawnMonster(player, boss, roster.Level, MonsterRarity.Unique, cell.X, cell.Y,
-            mods: SurvivorsBossMods(roster, boss, run, stage));
+            mods: SurvivorsBossMods(roster, boss, run, stage, AreaRng(player)));
         horde.Add(id);
         string area = SurvivorsAreaName(player.Layout.Id);
         await player.Commands!.Reply(bossIndex == 0
@@ -786,9 +786,9 @@ static partial class SurvivorsRunRules
     /// ladder at <paramref name="stage"/> (26.92×, 25.71×, 49.41×, 31.82×, 50×, 47.62×, 60×) × the clock's life scale.
     /// The rolled unique mods are kept (their rarity life factor is solved out), so a boss is still the area's own unique.
     /// </summary>
-    internal static MonsterModSet SurvivorsBossMods(SurvivorsRoster roster, MonsterCatalog.Variety boss, SurvivorsRun run, int stage)
+    internal static MonsterModSet SurvivorsBossMods(SurvivorsRoster roster, MonsterCatalog.Variety boss, SurvivorsRun run, int stage, Random random)
     {
-        var rolled = MonsterModRolls.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
+        var rolled = MonsterModRolls.Roll(boss, roster.Level, MonsterRarity.Unique, random, alone: true);
         int baseLife = Math.Max(1, Monsters.BaseLife(boss, roster.Level) ?? 100);
         double target = SurvivorsPoolTop(roster, stage) * SurvivorsRules.BossLifeRatio(stage)
             * SurvivorsRules.MonsterLifeScale(run.Elapsed) * SurvivorsRules.BossLifeMultiplier;
@@ -830,9 +830,9 @@ static partial class SurvivorsRunRules
         };
     }
 
-    internal static MonsterRarity SurvivorsRarity(SurvivorsRun run)    {
+    internal static MonsterRarity SurvivorsRarity(SurvivorsRun run, Random random)    {
         double progress = SurvivorsRules.Progress(run.Elapsed);
-        int roll = Random.Shared.Next(100);
+        int roll = random.Next(100);
         if (progress > 0.5 && roll < 3) return MonsterRarity.Rare;
         if (progress > 0.2 && roll < 15) return MonsterRarity.Magic;
         return MonsterRarity.Normal;

@@ -46,7 +46,7 @@ public static class MapEssences
     }
 
     static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
-        .Select(p => p.Owner).OfType<Player>().Prepend(player)
+        .Prepend(player)
         .Where(c => !c.Closed && !c.LeavingArea && c.Instance == player.Instance).Distinct();
     static void Keep(Player player, Area area) => player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Monoliths);
 
@@ -181,7 +181,7 @@ public static class MapEssences
             await SendWorldRecord(player, player.Id,
                 InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, monolith.X, monolith.Y, use.SkillId, use.Sequence, use.Flags,
                     targetObjectId: monolith.Id), null, still: () => PlayerActionCurrent(player, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         await area.Gate.WaitAsync();
         try
         {

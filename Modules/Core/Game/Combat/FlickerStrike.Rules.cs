@@ -28,7 +28,7 @@ public static partial class Game
              .. InstanceEntities.CreateObject(second, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(to.X, to.Y, arrival).Blob()),
              .. InstanceProtocol.EnterWakeZone(second)],
             $"Flicker Strike art variation {variation}: departure ({from.X}, {from.Y}), arrival ({to.X}, {to.Y})");
-        SendAfter(2, async () =>
+        SendAfter(player, 2, async () =>
         {
             if (player.Closed || player.LeavingArea) return;
             await Send(player, [.. InstanceProtocol.RemoveObject(first), .. InstanceProtocol.RemoveObject(second)], null);
@@ -109,7 +109,7 @@ public static partial class Game
                 }
                 return [.. bytes];
             });
-        SendAfter(seconds, async () =>
+        SendAfter(player, seconds, async () =>
         {
             using var ended = new PlayerStatScope(player, fresh: true);
             await Send(player, [], "0x01c2 Flicker Strike buff ends", atGate: () =>

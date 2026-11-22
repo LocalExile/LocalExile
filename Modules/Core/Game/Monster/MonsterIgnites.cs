@@ -49,17 +49,17 @@ public static partial class Game
     {
         if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
                 aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
-        return ShowDotBuffLocked(player, id, m.Ignites, IgnitedBuffRow, now);
+        ShowDotBuffLocked(player, id, m.Ignites, IgnitedBuffRow, now);
+        return [];
     }
 
     // The ignited (or bleeding) buff's timer runs to the monster's last ignite's (bleed's) end: every new one sends it
     // again (the old instance off first). In the area's frame.
-    static List<byte[]> ShowDotBuffLocked(Player player, uint id, MonsterIgnites set, ushort row, double now)
+    static void ShowDotBuffLocked(Player player, uint id, MonsterIgnites set, ushort row, double now)
     {
         ShowDot(player, id, ref set.Buff, ref set.BuffSource, new(row, player.Id, U68: Buff.Seconds(set.RemainingBase(now)),
             Visual: row == IgnitedBuffRow ? AilmentArtVisual(player, "ignite")
                 : row == LabyrinthTrials.BleedingBuffRow ? AilmentArtVisual(player, "bleed") : null));
-        return [];
     }
 
     // A damage-over-time set's buff on an entity: one row from one source (the set keeps its key), set when it starts or
@@ -181,7 +181,20 @@ public static partial class Game
     /// <summary>How many enemies were ignited in the last four seconds (Controlled Blaze).</summary>
     public static int RecentlyIgnitedCount(Player player, double now)
     {
-        return player.Area.Monsters.Values.Count(m => m.Ignites.LastApplied > 0 && m.Ignites.LastApplied >= now - 4);
+        var set = player.Area.RecentlyIgnitedMonsters;
+        if (set.Count == 0) return 0;
+        double cutoff = now - 4;
+        int count = 0;
+        List<uint>? expired = null;
+        foreach (uint id in set)
+        {
+            if (player.Area.Monsters.TryGetValue(id, out var m) && m.Ignites.LastApplied > 0 && m.Ignites.LastApplied >= cutoff)
+                count++;
+            else
+                (expired ??= []).Add(id);
+        }
+        if (expired is not null) foreach (uint id in expired) set.Remove(id);
+        return count;
     }
 
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
@@ -214,6 +227,8 @@ public static partial class Game
         if (!target.Ignites.TryApply(settings, critical, now, e[Stat.AvoidIgnitePct],
                 e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, player.IgniteRandom,
                 UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+        player.Area.ActiveIgniteMonsters.Add(id);
+        player.Area.RecentlyIgnitedMonsters.Add(id);
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {
@@ -228,7 +243,8 @@ public static partial class Game
             HerEmbraceOnIgniteLocked(player, now);
             GainFromAttackAilmentLocked(player, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
         }
-        return ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
+        ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
+        return [];
     }
 
     public static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>
@@ -269,25 +285,28 @@ public static partial class Game
     // Fire's burn (BurnAround) commits them. They burn on while the player is dead (the kill then gives no experience,
     // MonsterKilled).
     public static Task BurnIgnited(Player player) =>
-        TickStrongestDots(player, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
+        TickStrongestDots(player, player.Area.ActiveIgniteMonsters, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
             "burnt to death by ignite");
 
     // One tick of a strongest-only set (ignites, bleeds: <paramref name="of"/>), <paramref name="factor"/> the monster's
     // mitigation of it, <paramref name="aggravated"/> the strongest aggravated bleed's extra share (MonsterIgnites.Advance).
-    static async Task TickStrongestDots(Player player,
+    static async Task TickStrongestDots(Player player, HashSet<uint> activeSet,
         Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died,
         Func<SpawnedMonster, double, double>? aggravated = null, Action<SpawnedMonster, double>? settle = null)
     {
+        if (activeSet.Count == 0) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         using (ProjectileMutation(player))
         {
-            if (player.Closed || player.LeavingArea) return;
+            if (player.Closed || player.LeavingArea || activeSet.Count == 0) return;
             double now = ProjectileWorldTime(player);
-            foreach (var (id, m) in player.Area.Monsters)
+            List<uint>? done = null;
+            foreach (uint id in activeSet)
             {
-                if (OwnedGolemActor(player, id, m)) continue;
+                if (!player.Area.Monsters.TryGetValue(id, out var m)) { (done ??= []).Add(id); continue; }
+                if (OwnedGolemActor(player, id, m)) { (done ??= []).Add(id); continue; }
                 var set = of(m);
-                if (set.Idle) continue;
+                if (set.Idle) { (done ??= []).Add(id); continue; }
                 int damage = 0;
                 if (m.Dead || m.Life == 0) set.Clear();
                 else
@@ -296,6 +315,7 @@ public static partial class Game
                     damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
                 }
                 if (!set.Burning) EndDot(player, id, ref set.Buff, set.BuffSource);
+                if (set.Idle) (done ??= []).Add(id);
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
                 m.Aggro = m.Life > 0;
@@ -305,10 +325,12 @@ public static partial class Game
                     CollectVaalSoulAtDeathLocked(player, m);
                     EndDot(player, id, ref set.Buff, set.BuffSource);
                     set.Clear(burnt: true);
+                    (done ??= []).Add(id);
                 }
                 hits.Add((id, m, m.Life, damage));
                 if (stageStarts) CommitBossStage(player, id, m, now);
             }
+            if (done is not null) foreach (uint id in done) activeSet.Remove(id);
         }
         foreach (var (id, m, life, damage) in hits)
         {

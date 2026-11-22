@@ -61,6 +61,10 @@ public sealed class AnimationContacts
 
     /// <summary>When in a spell cast its projectile leaves, as a fraction of the cast: the class's spell_projectile
     /// animation (wand, unarmed, then any), else any spell animation's contact.</summary>
+    /// <summary>A clip's length in ms (its rig's), null when the rig or the clip is missing.</summary>
+    public int? ClipLengthMs(string animatedObject, string clip) =>
+        _byAo.TryGetValue(animatedObject, out var actor) && actor.AllClips.TryGetValue(clip, out var found) ? found.Length : null;
+
     public double SpellRelease(string animatedObject) =>
         SpellContact(animatedObject, ["spell_projectile_wand", "spell_projectile_unarmed"], ["spell_projectile", "spell_"])
         ?? DefaultSpellRelease;
@@ -116,6 +120,15 @@ public sealed class AnimationContacts
     public (string Name, double Contact)? SkillAttackContact(string animatedObject, WeaponProfile weapon, string? skillClip) =>
         SkillAttackClip(animatedObject, weapon, skillClip) is { } found
             ? (found.Name, (double)found.Clip.Contact / found.Clip.Length) : null;
+
+    /// <summary>When an attack gem's clip lets a Move cut the swing short, as a fraction of the attack: the skill's own
+    /// clip when the rig has one (or the weapon's attack1 clip), using its lock_cancelling keyframe where listed, else
+    /// its contact keyframe (0x141942b50).</summary>
+    public double AttackCutIn(string animatedObject, WeaponProfile weapon, string? skillClip = null)
+    {
+        return (SkillAttackClip(animatedObject, weapon, skillClip) ?? AttackClip(animatedObject, weapon)) is { Clip.Length: > 0 } found
+            ? (double)(found.Clip.Cancel ?? found.Clip.Contact) / found.Clip.Length : DefaultAttackContact;
+    }
 
     /// <summary>
     /// When a melee attack skill's <paramref name="index"/>-th strike lands, as a fraction of its clip, and the clip's

@@ -17,7 +17,7 @@ public sealed partial class Player
     public int ElusiveEffectPercent = -1;
     public bool IsElusive => ElusiveUntil > Clock.Elapsed.TotalSeconds;
     public bool SourcePhasing;
-    public bool IsPhasing => SourcePhasing || Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds || Reservations.CatPhasing;
+    public bool IsPhasing => SourcePhasing || Phasing || (PhasingUntil > 0 && PhasingUntil > Clock.Elapsed.TotalSeconds) || Reservations.CatPhasing;
     public ITransientCombatState? OwnedCombatState;
     public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     public HashSet<uint> RetiredCombatObjects { get; } = [];

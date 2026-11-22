@@ -9,15 +9,22 @@ public static partial class Game
     static bool PlanRampageWeaponTarget(Player player, MonsterAiCadence cadence, MonsterAiPlan plan,
         uint id, SpawnedMonster monster, double now, (int X, int Y) from, double playerDistance)
     {
-        if (!CurrentRampageWork) return false;
-        // With no Rampage actor there is no weapon to find, and the search below passes over every monster of the
-        // instance for each monster that plans (half a second in ten with 1000 of them). Asked only of a world that
-        // stands: the search's own RampageWorld would make one, and then only when the player owns a living monster.
-        if (monster.Hostile && player.StandingRampageWorld is { Actors.Count: 0 }) return false;
-        var owned = monster.Hostile ? player.Area.Monsters.Where(p => p.Value.OwnerId == player.Id && !p.Value.Dead
-            && p.Value.Life > 0 && player.RampageWorld.Actors.TryGetValue(p.Key, out var actor) && actor.Weapon is not null)
-            .OrderBy(p => Dist(from, p.Value.Walk.Position(now))).FirstOrDefault() : default;
-        if (owned.Value is null) return false;
+        if (!CurrentRampageWork || !monster.Hostile) return false;
+        // With no Rampage actor there is no weapon to find; iterate StandingRampageWorld.Actors directly (O(weapons)
+        // instead of scanning all Area.Monsters per monster in PlanMonsterAi).
+        if (player.StandingRampageWorld is not { Actors.Count: > 0 } rampage) return false;
+        uint bestId = 0;
+        SpawnedMonster? bestWeapon = null;
+        double bestDist = double.PositiveInfinity;
+        foreach (var (actorId, actor) in rampage.Actors)
+        {
+            if (actor.Weapon is null) continue;
+            if (!player.Area.Monsters.TryGetValue(actorId, out var w) || w.OwnerId != player.Id || w.Dead || w.Life == 0) continue;
+            double wd = Dist(from, w.Walk.Position(now));
+            if (wd < bestDist) { bestDist = wd; bestId = actorId; bestWeapon = w; }
+        }
+        if (bestWeapon is null) return false;
+        var owned = (Key: bestId, Value: bestWeapon);
         var target = owned.Value.Walk.Position(now);
         double distance = Dist(from, target);
         if (distance >= playerDistance) return false;

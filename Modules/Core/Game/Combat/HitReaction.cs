@@ -56,9 +56,10 @@ public static class HitReaction
         // recovery counts too, before the recovery shortcut below.
         if (hit.Melee && !hit.Fortified && hit.FortificationDamage > 0 && hit.Owner is { } fortifier)
             Game.FortificationFromMeleeStun(fortifier, hit.FortificationDamage, m.MaxLife, m.Rarity, random);
-        // shortcut: a stun during a running recovery counts for on-stun gains but neither restarts nor extends it (restarting
-        // would cut the clip and repeat its SoundEvent), until a capture shows how the real server re-presents one.
-        if (now < m.FlinchUntil) return false;
+        double nextUntil = now + Seconds(hit, m);
+        // A new qualifying stun whose recovery extends beyond an active recovery refreshes/extends the flinch,
+        // rather than silently dropping consecutive hit reactions while the monster is still recovering.
+        if (nextUntil <= m.FlinchUntil) return false;
         // A walker on frames walks on until its client has the 0x1d1: the stop is placed in the frame that is written in
         // (Game.TakeHitPacket), which is a later one when the hit was committed ahead of its output (a projectile's).
         if (!m.Walk.OnFrames(now)) m.Walk.Cancel(now);
@@ -66,7 +67,7 @@ public static class HitReaction
         if (m.SwingGeneration == m.ActionGeneration && !m.StageRunning) m.BusyUntil = now;
         m.SwingGeneration = null;
         m.ActionGeneration++;
-        m.FlinchUntil = now + Seconds(hit, m);
+        m.FlinchUntil = nextUntil;
         // An act boss's row states its own repeat immunity (2 s after the stun ends); a unique without one keeps the wiki's 4 s.
         double immunity = BossMods.StunImmunityMilliseconds(m.Variety) is int ms ? ms / 1000d
             : m.Rarity == MonsterRarity.Unique ? BossImmunitySeconds : 0;
@@ -82,16 +83,18 @@ public static partial class Game
     /// inherently freeze, and only the main hand's local reduction, until those sources are in play. Call under the
     /// Monsters lock.</summary>
     public static StunHit OwnerStun(Player player, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
-        bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own)
+        bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own, uint? lifeBefore = null,
+        int? localStunReduction = null)
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
         var taken = MonsterTakenComponents(m, mitigated, spell);
         double total = taken.MaxTotal;
         double stunning = total <= 0 || (critical && taken[DamageType.Cold].Max > 0) || Get(Stat.CannotStun) > 0 ? 0
             : HitReaction.StunningDamage(damage, taken[DamageType.Physical].Max / total, melee);
-        int local = spell ? 0 : MainHandLocalSources(player)?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0;
+        int local = spell ? 0 : localStunReduction ?? MainHandLocalSources(player)?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0;
         // Sample before the caller applies this hit: a damaging hit can leave its previously full-life target injured.
-        bool fullLife = m.Life > 0 && m.Life == m.MaxLife;
+        uint preLife = lifeBefore ?? m.Life;
+        bool fullLife = preLife > 0 && preLife == m.MaxLife;
         int duration = Get(Stat.BaseStunDurationPlusPct) + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0);
         bool guaranteed = stunning > 0 && fullLife && Get(Stat.AlwaysStunEnemiesThatAreOnFullLife) > 0;
         return new(stunning, Get(Stat.BaseStunThresholdReductionPlusPct) + local, duration, melee, player, Guaranteed: guaranteed);

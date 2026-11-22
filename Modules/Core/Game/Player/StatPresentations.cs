@@ -62,26 +62,41 @@ public static partial class Game
     // The party's auras: the ones this player gives and gets by range.
     static Task SendNearbyAuras(Player player) =>
         player.Auras.Count > 0 || player.ReceivedAuras.Count > 0 || player.AuraStatsDirty
-            || player.Instance.PlayersExcept(player.Id).Any(p => p.Current && p.Auras.Count > 0)
+            || player.Instance.PlayersExcept(player.Id).Any(p => p.SharedAuras.Count > 0)
             ? SendOwnAuraChanges(player) : Task.CompletedTask;
 
     // What the player comes near, as zones (OwnedZones): the waypoint's activation range and the Glyph Wall's sight (at
     // them, reaching the player), and the quests' sight of the watched monsters (around the player). Coming in presents
     // the nearby world again.
-    const string SightZones = "sight", WaypointSight = "waypoint", GlyphWallSight = "glyph wall", MonsterSight = "monsters";
+    const ZoneKind SightZones = ZoneKind.Sight;
+    const uint WaypointSight = 0, GlyphWallSight = 1, MonsterSight = 0;
 
     static void SyncSightZones(Player player, IReadOnlyCollection<string>? watched)
     {
-        var points = new List<(object, int, (int, int))>();
-        if (player.Layout.Waypoint is { } waypoint) points.Add((WaypointSight, (int)WaypointActivationRange, (waypoint.GridX, waypoint.GridY)));
-        if (player.Glyphs?.Wall is { } wall) points.Add((GlyphWallSight, (int)Quests.SightRange, (wall.X, wall.Y)));
+        var presenting = PresentingOf.GetOrCreateValue(player);
+        var waypoint = player.Layout.Waypoint;
+        var wall = player.Glyphs?.Wall;
+        (int X, int Y)? wallPos = wall is { } gw ? (gw.X, gw.Y) : null;
+        int watchedCount = watched?.Count ?? 0;
+        if (presenting.SightEpoch == player.ProjectileEpoch && presenting.SightLayout == player.Layout.Id
+            && presenting.SightHasWaypoint == (waypoint is not null) && presenting.SightWall == wallPos
+            && presenting.SightWatchedCount == watchedCount)
+            return;
+        presenting.SightEpoch = player.ProjectileEpoch;
+        presenting.SightLayout = player.Layout.Id;
+        presenting.SightHasWaypoint = waypoint is not null;
+        presenting.SightWall = wallPos;
+        presenting.SightWatchedCount = watchedCount;
+        var points = new List<(uint, int, (int, int))>();
+        if (waypoint is not null) points.Add((WaypointSight, (int)WaypointActivationRange, (waypoint.GridX, waypoint.GridY)));
+        if (wall is { } w) points.Add((GlyphWallSight, (int)Quests.SightRange, (w.X, w.Y)));
         SyncZones(player, player.Id, SightZones, points, new(ReachesOnly(player.Id), Changed: _ => PresentNearby(player)));
-        SyncZones(player, player.Id, SightZones + " around", watched is { Count: > 0 } ? [(MonsterSight, (int)Quests.SightRange, default((int, int)))] : [],
+        SyncZones(player, player.Id, ZoneKind.MonsterSight, watched is { Count: > 0 } ? [(MonsterSight, (int)Quests.SightRange, default((int, int)))] : [],
             new(id => player.Area.Monsters.GetValueOrDefault(id.Value) is { Dead: false, Life: > 0, Variety: { } v } && watched!.Contains(v.Id) ? 0 : null,
                 new EntityId(player.Id), _ => PresentNearby(player)));
     }
 
-    static bool Sees(Player player, string what)
+    static bool Sees(Player player, uint what)
     {
         return InZone(player, player.Id, SightZones, what, player.Id);
     }
@@ -104,7 +119,7 @@ public static partial class Game
         if (watched is { Count: > 0 })
         {
             List<string> seen;
-            seen = [.. ZoneMembers(player, player.Id, SightZones + " around", MonsterSight).Select(id => player.Area.Monsters.GetValueOrDefault(id.Value))
+            seen = [.. ZoneMembers(player, player.Id, ZoneKind.MonsterSight, MonsterSight).Select(id => player.Area.Monsters.GetValueOrDefault(id.Value))
                 .Where(m => m is { Dead: false, Life: > 0, Variety: not null }).Select(m => m!.Variety!.Id).Distinct()];
             foreach (string variety in seen)
                 await SetQuestFlags(player, QuestsOf(player).OnMonsterSeen(player.Layout.Id, variety));
@@ -146,6 +161,11 @@ public static partial class Game
         // The presentations ran once (the verifier compares only after the first stat update showed them).
         public volatile bool Ran;
         public (bool Ignite, int Chill, bool Freeze, int Shock) Ailments;
+        public int SightEpoch = int.MinValue;
+        public string? SightLayout;
+        public bool SightHasWaypoint;
+        public (int X, int Y)? SightWall;
+        public int SightWatchedCount = -1;
     }
 
     // The bleed and poison buffs on the player, against the ones the client was shown.

@@ -4,10 +4,10 @@ public static partial class Game
 {
     // The zones of the auras a player shares (one per aura skill), around them, reaching the other players and the
     // friendly monsters: an ally coming in or going out presents its auras again (a minion: its owner's stats).
-    const string SharedAuraZones = "shared auras";
+    const ZoneKind SharedAuraZones = ZoneKind.SharedAuras;
 
     static void SyncSharedAuraZones(Player player, IReadOnlyList<SharedAura> shared) =>
-        SyncZones(player, player.Id, SharedAuraZones, shared.Select(a => ((object)a.Aura.SkillId, a.Radius, default((int, int)))),
+        SyncZones(player, player.Id, SharedAuraZones, shared.Select(a => ((uint)a.Aura.SkillId, a.Radius, default((int, int)))),
             new(ReachesAlliesBut(player, player.Id), new EntityId(player.Id), id =>
             {
                 if (AreaPlayer(player, id.Value) is { } ally) PresentNearby(ally);
@@ -25,7 +25,7 @@ public static partial class Game
     static byte[][] ReconcileReceivedAuraRecordsLocked(Player player)
     {
         var desired = player.PlayerLife == 0 || InTown(player) ? [] : player.Instance.PlayersExcept(player.Id)
-            .Where(p => p.Current && p.Life > 0).SelectMany(p => p.Auras.Where(a => SharedAuraReaches(player, p.Id, a.Aura.SkillId, player.Id))
+            .Where(p => p.PlayerLife > 0).SelectMany(p => p.SharedAuras.Where(a => SharedAuraReaches(player, p.Id, a.Aura.SkillId, player.Id))
                 .Select(a => (Key: (p.Id, a.Aura.SkillId), Aura: a.Aura with { SourceBuff = null,
                     AffectsSelf = true, ExternalEffectPct = a.Effect }))).ToDictionary(p => p.Key, p => p.Aura);
         var packets = new List<byte[]>();
@@ -71,8 +71,8 @@ public static partial class Game
             .Where(a => AuraCatalog.Shared(a.EffectId) && Reaches(player.Id, a.SkillId))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = player.Pools.AuraEffectPct + a.SupportEffectPct });
         var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId)).Select(a => a.Aura);
-        var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.Current && p.Life > 0)
-                .SelectMany(p => p.Auras.Where(a => Reaches(p.Id, a.Aura.SkillId))
+        var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
+                .SelectMany(p => p.SharedAuras.Where(a => Reaches(p.Id, a.Aura.SkillId))
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);

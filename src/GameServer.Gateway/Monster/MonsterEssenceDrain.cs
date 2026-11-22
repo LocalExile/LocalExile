@@ -26,9 +26,14 @@ public sealed class MonsterEssenceDrain
     /// <summary>When the last instance ends.</summary>
     public double Until => instances.Count == 0 ? 0 : instances.Max(i => i.Until);
 
+    static long applied;
+    /// <summary>True once any Essence Drain has been applied anywhere in the process.</summary>
+    public static bool AnyApplied => Volatile.Read(ref applied) > 0;
+
     public void Apply(double now, Cast cast)
     {
         if (!(cast.DamagePerSecond > 0) || !(cast.Seconds > 0)) return;
+        Interlocked.Increment(ref applied);
         if (instances.Count == 0)
         {
             last = now;

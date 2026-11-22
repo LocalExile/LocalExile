@@ -435,11 +435,34 @@ public static class InstanceProtocol
 
     /// <summary>C→S 0x153 (id only): Esc → "Exit to Character Selection" (0x140cf1a20) and the hardcore death screen's
     /// Exit (0x140291180); the client skips it while its instance connection is already down (state +0xc3a0 = 1). The
-    /// server answers by closing the instance connection. Disconnected in game (instance at app+0x348), the client's
-    /// frame update 0x140d551f0 empties the state stack and pushes the login state (id 7, 0x140d0c8f0) without deleting
-    /// the login object; that state's enter (0x140d0d1c0) sees the login connection still logged in (login+0xde8 = 3)
-    /// and pushes character select (id 9, 0x140d12170), which asks for the list again with login 0x18.</summary>
+    /// server answers with S→C 0x26 (code 0x2d2, empty message) and closes the instance connection while keeping the
+    /// login connection open. Disconnected in game (instance at app+0x348), the client's frame update 0x140d551f0 empties
+    /// the state stack and pushes the login state (id 7, 0x140d0c8f0) without deleting the login object; that state's
+    /// enter (0x140d0d1c0) sees the login connection still logged in (login+0xde8 = 3) and pushes character select
+    /// (id 9, 0x140d12170), which asks for the list again with login 0x18.</summary>
     public const ushort ExitToCharacterSelectId = 0x153;
+    /// <summary>WorldAreas row 1 (CharacterSelect, "Character Select"): sent via S→C 0x02b4 before clean disconnect
+    /// on C→S 0x0153 so the client displays "Entering Character Select" and replies with C→S 0x02cd.</summary>
+    public const ushort CharacterSelectAreaHash = 0x4884;
+
+    /// <summary>C→S 0x020a (u16 id, u8 tutorial; 3 bytes): sent when a tutorial is completed or skipped (0x11 = Skip All Tutorials).</summary>
+    public const ushort TutorialCompleteId = 0x20a;
+    public const byte TutorialSkipAll = 0x11;
+
+    /// <summary>C→S 0x1a (u16 id, u8 reason = 0; 3 bytes): Esc → "Exit to Log In Screen" (0x142168fe0(instance, 0)) and
+    /// "Exit Path of Exile" (0x140cf1ab0), sent right after C→S 0x2cd before the client shuts down the instance socket.
+    /// The server tells Auth to close the account's login connection so the login state lands on the log in screen
+    /// instead of pushing character selection.</summary>
+    public const ushort ExitToLoginId = 0x1a;
+
+    /// <summary>S→C 0x26 (u16 code, wstr message; handler 0x1421505f0): clean instance disconnect. Code 0x2d2 with an
+    /// empty message is handled specially by 0x140d52ce0 to produce an empty reason string (no "Abnormal disconnect" log
+    /// or popup).</summary>
+    public const ushort DisconnectId = 0x26;
+    public const ushort DisconnectCleanCode = 0x2d2;
+
+    public static byte[] Disconnect(ushort code = DisconnectCleanCode, string message = "") =>
+        new LoginWriter().U16(DisconnectId).U16(code).WStr(message).ToArray();
 
     /// <summary>C→S 0x54 (class 0x1435ca9d8, write 0x141f99ba0), sent by the death screen's buttons (0x140291180):
     /// u8 flags, bit0 set by the "Resurrect in Town" button, clear for the checkpoint one.</summary>

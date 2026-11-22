@@ -128,7 +128,7 @@ public static partial class Game
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
-            * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
+            * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
             * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
         // Its fire, cold and lightning damage taken (Izaro's statues' buffs) on those parts.
         double typed = mitigated[DamageType.Fire].Min * e[Stat.FireDamageTakenPlusPct] + mitigated[DamageType.Cold].Min * e[Stat.ColdDamageTakenPlusPct]
@@ -228,28 +228,43 @@ public static partial class Game
     /// <summary>One regeneration step over the living, damaged monsters (in the area's frame): the ones whose life
     /// changed, with their new life. The part of the step within 4 s of the player's last hit on a monster regenerates at
     /// (1 + <paramref name="onHitPct"/> / 100) of its rate, at least 0.</summary>
+    public static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyList<(uint Id, SpawnedMonster Monster)> monsters,
+        double seconds, double now = 0, int onHitPct = 0)
+    {
+        var changed = new List<(uint, uint)>();
+        for (int i = 0; i < monsters.Count; i++)
+        {
+            var (id, m) = monsters[i];
+            RegenerateOneMonsterLocked(id, m, seconds, now, onHitPct, changed);
+        }
+        return changed;
+    }
+
     public static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double seconds,
         double now = 0, int onHitPct = 0)
     {
         var changed = new List<(uint, uint)>();
         foreach (var (id, m) in monsters)
-        {
-            double spreadRecovery = SpreadPoisonRecovery(m, now);
-            if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; continue; }
-            double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
-            if (onHitPct != 0 && seconds > 0)
-            {
-                double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
-                perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
-            }
-            if (perSecond <= 0 && spreadRecovery <= 0) continue;
-            double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
-            uint whole = (uint)Math.Truncate(total);
-            m.Regen = total - whole;
-            if (whole == 0) continue;
-            m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + whole);
-            changed.Add((id, m.Life));
-        }
+            RegenerateOneMonsterLocked(id, m, seconds, now, onHitPct, changed);
         return changed;
+    }
+
+    static void RegenerateOneMonsterLocked(uint id, SpawnedMonster m, double seconds, double now, int onHitPct, List<(uint Id, uint Life)> changed)
+    {
+        double spreadRecovery = SpreadPoisonRecovery(m, now);
+        if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
+        double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
+        if (onHitPct != 0 && seconds > 0)
+        {
+            double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
+            perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
+        }
+        if (perSecond <= 0 && spreadRecovery <= 0) return;
+        double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
+        uint whole = (uint)Math.Truncate(total);
+        m.Regen = total - whole;
+        if (whole == 0) return;
+        m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + whole);
+        changed.Add((id, m.Life));
     }
 }

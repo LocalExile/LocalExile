@@ -154,7 +154,7 @@ static class SocialFeature
     // flags) and the other player the request (0xb8 with TradeRequestFlag and the requester's name), answered by 0xb0.
     internal static async Task RequestTrade(Player player, uint target)
     {
-        if (player.Instance.Player(target) is not { Owner: { Connection.Outbox: not null } other } || !PlayerTradeAllowed(player, other)
+        if (player.Instance.Player(target) is not { Connection.Outbox: not null } other || !PlayerTradeAllowed(player, other)
             || other.Trade is not null || player.Trade is not null)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00ba trade request to 0x{target:x}: not available");
@@ -177,7 +177,7 @@ static class SocialFeature
     {
         Console.WriteLine($"[gateway] {CharacterName(player)} declined the trade request from 0x{requester:x}");
         await SendTo(player, InstanceNpcs.TradeClose(requester, false), "0x00b9 trade request declined");
-        if (player.Instance.Player(requester) is { Owner: { } other } && other.TradeRequestTo == player.Id)
+        if (player.Instance.Player(requester) is { } other && other.TradeRequestTo == player.Id)
             await CancelTradeRequest(other);
     }
 
@@ -188,14 +188,14 @@ static class SocialFeature
         player.TradeRequestTo = 0;
         Console.WriteLine($"[gateway] trade request from {CharacterName(player)} to 0x{to:x} cancelled");
         await SendTo(player, InstanceNpcs.TradeClose(to, false), "0x00b9 trade request cancelled");
-        if (player.Instance.Player(to) is { Owner: { } other })
+        if (player.Instance.Player(to) is { } other)
             await SendTo(other, InstanceNpcs.TradeClose(player.Id, false), $"0x00b9 trade request from {CharacterName(player)} withdrawn");
     }
 
     // C→S 0xb0: the request accepted (u32 the requester's object id). Both get the open trade window.
     internal static async Task AcceptTradeRequest(Player player, uint requester)
     {
-        if (player.Instance.Player(requester) is not { Owner: { } other } || other.TradeRequestTo != player.Id
+        if (player.Instance.Player(requester) is not { } other || other.TradeRequestTo != player.Id
             || !PlayerTradeAllowed(player, other) || other.Trade is not null || player.Trade is not null)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00b0 trade accept from 0x{requester:x}: no pending request");

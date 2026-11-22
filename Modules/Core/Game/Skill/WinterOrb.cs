@@ -283,7 +283,7 @@ static partial class Game
                 {
                     // A quarter of a second at most: a release, a retirement or an expiry is heard without waiting for a
                     // long interval to pass.
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(wait, .25)));
+                    await AreaDelay(player, Math.Min(wait, .25));
                     continue;
                 }
                 if (!fire) continue;
@@ -378,7 +378,7 @@ static partial class Game
         {
             try
             {
-                await Task.Delay(WinterOrbImpactMilliseconds);
+                await AreaDelay(player, WinterOrbImpactMilliseconds / 1000.0);
                 await Send(player, InstanceProtocol.RemoveObject(id), null);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
@@ -495,7 +495,7 @@ static partial class Game
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            await AreaDelay(player, seconds);
             if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
             await Send(player, InstanceProtocol.RemoveObject(projectile), null);
             await WinterOrbImpact(player, at);

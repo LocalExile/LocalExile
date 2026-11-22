@@ -7,8 +7,8 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    // The player's collisions and what the others in the instance are shown of them, every frame of the area while the
-    // player's updates run and no transfer is pending. A pause skips the collisions; the pose and the syncs go on.
+    // The player's collisions, every frame of the area while the player's updates run and no transfer is pending. A pause
+    // skips them.
     static void StartLivingCollisions(Player player, PlayerUpdatesState updates)
     {
         EveryFrameAsPlayer(player, () =>
@@ -29,7 +29,6 @@ public static partial class Game
                 await ReleaseHeldMove(player);
                 if (!PlayerUpdatesCurrent(player, updates)) return;
             }
-            PublishPlayerPose(player);
             if (ServerTrace.Sync) TraceSync(player);
             await ApplyKillShares(player);
             // The area's runner watches the monsters waiting to rise and reveals the held-back ones near a player.
@@ -128,14 +127,12 @@ public static partial class Game
             player.PeerTemplate = template = template with
             { Stats = [.. (template.Stats ?? []).Where(s => s.Key != ActorScale.Final), (ActorScale.Final, scale)] };
         if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea || player.Instance is null) return;
-        var p = player.Walk.Position(AreaTime(player));
-        SharedAura[] shared = player.PlayerLife == 0 || InTown(player) ? []
-            : player.Auras.Values.Where(a => AuraCatalog.Shared(a.EffectId)).Select(a => new SharedAura(a,
+        player.Instance.AddPlayer(player);
+        // The auras shared with allies (readers skip a dead or in-town giver); their zones follow the player.
+        player.SharedAuras = [.. player.Auras.Values.Where(a => AuraCatalog.Shared(a.EffectId)).Select(a => new SharedAura(a,
                 AuraRadius.Of(a, player.Pools.AuraAreaPct, SkillsFor(player), Stats),
-                player.Pools.AuraEffectPct + a.SupportEffectPct)).Concat(SharedAvianAuras(player)).ToArray();
-        SyncSharedAuraZones(player, shared);
-        player.Instance.PublishPlayer(new(player.Id, player.PeerType, template, p.X, p.Y, player.PlayerLife, player)
-            { Destination = player.Walk.Destination, Auras = shared });
+                player.Pools.AuraEffectPct + a.SupportEffectPct)).Concat(SharedAvianAuras(player))];
+        SyncSharedAuraZones(player, player.SharedAuras);
     }
 
     public static Task CorrectMonsterCollisions(Player player)

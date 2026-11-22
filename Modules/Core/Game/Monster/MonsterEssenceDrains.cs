@@ -84,6 +84,7 @@ static partial class Game
 
     internal static async Task TickEssenceDrains(Player player)
     {
+        if (!MonsterEssenceDrain.AnyApplied) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner)>();
         double leeched = 0;
         using (ProjectileMutation(player))

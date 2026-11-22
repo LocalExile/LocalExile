@@ -15,8 +15,9 @@ static partial class Game
         {
             var supported = SupportedSkill(player, skill);
             var sockets = supported.Supports.Select(s => s.Gem.Socket).Where(s => s >= 0).ToHashSet();
+            object? sourceId = supported.SourceGem is not null ? PlayerInventories.GemIdentity(supported.SourceGem) : null;
             return [.. ItemsOf(player).SocketedGemPlaces().Where(p => p.ItemId == supported.Host
-                && (ReferenceEquals(p.Gem, supported.SourceGem) || sockets.Contains(p.Socket)))
+                && ((sourceId is not null && ReferenceEquals(PlayerInventories.GemIdentity(p.Gem), sourceId)) || sockets.Contains(p.Socket)))
                 .Select(p => (p.ItemId, p.Socket, PlayerInventories.GemIdentity(p.Gem)))];
         }
 

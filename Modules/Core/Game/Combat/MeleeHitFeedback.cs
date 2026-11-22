@@ -14,7 +14,7 @@ public static partial class Game
     internal static byte[] MeleeHitFeedback(uint attacker, ushort sequence, uint target, byte code, byte angle,
         bool critical, string? impactArt, uint orderKey = 0, ushort checkpoint = 0) =>
         InstanceProtocol.ActionHit(attacker, impactArt is null ? sequence : (ushort)0xffff, target,
-            flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 3, code: code, angle: angle,
+            flags: (ushort)(0x4200 | HitTypeFlag(code) | (critical ? 0x20 : 0)), kind: 3, code: code, angle: angle,
             orderKey: orderKey, checkpoint: checkpoint);
 
     static async Task PresentMeleeImpact(Player player, string art, (int X, int Y) from, (int X, int Y) at)

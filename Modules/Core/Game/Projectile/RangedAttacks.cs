@@ -23,7 +23,7 @@ public static partial class Game
             {
                 return sent = OrdinaryRangedReleaseCurrent(player, action, epoch) && !player.Paused;
             });
-            if (!sent) await Task.Delay(16);
+            if (!sent) await AreaDelay(player, 0.016);
         }
         return sent;
     }

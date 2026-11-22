@@ -46,11 +46,23 @@ public static partial class Game
             {
                 // Player base increased area is already included in the panel total. Lay the skill's own
                 // supported stats over the area-specific player snapshot, then scale each base radius once.
-                var areaStats = MergeSkillStats(AreaPlayerStats(context.Player), SupportedSkill(context.Player, context.SkillId).Stats);
+                var areaStats = AreaSkillStats(context.Player, context.SkillId, SupportedSkill(context.Player, context.SkillId));
                 int Get(uint id) => areaStats.GetValueOrDefault(id);
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
                 var shot = (ProjectileOffense)use.Payload!;
+                if (GatewayProjectileSkillProfiles.IsCausticArrow(effect) && effect != "CausticArrowAltX")
+                {
+                    int radius = (int)(use.Profile.ContactArea?.Radius ?? 12);
+                    double duration = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration),
+                        context.PlayerStat, k => k == Stat.SkillEffectDurationPlusPct
+                            ? context.Own(k) + context.Get(Stat.CausticArrowDurationPlusPct) : context.Own(k));
+                    var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? CharacterPlayerStats(context.Player));
+                    double dps = damageContext.Suppressed ? 0 : CausticGroundDps(context.Get, context.Own);
+                    if (radius > 0 && duration > 0 && dps > 0)
+                        shot = shot with { CausticCloud = new(radius, duration, dps, context.Get(Stat.GroundCausticArtVariation)) };
+                    return use with { Payload = shot };
+                }
                 if (GatewayProjectileSkillProfiles.IsKineticBlast(effect))
                     return use with { Payload = shot with { AreaVisual = Art.AnimatedInPlaceOf(KineticBlastExplosionAo, context.Variation),
                         Presentation = new() { EffectLifetime = ProjectileRuntime.Time(.35) } } };

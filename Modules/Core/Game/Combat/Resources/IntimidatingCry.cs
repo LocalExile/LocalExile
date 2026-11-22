@@ -135,8 +135,8 @@ public static partial class Game
             MarkPlayerStats(player, PlayerStatStep.CryMovement);
             // Deliver immutable release-time gifts. Recipients consume their own inbox, without cross-simulation reads.
             foreach (var peer in player.Instance.PlayersExcept(player.Id)
-                         .Where(p => p.Current && p.Life > 0 && Dist((p.X, p.Y), at) <= radius))
-                if (peer.Owner is { } recipient)
+                         .Where(p => p.PlayerLife > 0 && Dist(p.Walk.Position(AreaTime(p)), at) <= radius))
+                if (peer is { } recipient)
                 {
                     var inbox = CryRuntimes.GetOrCreateValue(recipient).Inbox;
                     if (inbox.Count < 64) { inbox.Enqueue(gift); MarkPlayerStats(recipient, PlayerStatStep.CryMovement); }

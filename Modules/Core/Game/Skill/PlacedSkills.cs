@@ -419,6 +419,7 @@ public static partial class Game
 
     static void PlacedGroundRecordsLocked(Player player, double now, WorldRecordBuilder bytes)
     {
+        if (player.Placed.Grounds.Count == 0) return;
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.
         foreach (var (id, monster) in player.Area.Monsters.ToArray())
         {
@@ -445,6 +446,7 @@ public static partial class Game
 
     static async Task PlacedSkillsTick(Player player, double now)
     {
+        if (player.Placed.All.Count == 0 && player.Placed.Grounds.Count == 0) return;
         await SendWorldBatch(player, [], admission =>
         {
             using (ProjectileMutation(player))

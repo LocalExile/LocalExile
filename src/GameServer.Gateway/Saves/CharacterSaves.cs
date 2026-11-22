@@ -124,6 +124,7 @@ public static class CharacterSaves
 
     static Save? Look(string character)
     {
+        if (Saves.TryGetCachedCharacter(character, out var cached)) return cached;
         var db = Saves.Db;
         return db.Read(() =>
         {

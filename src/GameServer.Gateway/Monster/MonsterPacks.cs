@@ -287,11 +287,11 @@ public static class AreaPopulation
     // Provisional reconstructed opening capture: 43 scattered monsters, Hillock and the tutorial zombie.
     // The first 35 seconds were not recorded; this is a calibration target, not a recovered server constant.
     public const int StrandMonsterTarget = 45;
-    // Cells kept free around the player's arrival point, between pack centres, and around area transitions.
-    const int SpawnClearance = 60, PackSpacing = 28;
-    /// <summary>Cells a shrine must stand clear of an entrance or waypoint to be guarded (also the clearance the scattered
-    /// packs keep from an area transition).</summary>
-    public const int TransitionClearance = 25;
+    // Cells kept free around the player's arrival point, between pack centres, and around area transitions/waypoints
+    // (~5 tiles: off-screen and outside standard 105-cell monster aggro range, capped on small arenas/tests).
+    const int SpawnClearance = 120, PackSpacing = 28;
+    /// <summary>Cells kept clear around an area transition or waypoint for scattered/named packs and shrine guards.</summary>
+    public const int TransitionClearance = 120;
     // A pack centre needs this many walkable cells to the nearest blocked cell; members stand within MemberRadius of it.
     const int CentreDepth = 5, MemberRadius = 9, MemberSpacing = 3;
 
@@ -337,6 +337,11 @@ public static class AreaPopulation
         var spawns = new List<Spawn>();
         var taken = new HashSet<(int, int)>();
         var centres = new List<(int X, int Y)>();
+        int spawnClearance = Math.Min(SpawnClearance, Math.Max(25, Math.Min(w, h) / 4));
+        int transitionClearance = Math.Min(TransitionClearance, Math.Max(25, Math.Min(w, h) / 4));
+        int memberSpawnClearance = Math.Max(0, spawnClearance - MemberRadius);
+        int memberTransitionClearance = Math.Max(0, transitionClearance - MemberRadius);
+        bool InSafeZone((int X, int Y) p, int sc, int tc) => Near(p, arrival, sc) || transitions.Any(t => Near(p, t, tc));
 
         // The room points first. Each boss of WorldAreas Bosses stands once: at its own numbered point ("mapboss2"), in a
         // named pack whose boss it is (The Mines Level 1's "%area%-minerhammerbosspack": Pikerivet), or else, with every
@@ -386,12 +391,16 @@ public static class AreaPopulation
         {
             string name = p.Name["%area%-".Length..];
             if (!area.Named.TryGetValue(name, out var pack)) { notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): no pack {area.AreaId}-{name}"); continue; }
-            if (!ordinaryPacks && name != "bosspack" && !pack.BossVarieties.Any(area.Bosses.Contains)) continue;
+            bool bossNamed = name == "bosspack" || pack.BossVarieties.Any(area.Bosses.Contains);
+            if (!ordinaryPacks && !bossNamed) continue;
+            if (!bossNamed && InSafeZone((p.X, p.Y), spawnClearance, transitionClearance)) continue;
             // A named pack's own boss (BossMonster_MonsterVarietiesKeys) comes with it; one of the area's unique bosses is
             // unique, and stands only once.
             int Row(int variety) => Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => area.Bosses[i] == variety && !placedRows.Contains(i), -1);
             bool IsBoss(int variety) => area.Bosses.Contains(variety);
-            foreach (int b in AddPack(spawns, taken, walkable, (p.X, p.Y), pack, MonsterRarity.Normal, true, rng, spawnable,
+            Func<int, int, bool> namedWalkable = bossNamed ? walkable
+                : (x, y) => walkable(x, y) && !InSafeZone((x, y), memberSpawnClearance, memberTransitionClearance);
+            foreach (int b in AddPack(spawns, taken, namedWalkable, (p.X, p.Y), pack, MonsterRarity.Normal, true, rng, spawnable,
                 b => !IsBoss(b) ? false : Row(b) >= 0 ? true : (bool?)null))
                 placedRows.Add(Row(b));
             centres.Add((p.X, p.Y));
@@ -474,9 +483,11 @@ public static class AreaPopulation
         foreach (var p in packs.Count == 0 || !ordinaryPacks ? [] : roomPacks ?? [])
             if (PackPoint(p.Name) is { } rarity)
             {
+                if (InSafeZone((p.X, p.Y), spawnClearance, transitionClearance)) continue;
                 var pack = PickPack(packs, rng);
                 int before = spawns.Count;
-                AddPack(spawns, taken, walkable, (p.X, p.Y), pack, rarity, true, rng, spawnable);
+                AddPack(spawns, taken, (x, y) => walkable(x, y) && !InSafeZone((x, y), memberSpawnClearance, memberTransitionClearance),
+                    (p.X, p.Y), pack, rarity, true, rng, spawnable);
                 if (spawns.Count > before) roomPlaced++;
                 centres.Add((p.X, p.Y));
                 notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
@@ -508,7 +519,8 @@ public static class AreaPopulation
                 $"({walkableCells - packCells} of {walkableCells} walkable cell(s) cut off)");
         Shuffle(candidates, rng);
         bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
-            && (reach is null || reach[y * w + x]) && cells[y * w + x];
+            && (reach is null || reach[y * w + x]) && cells[y * w + x]
+            && !InSafeZone((x, y), memberSpawnClearance, memberTransitionClearance);
         foreach (var request in additionalPacks ?? [])
         {
             int placed = 0, first = spawns.Count;
@@ -517,7 +529,7 @@ public static class AreaPopulation
                 foreach (var c in candidates)
                 {
                     if (placed >= request.Count) break;
-                    if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance))
+                    if (InSafeZone(c, spawnClearance, transitionClearance)
                         || centres.Any(o => Near(c, o, PackSpacing)) || scatterable is not null && !scatterable(c.X, c.Y)) continue;
                     var pack = choices[rng.Next(choices.Count)];
                     int before = spawns.Count;
@@ -540,7 +552,7 @@ public static class AreaPopulation
         foreach (var c in candidates)
         {
             if (plans.Count >= wanted) break;
-            if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance)) || centres.Any(o => Near(c, o, PackSpacing))
+            if (InSafeZone(c, spawnClearance, transitionClearance) || centres.Any(o => Near(c, o, PackSpacing))
                 || scatterable is not null && !scatterable(c.X, c.Y)) continue;
             centres.Add(c);
             plans.Add((c, PickPack(packs, rng)));

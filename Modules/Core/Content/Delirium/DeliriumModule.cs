@@ -70,7 +70,7 @@ public sealed partial class DeliriumModule : IModule
     {
         context = module;
         module.Lifetime.Own(new Cleanup(() => { runs.Clear(); views.Clear(); }));
-        GameEvents.MapOpening.Add(module.Manifest.Id, request => SimulacrumRules.Resolve(request, Random.Shared));
+        GameEvents.MapOpening.Add(module.Manifest.Id, request => SimulacrumRules.Resolve(request, global::Game.AreaRng(request.Player)));
         GameEvents.AreaHeader.Add(module.Manifest.Id, player => SimulacrumRules.IsArena(player.Layout.Id)
             ? new AreaHeader(null, null) { Level = (byte)SimulacrumRules.Level(State(player).Wave == 0 ? 1 : State(player).Wave) } : null);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, Enter);

@@ -42,7 +42,7 @@ static partial class QuestobjectsRules
             var order = arena.Statues.OrderBy(_ => AreaRng(player).Next()).ToList();
             for (int k = 0; k < order.Count; k++)
             {
-                if (k > 0) await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseInterval));
+                if (k > 0) await AreaDelay(player, IzaroStatues.RiseInterval);
                 var slot = order[k];
                 if (arena.Over || !here()) return;
                 slot.State = IzaroStatues.Raising;
@@ -59,7 +59,7 @@ static partial class QuestobjectsRules
     static async Task StatueRisen(Player player, IzaroArena arena,
         StatueSlot slot, Func<bool> here)
     {
-        await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
+        await AreaDelay(player, IzaroStatues.RiseSeconds);
         if (arena.Over || !here() || slot.State != IzaroStatues.Raising) return;
         await Send(player, LiftState(player, slot.Lift, slot.At, IzaroFights.Raised),
             $"0x02bc small elevator 0x{slot.Lift:x} up");
@@ -94,7 +94,7 @@ static partial class QuestobjectsRules
         var layout = player.Layout;
         _ = AreaFrames.Start(async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.OffSeconds));
+            await AreaDelay(player, IzaroStatues.OffSeconds);
             if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout) || slot.Generation != generation || arena.Over) return;
             try { await TurnIzaroStatue(player, arena, slot, on: true); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
@@ -111,7 +111,7 @@ static partial class QuestobjectsRules
         var layout = player.Layout;
         _ = AreaFrames.Start(async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.LowerSeconds));
+            await AreaDelay(player, IzaroStatues.LowerSeconds);
             if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
             try
             {

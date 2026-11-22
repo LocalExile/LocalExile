@@ -21,7 +21,7 @@ public static partial class Game
     public const int RelicExplosionRadius = 22;
 
     // The zone of a minion's aura on its owner.
-    const string MinionAuraZones = "minion aura";
+    const ZoneKind MinionAuraZones = ZoneKind.MinionAura;
 
     // Every frame of the area (a pause stops them) while the player's updates run: PlayerMinionsTick, then
     // LinkSkillsTick (a link to a minion that just ended sees it gone). A failed step is logged and the next one runs.
@@ -73,6 +73,9 @@ public static partial class Game
         if (!Current()) return;
         await PlacedSkillsTick(player, now);
         if (!Current()) return;
+        if (player.Minions.All.Count == 0 && player.Minions.Bodies.Count == 0
+            && player.Minions.PendingRelics == 0 && player.Minions.OutputQueue.Count == 0)
+            return;
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;
@@ -140,9 +143,9 @@ public static partial class Game
             bytes.Clear();
             if (minion.OwnerAura is not { } aura) continue;
             // The aura is a zone around the minion that reaches its owner (OwnedZones).
-            SyncZones(player, minion.Id, MinionAuraZones, [((object)aura.EffectId, aura.Radius, default((int, int)))],
+            SyncZones(player, minion.Id, MinionAuraZones, [(0u, aura.Radius, default((int, int)))],
                 new(ReachesOnly(player.Id), new EntityId(minion.Id)));
-            bool inside = player.PlayerLife > 0 && InZone(player, minion.Id, MinionAuraZones, aura.EffectId, player.Id);
+            bool inside = player.PlayerLife > 0 && InZone(player, minion.Id, MinionAuraZones, 0, player.Id);
             if (inside == (minion.OwnerBuff != 0)) continue;
             aurasChanged = true;
             if (inside) { minion.OwnerBuff = 1; player.Area.Buffs.Set(player.Id, new(aura.BuffRow, minion.Id)); }

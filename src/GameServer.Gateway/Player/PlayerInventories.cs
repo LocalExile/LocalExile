@@ -73,14 +73,21 @@ public sealed class PlayerInventories
     /// <summary>Writes the character's save (every inventory, with item ids and cells, and the start weapon), in a
     /// transaction of its own or the one it runs in (<see cref="Saves"/>).</summary>
     long _changes;
+    long _mutations;
+    (byte Row, InventoryItem Item)[]? _equipmentSnapshot;
+    long _equipmentSnapshotMutation = -1;
 
     /// <summary>How many saved changes the items had (each Persist): a reader that saw the count sees whether they changed.
     /// Unsaved gem experience is not counted.</summary>
     public long Changes => Interlocked.Read(ref _changes);
 
+    /// <summary>Monotonic count of all inventory mutations (saved and unsaved).</summary>
+    public long Mutations => Interlocked.Read(ref _mutations);
+
     void Persist()
     {
         Interlocked.Increment(ref _changes);
+        Interlocked.Increment(ref _mutations);
         if (_owner is not { } owner) return;
         Saves.Atomically(() =>
         {
@@ -388,10 +395,11 @@ public sealed class PlayerInventories
     // Immutable item records from ONE inventory read, including attribute gear and all active socket hosts.
     public IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
     {
-        // Asked for many times in one stat-sources lookup: one array of the right size, no growing list (profiled
-        // 2026-11-17: 12% of a lookup).
+        // Asked for many times in one stat-sources lookup: cache the immutable array while no inventory mutation occurs.
         lock (_lock)
         {
+            long version = Interlocked.Read(ref _mutations);
+            if (_equipmentSnapshot is not null && _equipmentSnapshotMutation == version) return _equipmentSnapshot;
             int count = 0;
             foreach (byte row in ItemModStats.EquipmentRows)
                 if (_items.TryGetValue(row, out var items)) count += items.Count;
@@ -400,6 +408,8 @@ public sealed class PlayerInventories
             foreach (byte row in ItemModStats.EquipmentRows)
                 if (_items.TryGetValue(row, out var items))
                     foreach (var item in items) snapshot[at++] = (row, item);
+            _equipmentSnapshot = snapshot;
+            _equipmentSnapshotMutation = version;
             return snapshot;
         }
     }
@@ -447,6 +457,7 @@ public sealed class PlayerInventories
                         }
                     if (gems.Count == 0) continue;
                     _unsaved = true;
+                    Interlocked.Increment(ref _mutations);
                     items[at] = items[at] with { Item = items[at].Item with { Sockets = sockets } };
                     changed.Add((row, items[at], gems));
                 }
@@ -496,6 +507,23 @@ public sealed class PlayerInventories
         }
         if (itemClass == "Quiver") return otherClass is null or "Bow" ? null : "a quiver goes only with a bow or an empty main hand";
         return otherClass is not null && TwoHand.Contains(otherClass) ? $"the main hand holds a two-handed weapon ({otherClass})" : null;
+    }
+
+    static readonly byte[] AutoEquipRows = [BodyArmour, Weapon1, Offhand1, Helmet, 5, 6, 7, Gloves, 9, 10];
+
+    /// <summary>First empty compatible active equipment or flask slot for an identified picked-up item, or null.</summary>
+    public (byte Row, byte X, byte Y)? FindAutoEquipSlot(Item item, Func<Item, Shape?> shapeOf)
+    {
+        if (!item.Identified || shapeOf(item) is not { } shape) return null;
+        lock (_lock)
+        {
+            foreach (byte row in AutoEquipRows)
+                if (Accepts(row, shape.Class) && ItemsIn(row).Count == 0 && HandConflict(row, shape.Class, shapeOf) is null)
+                    return (row, 0, 0);
+            if (Accepts(Flask, shape.Class) && FreeCell(Flask, shape.Width, shape.Height, shapeOf) is { } flaskCell)
+                return (Flask, flaskCell.X, flaskCell.Y);
+        }
+        return null;
     }
 
     /// <summary>Inventories.dat column 7 by row: the slot the player's model shows an equipped item in (17 = none).</summary>
@@ -611,6 +639,7 @@ public sealed class PlayerInventories
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) return null;
             _unsaved = true;
+            Interlocked.Increment(ref _mutations);
             return items[at] = items[at] with { Item = change(items[at].Item) };
         }
     }

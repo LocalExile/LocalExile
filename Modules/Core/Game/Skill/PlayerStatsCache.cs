@@ -462,6 +462,8 @@ public static partial class Game
             if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(bytes)) return [];
             (sent.Bytes, sent.Skills) = (bytes, skills);
         }
+        // Any 0x02bc Actor skill-list update can reset client-side skill bar bindings; schedule a coalesced 0x0053 restore.
+        _ = RestoreSkillBarAfterActorUpdate(player);
         return bytes;
     }
 

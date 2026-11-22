@@ -30,7 +30,11 @@ public static partial class Game
             ?? throw new InvalidOperationException("Cannot resolve the dying character's Hardcore league");
         // A league's rules can make the death permanent (Ruthless's hardcoreDeathToVoid setting).
         if (LeagueFor(player).Rules.HardcoreDeathToVoid) source = source with { PermanentDeath = true };
-        var dead = HardcoreDeathPersistence.Commit(Saves.Db, name, source, () => ItemsOf(player).SaveUnsaved(), expectedCharacterId: player.Character.Id);
+        var dead = HardcoreDeathPersistence.Commit(Saves.Db, name, source, () =>
+        {
+            ItemsOf(player).SaveUnsaved();
+            Saves.FlushSession(name, player.Character.Account, player.Character.League);
+        }, expectedCharacterId: player.Character.Id);
         CharacterSaves.ChangeModuleData(name, HardcoreDeathMark, _ => "");
         Console.WriteLine($"[gateway] {name}: Hardcore death committed: {source.Name} → {dead.League}" +
             (dead.HardcoreDeath?.PermanentlyDead == true ? " (permanently dead)" : " (carried items retained)"));

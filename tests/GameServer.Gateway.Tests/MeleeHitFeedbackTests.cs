@@ -20,14 +20,14 @@ public sealed class MeleeHitFeedbackTests
             Assert.Equal(0x7000, BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(10)));
             Assert.Equal(0xffff, BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(12)));
             Assert.Equal(0x8000012u, BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(16)));
-            Assert.Equal(0x4221, BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(20)));
+            Assert.Equal(0x4230, BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(20)));
             Assert.Equal(3, packet[22]); // Immediate hit data, never an unconsumable queued result.
             Assert.Equal(4, packet[23]); // Actual Chaos hit, not the old physical default.
             Assert.Equal(0x40, packet[24]);
         }
         // A different skill keeps its real sequence and its existing native hit presentation.
         Assert.Null(Game.MeleeImpactArt("Sweep"));
-        Assert.Equal(InstanceProtocol.ActionHit(0x1000, 0x1234, 0x8000012, flags: 0x4201, kind: 3, code: 2),
+        Assert.Equal(InstanceProtocol.ActionHit(0x1000, 0x1234, 0x8000012, flags: 0x4204, kind: 3, code: 2),
             Game.MeleeHitFeedback(0x1000, 0x1234, 0x8000012, 2, 0, false, null));
     }
 }

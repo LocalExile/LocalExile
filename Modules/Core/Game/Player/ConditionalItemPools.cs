@@ -231,9 +231,47 @@ public static partial class Game
         public long Revision, Presented;
         public (int Movement, int Avoid) AppliedElusive;
         public int AppliedOnslaughtEffect;
+        public long CheckedInventoryMutations = -1;
+        public int CheckedPassivesCount = -1;
+        public int CheckedTattooRevision = -1;
+        public int CheckedLevel;
+        public bool CheckedGod;
+        public bool HasConditionalMods;
+        public bool HasBeastCompanions;
     }
 
     static readonly Store<Player, ConditionalItemPoolState> ConditionalItemPools = new();
+
+    static bool WornHasConditionalMods(Player player, IReadOnlyList<ItemModStats.Worn> worn)
+    {
+        var mods = ItemsFor(player).Mods;
+        for (int i = 0; i < worn.Count; i++)
+        {
+            var item = worn[i].Item;
+            for (int m = 0; m < item.Mods.Count; m++)
+            {
+                var def = mods.ByHash(item.Mods[m].Hash);
+                if (def is null) continue;
+                for (int s = 0; s < def.Stats.Count; s++)
+                {
+                    var st = def.Stats[s];
+                    if (st.Local) continue;
+                    if (StatConditions.Of(st.Name, default) != StatConditions.State.None
+                        || StatConditions.IsActiveNonVaalSkillMinionCoefficient(st.Name)
+                        || OwnedCountItemStats.IsCoefficient(st.Id)
+                        || st.Id == HerEmbraceGain
+                        || st.Id == Stat.OnslaughtEffectPlusPct)
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool HasAnyBeastCompanionState(Player player) =>
+        player.Beasts.Active is not null
+        || player.Beasts.Pending is not null
+        || player.Beasts.SourceGenerations.Count > 0;
 
     // A changed condition must reach the final pools as well as the raw stat dictionary. Compare effective sources:
     // another hit can extend the same four-second window without requiring another pool build.
@@ -241,11 +279,49 @@ public static partial class Game
     {
         var state = ConditionalItemPools.GetOrCreateValue(player);
         if (state.Building || player.Closed || player.LeavingArea) return false;
-        EquipmentStatSources(player, ItemsOf(player).EquipmentSnapshot());
+        var items = ItemsOf(player);
+        long invMutations = items.Mutations;
+        int passivesCount = player.Character.Passives.Count
+            + player.Character.MainAscendancy.Allocated.Count
+            + player.Character.DescendancyNodes.Count
+            + player.Character.ClusterPassives.Count;
+        int tattooRevision = player.Character.TattooRevision;
+        int level = player.Pools.Level;
+        bool god = player.God;
+        var cached = player.StatSourcesCache;
+        var elusive = ElusivePanelState(player);
+        // Fast path: when equipment, passives, level, god mode, and StatSourcesCache are unchanged, and no worn item
+        // carries a conditional mod or beast companion, skip rebuilding EquipmentStatSources on every incoming hit.
+        if (cached is not null && ReferenceEquals(state.Applied, cached)
+            && state.CheckedInventoryMutations == invMutations
+            && state.CheckedPassivesCount == passivesCount
+            && state.CheckedTattooRevision == tattooRevision
+            && state.CheckedLevel == level
+            && state.CheckedGod == god
+            && !state.HasConditionalMods
+            && !state.HasBeastCompanions
+            && !HasAnyBeastCompanionState(player)
+            && state.AppliedElusive == elusive
+            && GameEvents.ExemptItems(player).Count == 0
+            && player.IncomingAilments.PoisonStacks(AreaTime(player)) == cached.Key.PoisonStacks)
+            return false;
+        var snapshot = items.EquipmentSnapshot();
+        EquipmentStatSources(player, snapshot);
         ReconcileBeastCompanionsLocked(player);
         var current = player.StatSourcesCache;
+        if (current is not null && (state.CheckedInventoryMutations != invMutations || !ReferenceEquals(state.Applied, current)))
+        {
+            state.CheckedInventoryMutations = invMutations;
+            state.CheckedPassivesCount = passivesCount;
+            state.CheckedTattooRevision = tattooRevision;
+            state.CheckedLevel = level;
+            state.CheckedGod = god;
+            state.HasConditionalMods = WornHasConditionalMods(player, current.Worn);
+            state.HasBeastCompanions = HasAnyBeastCompanionState(player)
+                || AllWornGrantedSkillsOf(player).Any(g => BeastSourceEligible(player, g));
+        }
+        else if (HasAnyBeastCompanionState(player)) state.HasBeastCompanions = true;
         var before = state.Applied;
-        var elusive = ElusivePanelState(player);
         bool sameElusive = state.AppliedElusive == elusive;
         int onslaughtEffect = Stat.OnslaughtEffectPlusPct is var effectKey
             ? current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;

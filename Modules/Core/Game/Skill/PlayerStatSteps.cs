@@ -106,9 +106,6 @@ public static partial class Game
             if (!player.God) return;
             foreach (var (stat, value) in GodStats)
                 if (stat is var key) stats[key] = stats.GetValueOrDefault(key) + value;
-            // the final value the client shows: 100% of maximum life per second, per minute
-            if (Stats.Key("life_regeneration_rate_per_minute") is uint lr)
-                stats[lr] = (int)Math.Min(int.MaxValue, (long)player.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
         });
         Step(PlayerStatStep.Auras, (player, stats, _) =>
         {

@@ -36,7 +36,7 @@ public static class MapScarabPacks
         && p.Entries.Select(e => e.Variety).Concat(p.BossVarieties).All(v => Game.Monsters.Find(v.ToString()) is { Supported: true }))
         && Program.Items.Find(Deck) is { Supported: true };
 
-    public static void Opening(MapOpening request) => Opening(request, Random.Shared);
+    public static void Opening(MapOpening request) => Opening(request, Game.AreaRng(request.Player));
 
     public static void Opening(MapOpening request, Random random)
     {

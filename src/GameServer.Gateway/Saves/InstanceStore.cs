@@ -304,19 +304,28 @@ public sealed class InstanceGround
         lock (_items) return [.. _items.Select(e => (e.Key, e.Value))];
     }
 
+    readonly List<EntityId> _nearScratch = [];
+
     /// <summary>The items of <paramref name="which"/> within <paramref name="range"/> cells (centre to centre) of a cell.</summary>
     public IReadOnlyList<(uint Id, WorldItemObject Item)> Within(int x, int y, double range, Func<WorldItemObject, bool> which)
     {
         lock (_items)
         {
-            var near = new List<EntityId>();
-            _cells.Near((x, y), (int)Math.Ceiling(range), near);
-            near.Sort();
-            var found = new List<(uint Id, WorldItemObject Item)>();
-            foreach (var id in near)
-                if (_items.TryGetValue(id.Value, out var item) && which(item)
-                    && Math.Sqrt((double)(item.GridX - x) * (item.GridX - x) + (double)(item.GridY - y) * (item.GridY - y)) <= range)
-                    found.Add((id.Value, item));
+            if (_items.Count == 0) return [];
+            _nearScratch.Clear();
+            _cells.Near((x, y), (int)Math.Ceiling(range), _nearScratch);
+            if (_nearScratch.Count == 0) return [];
+            List<(uint Id, WorldItemObject Item)>? found = null;
+            double r2 = range * range;
+            for (int i = 0; i < _nearScratch.Count; i++)
+            {
+                uint id = _nearScratch[i].Value;
+                if (!_items.TryGetValue(id, out var item) || !which(item)) continue;
+                double dx = item.GridX - x, dy = item.GridY - y;
+                if (dx * dx + dy * dy <= r2) (found ??= []).Add((id, item));
+            }
+            if (found is null) return [];
+            if (found.Count > 1) found.Sort(static (a, b) => a.Id.CompareTo(b.Id));
             return found;
         }
     }

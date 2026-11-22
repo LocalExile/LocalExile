@@ -33,7 +33,7 @@ public static partial class Game
             && (cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken));
         double delay;
         delay = sealDelay + castMs / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
-        await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
+        await AreaDelay(player, Math.Max(0.05, delay));
         await WhilePaused(player);
         if (!Current())
         {
@@ -87,7 +87,7 @@ public static partial class Game
         var art = new List<uint>();
         for (int i = 0; i < blasts.Count; i++)
         {
-            if (i > 0) await Task.Delay(TimeSpan.FromSeconds(DarkBargainChainSeconds));
+            if (i > 0) await AreaDelay(player, DarkBargainChainSeconds);
             if (player.Closed || player.LeavingArea || !player.ProjectileActive(epoch)) break;
             var (at, paid, skeleton) = blasts[i];
             uint effect;
@@ -106,7 +106,7 @@ public static partial class Game
         if (art.Count > 0)
             _ = AreaFrames.Start(async () =>
             {
-                await Task.Delay(DarkBargainArtMs);
+                await AreaDelay(player, DarkBargainArtMs / 1000.0);
                 foreach (uint effect in art)
                     if (player.ProjectileActive(epoch)) await Send(player, InstanceProtocol.RemoveObject(effect), null);
             });

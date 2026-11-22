@@ -143,7 +143,7 @@ public static partial class Game
         if (!TryBeginObjectWalk(player, requestedAt, transition.GridX, transition.GridY, AreaTransitionObjectSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 area transition 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         if (!PlayerWalk.InWalkUpRange(stop, (transition.GridX, transition.GridY), AreaTransitionObjectSize))
         {
@@ -230,7 +230,7 @@ public static partial class Game
                 .. InstanceProtocol.FadeMove(player.Id, to.X, to.Y, TransitionDarkenSeconds)],
             $"0x00cb fade through {through} to ({to.X}, {to.Y}), {TransitionMoveSeconds} s and {TransitionDarkenSeconds} s");
         double until = AreaTime(player) + 0.8 * TransitionDarkenSeconds;
-        while (!player.Closed && AreaTime(player) < until) await Task.Delay(16);
+        while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
     }
 
     public static (int X, int Y) GateArrival(AreaLayout layout, AreaTransitionObject transition)
@@ -272,7 +272,7 @@ public static partial class Game
         if (!TryBeginObjectWalk(player, requestedAt, waypoint.GridX, waypoint.GridY, WaypointObjectSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 waypoint ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         if (!PlayerWalk.InWalkUpRange(stop, (waypoint.GridX, waypoint.GridY), WaypointObjectSize))
         {
@@ -430,7 +430,7 @@ public static partial class Game
                 still: () => !player.Closed);
         await Send(player, InstanceTransfer.ChangeArea(t.Area), $"0x02b4 change area to 0x{t.Area:x4} ({why})");
         // If the client never acknowledges, move it anyway after a moment.
-        _ = AreaFrames.Start(async () => { await Task.Delay(2000); if (player.PendingTransfer is { } p) await Transfer(player, p); });
+        _ = AreaFrames.Start(async () => { await AreaDelay(player, 2); if (player.PendingTransfer is { } p) await Transfer(player, p); });
     }
 
     // The capture tour's next step (CaptureTour), after an area load (0x7d) or when /tour starts: at the tour's current
@@ -521,6 +521,7 @@ public static partial class Game
         CarryRage(player, r.Ticket);
         CarryVaalSouls(player, r.Ticket);
         player.Retire();
+        FlushAreaProgress(player);
         LeechOf(player).Clear(AreaTime(player));
         player.InvalidateIncomingHits(); // Recent enemy contacts never cross an area connection.
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;

@@ -38,7 +38,6 @@ public sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner
     public readonly Dictionary<uint, Actor> Actors = [];
     public readonly HashSet<SpawnedMonster> ConsumedCorpses = new(ReferenceEqualityComparer.Instance);
     public readonly HashSet<uint> PendingRemoval = [];
-    public readonly HashSet<(uint Actor, ushort Buff)> PendingBuffRemoval = [];
     public readonly Dictionary<uint, (double Until, ushort Buff)> Blinds = [];
     public readonly Dictionary<uint, double> SentBlinds = [];
     public sealed record Strike(double At, long Epoch, uint ActorId, SpawnedMonster Actor,
@@ -57,5 +56,5 @@ public sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner
     public void Clear() => Disable();
     public IReadOnlyCollection<uint> RetiredObjects => PendingRemoval;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs =>
-        PendingBuffRemoval.Concat(Blinds.Select(p => (p.Key, p.Value.Buff))).ToArray();
+        [.. Blinds.Select(p => (p.Key, p.Value.Buff))];
 }

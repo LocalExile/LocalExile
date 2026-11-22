@@ -25,7 +25,7 @@ static partial class QuestobjectsRules
                     if (opened) await DropTutorialGem(player,true,chest.X,chest.Y);
                     return;
                 }
-                await Task.Delay(1000);
+                await AreaDelay(player, 1);
             }
             if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} tutorial chest has no captured placement for {player.Layout.Id} seed {player.Seed}; capture with -Walkmaps");
         }
@@ -41,31 +41,61 @@ static partial class QuestobjectsRules
             // Finish the selected voice line, then play the whole bite before handing over to the combat monster.
             // Use the paused instance clock for both waits.
             while (!player.Closed && !skipped.IsCompleted && AreaTime(player) < start+biteAt)
-                await Task.Delay(50);
+                await AreaDelay(player, 0.05);
             await WhilePaused(player);
             if(player.Closed) return;
-            double biteStarted = AreaTime(player);
             int component=npc.Npc.Components!.ToList().IndexOf("Transitionable");
             if(component>=0) await global::Game.SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id,(byte)component,2),"0x02bc wounded exile bitten");
-            if(player.TutorialSceneId!=0) await Send(player,TutorialObjects.BiteAnimation(player.TutorialSceneId,1),"0x01b2 opening zombie bites exile");
-            while (!player.Closed && AreaTime(player) < biteStarted+TutorialObjects.BiteSeconds)
-                await Task.Delay(50);
+            // Pre-register ZombieBite@1 if not already registered, then immediately hand off from the un-targetable
+            // scene prop to the real combat monster playing its native Emerge = "bite" clip so it is attackable
+            // the very instant it starts biting the wounded exile.
+            if(Monsters.Find(TutorialObjects.Zombie) is { Supported:true } zombie && !player.MonsterTypes.Contains((zombie.Row, 1)))
+                await Send(player, [], $"0x0020 monster type {zombie.Id}@1 (row {zombie.Row})", atGate: () =>
+                    !player.Closed && !player.LeavingArea && player.MonsterTypes.Add((zombie.Row, 1))
+                        ? InstanceEntities.MonsterTypes([((ushort)zombie.Row, 1)]) : null);
             if(player.Closed) return;
-            if(player.TutorialSceneId!=0) await global::Game.SendWorldRemoval(player, player.TutorialSceneId,null);
+            if(player.TutorialSceneId!=0)
+            {
+                uint sceneId = player.TutorialSceneId;
+                player.TutorialSceneId = 0;
+                await global::Game.SendWorldRemoval(player, sceneId, "0x02bd remove opening bite zombie prop");
+            }
             if(player.TalkingTo==id) { player.InNpcTalk=false;player.TalkingTo=0;await Send(player,InstanceNpcs.Talk(0),null); }
-            await SpawnTutorialZombie(player);
+            await SpawnTutorialZombie(player, playBite: true);
         }
         catch(Exception ex) when(ex is IOException or ObjectDisposedException)
         { if(!player.Closed) Console.WriteLine($"[gateway] opening scene: {ex.Message}"); }
         finally { player.TutorialSceneRunning=false; player.TutorialDialogueSkipped=null; }
     }
 
-    internal static async Task SpawnTutorialZombie(Player player)
+    internal static async Task SpawnTutorialZombie(Player player, bool playBite = false)
     {
         if(Environment.GetEnvironmentVariable("Game_MONSTERS")=="0" || player.TutorialZombiePlacement is not { } spawn) return;
         if(player.Area.Monsters.Values.Any(m=>m.Variety?.Id==TutorialObjects.Zombie)) return;
         if(Monsters.Find(TutorialObjects.Zombie) is { Supported:true } zombie)
-            await SpawnMonster(player,zombie,1,MonsterRarity.Normal,spawn.X,spawn.Y);
+        {
+            SpawnedMonster? spawned = null;
+            uint mobId = await SpawnMonster(player, zombie, 1, MonsterRarity.Normal, spawn.X, spawn.Y,
+                rotation: spawn.Angle,
+                placement: playBite ? MonsterPlacement.Established : MonsterPlacement.Proposed,
+                owned: playBite ? (_, m) =>
+                {
+                    spawned = m;
+                    m.BusyUntil = AreaTime(player) + TutorialObjects.BiteSeconds;
+                } : null);
+            if (playBite && mobId != 0 && spawned is { } mob && global::Game.Emerges.SkillId is ushort emergeSkill)
+            {
+                await global::Game.SendWorldRecord(player, mobId, [],
+                    $"0x01ab opening zombie 0x{mobId:x} plays Emerge (bite) at ({spawn.X}, {spawn.Y})",
+                    atGate: () =>
+                    {
+                        if (player.Closed || mob.Dead || player.Area.Monsters.GetValueOrDefault(mobId) != mob) return null;
+                        global::Game.EmergeStartsLocked(player, mob, TutorialObjects.BiteSeconds);
+                        return InstanceProtocol.ActionStartedNow(mobId, spawn.X, spawn.Y, spawn.X, spawn.Y,
+                            emergeSkill, mob.NextSequence(), 0x0800, mobId);
+                    });
+            }
+        }
     }
 
     internal static GlyphQuest.Layout? LoadGlyphLayout(Player player)

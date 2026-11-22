@@ -611,7 +611,7 @@ static partial class SurvivorsSkills
         await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
         _ = AreaFrames.Start(async () =>
         {
-            try { await Task.Delay(ms, ownership.Token); }
+            try { await AreaDelay(player, ms / 1000.0, ownership.Token); }
             catch (OperationCanceledException) when (ownership.Token.IsCancellationRequested) { }
             if (player.ProjectileActive(epoch))
                 await global::Game.SendWorldRemoval(player, id, null);

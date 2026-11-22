@@ -72,8 +72,7 @@ sealed class Bot
 }
 
 /// <summary>Creates bots up to the limit, one per interval, walks them through the route and shows them in the towns
-/// where real players are: a bot is a published player (InstancePlayer without a connection) of each live instance of
-/// its town, which every client there replicates like another player (LivingCollision.SyncInstancePlayers). Quests are
+/// where real players are (the instances it is shown in; not yet an entity of their areas, so clients do not draw it). Quests are
 /// simulated out of sight; a bot that has done every quest of both guides is deleted and a new one takes its place.</summary>
 sealed partial class BotDirector
 {
@@ -587,24 +586,12 @@ sealed partial class BotDirector
     internal void Show(Bot bot, List<Player>? observers)
     {
         var instances = (observers ?? []).Select(c => c.Instance).Distinct().ToHashSet();
-        foreach (var gone in bot.Shown.Where(i => !instances.Contains(i)).ToList()) { gone.RemovePlayer(bot.PeerId); bot.Shown.Remove(gone); }
-        if (instances.Count == 0) return;
-        var template = Template(bot);
-        foreach (var instance in instances)
-        {
-            instance.PublishPlayer(new InstancePlayer(bot.PeerId, template.Type, template.Player, (int)bot.X, (int)bot.Y, template.Player.Life)
-            {
-                // Walking: observers start one Move action to the target, which their client animates and paths.
-                Destination = bot.Phase is BotPhase.Walking or BotPhase.Leaving or BotPhase.Following or BotPhase.Departing
-                    ? ((int)bot.TargetX, (int)bot.TargetY) : ((int)bot.X, (int)bot.Y),
-            });
-            bot.Shown.Add(instance);
-        }
+        bot.Shown.RemoveWhere(i => !instances.Contains(i));
+        bot.Shown.UnionWith(instances);
     }
 
     internal static void Hide(Bot bot)
     {
-        foreach (var instance in bot.Shown) instance.RemovePlayer(bot.PeerId);
         bot.Shown.Clear();
     }
 

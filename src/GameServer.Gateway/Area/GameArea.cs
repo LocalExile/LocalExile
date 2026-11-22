@@ -38,6 +38,61 @@ public sealed class GameArea(ulong seed)
     public readonly EmergeGround EmergeGround = new();
     /// <summary>The monster types the area's clients were told (S→C 0x20 "Id@level"; a create of the type needs it).</summary>
     public readonly HashSet<(int Row, byte Level)> MonsterTypes = [];
+    /// <summary>Active subsets of <see cref="Monsters"/> with running DoTs, recent ignites, or attacker slows so per-tick
+    /// and per-hit checks run in O(active) instead of scanning every monster in the area.</summary>
+    public readonly HashSet<uint> RecentlyIgnitedMonsters = [];
+    public readonly HashSet<uint> ActiveIgniteMonsters = [];
+    public readonly HashSet<uint> ActiveBleedMonsters = [];
+    public readonly HashSet<uint> ActivePoisonMonsters = [];
+    public readonly HashSet<uint> ActiveHeraldBurnMonsters = [];
+    public readonly HashSet<uint> ActiveAilmentMonsters = [];
+    public readonly HashSet<uint> SlowedAttackers = [];
+    public bool HasProliferatedAilments;
+    public bool HasProliferatedIgnites;
+    public bool HasSpiderWebs;
+    public bool HasRampageBlinds;
+
+    public bool HasActiveDots =>
+        ActiveIgniteMonsters.Count > 0 || ActiveBleedMonsters.Count > 0 || ActivePoisonMonsters.Count > 0
+        || MonsterContagion.AnyApplied || MonsterEssenceDrain.AnyApplied;
+
+    // Order-preserving living-monster cache so 30 Hz movement, collision, blocker, and regen loops do not scan
+    // thousands of dead corpses remaining in Monsters for corpse skills.
+    readonly List<(uint Id, SpawnedMonster Monster)> livingMonsters = [];
+    int livingSyncedCount = -1;
+    int livingSyncedVersion = -1;
+    public int MonstersVersion;
+
+    /// <summary>Living monsters in ascending object id order. Rebuilt only when Monsters' count or version changes;
+    /// dead entries are compacted in place in O(living) with zero allocations.</summary>
+    public List<(uint Id, SpawnedMonster Monster)> SyncLivingMonsters()
+    {
+        int count = Monsters.Count;
+        int version = MonstersVersion;
+        if (count != livingSyncedCount || version != livingSyncedVersion)
+        {
+            livingMonsters.Clear();
+            foreach (var (id, m) in Monsters)
+                if (!m.Dead && m.Life > 0) livingMonsters.Add((id, m));
+            livingSyncedCount = count;
+            livingSyncedVersion = version;
+            return livingMonsters;
+        }
+        int write = 0;
+        int n = livingMonsters.Count;
+        for (int i = 0; i < n; i++)
+        {
+            var entry = livingMonsters[i];
+            var m = entry.Monster;
+            if (!m.Dead && m.Life > 0)
+            {
+                if (write != i) livingMonsters[write] = entry;
+                write++;
+            }
+        }
+        if (write < n) livingMonsters.RemoveRange(write, n - write);
+        return livingMonsters;
+    }
     /// <summary>Where the walkers stand, by grid cell (AreaGrid): set by the movement phase each frame, and a monster as it
     /// joins the area.</summary>
     public AreaGrid Grid => Zones.Grid;

@@ -48,7 +48,7 @@ public sealed class HarvestModule : IModule
         if (world.OpenWindowOwner != Window || !_states.TryGetValue(player, out var state) || state.Station == 0) return;
         var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items));
         string name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
-        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, Random.Shared), $"Harvest recipe {name}");
+        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, global::Game.AreaRng(PlayerOf(player))), $"Harvest recipe {name}");
         if (crafted is null)
         {
             module.Log($"{player.Character} recipe {name} refused (item, recipe or lifeforce)");

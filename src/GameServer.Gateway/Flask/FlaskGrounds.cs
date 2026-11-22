@@ -132,6 +132,9 @@ public static class FlaskGrounds
     public sealed record Ground(Kind Kind, int X, int Y, int Radius, double Ends, uint? Object = null,
         int EnemyDamageTakenPct = 0)
     {
+        static uint lastId;
+        /// <summary>The ground's own id (its zone's key); a copy made with <c>with</c> is the same ground.</summary>
+        public uint Id { get; init; } = Interlocked.Increment(ref lastId);
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
     }
 
@@ -318,16 +321,22 @@ public static class FlaskGrounds
             lock (_lock) return _blinded.TryAdd(monster, buff) ? (buff, true) : null;
         }
 
+        /// <summary>True when at least one monster currently stands blinded in smoke.</summary>
+        public bool HasBlindedMonsters
+        {
+            get { lock (_lock) return _blinded.Count > 0; }
+        }
+
         /// <summary>The monsters blinded now.</summary>
         public IReadOnlyList<uint> BlindedMonsters()
         {
-            lock (_lock) return [.. _blinded.Keys];
+            lock (_lock) return _blinded.Count == 0 ? [] : [.. _blinded.Keys];
         }
 
         /// <summary>Whether the monster stands blinded in smoke (Game.Blinded: one source of the player's Blind).</summary>
         public bool Blinded(uint monster)
         {
-            lock (_lock) return _blinded.ContainsKey(monster);
+            lock (_lock) return _blinded.Count > 0 && _blinded.ContainsKey(monster);
         }
 
         /// <summary>Marks a monster on profane ground (or within the linger after leaving it): the buff id to add or

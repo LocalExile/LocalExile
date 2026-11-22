@@ -626,7 +626,7 @@ public static partial class Quests
     /// epilogue flag the client requires before an Atlas map can be activated: until earned it is one of
     /// <see cref="EndgameOnly"/>.</summary>
     public static readonly string[] EveryCharacter = ["HideoutUnlocked", "HideoutJukeboxEnabled", "CanEditHideout", "MapDeviceActive",
-        CompletedAllTutorials, ThisIsMyHideout, EndGameAvailable];
+        ThisIsMyHideout, EndGameAvailable];
 
     /// <summary>
     /// Of <see cref="EveryCharacter"/>, the flags given for the endgame only, until the character earns them (Kitava's

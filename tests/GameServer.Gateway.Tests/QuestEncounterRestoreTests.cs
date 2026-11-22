@@ -47,7 +47,7 @@ public class QuestEncounterRestoreTests
         {
             player.LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string> { source });
             var template = new GameServer.Core.Protocol.Instance.PlayerObject(player.Character.Name!, 0, 100, 100, 1000, 1000);
-            instance.PublishPlayer(new(player.Id, 1, template, 100, 100, 1000, player));
+            instance.AddPlayer(player);
         }
         host.Character.QuestFlags.Add("a5q6-QuestReceived");
         var boss = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/AvariusCasticus/AvariusCasticusDivine"));

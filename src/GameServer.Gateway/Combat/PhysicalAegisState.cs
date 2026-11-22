@@ -19,6 +19,12 @@ public sealed class PhysicalAegisState
 
     public readonly PassiveBuffAuras.BlindState Blind = new();
 
+    // Fast-path cache for PhysicalAegisAt when worn equipment has no PhysicalAegis grant.
+    public object? CheckedOwner;
+    public object? CheckedStatSources;
+    public long CheckedInventoryMutations = -1;
+    public bool CheckedHasGrant;
+
     public sealed record Carried(WornGrantedSkills.Grant Source, int Maximum, int Current, int Variation,
         double RechargeDelay, double Remaining);
 

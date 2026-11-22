@@ -66,7 +66,7 @@ static partial class QuestobjectsRules
             var order = arena.Portals.Where(p => p.Lift is not null).OrderBy(_ => AreaRng(player).Next()).ToList();
             for (int k = 0; k < order.Count; k++)
             {
-                if (k > 0) await Task.Delay(TimeSpan.FromSeconds(IzaroPortals.RiseInterval));
+                if (k > 0) await AreaDelay(player, IzaroPortals.RiseInterval);
                 var p = order[k];
                 if (arena.Over || !here()) return;
                 await Send(player, [.. LiftState(player, p.Lift!.Value.Id, p.Lift.Value.At, IzaroFights.Raising),
@@ -85,7 +85,7 @@ static partial class QuestobjectsRules
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
+            await AreaDelay(player, IzaroStatues.RiseSeconds);
             if (!here()) return;
             p.Monster.EntranceGrace = false;
             await Send(player, [.. LiftState(player, p.Lift!.Value.Id, p.Lift.Value.At, IzaroFights.Raised),
@@ -117,11 +117,11 @@ static partial class QuestobjectsRules
                 living = player.Area.Monsters.Values.Count(s => s.SummonerId == p.Id && !s.Dead && s.Life > 0);
                 if (living >= IzaroPortals.SummonLimit)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(every));
+                    await AreaDelay(player, every);
                     continue;
                 }
                 await Send(player, InstanceProtocol.ActorAnimation(p.Id, (float)summon.CastSeconds, SummonAnimation), null);
-                await Task.Delay(TimeSpan.FromSeconds(summon.CastSeconds / 2));
+                await AreaDelay(player, summon.CastSeconds / 2);
                 if (Stopped()) break;
                 var (at, to) = IzaroPortalWayOut(player, arena, p, summon.Offset / WorldUnits.PerCell);
                 uint id = await SpawnMonster(player, guardian, p.Monster.Level, MonsterRarity.Normal, at.X, at.Y, log: false,
@@ -132,7 +132,7 @@ static partial class QuestobjectsRules
                     });
                 if (id != 0) await WalkOutOfIzaroPortal(player, id, to);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} {p.Effect.Id} 0x{p.Id:x} brings {guardian.Name} from ({at.X}, {at.Y}) to ({to.X}, {to.Y}), {living + 1} of its own alive");
-                await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.2, every - summon.CastSeconds / 2)));
+                await AreaDelay(player, Math.Max(0.2, every - summon.CastSeconds / 2));
             }
             bool allDead;
             var own = arena.Portals.Where(o => o.Carried is null).ToList();

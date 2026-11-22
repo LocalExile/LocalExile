@@ -20,7 +20,9 @@ public static class MonsterRegeneration
             double now = a.Time, seconds = double.IsNaN(last) ? 0 : now - last;
             last = now;
             if (seconds <= 0) return;
-            Game.RegenerateMonstersLocked(monsters, seconds, now, OnHitPct(instance, player, now, seconds));
+            var living = a.SyncLivingMonsters();
+            if (living.Count == 0) return;
+            Game.RegenerateMonstersLocked(living, seconds, now, OnHitPct(instance, player, now, seconds));
         }, every: EveryFrames, source: source);
     }
 

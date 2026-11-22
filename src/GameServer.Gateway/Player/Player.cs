@@ -550,6 +550,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // By (the player's PeerId, the aura's BuffDefinitions row): each client's buff instance of each player's enemy aura.
     public readonly Dictionary<(uint Peer, ushort Definition), ushort> PlayerAuras = [];
     public (int All, int Elemental, int Physical) TakenFromPlayer;
+    /// <summary>Whose Flesh and Stone (Blood Stance) it is in, and the aura's radius: a hit's falloff with the distance.</summary>
+    public Player? FleshFrom;
+    public int FleshRadius;
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;
@@ -900,7 +903,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             }
             // Another player stands where its own walk has it.
             foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
-                if (peer.Life > 0 && peer.Owner is { } other)
+                if (peer.PlayerLife > 0 && peer is { } other)
                 {
                     var at = other.Walk.Position(now);
                     (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
@@ -955,6 +958,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public float PortalRotationRadians => PortalRotationDegrees * MathF.PI / 180f;
     public long Ticks;
     public volatile PendingTransfer? PendingTransfer;
+    public bool PendingCharacterSelectExit;
+    public int ExitToLoginHandled;
+    public int SkillBarRestoreGeneration;
     /// <summary>The 0x29d preview request (Hinekora's Lock): its key, the currency/target it names and the computed
     /// preview answered by 0x2a0. The next 0x71 on that target commits exactly this item.</summary>
     public (ushort Key, uint InventoryId, uint CurrencyId, uint TargetInventoryId, uint TargetId, uint Seed, Item? Preview)? ForesightRequest;

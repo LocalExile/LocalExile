@@ -28,16 +28,28 @@ public static partial class Game
             return state;
         }
 
-        var equipment = ItemsOf(player).EquipmentSnapshot();
+        var items = ItemsOf(player);
+        long invMutations = items.Mutations;
+        var statSources = player.StatSourcesCache;
+        if (ReferenceEquals(state.CheckedOwner, owner) && ReferenceEquals(state.CheckedStatSources, statSources)
+            && state.CheckedInventoryMutations == invMutations && !state.CheckedHasGrant)
+            return state;
+
+        var equipment = items.EquipmentSnapshot();
         var grant = AllWornGrantedSkillsOf(player, equipment)
             .FirstOrDefault(g => g.EffectId == PhysicalAegisEffect && !g.Support && !g.ManuallyCast
                 && !IsInactive(player, g.Host)
                 && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId));
-        if (grant.Effect < 0 || PhysicalAegisGeometry(player, grant) is not { } geometry)
+        state.CheckedOwner = owner;
+        state.CheckedStatSources = statSources;
+        state.CheckedInventoryMutations = invMutations;
+        if (grant.Host == 0 || grant.EffectId != PhysicalAegisEffect || PhysicalAegisGeometry(player, grant) is not { } geometry)
         {
+            state.CheckedHasGrant = false;
             RetirePhysicalAegis(player);
             return state;
         }
+        state.CheckedHasGrant = true;
 
         if (!ReferenceEquals(state.Owner, owner) || state.Source != grant
             || state.Maximum != geometry.Maximum || state.RechargeDelay != geometry.Seconds

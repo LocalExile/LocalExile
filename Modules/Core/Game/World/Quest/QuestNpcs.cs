@@ -121,7 +121,7 @@ public static partial class Game
         instance.RememberPosition(NpcAppearanceKey(variety.Id), at);
         await Show(player);
         foreach (var peer in instance.Presence.PlayersExcept(player.Id))
-            if (peer.Owner is { Closed: false, LeavingArea: false, Connection.PlayerSent: true } other
+            if (peer is { Closed: false, LeavingArea: false, Connection.PlayerSent: true } other
                 && ReferenceEquals(other.Instance, instance))
                 other.KillShares.Enqueue(_ =>
                     !other.Closed && !other.LeavingArea && ReferenceEquals(other.Instance, instance)

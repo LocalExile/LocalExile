@@ -97,6 +97,7 @@ public static partial class Game
         if (!player.Connection.LockstepClient && !InAreaFrame(player))
         {
             bool sent = false;
+            var viewer = Program.ViewOf.Value;
             await Send(player, [], log, still, atGate: () =>
             {
                 if (create() is not { } bytes) return null;
@@ -104,9 +105,20 @@ public static partial class Game
                 // A copy: the writer encrypts its buffer in place, and a producer that hands in the same array again would
                 // send ciphertext as a header (live 2026-11-17: a monster created twice sent 244 bytes of noise whose id
                 // read as 0xed68, and the client crashed).
-                bytes = bytes.ToArray();
-                if (wake) bytes = [.. bytes, .. InstanceProtocol.EnterWakeZone(id)];
-                if (afterCreation?.Invoke() is { Count: > 0 } after)
+                var created = bytes.ToArray();
+                byte[]? wakeBytes = wake ? InstanceProtocol.EnterWakeZone(id) : null;
+                var after = afterCreation?.Invoke();
+                if (viewer is null && player.Area.Delta.ViewerOf(id, player) is null)
+                {
+                    player.Area.Objects.RecordDirect(id, created, AreaDelta.Kind.Create, player, log);
+                    if (wakeBytes is not null) player.Area.Objects.RecordDirect(id, wakeBytes, AreaDelta.Kind.World, player);
+                    if (after is { Count: > 0 })
+                        foreach (var record in after.Where(r => r.Length > 0))
+                            player.Area.Objects.RecordDirect(id, record, AreaDelta.Kind.World, player);
+                }
+                bytes = created;
+                if (wakeBytes is not null) bytes = [.. bytes, .. wakeBytes];
+                if (after is { Count: > 0 })
                     bytes = [.. bytes, .. after.SelectMany(r => r)];
                 return bytes;
             });
@@ -148,7 +160,17 @@ public static partial class Game
     public static Task SendWorldRecord(Player player, uint id, byte[] bytes, string? log, Func<bool>? still = null,
         Func<byte[]?>? atGate = null, string? sync = null)
     {
-        if (!player.Connection.LockstepClient && !InAreaFrame(player)) return Send(player, bytes, log, still, atGate, sync);
+        if (!player.Connection.LockstepClient && !InAreaFrame(player))
+        {
+            var viewer = Program.ViewOf.Value;
+            return Send(player, bytes, log, still, atGate: () =>
+            {
+                var current = atGate is null ? bytes : atGate();
+                if (current is { Length: > 0 } && viewer is null && player.Area.Delta.ViewerOf(id, player) is null)
+                    player.Area.Objects.RecordDirect(id, current, AreaDelta.Kind.World, player, log);
+                return current;
+            }, sync);
+        }
         if (sync is not null && !player.Connection.Performance.SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
         var target = player.Connection.WorldOutput.PublishedObject(id);
         return SendWorldBatch(player, QuestKillCommitOutput is not null && atGate is null ? [] : [target], _ =>
@@ -162,8 +184,17 @@ public static partial class Game
     public static Task SendWorldRecords(Player player, uint id, Func<byte[][]?> records, string? log = null, Func<bool>? still = null, string? sync = null)
     {
         if (!player.Connection.LockstepClient && !InAreaFrame(player))
+        {
+            var viewer = Program.ViewOf.Value;
             return Send(player, [], log, still, atGate: () =>
-                records() is { } batch ? [.. batch.SelectMany(p => p)] : null, sync: sync);
+            {
+                if (records() is not { } batch) return null;
+                if (viewer is null && player.Area.Delta.ViewerOf(id, player) is null)
+                    foreach (var p in batch)
+                        if (p.Length > 0) player.Area.Objects.RecordDirect(id, p, AreaDelta.Kind.World, player, log);
+                return [.. batch.SelectMany(p => p)];
+            }, sync: sync);
+        }
         if (sync is not null && !player.Connection.Performance.SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
         var target = player.Connection.WorldOutput.PublishedObject(id);
         return SendWorldBatch(player, [target], _ => records() is { } batch
@@ -173,7 +204,17 @@ public static partial class Game
 
     public static async Task SendWorldRemoval(Player player, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
-        if (!player.Connection.LockstepClient && !InAreaFrame(player)) await Send(player, InstanceProtocol.RemoveObject(id), log, still, atGate);
+        if (!player.Connection.LockstepClient && !InAreaFrame(player))
+        {
+            var viewer = Program.ViewOf.Value;
+            await Send(player, InstanceProtocol.RemoveObject(id), log, still, atGate: () =>
+            {
+                var current = atGate is null ? InstanceProtocol.RemoveObject(id) : atGate();
+                if (current is { Length: > 0 } && viewer is null && player.Area.Delta.ViewerOf(id, player) is null)
+                    player.Area.Objects.RecordDirect(id, current, AreaDelta.Kind.Remove, player, log);
+                return current;
+            });
+        }
         else
         {
             var target = player.Connection.WorldOutput.PublishedObject(id);
@@ -225,9 +266,14 @@ public static partial class Game
         async Task<bool> Predictive()
         {
             bool sent = false;
+            var viewer = Program.ViewOf.Value;
             await Send(player, [], log, still, atGate: () =>
             {
-                var bytes = record(); sent = bytes is not null; return bytes;
+                var bytes = record();
+                sent = bytes is not null;
+                if (bytes is { Length: > 0 } && viewer is null && player.Area.Delta.ViewerOf(id, player) is null)
+                    player.Area.Objects.RecordDirect(id, bytes, AreaDelta.Kind.World, player, log);
+                return bytes;
             });
             return sent;
         }

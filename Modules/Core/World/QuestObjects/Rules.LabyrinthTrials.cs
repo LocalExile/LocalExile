@@ -310,7 +310,7 @@ static partial class QuestobjectsRules
         if (LabyrinthWiring.CrankSeconds(o.Type) is not double seconds) return;
         _ = AreaFrames.Start(async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            await AreaDelay(player, seconds);
             if (player.Closed || !Wirings.TryGetValue(player, out var now) || now != wiring) return;
             try { await ApplyWiring(player, wiring, wiring.Graph.Turn(index, false)); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -466,7 +466,7 @@ static partial class QuestobjectsRules
                         Resistance(player, fire), MaxResistance(player, fire));
                 }
                 await degen.Set(player, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate");
-                await Task.Delay(SpikeTickMilliseconds);
+                await AreaDelay(player, SpikeTickMilliseconds / 1000.0);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -491,7 +491,7 @@ static partial class QuestobjectsRules
         if (!use.Started)   // a lockstep client got its start from the frame pass
             await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, o.X, o.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player uses trial object 0x{use.TargetId:x} {o.Type} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (player.ActionCount != action || player.Closed) return true;
         if (!GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (o.X, o.Y), size))
             Console.WriteLine($"[gateway] {player.Connection.Remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
@@ -654,7 +654,7 @@ static partial class QuestobjectsRules
                         await Send(player, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, player.MonsterOrderFlags),
                             .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");
                 }
-                await Task.Delay(200);
+                await AreaDelay(player, 0.2);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -679,7 +679,7 @@ static partial class QuestobjectsRules
     // Positioned had a static position: LabyrinthTrials.Blob.)
     static async Task RemoveOpenedDoor(Player player, uint id)
     {
-        await Task.Delay(TimeSpan.FromSeconds(DoorOpeningSeconds));
+        await AreaDelay(player, DoorOpeningSeconds);
         if (player.Closed) return;
         player.TrialObjects.Remove(id);
         await global::Game.SendWorldRemoval(player, id, $"0x02bd opened trial door 0x{id:x} removed");
@@ -961,7 +961,7 @@ static partial class QuestobjectsRules
                     }
                     if (t.Up(now)) await SpikeTrapHitMonsters(player, t, now);
                 }
-                await Task.Delay(SpikeTickMilliseconds);
+                await AreaDelay(player, SpikeTickMilliseconds / 1000.0);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -1017,7 +1017,7 @@ static partial class QuestobjectsRules
                     if (await PresentTrapHit(player, id, $"abyss edge blade 0x{id:x} at ({blade.X}, {blade.Y})", damage, life))
                         await SpikeBleed(player, damage, LabyrinthTrials.EdgeBladeBleedPerSecond, LabyrinthTrials.EdgeBladeBleedSeconds);
                 }
-                await Task.Delay(SpikeTickMilliseconds);
+                await AreaDelay(player, SpikeTickMilliseconds / 1000.0);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -1141,7 +1141,7 @@ static partial class QuestobjectsRules
                     perSecond = player.PlayerMaxLife * lifeShare + player.EnergyShield.Maximum * shieldShare;
                 }
                 await degen.Set(player, perSecond, LabyrinthTrials.RoombaBuffRow(LabyrinthTrials.Roomba), "under a doorway roller");
-                await Task.Delay(SpikeTickMilliseconds);
+                await AreaDelay(player, SpikeTickMilliseconds / 1000.0);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -1229,7 +1229,7 @@ static partial class QuestobjectsRules
         uint id = player.TakeObjectId();
         await global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(trap.X, trap.Y, LabyrinthTrials.PressureSpikeClick).Blob()), null, wake: true, awaitBirth: false);
-        await Task.Delay(TimeSpan.FromSeconds(LabyrinthTrials.PressureSpikeDelaySeconds));
+        await AreaDelay(player, LabyrinthTrials.PressureSpikeDelaySeconds);
         if (!player.Closed) await global::Game.SendWorldRemoval(player, id, null);
     }
 
@@ -1475,7 +1475,7 @@ static partial class QuestobjectsRules
                         plates[id] = (down, at, left);
                     }
                 }
-                await Task.Delay(50);
+                await AreaDelay(player, 0.05);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -1563,7 +1563,7 @@ static partial class QuestobjectsRules
                 double left;
                 left = player.PlayerLife == 0 ? 0 : slow.Until - AreaTime(player);
                 if (left <= 0) slow.Active = false;   // a hit after this starts a slow of its own
-                if (left > 0) { await Task.Delay(TimeSpan.FromSeconds(left)); continue; }
+                if (left > 0) { await AreaDelay(player, left); continue; }
                 await DartSlowChanged(player, slow);
                 return;
             }
@@ -1788,7 +1788,7 @@ static partial class QuestobjectsRules
                     perSecond = player.PlayerMaxLife * lifeShare + player.EnergyShield.Maximum * shieldShare;
                 }
                 await degen.Set(player, perSecond, inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type), "in a trial roomba");
-                await Task.Delay(SpikeTickMilliseconds);
+                await AreaDelay(player, SpikeTickMilliseconds / 1000.0);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

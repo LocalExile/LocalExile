@@ -65,8 +65,7 @@ public static partial class Game
         foreach (var (packet, log) in plan.Ailments) await Send(player, packet, log);
         foreach (uint id in plan.EndedActions)
             await SendWorldRecord(player, id, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
-        foreach (var (id, m, action, packet, log) in MonsterAiOrders(player, plan))
-            await SendMonsterAction(player, id, m, action, packet, log);
+        await SendMonsterAiOrders(player, plan);
         await MonsterAiActions(player, cadence, plan);
     }
 

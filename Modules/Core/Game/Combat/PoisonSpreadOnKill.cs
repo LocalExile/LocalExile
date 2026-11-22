@@ -108,14 +108,18 @@ public static partial class Game
         if (dead.Poisons.Strongest(now) is not var (perSecond, _)) return;
         dps = perSecond;
         seconds = SpreadPoisonSeconds(name => SourceStat(player, name));
-        foreach (var (_, m) in player.Area.Monsters)
+        foreach (var (mid, m) in player.Area.Monsters)
         {
             if (ReferenceEquals(m, dead) || m.Dead || m.Life == 0 || !m.Hostile
                 || Dist(m.Walk.Position(now), kill.At) > PoisonSpreadRadius) continue;
             if (m.Effects[Stat.CannotBePoisoned] != 0) continue;
             int avoid = m.Effects[Stat.AvoidPoisonPct];
             if (avoid > 0 && RandomRolls.Chance(avoid, 100, AreaRng(player))) continue;
-            if (m.Poisons.Add(now, dps, seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]))) spread++;
+            if (m.Poisons.Add(now, dps, seconds * MonsterPoisons.SelfDuration(name => m.Effects[name])))
+            {
+                player.Area.ActivePoisonMonsters.Add(mid);
+                spread++;
+            }
         }
         if (spread > 0) ReservationPoisonLocked(player, now);
         if (regenerates)
@@ -130,7 +134,7 @@ public static partial class Game
             SpreadPoisonRegenerationOf(player).Grant(AreaTime(player), seconds);
         // Another player's grant is theirs, on their clock; their Stats phase presents it.
         foreach (var peer in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
-            if (peer.Owner is { } other && peer.Current && peer.Life > 0 && Dist((peer.X, peer.Y), kill.At) <= PoisonSpreadRadius
+            if (peer is { } other && peer.PlayerLife > 0 && Dist(peer.Walk.Position(AreaTime(peer)), kill.At) <= PoisonSpreadRadius
                 && !other.Closed && !other.LeavingArea && SpreadPoisonRegenerationOf(other).Grant(AreaTime(other), seconds)
                 && Logged(true, () => PresentStats(other)))
                 Console.WriteLine($"[gateway] Bino's: regeneration granted to player 0x{peer.Id:x} for {seconds:0.0} s");

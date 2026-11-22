@@ -434,6 +434,7 @@ public static class BossKits
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,
+            DualWielding = HasOffHandWeapon(variety),
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,

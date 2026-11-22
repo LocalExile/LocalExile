@@ -72,8 +72,9 @@ public static partial class Game
                 phases.Add($"{name}={Stopwatch.GetElapsedTime(phaseAt, now).TotalMilliseconds:0}");
                 phaseAt = now;
             }
-            // A terminal Hardcore owner may only leave for character selection.
-            if (HardcoreProgressBlocked(player) && id != 0x0153) continue;
+            // A terminal Hardcore owner may only leave for character selection or log in.
+            if (HardcoreProgressBlocked(player) && id is not (InstanceProtocol.ExitToCharacterSelectId or InstanceProtocol.ExitToLoginId)
+                && !(player.PendingCharacterSelectExit && id == InstanceTransfer.LeaveAreaAckId)) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
             if (GameEvents.WantsPacket(id) && await GameEvents.AnyPacket(player, id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
@@ -89,6 +90,11 @@ public static partial class Game
             // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so move it now.
             if (id == InstanceTransfer.LeaveAreaAckId)
             {
+                if (player.PendingCharacterSelectExit)
+                {
+                    await FinishCharacterSelectExit(player);
+                    return;
+                }
                 if (player.PendingTransfer is { } leaving) await Transfer(player, leaving);
                 continue;
             }
@@ -102,7 +108,7 @@ public static partial class Game
                 // A paused world never reaches the hold's end, and the resume (C→S 0x1d4 0) queues behind this message.
                 while (!player.Paused && HoldEndsWithin(player, HoldEndGraceSeconds) is > 0 and var left)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(left + .001));
+                    await AreaDelay(player, left + .001);
                     readAt = 0;
                 }
                 if (PlayerActionBlocked(player, player.ClockAt(readAt), AreaTime(player)))
@@ -283,11 +289,19 @@ public static partial class Game
                 LeapSlam.Use? leap = null;
                 void StartAction()
                 {
+                    bool lockstep = player.Connection.LockstepClient;
+                    double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start
+                        : Math.Max(at, player.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     at = Math.Max(at, player.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+                    if (lockstep) StepWalkers(player, actionAt);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
-                    (px, py) = inPlace ? player.Walk.Position(at) : player.Walk.Order(use.X, use.Y, at);
-                    if (inPlace) player.Walk.Order(px, py, at);
+                    (px, py) = inPlace ? player.Walk.Position(actionAt) : player.Walk.Order(use.X, use.Y, actionAt);
+                    if (inPlace)
+                    {
+                        if (lockstep) player.Walk.Cancel(actionAt);
+                        else player.Walk.Order(px, py, at);
+                    }
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
                     if (leap is not null) CommitLeapSlam(player, leap);
@@ -630,13 +644,41 @@ public static partial class Game
                 await PickUpItem(player, InstanceItems.ReadPickUpItem(bytes));
             else if (id == InstanceProtocol.ExitToCharacterSelectId)
             {
-                // Esc → "Exit to Character Selection" or the hardcore death screen's Exit. Closing the instance connection
-                // is the answer: the client keeps its login connection and goes back to the character list (09 §6).
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0153 exit to character selection: closing the instance connection");
-                player.Connection.CloseReason = "exit to character selection (0x0153)";
-                player.Closed = true;
-                player.InvalidateIncomingHits();
+                // Esc → "Exit to Character Selection" or the hardcore death screen's Exit.
+                // Send S→C 0x02b4 (WorldAreas row 1 CharacterSelect, 0x4884) so the client displays
+                // "Entering Character Select" and replies with C→S 0x02cd; then flush & send clean 0x0026.
+                if (player.PendingCharacterSelectExit) continue;
+                player.PendingCharacterSelectExit = true;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0153 exit to character selection: sending 0x02b4 CharacterSelect (0x{InstanceProtocol.CharacterSelectAreaHash:x4})");
+                await Send(player, InstanceTransfer.ChangeArea(InstanceProtocol.CharacterSelectAreaHash, 0),
+                    $"0x02b4 entering character select (0x{InstanceProtocol.CharacterSelectAreaHash:x4})");
+                _ = Task.Delay(2000).ContinueWith(_ =>
+                {
+                    if (player.PendingCharacterSelectExit && !player.Closed)
+                        _ = player.Frames.Run(() => FinishCharacterSelectExit(player));
+                });
+            }
+            else if (id == InstanceProtocol.ExitToLoginId)
+            {
+                // Fallback when 0x001a reaches the handler before OnClientData's immediate logout path.
+                if (Interlocked.Exchange(ref player.ExitToLoginHandled, 1) == 0)
+                {
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x001a exit to log in screen: flushing progress, closing login and instance connections");
+                    if (player.Ticket != 0)
+                        await InstanceControl.CallAsync(new ControlRequest { Op = "logout", Ticket = player.Ticket });
+                    FlushAreaProgress(player);
+                    player.Connection.CloseReason = "exit to log in screen (0x001a)";
+                    player.Closed = true;
+                    player.InvalidateIncomingHits();
+                }
                 return;
+            }
+            else if (id == InstanceProtocol.TutorialCompleteId)
+            {
+                byte code = bytes.Length >= 3 ? bytes[2] : (byte)0;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020a tutorial complete (0x{code:x2})");
+                if (code == InstanceProtocol.TutorialSkipAll)
+                    await SetQuestFlagsHeld(player, [Quests.CompletedAllTutorials]);
             }
             else if (id == InstanceProtocol.ResurrectId)
                 _ = Resurrect(player, InstanceProtocol.ReadResurrectInTown(bytes));
@@ -855,9 +897,13 @@ public static partial class Game
                         await player.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     if (generates) await GameEvents.RunAreaGenerated(player);
                     await EnterAreaFixtures(player);
+                    player.Instance.AddPlayer(player);
                     await GameEvents.RunPlayerEntered(player);
                     _ = player.RampageWorld;
                     if (player.OwnedCombatState is RampageWorld world) EnsureRampageWorker(player, world);
+                    // Start Grace Period after frames, collision push, and combat runtime setup settle so the origin
+                    // matches the final standing cell and AreaBuffs.Set is never cleared during entry.
+                    await StartGracePeriod(player);
                 }
             }
         }
@@ -896,5 +942,17 @@ public static partial class Game
             // Unframed messages have the hooks too.
             if (GameEvents.WantsPacket(uid)) await GameEvents.AnyPacket(player, uid, unknown);
         }
+    }
+
+    static async Task FinishCharacterSelectExit(Player player)
+    {
+        if (!player.PendingCharacterSelectExit || player.Closed) return;
+        player.PendingCharacterSelectExit = false;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} finishing exit to character selection: flushing progress and sending clean 0x0026");
+        FlushAreaProgress(player);
+        await Send(player, InstanceProtocol.Disconnect(InstanceProtocol.DisconnectCleanCode), "0x0026 clean disconnect (character select)");
+        player.Connection.CloseReason = "exit to character selection (0x0153)";
+        player.Closed = true;
+        player.InvalidateIncomingHits();
     }
 }

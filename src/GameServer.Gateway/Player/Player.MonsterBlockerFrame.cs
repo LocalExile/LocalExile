@@ -4,6 +4,9 @@ using GameServer.Core.World;
 public sealed partial class Player
 {
     MonsterBlockerFrame? monsterFrame;
+    // Pooled top-level blocker frame reused across BeginMonsterBlockerFrame calls so 1,000-monster frames do not allocate
+    // fresh BlockerSet/Dictionary/List buffers every tick.
+    MonsterBlockerFrame? pooledFrame;
     // The frame the last path search outside a pass was answered from, and a list to read the next one's bodies into
     // (MonsterBlockers). In the area's frame.
     MonsterBlockerFrame? keptFrame;
@@ -13,7 +16,14 @@ public sealed partial class Player
     public MonsterBlockerFrame BeginMonsterBlockerFrame(double now)
     {
         Area.AssertOwner();
-        var frame = new MonsterBlockerFrame(this, now, monsterFrame);
+        MonsterBlockerFrame frame;
+        if (monsterFrame is null && pooledFrame is { } pooled)
+        {
+            pooledFrame = null;
+            pooled.Reset(now, null);
+            frame = pooled;
+        }
+        else frame = new MonsterBlockerFrame(this, now, monsterFrame);
         monsterFrame = frame;
         return frame;
     }
@@ -35,31 +45,46 @@ public sealed partial class Player
             Fixed.AddRange(owner.StationaryBlockers);
             // Another player stands where its own walk has it: every client runs the same player from the same orders.
             foreach (var peer in owner.Instance?.PlayersExcept(owner.Id) ?? [])
-                if (peer.Life > 0 && peer.Owner is { } other)
+                if (peer.PlayerLife > 0 && peer is { } other)
                 {
                     var p = other.Walk.Position(now);
                     Fixed.Add(new(p.X, p.Y, LivingCollision.PlayerSize));
                 }
-            if (owner.Connection.PlayerSent && owner.PlayerLife > 0 && !owner.IsPhasing) Player = owner.Walk.Position(now);
+            bool phasing = owner.IsPhasing;
+            if (owner.Connection.PlayerSent && owner.PlayerLife > 0 && !phasing) Player = owner.Walk.Position(now);
             // Runtime collision follows native bodies. Proposed spawning deliberately retains its existing
             // clearance policy; it is not evidence of GGG's authoritative spawn-placement algorithm.
+            var living = owner.Area.SyncLivingMonsters();
             if (placement)
-                foreach (var (id, m) in owner.Area.Monsters)
+            {
+                for (int i = 0; i < living.Count; i++)
                 {
+                    var (id, m) = living[i];
                     if (!LivingCollision.StepsWithBodies(m)) continue;
                     var p = m.Walk.Position(now);
                     Monsters.Add((id, new(p.X, p.Y, LivingCollision.Size(m))));
                 }
-            else if (owner.Area.DormantMonsters.Count == 0)
-                foreach (var (id, m) in owner.Area.Monsters)
+            }
+            else
+            {
+                for (int i = 0; i < living.Count; i++)
                 {
+                    var (id, m) = living[i];
                     if (owner.MonsterBody(id, m, now) is { } body) Monsters.Add((id, body));
                 }
-            else
-                foreach (var (id, m) in owner.CollisionMonsters)
-                    if (owner.MonsterBody(id, m, now) is { } body) Monsters.Add((id, body));
-            // Phasing (Quartz Flask): the player and the monsters pass each other. Read again: it ends on the clock.
-            Phasing = owner.IsPhasing;
+                if (owner.HasCorpses)
+                {
+                    foreach (uint id in owner.KeptCorpseIds)
+                        if (owner.Area.Monsters.TryGetValue(id, out var m) && (m.Dead || m.Life == 0)
+                            && owner.MonsterBody(id, m, now) is { } body)
+                            Monsters.Add((id, body));
+                }
+                if (owner.Area.DormantMonsters.Count > 0)
+                    foreach (var (id, m) in owner.Area.DormantMonsters)
+                        if (owner.MonsterBody(id, m, now) is { } body) Monsters.Add((id, body));
+            }
+            // Phasing (Quartz Flask): the player and the monsters pass each other.
+            Phasing = phasing;
         }
 
         public bool Same(BodyList other)
@@ -79,14 +104,15 @@ public sealed partial class Player
     public sealed class MonsterBlockerFrame : IDisposable
     {
         readonly Player owner;
-        readonly MonsterBlockerFrame? outer;
-        readonly BlockerSet current;
+        MonsterBlockerFrame? outer;
+        readonly BlockerSet fixedBlockers = new();
+        readonly BlockerSet current = new();
         readonly Dictionary<uint, (int Body, int Current)> indices = [];
         readonly Dictionary<uint, IReadOnlyList<ClientPathfinder.Blocker>> views = [];
-        readonly int playerBody = -1;
-        readonly IReadOnlyList<ClientPathfinder.Blocker> forPlayer;
+        int playerBody = -1;
+        IReadOnlyList<ClientPathfinder.Blocker> forPlayer = [];
         public readonly List<(uint Id, int X, int Y, int Size)> Bodies = [];
-        public IReadOnlyList<ClientPathfinder.Blocker> FixedBlockers { get; }
+        public IReadOnlyList<ClientPathfinder.Blocker> FixedBlockers => fixedBlockers;
         /// <summary>What the frame was made from. Not to be changed while the frame is in use.</summary>
         internal readonly BodyList Read;
 
@@ -103,21 +129,41 @@ public sealed partial class Player
 
         internal MonsterBlockerFrame(Player owner, MonsterBlockerFrame? outer, BodyList read, long startedAt)
         {
-            this.owner = owner; this.outer = outer; Read = read;
-            FixedBlockers = new BlockerSet(read.Fixed);
-            current = new(read.Fixed);
-            foreach (var (id, x, y) in read.Copies)
+            this.owner = owner;
+            Read = read;
+            Populate(outer, startedAt);
+        }
+
+        internal void Reset(double now, MonsterBlockerFrame? nextOuter, bool placement = false)
+        {
+            long startedAt = Stopwatch.GetTimestamp();
+            Read.Read(owner, now, placement);
+            Populate(nextOuter, startedAt);
+        }
+
+        void Populate(MonsterBlockerFrame? nextOuter, long startedAt)
+        {
+            outer = nextOuter;
+            indices.Clear();
+            views.Clear();
+            Bodies.Clear();
+            playerBody = -1;
+            fixedBlockers.Reset(Read.Fixed);
+            current.Reset(Read.Fixed);
+            for (int i = 0; i < Read.Copies.Count; i++)
             {
+                var (id, x, y) = Read.Copies[i];
                 indices.Add(id, (Bodies.Count, current.Add(new(x, y, LivingCollision.PlayerSize))));
                 Bodies.Add((id, x, y, LivingCollision.PlayerSize));
             }
-            if (read.Player is { } player) playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
-            foreach (var (id, blocker) in read.Monsters)
+            if (Read.Player is { } player) playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
+            for (int i = 0; i < Read.Monsters.Count; i++)
             {
+                var (id, blocker) = Read.Monsters[i];
                 indices.Add(id, (Bodies.Count, current.Add(blocker)));
                 Bodies.Add((id, blocker.X, blocker.Y, blocker.Size));
             }
-            forPlayer = read.Phasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
+            forPlayer = Read.Phasing ? fixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
             owner.Connection.Performance.Elapsed(LatencyPhase.BlockerBuild, startedAt);
         }
 
@@ -155,6 +201,11 @@ public sealed partial class Player
             Bodies[index.Body] = (id, current[index.Current].X, current[index.Current].Y, -1);
         }
 
-        public void Dispose() => owner.monsterFrame = outer;
+        public void Dispose()
+        {
+            owner.monsterFrame = outer;
+            if (outer is null && owner.pooledFrame is null && !ReferenceEquals(owner.keptFrame, this))
+                owner.pooledFrame = this;
+        }
     }
 }

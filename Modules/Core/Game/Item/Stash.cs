@@ -87,7 +87,7 @@ public static partial class Game
         if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, Player.StashBlockerSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         player.GuildStashOpen = false;
         var stash = StashOf(player);

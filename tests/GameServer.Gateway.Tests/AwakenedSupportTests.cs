@@ -20,14 +20,14 @@ public sealed class AwakenedSupportTests
         var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
         Assert.Equal(50, Game.MonsterTakesMitigated(monster, physical, spell: false, now: 1));
 
-        Game.HitDebuffsOnHitLocked(monster, Stats(("chance_to_crush_on_hit_%", 100)), spell: false, critical: false, now: 10);
+        Game.HitDebuffsOnHitLocked(monster, Stats(("chance_to_crush_on_hit_%", 100)), spell: false, critical: false, now: 10, random: new Random(1));
         Assert.Equal(14, monster.CrushedUntil);
         Assert.Equal(65, Game.MonsterTakesMitigated(monster, physical, spell: false, now: 11));
         Assert.Equal(50, Game.MonsterTakesMitigated(monster, physical, spell: false, now: 14));
 
         // A miss (0% chance) crushes nothing.
         var lucky = new SpawnedMonster("lucky", new(105, 100, 0), 0, 0, 1000);
-        Game.HitDebuffsOnHitLocked(lucky, Stats(("chance_to_crush_on_hit_%", 0)), spell: false, critical: false, now: 10);
+        Game.HitDebuffsOnHitLocked(lucky, Stats(("chance_to_crush_on_hit_%", 0)), spell: false, critical: false, now: 10, random: new Random(1));
         Assert.Equal(double.NegativeInfinity, lucky.CrushedUntil);
     }
 

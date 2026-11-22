@@ -16,7 +16,7 @@ public static partial class Game
         // Called in the area's frame, from current-runtime activation, not from a retained module callback.
         if (!CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired || !player.Connection.PlayerSent
             || !player.Connection.Connected
-            || !runtime.Enabled && runtime.PendingRemoval.Count == 0 && runtime.PendingBuffRemoval.Count == 0) return;
+            || !runtime.Enabled && runtime.PendingRemoval.Count == 0) return;
         var owner = CombatLifetime!;
         var source = runtime.SourceOwner;
         if (!player.OwnedCombatWorker.TryStart(player, owner, source, runtime, out long generation)) return;
@@ -180,7 +180,7 @@ public static partial class Game
         Add(Stat.DamagePlusPct, value.DamagePercent);
         Add(Stat.MovementVelocityPlusPct, value.MovementPercent);
         // "1% increased Rarity of Items found per X Rampage Kills": the streak's stack count.
-        if (Stats.Key("item_found_rarity_+1%_per_X_rampage_stacks") is uint rarityPerStacks
+        if (Stat.ItemFoundRarityPlus1PctPerXRampageStacks is var rarityPerStacks
             && stats.GetValueOrDefault(rarityPerStacks) is int perKills)
             Add(Stat.BaseItemFoundRarityPlusPct, RampageRarity(value.Stacks, perKills));
         // "X% increased Area of Effect per 25 Rampage Kills".
@@ -275,9 +275,9 @@ public static partial class Game
                 if (RampagePresentationPending(player))
                     await Send(player, [], null, atGate: () =>
                         Current() ? RampagePresentation(player) : null);
-                if (!runtime.Enabled && runtime.PendingRemoval.Count == 0 && runtime.PendingBuffRemoval.Count == 0
+                if (!runtime.Enabled && runtime.PendingRemoval.Count == 0
                     && runtime.Blinds.Count == 0) break;
-                await Task.Delay(32, stopping.Token);
+                await AreaDelay(player, FrameSeconds, stopping.Token);
             }
         }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }

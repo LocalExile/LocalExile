@@ -217,7 +217,7 @@ public static class VaalOversoul
             if (now >= nextSummon && minions < 8) selected = Summon;
             else
             {
-                int roll = Random.Shared.Next(100);
+                int roll = AreaRng(runner).Next(100);
                 selected = Distance(pos, target.Walk.Position(now)) < 20 && roll < 40 ? Slam : roll < 55 ? Laser : roll < 78 ? Ice : Rocks;
             }
             int required = selected == Summon ? 1 : selected is Slam or Rocks ? 2 : 3;
@@ -290,7 +290,7 @@ public static class VaalOversoul
                 }
                 else if (ev.Kind == RockHit)
                 {
-                    double angle = Random.Shared.NextDouble() * Math.Tau, range = 42 * Math.Sqrt(Random.Shared.NextDouble());
+                    double angle = AreaRng(c).NextDouble() * Math.Tau, range = 42 * Math.Sqrt(AreaRng(c).NextDouble());
                     var at = ((int)Math.Round(centre.X + Math.Cos(angle) * range), (int)Math.Round(centre.Y + Math.Sin(angle) * range));
                     await Effect(c, at, Art + $"rock_fall/rockdrop_0{1 + ev.Index % 4}.ao", now + 2, 0);
                     hits.Add((now + 1.26, at, RockHit, Math.Max(1, Stat(c, RockHit, boss.Level, global::Stat.ActiveSkillBaseAreaOfEffectRadius)), null));
@@ -325,7 +325,7 @@ public static class VaalOversoul
                 {
                     if (stance != 1) { stance = 1; await Basic(c, 5831, now, 1.133); readyAt = now + 1.25; events.Add((now + 1.2, boss.ActionGeneration, Travel, ev.Aim, 0)); continue; }
                     boss.EntranceGrace = true; burrowing = true;
-                    double angle = Random.Shared.NextDouble() * Math.Tau;
+                    double angle = AreaRng(c).NextDouble() * Math.Tau;
                     destination = Floor(c, ((int)Math.Round(centre.X + Math.Cos(angle) * 18), (int)Math.Round(centre.Y + Math.Sin(angle) * 18)));
                     surfaceAt = now + Math.Max(1, Stat(c, Travel, boss.Level, global::Stat.BaseSkillEffectDuration) / 1000d);
                     await Cast(c, Travel, now, destination);

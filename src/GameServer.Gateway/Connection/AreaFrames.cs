@@ -435,12 +435,19 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                 {
                     // The messages are still handled: the resume (C→S 0x1d4 0) is one of them.
                     Input();
+                    if (Paused() is null)
+                    {
+                        next = Math.Max(next, Math.Ceiling(watch.Elapsed.TotalSeconds / frame) * frame);
+                        continue;
+                    }
                     if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await Program.EndPausedFrame(paused.Player); return true; }));
                     await Task.Delay(Math.Max(1, Program.FrameMs / 3));
                     if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= Program.FrameMs)
                     {
                         pausedStep = Stopwatch.GetTimestamp();
-                        var dueNow = BeginStep(watch.Elapsed.TotalSeconds);
+                        // Keep AreaFrames.Time pinned to the last frame boundary while paused so walkers never step
+                        // a fractional mid-frame interval while no lockstep frame ended.
+                        var dueNow = BeginStep(double.IsNaN(Time) ? watch.Elapsed.TotalSeconds : Time);
                         OnFrame(() => Step(dueNow));
                         Pump();
                     }
@@ -465,6 +472,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                     // The messages that came during the last step are handled before the frame ends, so what they did (a
                     // skill's buff, a stat change) goes out with this end instead of waiting out the next step.
                     Input();
+                    if (Paused() is not null) break;
                     long t2 = Stopwatch.GetTimestamp();
                     // A member's first frame: the game puts what its client is missing in the area's frame, and its player
                     // for the others (Program.Joining).

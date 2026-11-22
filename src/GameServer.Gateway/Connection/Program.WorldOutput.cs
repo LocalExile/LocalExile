@@ -247,6 +247,38 @@ public partial class Program
         finally { gate.Release(); }
     }
 
+    /// <summary>Sends a world-group control packet (such as S→C 0x01d3 pause state) so a lockstep client executes it
+    /// immediately inside a 0 ms frame rather than holding it in its frame queue until the clock resumes.</summary>
+    public static async Task SendPausedWorldPacket(Player player, byte[] bytes, string? log)
+    {
+        var wire = player.Connection.Session;
+        var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+        await gate.WaitAsync();
+        bool committed = false;
+        try
+        {
+            if (player.Closed || player.Connection.WorldOutput.Closed) return;
+            committed = true;
+            if (player.Connection.LockstepClient && player.Connection.WorldOutput.Started)
+            {
+                List<(byte[], string?, WorldOutput.Packet?)> packets =
+                [
+                    (InstanceProtocol.FrameLength(0), null, null),
+                    (bytes, log, null),
+                    (InstanceProtocol.FrameEnd(), null, null),
+                    (InstanceProtocol.FrameLength(FrameMs), null, null),
+                ];
+                await WritePackets(wire.Remote, wire.Stream, wire.Ciphers, packets);
+            }
+            else
+            {
+                await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, bytes, log);
+            }
+        }
+        catch { if (committed) FailWorldOutput(player); throw; }
+        finally { gate.Release(); }
+    }
+
     static void FailWorldOutput(Player player)
     {
         player.Connection.CloseReason ??= "World output failed; its cipher stream cannot be retried";

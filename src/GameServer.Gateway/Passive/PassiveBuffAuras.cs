@@ -170,9 +170,14 @@ public static class PassiveBuffAuras
         readonly Dictionary<uint, ushort> _blinded = [];
         readonly Lock _lock = new();
 
+        public bool Any
+        {
+            get { lock (_lock) return _blinded.Count > 0; }
+        }
+
         public bool Blinded(uint monster)
         {
-            lock (_lock) return _blinded.ContainsKey(monster);
+            lock (_lock) return _blinded.Count > 0 && _blinded.ContainsKey(monster);
         }
 
         /// <summary>The buffs to add and to remove so that exactly <paramref name="inside"/> are blinded. A monster that

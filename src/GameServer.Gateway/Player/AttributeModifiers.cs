@@ -7,7 +7,7 @@ public readonly record struct AttributeModifiers(long Strength = 0, long Dexteri
     long StrengthPct = 0, long DexterityPct = 0, long IntelligencePct = 0, bool ZeroIntelligence = false)
 {
     // Not in the client's Stats table (a server-only id); items and passives may still name it.
-    static readonly uint BaseAllAttributes = Stat.Of("base_all_attributes");
+    public static readonly uint BaseAllAttributes = Stat.Of("base_all_attributes");
 
     public static bool IsInput(uint name) => name == BaseAllAttributes || name is
         Stat.BaseStrength or Stat.AdditionalStrength or Stat.BaseDexterity or Stat.AdditionalDexterity

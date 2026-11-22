@@ -81,7 +81,7 @@ static partial class QuestobjectsRules
             var order = arena.Lieutenants.Where(l => l.Lift is not null).OrderBy(_ => AreaRng(player).Next()).ToList();
             for (int k = 0; k < order.Count; k++)
             {
-                if (k > 0) await Task.Delay(TimeSpan.FromSeconds(IzaroLieutenants.RiseInterval));
+                if (k > 0) await AreaDelay(player, IzaroLieutenants.RiseInterval);
                 var l = order[k];
                 if (arena.Over || !here()) return;
                 await Send(player, [.. LiftState(player, l.Lift!.Value.Id, l.Lift.Value.At, IzaroFights.Raising),
@@ -99,7 +99,7 @@ static partial class QuestobjectsRules
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
+            await AreaDelay(player, IzaroStatues.RiseSeconds);
             if (!here()) return;
             await Send(player, [.. LiftState(player, l.Lift!.Value.Id, l.Lift.Value.At, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(l.Id, l.Transitionable, LieutenantRaised)], $"0x02bc {l.Effect.Id} 0x{l.Id:x} up");
@@ -149,7 +149,7 @@ static partial class QuestobjectsRules
                 if (!said && own.Count > 0 && own.All(l => LieutenantDead(player, l))) allDead = said = true;
                 foreach (var (l, _) in gone) player.Area.Buffs.Clear(arena.Izaro, l.Effect.Buff, l.Id);
                 if (allDead) await IzaroSays(player, arena.Izaro, IzaroLieutenants.AllDeadLine);
-                await Task.Delay(200);
+                await AreaDelay(player, 0.2);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

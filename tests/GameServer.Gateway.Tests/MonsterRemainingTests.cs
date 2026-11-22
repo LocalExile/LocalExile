@@ -43,7 +43,7 @@ public class MonsterRemainingTests
         var peer = runtime.PlayerOf(instance, peerWire);
         var peerPackets = new List<string>();
         peer.Connection.Outbox = (bytes, _) => { peerPackets.Add(Convert.ToHexString(bytes)); bytes.AsSpan().Fill(0xcc); return Task.CompletedTask; };
-        instance.PublishPlayer(new(peer.Id, 0, new("counter-peer", 0, 100, 100, 100, 100), 100, 100, 100, peer));
+        instance.AddPlayer(peer);
         using (Game.HoldMonstersRemaining(player))
         {
             await Game.SendRemainingMonsters(peer, force: true);

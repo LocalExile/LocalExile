@@ -87,6 +87,7 @@ public static partial class Game
                     if (stage) CommitProjectileBossStage(this, id, monster, now);
                     if (life == 0)
                     {
+                        SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
                         monster.Dead = true;
                         monster.LastHitBy = Player;
                         CollectVaalSoulAtDeathLocked(Player, monster);

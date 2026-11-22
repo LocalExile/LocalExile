@@ -43,7 +43,7 @@ public sealed class PortalsModule : IModule
             {
                 if (!TryBeginObjectWalk(player, requestedAt, home.X, home.Y, AreaTransitionObjectSize, out var homeWalk)) return true;
                 var (homeAction, homeNow, _, _, homeArrive) = homeWalk;
-                if (homeArrive > homeNow) await Task.Delay(TimeSpan.FromSeconds(homeArrive - homeNow));
+                if (homeArrive > homeNow) await AreaDelay(player, homeArrive - homeNow);
                 if (!PlayerActionCurrent(player, homeAction)) return true;
                 if (await ExpireTownPortal(player, origin))
                 {
@@ -86,7 +86,7 @@ public sealed class PortalsModule : IModule
             if (CastMs(player, gem.Effect) is not int castMs) return false;
             _ = AreaFrames.Start(async () =>
             {
-                await Task.Delay(castMs);
+                await AreaDelay(player, castMs / 1000.0);
                 if (current()) await OpenTownPortal(player, from.X, from.Y, "Portal skill");
             });
             return true;

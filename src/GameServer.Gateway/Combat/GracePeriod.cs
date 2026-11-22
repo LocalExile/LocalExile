@@ -18,7 +18,7 @@ public sealed class GracePeriod
         lock (_lock)
         {
             int seconds = Seconds;
-            _buff = town || hideout || seconds <= 0 ? null : buff;
+            _buff = town || seconds <= 0 ? null : buff;
             _protecting = _buff is not null;
             _origin = origin;
             _until = now + seconds;

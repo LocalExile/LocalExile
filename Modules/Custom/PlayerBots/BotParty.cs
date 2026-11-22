@@ -165,7 +165,7 @@ sealed partial class BotDirector
             leader = next;
         }
         if (leader.LeavingArea || !leader.Connection.PlayerSent || leader.Instance is not { } instance
-            || instance.Player(leader.Id) is not { } pose)
+            || instance.Player(leader.Id) is null)
         {
             Hide(bot);
             return;
@@ -179,6 +179,7 @@ sealed partial class BotDirector
             Show(bot, [leader]);
             return;
         }
+        var pose = leader.Walk.Position(leader.Frames.Now(leader));
         double far = Math.Max(Math.Abs(bot.X - pose.X), Math.Abs(bot.Y - pose.Y));
         // A new area (or a jump: a portal, a waypoint, a blink): it comes out beside the leader.
         if (!ReferenceEquals(bot.FollowIn, instance) || far > CatchUp)

@@ -121,7 +121,7 @@ public static class DoedreSewers
         if (!use.Started) await SendWorldRecord(c, c.Id,
             InstanceProtocol.ActionStarted(c.Id, here.X, here.Y, f.ValveAt.X, f.ValveAt.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null,
             still: () => PlayerActionCurrent(c, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(c, arrive - now);
         if (!PlayerActionCurrent(c, action)) return true;
         try
         {

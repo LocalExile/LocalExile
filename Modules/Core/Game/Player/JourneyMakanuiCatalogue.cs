@@ -34,10 +34,10 @@ public static class JourneyMakanuiCatalogue
     }
 
     /// <summary>A random base keystone, excluding the target keystone (the tattoo always changes the node).</summary>
-    public static Entry? Pick(ushort? exclude = null, Random? rng = null)
+    public static Entry? Pick(ushort? exclude, Random random)
     {
         var candidates = exclude is ushort id ? All.Where(entry => entry.GraphId != id).ToList() : All.ToList();
-        return candidates.Count == 0 ? null : candidates[(rng ?? Random.Shared).Next(candidates.Count)];
+        return candidates.Count == 0 ? null : candidates[random.Next(candidates.Count)];
     }
 
     static List<Entry> Load()

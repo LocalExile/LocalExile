@@ -138,7 +138,7 @@ public static partial class Game
         }
         if (removeCorpse) await SendRemainingMonsters(player);
         if (showArt)
-            SendAfter(ArtMs(art) / 1000.0, async () =>
+            SendAfter(player, ArtMs(art) / 1000.0, async () =>
             {
                 if (player.Closed || player.LeavingArea) return;
                 await Game.SendWorldRemoval(player, effect, null);

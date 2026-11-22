@@ -753,6 +753,25 @@ public static partial class Game
     public static Task SendSkillBar(Player player) =>
         Send(player, [], "0x0053 current skill bar", atGate: () => SkillBarRecord(player));
 
+    // A 0x2bc Actor skill update is queued into the current lockstep frame (WorldOutput) and processed by the client
+    // when it steps that frame, whereas 0x0053 is an instance packet handled immediately on receipt. Wait two lockstep
+    // frames on wall-clock time (coalesced via SkillBarRestoreGeneration, working both while playing and while paused)
+    // so 0x0053 always arrives after the client has applied 0x2bc and cannot be overwritten by it.
+    public static Task RestoreSkillBarAfterActorUpdate(Player player)
+    {
+        if (player.Connection.LockstepClient)
+        {
+            int gen = Interlocked.Increment(ref player.SkillBarRestoreGeneration);
+            _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
+            {
+                if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
+                    _ = player.Frames.Run(() => SendSkillBar(player));
+            });
+            return Task.CompletedTask;
+        }
+        return SendSkillBar(player);
+    }
+
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
     internal static byte[]? SkillBarRecord(Player player)
     {
@@ -1252,7 +1271,7 @@ public static partial class Game
         // Transient league skills are not part of the saved bar.
         if (GameEvents.ExtraSkills(player).Count > 0
             || added.All(id => SkillEffectId(player, id) is { } effect && saved?.Contains(effect) == true))
-            await SendSkillBar(player);
+            await RestoreSkillBarAfterActorUpdate(player);
         // The same recalculation may have changed which worn weapons qualify.
         await SendModelIfHandsChanged(player);
     }

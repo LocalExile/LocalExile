@@ -111,6 +111,23 @@ public static partial class Game
         };
     }
 
+    // Encodes the hit-size variation (0..2) into bits 3..4 of 0x1af's code byte (DamageParticleEffects Variation:
+    // e.g. Fire 2 -> default_fire_damage.pet, 10 -> default_fire_damage2.pet, 18 -> default_fire_damage3.pet).
+    public static byte HitCodeWithVariation(byte baseCode, int damage, uint maxLife, bool heavy = false)
+    {
+        int variation = heavy || (maxLife > 0 && damage * 100L >= (long)maxLife * 40) ? 2
+            : maxLife > 0 && damage * 100L >= (long)maxLife * 15 ? 1
+            : 0;
+        return (byte)((baseCode & 7) | (variation << 3));
+    }
+
+    public static byte HitCode(GameServer.Core.World.DamagePacket packet, int damage, uint maxLife, bool heavy = false) =>
+        HitCodeWithVariation(HitCode(packet), damage, maxLife, heavy);
+
+    // The 0x1af primary damage-type flag bit (0x0001 Physical, 0x0002 Cold, 0x0004 Fire, 0x0008 Lightning, 0x0010 Chaos),
+    // which selects the client's elemental impact sound & damage particle path (FUN_141602cd0).
+    public static ushort HitTypeFlag(byte hitCode) => (ushort)(1 << (hitCode & 7));
+
     // A positive offset on the hit's contact timing (seconds): the client starts its swing a beat after the server's 0x1ab
     // echo (the walk estimate leads the client's own walk, so the contact keyframe alone leaves the blood early). A fixed
     // offset is a compromise over the variable walk-sync; Game_HIT_OFFSET_MS overrides it (150 ms here covers most of the
@@ -297,7 +314,7 @@ public static partial class Game
             {
                 if (player.Closed || player.LeavingArea || !PlayerActionCurrent(player, action)) return;
                 if (!player.Paused && AreaTime(player) >= arrive) break;
-                await Task.Delay(16);
+                await AreaDelay(player, 0.016);
             }
             if (!AttackReady(player, use.SkillId, gem.Effect, gem.Level, out _)) return;
             (int X, int Y) aim = (use.X, use.Y);
@@ -382,7 +399,7 @@ public static partial class Game
         async Task<bool> Until(double at, double from)
         {
             if (ranged) return await WaitProjectileTime(player, at, projectileEpoch);
-            await Task.Delay(TimeSpan.FromSeconds(at - from));
+            await AreaDelay(player, at - from);
             return true;
         }
         if (await FollowMonsterToSwing(player, m, weapon, Current, Until, stop, arrive, atOnce, now, precision, lockstep) is not { } swing)
@@ -448,7 +465,7 @@ public static partial class Game
         // The hit lands at the attack animation's contact keyframe (data/animation-contacts.json), not a fixed half: the
         // client stretches the clip to the attack time, so the blood and the weapon impact sound line up with the swing.
         double contact = DefaultAttackContactDelay(player, duration, here, stop, departedAt, arrive, use.Sequence);
-        await Task.Delay(TimeSpan.FromSeconds(started ? Math.Max(0, begun + contact - AreaTime(player)) : contact));
+        await AreaDelay(player, started ? Math.Max(0, begun + contact - AreaTime(player)) : contact);
         await WhilePaused(player);
         // One use, one Fortification and one Rage gain (as one AreaSkillHit sweep), whichever of its hits lands first.
         bool fortified = false, raged = false;
@@ -690,7 +707,7 @@ public static partial class Game
             bool started = lockstep is not null;
             async Task<bool> Walked(double at, double from)
             {
-                await Task.Delay(TimeSpan.FromSeconds(at - from));
+                await AreaDelay(player, at - from);
                 return true;
             }
             if (await FollowMonsterToSwing(player, m, weapon, () => player.ActionCount == action && approachTicket?.Current(player) != false,
@@ -794,11 +811,15 @@ public static partial class Game
         LeapSlam.Use? leap = null;
         void StartCast()
         {
+            bool lockstep = player.Connection.LockstepClient;
             castAt = leap?.At ?? ProjectileWorldTime(player);
+            double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start : castAt;
+            if (lockstep) StepWalkers(player, actionAt);
             castAction = Interlocked.Increment(ref player.ActionCount);
-            aim = m.Walk.Position(castAt);
-            stand = player.Walk.Position(castAt);
-            player.Walk.Order(stand.X, stand.Y, castAt);
+            aim = m.Walk.Position(actionAt);
+            stand = player.Walk.Position(actionAt);
+            if (lockstep) player.Walk.Cancel(actionAt);
+            else player.Walk.Order(stand.X, stand.Y, castAt);
             // A movement skill aimed at a monster travels as one aimed at the ground does.
             if (leap is not null) CommitLeapSlam(player, leap);
             else if (chargeBonus != 0) chargeToken = BeginShieldCharge(player, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
@@ -1137,6 +1158,7 @@ public static partial class Game
         // Paid Vaal admission already reserved this swing atomically with its cost, before the native echo.
         if (cooldownUse?.Attack is { } admittedAttack
             && (admittedAttack.Skill != skillId || cooldownUse.Effect != gem.Effect)) return false;
+        double? reservedNextAttackAt = null;
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
             && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect))
         {
@@ -1145,7 +1167,11 @@ public static partial class Game
             bool ready;
             next = player.NextAttackAt;
             ready = AttackTiming.Ready(now, next, duration);
-            if (ready) player.NextAttackAt = AttackTiming.After(now, next, duration);
+            if (ready)
+            {
+                reservedNextAttackAt = next;
+                player.NextAttackAt = AttackTiming.After(now, next, duration);
+            }
             if (!ready)
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: ignored, {next - now:0.000} s before the next attack (t={now:0.000})");
@@ -1229,6 +1255,7 @@ public static partial class Game
             }
             if (!paid)
             {
+                if (reservedNextAttackAt is double prevNext) player.NextAttackAt = prevNext;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: not enough mana or life " +
                     $"({player.PlayerMana} < {cost}, {player.PlayerLife} life for {lifeCost})");
                 return false;
@@ -1778,7 +1805,7 @@ public static partial class Game
             while (true)
             {
                 double wait = player.NextChannelHitAt - AreaTime(player);
-                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
+                if (wait > 0) await AreaDelay(player, wait);
                 await WhilePaused(player);
                 if (!Running()) return;
                 double now = AreaTime(player);
@@ -2077,7 +2104,7 @@ public static partial class Game
         if (swingAt is { } swung) delay -= AreaTime(player) - swung;
         if (!immediate)
         {
-            await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
+            await AreaDelay(player, Math.Max(0.05, delay));
             await WhilePaused(player);
             if (Replaced() || player.Closed || !Current()) return;
         }
@@ -2468,7 +2495,7 @@ public static partial class Game
         {
             (double gap, bool keyframe) = GemAttackStrikeGap(player, contactClip);
             double next = contactAt + gap * SupportedAttackSeconds(player, skillId);
-            await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, next - AreaTime(player))));
+            await AreaDelay(player, Math.Max(0, next - AreaTime(player)));
             await WhilePaused(player);
             if (Replaced() || player.Closed || !Current()) return;
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: strike 2 at {next:0.000} "
@@ -2577,7 +2604,7 @@ public static partial class Game
         {
             if (!player.ProjectileActive(epoch) || player.RageRetired) return false;
             if (!player.Paused && AreaTime(player) >= until) return true;
-            await Task.Delay(16);
+            await AreaDelay(player, 0.016);
         }
     }
 
@@ -2693,6 +2720,7 @@ public static partial class Game
             player.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
         }
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(player, m); }
+        else if (m.Hostile) { m.Aggro = true; m.LastTarget = null; }
         TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         if (allyAt is null && damage > 0 && !player.Reservations.Secondary) ReservationHitLocked(player, m);
         return new(m.Life, starts);
@@ -2727,6 +2755,18 @@ public static partial class Game
                     HitAngle(mx - px, my - py), critical, impactArt, order.Key, order.Hit),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
             if (impactArt is not null) await PresentMeleeImpact(player, impactArt, (px, py), (mx, my));
+        }
+        else if (damage > 0)
+        {
+            double now = AreaTime(player);
+            var (px, py) = player.Walk.Position(now);
+            var (mx, my) = m.Walk.Position(now);
+            var hitOrder = HitOrder(player, player.Id);
+            byte code = HitCodeWithVariation(hitCode, damage, m.MaxLife, critical || life == 0);
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionHit(player.Id, sequence == 0 ? (ushort)0xffff : sequence, id,
+                    flags: (ushort)(0x4000 | HitTypeFlag(code) | (critical ? 0x0020 : 0)), kind: 0x03, code: code,
+                    angle: HitAngle(mx - px, my - py), orderKey: hitOrder.Key, checkpoint: hitOrder.Hit),
+                !log ? null : $"0x01af spell/area hit on monster 0x{id:x} (sequence 0x{sequence:x4})");
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
         await SendFlinch(player, id, m, stun ?? new(damage), log);
@@ -2803,9 +2843,15 @@ public static partial class Game
         double remaining = recovery.Until - now;
         if (!player.ProjectileActive(recovery.Epoch) || player.PlayerLife == 0 || player.Paused
             || player.ActionCount != recovery.Action || remaining <= 0) return null;
-        if (player.Connection.LockstepClient) player.Walk.Cancel(now);
+        float seconds = (float)Math.Min(remaining, recovery.Seconds);
+        if (player.Connection.LockstepClient)
+        {
+            player.Walk.Cancel(now);
+            if (player.Connection.LockstepFrame is { } frame)
+                player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, LockstepRecoveryEnds(frame, seconds));
+        }
         // The stun pins the player where the server has it: GGG sends the resync in the same tick as every stun.
-        return [.. InstanceProtocol.ActorAnimation(player.Id, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation),
+        return [.. InstanceProtocol.ActorAnimation(player.Id, seconds, PlayerHitRecovery.TakeHitAnimation),
             .. ResyncPacketLocked(player, now)];
     }
 
@@ -2867,7 +2913,7 @@ public static partial class Game
                 m.StageActionStarted = true;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} => monster 0x{id:x} ({m.Label}) starts its stage at " +
                     $"{m.Life}/{m.MaxLife} life, game time {now:0.000}; effect at {m.StageEffectAt:0.000}, recovery at {m.BusyUntil:0.000}");
-                return InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, StageSkillId, 0xffff, player.MonsterOrderFlags);
+                return [.. InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, StageSkillId, m.NextSequence(), player.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(id)];
             });
             if (!m.StageActionStarted) await AreaWait(PlayerUpdateRole.MonsterAction, 16);
         }
@@ -2946,7 +2992,7 @@ public static partial class Game
     {
         bool kept;
         kept = KeepCorpseLocked(player, id, m);
-        if (!kept) SendAfter(CorpseBlockDelaySeconds, () => CorpseCleared(player, id, m));
+        if (!kept) SendAfter(player, CorpseBlockDelaySeconds, () => CorpseCleared(player, id, m));
     }
 
     // Keeps the killed monster's body on a lockstep client and starts what ends it: the wait for its death message's
@@ -2965,7 +3011,7 @@ public static partial class Game
         {
             try
             {
-                if (await Task.WhenAny(death, Task.Delay(TimeSpan.FromSeconds(CorpseDeathWaitSeconds))) != death)
+                if (await Task.WhenAny(death, AreaDelay(player, CorpseDeathWaitSeconds)) != death)
                     if (player.Connection.LockstepFrame is { } frame && player.CorpseAwaitsDeathOf(id))
                     {
                         StepWalkers(player, frame.Start);

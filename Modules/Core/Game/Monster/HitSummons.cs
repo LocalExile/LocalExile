@@ -39,7 +39,7 @@ public static partial class Game
     {
         QueueMarkedDeath(player, id, monster, now);
         foreach (var peer in player.Instance.PlayersExcept(player.Id))
-            if (peer.Owner is { Closed: false, LeavingArea: false } other && ReferenceEquals(other.Instance, player.Instance))
+            if (peer is { Closed: false, LeavingArea: false } other && ReferenceEquals(other.Instance, player.Instance))
                 QueueMarkedDeath(other, id, monster, now);
     }
 
@@ -57,6 +57,7 @@ public static partial class Game
     {
         SummonedMinions.HitSummon[] pending;
         if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return;
+        if (player.Summons.HitMarks.Count == 0 && player.Summons.HitSummons.Count == 0) return;
         foreach (var (key, mark) in player.Summons.HitMarks.ToArray())
             if (now >= mark.Until || player.Area.Monsters.GetValueOrDefault(key.Id) != mark.Monster || player.PlayerLife == 0)
                 player.Summons.HitMarks.Remove(key);

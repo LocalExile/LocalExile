@@ -124,22 +124,31 @@ public static partial class Game
     public static async Task PlayerEnteredArea(Player player)
     {
         player.Connection.PlayerSent = true;
-        await StartGracePeriod(player);
         await Send(player, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(player));
     }
 
     public static async Task StartGracePeriod(Player player)
     {
         double now = AreaTime(player);
-        ushort buff;
-        buff = player.NextBuff++;
         bool hideout = HideoutCatalog.ByArea(player.Layout.Hash) is not null;
-        if (player.EntryProtection.Start(now, player.Walk.Position(now), buff, InTown(player), hideout))
+        if (player.EntryProtection.Start(now, player.Walk.Position(now), GracePeriod.BuffRow, InTown(player), hideout))
         {
             player.Area.Buffs.Set(player.Id, GracePeriod.Buff(player.Id));
             Note($"Grace Period: {GracePeriod.Seconds} seconds of entry protection");
         }
         await Task.CompletedTask;
+    }
+
+    /// <summary>Commits all unsaved in-memory progress (XP, inventory, vitals, golems, and cached character/stash saves)
+    /// to the permanent SQLite database when leaving an area or exiting.</summary>
+    public static void FlushAreaProgress(Player player)
+    {
+        string name = CharacterName(player);
+        CharacterSaves.SaveExperience(name);
+        ItemsOf(player).SaveUnsaved();
+        PersistVitals(player, bestEffort: true);
+        SaveGolems(player);
+        Saves.FlushSession(name, player.Character.Account, player.Character.League);
     }
 
     public static async Task EndGracePeriod(Player player, bool action = false)
@@ -446,8 +455,10 @@ public static partial class Game
         // From the skill's gem and the stats only: kept with the skills (ActiveSkills).
         if (BuildScopeOf(player) is not { Building: true } && CurrentActiveSkills(player) is { } current)
         {
-            if (!current.SpellTimings.TryGetValue((effect, skillId), out var known))
-                current.SpellTimings[(effect, skillId)] = known = SpellTimingNow(player, effect, skillId);
+            if (skillId != 0 && SupportedSkill(player, skillId) is { } supported && supported.Effect == effect)
+                return current.SkillGraphOf(player, skillId, supported).Timing;
+            if (!current.SpellTimings.TryGetValue(effect, out var known))
+                current.SpellTimings[effect] = known = SpellTimingNow(player, effect, skillId);
             return known;
         }
         return SpellTimingNow(player, effect, skillId);
@@ -457,9 +468,15 @@ public static partial class Game
     {
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(player, skillId).Stats;
         var playerStats = CharacterPlayerStats(player);
-        int speed = CastSpeedPct(playerStats);
-        if (Stat.BaseCastSpeedPlusPct is var k) speed += own.GetValueOrDefault(k);
-        speed = FinalCastSpeedPct(player, MergeSkillStats(playerStats, own), speed);
+        var merged = MergeSkillStats(playerStats, own);
+        return SpellTiming(player, effect, playerStats.GetValueOrDefault, own.GetValueOrDefault, merged.GetValueOrDefault);
+    }
+
+    // A spell's cast time from the player's stats, the skill's own and the two merged (a skill graph's rule reads them).
+    static SpellCastTiming? SpellTiming(Player player, int effect, Func<uint, int> playerStat, Func<uint, int> own, Func<uint, int> merged)
+    {
+        int speed = playerStat(Stat.CastSpeedPlusPct) + own(Stat.BaseCastSpeedPlusPct);
+        speed = FinalCastSpeedPct(merged, () => HoldingFishingRod(player), speed);
         return SpellCastTiming.ForSkill(SkillsFor(player), effect, speed);
     }
 
@@ -898,7 +915,6 @@ public static partial class Game
         bool zealotsOath = false, convertLifeRegen = false;
         double? periodicRegenStart = null;
         double periodicRegenPerSecond = 0;
-        double nextVitalsSave = last + 5;
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(uint key) => recoveryStats.GetValueOrDefault(key);
         var cachedRf = player.RighteousFire;
@@ -938,11 +954,6 @@ public static partial class Game
                     last = now;
                     rates.Stale = true;
                     return;
-                }
-                if (LeagueFor(player).Rules.PersistsVitals && now >= nextVitalsSave)
-                {
-                    PersistVitals(player, bestEffort: true);
-                    nextVitalsSave = now + 5;
                 }
                 double seconds = now - last;
                 if (seconds <= 0) return;

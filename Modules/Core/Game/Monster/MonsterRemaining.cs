@@ -49,7 +49,7 @@ public static partial class Game
             if (!CurrentGameWork || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || delivery.Holds > 0) return;
             living = Math.Min(byte.MaxValue, LivingMonstersLocked(player));
             recipients = [player, .. (player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
-                .Select(p => p.Owner).OfType<Player>().Where(p => !ReferenceEquals(p, player))];
+                .Where(p => !ReferenceEquals(p, player))];
             foreach (var recipient in recipients)
             {
                 bool own = ReferenceEquals(recipient, player);

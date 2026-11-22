@@ -37,7 +37,7 @@ static partial class QuestobjectsRules
         var layout = player.Layout;
         await Send(player, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.AnimationUpdate(id, 0, IzaroGoddess.DeathClip, 1)],
             $"0x02bc the Goddess of Justice 0x{id:x} flies up");
-        await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.DeathSeconds));
+        await AreaDelay(player, IzaroGoddess.DeathSeconds);
         // She leaves the instance's monsters also when the player has gone, or a later entry would find her still here.
         byte[] gone = IzaroGoddessGone(player, arena);
         if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
@@ -72,7 +72,7 @@ static partial class QuestobjectsRules
             {
                 if (arena.Over || !here() || arena.Boss is not { } boss) return;
                 if (boss.Life * 100L <= boss.MaxLife * (long)IzaroGoddess.HurtPercent) break;
-                await Task.Delay(500);
+                await AreaDelay(player, 0.5);
             }
             while (true)
             {
@@ -84,7 +84,7 @@ static partial class QuestobjectsRules
                     ? await GoddessOfJustice.ThrowGuardians(player, arena.Goddess, goddess, spots) : new double[spots.Count];
                 for (int i = 0; i < spots.Count; i++) _ = OpenIzaroCircle(player, arena, guardian, spots[i], flights[i], layout);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} the Goddess opens {spots.Count} circle(s): {string.Join(", ", spots)}");
-                await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.EverySeconds));
+                await AreaDelay(player, IzaroGoddess.EverySeconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -115,7 +115,7 @@ static partial class QuestobjectsRules
     {
         try
         {
-            if (after > 0) await Task.Delay(TimeSpan.FromSeconds(after));
+            if (after > 0) await AreaDelay(player, after);
             if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
             uint effect = player.TakeObjectId();
             await Send(player, [.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
@@ -134,7 +134,7 @@ static partial class QuestobjectsRules
 
     static async Task RemoveIzaroCircle(Player player, AreaLayout layout, uint effect)
     {
-        await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.ImpactSeconds));
+        await AreaDelay(player, IzaroGoddess.ImpactSeconds);
         if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
         try { await Send(player, InstanceProtocol.RemoveObject(effect), null); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
@@ -144,7 +144,7 @@ static partial class QuestobjectsRules
     // the corpse of one killed before that (the user's call: they would pile up in the arena otherwise).
     static async Task ExpireIzaroGuardian(Player player, AreaLayout layout, uint id)
     {
-        await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.GuardianSeconds));
+        await AreaDelay(player, IzaroGoddess.GuardianSeconds);
         if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
         if (player.Area.Monsters.GetValueOrDefault(id) is not { } m) return;
         (m.Life, m.Dead) = (0, true);

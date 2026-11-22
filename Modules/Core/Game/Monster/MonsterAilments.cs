@@ -46,16 +46,16 @@ public static partial class Game
     /// seconds on Block" on a blocked one, each on its own roll of AreaRng(conn) so the incoming hit's draws stay in order.
     /// Each spreads by the player's area modifier, as Within the Tempest's shock.
     /// </summary>
-    public static void AilmentsWhenHitLocked(SpawnedMonster m, Func<uint, int> player, bool blocked, double now)
+    public static void AilmentsWhenHitLocked(SpawnedMonster m, Func<uint, int> player, bool blocked, double now, Random random)
     {
         int Target(uint name) => m.Effects[name];
         double area = AilmentArea(player, _ => 0, spell: false);
         if (player(Stat.ChillEnemyWhenHitDurationMs) is > 0 and int ms)
             m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, player, Target, area, stated: 30);
         if (!blocked) return;
-        if (RandomRolls.Chance(player(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, Random.Shared))
+        if (RandomRolls.Chance(player(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
             m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target, area);
-        if (RandomRolls.Chance(player(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, Random.Shared))
+        if (RandomRolls.Chance(player(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random))
             m.Ailments.WithoutDamage(Kind.Shock, 4, now, player, Target, area);
     }
 
@@ -71,15 +71,20 @@ public static partial class Game
     /// In the area's frame.</summary>
     static void ProliferateLocked(Player player, double now)
     {
-        var sources = new List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Ailment)>();
+        if (!MonsterElementalAilments.AnySpreadAdded && !player.Area.HasProliferatedAilments) return;
+        List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Ailment)>? sources = null;
         foreach (var m in player.Area.Monsters.Values)
-            foreach (var ailment in m.Ailments.Spreading(now)) sources.Add((m, m.Walk.Position(now), ailment));
+            if (!m.Ailments.Idle)
+                foreach (var ailment in m.Ailments.Spreading(now))
+                    (sources ??= []).Add((m, m.Walk.Position(now), ailment));
+        if (sources is null && !player.Area.HasProliferatedAilments) return;
+        player.Area.HasProliferatedAilments = sources is not null;
         foreach (var m in player.Area.Monsters.Values)
         {
-            bool reached = sources.Count > 0 && !m.Dead && m.Hostile;
+            bool reached = sources is not null && !m.Dead && m.Hostile;
             var at = reached ? m.Walk.Position(now) : default;
             for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
-                m.Ailments.Proliferated(kind, reached ? sources.Where(s => s.Ailment.Kind == kind && !ReferenceEquals(s.M, m)
+                m.Ailments.Proliferated(kind, reached ? sources!.Where(s => s.Ailment.Kind == kind && !ReferenceEquals(s.M, m)
                     && Dist(s.At, at) <= s.Ailment.Spread).Select(s => s.Ailment).MaxBy(s => (s.Magnitude, s.Until)) : null,
                     name => m.Effects[name]);
         }
@@ -91,24 +96,29 @@ public static partial class Game
     /// Monsters lock.</summary>
     static void ProliferateIgnitesLocked(Player player, double now, List<(byte[] Packet, string Log)> packets)
     {
-        var sources = new List<(uint Id, SpawnedMonster M, (int X, int Y) At, double Dps, double Until, int Radius)>();
+        if (!MonsterIgnites.AnySpreadAdded && !player.Area.HasProliferatedIgnites) return;
+        List<(uint Id, SpawnedMonster M, (int X, int Y) At, double Dps, double Until, int Radius)>? sources = null;
         foreach (var (id, m) in player.Area.Monsters)
         {
+            if (!m.Ignites.MaySpread) continue;
             // A shattered or consumed corpse is gone: its retained ignites retire, and the copies it gave end below.
             if (m.Dead && (m.Ailments.Shattered || m.CorpseConsumed))
             {
                 m.Ignites.RetireCorpse();
                 continue;
             }
-            foreach (var (dps, until, radius) in m.Ignites.Spreads(now)) sources.Add((id, m, m.Walk.Position(now), dps, until, radius));
+            foreach (var (dps, until, radius) in m.Ignites.Spreads(now))
+                (sources ??= []).Add((id, m, m.Walk.Position(now), dps, until, radius));
         }
+        if (sources is null && !player.Area.HasProliferatedIgnites) return;
+        player.Area.HasProliferatedIgnites = sources is not null;
         foreach (var (id, m) in player.Area.Monsters)
         {
-            if (sources.Count == 0 && m.Ignites.Idle) continue;
+            if (sources is null && m.Ignites.Idle) continue;
             (double Dps, double Until)? best = null;
             uint from = 0;
             var e = m.Mods.Effects;
-            if (sources.Count > 0 && !m.Dead && m.Life > 0 && m.Hostile && !m.Invulnerable
+            if (sources is not null && !m.Dead && m.Life > 0 && m.Hostile && !m.Invulnerable
                 && e[Stat.ImmuneToIgnite] == 0 && e[Stat.CannotBeIgnited] == 0)
             {
                 var at = m.Walk.Position(now);
@@ -119,10 +129,11 @@ public static partial class Game
             }
             bool showing = m.Ignites.Buff is not null;
             if (!m.Ignites.Proliferated(best, now) || showing) continue;
+            player.Area.ActiveIgniteMonsters.Add(id);
             string log = $"monster 0x{id:x} ({m.Label}) ignited by proliferation from 0x{from:x}: {best!.Value.Dps:0.#}/s for {best.Value.Until - now:0.##} s";
             Console.WriteLine($"[gateway] {log}");
             // Not showing yet, so this is the add alone (no old instance to take off).
-            foreach (var packet in ShowDotBuffLocked(player, id, m.Ignites, IgnitedBuffRow, now)) packets.Add((packet, "0x01c1 " + log));
+            ShowDotBuffLocked(player, id, m.Ignites, IgnitedBuffRow, now);
         }
     }
 
@@ -227,15 +238,18 @@ public static partial class Game
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player));
         int poisonStacksBefore = m.Poisons.Stacks(now);
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
-                out double poisonDps, out double poisonSeconds)
-            && playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
-            && Player(Stat.ImmuneToPoison) == 0
-            // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
-            && player.IncomingAilments.PoisonStacks(now) < 100)
+                out double poisonDps, out double poisonSeconds))
         {
-            int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
-            for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
-                player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+            player.Area.ActivePoisonMonsters.Add(targetId);
+            if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
+                && Player(Stat.ImmuneToPoison) == 0
+                // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
+                && player.IncomingAilments.PoisonStacks(now) < 100)
+            {
+                int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
+                for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
+                    player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+            }
         }
         // Fleeing (MonsterFlee): its own draws (AreaRng(conn)), so a projectile's reaction draws stay in order.
         if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
@@ -294,20 +308,35 @@ public static partial class Game
         ProliferateLocked(player, now);
         var packets = new List<(byte[], string)>();
         ProliferateIgnitesLocked(player, now, packets);
-        foreach (var (id, m) in player.Area.Monsters)
+        if (!MonsterElementalAilments.AnyApplied && !player.Area.HasProliferatedAilments && !player.Area.HasSpiderWebs)
         {
-            // A knockback is presented before the ailment-idle skip: an idle monster still moves.
-            if (m.KnockbackPending is (int kx, int ky))
+            var living = player.Area.SyncLivingMonsters();
+            for (int i = 0; i < living.Count; i++)
             {
-                m.KnockbackPending = null;
-                packets.Add((InstanceProtocol.Teleport(id, kx, ky),
-                    $"0x0f8 monster 0x{id:x} ({m.Label}) knocked back to ({kx}, {ky})"));
+                var (id, m) = living[i];
+                ProcessMonsterAilmentLocked(player, id, m, now, packets);
             }
-            var a = m.Ailments;
-            double vines = ToxicWalkFactor(m);
-            bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
-            if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
-                && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown) continue;
+            return packets;
+        }
+        foreach (var (id, m) in player.Area.Monsters)
+            ProcessMonsterAilmentLocked(player, id, m, now, packets);
+        return packets;
+    }
+
+    static void ProcessMonsterAilmentLocked(Player player, uint id, SpawnedMonster m, double now, List<(byte[] Packet, string Log)> packets)
+    {
+        // A knockback is presented before the ailment-idle skip: an idle monster still moves.
+        if (m.KnockbackPending is (int kx, int ky))
+        {
+            m.KnockbackPending = null;
+            packets.Add((InstanceProtocol.Teleport(id, kx, ky),
+                $"0x0f8 monster 0x{id:x} ({m.Label}) knocked back to ({kx}, {ky})"));
+        }
+        var a = m.Ailments;
+        double vines = ToxicWalkFactor(m);
+        bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
+        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
+            && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown) return;
             if (!elementalIdle)
             {
                 foreach (var (kind, removed, added, magnitude, source) in a.PresentWithSource(now))
@@ -361,8 +390,6 @@ public static partial class Game
             {
                 m.MaimedMovementShownPct = 0;
             }
-        }
-        return packets;
     }
 
     /// <summary>

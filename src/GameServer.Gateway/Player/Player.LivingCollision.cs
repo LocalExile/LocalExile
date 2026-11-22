@@ -26,6 +26,12 @@ public sealed partial class Player
     /// <summary>Whether a kill is committed whose death message is not written yet (read without the lock).</summary>
     public bool CorpseAwaitsDeath => Volatile.Read(ref corpsesAwaitingDeath) > 0;
 
+    /// <summary>Whether this lockstep client currently tracks any dead monsters whose death clip still blocks.</summary>
+    public bool HasCorpses => corpses.Count > 0;
+
+    /// <summary>Ids of kept death-clip corpses for this player (typically empty or a handful of recent kills).</summary>
+    public IReadOnlyCollection<uint> KeptCorpseIds => corpses.Keys;
+
     // A dead actor remains in the native pathfinder until its death clip clears its body there. It keeps its walker
     // meanwhile (CorpseWalks): the body is where the client's monster stands. Whether a corpse is kept for the monster
     // after the call: one kept already stays as it is, and none is made for a monster without a body or for one whose
@@ -113,7 +119,8 @@ public sealed partial class Player
         if (IsPhasing || Connection.LockstepClient) return result;
         // Deterministic arrival arbitration: the later actor moves, instead of both choosing the same exit.
         foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
-            if (peer.Id < Id && peer.Life > 0 && peer.Owner is not null) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+            if (peer.Id < Id && peer.PlayerLife > 0 && peer.Walk.Position(peer.Frames.Now(peer)) is var at)
+                result.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
         return new BlockerSet(result);
     }
 

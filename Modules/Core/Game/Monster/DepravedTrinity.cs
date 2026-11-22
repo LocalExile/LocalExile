@@ -237,7 +237,7 @@ public static class DepravedTrinity
         if (!TryBeginObjectWalk(c, requestedAt, gate.GridX, gate.GridY, AreaTransitionObjectSize, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started) await SendWorldRecord(c, c.Id, InstanceProtocol.ActionStarted(c.Id, here.X, here.Y, gate.GridX, gate.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null, still: () => PlayerActionCurrent(c, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(c, arrive - now);
         if (!PlayerActionCurrent(c, action)) return true;
         try
         {

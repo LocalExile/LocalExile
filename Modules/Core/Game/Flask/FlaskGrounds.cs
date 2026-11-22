@@ -78,22 +78,22 @@ public static partial class Game
     // presentation cannot be stranded in an old timer when Game is replaced.
     // The grounds are zones (one per ground, at it) reaching the player and the hostile monsters; a walker in or out
     // presents them again.
-    const string FlaskGroundZones = "flask grounds";
+    const ZoneKind FlaskGroundZones = ZoneKind.FlaskGrounds;
 
     static void SyncFlaskGroundZones(Player player)
     {
         var hostile = ReachesHostileMonsters(player, body: false);
-        SyncZones(player, player.Id, FlaskGroundZones, player.FlaskGrounds.Grounds.Select(g => ((object)g, g.Radius, (g.X, g.Y))),
+        SyncZones(player, player.Id, FlaskGroundZones, player.FlaskGrounds.Grounds.Select(g => (g.Id, g.Radius, (g.X, g.Y))),
             new(id => id.Value == player.Id ? 0 : hostile(id), Changed: _ => PresentNearby(player)));
     }
 
     // Whether a ground of the kind covers the monster.
     static bool InFlaskGround(Player player, FlaskGrounds.Kind kind, uint id) =>
-        player.FlaskGrounds.Grounds.Any(g => g.Kind == kind && InZone(player, player.Id, FlaskGroundZones, g, id));
+        player.FlaskGrounds.Grounds.Any(g => g.Kind == kind && InZone(player, player.Id, FlaskGroundZones, g.Id, id));
 
     // The increased damage taken a monster gets from the consecrated grounds covering it: the strongest one.
     static int ConsecratedEnemyDamageTaken(Player player, uint id) => player.FlaskGrounds.Grounds
-        .Where(g => g is { Kind: FlaskGrounds.Kind.ConsecratedGround, EnemyDamageTakenPct: > 0 } && InZone(player, player.Id, FlaskGroundZones, g, id))
+        .Where(g => g is { Kind: FlaskGrounds.Kind.ConsecratedGround, EnemyDamageTakenPct: > 0 } && InZone(player, player.Id, FlaskGroundZones, g.Id, id))
         .Select(g => g.EnemyDamageTakenPct).DefaultIfEmpty(0).Max();
 
     public static void AdvanceFlaskGrounds(Player player, PlayerUpdatesState updates)
@@ -141,7 +141,7 @@ public static partial class Game
         }
         // A ground placed this step has its members from the next movement update; until then its cells decide.
         bool covered = state.Grounds.Any(g => g.Kind == FlaskGrounds.Kind.ConsecratedGround
-            && (InZone(player, player.Id, FlaskGroundZones, g, player.Id) || g.Covers(here)));
+            && (InZone(player, player.Id, FlaskGroundZones, g.Id, player.Id) || g.Covers(here)));
         if (state.SetConsecrated(state.OnConsecrated(alive, covered, now), () => 1) is { } consecrated)
         {
             if (consecrated.Added) player.Area.Buffs.Set(player.Id, new(FlaskGrounds.ConsecratedBuffRow, player.Id));

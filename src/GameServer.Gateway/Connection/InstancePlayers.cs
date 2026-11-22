@@ -1,27 +1,19 @@
 using GameServer.Core.Protocol.Instance;
 
-/// <summary>Immutable published poses; observers never lock another connection's simulation.</summary>
-public sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, int Y, uint Life,
-    Player? Owner = null)
-{
-    // Only session liveness is read through the owner; all replicated values remain immutable snapshots.
-    public bool Current => Owner is null || !Owner.Closed && !Owner.LeavingArea && Owner.Connection.PlayerSent;
-    /// <summary>Where the player is walking to (its walk's last cell; its own cell when standing). Observers start a Move
-    /// action toward it, which their client paths and animates, instead of gliding the body from pose to pose.</summary>
-    public (int X, int Y)? Destination { get; init; }
-    public IReadOnlyList<SharedAura> Auras { get; init; } = [];
-}
-
+/// <summary>An aura a player shares with the allies in its radius, at the caster's effect.</summary>
 public sealed record SharedAura(AuraCatalog.Aura Aura, int Radius, int Effect);
 
-/// <summary>Player presence shared by one Auth instance, independently of its characters' private world state.</summary>
+/// <summary>The players of one Auth instance: the area's, and in an SSF town the other solo worlds' sharing it (chat,
+/// party and friends see them; their world state stays apart). A player is in it from entering until leaving.</summary>
 public sealed class InstancePresence
 {
-    readonly System.Collections.Concurrent.ConcurrentDictionary<uint, InstancePlayer> _players = new();
-    public void PublishPlayer(InstancePlayer player) => _players[player.Id] = player;
+    readonly System.Collections.Concurrent.ConcurrentDictionary<uint, Player> _players = new();
+    public void AddPlayer(Player player) => _players[player.Id] = player;
     public void RemovePlayer(uint id) => _players.TryRemove(id, out _);
-    public InstancePlayer[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id)];
-    public InstancePlayer? Player(uint id) => _players.TryGetValue(id, out var p) && p.Current ? p : null;
+    /// <summary>The players in game here now, but <paramref name="id"/>.</summary>
+    public Player[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id && InGame(p))];
+    public Player? Player(uint id) => _players.TryGetValue(id, out var p) && InGame(p) ? p : null;
+    static bool InGame(Player p) => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent;
 }
 
 /// <summary>The instance's events (InstanceWorld): what a module can add to the shared instance.</summary>
@@ -112,10 +104,10 @@ public sealed partial class InstanceState : IHasComponents
     public InstanceState(InstancePresence? presence) => Presence = presence ?? new();
 
     public InstancePresence Presence { get; }
-    public void PublishPlayer(InstancePlayer player) => Presence.PublishPlayer(player);
+    public void AddPlayer(Player player) => Presence.AddPlayer(player);
     public void RemovePlayer(uint id) => Presence.RemovePlayer(id);
-    public InstancePlayer[] PlayersExcept(uint id) => Presence.PlayersExcept(id);
-    public InstancePlayer? Player(uint id) => Presence.Player(id);
+    public Player[] PlayersExcept(uint id) => Presence.PlayersExcept(id);
+    public Player? Player(uint id) => Presence.Player(id);
 }
 
 public sealed partial class Player
@@ -124,6 +116,8 @@ public sealed partial class Player
     // Settable when the state is built, so a test of a rule seeded by it does not depend on how many states came before.
     public uint Id { get; init; } = unchecked((uint)Interlocked.Increment(ref _nextPeerId));
     public PlayerObject? PeerTemplate;
+    /// <summary>The auras this player shares with its allies, set when its stats change (RefreshPeerScale).</summary>
+    public IReadOnlyList<SharedAura> SharedAuras = [];
     public uint PeerType;
     /// <summary>This player's minions as created (SharedMonsters.cs), and as of its last frame, for the other clients.</summary>
     public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SharedMonsterOrigin> MinionOrigins = new();

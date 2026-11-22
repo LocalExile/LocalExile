@@ -81,7 +81,7 @@ static partial class Game
         }
         Console.WriteLine($"[gateway] {player.Connection.Remote} triggered discharge art: {arts.Count} effect(s), skin 0x{skin:x8}, radius {radius}");
         var created = ids.ToArray();
-        SendAfter(TriggeredDischargeArtSeconds, async () =>
+        SendAfter(player, TriggeredDischargeArtSeconds, async () =>
         {
             if (player.Closed || player.LeavingArea) return;
             foreach (uint id in created) await Send(player, InstanceProtocol.RemoveObject(id), null);

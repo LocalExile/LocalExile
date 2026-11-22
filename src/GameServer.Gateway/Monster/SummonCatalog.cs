@@ -102,7 +102,6 @@ public sealed class SummonedMinions
     public int HolyRegenerationPerMinute;
     public ushort HolyBuff;
     public double FeedingFrenzyUntil;
-    public ushort FeedingFrenzyBuff;
     public sealed record Prey(uint Id, SpawnedMonster Monster, ushort Source, double Until, ushort Buff);
     public Prey? SignalledPrey;
     public readonly Queue<uint> Corpses = [];

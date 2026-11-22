@@ -28,7 +28,7 @@ public static partial class Game
             foreach (var (key, value) in n.Stats)
             {
                 uint name = key;
-                if (name is Stat.BaseStrength or Stat.BaseDexterity or Stat.BaseIntelligence || name == Stat.Of("base_all_attributes")) score += value * .65;
+                if (name is Stat.BaseStrength or Stat.BaseDexterity or Stat.BaseIntelligence || name == AttributeModifiers.BaseAllAttributes) score += value * .65;
                 if (name is Stat.MaximumLifePlusPct or Stat.BaseMaximumLife) score += value * 2;
                 if (name is Stat.BaseResistAllElementsPct) score += value;
                 if (name == Stat.DamagePlusPct || spell && name is Stat.SpellDamagePlusPct or Stat.FireDamagePlusPct
@@ -50,7 +50,7 @@ public static partial class Game
         OrdinaryPassives.Validate((byte)cls.IntegerId, AscendancyFamily.Normal, nodes);
         var passiveStats = Passives.Stats(nodes);
         int Attr(uint key, int basis) => basis + passiveStats.GetValueOrDefault(key)
-            + (Stats.Key("base_all_attributes") is uint all ? passiveStats.GetValueOrDefault(all) : 0);
+            + passiveStats.GetValueOrDefault(AttributeModifiers.BaseAllAttributes);
         int str = Attr(Stat.BaseStrength, cls.Strength), dex = Attr(Stat.BaseDexterity, cls.Dexterity), intel = Attr(Stat.BaseIntelligence, cls.Intelligence);
         bool Fits(ItemCatalog.BaseType t)
         {

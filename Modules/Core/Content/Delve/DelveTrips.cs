@@ -38,7 +38,7 @@ public sealed partial class DelveModule
             for (int retry = 0; retry < 12; retry++)
             {
                 DelveMine.Plan candidate;
-                try { candidate = DelveTerrain.Procedural(mine, plan); }
+                try { candidate = DelveTerrain.Procedural(mine, plan, AreaRng(player)); }
                 catch (ArgumentException ex) { await modPlayer.Tell(ex.Message); return; }
                 if (ServerLevels.PrepareDelve(candidate.SceneSeed, DelveMine.MonsterLevel(plan.Depth), candidate.Terrain!) is not { } scene) continue;
                 var rails = DelveRailRoute.Load("Delve_Main", candidate.SceneSeed);
@@ -294,7 +294,7 @@ public sealed partial class DelveModule
                             await CompleteTrip(module, modPlayer, character, state, trip, level, valid, attempt);
                             if (trip.Completed) { _attempts.TryRemove(attempt.Plan.Id, out _); break; }
                         }
-                        await Task.Delay(200, module.Lifetime.Stopping);
+                        await AreaDelay(player, 0.2, module.Lifetime.Stopping);
                     }
                     return;
                 }

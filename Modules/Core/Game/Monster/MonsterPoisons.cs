@@ -96,15 +96,19 @@ public static partial class Game
 
     public static async Task TickPoisons(Player player)
     {
+        var active = player.Area.ActivePoisonMonsters;
+        if (active.Count == 0) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         using (ProjectileMutation(player))
         {
-            if (player.Closed || player.LeavingArea) return;
+            if (player.Closed || player.LeavingArea || active.Count == 0) return;
             double now = ProjectileWorldTime(player);
-            foreach (var (id, m) in player.Area.Monsters)
+            List<uint>? done = null;
+            foreach (uint id in active)
             {
-                if (OwnedGolemActor(player, id, m)) continue;
-                if (m.Poisons.Idle) continue;
+                if (!player.Area.Monsters.TryGetValue(id, out var m)) { (done ??= []).Add(id); continue; }
+                if (OwnedGolemActor(player, id, m)) { (done ??= []).Add(id); continue; }
+                if (m.Poisons.Idle) { (done ??= []).Add(id); continue; }
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
                 else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
@@ -124,6 +128,7 @@ public static partial class Game
                 if (m.Dead || m.Life == 0 || !m.Poisons.Poisoned)
                 {
                     EndDot(player, id, ref m.Poisons.Buff, m.Poisons.BuffSource);
+                    if (m.Poisons.Idle) (done ??= []).Add(id);
                 }
                 else
                 {
@@ -133,6 +138,7 @@ public static partial class Game
                         U68: Buff.Seconds(m.Poisons.Until - now), Visual: AilmentArtVisual(player, "poison")));
                 }
             }
+            if (done is not null) foreach (uint id in done) active.Remove(id);
         }
         foreach (var (id, m, life, damage) in hits)
         {

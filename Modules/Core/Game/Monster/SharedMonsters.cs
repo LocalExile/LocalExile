@@ -146,6 +146,10 @@ public static partial class Game
                 m.Asleep = true;
                 m.Walk.StopAt(now);
                 m.Leg = null;
+                m.ClientChase = null;
+                m.LastTarget = null;
+                m.SwingGeneration = null;
+                m.ActionGeneration++;
                 area.Delta.Add(id, InstanceProtocol.LeaveWakeZone(id), $"0x01aa monster 0x{id:x} leaves the area's wake zone");
             }
             else if (m.Asleep && nearest <= WakeZoneReturn)
@@ -224,7 +228,7 @@ public static partial class Game
             if (!m.WorldHidden && !m.Dead && m.Life > 0 && m.OwnerId != player.Id)
                 AddMonsterCreate(player, id, m, now, only: player);
         foreach (var peer in player.Instance.PlayersExcept(player.Id))
-            if (peer.Owner is { } other && other.Connection.PlayerSent && !other.Closed && !other.LeavingArea && other.PeerTemplate is not null)
+            if (peer is { } other && other.Connection.PlayerSent && !other.Closed && !other.LeavingArea && other.PeerTemplate is not null)
                 foreach (var (bytes, kind) in PlayerCreate(other, player, now)) area.Delta.Add(other.Id, bytes, null, kind, only: player);
         if (player.PeerTemplate is not null)
             foreach (var (bytes, kind) in PlayerCreate(player, player, now))

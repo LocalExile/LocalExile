@@ -237,7 +237,7 @@ public static partial class Game
 
         double remaining = swung + delay + repeatDelay - AreaTime(player);
         if (remaining > 0)
-            await Task.Delay(TimeSpan.FromSeconds(remaining));
+            await AreaDelay(player, remaining);
         await WhilePaused(player);
         if (Replaced() || player.Closed || !Current()) return;
 
@@ -488,7 +488,7 @@ public static partial class Game
                 Ignite = RepeatAilment(shot.Ignite, damageScale), Bleed = RepeatAilment(shot.Bleed, damageScale),
                 Poison = RepeatAilment(shot.Poison, damageScale) };
 
-        var areaStats = MergeSkillStats(AreaPlayerStats(player), own);
+        var areaStats = AreaSkillStats(player, skillId, SupportedSkill(player, skillId));
         int AreaGet(uint name) => name == SkillArea.BaseIncreased
             ? own.GetValueOrDefault(name) + areaStats.GetValueOrDefault(Stat.MoltenStrikeRadiusPlusPct)
             : areaStats.GetValueOrDefault(name);

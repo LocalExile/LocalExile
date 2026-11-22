@@ -26,8 +26,8 @@ public static partial class Game
         public Dictionary<uint, int>? AreaStats;
         // Why the actor may not use a skill now (ActorSkillDisabledCore), by effect and skill: the client's usable flag.
         public readonly Dictionary<(int Effect, ushort? Skill), string?> ActorDisabled = [];
-        // A spell's cast time (SpellTimingFor), by effect and skill.
-        public readonly Dictionary<(int Effect, ushort Skill), SpellCastTiming?> SpellTimings = [];
+        // A cast time without a skill (SpellTimingFor of an effect alone), by effect; a skill's is its graph's.
+        public readonly Dictionary<int, SpellCastTiming?> SpellTimings = [];
         // A gem's skill effect cosmetic (SkillArtVariation), by gem.
         public readonly Dictionary<uint, int> ArtVariations = [];
         // Why a gem's requirements are not met (GemRequirementsUnmet), by gem item.
@@ -38,17 +38,16 @@ public static partial class Game
         public Dictionary<uint, int>? FinalMap;
         public IReadOnlyList<(uint, int)>? FinalMapOf;
 
-        public IReadOnlyDictionary<uint, int> SkillGraphOf(ushort skillId, SupportedGem supported, bool channelled, double costMore,
-            IReadOnlyDictionary<uint, int> player)
+        // The skill's graph, stepped for the player's stats now.
+        public SkillGraph SkillGraphOf(Player owner, ushort skillId, SupportedGem supported)
         {
+            bool channelled = SkillsFor(owner).IsChannelled(supported.Effect);
             if (!Graphs.TryGetValue(skillId, out var skill) || !ReferenceEquals(skill.Supported, supported) || skill.Channelled != channelled)
-                Graphs[skillId] = skill = new(supported, channelled);
-            return skill.Stats(player, costMore);
+                Graphs[skillId] = skill = new(owner, supported, channelled);
+            var final = FinalPlayerStatMap(owner, this);
+            skill.Step(final, AreaStats ??= SkillArea.WithoutPlayerBase(new(final), SkillArea.BaseIncreased), SkillCostMore(owner, supported.Stats));
+            return skill;
         }
-        // A skill's cooldown (CooldownForSkill), by skill.
-        public readonly Dictionary<ushort, SingleUseCooldown?> Cooldowns = [];
-        // A skill's stats over the area stats (AreaSkillStats), by skill.
-        public readonly Dictionary<ushort, Dictionary<uint, int>> AreaMerged = [];
         // The same gems with the stats of a later step (a build that found its skills unchanged).
         public ActiveSkillSet WithValues(IReadOnlyDictionary<uint, int> next)
         {
@@ -63,63 +62,104 @@ public static partial class Game
 
     /// <summary>
     /// A skill's own stat graph (the client's skill in its ActiveSkillManager): its supported gem's stats over the player's
-    /// final stats. Its rule reads each player stat as an input (StatGraph.ReadInput with the stat's id), so a change of the
-    /// player's stats runs it again only when a stat it read changed (<see cref="Changed"/>); its values are only the
-    /// stats it wrote (its own and its costs), the rest are the player's.
+    /// final stats, the same over the area stats (what its area and burning read), its cooldown and its cast time. Each
+    /// rule reads the player's stats as inputs (StatGraph.ReadInput with the stat's id), so a change of the player's stats
+    /// runs a rule again only when a stat it read changed (<see cref="Changed"/>).
     /// </summary>
     sealed class SkillGraph
     {
         readonly StatGraph graph = new();
-        readonly int merge;
+        readonly Player owner;
+        readonly int merge, area, cooldown, timing;
         public readonly SupportedGem Supported;
         public readonly bool Channelled;
         double costMore = double.NaN;
-        IReadOnlyDictionary<uint, int> player = new Dictionary<uint, int>();
-        SkillStatValues? stats;
+        object? mapMods;
+        IReadOnlyDictionary<uint, int> player = new Dictionary<uint, int>(), areaPlayer = new Dictionary<uint, int>();
+        Dictionary<uint, int> areaWritten = [];
+        SkillStatValues? stats, areaStats;
+        public SingleUseCooldown? Cooldown { get; private set; }
+        public SpellCastTiming? Timing { get; private set; }
 
-        public SkillGraph(SupportedGem supported, bool channelled)
+        public SkillGraph(Player owner, SupportedGem supported, bool channelled)
         {
-            (Supported, Channelled) = (supported, channelled);
-            merge = graph.AddRule(view =>
+            (this.owner, Supported, Channelled) = (owner, supported, channelled);
+            int Tracked(IReadOnlyDictionary<uint, int> from, uint key)
+            {
+                StatGraph.ReadInput((int)key);
+                return from.GetValueOrDefault(key);
+            }
+            // The skill's own stats and costs over the player's (Merged): written into the graph's values.
+            Dictionary<uint, int> Merge(IReadOnlyDictionary<uint, int> over, double cost)
             {
                 var written = new Dictionary<uint, int>();
-                int Read(uint key)
-                {
-                    if (written.TryGetValue(key, out int own)) return own;
-                    StatGraph.ReadInput((int)key);
-                    return player.GetValueOrDefault(key);
-                }
-                MergeSkillStatsInto(Read, (key, value) => written[key] = value, Supported.Stats, Channelled, costMore);
-                foreach (var (key, value) in written) view[key] = value;
+                MergeSkillStatsInto(key => written.TryGetValue(key, out int own) ? own : Tracked(over, key),
+                    (key, value) => written[key] = value, Supported.Stats, Channelled, cost);
+                return written;
+            }
+            merge = graph.AddRule(view => { foreach (var (key, value) in Merge(player, costMore)) view[key] = value; });
+            area = graph.AddRule(_ => areaWritten = Merge(areaPlayer, 1));
+            cooldown = graph.AddRule(_ => Cooldown = SkillsFor(owner).EffectId(Supported.Effect) == MadnessEffect ? null
+                : CooldownPlan(owner, Supported, new TrackedStats(player)));
+            timing = graph.AddRule(_ =>
+            {
+                var merged = Merge(player, 1);
+                int Own(uint key) => Supported.Stats.GetValueOrDefault(key);
+                Timing = SpellTiming(owner, Supported.Effect, key => Tracked(player, key), Own,
+                    key => merged.TryGetValue(key, out int value) ? value : Tracked(player, key));
             });
         }
 
-        /// <summary>The player stats that changed (the player graph's step): the skill runs again for those it read.</summary>
+        /// <summary>The player stats that changed (the player graph's step): the rules run again for those they read.</summary>
         public void Changed(IEnumerable<uint> ids) { foreach (uint id in ids) graph.MarkInput((int)id); }
 
-        public IReadOnlyDictionary<uint, int> Stats(IReadOnlyDictionary<uint, int> playerStats, double cost)
+        public void Step(IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> areaPlayerStats, double cost)
         {
-            player = playerStats;
+            (player, areaPlayer) = (playerStats, areaPlayerStats);
             if (cost != costMore) { costMore = cost; graph.MarkRule(merge); }
+            // The map's cooldown mod (WithMapCooldown) is the area's, not a stat.
+            var mods = MapModsOf(owner);
+            if (!ReferenceEquals(mods, mapMods)) { mapMods = mods; graph.MarkRule(cooldown); }
             if (graph.Step() || stats is null || !ReferenceEquals(stats.Player, playerStats)) stats = new(graph.Values, playerStats);
-            return stats;
+            if (areaStats is null || !ReferenceEquals(areaStats.Player, areaPlayerStats) || !ReferenceEquals(areaStats.Own, areaWritten))
+                areaStats = new(areaWritten, areaPlayerStats);
         }
+
+        public IReadOnlyDictionary<uint, int> Stats => stats!;
+        public IReadOnlyDictionary<uint, int> AreaStats => areaStats!;
+    }
+
+    /// <summary>A stat map whose reads are a skill graph rule's inputs (StatGraph.ReadInput); a rule that enumerates it reads
+    /// every stat it has.</summary>
+    sealed class TrackedStats(IReadOnlyDictionary<uint, int> stats) : IReadOnlyDictionary<uint, int>
+    {
+        public int this[uint key] { get { StatGraph.ReadInput((int)key); return stats[key]; } }
+        public bool TryGetValue(uint key, out int value) { StatGraph.ReadInput((int)key); return stats.TryGetValue(key, out value); }
+        public bool ContainsKey(uint key) { StatGraph.ReadInput((int)key); return stats.ContainsKey(key); }
+        public IEnumerable<uint> Keys => this.Select(p => p.Key);
+        public IEnumerable<int> Values => this.Select(p => p.Value);
+        public int Count => stats.Count;
+        public IEnumerator<KeyValuePair<uint, int>> GetEnumerator()
+        {
+            foreach (var pair in stats) { StatGraph.ReadInput((int)pair.Key); yield return pair; }
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     /// <summary>A skill's stats: what its graph wrote, over the player's.</summary>
     sealed class SkillStatValues(IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> player) : IReadOnlyDictionary<uint, int>
     {
-        public readonly IReadOnlyDictionary<uint, int> Player = player;
+        public readonly IReadOnlyDictionary<uint, int> Player = player, Own = own;
         public int this[uint key] => TryGetValue(key, out int value) ? value : throw new KeyNotFoundException();
-        public bool TryGetValue(uint key, out int value) => own.TryGetValue(key, out value) || Player.TryGetValue(key, out value);
-        public bool ContainsKey(uint key) => own.ContainsKey(key) || Player.ContainsKey(key);
+        public bool TryGetValue(uint key, out int value) => Own.TryGetValue(key, out value) || Player.TryGetValue(key, out value);
+        public bool ContainsKey(uint key) => Own.ContainsKey(key) || Player.ContainsKey(key);
         public IEnumerable<uint> Keys => this.Select(p => p.Key);
         public IEnumerable<int> Values => this.Select(p => p.Value);
-        public int Count => Player.Count + own.Keys.Count(k => !Player.ContainsKey(k));
+        public int Count => Player.Count + Own.Keys.Count(k => !Player.ContainsKey(k));
         public IEnumerator<KeyValuePair<uint, int>> GetEnumerator()
         {
-            foreach (var pair in own) yield return pair;
-            foreach (var pair in Player) if (!own.ContainsKey(pair.Key)) yield return pair;
+            foreach (var pair in Own) yield return pair;
+            foreach (var pair in Player) if (!Own.ContainsKey(pair.Key)) yield return pair;
         }
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
@@ -192,17 +232,15 @@ public static partial class Game
     public static IReadOnlyDictionary<uint, int> AreaPlayerStatValues(Player player)
     {
         if (CurrentActiveSkills(player) is not { } set) return AreaPlayerStats(player);
-        return set.AreaStats ??= SkillArea.WithoutPlayerBase(
-            (set.Final ??= [.. FinalPlayerStatsCore(player)]).ToDictionary(kv => kv.Item1, kv => kv.Item2), SkillArea.BaseIncreased);
+        return set.AreaStats ??= SkillArea.WithoutPlayerBase(new(FinalPlayerStatMap(player, set)), SkillArea.BaseIncreased);
     }
 
     /// <summary>A skill's own stats over the area stats (AreaPlayerStatValues), not to be changed: what its area and
     /// burning read; kept with the skills (ActiveSkills).</summary>
     public static IReadOnlyDictionary<uint, int> AreaSkillStats(Player player, ushort skillId, SupportedGem supported)
     {
-        if (CurrentActiveSkills(player) is not { } set) return MergeSkillStats(AreaPlayerStats(player), supported.Stats);
-        if (!set.AreaMerged.TryGetValue(skillId, out var known))
-            set.AreaMerged[skillId] = known = MergeSkillStats(AreaPlayerStatValues(player), supported.Stats);
-        return known;
+        if (BuildScopeOf(player) is { Building: true } || CurrentActiveSkills(player) is not { } set)
+            return MergeSkillStats(AreaPlayerStats(player), supported.Stats);
+        return set.SkillGraphOf(player, skillId, supported).AreaStats;
     }
 }

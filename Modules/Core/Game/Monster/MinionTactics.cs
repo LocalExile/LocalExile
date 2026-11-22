@@ -35,11 +35,14 @@ public static partial class Game
         && player.Summons.SignalledPrey is { } prey && now < prey.Until && prey.Id == id
         && ReferenceEquals(prey.Monster, monster) && player.Area.Monsters.GetValueOrDefault(id) == monster;
 
+    // Puppet Master's Feeding Frenzy buff on the player (BuffDefinitions row).
+    const ushort FeedingFrenzyBuffRow = 1372;
+
     static double MinionTacticsBaseDamage(Player player, GolemState.Golem fighter, double now)
     {
         double more = Math.Max(0, 1 + GolemStat(fighter.Own, Stat.DeathmarkMinionDamagePlusPctFinal) / 100d);
         if (player.PlayerLife > 0 && (now < player.Summons.FeedingFrenzyUntil
-            || GolemStat(fighter.Player, Stat.HasPuppetMaster) != 0 && player.Summons.FeedingFrenzyBuff == 0
+            || GolemStat(fighter.Player, Stat.HasPuppetMaster) != 0 && !player.Area.Buffs.HasRow(player.Id, FeedingFrenzyBuffRow)
             || GolemStat(fighter.Player, Stat.VirtualYouHaveFeedingFrenzy) != 0))
             more *= 1.1 * Math.Max(0, 1 + GolemStat(fighter.Own,
                 Stat.SupportMinionOffensiveStanceMinionDamagePlusPctFinalWhileYouHavePuppetMaster) / 100d);
@@ -62,8 +65,7 @@ public static partial class Game
         if (duration <= 0) return;
         bool starting = now >= player.Summons.FeedingFrenzyUntil;
         player.Summons.FeedingFrenzyUntil = now + duration;
-        player.Summons.FeedingFrenzyBuff = 1;
-        player.Area.Buffs.Set(player.Id, new(1372, player.Id, fighter.Source, U68: Buff.Seconds(duration)));
+        player.Area.Buffs.Set(player.Id, new(FeedingFrenzyBuffRow, player.Id, fighter.Source, U68: Buff.Seconds(duration)));
         if (starting) RefreshMinionTacticsLocked(player);
     }
 
@@ -78,10 +80,10 @@ public static partial class Game
 
     static void MinionTacticsTick(Player player, double now)
     {
-        if (player.Summons.FeedingFrenzyBuff != 0 && (player.PlayerLife == 0 || now >= player.Summons.FeedingFrenzyUntil))
+        if (player.Area.Buffs.HasRow(player.Id, FeedingFrenzyBuffRow) && (player.PlayerLife == 0 || now >= player.Summons.FeedingFrenzyUntil))
         {
-            player.Area.Buffs.Clear(player.Id, 1372, player.Id);
-            player.Summons.FeedingFrenzyBuff = 0; player.Summons.FeedingFrenzyUntil = 0;
+            player.Area.Buffs.Clear(player.Id, FeedingFrenzyBuffRow, player.Id);
+            player.Summons.FeedingFrenzyUntil = 0;
             RefreshMinionTacticsLocked(player);
         }
         if (player.Summons.SignalledPrey is { } prey && (player.PlayerLife == 0 || now >= prey.Until

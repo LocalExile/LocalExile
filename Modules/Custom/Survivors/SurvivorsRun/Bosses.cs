@@ -56,7 +56,7 @@ static partial class SurvivorsRunRules
             : roster.Bosses.FirstOrDefault() ?? roster.Varieties.LastOrDefault();
         if (variety is null) return null;
         uint id = await SpawnMonster(player, variety, roster.Level, MonsterRarity.Unique,
-            cell.X, cell.Y, name: kit.Name, mods: SurvivorsGateBossMods(roster, variety, run, stage, kit), scripted: true);
+            cell.X, cell.Y, name: kit.Name, mods: SurvivorsGateBossMods(roster, variety, run, stage, kit, AreaRng(player)), scripted: true);
         horde.Add(id);
         // A scripted boss skips the AI pass that would show its bar; show it as an aggroed boss at once.
         if (variety.BossHealthBar)
@@ -83,9 +83,9 @@ static partial class SurvivorsRunRules
     /// for the stage's average build and the model's extra size.
     /// </summary>
     internal static MonsterModSet SurvivorsGateBossMods(SurvivorsRoster roster, MonsterCatalog.Variety boss,
-        SurvivorsRun run, int stage, SurvivorsBossKit kit)
+        SurvivorsRun run, int stage, SurvivorsBossKit kit, Random random)
     {
-        var rolled = MonsterModRolls.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
+        var rolled = MonsterModRolls.Roll(boss, roster.Level, MonsterRarity.Unique, random, alone: true);
         int baseLife = Math.Max(1, Monsters.BaseLife(boss, roster.Level) ?? 100);
         int target = SurvivorsRules.BossGateLife(SurvivorsPoolTop(roster, stage), stage,
             stage * SurvivorsRules.StageSeconds);
@@ -125,7 +125,7 @@ static partial class SurvivorsRunRules
                 {
                     if (player.Paused)
                     {
-                        await Task.Delay(SurvivorsStepMs, token);
+                        await AreaDelay(player, SurvivorsStepMs / 1000.0, token);
                         continue;
                     }
                     SpawnedMonster? boss;
@@ -144,7 +144,7 @@ static partial class SurvivorsRunRules
                         await Use(move, boss);
                         _nextMove = AreaTime(player) + Cooldown(move);
                     }
-                    await Task.Delay(SurvivorsStepMs, token);
+                    await AreaDelay(player, SurvivorsStepMs / 1000.0, token);
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)

@@ -27,9 +27,7 @@ public static partial class Game
         if (BuildScopeOf(player) is not { Building: true } && CurrentActiveSkills(player) is { } current
             && SkillsFor(player).EffectId(supported.Effect) != MadnessEffect)
         {
-            if (!current.Cooldowns.TryGetValue(skillId, out var known))
-                current.Cooldowns[skillId] = known = CooldownPlan(player, supported, CharacterPlayerStats(player));
-            return known;
+            return current.SkillGraphOf(player, skillId, supported).Cooldown;
         }
         return CooldownPlan(player, supported, CharacterPlayerStats(player));
     }

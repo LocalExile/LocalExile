@@ -56,7 +56,7 @@ public static partial class Game
         bool TokenCurrent() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
         double delay;
         delay = sealDelay + castMs.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
-        await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
+        await AreaDelay(player, Math.Max(0.05, delay));
         await WhilePaused(player);
         if (player.Closed || !TokenCurrent()) return;
         var own = SupportedSkill(player, skillId).Stats;
@@ -100,7 +100,7 @@ public static partial class Game
             while (true)
             {
                 double wait = at - AreaTime(player);
-                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
+                if (wait > 0) await AreaDelay(player, wait);
                 await WhilePaused(player);
                 if (player.Closed) return;
                 if (AreaTime(player) >= at) break;
@@ -139,7 +139,7 @@ public static partial class Game
                     new EffectObject(marker.At.X, marker.At.Y, impact) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
                 $"0x02bb create effect 0x{effect:x} {impact} at ({marker.At.X}, {marker.At.Y}), scale {scale:0.###} for radius {radius}");
             await Send(player, InstanceProtocol.EnterWakeZone(effect), null);
-            SendAfter(StormCallImpactArtSeconds, async () =>
+            SendAfter(player, StormCallImpactArtSeconds, async () =>
             {
                 if (player.Closed || player.LeavingArea || player.ProjectileEpoch != marker.Epoch) return;
                 await Send(player, InstanceProtocol.RemoveObject(effect), null);

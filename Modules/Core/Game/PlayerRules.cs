@@ -18,7 +18,7 @@ public static class PlayerRules
                 if (player.OwnedCombatState is not RampageWorld current
                     || !ReferenceEquals(current.SourceOwner, source))
                 {
-                    player.RetireOwnedCombat();
+                    if (player.OwnedCombatState is not null) player.RetireOwnedCombat();
                     current = new RampageWorld(source);
                     current.PendingRemoval.UnionWith(player.RetiredCombatObjects);
                     player.RetiredCombatObjects.Clear();

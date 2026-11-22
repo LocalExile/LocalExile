@@ -48,12 +48,11 @@ public static partial class Game
         HitDebuffSeconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0);
 
     // A hit that landed on a living hostile monster, in the area's frame. <paramref name="random"/> belongs to the
-    // hit so projectile draws stay in order; callers without one use AreaRng(conn).
+    // hit so projectile draws stay in order; others pass AreaRng(player).
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
-        Random? random = null)
+        Random random)
     {
         if (!m.Hostile || m.Dead || m.Life == 0) return;
-        random ??= Random.Shared;
         var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
         if (intimidate) { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }

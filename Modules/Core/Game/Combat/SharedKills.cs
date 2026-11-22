@@ -24,8 +24,8 @@ public static partial class Game
         var seen = new HashSet<Player> { host };
         foreach (var peer in host.Instance?.Presence.PlayersExcept(host.Id) ?? [])
         {
-            if (peer.Owner is not { } other || !seen.Add(other) || other.Closed || other.LeavingArea || !other.Connection.PlayerSent
-                || peer.Life == 0 || Dist(at, (peer.X, peer.Y)) > ExperienceRange) continue;
+            if (peer is not { } other || !seen.Add(other) || other.Closed || other.LeavingArea || !other.Connection.PlayerSent
+                || peer.PlayerLife == 0 || Dist(at, peer.Walk.Position(AreaTime(peer))) > ExperienceRange) continue;
             members.Add(other);
         }
         if (members.Count == 0) return [];
@@ -91,7 +91,7 @@ public static partial class Game
         // In the area's frame the kill's records are the area's already (AreaDelta): every client has them.
         if (player.Area.Owned) return;
         foreach (var peer in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
-            if (peer.Owner is { Connection.Outbox: { } outbox } other && !other.Closed && !other.LeavingArea)
+            if (peer is { Connection.Outbox: { } outbox } other && !other.Closed && !other.LeavingArea)
                 // Each send encrypts in place, potentially after waiting for its recipient's gate.
                 _ = outbox((byte[])bytes.Clone(), null);
     }

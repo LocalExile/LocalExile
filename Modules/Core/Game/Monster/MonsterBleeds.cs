@@ -125,6 +125,7 @@ public static partial class Game
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e[Stat.AvoidBleedPct] + e[Stat.BaseAvoidBleedPct],
                 e[Stat.ImmuneToBleeding] != 0 || e[Stat.CannotGainBleeding] != 0 || e[Stat.BaseCannotGainBleeding] != 0,
                 player.IgniteRandom, out double perSecond)) return null;
+        player.Area.ActiveBleedMonsters.Add(id);
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
         {
@@ -138,7 +139,8 @@ public static partial class Game
             player.IncomingAilments.ApplyBleed(now, perSecond, settings.Seconds, reflected: true,
                 victim: name => name is var key ? playerStats.GetValueOrDefault(key) : 0);
         }
-        return [.. PresentRupturesLocked(player, id, target, now), .. ShowDotBuffLocked(player, id, target.Bleeds, row, now)];
+        ShowDotBuffLocked(player, id, target.Bleeds, row, now);
+        return PresentRupturesLocked(player, id, target, now);
     }
 
     /// <summary>A sure bleed of so much physical damage a second for so long, from no skill (a trap's hit that always
@@ -199,5 +201,5 @@ public static partial class Game
     // One tick of the bleeding monsters (the area's monster damage over time), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
     public static Task BleedMonsters(Player player) =>
-        TickStrongestDots(player, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
+        TickStrongestDots(player, player.Area.ActiveBleedMonsters, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
 }

@@ -42,7 +42,7 @@ static class TattoosFeature
                 chosen = JourneyMakanuiCatalogue.FindByGraphId(requested);
                 if (chosen is null) return $"unknown keystone {requested}";
             }
-            else chosen = JourneyMakanuiCatalogue.Pick(node);
+            else chosen = JourneyMakanuiCatalogue.Pick(node, Game.AreaRng(player));
             if (chosen is null) return "no random keystone available";
             nextKeystones[node] = chosen.GraphId;
         }
@@ -51,7 +51,7 @@ static class TattoosFeature
             // "Grants a random <Class> Ascendancy Notable": one of the class's non-multiple-choice notables other than
             // the replaced one and the character's other allocated notables (a duplicate would count its stats twice);
             // the pick is saved so a relog cannot reroll it.
-            grantedNotable = ForbiddenTattoo.Pick(entry.Name, node, player.Character.MainAscendancy.Allocated);
+            grantedNotable = ForbiddenTattoo.Pick(entry.Name, node, player.Character.MainAscendancy.Allocated, Game.AreaRng(player));
             if (grantedNotable is not ushort notable) return "no random ascendancy notable available";
             nextKeystones[node] = notable;
         }

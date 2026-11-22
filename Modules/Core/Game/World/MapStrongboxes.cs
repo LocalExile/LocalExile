@@ -34,7 +34,7 @@ public static class MapStrongboxes
         if (request.Campaign || request.Opening is not { } opening
             || !StrongboxCatalog.All.Any(t => StrongboxCatalog.Weight(t, opening.Area.Level, LeagueFor(request.Player).HardMode, opening.Mods) > 0)) return;
         request.HandledContent.UnionWith([Content, Reopen, Discernment, Containment]);
-        MapScarabPacks.RollFragmentCount(request, CountStat, Random.Shared);
+        MapScarabPacks.RollFragmentCount(request, CountStat, Game.AreaRng(request.Player));
         if (opening.Mods.Get(CountStat) > 0)
             request.ContentWarnings.Add(("Ambush.Affixes",
                 $"area={opening.Area.Id} content=Ambush: guard/reward lifecycle enabled; box rarity/affix rolling, affix actions and currency targeting remain unsupported; ordinary container reward budget is replica balance"));
@@ -70,7 +70,7 @@ public static class MapStrongboxes
     static void Keep(Player player, Area area) => player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
 
     static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
-        .Select(p => p.Owner).OfType<Player>().Prepend(player)
+        .Prepend(player)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == player.Instance).Distinct();
 
     public static async Task Enter(Player player)
@@ -139,7 +139,7 @@ public static class MapStrongboxes
             await SendWorldRecord(player, player.Id,
                 InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, box.X, box.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: box.Id), null,
                 still: () => PlayerActionCurrent(player, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         await area.Gate.WaitAsync();
         try
         {

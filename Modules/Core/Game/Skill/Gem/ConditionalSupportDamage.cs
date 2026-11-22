@@ -46,10 +46,12 @@ public static partial class Game
             && player.PlayerLife > 0 && player.PlayerMaxLife > 0
             && (player.PlayerLife >= player.PlayerMaxLife
                 || CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player)));
+        int recentIgnites = Get(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinal) != 0
+            ? RecentlyIgnitedCount(player, now) : 0;
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), fullLife,
             Lifetap.ActiveAt(player, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
-            ChargesOf(player).Effective(ChargeType.Power), ArcaneSurgeActive(player, now), RecentlyIgnitedCount(player, now));
+            ChargesOf(player).Effective(ChargeType.Power), ArcaneSurgeActive(player, now), recentIgnites);
         var packet = more == 1 ? rolled : rolled.Scale(more);
         // Immolate: added Fire Damage against Burning Enemies (the stat description's own wording).
         if (target.Ignites.Burning)

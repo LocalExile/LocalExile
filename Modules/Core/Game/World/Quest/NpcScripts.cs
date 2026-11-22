@@ -108,7 +108,7 @@ public static partial class Game
                 return true;
             }
             // The fade (Script2 FadeToBlack) is the client's; the move follows after the script's delay.
-            if (delay > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(delay, 5)));
+            if (delay > 0) await AreaDelay(player, Math.Min(delay, 5));
             await ChangeArea(player, new PendingTransfer(hash, 0, false, AtSpawn: true),
                 $"{npc.Npc.Name}: {talk.Option} (AreaTransitionTo {area}, {index})");
         }

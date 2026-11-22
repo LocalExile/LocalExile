@@ -57,6 +57,11 @@ static class QuestObjectsFeature
                 await SpawnTutorialZombie(player);
             else
             {
+                // Pre-register ZombieBite@1 so the handoff when the bite starts needs no extra round-trip.
+                if (Monsters.Find(TutorialObjects.Zombie) is { Supported: true } zombie && !player.MonsterTypes.Contains((zombie.Row, 1)))
+                    await Send(player, [], $"0x0020 monster type {zombie.Id}@1 (row {zombie.Row})", atGate: () =>
+                        !player.Closed && !player.LeavingArea && player.MonsterTypes.Add((zombie.Row, 1))
+                            ? InstanceEntities.MonsterTypes([((ushort)zombie.Row, 1)]) : null);
                 player.TutorialSceneId = player.TakeObjectId();
                 await global::Game.SendWorldCreate(player, player.TutorialSceneId, InstanceEntities.CreateObject(player.TutorialSceneId, InstanceEntities.ObjectTypeHash(TutorialObjects.Spawner),
                     TutorialObjects.SceneBlob(spawn.X,spawn.Y,spawn.Angle)), "0x02bb opening bite zombie scene");
@@ -80,7 +85,7 @@ static class QuestObjectsFeature
         {
             for (int retry = 0; retry < 20 && !player.Closed; retry++)
             {
-                await Task.Delay(1000);
+                await AreaDelay(player, 1);
                 if (LoadGlyphLayout(player) is { } later) { await CreateGlyphObjects(player, later); return; }
             }
             if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} a1q4: no captured Rhoa Nests or Glyph Wall for {player.Layout.Id} seed {player.Seed}; capture with -Walkmaps");
@@ -95,7 +100,7 @@ static class QuestObjectsFeature
         var (action, now, here, stop, arrive) = objectWalk;
         if (!use.Started)   // a lockstep client got its start from the frame pass
             await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id,here.X,here.Y,chest.X,chest.Y,use.SkillId,use.Sequence,use.Flags,targetObjectId:use.TargetId),null,still:()=>PlayerActionCurrent(player,action));
-        if(arrive>now) await Task.Delay(TimeSpan.FromSeconds(arrive-now));
+        if(arrive>now) await AreaDelay(player, arrive-now);
         if(!PlayerActionCurrent(player,action) || player.Closed) return;
         if(GameServer.Core.World.PlayerWalk.InWalkUpRange(stop,(chest.X,chest.Y),TutorialObjects.ChestInteractionSize))
             await OpenTutorialChestCore(player,use.TargetId,chest);
@@ -127,7 +132,7 @@ static class QuestObjectsFeature
         if (!use.Started)   // a lockstep client got its start from the frame pass
             await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player opens Rhoa Nest 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (player.ActionCount != action || player.Closed) return;
         if (GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (at.X, at.Y), GlyphQuest.NestSize))
             await OpenRhoaNestCore(player, use.TargetId, nest);
@@ -165,7 +170,7 @@ static class QuestObjectsFeature
         if (!use.Started)   // a lockstep client got its start from the frame pass
             await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, wall.X, wall.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player uses the Glyph Wall from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (player.ActionCount != action || player.Closed) return;
         if (GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (wall.X, wall.Y), GlyphQuest.WallSize))
         {

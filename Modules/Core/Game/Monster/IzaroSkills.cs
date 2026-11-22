@@ -176,7 +176,7 @@ static class IzaroSkills
         {
             while (here())
             {
-                await Task.Delay(50);
+                await AreaDelay(player, 0.05);
                 if (!here()) return;
                 (Move Move, MonsterAttack Use)? chosen = null;
                 int action = 0;
@@ -296,7 +296,7 @@ static class IzaroSkills
         if (move.Buff is not { } name || BuffRows.GetValueOrDefault(name) is not (> 0 and var row)) return;
         var layout = player.Layout;
         player.Area.Buffs.Set(id, new((ushort)row, id));
-        await Task.Delay(TimeSpan.FromSeconds(move.BuffSeconds));
+        await AreaDelay(player, move.BuffSeconds);
         if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
         player.Area.Buffs.Clear(id, (ushort)row, id);
     }
@@ -324,7 +324,7 @@ static class IzaroSkills
         var layout = player.Layout;
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(move.DelaySeconds));
+            await AreaDelay(player, move.DelaySeconds);
             if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
             MonsterHitOutcome? outcome = null;
             await Send(player, [], $"0x01af 0x{id:x} {move.Name} lands", atGate: () =>
@@ -393,7 +393,7 @@ static class IzaroSkills
 
     static async Task RemoveArt(Player player, AreaLayout layout, uint effect, double seconds)
     {
-        await Task.Delay(TimeSpan.FromSeconds(seconds));
+        await AreaDelay(player, seconds);
         if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
         try { await Send(player, InstanceProtocol.RemoveObject(effect), null); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }

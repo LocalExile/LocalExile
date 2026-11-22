@@ -177,7 +177,7 @@ public static partial class Game
         else if (intent.Target != 0)
         {
             var ally = intent.Target == player.Id ? null : player.Instance.Player(intent.Target);
-            var at = intent.Target == player.Id ? here : ally is { Owner: not null, Life: > 0 } ? (ally.X, ally.Y) : ((int, int)?)null;
+            var at = intent.Target == player.Id ? here : ally is { PlayerLife: > 0 } ? ally.Walk.Position(now) : ((int, int)?)null;
             if (at is null || Dist(at.Value, leader.Walk.Position(now)) > ControlledFollowerLeash || Dist(at.Value, here) > 65)
             {
                 FinishControlledIntent(player, intent, "rejected", "Cast target is not a living nearby party actor.", now);

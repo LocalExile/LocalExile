@@ -27,6 +27,7 @@ public partial class Program
             HardcoreDeathPersistence.RetryPending(Saves.Db);
             CharacterSaves.SaveExperience();
             PlayerInventories.SaveAllUnsaved();
+            Saves.FlushAll();
             if (why is not null) Console.WriteLine($"[gateway] unsaved progress saved ({why})");
         }
         catch (Exception e)
@@ -55,6 +56,7 @@ public partial class Program
         AreaFrames? attached = null;
         InstanceState? entered = null;
         bool prepared = false;
+        (string Character, string? Account, string? League)? pinnedSession = null;
         long connectedAt = Stopwatch.GetTimestamp();
         string? reason = null;   // why the connection ended, for the DISCONNECT line
         bool vanished = false;   // the client closed it outside an area change or exit
@@ -155,6 +157,9 @@ public partial class Program
                 WindowsTimerResolution.Acquire();
                 player.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 player.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
+                string pinnedName = CharacterName(player);
+                Saves.PinSession(pinnedName, player.Character.Account, player.Character.League);
+                pinnedSession = (pinnedName, player.Character.Account, player.Character.League);
                 int level = Logic.PrepareCharacter(player, resolved.Level);
                 prepared = true;
                 var moduleHeader = GameEvents.RunAreaHeader(player);
@@ -199,7 +204,8 @@ public partial class Program
                         {
                             // An area change closes it too; otherwise the client went away by itself: a crash (or a closed
                             // game), whose cause is usually in the last packets (PacketHistory).
-                            vanished = player.Connection.CloseReason is null && !player.LeavingArea && player.PendingTransfer is null;
+                            vanished = player.Connection.CloseReason is null && !player.LeavingArea && player.PendingTransfer is null
+                                && !player.PendingCharacterSelectExit;
                             reason = player.Connection.CloseReason ?? (vanished
                                 ? "the client closed the connection (no area change or exit: a client crash or a closed game?)"
                                 : "the client closed the connection (area change)");
@@ -238,6 +244,11 @@ public partial class Program
                         try
                         {
                             Logic.Save(player, prepared);
+                            if (pinnedSession is { } buildPin)
+                            {
+                                pinnedSession = null;
+                                Saves.UnpinAndFlushSession(buildPin.Character, buildPin.Account, buildPin.League);
+                            }
                             Logic.Left(player);
                             player.BuildFinalized = true;
                             CharacterBuildImports.Apply(build);
@@ -292,6 +303,15 @@ public partial class Program
                     {
                         Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
                     }
+                    if (pinnedSession is { } pin)
+                    {
+                        pinnedSession = null;
+                        try { Saves.UnpinAndFlushSession(pin.Character, pin.Account, pin.League); }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine($"[gateway] {remote} session save flush failed at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                        }
+                    }
                     // What follows must run whatever the rules do, or the player stays in the instance.
                     try { if (!left.BuildFinalized) Logic.Left(left); }
                     catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
@@ -305,6 +325,12 @@ public partial class Program
             }
             finally
             {
+                if (pinnedSession is { } pin)
+                {
+                    pinnedSession = null;
+                    try { Saves.UnpinAndFlushSession(pin.Character, pin.Account, pin.League); }
+                    catch (Exception e) { Console.WriteLine($"[gateway] {remote} session save flush failed: {ServerLog.Describe(e)}"); }
+                }
                 attached?.Detach(left);
                 // The connection has ended and its save is written: whoever ended it for another connection goes on. Set
                 // whatever threw above, or that login (and every later one of the character) would wait for ever.
@@ -337,6 +363,17 @@ public partial class Program
             // ServerTrace.Client: every C→S message in full, the 0x1b ticks too, to compare what clients send.
             if (ServerTrace.Client || ServerTrace.Packets && PacketHistory.Kept(sent: false, id))
                 Console.WriteLine($"[packets] {remote} <= 0x{id:x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
+            // Exit to Log In Screen (C→S 0x001a): the client sends 0x02cd + 0x001a and immediately calls shutdown(SD_SEND),
+            // so EOF often arrives before AreaFrames dequeues ClientInbox and DiscardPending() would silently drop 0x001a.
+            // Notify Auth to close the login socket immediately so LoginState::Enter lands on the Login Screen (not Character Select).
+            if (id == InstanceProtocol.ExitToLoginId && Interlocked.Exchange(ref player.ExitToLoginHandled, 1) == 0)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x001a exit to log in screen: closing login and instance connections");
+                player.Connection.CloseReason = "exit to log in screen (0x001a)";
+                if (player.Ticket != 0)
+                    await InstanceControl.CallAsync(new ControlRequest { Op = "logout", Ticket = player.Ticket });
+                player.Closed = true;
+            }
         }
         if (mixed is { } both) await ReportMixedModes(remote, stream, ciphers, both.Predictive, both.Lockstep);
         if (unknown.Length > 0) player.Connection.Session.Packets.Received(0xffff, unknown);   // bytes no known message frames ("unframed")

@@ -150,7 +150,7 @@ static partial class QuestobjectsRules
         if (room is null) return;
         try
         {
-            await Task.Delay(1000);
+            await AreaDelay(player, 1);
             while (Here())
             {
                 (int X, int Y) at;
@@ -161,7 +161,7 @@ static partial class QuestobjectsRules
                         await IzaroSays(player, 0, $"Izaro{Math.Clamp(trial.Number, 1, 3)}_Prefight");
                     return;
                 }
-                await Task.Delay(200);
+                await AreaDelay(player, 0.2);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
@@ -206,7 +206,7 @@ static partial class QuestobjectsRules
     static async Task IzaroSaysLater(Player player, string? line, Func<bool> here)
     {
         if (line is null) return;
-        await Task.Delay(TimeSpan.FromSeconds(IzaroFights.LineSeconds));
+        await AreaDelay(player, IzaroFights.LineSeconds);
         if (!here()) return;
         try { await IzaroSays(player, 0, line); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
@@ -231,7 +231,7 @@ static partial class QuestobjectsRules
                 (int X, int Y) at;
                 at = player.Walk.Position(AreaTime(player));
                 if (InArena(at)) break;
-                await Task.Delay(200);
+                await AreaDelay(player, 0.2);
             }
             if (!Here()) return;
             if (Monsters.Find(trial.Variety) is not { Supported: true } variety)
@@ -250,7 +250,7 @@ static partial class QuestobjectsRules
                 // The others in the instance see him too: each gets its own bytes (a send encrypts them in place).
                 foreach (var peer in player.Instance.Presence.PlayersExcept(player.Id))
                 {
-                    if (peer.Owner is not { Controlled: false, Closed: false, LeavingArea: false } other) continue;
+                    if (peer is not { Controlled: false, Closed: false, LeavingArea: false } other) continue;
                     await Send(other, InstanceProtocol.RemoveObject(stale), $"0x02bd Izaro 0x{stale:x} is gone");
                 }
             }
@@ -286,7 +286,7 @@ static partial class QuestobjectsRules
                     .. InstanceEntities.BlockageUpdate(id, true)], $"0x02bc Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}) shuts");
                 CloseIzaroDoor(player, id, door);
             }
-            await Task.Delay(TimeSpan.FromSeconds(IzaroFights.RiseSeconds));
+            await AreaDelay(player, IzaroFights.RiseSeconds);
             if (!Here()) return;
             await Send(player, [.. LiftState(player, lift, elevator, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Fighting)], $"0x02bc Izaro 0x{izaro:x} fights");
@@ -332,7 +332,7 @@ static partial class QuestobjectsRules
                     await IzaroLeaves(player, trial, elevator, lift, doors, izaro, boss, action, free, transitionable, Here);
                     return;
                 }
-                await Task.Delay(200);
+                await AreaDelay(player, 0.2);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -350,7 +350,7 @@ static partial class QuestobjectsRules
         double said = AreaTime(player);
         // An order during his swing is lost on the client (live: he stood where he was): wait for its end.
         double swing = Math.Min(free, said + IzaroFights.SwingWaitSeconds) - said;
-        if (swing > 0) await Task.Delay(TimeSpan.FromSeconds(swing + 0.1));
+        if (swing > 0) await AreaDelay(player, swing + 0.1);
         if (!here()) return;
         double arrives = AreaTime(player);
         await Send(player, InstanceProtocol.ActionEnded(izaro), null);
@@ -364,14 +364,14 @@ static partial class QuestobjectsRules
         }, $"0x01ab Izaro 0x{izaro:x} walks to the elevator's middle ({elevator.X}, {elevator.Y})");
         // On the elevator, he stands a moment (and the line plays out) before it lowers.
         double wait = Math.Max(arrives + IzaroFights.StandSeconds, said + IzaroFights.LineSeconds) - AreaTime(player);
-        if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(wait, 15)));
+        if (wait > 0) await AreaDelay(player, Math.Min(wait, 15));
         if (!here()) return;
         await Send(player, [.. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Defeated),
             .. InstanceProtocol.AnimationUpdate(izaro, 0, IzaroFights.LowerClip(trial.Weapon), 1),
             .. LiftState(player, lift, elevator, IzaroFights.Lowering)],
             $"0x02bc Izaro 0x{izaro:x} goes down, the elevator lowers");
         await WinIzaroTrial(player, trial, doors);
-        await Task.Delay(TimeSpan.FromSeconds(IzaroFights.LowerSeconds));
+        await AreaDelay(player, IzaroFights.LowerSeconds);
         boss.Dead = true;
         if (ReferenceEquals(player.Area.Monsters.GetValueOrDefault(izaro), boss)) player.Area.Monsters.Remove(izaro);
         byte[] goddess = IzaroArenas.TryGetValue(player, out var arena) ? IzaroGoddessGone(player, arena) : [];

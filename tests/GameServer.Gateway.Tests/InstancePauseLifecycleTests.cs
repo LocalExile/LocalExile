@@ -46,7 +46,7 @@ public sealed class InstancePauseLifecycleTests
             // The clock pauses only for a player alone in the instance: another player coming in ends that pause, and the
             // pausing player's world is resumed too.
             var pauser = runtime.PlayerOf(instance, wire, "Pauser");
-            instance.PublishPlayer(new InstancePlayer(pauser.Id, 1, null!, 100, 100, 1000, pauser));
+            instance.AddPlayer(pauser);
             var sent = new List<byte[]>();
             pauser.Connection.Outbox = (bytes, _) => { lock (sent) sent.Add(bytes); return Task.CompletedTask; };
             await Game.SetPaused(pauser, true);

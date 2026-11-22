@@ -378,7 +378,7 @@ public static partial class Game
     }
 
     // The zones of the totems' auras (one per totem, at it) reaching the player; the strongest covering him applies.
-    const string TotemAuraZones = "totem aura";
+    const ZoneKind TotemAuraZones = ZoneKind.TotemAuras;
 
     static TotemState.Totem? TotemAuraCovering(Player player, double now) => player.Totems.Living(now)
         .Where(t => t.Aura is not null && InZone(player, player.Id, TotemAuraZones, t.Id, player.Id))
@@ -418,7 +418,7 @@ public static partial class Game
             bytes.Remove(t.Id);
         }
         SyncZones(player, player.Id, TotemAuraZones, totems.Living(now).Where(t => t.Aura is not null)
-                .Select(t => ((object)t.Id, t.Aura!.Radius, t.At)),
+                .Select(t => (t.Id, t.Aura!.Radius, t.At)),
             new(ReachesOnly(player.Id), Changed: _ => MarkPlayerStats(player, PlayerStatStep.TotemAura)));
         uint source = player.PlayerLife > 0 ? TotemAuraCovering(player, now)?.Id ?? 0 : 0;
         if (source != totems.SentAuraTotem)

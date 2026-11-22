@@ -23,7 +23,7 @@ static class FriendsFeature
     {
         Register(c);
         foreach (var peer in c.Instance.Presence.PlayersExcept(0))
-            if (peer.Owner is { } owner) Register(owner);
+            if (peer is { } owner) Register(owner);
     }
 
     static Player? Changing(string name) =>

@@ -73,25 +73,31 @@ public static partial class Game
     }
     static int BlindEffectLess(IReadOnlyDictionary<uint, int> stats) =>
         (int)Math.Clamp(20L * Math.Max(0L, 100L + (Stat.BlindEffectPlusPct is var key ? stats.GetValueOrDefault(key) : 0)), 0, 10000) / 100;
-    static (int Less, double Until) MonsterBlindValue(Player player, uint id, SpawnedMonster target, double at, int smokeLess)
+    static (int Less, double Until) MonsterBlindValue(Player player, uint id, SpawnedMonster target, double at, int smokeLess,
+        bool? auraBlinded = null)
     {
         var owner = ResourceEffectsOf(player);
         if (!ResourceEffectsCurrent(player, owner)) return (0, 0);
-        var state = owner.TargetBlind(id, target);
         bool immune = target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0;
-        var value = state.Read(at, immune);
-        if (immune) return (0, 0);
+        if (immune)
+        {
+            if (owner.Targets.TryGetValue(id, out var existing) && ReferenceEquals(existing.Target, target))
+                existing.Blind.Read(at, true);
+            return (0, 0);
+        }
+        var value = owner.Targets.TryGetValue(id, out var entry) && ReferenceEquals(entry.Target, target)
+            ? entry.Blind.Read(at, false) : (0, 0);
         if (target.RampageBlindUntil > at && value.Less < 20) value = (20, target.RampageBlindUntil);
-        return (player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id))
-            && smokeLess > value.Less ? (smokeLess, 0) : value;
+        bool external = auraBlinded ?? (player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id));
+        return external && smokeLess > value.Less ? (smokeLess, 0) : value;
     }
     public static int MonsterBlindRating(Player player, uint id, SpawnedMonster target, int rating, double at,
         IReadOnlyDictionary<uint, int>? playerStats = null)
     {
         // The synchronous caller reuses its captured sources. Never build a full player panel for each target.
-        int smoke = !player.FlaskGrounds.Blinded(id) && !player.BlindAura.Blinded(id) && !PhysicalAegisBlinds(player, id) ? 0
-            : BlindEffectLess(playerStats ?? StatSourceValues(player));
-        return TimedBlind.Apply(rating, MonsterBlindValue(player, id, target, at, smoke).Less);
+        bool auraBlinded = player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id);
+        int smoke = !auraBlinded ? 0 : BlindEffectLess(playerStats ?? StatSourceValues(player));
+        return TimedBlind.Apply(rating, MonsterBlindValue(player, id, target, at, smoke, auraBlinded).Less);
     }
     public static (int Chance, int Effect, double Seconds) BlindInputs(IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
@@ -139,18 +145,21 @@ public static partial class Game
         }
         double now = ResourceEffectsTime(player);
         state.CollectRetiredTargets(player);
+        bool hasFlaskBlind = player.FlaskGrounds.HasBlindedMonsters;
+        bool hasAuraBlind = player.BlindAura.Any;
+        bool hasAegisBlind = player.PhysicalAegis.Blind.Any;
+        bool hasRampageBlind = player.StandingRampageWorld is { Blinds.Count: > 0 };
         // Each Blind's end shows again (a nearby presentation, PresentIn).
         double next = state.PlayerBlind.NextEnd ?? double.PositiveInfinity;
         foreach (var (_, target) in state.Targets) next = Math.Min(next, target.Blind.NextEnd ?? double.PositiveInfinity);
-        foreach (var m in player.Area.Monsters.Values) if (m.RampageBlindUntil > now) next = Math.Min(next, m.RampageBlindUntil);
+        if (hasRampageBlind)
+            foreach (var (until, _) in player.StandingRampageWorld!.Blinds.Values)
+                if (until > now) next = Math.Min(next, until);
         if (next > now && double.IsFinite(next)) PresentIn(player, next - now + 1e-6);
         bool work = state.PlayerBlind.Read(now).Less > 0 || state.PlayerBlind.Sent.Less > 0 || state.Targets.Count > 0
-            || player.RetiredResourceBuffs.Count > 0 || player.FlaskGrounds.BlindedMonsters().Any()
-            || player.Area.Monsters.Keys.Any(player.BlindAura.Blinded)
-            || player.Area.Monsters.Keys.Any(player.PhysicalAegis.Blind.Blinded)
-            || player.Area.Monsters.Values.Any(m => m.RampageBlindUntil > now);
+            || player.RetiredResourceBuffs.Count > 0 || hasFlaskBlind || hasAuraBlind || hasAegisBlind || hasRampageBlind;
         if (!work) return null;
-        var playerStats = snapshot ?? CharacterPlayerStats(player); // One fresh snapshot for the whole publication pass, at the gate.
+        var playerStats = snapshot ?? PlayerStatValues(player); // One fresh snapshot for the whole publication pass, at the gate.
         int smoke = BlindEffectLess(playerStats);
         var bytes = new List<byte>();
         foreach (var (actor, buff) in player.RetiredResourceBuffs)
@@ -179,13 +188,26 @@ public static partial class Game
             blind.Sent = value;
         }
         Present(player.Id, state.PlayerBlind, PlayerBlindValue(player, playerStats), player.PlayerLife == 0 || BlindImmune(player, playerStats), true);
-        foreach (var (id, target) in player.Area.Monsters)
+        if (!hasFlaskBlind && !hasAuraBlind && !hasAegisBlind && !hasRampageBlind)
         {
-            if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !player.FlaskGrounds.Blinded(id)
-                && !player.BlindAura.Blinded(id) && !player.PhysicalAegis.Blind.Blinded(id)) continue;
-            var value = MonsterBlindValue(player, id, target, now, smoke);
-            Present(id, state.TargetBlind(id, target), value,
-                target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0, false);
+            foreach (var (id, entry) in state.Targets)
+            {
+                if (!player.Area.Monsters.TryGetValue(id, out var target) || !ReferenceEquals(entry.Target, target)) continue;
+                var value = MonsterBlindValue(player, id, target, now, smoke, auraBlinded: false);
+                Present(id, entry.Blind, value,
+                    target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0, false);
+            }
+        }
+        else
+        {
+            foreach (var (id, target) in player.Area.Monsters)
+            {
+                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !player.FlaskGrounds.Blinded(id)
+                    && !player.BlindAura.Blinded(id) && !player.PhysicalAegis.Blind.Blinded(id)) continue;
+                var value = MonsterBlindValue(player, id, target, now, smoke);
+                Present(id, state.TargetBlind(id, target), value,
+                    target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0, false);
+            }
         }
         return bytes.Count == 0 ? null : [.. bytes];
     }
