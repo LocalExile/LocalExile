@@ -30,7 +30,7 @@ public static partial class Game
         bool ignited = false, bool bleeding = false, bool lowLife = false)
     {
         int RawStat(string name) => Stats.Key(name) is uint key ? source.Stats.GetValueOrDefault(key) : 0;
-        int Get(string name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding, lowLife);
+        int Get(string name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding, lowLife, attack: source.Attack && !source.Secondary);
         long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
         var hitGet = WeaponAttributeDamage.Read(source.Attack && !source.Secondary

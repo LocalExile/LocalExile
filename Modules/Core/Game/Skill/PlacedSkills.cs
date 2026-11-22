@@ -156,6 +156,7 @@ public static partial class Game
     static PlacedSkills.DamageSnapshot? CapturePlacedDamage(ClientState conn, ushort skill, SupportedGem gem)
     {
         if (SupportedHitInputsFor(conn, skill, capturedGem: gem) is not { } inputs) return null;
+        inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
         bool spell = !inputs.Attack;
         long additionalIncreased = inputs.Get(PlayerHitDamage.VsBlindedDamageStat);
         PlacedSkills.DamageProfile Profile(long increased) => new(
@@ -241,7 +242,16 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, action)
-                    || (!replaced && !current()) || !conn.Layout.WalkableFor(aim.X, aim.Y, 0)) return null;
+                    || (!replaced && !current())) return null;
+                (int X, int Y) clamped = (Math.Clamp(aim.X, 0, Math.Max(0, conn.Layout.GridW - 1)),
+                    Math.Clamp(aim.Y, 0, Math.Max(0, conn.Layout.GridH - 1)));
+                if (!conn.Layout.WalkableFor(clamped.X, clamped.Y, 0))
+                {
+                    clamped = CollisionEscape.Find(clamped, conn.Layout.GridW, conn.Layout.GridH,
+                        (x, y) => conn.Layout.WalkableFor(x, y, 0), [], moverSize: 0) ?? from;
+                    if (!conn.Layout.WalkableFor(clamped.X, clamped.Y, 0)) return null;
+                }
+                aim = clamped;
                 using var scope = new PlayerStatScope(conn, fresh: true);
                 var gem = SupportedSkill(conn, admission.Skill);
                 if (!PlacedCastAdmissionCurrentLocked(conn, admission, gem, action)) return null;
@@ -256,12 +266,33 @@ public static partial class Game
                 var offense = CapturePlacedDamage(conn, admission.Skill, gem);
                 var damage = offense?.Normal.Hit ?? SupportedHitFor(conn, admission.Skill, suppress: false);
                 var payload = new Dictionary<uint, int>(gem.Stats);
-                foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
-                    if (Stats.Key(flag) is uint key) payload[key] = 0;
-                if (Stats.Key("active_skill_area_of_effect_radius") is uint radius)
-                    payload[radius] = (int)SkillRadius(conn, gem.Stats, true, gem.Effect);
-                if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseRadius)
-                    payload[baseRadius] = SkillArea.BaseRadius(SkillsFor(conn).EffectId(gem.Effect), Get);
+                void PutPayload(string name, int value) { if (Stats.Key(name) is uint key) payload[key] = value; }
+                foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped",
+                    "base_skill_is_mined", "skill_is_trapped", "skill_is_mined" })
+                    PutPayload(flag, 0);
+                PutPayload("uses_no_mana", 1);
+                PutPayload("mana_cost", 0);
+                PutPayload("skill_is_non_pathing", 1);
+                int castMs = SkillsFor(conn).CastTimeMs(gem.Effect);
+                if (castMs > 0)
+                {
+                    PutPayload("base_spell_cast_time_ms", castMs);
+                    PutPayload("virtual_base_spell_cast_time_ms", castMs);
+                }
+                if (!SkillsFor(conn).IsAttack(gem.Effect))
+                    PutPayload("cast_speed_+%", FinalCastSpeedPct(conn, MergeSkillStats(player, gem.Stats),
+                        CastSpeedPct(player) + GolemStat(gem.Stats, "base_cast_speed_+%")));
+                if (GolemStat(gem.Stats, "base_skill_effect_duration") is int baseDuration and > 0)
+                    PutPayload("skill_effect_duration", (int)Math.Round(1000 * SkillDurationModifiers.Seconds(baseDuration,
+                        n => GolemStat(player, n), n => GolemStat(gem.Stats, n), DurationKinds(conn, gem.Effect))));
+                bool spellArea = !SkillsFor(conn).IsAttack(gem.Effect);
+                var areaStats = SkillAreaStats(conn, gem.Stats, gem.Effect, player);
+                int AreaGet(string n) => Stats.Key(n) is uint key ? areaStats.GetValueOrDefault(key) : 0;
+                int baseRadius = SkillArea.BaseRadius(SkillsFor(conn).EffectId(gem.Effect), Get);
+                PutPayload("active_skill_base_area_of_effect_radius", baseRadius);
+                PutPayload("active_skill_area_of_effect_radius", SkillArea.Radius(baseRadius, AreaGet, spellArea));
+                PutPayload("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(AreaGet, spellArea));
+                PutPayload("skill_area_of_effect_+%", SkillArea.Increased(AreaGet, spellArea));
                 var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
                 if (proxy is null) return null;
                 proxy = proxy with { Parent = (PlayerId, admission.Skill) };
@@ -450,27 +481,35 @@ public static partial class Game
         bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
         double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(conn), placed.Effect, 1).Kind != SkillHitKind.Secondary;
-        var target = conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
-            && Dist(p.Value.Walk.Position(now), placed.At) <= 60);
-        if (bear) target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
-            .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
-        var aim = target.Value?.Walk.Position(now) ?? placed.At;
+        var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
+        bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
+        bool projectile = !bear && currentSkill
+            && UsesProjectileRuntime(placed.Effect) && ResolveProjectileDefinition(placed.Effect) is not null;
+        KeyValuePair<uint, SpawnedMonster> target = default;
+        (int X, int Y) aim = placed.At;
+        if (projectile)
+        {
+            aim = PlacedProjectileAim(placed.At, conn.Walk.Position(now), conn.Monsters.Values
+                .Where(m => m is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Walk.Position(now)));
+        }
+        else if (bear)
+        {
+            target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+                    && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
+                .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
+            aim = target.Value?.Walk.Position(now) ?? placed.At;
+        }
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
         // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
         // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
         // does a triggered spell's: no local input action predicts it.
-        var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
-        bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
-        if (!bear && currentSkill && UsesProjectileRuntime(placed.Effect)
-            && ResolveProjectileDefinition(placed.Effect) is not null)
+        if (projectile)
         {
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             var lifetime = CombatLifetime;
             var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
             var at = placed.At;
-            var shot = PlacedProjectileAim(at, conn.Walk.Position(now), conn.Monsters.Values
-                .Where(m => m is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Walk.Position(now)));
+            var shot = aim;
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
                 var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
@@ -480,24 +519,6 @@ public static partial class Game
             return;
         }
         using var statScope = new PlayerStatScope(conn, fresh: true);
-        if (SkillsFor(conn).EffectId(placed.Effect) == "FireTrap")
-        {
-            var playerSources = CharacterPlayerStats(conn);
-            int Get(string n) => GolemStat(placed.Own, n) + GolemStat(playerSources, n);
-            double increased = new[] { "damage_+%", "fire_damage_+%", "elemental_damage_+%", "damage_over_time_+%",
-                "fire_damage_over_time_+%", "burn_damage_+%", "area_damage_+%" }.Sum(Get);
-            if (Get("spell_damage_modifiers_apply_to_skill_dot") != 0) increased += Get("spell_damage_+%");
-            double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
-                "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
-                .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(n) / 100d));
-            double dps = Get("base_fire_damage_to_deal_per_minute") / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get("dot_multiplier_+") + Get("fire_dot_multiplier_+")) / 100d) * groundMore;
-            var damage = new SkillDamageContext(SkillHitKind.Spell, playerSources)
-                .OverTime(new(DamageType.Fire, dps, 1));
-            double seconds = SkillDurationModifiers.Seconds(Get("base_skill_effect_duration"),
-                n => GolemStat(playerSources, n), n => GolemStat(placed.Own, n));
-            conn.Placed.Grounds.Add(new(placed.Id, placed.Skill, placed.At, radius, damage.DamagePerSecond, now + seconds, now));
-        }
         double more = ReservationAura(conn, "SummonSkitterbots") is { } skitter
             ? Math.Max(0, 1 + ReservationStat(conn, skitter, "skitterbots_trap_mine_damage_+%_final") / 100d) : 1;
         var owner = CharacterPlayerStats(conn);
@@ -521,7 +542,8 @@ public static partial class Game
             if (placed.Offense?.Spider is { } spider)
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(conn, id),
                     m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
-            var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
+            var rolled = WithConditionalSupportDamageLocked(conn, placed.Own, !spell, m,
+                profile.Hit.Scale(more).Roll(Random.Shared), now);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now);
             bool critical = currentSkill && RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsGround),
@@ -565,6 +587,24 @@ public static partial class Game
             if (bear)
                 BearTrapOnHitLocked(m, damage, now, n => GolemStat(player, n), n => GolemStat(placed.Own, n));
         }
+        if (GolemStat(placed.Own, "base_fire_damage_to_deal_per_minute") > 0)
+        {
+            int Get(string n) => GolemStat(placed.Own, n) + GolemStat(player, n);
+            double increased = new[] { "damage_+%", "fire_damage_+%", "elemental_damage_+%", "damage_over_time_+%",
+                "fire_damage_over_time_+%", "burn_damage_+%", "area_damage_+%" }.Sum(Get);
+            if (Get("spell_damage_modifiers_apply_to_skill_dot") != 0) increased += Get("spell_damage_+%");
+            double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
+                "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
+                .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(n) / 100d));
+            double dps = Get("base_fire_damage_to_deal_per_minute") / 60d * Math.Max(0, 1 + increased / 100d)
+                * Math.Max(0, 1 + (Get("dot_multiplier_+") + Get("fire_dot_multiplier_+")) / 100d) * groundMore;
+            var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(player))
+                .OverTime(new(DamageType.Fire, dps, 1));
+            int baseDuration = Get("base_skill_effect_duration");
+            double seconds = SkillDurationModifiers.Seconds(baseDuration > 0 ? baseDuration : 1750,
+                n => GolemStat(player, n), n => GolemStat(placed.Own, n), DurationKinds(conn, placed.Effect));
+            conn.Placed.Grounds.Add(new(placed.Id, placed.Skill, placed.At, radius, damage.DamagePerSecond, now + seconds, now));
+        }
     }
 
     // Charged Traps: a trap an enemy set off may grant a Frenzy and a Power Charge. Charged Mines: so may a mine
@@ -585,6 +625,7 @@ public static partial class Game
     static void PlacedGroundRecordsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, double now, WorldRecordBuilder bytes)
     {
+        if (conn.Placed.Grounds.Count == 0) return;
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.
         foreach (var (id, monster) in conn.Monsters.ToArray())
         {

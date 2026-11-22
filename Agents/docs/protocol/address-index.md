@@ -245,6 +245,12 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x1421f2b40` / `0x1421f2980` | Fn | item write (u16 length + data) / data |
 | `0x1421f2c30` / `0x1421f2d00` | Fn | item read (length) / data: type hash → ItemTypeRegister, flags, components (slot 5) |
 | `0x141fabcc0` | Fn | ItemTypeRegister lookup by HASH32 |
+| `0x142401e00` | Fn | item description builder (tooltip and header): the bytes the name symbol is picked from ([13](13-items.md) §2f) |
+| `0x140c99de7` / `0x1416d10d8` | code | name-symbol selection in the tooltip / item header ([13](13-items.md) §2f) |
+| `0x140c9a7e5` / `0x1416d11b5` | call site | resolve the selected sprite name through `0x1400f2c70` in the tooltip / item header |
+| `0x1400f2c70` | Fn | sprite from a UI image name (`art/uiimages1.txt`) |
+| `0x1416edcb0` | Fn | item description copy, field by field |
+| `0x14013fb60` | Fn | look up the Mods component on an entity |
 | `0x1421f2800` | Fn | the four type hashes with a trailing u16 |
 | `0x1421ed330`, `0x1421e6050`, `0x1421e9790`, `0x1424b5720`, `0x1424a3f80`, `0x1423fb5f0`, `0x1424755d0` | Fn | item component reads: Base, Mods, Sockets, Quality, Charges, Stack, SkillGem |
 | `0x1421edee0`, `0x1421e7b00` | Fn | debug dumps of the Base and Mods components: each field's name ([13](13-items.md) §2f) |
@@ -329,6 +335,12 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x141e89be0` | Fn | flag set reader (u16 n × (u8 block, u64 bits)); Player +0x1b8 quest flags, +0x1d0 |
 | `0x14012ae40` | Fn | flag set test `(set, bit)` |
 | `0x141e85520` | Fn | Player component update reader (0x2bc): u16 flags, 0x02 quest flags, 0x08 league quest flags, 0x10 Hideouts keys, 0x200 9 bytes, 0x01 experience |
+| `0x140108c80` | Fn | `CharacterAudioController` area-entry baseline: checks `WorldAreas.StartQuestFlags` against `0x2bb` Player flags and snapshots the bitset (`+0xe1`) |
+| `0x14010bd30` | Fn | `CharacterAudioController` QuestFlags update listener (vtable `0x143027020` +0x10): diffs `0x2bc` quest flags against `+0xe1` and plays the first matching `CharacterAudioEvents` row |
+| `0x14010c960` / `0x14010cad0` | Fn | `CharacterAudioController::PlayEvent` by UTF-16 `Id` (client-local triggers) / by `CharacterAudioEvents` row (applies `+0x18` delay ms, `+0x1c` cooldown ms via `0x140145d10`) |
+| `0x14012b660` | Fn | `Data/CharacterAudioEvents.dat` table getter (0x52-byte rows) |
+| `0x140d52f70` / `0x14015f040` | Fn | `InGameState` vtable `0x1431f66b0` `+0xf8` / `+0x100`: forward to `CharacterAudioController` (`+0x268`) `0x14010cad0` / `0x14010c960` |
+| `0x140d5b2f0` | Fn | `InGameState::OnPlayerLevelUp` (vtable `0x1431f6458` +0x08): formats `"LevelUp" + level` and plays matching `CharacterAudioEvents` row |
 | `0x141e1fbb0` | Fn | HideoutDoodad reader: u32 MTX hash, u8 variation, u8 flag, only when the object's data +0x14e is set (in hideouts) |
 
 ## Hideouts ([21](21-hideouts.md))

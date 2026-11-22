@@ -73,7 +73,14 @@ public static partial class Game
     // ignite_art_variation …, or gloves that restyle ailments), kept per connection. The buff names its BuffVisuals row,
     // as every buff whose art follows a variation does (11-skills.md §12); 0 keeps the buff's own art.
     static readonly (string Buff, string Stat)[] AilmentArtStats =
-        [("ignite", "virtual_ignite_visual_override"), ("poison", "virtual_poison_art_variation"), ("bleed", "virtual_bleed_art_variation")];
+    [
+        ("ignite", "virtual_ignite_visual_override"),
+        ("poison", "virtual_poison_art_variation"),
+        ("bleed", "virtual_bleed_art_variation"),
+        ("shock", "virtual_shock_art_variation"),
+        ("chill", "virtual_chill_art_variation"),
+        ("freeze", "virtual_freeze_art_variation"),
+    ];
 
     static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<string, int>> AilmentArt = new();
 

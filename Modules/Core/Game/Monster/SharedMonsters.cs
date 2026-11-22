@@ -73,34 +73,49 @@ public static partial class Game
     {
         // Only a client that was shown the monster can be sent its actions and component updates (SharedKills.ToOthers).
         if (conn.Instance is not null && m.Target is null && !conn.MonsterViews.ContainsKey(id)) return false;
-        double TargetDistance(ClientState owner, double distance)
+        (double Distance, bool Taunted) TargetPriority(ClientState owner, double distance)
         {
-            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return distance;
+            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return (distance, false);
             var minion = GolemTargetLocked(owner, id, m, at, now, distance);
-            return minion.G is null ? distance : Math.Min(distance, minion.Distance);
+            return minion.G is null ? (distance, false)
+                : (Math.Min(distance, minion.Distance), minion.G.Taunts.GetValueOrDefault(id) > now);
         }
-        d = TargetDistance(conn, d);
+        if (DecoyTarget(m, now) is { } decoy)
+        {
+            if (!ReferenceEquals(conn, decoy.Owner)) return false;
+            if (!ReferenceEquals(m.Target, conn))
+            {
+                (m.LastTarget, m.SwingGeneration) = (null, null);
+                m.ActionGeneration++;
+                if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
+                m.Target = conn;
+            }
+            return true;
+        }
+        var candidate = TargetPriority(conn, d);
         var t = m.Target;
         bool live = t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
         if (live && ReferenceEquals(t, conn))
         {
-            if (!m.Aggro && d > m.AggroRange) m.Target = null; // gave up: free for whoever comes
+            if (!m.Aggro && candidate.Distance > m.AggroRange) m.Target = null; // gave up: free for whoever comes
             return true;
         }
         // In its reach, or still chasing (the AI gives up beyond twice its aggro range, as before).
         double reach = Math.Max(1, m.AggroRange) * (m.Aggro && !live ? 2 : 1);
-        if (conn.PlayerLife == 0 || d > reach || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) return false;
+        if (conn.PlayerLife == 0 || candidate.Distance > reach || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) return false;
         if (live)
         {
             var there = t!.Walk.Position(now);
             double dt = Math.Sqrt((double)(at.X - there.X) * (at.X - there.X) + (double)(at.Y - there.Y) * (at.Y - there.Y));
-            if (d + TargetMargin >= TargetDistance(t, dt)) return false;
+            var incumbent = TargetPriority(t, dt);
+            if (incumbent.Taunted || (!candidate.Taunted && candidate.Distance + TargetMargin >= incumbent.Distance)) return false;
         }
         // From another player: what it did for that one ends (its next pass orders after this one).
         if (t is not null)
         {
             (m.LastTarget, m.SwingGeneration) = (null, null);
             m.ActionGeneration++;
+            if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
         }
         m.Target = conn;
         return true;
@@ -580,6 +595,8 @@ public static partial class Game
                     packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
                     if (owner.ProjectileRuntimeState is ProjectileSession mirages && mirages.MiragePeerDisplay(m.Id, id) is { } display)
                         packets.World(id, display);
+                    else if (MirageWarriorPeerDisplay(owner, m.Id, id) is { } warriorDisplay)
+                        packets.World(id, warriorDisplay);
                     if (!conn.LockstepClient && m.Destination != (m.X, m.Y))
                         packets.World(id, InstanceProtocol.ActionStarted(id, m.X, m.Y, m.Destination.X, m.Destination.Y, 0x2909, 0xffff, 0x0408));
                 }
@@ -723,10 +740,10 @@ public static partial class Game
                 foreach (uint gone in conn.MonsterViews.Keys.Where(id => world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
                     || !world.Monsters.ContainsKey(id) && !world.DormantMonsters.ContainsKey(id)).ToList())
                 {
-                    conn.MonsterViews.Remove(gone);
+                    conn.MonsterViews.Remove(gone, out var previous);
                     conn.AsleepMonsters.Remove(gone);
                     bars.Hidden.Remove(gone);
-                    if (!runner || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
+                    if (!runner || previous?.CreatedAsCorpse == true || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
                 }
                 foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
                 {
@@ -738,22 +755,33 @@ public static partial class Game
                     var to = dormant ? at : m.Walk.Destination;
                     if (!conn.MonsterViews.TryGetValue(id, out var seen))
                     {
-                        if (life == 0) continue; // died before this client came: nothing to show
+                        bool corpse = life == 0 && m.CreatedAsCorpse && !m.CorpseConsumed;
+                        if (life == 0 && !corpse) continue;
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
-                        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = life };
-                        if (!dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
+                        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = corpse ? 1u : life };
+                        if (!corpse && !dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
                             && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
                             && v.ComponentsOrBase.Contains("Transitionable"))
                             shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
                         packets.Create(id, InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
                         packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                        if (corpse) packets.Presentation(id, InstanceProtocol.LifeUpdate(id, 0));
                         if (MonsterRarityBuffs.Row(o.Rarity) is ushort glow) packets.Presentation(id, InstanceEntities.AddBuff(id, conn.NextBuff++, glow));
                         SettleBleeding(m, now);
                         foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance };
+                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance, CreatedAsCorpse = corpse };
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
+                        continue;
+                    }
+                    if (m.CreatedAsCorpse)
+                    {
+                        if (m.CorpseConsumed)
+                        {
+                            packets.Remove(id);
+                            conn.MonsterViews.Remove(id);
+                        }
                         continue;
                     }
                     if (dormant || conn.AsleepMonsters.Contains(id)
