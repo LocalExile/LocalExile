@@ -15,12 +15,12 @@ public static partial class Game
     }
 
     static void CommitAcceptedHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
+        double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null, bool damageOverTime = false)
     {
         var state = conn.Minions;
         if (hit.Life == 0) state.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
             $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1", id, monster, WorldId: id));
-        if (HitReaction.TryFlinch(monster, stun ?? new(damage), now, Random.Shared))
+        if (!damageOverTime && HitReaction.TryFlinch(monster, stun ?? new(damage), now, Random.Shared))
             state.OutputQueue.Add(new([], $"0x01d1 monster 0x{id:x} TakeHit recovery", id, monster,
                 PlayerMinions.OutputKind.Flinch, monster.FlinchUntil, monster.ActionGeneration));
         state.OutputQueue.Add(new([], $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {hit.Life}/{monster.MaxLife}{(hit.Life == 0 ? " (dies)" : "")}",
