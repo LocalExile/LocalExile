@@ -585,7 +585,7 @@ public static partial class Game
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind,
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell), who: who);
-            else HitLandedLocked(Conn, target, critical, shot.Spell, shot.SkillStats, who);
+            else HitLandedLocked(Conn, target, critical, shot.Spell, shot.SkillStats, who, shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)

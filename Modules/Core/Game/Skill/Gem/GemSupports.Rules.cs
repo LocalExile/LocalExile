@@ -643,7 +643,7 @@ public static partial class Game
 
     public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
-        bool projectile = false, int addedChaos = 0, bool totem = false)
+        bool projectile = false, int addedChaos = 0, bool totem = false, GameServer.Core.World.DamagePacket? baseExtra = null)
     {
         var gem = capturedGem ?? SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
@@ -673,7 +673,10 @@ public static partial class Game
             else { types.Remove(2); types.Remove(7); }
         }
         var plan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
-        if (!plan.CanHit) return null;
+        // baseExtra: a spell's base damage its caller worked out (per character level, per shield quality): part of
+        // the spell's base, and enough for a spell whose stat set has no other to hit.
+        bool extraBase = baseExtra is not null && plan.Kind == SkillHitKind.Spell;
+        if (!plan.CanHit && !extraBase) return null;
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(conn) : null;
         var coefficients = SkillsFor(conn).DamageCoefficients(gem.Effect, gem.Level);
@@ -681,7 +684,8 @@ public static partial class Game
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(conn, weapon, caster, gem.Stats)),
                 coefficients.Base, coefficients.Added)
-            : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
+            : DamageStats.RawAdded(extraBase ? plan.SpellBaseWith(Get).Add(baseExtra!) : plan.SpellBaseWith(Get), Get, spell: true,
+                AddedEffectiveness(conn, gem.Effect, gem.Level));
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(conn, gem.Effect, gem.Level)));

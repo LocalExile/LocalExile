@@ -6,7 +6,11 @@ using GameServer.Core.Protocol.Instance;
 /// <see cref="CombatEvent.Who"/> says who made it: the character (its own skills, brands, heralds and mirages), a
 /// totem, a trap or a mine. SkillStats are the hitting skill's own stats with its supports', when the site has them.
 /// </summary>
-public sealed record HitLanded(bool Critical, bool Spell, bool Killed, IReadOnlyDictionary<uint, int>? SkillStats) : CombatEvent;
+public sealed record HitLanded(bool Critical, bool Spell, bool Killed, IReadOnlyDictionary<uint, int>? SkillStats) : CombatEvent
+{
+    /// <summary>The hitting skill's id among the character's skills; 0 for the default attack or a site that has none.</summary>
+    public ushort Skill { get; init; }
+}
 
 public static partial class Game
 {
@@ -47,13 +51,25 @@ public static partial class Game
         return false;
     }
 
+    /// <summary>Whether a hit was a melee one: its skill's own type, or the weapon's for the default attack.</summary>
+    public static bool MeleeHit(ClientState conn, HitLanded hit)
+    {
+        if (hit.Spell) return false;
+        if (hit.Skill != 0 && SupportedSkill(conn, hit.Skill) is { Effect: >= 0 } gem) return SkillsFor(conn).IsMelee(gem.Effect);
+        return ActiveMainHand(conn) is not { Type.Class: "Bow" or "Wand" };
+    }
+
+    /// <summary>Whether the character's weapon is a bow.</summary>
+    public static bool BowWorn(ClientState conn) => ActiveMainHand(conn) is { Type.Class: "Bow" };
+
     // Per hit, inside the Monsters lock: nothing is built unless a rule or a subscriber listens.
     public static void HitLandedLocked(ClientState conn, SpawnedMonster m, bool critical, bool spell,
-        IReadOnlyDictionary<uint, int>? skill, string who)
+        IReadOnlyDictionary<uint, int>? skill, string who, ushort sourceSkill = 0)
     {
         bool rules = EffectRules.Listens(conn, EffectRules.What.Hit);
         if (!rules && !GameEvents.Combat.Any) return;
-        var hit = new HitLanded(critical, spell, m.Dead || m.Life == 0, skill) { Monster = m, Who = who, Depth = TriggerDepth };
+        var hit = new HitLanded(critical, spell, m.Dead || m.Life == 0, skill)
+        { Monster = m, Who = who, Depth = TriggerDepth, Skill = sourceSkill };
         if (rules) EffectRules.Run(conn, hit);
         GameEvents.RaiseCombat(conn, hit);
     }

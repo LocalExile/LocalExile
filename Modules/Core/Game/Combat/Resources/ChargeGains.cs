@@ -30,8 +30,11 @@ public abstract record ChargeEvent : CombatEvent
     /// <paramref name="Skill"/> the stunning skill's own stats (its supports' included).</summary>
     public sealed record Stun(bool Melee = false, Func<string, int>? Skill = null) : ChargeEvent;
 
-    /// <summary>The player used a skill (after its cost): a Vaal skill, a curse spell or a trap throw.</summary>
-    public sealed record SkillUse(bool Vaal, bool Curse, bool Trap) : ChargeEvent;
+    /// <summary>The player used a skill (after its cost): a Vaal skill, a curse spell or a trap throw.
+    /// <paramref name="Effect"/>: its GrantedEffects row; <paramref name="At"/>: where it was aimed;
+    /// <paramref name="SkillId"/>: its id among the character's skills.</summary>
+    public sealed record SkillUse(bool Vaal, bool Curse, bool Trap, int Effect = -1, (int X, int Y)? At = null,
+        ushort SkillId = 0) : ChargeEvent;
 
     /// <summary>The player blocked a hit (an attack, or a spell with <paramref name="Spell"/>).</summary>
     public sealed record Block(bool Spell) : ChargeEvent;

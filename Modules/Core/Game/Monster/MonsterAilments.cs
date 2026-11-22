@@ -273,7 +273,7 @@ public static partial class Game
     {
         // The one hit event (HitLanded). who: the site's own word for a totem, trap or mine; otherwise the character's,
         // or a trap's for a site that only says the hit is not the character's.
-        HitLandedLocked(conn, m, critical, spell, skill, who ?? (playerHit ? CombatActors.Self : CombatActors.Trap));
+        HitLandedLocked(conn, m, critical, spell, skill, who ?? (playerHit ? CombatActors.Self : CombatActors.Trap), sourceSkill);
         HitSummonsOnHitLocked(conn, m, skill, sourceSkill, now, random);
         PhantasmsOnHitLocked(conn, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);

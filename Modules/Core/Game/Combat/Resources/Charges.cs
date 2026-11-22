@@ -144,12 +144,12 @@ public static partial class Game
 
     // A skill the player used, after its cost (CastGemSkill): the "when you use a Vaal Skill / Cast a Curse Spell /
     // Throw a Trap" gains.
-    public static void ChargesOnSkillUse(ClientState conn, int effect, bool vaal)
+    public static void ChargesOnSkillUse(ClientState conn, int effect, bool vaal, (int X, int Y)? at = null, ushort skillId = 0)
     {
         if (effect < 0) return;
         var skills = SkillsFor(conn);
         bool curse = CurseCatalog.All.ContainsKey(skills.EffectId(effect) ?? "");
-        RaiseCombatEvent(conn, new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped")));
+        RaiseCombatEvent(conn, new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped"), effect, at, skillId));
     }
 
     // Transfer: the charges go with the player to the area of the new ticket.

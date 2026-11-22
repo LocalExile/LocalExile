@@ -95,6 +95,8 @@ public static class EffectRules
         /// <summary>The deepest event (CombatEvent.Depth) the rule's chaining effects run for (LoopGuard).</summary>
         public int MaxDepth { get; init; }
         public bool Chains { get; init; }
+        /// <summary>What the actor's own stats must be for the rule to be live ("need").</summary>
+        public Need[] Needs { get; init; } = [];
     }
 
     /// <summary>
@@ -115,6 +117,7 @@ public static class EffectRules
     }
 
     sealed record LiveEffect(Kind Kind, double[] Values, string?[] Names, object? Data);
+    public sealed record Need(string Stat, double? Min, double? Max);
     sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do, Source? Source = null, int Uses = 1);
     sealed class Live
     {
@@ -148,12 +151,12 @@ public static class EffectRules
     /// <summary>The facts each event can answer, for a rule's checks.</summary>
     static readonly Dictionary<What, string[]> Facts = new()
     {
-        [What.Hit] = ["critical", "spell", "attack", "killed", "frozen", "ignited", "bleeding", "marked", "has_mark", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Hit] = ["critical", "spell", "attack", "melee", "bow", "killed", "frozen", "ignited", "bleeding", "marked", "has_mark", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.WhenHit] = ["critical"],
         [What.Block] = ["spell", "attack"],
         [What.Stun] = ["melee"],
-        [What.SkillUse] = ["vaal", "curse", "trap"],
+        [What.SkillUse] = ["vaal", "curse", "trap", "attack", "spell", "melee", "bow", "travel", "movement", "warcry", "strike", "slam", "channelled", "brand", "aura", "guard"],
     };
 
     /// <summary>Adds an effect kind. The game module registers its own when it loads; a mod can add more.</summary>
@@ -225,7 +228,7 @@ public static class EffectRules
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         foreach (var property in root.EnumerateObject())
-            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "chance" or "cooldown" or "uses" or "depth" or "do"))
+            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "need" or "chance" or "cooldown" or "uses" or "depth" or "do"))
                 throw new FormatException($"unknown key \"{property.Name}\"");
         string whenName = root.GetProperty("when").GetString() ?? "";
         int when = Array.IndexOf(WhatNames, whenName);
@@ -278,10 +281,23 @@ public static class EffectRules
         var uses = root.TryGetProperty("uses", out var u) ? ParseValue(u) : null;
         if (carrier is null && (chance.Data ?? cooldown?.Data ?? uses?.Data ?? effects.SelectMany(e => e.Values).FirstOrDefault(v => v.Data is not null)?.Data) is { } data)
             throw new FormatException($"the value \"{data}\" is a carrier's, and the rule has no \"carrier\"");
+        // What the actor itself must have for the rule to be live at all ("with at least 150 Strength"): stats of the
+        // actor, read where its rules are worked out, so nothing is checked per event.
+        var needs = new List<Need>();
+        if (root.TryGetProperty("need", out var needed))
+            foreach (var item in needed.EnumerateArray())
+            {
+                foreach (var property in item.EnumerateObject())
+                    if (property.Name is not ("stat" or "min" or "max")) throw new FormatException($"unknown need key \"{property.Name}\"");
+                string needStat = item.GetProperty("stat").GetString() ?? "";
+                if (Program.Stats.Key(needStat) is null) throw new FormatException($"unknown stat \"{needStat}\"");
+                needs.Add(new(needStat, item.TryGetProperty("min", out var low) ? low.GetDouble() : null,
+                    item.TryGetProperty("max", out var high) ? high.GetDouble() : null));
+            }
         int depth = root.TryGetProperty("depth", out var deep) ? deep.GetInt32() : 0;
         if (depth < 0) throw new FormatException("\"depth\" is negative");
         return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects])
-        { Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains) };
+        { Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs] };
     }
 
     static Value ParseValue(JsonElement e)
@@ -314,6 +330,8 @@ public static class EffectRules
             Func<string, int> read = source is null ? get : name => source.Get(name) is var held and not 0 ? held : get(name);
             double chance = rule.Chance.Resolve(own, read, source?.Data);
             if (chance <= 0) return;
+            foreach (var need in rule.Needs)
+                if (get(need.Stat) is var has && (has < need.Min || has > need.Max)) return;
             var effects = new LiveEffect[rule.Do.Length];
             for (int i = 0; i < effects.Length; i++)
             {
@@ -417,13 +435,39 @@ public static class EffectRules
         ("has_mark", HitLanded) => Game.HasMarkedEnemy(conn),
         ("poisoned", ChargeEvent.Kill k) => k.Poisons > 0,
         ("melee", ChargeEvent.Stun s) => s.Melee,
+        ("melee", HitLanded h) => Game.MeleeHit(conn, h),
+        ("bow", HitLanded h) => !h.Spell && Game.BowWorn(conn),
         ("vaal", ChargeEvent.SkillUse u) => u.Vaal,
+        (_, ChargeEvent.SkillUse { Effect: >= 0 } u) when fact is not ("curse" or "trap") => UseFact(fact, u.Effect, conn),
         ("curse", ChargeEvent.SkillUse u) => u.Curse,
         ("trap", ChargeEvent.SkillUse u) => u.Trap,
         (_, HitLanded { Monster: { } m }) => Rarity(fact, m.Rarity),
         (_, ChargeEvent.Kill k) => Rarity(fact, k.Rarity),
         _ => false,
     };
+
+    // What kind of skill was used: the catalog's own skill types.
+    static bool UseFact(string fact, int effect, ClientState conn)
+    {
+        var skills = Game.SkillsFor(conn);
+        return fact switch
+        {
+            "attack" => skills.IsAttack(effect),
+            "spell" => skills.IsSpell(effect),
+            "melee" => skills.IsMelee(effect),
+            "bow" => skills.IsAttack(effect) && Game.BowWorn(conn),
+            "travel" => skills.IsTravel(effect),
+            "movement" => skills.IsMovement(effect),
+            "warcry" => skills.IsWarcry(effect),
+            "strike" => skills.IsStrike(effect),
+            "slam" => skills.HasType(effect, "Slam"),
+            "channelled" => skills.IsChannelled(effect),
+            "brand" => skills.IsBrand(effect),
+            "aura" => skills.IsAura(effect),
+            "guard" => skills.IsGuard(effect),
+            _ => false,
+        };
+    }
 
     static bool DiedWith(ClientState conn, MonsterIgnites burns)
     {

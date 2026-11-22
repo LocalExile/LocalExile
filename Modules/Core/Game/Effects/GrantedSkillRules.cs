@@ -1,3 +1,4 @@
+using GameServer.Core.World;
 using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core;
@@ -153,7 +154,9 @@ public static partial class Game
                         || ActorSkillOf(conn, grant) is not var (actor, gem) || !gem.RequirementsMet
                         || GemSkillInstanceDisabled(conn, gem.Effect, actor, triggered: true) is not null) return;
                     double now = AreaTime(conn);
-                    aim = fire.Word("at") != "self" && fire.Event.Monster is { } monster ? monster.Walk.Position(now) : conn.Walk.Position(now);
+                    aim = fire.Word("at") == "self" ? conn.Walk.Position(now)
+                        : fire.Event.Monster is { } monster ? monster.Walk.Position(now)
+                        : fire.Event is ChargeEvent.SkillUse { At: { } spot } ? spot : conn.Walk.Position(now);
                     if (!PayMana(conn, actor, out mana, out life)) return;
                     id = actor;
                 }
@@ -182,7 +185,7 @@ public static partial class Game
             {
                 var conn = fire.Conn;
                 if (conn.Wire is not (var remote, { } stream, var ciphers) || TriggeredAreaOf(grant.EffectId) is not { } area) return;
-                ushort id; (int X, int Y) from, aim; uint mana, life; uint? targetId = null; int? radius = null;
+                ushort id; (int X, int Y) from, aim; uint mana, life; uint? targetId = null; int? radius = null; DamagePacket? baseExtra;
                 lock (conn.Monsters)
                 {
                     if (conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea || InTown(conn)
@@ -197,6 +200,9 @@ public static partial class Game
                         foreach (var (objectId, known) in conn.Monsters)
                             if (ReferenceEquals(known, monster)) { targetId = objectId; break; }
                     }
+                    // A skill use has no monster: the skill goes off where that use was aimed.
+                    else if (fire.Word("at") != "self" && fire.Event is ChargeEvent.SkillUse { At: { } spot }) aim = spot;
+                    baseExtra = TriggeredBaseExtra(conn, gem);
                     // Where the skill itself goes off: a self-targeted one around the character wherever it was aimed
                     // (SpellCentre), so its art and each of a storm's hits are placed from there.
                     aim = SpellCentre(conn, gem.Effect, from, aim);
@@ -265,9 +271,29 @@ public static partial class Game
                         await PresentEffectArt(remote, stream, ciphers, conn, art, at, area.Scale, area.Seconds);
                     // from and to are the same spot, so the hit lands there whatever the skill's own targeting is.
                     await AreaSkillHit(remote, stream, ciphers, conn, id, skill, at, at, immediate: true,
-                        radiusOverride: radius, triggeredCurrent: Current);
+                        radiusOverride: radius, triggeredCurrent: Current, baseExtra: baseExtra);
                 }
             }));
+    }
+
+    /// <summary>Base damage a granted skill states in a form the hit plan does not read: added damage per character
+    /// level (<c>minimum_added_fire_damage_per_level</c>: Blazing Glare, Caustic Retribution) and spell damage per
+    /// point of the worn shield's quality (Shield Shatter). Null when the skill has neither.</summary>
+    public static DamagePacket? TriggeredBaseExtra(ClientState conn, SupportedGem gem)
+    {
+        DamagePacket? extra = null;
+        int level = Math.Max(1, (int)conn.Pools.Level);
+        int quality = ActiveOffHand(conn) is { Type.Class: "Shield" } shield ? shield.Item.Quality : 0;
+        foreach (var type in Enum.GetValues<DamageType>())
+        {
+            string name = type.ToString().ToLowerInvariant();
+            double min = (double)GolemStat(gem.Stats, $"minimum_added_{name}_damage_per_level") * level
+                + (double)GolemStat(gem.Stats, $"spell_minimum_base_{name}_damage_per_shield_quality") * quality;
+            double max = (double)GolemStat(gem.Stats, $"maximum_added_{name}_damage_per_level") * level
+                + (double)GolemStat(gem.Stats, $"spell_maximum_base_{name}_damage_per_shield_quality") * quality;
+            if (max > 0) extra = (extra ?? DamagePacket.Empty).Add(type, new(min, max));
+        }
+        return extra;
     }
 
     /// <summary>How an item-triggered skill that hits an area is carried out and shown: the art where it goes off (a
