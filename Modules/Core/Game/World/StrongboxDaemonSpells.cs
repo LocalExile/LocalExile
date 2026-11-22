@@ -29,6 +29,10 @@ public static partial class MapStrongboxes
     /// <summary>The radius (cells) of a daemon whose skill gives none: OUR choice, the reach of an Ice Nova (26).</summary>
     const int DefaultRadius = 26;
 
+    /// <summary>The official art of a strongbox's corpse explosion (MiscAnimated <c>StrongboxExplosion</c>): its one-shot
+    /// "animate" clip (1000 ms) carries Audio/…/Chests/Strongbox/NewStrongBoxExplode.ogg.</summary>
+    const string StrongboxExplodeAo = "Metadata/Effects/Spells/monsters_effects/strongbox_explode/rig.ao";
+
     static readonly Dictionary<string, (string Curse, ushort Buff)> CurseSkills = new(StringComparer.Ordinal)
     {
         ["SkeletonTemporalChains"] = ("temporal_chains", 69), ["MonsterEnfeeble"] = ("enfeeble", 76),
@@ -129,10 +133,13 @@ public static partial class MapStrongboxes
             {
                 case "ChestIceNova":
                     await HitPlayers(conn, at, radius, DamageType.Cold, Hit("spell"));
-                    if (Get("ice_nova_places_ground_ice") != 0)
-                        AddZone(conn, area, new(at, radius, Now + seconds, DamageType.Cold, 0, "chill", 0), "Metadata/Effects/Spells/ground_effects/ice/ice.ao");
+                    // No ground: the chest's nova leaves none (the old ice.ao left a field of ice spikes standing under
+                    // the box, live 2026-11-22), whatever the skill's ice_nova_places_ground_ice says.
                     break;
                 case "ChestExplode":
+                    // The box's own explosion art: MiscAnimated StrongboxExplosion, its "animate" clip carrying
+                    // NewStrongBoxExplode (the Unstable mod's hit had no visual at all before).
+                    await FallingArt(conn, at, StrongboxExplodeAo, 1.2);
                     await HitPlayers(conn, at, radius, DamageType.Fire, Hit("secondary"));
                     break;
                 case "ChestFirestorm" or "ChestLightningStorm":
@@ -144,6 +151,9 @@ public static partial class MapStrongboxes
                     double ground = Get(fire ? "firestorm_drop_burning_ground_duration_ms" : "firestorm_drop_ground_shock_duration_ms") / 1000.0;
                     double burning = Get("base_fire_damage_to_deal_per_minute") / 60.0;
                     int impact = Math.Max(4, radius / 2);
+                    // The server lands the hits, one per fire_storm_fireball_delay_ms at a random spot in the storm's area. The
+                    // falling meteors/bolts are not drawn: the client shows only its own first one, and the server-side
+                    // art tried for the rest did not match the game (the issue "Strongbox daemon spells").
                     for (double t = 0; t < Math.Max(delay, seconds) && !conn.Closed && !conn.LeavingArea; t += delay)
                     {
                         double angle = random.NextDouble() * Math.Tau, d = Math.Sqrt(random.NextDouble()) * area_;
@@ -196,10 +206,24 @@ public static partial class MapStrongboxes
         var catalog = SkillsFor(conn);
         if (Monsters.Find(daemon) is not { Supported: true } variety || catalog.ActionHash(effect) is not ushort hash) return 0;
         ushort skillId = (ushort)(hash & 0x3fff);
-        var stats = catalog.EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
-        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(effect) / 1000.0), DefaultRadius, DamagePacket.Empty) { Spell = true };
+        // The skill record's level is the area's, as the server's damage is: the client scales the nova and storm from
+        // the level's active_skill_area_of_effect_radius_+%_final (Ice Nova: 15% at level 1 up to 182% at 37).
+        int level = Math.Clamp(AreaLevel(conn), 1, 100);
+        var stats = catalog.EffectStats(effect, level).ToDictionary(s => s.Item1, s => s.Item2);
+        int GetStat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        // The client scales a skill's nova, storm and ground from these two; without them it shows its own default ring
+        // instead of the skill's (the shrine's Ice Nova sets them the same way).
+        int baseRadius = GetStat("active_skill_base_area_of_effect_radius") is int own and > 0 ? own : DefaultRadius;
+        int radius = SkillArea.Radius(baseRadius, GetStat, true);
+        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(effect) / 1000.0), radius, DamagePacket.Empty) { Spell = true };
         foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
-        if (catalog.FindByRow(skillId, effect, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
+        void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
+        Set("active_skill_area_of_effect_radius", radius);
+        Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(GetStat, true));
+        // GrantedEffects SkillID: the client's own skill-stat builder adds it as skill_behaviour_variation, and an action
+        // takes its data row from it (ChestExplode's is 30: its geometry; without it the box's Explodes drew nothing).
+        Set("skill_behaviour_variation", catalog.BehaviourVariation(effect));
+        if (catalog.FindByRow(skillId, effect, level, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y,
             friendly: true, log: false, alone: false, scripted: true, ownedSkills: [skill], placement: MonsterPlacement.Established,
@@ -316,7 +340,10 @@ public static partial class MapStrongboxes
         await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsUpdateAtGate(c, PlayerStatsWithCleared(c)), null);
     }
 
-    /// <summary>Every corpse near the box explodes (and is consumed): each an area hit around it.</summary>
+    /// <summary>Every corpse near the box explodes (and is consumed): each an area hit around it. The art is the official
+    /// one: MiscAnimated <c>StrongboxExplosion</c> (Metadata/Effects/Spells/monsters_effects/strongbox_explode/rig.ao),
+    /// whose one-shot "animate" clip carries <c>Audio/…/Chests/Strongbox/NewStrongBoxExplode.ogg</c> — the box's own
+    /// explosion sound.</summary>
     static async Task ExplodeCorpses(ClientState conn, (int X, int Y) at, int radius, DamagePacket damage)
     {
         var corpses = new List<(uint Id, (int X, int Y) At, bool Remove)>();
@@ -326,15 +353,16 @@ public static partial class MapStrongboxes
             {
                 if (!m.Hostile || !m.Dead || m.CorpseConsumed || m.Ailments.Shattered) continue;
                 var spot = m.Walk.Position(now);
-                if (Distance(spot, at) > radius * 2) continue;
+                if (Distance(spot, at) > radius) continue;
                 m.CorpseConsumed = true;
                 corpses.Add((id, spot, !m.CreatedAsCorpse));
             }
+        Console.WriteLine($"[map-content] strongbox corpse explosion: {corpses.Count} corpse(s) within {radius} cells of ({at.X}, {at.Y})");
         var (remote, stream, ciphers) = conn.Wire;
         foreach (var (id, spot, remove) in corpses)
         {
             if (remove) await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
-            await ShowArt(conn, spot, KillExplosionAo, 1.5);
+            await ShowArt(conn, spot, StrongboxExplodeAo, 1.5, playClip: true);
             await HitPlayers(conn, spot, radius, DamageType.Fire, damage);
         }
     }
@@ -409,7 +437,9 @@ public static partial class MapStrongboxes
         }
     }
 
-    static async Task ShowArt(ClientState conn, (int X, int Y) at, string art, double seconds)
+    /// <summary>An effect object at a spot for a while; <paramref name="playClip"/> starts its first clip, which is what
+    /// fires the clip's SoundEvents (an effect created by the server does not play them by itself).</summary>
+    static async Task ShowArt(ClientState conn, (int X, int Y) at, string art, double seconds, bool playClip = false)
     {
         uint id = conn.TakeObjectId();
         lock (conn.Monsters)
@@ -417,10 +447,30 @@ public static partial class MapStrongboxes
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, art).Blob()), null, WorldId: id, CreatesObject: true));
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+            if (playClip) conn.Minions.OutputQueue.Add(new(InstanceProtocol.AnimationUpdate(id, 0, 0, 1), null, WorldId: id));
         }
         await Task.Delay(TimeSpan.FromSeconds(seconds));
         lock (conn.Monsters)
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
+    }
+
+    /// <summary>An effect object that starts its first clip — what fires its SoundEvents — and is removed after
+    /// <paramref name="life"/> seconds. <paramref name="speed"/> times the clip's own timing: a meteor whose art contacts
+    /// at 0.5 s played at 0.5/delay lands after the storm's drop delay.</summary>
+    static async Task FallingArt(ClientState conn, (int X, int Y) at, string art, double life, float speed = 1)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        uint id = conn.TakeObjectId();
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, art).Blob()),
+            $"{art} at ({at.X}, {at.Y})");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, speed), null);
+        SendAfter(life, async () =>
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+        });
     }
 
     static void AddZone(ClientState conn, Area area, Zone zone, string art)

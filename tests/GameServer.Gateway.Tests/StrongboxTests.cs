@@ -120,6 +120,23 @@ public sealed class StrongboxTests
         }
     }
 
+    // The closed glow and the open effect a box plays come from the Chests row's ChestEffects row, one model per
+    // rarity (the rows' white/blue/gold/brown sets; the small and big strongboxes have their own).
+    [Fact]
+    public void Chest_effects_come_from_the_chests_row_by_rarity()
+    {
+        var small = StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/Arcanist")!;
+        Assert.Equal(2, small.ChestEffect);
+        Assert.EndsWith("smlstrongboxwhiteloopfx.ao", StrongboxCatalog.ClosedEffect(small, 0));
+        Assert.EndsWith("smlstrongboxblueloopfx.ao", StrongboxCatalog.ClosedEffect(small, 1));
+        Assert.EndsWith("smlstrongboxgoldopenfx.ao", StrongboxCatalog.OpenEffect(small, 2));
+        Assert.EndsWith("smlstrongboxbrownopenfx.ao", StrongboxCatalog.OpenEffect(small, 3));
+        var big = StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/Large")!;
+        Assert.Equal(1, big.ChestEffect);
+        Assert.EndsWith("bigstrongboxwhiteloopfx.ao", StrongboxCatalog.ClosedEffect(big, 0));
+        Assert.DoesNotContain("loop", StrongboxCatalog.OpenEffect(big, 3));
+    }
+
     static JsonNode ReadBoxes(ClientState conn)
     {
         var state = new JsonObject();
