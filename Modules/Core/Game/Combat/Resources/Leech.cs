@@ -110,11 +110,16 @@ public static partial class Game
         // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
         amounts.Life += sources.OverkillLife(directDamage, target.Life);
         var session = LeechOf(conn);
-        if (target.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;
-        if (target.Effects["cannot_have_energy_shield_leeched_from"] != 0)
+        if (target.Effects["cannot_be_leeched_from"] != 0)
+            amounts = default;
+        else
         {
-            amounts.EnergyShield = 0;
-            if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
+            if (target.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;
+            if (target.Effects["cannot_have_energy_shield_leeched_from"] != 0)
+            {
+                amounts.EnergyShield = 0;
+                if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
+            }
         }
         double now = ProjectileWorldTime(conn);
         var instant = session.Hit(now, amounts, conn.PlayerLife >= LifeCap(conn),

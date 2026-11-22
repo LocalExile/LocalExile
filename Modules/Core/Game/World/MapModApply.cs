@@ -55,6 +55,8 @@ public static partial class Game
         Gain("map_monsters_additional_chaos_resistance", "base_chaos_damage_resistance_%");
         if (mods.Get("map_monsters_are_hexproof") != 0)
             extra["hexproof"] = 1;
+        if (mods.Get("map_monsters_cannot_be_leeched_from") != 0)
+            extra["cannot_be_leeched_from"] = 1;
         Gain("map_monsters_curse_effect_on_self_+%_final", "map_monsters_curse_effect_on_self_+%_final");
         Gain("map_monsters_chance_to_blind_on_hit_%", "global_chance_to_blind_on_hit_%");
         Gain("map_monsters_critical_strike_chance_+%", "critical_strike_chance_+%");
