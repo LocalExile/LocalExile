@@ -327,6 +327,12 @@ public static partial class Game
         bool moving = conn.Walk.Moving(statsAt);
         var recovery = PanelStats.WhileMoving(Get, moving);
         if (Stats.Key("evasion_rating") is uint evasionKey && !devSet.Contains(evasionKey)) stats[evasionKey] = PlayerEvasion(conn, statsAt);
+        if (Get("attack_damage_+1%_per_300_of_min_of_armour_or_evasion") is int perseverance and not 0
+            && Stats.Key("attack_damage_+%") is uint increasedAttack)
+        {
+            long steps = Math.Min(conn.Pools.Armour, Get("evasion_rating")) / 300;
+            stats[increasedAttack] = ActorScale.Saturate(stats.GetValueOrDefault(increasedAttack) + perseverance * steps);
+        }
         ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
         bool lowLife = CriticalOnLowLife(conn, stats);
         ConfigureLeech(conn, Get, rawOverrides, lowLife);
