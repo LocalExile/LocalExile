@@ -115,7 +115,8 @@ public static partial class Game
         conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
         Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(conn).EffectId(plan.Effect)}, " +
             $"-{plan.Souls} souls, -{plan.Rage} Rage, soul gain prevention {plan.PreventionSeconds:0.##} s (until t={conn.VaalPreventionUntil:0.000})");
-        conn.VaalUse = plan with { Action = conn.ActionCount, Epoch = conn.ProjectileEpoch,
+        uint sacrificed = SacrificeItemLifeLocked(conn, plan.Effect, stats);
+        conn.VaalUse = plan with { Action = conn.ActionCount, Epoch = conn.ProjectileEpoch, Life = plan.Life + sacrificed,
             CriticalRoll = CaptureSkillCriticalRoll(conn, plan.Skill), RecoveryGeneration = conn.ActionInterruptionGeneration };
     }
 

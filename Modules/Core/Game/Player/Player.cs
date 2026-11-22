@@ -487,7 +487,8 @@ public static partial class Game
     public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(conn, skillId, out cost, out lifeCost, 100);
 
-    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent)
+    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent,
+        bool useSpell = true)
     {
         var supported = SupportedSkill(conn, skillId);
         var own = supported.Stats;
@@ -516,6 +517,7 @@ public static partial class Game
             }
             ManaSpentLocked(conn, cost, player);
             ApplyPaidSupportCostsLocked(conn, skillId, own, cost, life);
+            if (useSpell) lifeCost += SacrificeItemLifeLocked(conn, supported.Effect, player);
             ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }

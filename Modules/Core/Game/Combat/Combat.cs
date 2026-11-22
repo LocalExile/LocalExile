@@ -1990,7 +1990,7 @@ public static partial class Game
                         cost = lifeCost = 0;
                         firstSnipeStage = false;
                     }
-                    else if (!PayMana(conn, skillId, out cost, out lifeCost))
+                    else if (!PayMana(conn, skillId, out cost, out lifeCost, 100, useSpell: false))
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
                     else
                     {
