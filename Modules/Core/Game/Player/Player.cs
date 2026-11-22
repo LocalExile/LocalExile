@@ -428,9 +428,7 @@ public static partial class Game
         cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         int nativeLife = Math.Max(0, player.GetValueOrDefault(Stats.Key("life_cost") ?? 0));
-        if (nativeLife > 0 && BloodCharges.Uses(Own))
-            nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
-                * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges)));
+        long flatLife = 0;
         // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
         // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
         // it would divide no longer exists.
@@ -444,17 +442,34 @@ public static partial class Game
         else
         {
             int lifeBasis = (int)Math.Min(cost, int.MaxValue);
+            var costStats = player;
+            int Read(string name) => Stats.Key(name) is uint key ? costStats.GetValueOrDefault(key) : 0;
             if (conn.PetrifiedBlood.Active && Stats.Key(ItemChargeCosts.ManaEfficiency) is uint efficiency
                 && player.GetValueOrDefault(efficiency) != 0)
             {
-                var costStats = player;
                 lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stats.Key("mana_cost") ?? 0),
-                    name => Stats.Key(name) is uint key ? costStats.GetValueOrDefault(key) : 0,
+                    Read,
                     SkillsFor(conn).IsChannelled(SupportedSkill(conn, skillId).Effect), SkillCostMore(conn, own), applyManaEfficiency: false);
             }
             life = PetrifiedBlood.LifeCost(conn, lifeBasis);
+            int hybrid = Math.Clamp(Read("base_attack_skill_cost_life_instead_of_mana_%"), 0, 100);
+            if (hybrid > 0 && SupportedSkill(conn, skillId).Effect is >= 0 and var effect
+                && SkillsFor(conn).IsAttack(effect))
+            {
+                // Base and positive flat Mana contribute separately to the Life cost, each rounded to a whole point.
+                long addedLife = ((long)Math.Max(0, Own("mana_cost")) * hybrid + 50) / 100;
+                int nativeBase = Own("life_cost");
+                nativeLife = ActorScale.Saturate((long)nativeLife + ManaRecoveryRules.LifeCost(nativeBase + addedLife, Read)
+                    - ManaRecoveryRules.LifeCost(nativeBase, Read));
+                bool channelled = SkillsFor(conn).IsChannelled(effect);
+                flatLife = (Math.Max(0, ManaRecoveryRules.FlatManaCost(Read, channelled)) * hybrid + 50) / 100;
+                cost = (uint)(cost * (100L - hybrid) / 100);
+            }
         }
-        life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
+        if (nativeLife > 0 && BloodCharges.Uses(Own))
+            nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
+                * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges)));
+        life = (int)Math.Min(int.MaxValue, (long)nativeLife + life + flatLife);
         es = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("es_cost") ?? 0));
         if (costPercent != 100)
         {

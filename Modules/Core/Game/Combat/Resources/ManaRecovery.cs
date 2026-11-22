@@ -27,12 +27,21 @@ public static class ManaRecoveryRules
         }
         // Flat total-cost modifiers apply after support multipliers and percentage modifiers. The skill's type,
         // rather than whether the actor is presently channelling, selects the channel-specific term.
+        return (int)Math.Clamp(scaled + FlatManaCost(player, channelled), 0m, int.MaxValue);
+    }
+
+    public static long FlatManaCost(Func<string, int> player, bool? channelled)
+    {
         long flat = player("skill_mana_cost_+");
         if (channelled is bool channel)
             flat += player(channel ? "skill_mana_cost_+_with_channelling_skills"
                 : "skill_mana_cost_+_with_non_channelling_skills");
-        return (int)Math.Clamp(scaled + flat, 0m, int.MaxValue);
+        return flat;
     }
+
+    public static int LifeCost(long nativeLife, Func<string, int> get) =>
+        (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m,
+            100m + get("base_cost_+%") + get("base_life_cost_+%") + get("life_cost_+%")) / 100m), 0, int.MaxValue);
 }
 
 /// <summary>Owned mana-spend progress and exact hit recoup. ReminderTextRecoup pins four game seconds.</summary>

@@ -370,8 +370,7 @@ public static partial class Game
         if (Stats.Key("life_cost") is uint life && own.TryGetValue(life, out int nativeLife))
         {
             int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
-            result[life] = (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m,
-                100m + Read("base_cost_+%") + Read("base_life_cost_+%") + Read("life_cost_+%")) / 100m), 0, int.MaxValue);
+            result[life] = ManaRecoveryRules.LifeCost(nativeLife, Read);
         }
         // An Energy Shield cost: the skill's own (CostTypes 2) plus "Skills gain a Base Energy Shield Cost equal to X% of
         // Base Mana Cost" (Replica Covenant), taken from the supported base mana cost, then the increased cost of skills.
