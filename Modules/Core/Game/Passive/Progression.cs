@@ -1292,13 +1292,26 @@ public static partial class Game
         // The source's condition has already been evaluated from the captured blocked history. The Replica's
         // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
-        conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life, sources);
         pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
             pools.Life, pools.Mana, pools.EnergyShieldPct,
             EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield"),
             EquipmentInput("mana_%_to_add_as_energy_shield")) };
+        if (MapModsOf(conn)?.Get("map_player_global_defences_+%") is int mapDefences and not 0)
+        {
+            long percent = Math.Max(0, 100L + mapDefences);
+            long Scale(long value) => (value * percent + 50) / 100;
+            pools = pools with
+            {
+                Armour = ActorScale.Saturate(Scale(pools.Armour)),
+                Evasion = ActorScale.Saturate(Scale(pools.Evasion)),
+                EvasionWhileMoving = pools.EvasionWhileMoving is int evasion ? ActorScale.Saturate(Scale(evasion)) : null,
+                EnergyShield = (uint)Math.Min(uint.MaxValue, Scale(pools.EnergyShield)),
+                Ward = (uint)Math.Min(uint.MaxValue, Scale(pools.Ward)),
+            };
+        }
+        conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         return pools with
         {
             FortificationRevision = FortificationOf(conn).Revision,
