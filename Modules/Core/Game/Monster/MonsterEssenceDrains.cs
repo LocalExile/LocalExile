@@ -35,9 +35,11 @@ static partial class Game
         double perSecond = Get("base_chaos_damage_to_deal_per_minute") / 60.0;
         if (!(perSecond > 0) || DamageStats.Prohibited(DamageType.Chaos, Get)) return null;
         double increased = (double)Get("damage_+%") + Get("spell_damage_+%") + Get("chaos_damage_+%")
-            + Get("damage_over_time_+%") + Get("chaos_damage_over_time_+%") + Get("essence_drain_damage_+%");
+            + Get("damage_over_time_+%") + Get("damage_over_time_+%_with_spells")
+            + Get("chaos_damage_over_time_+%") + Get("essence_drain_damage_+%");
         double more = EssenceDrainSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
-        double multiplier = 1 + ((double)Get("dot_multiplier_+") + Get("chaos_dot_multiplier_+")) / 100.0;
+        double multiplier = 1 + ((double)Get("dot_multiplier_+") + Get("chaos_dot_multiplier_+")
+            + Get("damage_over_time_multiplier_+_with_spells")) / 100.0;
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)
             * Math.Max(0, 1 + Get("siphon_duration_+%") / 100.0);
