@@ -9,13 +9,13 @@ public sealed class EssenceAuraTests
     public void Released_essences_report_their_pending_skills_without_misreporting_implemented_behaviours()
     {
         int[] Carriers(string mod) => [.. MapEssenceCatalog.All.Where(e => e.MonsterMods.Contains(Program.Items.Mods.ById(mod)!.Row)).Select(e => e.Row)];
-        foreach (string id in new[] { "EssenceDaemonMeteorFirestorm", "EssenceHorrorCharges1", "EssenceInsectSummonedOnDeath" })
+        foreach (string id in new[] { "EssenceDaemonMeteorFirestorm", "EssenceHorrorCharges1" })
         {
             var carriers = Carriers(id);
             Assert.NotEmpty(carriers);
             Assert.Contains(id, MapEssenceCatalog.PendingEffects(carriers));
         }
-        foreach (string id in new[] { Game.EssenceLifeDegen, "EssenceEnrageOnLowLife", "DecayOnHitEssenceMonster1" })
+        foreach (string id in new[] { Game.EssenceLifeDegen, Game.EssenceKaruiSummonMod, Game.EssenceInsectDeathMod, "EssenceEnrageOnLowLife", "DecayOnHitEssenceMonster1" })
         {
             var carriers = Carriers(id);
             Assert.NotEmpty(carriers);
