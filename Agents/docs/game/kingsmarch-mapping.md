@@ -243,3 +243,47 @@ Unanswered after 24 hours, the bandits keep the runner and the device's runners 
 3. Whether the estimate the client shows is computed by the client (from the worker's rank and the map) or sent by
    the server; if the client computes it, its exact curve would replace the calibration in §3.
 4. What the client's `VillageJobTypes` "Trapped in the Atlas" (`LostMapping`) job is used for.
+
+Question 1 cannot be answered statically, and that is now established rather than assumed: the action ids live in
+the window's button callbacks, and the client's RTTI for them is stripped (see §10). They have to be read off real
+clicks.
+
+## 9. The `0x2c9` village state channel (decoded from the client)
+
+`0x2c9` is `u16 id | u8 record kind | compact-uint length | payload`, the same framing as `0x2ca`. The payload's
+first byte is a **subtag**; each subtag writes one part of the settlement record and then notifies the village
+listeners, which is what makes the panel redraw.
+
+| subtag | payload after the subtag byte | effect |
+|---|---|---|
+| 1 | `u8 index`, then a value | one entry of the 60-stride array at `record+0x178` |
+| 2 | `u8 index`, two strings (`u8 length` + bytes), then 16 `u32` | a resource block at `record+0x2C0 + index*0x60`: the two names at `+0x40` and `+0x50`, the counters at `+0x00..+0x40` |
+| 3 | `u8 index`, then 3 tagged qwords (24 bytes) | three values at `record + (3*index + 0x7C)*8`, each decoded from the game's tagged-float form and merged into the existing value |
+| 4 | 36 `u32`, then an 8-byte delta | the counter block at `record+0x190`; the delta is added to it (this is how the treasury moves) |
+| 5 | a worker row | appends a row to the list at `record+0x160` (stride `0xb8`) |
+| 6 | `u8 index` | removes the row at that index |
+| 7 | `u8 index`, a string | sets the row's name at `row+0xA8` |
+| 0 | `u8 index` | erases a row |
+
+A worker row (subtag 5) is `u32 name key | u32 second key | u16 | u8 count | count * (u8 job type row, u8) |
+u8 job row`. The two keys are resolved through the client's own tables into strings, the job type row and the job
+row come from `VillageJobTypes` and `VillageJobs`, and the job row picks the status line.
+
+Subtag 9 (the port quota) is not usable yet: the client looks up a supplier key the server cannot fill, and an
+empty one crashes the client.
+
+## 10. The `0x2ca` message class, and why the action ids need a click
+
+The client builds every `0x2ca` it sends through one message class (`0x2ca` = 714):
+
+| Address (3.29.3c) | What it is |
+|---|---|
+| `0x141fa7a10` | the constructor: `*(u16*)(this+8) = 714`, `*(u32*)(this+144) = 175 (0xAF)`, vtable `0x1435cb1d0` |
+| `0x141fa7c10` | the writer: `htons(*(u16*)(this+8))` (2 bytes), `*(u8*)(this+144)` (1 byte, the record kind), a compact length from `this+128`, then the payload at `this+112` |
+| `0x141fa7ca0` | the reader, the same three fields |
+| `0x141f9ddf0` | the copy constructor (it copies `+144` from the source message, so 175 is only a default) |
+| `0x1421a1960` | closes the message and sends it through `sub_1421752b0` |
+
+So the record kind on a village action is **whatever the caller set**; the constructor's `0xAF` is a default, and the
+live capture of the town map's own click carried `0x9b`. The server therefore treats the kind as "which panel sent
+this" and does not depend on a single value.
