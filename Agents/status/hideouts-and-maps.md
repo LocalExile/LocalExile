@@ -113,6 +113,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- The Atlas invitations use the five thresholds in `MavenFights`. The character records distinct bosses cleared under
+  the Maven's influence, and Kirac offers the current invitation once its roster is full. The Crucible uses that saved
+  roster. Winning advances the round and clears its witnesses. The level-83 round has a local base reward of one
+  Crescent Splinter. Device option forwarding and the Maven receptacle are supplied by #1230.
+
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),

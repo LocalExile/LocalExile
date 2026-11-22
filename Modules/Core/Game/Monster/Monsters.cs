@@ -635,6 +635,20 @@ public static partial class Game
         // The packs need the walk map; until it exists nothing is placed, so nothing is kept either.
         if (layout.Walkable is not { } walkable) return;
         conn.MonstersPlaced = true;
+        // The Crucible has no area packs. An invitation supplies the arena's population.
+        if (layout.Id == "MavenHub" && MapRunOf(conn) is { ItemRow: > 0 } invitation)
+        {
+            var roster = invitation.Mods.Roster?.Monsters ?? MapBossFights.Current.Witnesses(invitation.ItemRow);
+            int count = 0;
+            foreach (string id in roster.Distinct(StringComparer.Ordinal))
+            {
+                if (Monsters.Find(id) is not { Supported: true } witness || witness.Id != id) continue;
+                var (x, y) = layout.Near((layout.SpawnX + ++count * 4, layout.SpawnY));
+                await SpawnMonster(remote, stream, ciphers, conn, witness, (byte)invitation.Area.Level, MonsterRarity.Unique,
+                    x, y, log: true, alone: false);
+            }
+            return;
+        }
         if (Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the
         // separate maze layout the fight does not build yet.
@@ -799,21 +813,6 @@ public static partial class Game
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false, bulk: true);
         }
         Phase($"{spawns.Count} monsters ({created} created now, {spawns.Count - created} when a player comes near)");
-        int extra = 0;
-        if (MapRunOf(conn) is { ItemRow: > 0 } opening)
-        {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            lock (conn.Monsters)
-                foreach (var m in conn.Monsters.Values)
-                    if (m.Variety is { } v) seen.Add(v.Id);
-            foreach (string id in MapBossFights.Current.Witnesses(opening.ItemRow))
-            {
-                if (!seen.Add(id) || Monsters.Find(id) is not { Supported: true } witness || witness.Id != id) continue;
-                extra++;
-                await SpawnMonster(remote, stream, ciphers, conn, witness, level, MonsterRarity.Unique,
-                    layout.SpawnX + extra * 4, layout.SpawnY, log: true, alone: false);
-            }
-        }
         if (layout.Id == MavenNucleus.Area)
         {
             var maven = spawns.Select(s => (V: Monsters.Find(s.Variety.ToString())!, s.X, s.Y))
@@ -822,9 +821,8 @@ public static partial class Game
                 await SpawnMavenRing(remote, stream, ciphers, conn, MavenNucleus.Phase1Orbs,
                     (maven.X, maven.Y), MavenNucleus.Phase1Radius, level);
         }
-        Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count + extra} at level {level}: " +
+        Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count} at level {level}: " +
             string.Join(", ", spawns.GroupBy(s => s.Pack).Select(g => $"{g.Key} × {g.Count()}")) +
-            (extra > 0 ? $", invitation × {extra}" : "") +
             $"; waiting to rise: {MonsterEmerge.Unrisen(conn).Count} ({MonsterEmerge.Buried(conn).Count} buried)" +
             $"; unique: {string.Join(", ", spawns.Where(s => s.Rarity == MonsterRarity.Unique).Select(s => $"{Monsters.Find(s.Variety.ToString())!.Name} at ({s.X}, {s.Y})").DefaultIfEmpty("none"))}");
     }

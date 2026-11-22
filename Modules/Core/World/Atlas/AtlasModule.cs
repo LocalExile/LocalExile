@@ -39,6 +39,8 @@ public sealed class AtlasModule : IModule
         ExtraPlayerMessages = conn => AtlasFeature.Restore(conn);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => AtlasFeature.EnsureUnlocked(conn));
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => AtlasFeature.EnsureUnlocked(conn));
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, MavenFeature.OnKill);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MavenFeature.Open);
         GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (conn, args) =>
         {
             int n = await AtlasFeature.EnsureUnlocked(conn);
@@ -147,6 +149,8 @@ public sealed class AtlasModule : IModule
 
 static class AtlasFeature
 {
+    const byte MavenInvitationsRow = 86; // Inventories.MavenInvitations.
+
     /// <summary>Saved QuestFlags only. SessionQuestFlags (PickUpMavenAlteration, HaveTangleMapDeviceAlteration, …)
     /// are never written to the save: granting them on every area re-fires the client's "beacon complete" toast.</summary>
     internal static readonly string[] UnlockFlags =
@@ -154,32 +158,26 @@ static class AtlasFeature
         "HaveMavenMapDeviceAlteration",
         "HaveMavenMapVoid1", "HaveMavenMapVoid2", "HaveMavenMapVoid3", "HaveMavenMapVoid4", "HaveMavenMapVoid5",
         "HaveMavenMapVoid6",
-        "HaveMavenMapAtlas1", "HaveMavenMapAtlas2", "HaveMavenMapAtlas3", "HaveMavenMapAtlas4", "HaveMavenMapAtlas5",
-        "MavenFirstMapBossCapture", "MavenFirstInvitation", "MavenFirstVoidBossCapture",
-        "SeenMavenBoss", "MavenMapDropped", "Met-EnvoyMaven", "Met-EnvoyEater", "Met-EnvoyExarch",
+        "MavenFirstVoidBossCapture",
+        "MavenMapDropped", "Met-EnvoyMaven", "Met-EnvoyEater", "Met-EnvoyExarch",
         "HaveTangleKey1", "HaveTangleKey2",
         "HaveCleansingFireKey1", "HaveCleansingFireKey2",
-        "CleansingBossDefeated", "ConsumeBossDefeated", "MavenEnragedDefeated",
+        "CleansingBossDefeated", "ConsumeBossDefeated",
         "KiracOnTheMapDeviceSeen", "KiracOnTangleLureSeen", "KiracOnCleansingFireLureSeen",
         "KiracOnCleansingFireKey1Seen", "KiracOnCleansingFireKey2Seen",
         "KiracOnTangleKey1Seen", "KiracOnTangleKey2Seen",
         "ShaperDefeated", "ElderDefeated", "SirusDefeated",
     ];
 
-    /// <summary>Map-device beacons and Maven invitation gates (Player +0x1d0, bit = id − 1). Applied onto
-    /// <see cref="ClientState.LeagueQuestFlags"/> before the player object is built so a later 0x02bc does not toast.
-    /// AtlasMavenFightComplete1–4 (979–982) make Kirac's "Invitation: The Atlas" the fifth fight; 885 MavenBossComplete
-    /// is omitted so the Nucleus still has its later phases.</summary>
+    /// <summary>Map-device beacons and the provisional endgame flags for encounters outside The Atlas invitations.</summary>
     internal static readonly int[] UnlockLeagueFlags =
     [
         6, 7,                         // Unlocked5thMapDeviceSlot, Unlocked6thMapDeviceSlot
         225, 351, 352,                // MapDeviceMavenUnlocked, MapDeviceTangleUnlocked, MapDeviceCleansingFireUnlocked
         219, 220, 221, 222, 708, 709, // PrimordialWatchstoneUnlocked Maven / UberElder / Tangled / CleansingFire + QuestRewards#111 Eldritch / Originator
         290, 607,                     // VoidstoneSocketed, PickedUpVoidstone
-        1019,                         // AtlasMavenCollectedEnoughMaps
         1100, 1101, 1102, 1103, 1104, 1161, // VoidMavenCollectedEnoughMaps1–6
-        979, 980, 981, 982,           // AtlasMavenFightComplete1–4 → Kirac offers Atlas5
-        1075, 426,                    // MavenBossUnlocked, MavenVoidQuestUnlocked
+        426,                          // MavenVoidQuestUnlocked (named invitations)
     ];
 
     /// <summary>Previously granted in error: they skip Maven/Kirac phases or toast on every area.</summary>
@@ -230,6 +228,7 @@ static class AtlasFeature
         ApplyTreeFlags(conn);
         var player = PlayerOf(conn);
         var data = WorldOf(player).CharacterData;
+        MavenFeature.ApplyFlags(conn, MavenProgress.Read(data));
         var completed = AtlasProgress.Completed(data);
         // One Atlas passive point per map completed, up to the 100 the tree's map half has (#382 item 3). The completed set
         // is read from the save. Entering an area does not complete any new maps.
@@ -305,9 +304,14 @@ static class AtlasFeature
     {
         var match = OpenMavenInvitation.Match(script ?? "");
         if (!match.Success || !MavenInvitationItems.TryGetValue(match.Groups[1].Value, out int row)
+            || !MavenFeature.CanOffer(conn, match.Groups[1].Value)
             || ItemsFor(conn).Row(row) is not { } type)
             return;
         var items = ItemsOf(conn);
+        if (items.Items(PlayerInventories.MainInventory).Any(i => i.Item.TypeHash == type.Hash)
+            || items.Items(PlayerInventories.Cursor).Any(i => i.Item.TypeHash == type.Hash)
+            || items.Items(MavenInvitationsRow).Any(i => i.Item.TypeHash == type.Hash))
+            return;
         if (items.FreeCell(PlayerInventories.MainInventory, type.Width, type.Height, ShapeOf) is not { } cell)
         {
             await PlayerOf(conn).Tell($"Atlas: no room for {type.Name}.");

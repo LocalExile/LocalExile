@@ -32,6 +32,8 @@ public sealed class MapMods
     public IReadOnlyDictionary<string, int> ScarabKinds { get; init; } = new Dictionary<string, int>();
     public ItemRarity MapRarity { get; init; }
     public bool Corrupted { get; init; }
+    public sealed record EncounterRoster(int Generation, IReadOnlyList<string> Monsters);
+    public EncounterRoster? Roster { get; init; }
 
     public int Get(string id) => Stats.GetValueOrDefault(id);
 
@@ -46,7 +48,7 @@ public sealed class MapMods
         {
             ExplicitMods = ExplicitMods, Implicit = Implicit, Fragments = fragments,
             FragmentCount = FragmentCount, ScarabCount = ScarabCount, ScarabKinds = ScarabKinds,
-            MapRarity = MapRarity, Corrupted = Corrupted,
+            MapRarity = MapRarity, Corrupted = Corrupted, Roster = Roster,
         };
     }
 
