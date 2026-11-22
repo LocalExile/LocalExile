@@ -332,7 +332,15 @@ public static partial class Game
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var skill = SupportedSkill(conn, skillId);
-        return MergeSkillStats(player, WithBlessingCost(conn, skill), SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
+        var own = WithBlessingCost(conn, skill);
+        if (SkillsFor(conn).HasType(skill.Effect, "AppliesCurse")
+            && Stats.Key(ItemChargeCosts.ManaEfficiency) is uint efficiency)
+        {
+            const string curseEfficiency = "base_mana_cost_efficiency_+%_of_curse_skills";
+            long bonus = (long)GolemStat(player, curseEfficiency) + GolemStat(own, curseEfficiency);
+            if (bonus != 0) player[efficiency] = ActorScale.Saturate(player.GetValueOrDefault(efficiency) + bonus);
+        }
+        return MergeSkillStats(player, own, SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
     }
 
     static double SkillCostMore(ClientState conn, IReadOnlyDictionary<uint, int> own)
