@@ -31,11 +31,15 @@ public sealed class MonsterIgnites
         public bool FireCannotIgnite { get; init; }
         public bool ColdCanIgnite { get; init; }
 
-        /// <summary>Whether a hit of <paramref name="hit"/> (rolled, before mitigation) can ignite: its fire damage, or any
-        /// damage with "All Damage can Ignite" (<see cref="AllDamage"/>, Shaper of Flames).</summary>
-        public bool CanIgnite(DamagePacket hit) =>
-            AllDamage ? hit.Components.Any(c => c.Range.Max > 0 && (!FireCannotIgnite || c.Type != DamageType.Fire))
-            : !FireCannotIgnite && hit[DamageType.Fire].Max > 0 || ColdCanIgnite && hit[DamageType.Cold].Max > 0;
+        /// <summary>Whether a hit has damage of a type allowed to ignite after overrides such as The Three Dragons.</summary>
+        public bool CanIgnite(DamagePacket hit)
+        {
+            if (!AllDamage)
+                return (!FireCannotIgnite && hit[DamageType.Fire].Max > 0) || (ColdCanIgnite && hit[DamageType.Cold].Max > 0);
+            foreach (var type in DamageTypes.ConversionOrder)
+                if ((type != DamageType.Fire || !FireCannotIgnite) && hit[type].Max > 0) return true;
+            return false;
+        }
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
