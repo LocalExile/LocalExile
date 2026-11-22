@@ -28,6 +28,17 @@ public sealed class SocialModule : IModule
             return true;
         });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => SocialFeature.CancelPlayerTrade(conn, why));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => PvpQueue.Leaving(conn));
+        GameEvents.Packet(InstancePvp.LeaveQueueId).Add(module.Manifest.Id, async (conn, _) =>
+        {
+            await PvpQueue.Leave(conn, withdraw: false);
+            return true;
+        });
+        GameEvents.Packet(InstancePvp.WithdrawId).Add(module.Manifest.Id, async (conn, _) =>
+        {
+            await PvpQueue.Leave(conn, withdraw: true);
+            return true;
+        });
         GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var remote = conn.Wire.Remote;
