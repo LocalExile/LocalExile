@@ -514,13 +514,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileHitResult Damage(ProjectileEntity p, ProjectileActor target, string stage,
         long? group = null, ProjectileHitRule? rule = null, double multiplier = 1, string? admissionStage = null,
-        bool isArea = false)
+        bool isArea = false, bool acrossUse = false)
     {
         rule ??= (admissionStage ?? stage) == "direct" ? DirectHitRule(p) : p.Profile.HitRule;
-        long g = group ?? (rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId);
+        var (history, hitGroup, phase) = acrossUse
+            ? (p.Release.SharedPulseHits ??= new(), p.UseId, 0)
+            : (ledger, group ?? (rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId), p.Phase);
         contactEpoch++;
         var result = ProjectileHitResult.Blocked;
-        ledger.TryHit(g, p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
+        history.TryHit(hitGroup, phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
         {
             result = world.Hit(new(p, target.Key, Now, stage, p.Position, multiplier * p.DamageMultiplier) { IsArea = isArea });
             return result != ProjectileHitResult.Miss;

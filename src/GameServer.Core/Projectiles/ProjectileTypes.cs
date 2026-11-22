@@ -53,7 +53,12 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     /// overdue time without catching up (the client's cluster timer).</summary>
     public bool UpdateTimer { get; init; }
 }
-public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
+public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval)
+{
+    public bool HitOnSpawn { get; init; } = true;
+    public bool AreaDamage { get; init; } = true;
+    public bool ShareIntervalAcrossUse { get; init; }
+}
 /// <summary>Emit one independent shot per heading, including both ends of the signed sweep.</summary>
 public sealed record ProjectileSweep(long Duration, double Radians, Func<ProjectileEntity, ProjectileVector> StartDirection);
 public readonly record struct ProjectileFlightPath(ProjectileVector Origin, ProjectileVector Aim, ProjectileLaunch Launch = default);
@@ -302,6 +307,7 @@ internal sealed class ProjectileReleaseState(long id)
 {
     public long Id { get; } = id;
     public int Spawned;
+    public ProjectileHitLedger? SharedPulseHits;
 }
 
 public sealed class ProjectileEntity

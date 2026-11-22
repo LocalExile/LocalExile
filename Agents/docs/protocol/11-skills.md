@@ -2238,6 +2238,13 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   flight exceeding [.NET's maximum Task.Delay duration](https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.task.delay?view=net-10.0)
   (4,294,967,294 ms) gets a distance-dependent lower speed bound, before collision prediction. The bound includes
   endpoint rounding and is a numeric guard, not a measured official minimum speed.
+  Ordinary Ball Lightning uses the default projectile art for `ball_lightning`. In 3.29.3c that variation points
+  to `Metadata/Projectiles/BallLightningPlayer` (400 world units/s). Its gem grants 33% more travel and hit
+  frequency. An unmodified orb travels at 48.944 cells/s and first strikes after 150 ms. Its two-second flight
+  allows up to 13 strikes on an enemy that stays in range. Radius is 20 cells at zero quality and 22 at 20 quality.
+  Area modifiers change that reach. Each bolt uses the single-target spell projectile hit. Additional orbs from
+  the same cast share the interval for each enemy, including on return. Spell Echo starts its own interval.
+  Delay and lifetime are based on observed player mechanics. Flight and bolt presentation await checks in both clients.
   Other final factors, conditional and per-charge sources, and action-specific variation still need their own verification.
   Live validation used a copied OfflineWitch database and three Fireball casts over the same 116-cell path.
   At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads

@@ -26,6 +26,8 @@ public sealed partial class ProjectileRuntime
         if (p.Profile.Pulse is { } pulse)
         {
             if (pulse.Interval <= 0) throw new ArgumentOutOfRangeException(nameof(pulse));
+            var rule = pulse.ShareIntervalAcrossUse
+                ? new ProjectileHitRule(Repeat: ProjectileRepeat.Interval, Period: pulse.Interval) : null;
             void Pulse()
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
@@ -37,13 +39,15 @@ public sealed partial class ProjectileRuntime
                         var target = targets[i];
                         if (target.Team != p.Use.Team && target.Key != p.Use.Owner
                             && (target.Position(Now) - p.Position).Length <= pulse.Radius + target.Radius)
-                            Damage(p, target, pulse.Stage, isArea: true);
+                            Damage(p, target, pulse.Stage, rule: rule, isArea: pulse.AreaDamage,
+                                acrossUse: pulse.ShareIntervalAcrossUse);
                     }
                 }
                 finally { Return(targets, listed); }
                 Schedule(Now + pulse.Interval, Pulse);
             }
-            Pulse();
+            if (pulse.HitOnSpawn) Pulse();
+            else Schedule(Now + pulse.Interval, Pulse);
         }
         if (p.Profile.TravelEmission is { Interval: > 0 } emission)
         {

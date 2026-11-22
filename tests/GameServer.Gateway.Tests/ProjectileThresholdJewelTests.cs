@@ -28,6 +28,16 @@ public sealed class ProjectileThresholdJewelTests
         Assert.Equal(2, Profile("Fireball").Count);
         Assert.Equal(1, Profile("Fireball").Pierce);
         Assert.Equal(5, Profile("IceShot").Pierce);
+        int ballEffect = skills.EffectRow("BallLightning");
+        var ball = Game.ResolveProjectileDefinition(ballEffect)!;
+        Assert.Equal("Metadata/Projectiles/BallLightningPlayer", ball.Metadata);
+        var gem = skills.EffectStats(ballEffect, 1, 20).ToDictionary(s => Program.Stats.Name(s.Item1)!, s => s.Item2);
+        var orb = ball.Parameters.Resolve(name => gem.GetValueOrDefault(name), 100, false);
+        Assert.Equal(133, orb.Speed);
+        Assert.False(orb.DirectDamage);
+        Assert.Equal(22, orb.Pulse!.Radius);
+        Assert.Equal(ProjectileRuntime.Time(.15), orb.Pulse.Interval);
+        Assert.Equal(ProjectileRuntime.Time(2), orb.Lifetime);
         stats["always_pierce"] = 1;
         Assert.Equal(-1, Profile("IceShot").Pierce);
         stats.Remove("freezing_pulse_number_of_additional_projectiles");

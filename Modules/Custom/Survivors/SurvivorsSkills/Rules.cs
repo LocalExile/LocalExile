@@ -552,12 +552,20 @@ static partial class SurvivorsSkills
         var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
         var runtime = ProjectilesFor(remote, stream, ciphers, conn);
         long now = ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds);
-        foreach (var aim in aims)
+        void Fire(ProjectileProfile flight, (int X, int Y) aim)
         {
-            var use = new ProjectileUse(profile, owner, owner, 1, ProjectileSession.Vector(origin), ProjectileSession.Vector(aim))
+            var use = new ProjectileUse(flight, owner, owner, 1, ProjectileSession.Vector(origin), ProjectileSession.Vector(aim))
             { Payload = shot, ReturnAnchor = owner };
             runtime.Schedule(now, () => ownership.Current, () => use);
         }
+        if (profile.Pulse is { ShareIntervalAcrossUse: true } && aims.Count > 1)
+        {
+            double Bearing((int X, int Y) aim) => Math.Atan2(aim.Y - origin.Y, aim.X - origin.X);
+            double first = Bearing(aims[0]);
+            var volley = new ProjectileNativeVolley { Angles = aims.Select(aim => Bearing(aim) - first).ToArray() };
+            Fire(profile with { Count = aims.Count, NativeVolley = volley }, aims[0]);
+        }
+        else foreach (var aim in aims) Fire(profile, aim);
         await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, aims, cast.Interval);
         return cast.Interval;
     }
@@ -1109,8 +1117,8 @@ static partial class SurvivorsSkills
     };
 
     /// <summary>
-    /// The gem mechanics the shared profile rules do not carry: Ice Spear's second form, Ball Lightning's repeated
-    /// area hits along its flight and Storm Burst's jumping orbs. Everything else (Fireball's explosion, Kinetic
+    /// The gem mechanics the shared profile rules do not carry: Ice Spear's second form
+    /// and Storm Burst's jumping orbs. Everything else (Fireball's explosion, Kinetic
     /// Blast's clusters, Spark's hit window, Tornado Shot's arrows) is part of the resolved profile already.
     /// </summary>
     internal static ProjectileProfile SurvivorsMechanics(SurvivorsSkill skill, Func<string, int> get, ProjectileProfile profile, bool spell)
@@ -1120,11 +1128,6 @@ static partial class SurvivorsSkills
         {
             double formSpeed = 1 + get("ice_spear_second_form_projectile_speed_+%_final") / 100.0;
             profile = profile with { FormChange = new(profile.Range * 0.35, Math.Max(1, formSpeed), -1) };
-        }
-        if (effect is "BallLightning")
-        {
-            int radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell);
-            profile = profile with { Pulse = new("ball-lightning", radius, ProjectileRuntime.Time(0.2)) };
         }
         if (effect is "StormBurst")
         {

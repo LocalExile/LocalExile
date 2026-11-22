@@ -47,7 +47,20 @@ public static class GatewayProjectileSkillProfiles
             // The action's one-projectile override applies separately to each acquired enemy.
             p = p with { Count = Math.Max(1, siphonBase + get("base_number_of_projectiles")) };
         }
-        if (IsKineticBlast(effect))
+        if (effect == "BallLightning")
+        {
+            const int basePulseMilliseconds = 200;
+            int rate = 100 + get("ball_lightning_projectile_speed_and_hit_frequency_+%_final");
+            int pulseMilliseconds = basePulseMilliseconds * 100 / rate;
+            p = p with
+            {
+                Speed = speed * rate / 100d, Lifetime = ProjectileRuntime.Time(2),
+                DirectDamage = false, CannotFork = true, CannotChain = true, CannotSplit = true,
+                Pulse = new("ball-lightning", 0, ProjectileRuntime.Time(pulseMilliseconds / 1000d))
+                    { HitOnSpawn = false, AreaDamage = false, ShareIntervalAcrossUse = true }
+            };
+        }
+        else if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";
             int count = get("cluster_burst_spawn_amount") is > 0 and var amount ? amount : clustering ? 3 : 4;
@@ -364,6 +377,9 @@ public static class GatewayProjectileSkillProfiles
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)
     {
         int Value(string key, int fallback) => get(key) is > 0 and var value ? value : fallback;
+        if (effect == "BallLightning" && p.Pulse is { } pulse)
+            return p with { Pulse = pulse with
+                { Radius = SkillArea.Radius(get("active_skill_base_area_of_effect_radius"), get, spell) } };
         if (IsKineticBlast(effect) && p.ContactArea is { } contact)
         {
             bool clustering = effect == "KineticBlastAltX";
