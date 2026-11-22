@@ -368,12 +368,13 @@ public static partial class Game
         // floors are resolved before reading the final stage's live inputs.
         conn.ElementalAilments.Reconcile(Get);
         var ailments = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+        var spellDefences = SpellDefences(conn);
         var finalInputs = tailInputs with
         {
             Stats = stats,
             Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
             ActionFactor = PlayerActionFactorFrom(conn, Get),
-            SuppressionChance = Suppression(conn).Chance,
+            SuppressionChance = spellDefences.Suppression, SpellDodgeChance = spellDefences.Dodge,
         };
         stats = StatSnapshotTailFor(conn, finalInputs, StatSnapshotStage.Critical);
         WithLeechingDefences(stats, devSet);

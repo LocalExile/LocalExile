@@ -54,6 +54,8 @@ public static class CharacterStats
     {
         // Identifies the transient source snapshot used by this immutable pool calculation, including with-clones.
         public long FortificationRevision { get; init; }
+        public bool ConvertSuppressionToSpellDodge { get; init; }
+        public int BaseSpellDodgeChance { get; init; }
         // Calculated zero attributes are valid; legacy partial pool records may still need class defaults.
         public bool AttributesResolved { get; init; }
         // Player stats that monster swings, player ticks, regeneration steps and sweeps read for every character: resolved
@@ -117,7 +119,8 @@ public static class CharacterStats
         bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0,
         // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
         // can add spell suppression chance per complete group of 15 Dexterity.
-        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0)
+        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0,
+        bool ConvertSuppressionToSpellDodge = false, int BaseSpellDodgeChance = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -156,12 +159,23 @@ public static class CharacterStats
     /// hit an enemy recently, on full energy shield), bounded to 0..100% after every active source is added.</summary>
     public static int SuppressionChance(Pools p, bool fullLife, bool moving, bool hitRecently,
         bool fullEnergyShield = false) =>
-        (int)Math.Clamp((long)(p.SpellSuppressionChanceUncapped ?? p.SpellSuppressionChance)
+        p.ConvertSuppressionToSpellDodge ? 0 : (int)Math.Clamp(
+            UncappedSuppressionChance(p, fullLife, moving, hitRecently, fullEnergyShield), 0, DamageModel.SpellSuppressionChanceCap);
+
+    public static int SpellDodgeChance(Pools p, bool fullLife, bool moving, bool hitRecently, bool fullEnergyShield = false)
+    {
+        long chance = p.BaseSpellDodgeChance;
+        if (p.ConvertSuppressionToSpellDodge)
+            chance += (long)Math.Floor(UncappedSuppressionChance(p, fullLife, moving, hitRecently, fullEnergyShield) / 2d);
+        return (int)Math.Clamp(chance, 0, DamageModel.SpellDodgeChanceCap);
+    }
+
+    static long UncappedSuppressionChance(Pools p, bool fullLife, bool moving, bool hitRecently, bool fullEnergyShield) =>
+        (long)(p.SpellSuppressionChanceUncapped ?? p.SpellSuppressionChance)
             + (fullLife ? p.SpellSuppressionWhileFullLife : 0)
             + (moving ? p.SpellSuppressionWhileMoving : 0)
             + (hitRecently ? p.SpellSuppressionIfHitRecently : 0)
-            + (fullEnergyShield ? p.SpellSuppressionWhileFullEnergyShield : 0),
-            0L, DamageModel.SpellSuppressionChanceCap);
+            + (fullEnergyShield ? p.SpellSuppressionWhileFullEnergyShield : 0);
 
     public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null) =>
         For(c, level, bonus, null);
@@ -298,7 +312,7 @@ public static class CharacterStats
             LightningResistance: BaseResistance + b.LightningResistance, ChaosResistance: BaseResistance + b.ChaosResistance,
             FireMaxResistance: Max(b.FireMaxResistance), ColdMaxResistance: Max(b.ColdMaxResistance),
             LightningMaxResistance: Max(b.LightningMaxResistance), ChaosMaxResistance: Max(b.ChaosMaxResistance),
-            SpellSuppressionChance: Math.Clamp(b.SpellSuppressionChance + dex / 15 * b.SpellSuppressionPerFifteenDexterity,
+            SpellSuppressionChance: b.ConvertSuppressionToSpellDodge ? 0 : Math.Clamp(b.SpellSuppressionChance + dex / 15 * b.SpellSuppressionPerFifteenDexterity,
                 0, DamageModel.SpellSuppressionChanceCap),
             SpellSuppressionChanceUncapped: b.SpellSuppressionChance + dex / 15 * b.SpellSuppressionPerFifteenDexterity,
             SpellSuppressionEffect: Math.Max(0, DamageModel.SpellSuppressionEffect + b.SpellSuppressionEffect),
@@ -331,7 +345,10 @@ public static class CharacterStats
             ColdOvercapEvasionPct: b.ColdOvercapEvasionPct, LightningOvercapCritPct: b.LightningOvercapCritPct,
             ArmourAppliesToChaosDamage: b.ArmourAppliesToChaosDamage, Ward: WardState.Max(b.Ward, b.WardPct),
             EvasionWhileMoving: evasionWhileMoving)
-            { AttributesResolved = true, AccuracyBase = accuracyBase };
+        {
+            AttributesResolved = true, AccuracyBase = accuracyBase,
+            ConvertSuppressionToSpellDodge = b.ConvertSuppressionToSpellDodge, BaseSpellDodgeChance = b.BaseSpellDodgeChance
+        };
     }
 
     private static readonly Lazy<uint[]> Experience = new(LoadExperience);

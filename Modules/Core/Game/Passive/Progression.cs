@@ -1487,6 +1487,8 @@ public static partial class Game
             LightningMaxResistance: allMax + allElemMax + Get("base_maximum_lightning_damage_resistance_%"),
             ChaosMaxResistance: allMax + Get("base_maximum_chaos_damage_resistance_%"),
             SpellSuppressionChance: Get("base_spell_suppression_chance_%"),
+            ConvertSuppressionToSpellDodge: Get("keystone_acrobatics") != 0,
+            BaseSpellDodgeChance: Get("chance_to_dodge_spells_%"),
             SpellSuppressionEffect: Get("base_spell_damage_%_suppressed"),
             SpellSuppressionLucky: Get("spell_suppression_chance_is_lucky") != 0,
             SpellSuppressionUnlucky: Get("spell_suppression_chance_is_unlucky") != 0,

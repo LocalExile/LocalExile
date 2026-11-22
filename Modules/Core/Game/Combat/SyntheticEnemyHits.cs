@@ -21,6 +21,7 @@ public static partial class Game
             using var defenceTime = FortificationOf(conn).Capture(now);
             // Refresh lazy aura/Fortification pools before reading ANY final defence at the accepted contact.
             var stats = CharacterPlayerStats(conn);
+            if (spell && DodgesSpellHit(conn)) return false;
             GainLifeBeforeEnemyHitLocked(conn, stats);
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
             // Avoidance rolls before block, as for a monster hit; an avoided hit still lands. Elusive's is one

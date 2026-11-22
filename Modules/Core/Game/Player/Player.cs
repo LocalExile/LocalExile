@@ -941,7 +941,7 @@ public static partial class Game
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         double last = updates.Schedule.Now(conn);
-        int suppression = Suppression(conn).Chance;
+        var spellDefences = SpellDefences(conn);
         var criticalContext = CriticalContext(conn);
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
@@ -1106,11 +1106,13 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // The character panel's Spell Suppression chance again (0x1b3 with only its stats) when a condition changed
             // it: full life lost or regained, a walk started or ended, an enemy hit 4 s ago.
-            if (Suppression(conn).Chance is var chance && chance != suppression)
+            if (SpellDefences(conn) is var nextSpellDefences && nextSpellDefences != spellDefences)
             {
-                suppression = chance;
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [.. SuppressionChanceKeys.Select(k => (k, chance))]),
-                    $"0x01b3 player Spell Suppression chance {chance}%");
+                spellDefences = nextSpellDefences;
+                var chances = SuppressionChanceKeys.Select(key => (key, spellDefences.Suppression)).ToList();
+                if (Stats.Key("chance_to_dodge_spells_%") is uint dodge) chances.Add((dodge, spellDefences.Dodge));
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, chances),
+                    $"0x01b3 player spell suppression {spellDefences.Suppression}%, dodge {spellDefences.Dodge}%");
             }
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (conn.Walk.Moving(tickNow) is var nowMoving && nowMoving != moving)
@@ -1667,7 +1669,11 @@ public static partial class Game
     // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
-    public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(ClientState conn)
+    public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(ClientState conn) =>
+        (SpellDefences(conn).Suppression, Math.Max(0, conn.Pools.SpellSuppressionEffect),
+            conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
+
+    internal static (int Suppression, int Dodge) SpellDefences(ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         bool fullLife, fullEnergyShield, hitRecently;
@@ -1677,11 +1683,15 @@ public static partial class Game
             fullEnergyShield = conn.PlayerLife > 0 && conn.EnergyShield.Full;
             hitRecently = now - conn.LastEnemyHitAt <= RecentlySeconds;
         }
-        return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: conn.Walk.Moving(now), hitRecently,
-                fullEnergyShield),
-            Math.Max(0, conn.Pools.SpellSuppressionEffect),
-            conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
+        bool moving = conn.Walk.Moving(now);
+        var pools = conn.Pools;
+        return (CharacterStats.SuppressionChance(pools, fullLife, moving, hitRecently, fullEnergyShield),
+            CharacterStats.SpellDodgeChance(pools, fullLife, moving, hitRecently, fullEnergyShield));
     }
+
+    static bool DodgesSpellHit(ClientState conn) =>
+        (conn.Pools.ConvertSuppressionToSpellDodge || conn.Pools.BaseSpellDodgeChance > 0)
+        && GameServer.Core.World.RandomRolls.Chance(SpellDefences(conn).Dodge, 100, conn.IncomingHitRandom);
 
     // Devout of Garukhan's while-moving evasion and regeneration as finals, again when a walk starts or ends, for a
     // character with a while-moving stat. The client steps its pools from life/mana_recovery_per_minute and does not

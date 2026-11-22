@@ -2337,6 +2337,11 @@ public static partial class Game
                 $"vs evasion {evasion}, {hitChance}% chance to hit, entropy {conn.EvasionEntropy:0}");
             return null;
         }
+        if (spellHit && DodgesSpellHit(conn))
+        {
+            Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}): spell hit dodged");
+            return null;
+        }
         GainLifeBeforeEnemyHitLocked(conn, stats);
         // Roll the whole monster-mod packet (the Gambler's incoming luck included), then mitigate each component
         // with this hit's one armour decision.

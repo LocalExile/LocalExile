@@ -44,6 +44,7 @@ public static partial class Game
         public required int[] Ailments;
         public double ActionFactor;
         public required int SuppressionChance;
+        public int SpellDodgeChance;
         public required string? AttackEffectId;
 
         public IReadOnlyList<InventoryItem> Row(byte row) => row switch
@@ -67,7 +68,7 @@ public static partial class Game
             && PetrifiedBloodRecoveryCapped == o.PetrifiedBloodRecoveryCapped
             && LifeRegenerationToEnergyShield.Equals(o.LifeRegenerationToEnergyShield) && Moving == o.Moving
             && BloodChargesHeld == o.BloodChargesHeld && BloodChargesShown == o.BloodChargesShown
-            && SuppressionChance == o.SuppressionChance && AttackEffectId == o.AttackEffectId
+            && SuppressionChance == o.SuppressionChance && SpellDodgeChance == o.SpellDodgeChance && AttackEffectId == o.AttackEffectId
             && ActionFactor.Equals(o.ActionFactor) && Ailments.AsSpan().SequenceEqual(o.Ailments)
             && Pools.Equals(o.Pools)
             && SameItems(MainRow, o.MainRow) && SameItems(OffRow, o.OffRow)
@@ -311,6 +312,7 @@ public static partial class Game
             stats[virtualActionKey] = (int)Math.Round(100 * (inputs.ActionFactor - 1));
         // The conditions as they are now; the player tick sends the chance again when they change.
         foreach (uint key in SuppressionChanceKeys) stats[key] = inputs.SuppressionChance;
+        if (Stats.Key("chance_to_dodge_spells_%") is uint dodge) stats[dodge] = inputs.SpellDodgeChance;
         if (Stats.Key("main_hand_critical_strike_multiplier") is uint multiplier)
             stats[multiplier] = AttackMultiplier(stats);
         var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal) with { Rating = mainAccuracy };
