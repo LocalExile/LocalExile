@@ -16,11 +16,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   the native recipe browser (0x7b kind 0x39).
   C→S 0x274 carries the selected HarvestCraftOptions HASH16 (captured live: ReforgeFire 0xa3e5); S→C 0x276 carries the
   crafted item id and clears the panel's pending state, so Craft can be clicked repeatedly without reopening.
-  Targeted/affinity reforges, augments and modifier conversions execute on the item in HarvestCraftingItem; the exact
-  Wild/Vivid/Primal/Sacred lifeforce cost is split across the main inventory and personal stash and commits with the
-  item atomically.
-  Refusals spend nothing; unsupported influence, exchange, divination-card, gem, corrupted-map and quality-enchant
-  recipes are reported in chat and wait for their prerequisite systems.
+  All 74 `HarvestCraftOptions` recipes execute on the item in HarvestCraftingItem, including targeted/affinity reforges,
+  augments, modifier conversions, body-armour/weapon quality enchants, essence/set exchanges (with stack and basetype
+  cost scaling), divination-card rerolls and gambles, influence rerolls/reforges, corrupted-map rerolls, Ruthless
+  support-gem swaps and Facetor's Lens (`StoredExperience`, applicable to skill gems).
+  Refusals spend nothing; the exact Wild/Vivid/Primal/Sacred/Rancour cost is split across the main inventory and
+  personal stash and commits with the item atomically (new non-item recipe families not yet tried in the client).
   Reforges need an identified rare, augments a non-influenced item.
   Uniques, unmodifiable items and a recipe of the other game mode (GameMode 1 not in Ruthless, 2 Ruthless only) are
   refused, and RancourCost charges Crystallised Rancour (these rules not yet tried in the client).
