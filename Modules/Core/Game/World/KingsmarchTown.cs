@@ -189,11 +189,12 @@ public static class KingsmarchTown
         }
     }
 
-    /// <summary>The settlement records the client's town panel reads, sent with the area's own messages, before the area
-    /// starts. The client builds the town's window when the area starts and reads the village's records once, there (client
-    /// 0x140521d00, the widget's constructor, scans village+0xcfd8 and skips it when the list is empty), so a record that
-    /// arrives later is never read: the panel's gates stay shut and the town's button does nothing.</summary>
-    public static IEnumerable<(string Log, byte[] Message)> AreaEntryMessages(ClientState conn)
+    /// <summary>The settlement records the client's town panel reads, sent before the area starts (with the player's own
+    /// messages, ahead of 0x21). The client builds the town's window when the area starts and reads the village's records
+    /// once, there (client 0x140521d00, the widget's constructor, scans village+0xcfd8 and skips it when the list is
+    /// empty), so a record that arrives later is never read: the panel's gates stay shut and the town's button does
+    /// nothing.</summary>
+    public static IEnumerable<(string Log, byte[] Message)> BeforeEnterMessages(ClientState conn)
     {
         var player = Program.PlayerOf(conn);
         if (!string.Equals(player.AreaId, Area, StringComparison.Ordinal)) return [];

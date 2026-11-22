@@ -11,9 +11,12 @@ public sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? 
 public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
+    public bool WeaponAttack { get; init; }
+    public Game.TinctureKillBonus? TinctureKill { get; init; }
     public bool NoExtraCriticalDamage { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
+    public SpawnedMonster? BrandedTarget { get; init; }
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
     public double HitProfileMore { get; init; } = 1;

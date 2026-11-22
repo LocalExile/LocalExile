@@ -22,6 +22,8 @@ public static class GameDataFiles
         ("UniqueStashLayout", "unique item names and artwork"),
         ("VillageUniqueDisenchantValues", "unique drop weights"),
         ("PassiveJewelSlots", "ordinary passive tree jewel sockets"),
+        ("PassiveTreeExpansionJewels", "cluster jewel templates, passive ranges and socket layouts"),
+        ("PassiveTreeExpansionSkills", "cluster jewel small-passive themes and notable pools"),
         ("ModType", "vendor affix sale-price categories"),
         ("Essences", "essence crafting and class-specific guaranteed modifiers"),
         ("CraftingBenchOptions", "crafting bench recipes, unlocks and costs"),
@@ -43,6 +45,8 @@ public static class GameDataFiles
         ("AtlasVoidstoneSlots", "Atlas Voidstones"),
         ("Words", "item names"),
         ("ItemVisualIdentity", "unique map artwork"),
+        ("CharacterAudioEvents", "player character voice line events"),
+        ("CharacterEventTextAudio", "player character voice line class mappings"),
     ];
 
     /// <summary>The generated tables (client.db: extract-data.ps1's generators, scripts/dev/generated_tables.py) features
@@ -85,16 +89,16 @@ public static class GameDataFiles
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
-        ("game-pack", 4, "native Delve encounter rooms for procedural mine terrain"),
+        ("game-pack", 5, "native Delve encounter rooms (4), the terrain plugins and the Deepwater rooms (5): without the last, the Allflame encounter areas are not generated"),
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 9, "class rig animation indices, spell cancellation events, every contact frame and all named event times, with lengths even for clips without a contact keyframe"),
+        ("animation-contacts", 10, "class rig animation indices, spell cancellation events, contact frames, named events and single-clip skill actions"),
         ("monster-contacts", 6, "monster clip contact frames, variety AO slow spans, ACT budgets and explicit clock metadata availability"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),
-        ("object-types", 12, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker, Oshabi's soul tree) and inherited monster Actor slow-animation policy, phasing and immobility"),
+        ("object-types", 13, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker, Oshabi's soul tree, the Allflame encounters' lamp and barrels) and inherited monster Actor slow-animation policy, phasing and immobility"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older

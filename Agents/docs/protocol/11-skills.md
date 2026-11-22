@@ -1586,6 +1586,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   native use refresh briefly restores the recovery rate, but the held remaining stays full so the ring does not move;
   `StartTriggeredGuard`'s held entry behind the 0x1ce freezes the rate again. Without the pre-entry the prediction swept
   ~109 ms (3.00 → 2.89) on a slow first press before the held entry froze it (#1127).
+  A skill-list refresh (Actor 0x20, `SendSkills`) replaces every skill record, and that replacement refreshes an existing
+  zero-rate entry (the `0x141ef1573` case above): a movement or conditional-item-stat refresh during the buff therefore
+  started the held entry counting again at the recovery rate (Frida: `[3,3,0]` → `[3,3,1]` → counting, live 2026-11-19).
+  `SendSkills` re-publishes the held rate-0 entry behind the list (`HeldGuardCooldownRefresh`), so the bar stays frozen
+  through stat refreshes; a zero-rate refresh replaces the entry without restarting its animation (#1127).
   The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
   `0x14219e694..0x14219e7eb` reads its entries; `0x14219e900..0x14219e948` replaces the matching cooldown's vector.
   `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.
@@ -4289,3 +4294,20 @@ The omitted-duration default 0x14015a9b0 is float positive infinity (0x7f800000)
 An integer 60000 was interpreted as a tiny subnormal float and immediately displayed 0:00.
 The regression independently decodes the BE duration bits and checks float 60, rather than comparing two calls
 to the same packet writer. Native icon was confirmed; corrected countdown awaits live verification.
+
+### Brands, Snipe and General's Cry (3.29.3c client findings)
+
+- **Brands (`ActiveSigil` buffs)**: `BuffDefinitions` rows `1218` (`conduit_sigil`), `1230` (`cataclysm_sigil`),
+  `1547` (`magma_sigil`), `1548` (`immolation_sigil`) and `1549` (`trigger_sigil`) use `ActiveSigil` ctor
+  `0x1415c6860` (`0x1415c68ee`, `0x1415c6a99`) and update `0x1415c6d60`, which read `buff+0x80` (`list`) entries
+  `[0]` (`MiscAnimated` row `4478..4482`) and `[1]` (`0 = fadein`, `1 = chargeup_start`) unchecked. Every `0x1c1`
+  for these buffs must include a 2-element `list`; omitting it dereferences null. `1551` (`magma_pustule`,
+  `PenanceBrandCharge`) requires the maximum energy (20) in `list[0]` when updating the effect in 3.29.3d.
+  HUD counters read `SigilDisplay` stats
+  (`current_number_of_active_*_sigils`, `current_number_of_inactive_*_sigils`, `current_total_number_of_sigils`).
+- **Snipe**: `BuffDefinitions` `1494` (`snipe_stacks`, `ShowCount`, `BuffVisuals` `1285` `snipe_stages`) displays
+  channelled stages; unlinked releases fire `Metadata/Projectiles/ChannelledSnipeDefaultProjectile`.
+- **General's Cry Mirage Warriors**: `Metadata/Monsters/MirageWarrior/MirageWarrior<Class>` (rows `8411..8417`)
+  serialize with `NonBlocking` `Positioned` flags (`flags1 = 0x0a`, trailing `1` → `+0x1e6` bit `0x40`, matching
+  `PetObject`) so the client never blocks player movement on the warrior's cell, and render via `BuffDefinitions`
+  `1748` with `BuffVisuals` `1215` (`mirage_warrior_visual`).

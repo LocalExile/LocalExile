@@ -517,6 +517,13 @@ public static partial class Game
             }
             else if (id == InstanceEntities.PanelToggleId)
                 Console.WriteLine($"[gateway] {remote} <= 0x0123 panel {(bytes[2] != 0 ? "opened" : "closed")}");
+            else if (id == InstanceEntities.CancelBuffId)
+            {
+                uint raw = InstanceEntities.ReadCancelBuff(bytes);
+                if (raw <= ushort.MaxValue) await GameEvents.RunBuffCancel(conn, (ushort)raw);
+            }
+            else if (id == InstanceProtocol.TutorialCompleteId)
+                await CompleteTutorial(remote, stream, ciphers, conn, InstanceProtocol.ReadTutorialComplete(bytes));
             else if (id == InstanceItems.DropItemId)
                 await DropItem(remote, stream, ciphers, conn);
             else if (id == InstanceItems.CommandId)
@@ -671,6 +678,8 @@ public static partial class Game
             }
             else if (id == InstanceProtocol.ChannelEndId)
                 ChannelReleased(conn, conn.ClockAt(readAt));
+            else if (id == InstanceProtocol.RetargetActionId)
+                await RetargetAction(remote, stream, ciphers, conn, InstanceProtocol.ReadRetargetAction(bytes), readAt);
             else if (id == InstanceProtocol.SwapWeaponsId)
             {
                 // The weapon swap: the hands' rows and the other set's trade their items (the client shows the active set in
@@ -839,13 +848,20 @@ public static partial class Game
                         Console.WriteLine($"[gateway] {remote} arrived by waypoint, but {conn.Layout.Id} seed {conn.Seed} has no captured waypoint " +
                             $"(run live.ps1 -Walkmaps): spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY}){(conn.Layout.Walkable is null ? ", no walk map either: the player may stand outside the map" : "")}");
                     Sirus.ConfigureArrival(conn);
-                    RecordVisit(conn);
                     // An area with a Trial of Ascendancy gives the Lord's Labyrinth quest, before the player object carries the flags.
                     if (LabyrinthTrials.For(conn.Layout.Id) is not null && !conn.HasQuestFlag(Quests.LabyrinthQuestReceived))
                         await SetQuestFlags(remote, stream, ciphers, conn, [Quests.LabyrinthQuestReceived]);
                     await SendPlayer(remote, stream, ciphers, conn);
                     await PlayerEnteredArea(remote, stream, ciphers, conn);
+                    // Record the area visit after 0x2bb PlayerObject is sent: the client's CharacterAudioController
+                    // (0x140108c80) snapshots the 0x2bb quest flags as its baseline, so the new area's StartQuestFlags
+                    // (Visited-*) must transition 0 -> 1 in a subsequent 0x2bc update (sent by SendWaypoints below, or
+                    // directly when the waypoint table is absent) for Enter* character voice lines to play once on first entry.
+                    bool newlyVisited = RecordVisit(conn);
                     await SendWaypoints(remote, stream, ciphers, conn);
+                    if (newlyVisited && WaypointCatalog.Areas.Entries.Count == 0)
+                        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x02bc player quest flags (area visit)",
+                            atGate: () => QuestFlagPresentation(conn));
                     uint gold = PersonalStashOf(conn).Gold;
                     await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (account, {conn.League ?? "Standard"})");
                     // The worn cosmetics (S→C 0x1f3): the client's worn table starts empty with every instance connection.
@@ -889,6 +905,27 @@ public static partial class Game
                         if (conn.OwnedCombatState is RampageWorld world) EnsureRampageWorker(conn, world);
                 }
             }
+            else if (id == InstanceItems.CurrencyApplicationForesightRequestId)
+            {
+                // C→S 0x29d: Hinekora's Lock preview request (20 bytes). The 0x2a0 answer uses the same key.
+                var req = InstanceItems.ReadCurrencyApplicationForesightRequest(bytes);
+                var items = ItemsOf(conn);
+                var currency = items.RowOf(req.CurrencyId) is byte currencyRow
+                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == req.CurrencyId) : null;
+                var target = items.RowOf(req.TargetId) is byte targetRow
+                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == req.TargetId) : null;
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                    ? CurrencyResult(conn, target.Item, currency.Item.TypeHash,
+                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
+                    : null;
+                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
+                conn.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId,
+                    target?.Item.ForeseeSeed ?? 0, preview);
+                await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
+                    req.Key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+                    preview is null ? [] : [preview]),
+                    $"0x02a0 foresight preview key {req.Key} for item {req.TargetId}: {(preview is null ? "refused" : "preview")}");
+            }
         }
         // a1q5: after a read that moved items, the Medicine Chest's flag (and its removal once Nessa has one), here on the
         // message path so the inventory revisions stay in order.
@@ -897,31 +934,6 @@ public static partial class Game
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
-            // C→S 0x29d: Hinekora's Lock preview request: u16 key, u32 currency inventory, u32 currency id,
-            // u32 target inventory, u32 target id (all BE after the key). The 0x2a0 answer uses the same key.
-            if (uid == 0x029d && unknown.Length >= 20)
-            {
-                static uint U32(byte[] b, int i) => (uint)(b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]);
-                ushort key = (ushort)(unknown[2] << 8 | unknown[3]);
-                uint currencyInventory = U32(unknown, 4), currencyId = U32(unknown, 8);
-                uint targetInventory = U32(unknown, 12), targetId = U32(unknown, 16);
-                var items = ItemsOf(conn);
-                var currency = items.RowOf(currencyId) is byte currencyRow
-                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == currencyId) : null;
-                var target = items.RowOf(targetId) is byte targetRow
-                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == targetId) : null;
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
-                    ? CurrencyResult(conn, target.Item, currency.Item.TypeHash,
-                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
-                    : null;
-                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
-                conn.ForesightRequest = (key, currencyInventory, currencyId, targetInventory, targetId,
-                    target?.Item.ForeseeSeed ?? 0, preview);
-                await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
-                    key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
-                    preview is null ? [] : [preview]),
-                    $"0x02a0 foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
-            }
             // Unframed messages have the hooks too.
             if (GameEvents.WantsPacket(uid)) await GameEvents.AnyPacket(conn, uid, unknown);
         }

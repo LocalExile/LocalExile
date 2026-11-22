@@ -724,7 +724,8 @@ public static partial class Game
                 stats[artKey] = art;
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
-            int supportCastSpeed = Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0;
+            int supportCastSpeed = (Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0)
+                + BrandCastSpeedBonusPct(conn, effect, playerStats, own);
             int castSpeedTotal = FinalCastSpeedPct(conn, stats, CastSpeedPct(stats) + supportCastSpeed);
             var supportedTiming = GolemStat(own, "base_spell_cast_time_ms_override") is int castBasis and > 0
                 ? SpellCastTiming.Calculate(castBasis, castSpeedTotal) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, castSpeedTotal);
@@ -949,8 +950,28 @@ public static partial class Game
             // Network stat snapshots do not run the client's stat calculators.
             void Publish(string stat, int value) { if (Stats.Key(stat) is uint key) stats[key] = value; }
             // A cost of a share of maximum mana over time (Bladefall of Trarthus): its final, virtual per-minute amount.
+            bool paysLife = Lifetap.ConvertsCostToLife(own, playerStats);
             if (Get("base_mana_cost_%_per_minute") is int costPct and > 0)
-                Publish("mana_cost_per_minute", BladefallVolleys.ManaPerMinute(costPct, conn.Pools.Mana));
+                Publish("mana_cost_per_minute", BladefallVolleys.ManaPerMinute(costPct, paysLife ? conn.Pools.Life : conn.Pools.Mana));
+            // Network skill stats skip the client's cost-conversion calculators (0x141eedb80 reads mana_cost and
+            // life_cost directly). Publish the converted Life cost on the wire so the client spends Life instead of
+            // Mana, while leaving SupportedSkill/SupportedStats unchanged for server cost accounting.
+            if (paysLife)
+            {
+                Publish("skill_cost_life_instead_of_mana", 1);
+                int manaCost = Get("mana_cost");
+                if (manaCost > 0)
+                {
+                    Publish("life_cost", (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get("life_cost")) + manaCost));
+                    Publish("mana_cost", 0);
+                }
+                int manaPerMinute = Get("mana_cost_per_minute");
+                if (manaPerMinute > 0)
+                {
+                    Publish("life_cost_per_minute", (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get("life_cost_per_minute")) + manaPerMinute));
+                    Publish("mana_cost_per_minute", 0);
+                }
+            }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get("bladefall_base_volley_frequency_ms") is int volleyMs and > 0)
                 Publish("bladefall_volley_frequency_ms", BladefallVolleys.FrequencyMs(volleyMs,
@@ -988,8 +1009,43 @@ public static partial class Game
                 Publish(placed.Mine ? "skill_is_mined" : "skill_is_trapped", 1);
                 Publish(placed.Mine ? "number_of_mines_to_place" : "number_of_traps_to_throw",
                     PlacedSkillCount(conn, supported, placed.Mine));
-                Publish("active_skill_base_area_of_effect_radius", SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get));
-                Publish("active_skill_area_of_effect_radius", (int)SkillRadius(conn, own, true, effect));
+                int frenzy = ChargesOf(conn).Effective(ChargeType.Frenzy);
+                int throwSpeed = Get(placed.Mine ? "mine_laying_speed_+%" : "trap_throwing_speed_+%")
+                    + Get("trap_and_mine_throwing_speed_+%")
+                    + frenzy * Get(placed.Mine ? "mine_throwing_speed_+%_per_frenzy_charge" : "trap_throwing_speed_+%_per_frenzy_charge");
+                Publish(placed.Mine ? "virtual_mine_throwing_speed_+%" : "virtual_trap_throwing_speed_+%", throwSpeed);
+                if (Get("trap_trigger_radius_+%") is int triggerPct and not 0)
+                    Publish("virtual_trap_trigger_radius_+%", triggerPct);
+                if (Get("throw_traps_in_circle_radius") is int circleRadius and > 0)
+                    Publish("virtual_throw_traps_in_circle_radius", circleRadius);
+                bool spellArea = !SkillsFor(conn).IsAttack(effect);
+                var areaStats = SkillAreaStats(conn, own, effect, playerStats);
+                int AreaGet(string n) => Stats.Key(n) is uint key ? areaStats.GetValueOrDefault(key) : 0;
+                int baseRadius = SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get);
+                Publish("active_skill_base_area_of_effect_radius", baseRadius);
+                Publish("active_skill_area_of_effect_radius", SkillArea.Radius(baseRadius, AreaGet, spellArea));
+                Publish("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(AreaGet, spellArea));
+                Publish("skill_area_of_effect_+%", SkillArea.Increased(AreaGet, spellArea));
+            }
+            if (GolemStat(own, "is_totem") != 0)
+            {
+                // Native PlacementWrap::CanStart (0x141962e30) refuses any totem skill when number_of_totems_allowed
+                // (0x3be) is 0, and network stat snapshots skip its calculator (0x1427b75c0).
+                int totemLimit = TotemLimit(conn, id);
+                Publish("number_of_totems_allowed", totemLimit);
+                Publish("skill_display_number_of_totems_allowed", totemLimit);
+                Publish("skill_is_totemified", 1);
+                Publish("totem_range", (int)Math.Round(TotemTargetRange(conn, id)));
+                if (Get("base_totem_duration") is int baseTotemMs and > 0)
+                    Publish("totem_duration", (int)Math.Round(baseTotemMs * Math.Max(0, 100 + Get("totem_duration_+%")) / 100.0));
+            }
+            if (SkillsFor(conn).IsBrand(effect))
+            {
+                Publish("brands_per_target_limit", BrandMaxPerTarget(playerStats, own));
+                if (GolemStat(own, "base_sigil_repeat_frequency_ms") > 0)
+                    Publish("sigil_repeat_frequency_ms", (int)Math.Round(1000 * BrandActivationSeconds(conn, supported, playerStats)));
+                if (GolemStat(own, "base_secondary_skill_effect_duration") > 0)
+                    Publish("secondary_skill_effect_duration", (int)Math.Round(1000 * BrandDetachedDurationSeconds(playerStats, own)));
             }
             Publish("skill_is_instant", GolemStat(own, "base_skill_is_instant") != 0 ? 1 : 0);
             if (CurseCatalog.Hex(SkillsFor(conn).EffectId(effect) ?? ""))
@@ -1178,6 +1234,8 @@ public static partial class Game
 
     public static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
     {
+        if (SkillsFor(conn).EffectId(effect) is "AnimateGuardian" or "AnimateGuardianAltX"
+            && AnimatedGuardianUnavailable(conn)) return "the Animated Guardian died in this area";
         if (VaalMinionProxyDisabled(conn, effect, skillId) is { } proxy) return proxy;
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(conn).EffectId(effect)) is { } beastKind)
@@ -1225,7 +1283,8 @@ public static partial class Game
             return "this curse is triggered by Bane";
         if (TravelSkillsExceptDashDisabled(conn, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
-            && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
+            && !TriggeredSpellExecutable(conn, skillId, gem)
+            && !SnipeTriggeredAttackExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? WeaponRestricted(conn, effect)
                 ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
@@ -1503,6 +1562,15 @@ public static partial class Game
         }, "0x02bc player Actor: current skill stats");
         if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+        // The skill list above replaces every skill record, and the client's replacement refreshes an existing zero-rate
+        // cooldown entry (0x141ef1573): a guard's held entry would start counting again while its buff runs (issue #1127,
+        // seen on movement, which refreshes the conditional item stats). Re-publish the held rate-0 entry behind the list
+        // so the bar stays frozen; a zero-rate refresh replaces the entry without restarting its animation.
+        // Built at the send gate: a guard that ended while this send waited has its counting entry queued behind, and a
+        // held entry built before would go out after it and freeze the bar with no buff.
+        if (TriggeredGuards.TryGetValue(conn, out _))
+            await Send(remote, stream, ciphers, [], "0x02bc guard cooldown re-held after its skill refresh",
+                atGate: () => HeldGuardCooldownRefresh(conn));
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
 
         // The update can take a bound skill off the skill bar (live 2026-10-21: Haste's slot emptied when its aura went on,

@@ -1,5 +1,6 @@
 {
   "modules": [
+    "Core/Content/Deepwater",
     "Core/Content/Delve",
     "Core/Content/Delirium",
     "Core/Content/Harvest",

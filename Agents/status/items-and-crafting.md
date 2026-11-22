@@ -55,6 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling/Instilling enchantments and incoming Bleed/Poison triggers.
   Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb".
+- Tinctures (#564): flask-belt placement, drops, toggle activation/deactivation, Mana Burn / Weeping Wounds drain, live effect scaling, shared cooldown, weapon-scoped stats, unique tincture effects (except Grasping Vines), Nature's Concoction / Colloidal Mixture, and unequip/death/session cleanup; awaiting real-client verification.
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
@@ -95,7 +96,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   rerolls".
 - **Orb of Chance** (local rule). Docs: [13](../docs/protocol/13-items.md), "Orb of Chance",
   [admission](../docs/re/chance-coe.md).
-- **Vaal Orb and corruption** (local rule). Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
+- **Vaal Orb and corruption.** Skill and support gems can change level or quality. The matching Vaal variant can
+  replace an active gem, including its transfigured base skill. Equipment and maps retain the local corruption rules.
+  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
   [admission](../docs/re/vaal-coe.md).
 - **Eldritch Ichors.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ichor-coe.md).
@@ -113,6 +116,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   the local rule.
 - **Glassblower's Bauble** (level-scaled quality not checked live).
   Docs: [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
+- **Catalysts and Tainted Catalyst** (not checked live): apply jewellery quality (+5/+2/+1 up to 20%, switching replaces
+  type; Tainted rolls random type and 1–20% on corrupted jewellery), with Sinistral/Dextral prefix/suffix scaling.
+  Docs: [13](../docs/protocol/13-items.md).
 - **Fracturing Orb** (verified live). Docs: [13](../docs/protocol/13-items.md), "Fracturing Orb",
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
 - Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps. Docs: [13](../docs/protocol/13-items.md).

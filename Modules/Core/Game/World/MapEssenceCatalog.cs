@@ -10,6 +10,28 @@ public static class MapEssenceCatalog
     public static IReadOnlyList<Essence> All => Data.Value;
     public static Essence? Find(int row) => All.FirstOrDefault(e => e.Row == row);
 
+    // These rows require encounter behaviours beyond ordinary monster stats. Report the actual released modifiers,
+    // including old/forced inputs, rather than assuming that a visible modifier has a server-side skill consumer.
+    static readonly Lazy<IReadOnlyDictionary<int, string>> PendingBehaviours = new(() =>
+    {
+        var result = new Dictionary<int, string>();
+        var mods = ClientTables.Table("Mods");
+        foreach (int row in All.SelectMany(e => e.MonsterMods).Distinct())
+        {
+            if (Program.Items.Mods.Row(row) is not { } mod || mod.Id is Game.EssenceLifeDegen or Game.EssenceKaruiSummonMod or Game.EssenceInsectDeathMod
+                || MonsterModCatalog.SupportOf(mod) == MonsterModCatalog.Support.Full) continue;
+            string daemon = mods[row].TextOrNull("MonsterMetadata") ?? "";
+            if (daemon.Length > 0 || mod.GrantedEffects > 0 || mod.MonsterOnDeath.Length > 0
+                || mod.BuffTemplate is not null || mod.Stats.Any(s => s.Id == "essence_delirium_spawn_monster_on_death_variation"))
+                result[row] = mod.Id;
+        }
+        return result;
+    });
+
+    public static IReadOnlyList<string> PendingEffects(IEnumerable<int> essences) => [.. essences.Select(Find)
+        .OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct()
+        .Where(PendingBehaviours.Value.ContainsKey).Select(row => PendingBehaviours.Value[row])];
+
     static IReadOnlyList<Essence> Load()
     {
         if (!ClientTables.Has("Essences") || !ClientTables.Has("EssenceType")) return [];
@@ -81,8 +103,13 @@ public static class MapEssenceCatalog
     public static MonsterModSet Mods(ClientState conn, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
     {
         var basis = Game.MonsterModsFor(conn, variety, level, MonsterRarity.Rare, null, false);
-        var rows = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct();
-        var extra = rows.Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
+        var seen = new HashSet<int>();
+        var extra = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods)
+            .Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
+            // Common damage/toughness and reward bonuses belong to every essence, even when their row is shared.
+            // A repeated aura/daemon is still one behaviour, rather than another independently ticking copy.
+            .Where(m => m.Id.StartsWith("EssenceDaemonModLifeAndDamage", StringComparison.Ordinal)
+                || m.Id.StartsWith("EssenceDaemonModRarityAndQuantity", StringComparison.Ordinal) || seen.Add(m.Row))
             .Select(m => m.Roll(ModSection.Implicit, Random.Shared));
         return Game.MonsterModRolls.Value.Create([.. basis.Mods, .. extra], basis.NameWords, MonsterRarity.Rare, level);
     }

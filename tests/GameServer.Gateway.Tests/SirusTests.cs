@@ -44,7 +44,7 @@ public sealed class SirusTests
         {
             var cold = DamagePacket.Of(DamageType.Cold, 100000, 100000);
             Game.ApplyPlayerAilmentsLocked(c, cold, cold, critical, false, now, stats, freezeBeam.Ailments, source: 42);
-            Sirus.ApplyCorruptedBloodOnHit(c, body, freezeBeam, cold, false, now, stats);
+            Game.ApplyCorruptedBloodOnHit(c, freezeBeam, cold, false, now, stats);
         }
         FreezeBeam(false, 0, new Dictionary<uint, int>());
         Assert.True(c.ElementalAilments.FreezeUntil(0) > 0);

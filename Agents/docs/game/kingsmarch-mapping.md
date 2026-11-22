@@ -80,6 +80,26 @@ finding is marked **calibration**; the client findings are marked **client**.
   workers are assigned (`KalguurWorkersRequiredForEstimates`), so the estimate is computed from the worker's own rank
   and the map's own tier/rarity/affixes.
 
+### 1.1 The village in memory, read live (Cheat Engine, 2026-11-22)
+
+With the client standing in Kingsmarch (`area KalguuranSettlersLeague`, area hash `36691`), the settlement object
+is found by its vtable: the client's `ClientVillage` vtable sits at `Game.patched.exe + 0x346cc18`, so an AOB scan
+for those eight bytes in writable memory has exactly one hit, and `readQword(hit) == base + 0x346cc18` confirms it.
+
+| Offset | What it is |
+|---|---|
+| `+0x0000` | vtable (`base + 0x346cc18`) |
+| `+0xc40c` | u32 treasury gold (the constructor zeroes it; no message writes it yet) |
+| `+0xcfc8 / +0xcfd0 / +0xcfd8` | the record vector: begin / end / capacity end (an empty vector reads as three nulls) |
+| `+0xd000` | a small vector of three handles, next to the numbers 7 and 8 |
+| `+0xd040` | u32 `0xa7` and `0xff` |
+
+The town record is `0x5a8` bytes: `+0x008` u32 kind `0x9b`, `+0x010` a back-pointer to the `ClientVillage`
+(an identity check worth using when hunting for it), `+0x198` 36 u32s holding `1001…1036` — the `VillageJobs` rows the
+`0x2c9` state frame carried — and `+0x228` six bytes of `15`. Everything from `+0x300` to `+0x5a0` is zero in a town
+with no mapping running: **there is no twelve-map queue on the record**, so the mapping state is either built only
+when a map is opened (`StartMapping`) or lives on the `ClientVillage` past `+0xd040`.
+
 ## 2. Domain model
 
 Everything the town owns about mapping, in one file per player (one account), saved in `data/kingsmarch-mapping.json`.
@@ -208,12 +228,18 @@ Unanswered after 24 hours, the bandits keep the runner and the device's runners 
 * The state the panel needs (per map: completion %, time, death chance; per worker: rank, wage, level; the queue of
   twelve; the rewards waiting) goes out over the village's `0x2c9` state channel once its subtag layout is known.
   Until then the state is server-side only.
+* The wire format of both channels is the framework's: `InstanceRulesets` (`src/GameServer.Core/Protocol/Instance/
+  InstanceRulesets.cs`) frames `0x2c9` and `0x2ca` as `u16 id | u8 ruleset row | compact-uint length | payload`.
+  The village module reads a `0x2ca` action with `InstanceRulesets.ReadAction` (the row is the record the panel
+  belongs to — `0x9b` the town, `0x74` the farm — and the payload's first byte is the action).
 
 ## 8. Open reverse-engineering questions
 
 1. The action byte for every mapping button (start, exit, rescue, ransom, abandon, acknowledge, hire, fire, reroll,
    open rewards).
 2. The `0x2c9` subtag layout the map-runners panel reads, and the `0x1f` record kind that carries the mapping state.
+   The town record itself is known (see §1.1) and holds none of it, so the mapping state is either a second record
+   kind or a field on the `ClientVillage`.
 3. Whether the estimate the client shows is computed by the client (from the worker's rank and the map) or sent by
    the server; if the client computes it, its exact curve would replace the calibration in §3.
 4. What the client's `VillageJobTypes` "Trapped in the Atlas" (`LostMapping`) job is used for.

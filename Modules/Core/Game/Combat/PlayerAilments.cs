@@ -87,6 +87,8 @@ public static partial class Game
             conn.ElementalAilments.Clear();
             conn.IncomingAilments.Clear();
             ClearPlayerDecay(conn);
+            ClearCorruptedBlood(conn);
+            ClearEssenceAuraExposure(conn);
             return 0;
         }
         double previousAction = conn.ElementalAilments.ActionFactor(from);
@@ -95,9 +97,12 @@ public static partial class Game
         // A damaging ailment's latest application is its onset; while one landed within the last second, all the
         // damaging-ailment DoT the player takes is halved (a new application refreshes the window).
         double dotStart = Math.Max(Math.Max(conn.IncomingAilments.LatestStart, conn.ElementalAilments.LatestIgniteStart), PlayerDecayStarted(conn));
-        double letheFactor = Get("keystone_lethe_shade") != 0 && until - dotStart < 1 ? .5 : 1;
         var immunities = PlayerImmunities(conn, stats);
-        int damage = 0, lifeDamage = 0;
+        if (Blood.TryGetValue(conn, out var blood)) dotStart = Math.Max(dotStart, blood.Started);
+        int auraDamage = AdvanceEssenceAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
+        dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(conn));
+        double letheFactor = Get("keystone_lethe_shade") != 0 && until - dotStart < 1 ? .5 : 1;
+        int damage = 0, lifeDamage = auraDamage;
         if (conn.ElementalAilments.HasEffects)
         {
             damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
@@ -106,8 +111,8 @@ public static partial class Game
             if (Get("base_cannot_be_damaged") > 0) damage = 0;
             damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
                 IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
-            lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
-                damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + (conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
+                damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry)));
         }
         if (conn.PlayerLife > 0 && !conn.IncomingAilments.Idle)
         {
@@ -121,11 +126,16 @@ public static partial class Game
         }
         lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvancePlayerDecayLocked(conn, until, stats,
             immunities.Contains(DamageType.Chaos), letheFactor));
+        if (blood is not null)
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvanceCorruptedBlood(conn, blood, until, stats,
+                immunities.Contains(DamageType.Physical), letheFactor));
         conn.PlayerLife = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage), until);
         if (conn.PlayerLife == 0)
         {
             conn.InvalidateIncomingHits();
             ClearPlayerDecay(conn);
+            ClearCorruptedBlood(conn);
+            ClearEssenceAuraExposure(conn);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(conn);
         }

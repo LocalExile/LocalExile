@@ -42,7 +42,7 @@ public static partial class Game
             && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || AuraCatalog.Supported(g.EffectId)
+                || g.EffectId == SnipeEffect || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];
     }
 
@@ -92,11 +92,16 @@ public static partial class Game
         var candidates = new List<GemSupports.Candidate>();
         foreach (var p in places.Where(p => p.ItemId == selected.Place.ItemId
             && GemSupports.LinkGroup(host, p.Socket) == group && GemRequirementsUnmetAt(conn, p.Gem, requirements) is null))
-            if (ItemsFor(conn).ByHash(p.Gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { IsSupport: true } gem)
+            if (ItemsFor(conn).ByHash(p.Gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { } gem)
             {
                 var variant = gem.Variant(p.Gem.GemVariant);
-                foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
-                    candidates.Add(new(effect, EffectiveGemLevel(conn, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
+                if (gem.IsSupport)
+                    foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
+                        candidates.Add(new(effect, EffectiveGemLevel(conn, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
+                            Quality(p.Socket, p.Gem), p.Socket));
+                else if (variant.Effect2 >= 0
+                    && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect or "SupportBrandSupport" })
+                    candidates.Add(new(variant.Effect2, EffectiveGemLevel(conn, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
@@ -271,7 +276,7 @@ public static partial class Game
             foreach (string instantStat in new[] { "base_skill_is_instant", "skill_is_instant" })
                 if (Stats.Key(instantStat) is uint instant) own[instant] = 0;
         foreach (string stat in new[] { "mana_cost", "base_mana_cost", "life_cost", "base_life_cost", "es_cost", "base_es_cost",
-            "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
+            "mana_cost_per_minute", "base_mana_cost_per_minute", "base_mana_cost_%_per_minute", "base_rage_cost", "total_base_rage_cost" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
         // Global added damage on support gems applies to this skill, not to the character or other link groups.
         foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })
@@ -497,6 +502,9 @@ public static partial class Game
                 && Stats.Key("chain_hook_and_shield_charge_attack_speed_+%_per_10_rampage_stacks") is uint rampageSpeed
                 && stats.GetValueOrDefault(rampageSpeed) is int perTen and > 0)
                 stats[final] += conn.Rampage.Current.Stacks / 10 * perTen;
+            if (IsSnipe(gem.Effect) && Stats.Key("snipe_attack_speed_+%") is uint snipeSpeed
+                && stats.GetValueOrDefault(snipeSpeed) is int snipeInc and not 0)
+                stats[final] += snipeInc;
         }
         if (proxy && Stats.Key("main_hand_attack_speed_+%") is uint proxySpeed)
             stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get("totem_skill_attack_speed_+%")
@@ -790,6 +798,9 @@ public static partial class Game
             : Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
         int Player(string name) => release && IsCriticalProhibition(name) ? 0
             : Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        if (Own("mine_critical_strike_chance_+%_per_power_charge") is int minePerPower and not 0
+            && PlacedKind(gem).Mine)
+            extraIncrease += (long)minePerPower * Player("current_power_charges");
         if (SkillsFor(conn).IsAttack(gem.Effect))
         {
             if (new[] { "global_cannot_crit", "virtual_global_cannot_crit", "cannot_critical_strike_with_attacks" }
@@ -805,6 +816,8 @@ public static partial class Game
                 chance = (int)Math.Clamp(chance * (1 + (double)siphon * Player("current_power_charges") / 100), 0, 10_000);
             return DisplayedCriticalChance(conn, chance, Player);
         }
+        if (SkillsFor(conn).IsBrand(gem.Effect) || Own("skill_gets_brand_damage_crit_modifiers") != 0)
+            extraIncrease += Player("sigil_critical_strike_chance_+%") + Own("sigil_critical_strike_chance_+%");
         return DisplayedCriticalChance(conn, SpellCriticalStrike.Chance(SkillsFor(conn).SpellCritChance(gem.Effect, gem.Level),
             Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
@@ -876,6 +889,11 @@ public static partial class Game
         // per-charge stats are already in its stats (ChargeEffects), this one only on the skill.
         if (GolemStat(gem.Stats, "critical_strike_multiplier_+_per_power_charge") is int perPower and not 0)
             extra += perPower * GolemStat(player, "current_power_charges");
+        if (GolemStat(gem.Stats, "trap_critical_strike_multiplier_+_per_power_charge") is int trapPerPower and not 0
+            && PlacedKind(gem) is (true, false))
+            extra += trapPerPower * GolemStat(player, "current_power_charges");
+        if (SkillsFor(conn).IsBrand(gem.Effect) || GolemStat(gem.Stats, "skill_gets_brand_damage_crit_modifiers") != 0)
+            extra += GolemStat(player, "sigil_critical_strike_multiplier_+") + GolemStat(gem.Stats, "sigil_critical_strike_multiplier_+");
         return CriticalHitMultiplier((long)(SkillsFor(conn).IsAttack(gem.Effect)
             ? AttackCriticalMultiplier(conn, player, gem.Effect, gem.Stats)
             : conn.Pools.SpellCriticalStrikeMultiplier) + extra, player, gem.Stats);

@@ -47,6 +47,10 @@ public sealed class NpcDialogueModule : IModule
                 await player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.HideoutSelectionUi, talk.OpensGuildHideouts ? 1u : 0u),
                     $"0x007b open hideout selection ({(talk.OpensGuildHideouts ? "guild" : "character")})");
                 return true;
+            case "Quests" when !talk.HasText && talk.Script.Contains("OpenMenageriePortal", StringComparison.Ordinal):
+                await world.NpcClose("0x0084 close NPC dialogue for Menagerie travel");
+                await world.TravelTo(WaypointCatalog.MenagerieHub, $"{talk.Npc}: {talk.Option}");
+                return true;
             case "QuestReward" when talk.RewardOffer is { } offer && await world.NpcOfferReward(offer):
                 return true;
             // The King's Hand's "Invest in Recruitment" (NPCTalk 3613, category Quests): the row carries no script, so the

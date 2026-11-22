@@ -31,6 +31,7 @@ public static partial class Game
     public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         HitSummonsOnDeathLocked(conn, victimId, monster, now);
+        QueueEssenceDeathSpawnLocked(conn, victimId, monster);
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
@@ -94,7 +95,8 @@ public static partial class Game
         }
         state.FlaskRewards.Add(new(monster.Rarity));
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
-        if (BossMods.GivesNoItems(variety)) return;
+        if (monster.NoRewards || BossMods.GivesNoItems(variety) || variety.Id == TutorialObjects.Zombie) return;
+        if (!GameEvents.AllowsLoot(conn)) return;
         var balance = LeagueFor(conn).Rules;
         var modded = GameEvents.RunDrops(ConnOf(killer), modMonster);
         var drops = new List<ItemDrops.Drop>();
@@ -105,7 +107,7 @@ public static partial class Game
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
+            if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } map) drops.Add(map);
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }
@@ -115,6 +117,7 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         drops.AddRange(MadeDrops(conn, modded));
         if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(conn, monster));
+        modded?.ApplyTransforms(drops);
         if (MapBeyond.CorruptsDrops(conn, variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
@@ -257,7 +260,8 @@ public static partial class Game
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {
-                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life),
+                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life,
+                            u2c: output.Target.Life == 0 ? output.DeathKind : InstanceProtocol.DeathKindNormal),
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action

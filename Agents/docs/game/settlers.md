@@ -58,7 +58,7 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
   So the record has to be in the village **before the area starts**.
 - The records are built by S→C `0x1f` (a kind byte and a value; the client makes one record per kind from its own
   factory table, kind `0x9b` is the town record, 0x5a8 bytes) and the client skips a kind it already has. The server
-  sends them with the area's own messages (`GameEvents.AreaEntryMessages`), before `0x21`; sending them from the tick
+  sends them with the area's own messages (`GameEvents.BeforeEnterMessages`), before `0x21`; sending them from the tick
   is about 300 ms too late and the panel never opens (live 2026-11-22).
 - `ClientVillage` is created by the client in the area-load function (`0x140d57380`, 0xe208 bytes, vtable `0x14346cc18`),
   and **no message writes its state**: the treasury gold field `+0xc40c` is only ever zeroed by its constructor

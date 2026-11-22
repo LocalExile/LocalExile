@@ -29,6 +29,7 @@ public sealed class GameModule : IModule, IDisposable
             Rules.GolemData.Warm();
             AreaPopulation.Warm();
             _ = HideoutCatalog.Hideouts;
+            _ = CharacterAudioCatalog.Default.Value;
         }
         catch (Exception e) when (e is IOException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or KeyNotFoundException or InvalidOperationException)
         {
@@ -49,6 +50,8 @@ public sealed class GameModule : IModule, IDisposable
     {
         Rules.CombatLifetime = module.Lifetime;
         module.Lifetime.Own(Rules.CleanupTemporaryAuras());
+        module.Lifetime.Own(Rules.CleanupEssenceAuras());
+        module.Lifetime.Own(Rules.CleanupMonsterSummons());
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));
@@ -84,12 +87,14 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Kill.Add(module.Manifest.Id, MapTorment.Kill);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
+        GameEvents.BuffCancel.Add(module.Manifest.Id, MapTorment.CancelBuff);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapHarbinger.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapHarbinger.Enter);
         GameEvents.Tick.Add(module.Manifest.Id, MapHarbinger.Tick);
         GameEvents.Kill.Add(module.Manifest.Id, MapHarbinger.Kill);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapHarbinger.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapHarbinger.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapHarbinger.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapBeyond.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapBeyond.Enter);
@@ -99,8 +104,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Experience.Add(module.Manifest.Id, MapBeyond.Experience);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapBeyond.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapBeyond.PlayerStats);
-        GameEvents.IncomingDamage.Add(module.Manifest.Id, MapBeyond.IncomingDamage);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapBeyond.Describe);
+        module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat]));
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat, MapBeyond.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
@@ -169,7 +174,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaGenerated.Add(id, conn => { KingsmarchTown.Entered(Program.PlayerOf(conn)); return Task.CompletedTask; });
         GameEvents.ObjectUse.Add(id, async (conn, use, _) => await KingsmarchTown.Use(Program.PlayerOf(conn), use.TargetId));
         // The settlement records go out with the area's own messages: the client reads them once, when it builds the area.
-        GameEvents.AreaEntryMessages.Add(id, conn => KingsmarchTown.AreaEntryMessages(conn));
+        GameEvents.BeforeEnterMessages.Add(id, conn => KingsmarchTown.BeforeEnterMessages(conn));
         // The harbour: one shipment at a time per port, resolved on a timer (World/KingsmarchPort.cs).
         GameEvents.Tick.Add(id, async (conn, now) => await KingsmarchPort.Tick(Program.PlayerOf(conn), now));
         // Johan's "Fund the Treasury" (NPCTalk 667, category Quests) moves gold from the account's stash into the town: the
@@ -243,7 +248,15 @@ public sealed class GameModule : IModule, IDisposable
                     await player.Tell(KingsmarchPort.Report(player));
                 });
         });
-    }
+        GameEvents.CompanionTick.Add(id, Rules.TickBrands);
+        GameEvents.PlayerStatSources.Add(id, Rules.BrandPlayerStats);
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => { Rules.ClearBrands(conn); return Task.CompletedTask; });
+        GameEvents.TransientClosing.Add(id, Rules.ClearBrands);
+        GameEvents.GrantedSkillExecutable.Add(id, (_, effectId) => Rules.IsBrandsurgeEffect(effectId));
+        GameEvents.Kill.Add(id, Rules.BrandOnMonsterKill);
+        module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
+        GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
+        GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);    }
 }
 
 public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IControlledPlayerRules, IControlledPlayerCommands, IWorldAdmissionRules
@@ -328,6 +341,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
         conn.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(conn);
+        Rules.ClearCorruptedBlood(conn);
+        Rules.ClearEssenceAuraExposure(conn);
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);

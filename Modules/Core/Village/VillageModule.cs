@@ -21,11 +21,11 @@ namespace GameServer.Modules.Village;
 public sealed class VillageModule : IModule
 {
     /// <summary>C→S 0x2ca: what a Kingsmarch panel sends when a button is pressed.</summary>
-    public const ushort ActionId = InstanceVillage.ActionId;
+    public const ushort ActionId = InstanceRulesets.ActionId;
 
     /// <summary>The ruleset record kind of the town (the client's <c>ClientVillage</c>): 0x5a8 bytes, created by S→C 0x1f.
     /// The farm record is 0x74.</summary>
-    public const byte TownRecordKind = InstanceVillage.TownKind;
+    public const byte TownRecordKind = 0x9b, FarmRecordKind = 0x74;
 
     /// <summary>The village's own state: what the treasury holds and who works where. The panel draws these numbers from
     /// the settlement record the client keeps; the server owns them.</summary>
@@ -192,8 +192,19 @@ public sealed class VillageModule : IModule
         });
         GameEvents.Packet(ActionId).Add(module.Manifest.Id, (conn, bytes) =>
         {
-            var kind = InstanceVillage.Kind(bytes);
-            var blob = InstanceVillage.Blob(bytes);
+            // The wire is u16 id | u8 ruleset row | compact-int length | blob (the client's writer 0x141fa7c10); the row
+            // is the record the panel belongs to (0x9b the town, 0x74 the farm) and the blob's first byte is the action.
+            byte kind = 0;
+            byte[] blob = [];
+            try
+            {
+                (kind, blob) = InstanceRulesets.ReadAction(bytes);
+            }
+            catch (InvalidDataException)
+            {
+                Console.WriteLine($"[gateway] 0x02ca village action: a cut-off message ({bytes.Length} bytes)");
+                return Task.FromResult(true);
+            }
             var action = blob.Length > 0 ? blob[0] : (byte)0;
             var named = Actions.GetValueOrDefault(action, "unknown action");
             var settlement = Of(Program.PlayerOf(conn));

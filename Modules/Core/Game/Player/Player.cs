@@ -10,8 +10,7 @@ public static partial class Game
     /// <summary>Whether a stash tab goes out on area entry, so shop prices see the currency in it: a currency or grid tab
     /// (the only ones that hold shop currency) with currency (class StackableCurrency) in it.</summary>
     public static bool PreloadsForPrices(byte? tabType, IEnumerable<InventoryItem> inside, ItemCatalog catalog) =>
-        tabType is byte type && (type == StashRules.Currency || StashRules.IsGrid(type))
-        && inside.Any(i => catalog.ByHash(i.Item.TypeHash)?.Class == "StackableCurrency");
+        StashRules.PreloadsForPrices(tabType, inside, catalog);
 
     // The characters in god mode, by name, for the Gateway's lifetime: every area is a new connection, so without this an
     // area change or a relog silently ended /god.
@@ -67,16 +66,20 @@ public static partial class Game
                 string? stance = StanceCatalog.IsSource(effect) || AuraCatalog.IsStance(effect) ? conn.Stance : null;
                 string effectId = StanceCatalog.IsSource(effect)
                     ? StanceCatalog.RuntimeEffectId(effect, conn.Stance) : selected;
+                bool hasSource = OwnAuraRestriction.IsAura(supported.Stats);
+                var (artVariation, hideVisual, sourceVisual, buffVisual) =
+                    ReservationCosmeticVisualsForGem(conn, gem.Gem, effectId, hasSource);
                 var candidate = new AuraCatalog.Aura(gem.Id, gem.Effect, effectId, gem.Name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance),
                     reservation.ManaFlat, reservation.ManaPercent,
                     LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
                     Level: supported.Level, Quality: supported.Quality,
-                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    SourceBuff: hasSource ? conn.NextBuff++ : null,
                     WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
-                    IsHerald: IsHeraldAura(effectId));
+                    IsHerald: IsHeraldAura(effectId),
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }
@@ -124,6 +127,12 @@ public static partial class Game
     public static async Task PlayerEnteredArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         conn.PlayerSent = true;
+        if (conn.Layout.Hash == StashCatalog.MenagerieHub)
+        {
+            bool visited;
+            lock (conn.Monsters) visited = conn.LeagueQuestFlags.Contains(Quests.League.VisitedMenagerie);
+            if (!visited) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [Quests.League.VisitedMenagerie]);
+        }
         await StartGracePeriod(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
     }
@@ -181,11 +190,12 @@ public static partial class Game
         }
     }
 
-    public static Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label) =>
-        PlayerDiedAtEpoch(remote, stream, ciphers, conn, label);
+    public static Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label,
+        byte deathKind = InstanceProtocol.DeathKindNormal) =>
+        PlayerDiedAtEpoch(remote, stream, ciphers, conn, label, deathKind: deathKind);
 
     public static async Task PlayerDiedAtEpoch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        string label, int? expectedEpoch = null)
+        string label, int? expectedEpoch = null, byte deathKind = InstanceProtocol.DeathKindNormal)
     {
         int deathEpoch;
         lock (conn.Monsters)
@@ -205,6 +215,8 @@ public static partial class Game
             // that held it ends here rather than staying set for the respawned client to keep holding (the loop merely
             // returns on the zero life, so nothing else clears ChannelSkill).
             WinterOrbRetire(conn);
+            SnipeRetire(conn);
+            MirageWarriorsRetire(conn);
             conn.RetireOwnedCombat();
             conn.ChannelSkill = 0;
             conn.ChannelGeneration++;
@@ -227,17 +239,17 @@ public static partial class Game
         await SendVaalSouls(remote, stream, ciphers, conn);
         await SendRage(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
-        await SendPlayerDeathPresentation(remote, stream, ciphers, conn, label, deathEpoch);
+        await SendPlayerDeathPresentation(remote, stream, ciphers, conn, label, deathEpoch, deathKind);
     }
 
     public static Task SendPlayerDeathPresentation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string label, int deathEpoch) => SendWorldBatch(conn, [], admission =>
+        ClientState conn, string label, int deathEpoch, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(conn, [], admission =>
     {
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife != 0 || conn.IncomingHitEpoch != deathEpoch) return null;
             var records = new WorldRecordBuilder(conn, admission);
-            records.World(PlayerId, PlayerLifeUpdate(conn), label);
+            records.World(PlayerId, PlayerLifeUpdate(conn, deathKind), label);
             records.World(PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]));
             records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(conn)));
             return records.Build();
@@ -283,10 +295,11 @@ public static partial class Game
     public static uint LifeCap(ClientState conn) => (uint)LifeReservationOf(conn).Unreserved;
 
     // Every player Life pool update carries the shared owner's reserved amount.
-    public static byte[] PlayerLifeUpdate(ClientState conn)
+    public static byte[] PlayerLifeUpdate(ClientState conn, byte deathKind = InstanceProtocol.DeathKindNormal)
     {
         lock (conn.Monsters)
-            return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
+            return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife,
+                u2c: conn.PlayerLife == 0 ? deathKind : InstanceProtocol.DeathKindNormal);
     }
 
     // 0x1b1 for the mana pool: every update carries the reserved amount, or the client would clear it. The pool and the
@@ -402,7 +415,7 @@ public static partial class Game
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
     // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
     static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
-        out uint es, out uint fromEs, out Dictionary<uint, int> player)
+        out uint es, out uint fromEs, out Dictionary<uint, int> player, int costPercent = 100)
     {
         cost = 0;
         life = 0;
@@ -421,13 +434,7 @@ public static partial class Game
         // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
         // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
         // it would divide no longer exists.
-        bool bloodMagic = Stats.Key("keystone_blood_magic") is uint bloodKey && player.GetValueOrDefault(bloodKey) != 0;
-        if (bloodMagic)
-        {
-            life = (int)Math.Min(cost, int.MaxValue);
-            cost = 0;
-        }
-        else if (Lifetap.ConvertsCostToLife(own))
+        if (Lifetap.ConvertsCostToLife(own, player))
         {
             // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
             // therefore zero: the two conversions do not stack into 140%.
@@ -449,6 +456,12 @@ public static partial class Game
         }
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
         es = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("es_cost") ?? 0));
+        if (costPercent != 100)
+        {
+            cost = (uint)((long)cost * costPercent / 100);
+            life = (int)((long)life * costPercent / 100);
+            es = (uint)((long)es * costPercent / 100);
+        }
         if (es > conn.EnergyShield.Current) return false;
         var paying = player;
         bool Has(string name) => Stats.Key(name) is uint key && paying.GetValueOrDefault(key) != 0;
@@ -471,14 +484,17 @@ public static partial class Game
     // Mana cost from what Energy Shield is left before Mana. False when the player lacks the pool it actually uses.
     // cost is what Mana paid, and only that is Mana spent (ManaSpentLocked: Ravenous Passion's Rage, recoup): the part
     // Energy Shield paid is not (a player's test, 2025: Indigon did not count it; no official statement found).
-    public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
+    public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost) =>
+        PayMana(conn, skillId, out cost, out lifeCost, 100);
+
+    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent)
     {
         var supported = SupportedSkill(conn, skillId);
         var own = supported.Stats;
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            if (!SkillCostLocked(conn, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var player))
+            if (!SkillCostLocked(conn, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var player, costPercent))
             {
                 cost = 0;
                 return false;
@@ -512,6 +528,7 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
+        speed += BrandCastSpeedBonusPct(conn, effect, player, own);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
         return GolemStat(own, "base_spell_cast_time_ms_override") is int basis and > 0
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
@@ -1083,9 +1100,9 @@ public static partial class Game
             }
             if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds, tickNow);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
-            if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
-                await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
+            // Recovery debits the resource selected when Bladefall started.
+            if (conn.BladefallTrarthus is { } blades && (blades.PaysLife ? blades.OutOfLife : conn.PlayerMana == 0))
+                await EndBladefallTrarthus(remote, stream, ciphers, conn, blades.PaysLife ? "out of life" : "out of mana");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // The character panel's Spell Suppression chance again (0x1b3 with only its stats) when a condition changed
             // it: full life lost or regained, a walk started or ended, an enemy hit 4 s ago.
@@ -1183,6 +1200,7 @@ public static partial class Game
             double now;
             int? ailmentDeathEpoch = null;
             bool pbDeath = false, pbRateChanged = false, pbRateBlocked = false;
+            List<uint>? deactivatedTinctures = null;
             using (ProjectileMutation(conn))
             {
                 // Commit earlier projectile hits before advancing leech/recovery to this resource boundary.
@@ -1245,7 +1263,10 @@ public static partial class Game
                 dead = lifeBefore == 0;
                 if (dead)
                 {
+                    AdvanceTincturesLocked(conn, now, seconds, recoveryStats, out _, out _, ref deactivatedTinctures);
                     ClearPlayerDecay(conn);
+                    ClearCorruptedBlood(conn);
+                    ClearEssenceAuraExposure(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =
                         conn.ChaosDotBypassCarry = 0;
@@ -1266,9 +1287,8 @@ public static partial class Game
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(string name) => RecoveryStat(name);
-                    double takenFactor = IncomingStat("base_cannot_be_damaged") > 0 ? 0 : Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
-                        * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.ConditionalTakenStat) / 100.0)
-                        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, IncomingStat) / 100.0);
+                    double takenFactor = IncomingStat("base_cannot_be_damaged") > 0 ? 0
+                        : IncomingResourceDefences.FinalTakenFactor(conn.Pools, IncomingStat);
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);
                     burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now))
@@ -1305,9 +1325,19 @@ public static partial class Game
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    AdvanceTincturesLocked(conn, now, seconds, recoveryStats, out double tinctureManaDrain,
+                        out double tinctureLifeDrain, ref deactivatedTinctures);
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
+                    if (tinctureLifeDrain > 0)
+                        afterBurn = RecoveryPool.Advance(afterBurn, lifeCap, -tinctureLifeDrain, ref conn.TinctureEffects.LifeBurnCarry, minimum: 1);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, lifeCap, life, ref flaskCarry);
+                    if (conn.BladefallTrarthus is { PaysLife: true, Ended: false, OutOfLife: false } blades)
+                    {
+                        uint payment = Lifetap.PayOngoingLife(lifeAfter, blades.CostPerMinute * seconds / 60,
+                            ref blades.LifeCostCarry, out blades.OutOfLife);
+                        conn.PlayerLife = lifeAfter -= payment;
+                    }
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
                     {
@@ -1327,12 +1357,14 @@ public static partial class Game
                         RecordHardcoreDeath(conn);
                     }
                     bool survived = CompleteResourceRecoveryLocked(conn, recoveryFrom, now, recoveryStats,
-                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds), manaBefore, manaCap, ref manaCarry);
+                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds) - tinctureManaDrain, manaBefore, manaCap, ref manaCarry);
                     lifeAfter = conn.PlayerLife;
+                    if (survived) CheckTinctureResourceDeactivationLocked(conn, now, recoveryStats, ref deactivatedTinctures);
                     // The once-per-transition Loyalty triggers: Energy Shield Recharge started, Low Life reached.
                     lock (conn.Monsters) LoyaltyResourceStateLocked(conn, recoveryStats, now);
                     if (!survived)
                     {
+                        DeactivateAllTincturesOnDeathLocked(conn, now, recoveryStats, ref deactivatedTinctures);
                         ailmentDeathEpoch = conn.IncomingHitEpoch; dead = true;
                         lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0; manaAfter = manaBefore;
                     }
@@ -1364,9 +1396,16 @@ public static partial class Game
             if (ailmentDeathEpoch is int lethalEpoch)
                 await PlayerDiedAtEpoch(remote, stream, ciphers, conn,
                     trapDeath ? "0x0055 lethal trap degeneration"
-                        : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal resource loss", lethalEpoch);
+                        : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal resource loss", lethalEpoch,
+                    deathKind: InstanceProtocol.DeathKindDegen);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            if (deactivatedTinctures is { Count: > 0 })
+                await SendTinctureBarInactive(remote, stream, ciphers, conn, deactivatedTinctures);
+            if (conn.TinctureEffects.DrainPendingAdjacentCharges() is { Count: > 0 } adjacentFlaskCharges)
+                await SendTinctureAdjacentFlaskCharges(remote, stream, ciphers, conn, adjacentFlaskCharges);
+            await PublishFlaskChanges(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (dead)
             {
@@ -1548,7 +1587,7 @@ public static partial class Game
         {
             if (life == 0)
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(m, life)),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by Righteous Fire" : null);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, byHit: false);
         }
@@ -1851,6 +1890,7 @@ public static partial class Game
         if (ExtraPlayerMessages is { } extra)
             foreach (var (log, message) in extra(conn))
                 messages.Add((log, message));
+        messages.AddRange(GameEvents.RunBeforeEnterMessages(conn));
         var (passives, passivesLabel) = PassivesMessage(conn);
         messages.Add((passivesLabel, passives));
         // Area transitions. Like the player they are queued by the world and created when 0x21 activates it.
@@ -1870,11 +1910,8 @@ public static partial class Game
         {
             var tabs = PersonalStashOf(conn).Records((int)StashSelectAffinity);
             bool secondSet = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn)).WeaponSet == 1;
-            // Data the client must have before the area starts: it builds the area's windows when the area starts and reads
-            // what it needs once, there (a settlement's records, for one).
-            messages.AddRange(GameEvents.RunAreaEntryMessages(conn));
-            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), last {PersonalStashOf(conn).LastTab}, weapon set {(secondSet ? 2 : 1)}",
-                InstanceProtocol.EnterArea(tabs, secondSet)));
+            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), last {PersonalStashOf(conn).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms",
+                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs)));
             messages.AddRange(GameEvents.RunEnterMessages(conn));
             // The contents of every stash tab with currency in it (stackable items), as 0xc7 would send them (0xc0, no 0xc8:
             // the panel is not open). The client checks a shop price against the currency it knows of, the inventory's and

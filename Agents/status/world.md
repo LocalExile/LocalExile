@@ -214,6 +214,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   at, not its WorldAreas level (2026-11-01). Before, a tier-16 Chateau (WorldAreas 71) took another topology than the
   client's, so the player spawned outside the client's layout (a black screen), and seeds the client cannot build
   were played.
+  The Allflame leagues play every area in league category 59 ([011](../docs/re/011-level-generation.md) §3): The Coast,
+  The Ship Graveyard and its Cave are generated in their Deepwater topologies.
 - **Level generator port.** `GameServer.Data/Terrain/Generation` reproduces the client's level generator: the tile
   grid, the walkability and projectile grids, the doodads, every cell's ground height (`CellHeights.cs`) and the area
   transitions and waypoints (`AreaObjects.cs`: the tiles' objects, and a room's `Waypoint` line where no tile places
@@ -223,10 +225,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   loads the client itself failed to generate, the port fails 112 the same way (115 expected once the gate reruns:
   the Sanctum Cellar, Nave and Vaults now fail as the client does). The 34 areas the client cannot
   generate at seed 1 (and that need no server data) were toured at random seeds the port generates: all 73 loads match.
+  The Allflame encounter areas (DeepwaterEncounter, DeepwaterEncounterVoyage) are built from the terrain plugin state
+  0x1d sends, or the client's default 2 × 2 grid without one ([011](../docs/re/011-level-generation.md) §3c4).
+  Verified live (3.29.3d, 2026-11-18): the client's tile hash equals the port's for a one-room chart and a 3 × 3
+  Voyage grid.
+  The Gateway generates them (`server_level_areas`); a live capture of each (2026-11-19, a one-room chart and a 3 × 3
+  Voyage) matches the port in walk and projectile grids, cell heights and doodads
+  (`levelgen walk`, `heights`, `doodads`).
   An unattended tour of every WorldAreas row with a topology (2026-10-27, `scripts/re/levelgen/tourloop.py`, which
   restarts and logs in the client by itself) left 234 of the 1932 rows with no client-side level to match: 17 without a
   topology, 202 that need data from the server (Incursion temples, Delve cells and biomes, Heist contracts, Synthesis
-  memories, the Sanctum floors, the Deepwater biome grid; they come with each league's server side, see the
+  memories, the Sanctum floors, the Deepwater grid; they come with each league's server side, see the
   [roadmap](../roadmap/world.md)), and 15 the client cannot generate at any seed tried (the
   list is written to data/areas-unavailable.txt). The port matches a load of every other row.
   A tour of 3 random seeds per matching area: all 519 match. Every traced load at another seed of that tour (1215,
@@ -370,7 +379,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   An "entranceN" with no object of its own (the portal to Highgate after Malachai, Weylam's boat) is an exit without a
   model at its point, there from the start.
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
-  its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
+  its animation ([12](../docs/protocol/12-quests.md) §6); the Doorman and opening tutorial force walls 1/2 are now created.
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed, and whose generated layout places no
   waypoint either, puts the player at an arbitrary cell; every act area has a seed-1 capture, so this is what any other
