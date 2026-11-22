@@ -89,17 +89,29 @@ public sealed class VillageModule : IModule
     /// line: a test client reaches the port panel without a hand on the mouse. Once per connection, in the town.</summary>
     public const string OpenFile = "data/kingsmarch-open-port.txt";
 
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IPlayer, Counter> _opened = new();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IPlayer, string> _opened = new();
 
-    sealed class Counter { public int Value; }
 
     static async Task OpenPort(IPlayer player)
     {
         if (player.AreaId != "KalguuranSettlersLeague") return;
-        if (!File.Exists(OpenFile)) return;
-        if (_opened.GetValue(player, _ => new Counter()).Value++ != 0) return;
-        await player.Send(InstanceWaypoints.OpenUi(0x58),
-            "0x007b 0x57 open KalguurPortWindow (dev: " + OpenFile + ")");
+        var file = new FileInfo(OpenFile);
+        if (!file.Exists)
+        {
+            _opened.Remove(player);
+            return;
+        }
+
+        // The file's text is the screen kind to open (0x56 the town map, 0x58 the port); editing or saving it again
+        // opens the window once more, so a window that caches its numbers when it is built can be rebuilt on demand.
+        string stamp = $"{file.LastWriteTimeUtc.Ticks}/{file.Length}";
+        if (_opened.TryGetValue(player, out string? opened) && opened == stamp) return;
+        _opened.AddOrUpdate(player, stamp);
+        byte kind = 0x58;
+        string text = (await File.ReadAllTextAsync(OpenFile)).Trim();
+        if (text.Length > 0 && byte.TryParse(text.StartsWith("0x") ? text[2..] : text,
+                System.Globalization.NumberStyles.HexNumber, null, out byte asked)) kind = asked;
+        await player.Send(InstanceWaypoints.OpenUi(kind), $"0x007b 0x{kind:x2} open (dev: {OpenFile})");
     }
 
     /// <param name="player">A player in the league.</param>
