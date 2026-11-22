@@ -573,7 +573,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         {
             // Tinctures are magic-only (plus unique): never roll rare on drop.
             bool rolledUnique = rng.NextDouble() < chances.Unique;
-            if (rolledUnique && Unique(type, itemLevel, rng) is { } unique)
+            if (rolledUnique && Unique(type, level, itemLevel, rng) is { } unique)
             {
                 item = unique with { Identified = false };
                 type = catalog.ByHash(item.TypeHash) ?? type;
