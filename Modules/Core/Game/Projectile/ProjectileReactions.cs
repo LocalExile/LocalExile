@@ -40,7 +40,8 @@ public static partial class Game
                 if (player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame && target.FlinchUntil == until)
                     target.FlinchUntil = LockstepRecoveryEnds(frame, stunSeconds);
                 return InstanceProtocol.ActorAnimation(id, stunSeconds, PlayerHitRecovery.TakeHitAnimation);
-            }, $"0x01d1 monster 0x{id:x} TakeHit recovery {stunSeconds:0.000} s (projectile {shot.Label})");
+            }, GameServer.Core.Diagnostics.ServerTrace.Combat || GameServer.Core.Diagnostics.ServerTrace.Projectiles
+                ? $"0x01d1 monster 0x{id:x} TakeHit recovery {stunSeconds:0.000} s (projectile {shot.Label})" : null);
         }
         // The life update follows its hit message in the attacker's turn (HitOrder); one with no hit message stays.
         (uint Key, ushort Hit, ushort Life) order = default;
@@ -134,7 +135,8 @@ public static partial class Game
         destroyCorpse = playerKill && TakeUnhingedHitKillLocked(player, monster);
         if (playerKill) QueueMadnessExplosionLocked(player, id, monster);
         StopCorpseBlocking(player, id, monster);
-        session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
+        if (player.VaalSouls.Read().Length > 0 || player.SentVaalSouls.Count > 0)
+            session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
@@ -246,6 +248,26 @@ public static partial class Game
         session.Create(id, () => GroundItemPresentation(session.Player, id, justDropped: true, expected: ground, includeWake: false),
             wake: true);
 
+    sealed class FlaskLocalEntry(ModCatalog mods, IReadOnlyDictionary<uint, int> local)
+    {
+        public readonly ModCatalog Mods = mods;
+        public readonly IReadOnlyDictionary<uint, int> Local = local;
+    }
+
+    static readonly IReadOnlyDictionary<uint, int> EmptyFlaskLocalStats = new Dictionary<uint, int>();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyList<ItemMod>, FlaskLocalEntry> FlaskLocalCache = new();
+
+    static IReadOnlyDictionary<uint, int> FlaskLocalStats(Player player, Item item)
+    {
+        if (item.Mods is not { Count: > 0 } itemMods) return EmptyFlaskLocalStats;
+        var catalog = ItemsFor(player).Mods;
+        if (FlaskLocalCache.TryGetValue(itemMods, out var cached) && ReferenceEquals(cached.Mods, catalog))
+            return cached.Local;
+        var local = ItemModStats.Local(item, catalog);
+        FlaskLocalCache.AddOrUpdate(itemMods, new(catalog, local));
+        return local;
+    }
+
     public static void CommitProjectileFlaskGain(ProjectileSession session,
         Func<InventoryItem, IReadOnlyDictionary<uint, int>, double> gain)
     {
@@ -256,18 +278,18 @@ public static partial class Game
         Dictionary<uint, int>? stats = null;
         int Get(uint key) => (stats ??= new Dictionary<uint, int>(CharacterPlayerStats(player))).GetValueOrDefault(key);
         var items = ItemsOf(player);
-        var changed = new List<InventoryItem>();
+        List<InventoryItem>? changed = null;
         foreach (var flask in items.Items(PlayerInventories.Flask))
         {
             if (!CanGainFlaskCharges(player, flask)) continue;
             if (ItemsFor(player).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(player).FlaskChargesOf(type) is not { } basis) continue;
-            var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods); var charges = FlaskCharges.Of(basis, local);
+            var local = FlaskLocalStats(player, flask.Item); var charges = FlaskCharges.Of(basis, local);
             if (flask.Item.Charges >= charges.MaxCharges) continue;
             int whole = player.FlaskChargeCarry.Take(flask.Id, gain(flask, local) * FlaskCharges.GainMultiplier(local, Get));
             if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, value => Flasks.Gain(value, charges, whole)) is { } item)
-                changed.Add(item);
+                (changed ??= []).Add(item);
         }
-        if (changed.Count > 0)
+        if (changed is { Count: > 0 })
             session.Packet(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
                 items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed));
     }
@@ -276,10 +298,16 @@ public static partial class Game
     {
         var player = session.Player;
         if (!player.FlaskChargeCarry.CritReady(at)) return;
-        var bar = ItemsOf(player).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, ItemsFor(player).Mods).GetValueOrDefault(Stat.LocalRechargeOnCritPct),
-            Full: ItemsFor(player).ByHash(f.Item.TypeHash) is not { } type || ItemsFor(player).FlaskChargesOf(type) is not { } basis
-                || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(player).Mods)).MaxCharges)).ToList();
+        var flasks = ItemsOf(player).Items(PlayerInventories.Flask);
+        var bar = new List<(uint Id, int Chance, bool Full)>(flasks.Count);
+        foreach (var f in flasks)
+        {
+            var local = FlaskLocalStats(player, f.Item);
+            bool full = ItemsFor(player).ByHash(f.Item.TypeHash) is not { } type
+                || ItemsFor(player).FlaskChargesOf(type) is not { } basis
+                || f.Item.Charges >= FlaskCharges.Of(basis, local).MaxCharges;
+            bar.Add((f.Id, local.GetValueOrDefault(Stat.LocalRechargeOnCritPct), full));
+        }
         var stats = CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         bool precision = AffectingAuras(player).Any(a => a.EffectId == "Precision");

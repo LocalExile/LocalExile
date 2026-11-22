@@ -763,6 +763,8 @@ public static partial class Game
             bool protectedEntry = InGracePeriod(player);
             bool hasRampageWeapons = CurrentRampageWork && player.StandingRampageWorld is { Actors.Count: > 0 };
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
+            bool crowdedPack = player.Area.Driven && player.Area.SyncLivingMonsters().Count > 16;
+            bool playerMoving = player.Walk.Moving(now);
             // Only the monsters in the grid cells around the player: one beyond the wake zone sleeps on this client and
             // gets no order (below), and one that targets another player acts on that player's pass.
             foreach (var (id, m) in player.Area.MonstersNear((px, py), WakeZoneRadius + 16))
@@ -1001,7 +1003,10 @@ public static partial class Game
                         }
                         continue;
                     }
-                    if (!LockstepReorderDue(player, plan, m, cadence, now) || !cadence.TryAttackChase(m, now)) continue;
+                    if (crowdedPack && !playerMoving && m.LastTarget is null && m.Walk.Reached && !m.Walk.ReachedGoal
+                        && !MonsterAiCadence.Due(now, m.NextChaseRetryAt)) continue;
+                    double chaseStagger = crowdedPack ? (id % 6) * MonsterAiCadence.StepSeconds : 0;
+                    if (!LockstepReorderDue(player, plan, m, cadence, now) || !cadence.TryAttackChase(m, now, chaseStagger)) continue;
                     // Far off, a Move to the cell LegCells along the walk-up instead of the attack aimed at the player,
                     // ordered again on the same cadence; the attack's own walk-up from within a leg of the reach. An
                     // estimate that finds no way at all keeps the attack order: the client's own search may.
@@ -1421,7 +1426,11 @@ public static partial class Game
         m.ClientChaseAttack = m.Attack;
         if (m.Walk.InReachOf(here, player, (int)(m.Attack!.Range - 1), LivingCollision.PlayerSize))
             (m.ClientSwingAt, m.ClientSwingAction) = (at, action);
-        else if (m.Walk.Reached && !m.Walk.ReachedGoal) m.LastTarget = null;
+        else if (m.Walk.Reached && !m.Walk.ReachedGoal)
+        {
+            m.LastTarget = null;
+            m.NextChaseRetryAt = at + MonsterAiCadence.RetrySeconds;
+        }
         else m.ClientChase = action;
     }
 

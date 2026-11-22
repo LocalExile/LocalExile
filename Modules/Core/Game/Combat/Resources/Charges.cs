@@ -25,6 +25,8 @@ public static partial class Game
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until)));
 
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SkillCatalog, System.Collections.Concurrent.ConcurrentDictionary<(int Effect, int Level, int Quality), Func<uint, int>>> ChargeHitSkillStats = new();
+
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
     // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it.
@@ -38,8 +40,13 @@ public static partial class Game
         Func<uint, int>? skill = null;
         if (effect >= 0)
         {
-            var own = SkillsFor(player).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-            skill = name => name is var key ? own.GetValueOrDefault(key) : 0;
+            var skills = SkillsFor(player);
+            var cache = ChargeHitSkillStats.GetOrCreateValue(skills);
+            skill = cache.GetOrAdd((effect, level, quality), key =>
+            {
+                var own = skills.EffectStats(key.Effect, key.Level, key.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+                return name => own.GetValueOrDefault(name);
+            });
         }
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary));

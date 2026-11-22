@@ -1040,13 +1040,99 @@ public static partial class Game
         var start = from is { } f && Dist(f, at) <= GoldPathLimit ? f : at;
         double radius = SystemSettings.Default.GoldAutoLootRadius;
         var middle = ((start.X + at.X) / 2, (start.Y + at.Y) / 2);
+        List<(uint Id, WorldItemObject Gold)>? batch = null;
+        (uint Id, WorldItemObject Gold) first = default;
+        int found = 0;
         foreach (var (id, gold) in player.Instance.Ground.Within(middle.Item1, middle.Item2, radius + Dist(start, at) / 2 + 1, IsGold))
         {
             if (DistanceToPath((gold.GridX, gold.GridY), start, at) > radius) continue;
-            await PickUpGold(player, id, gold, "auto-looted", start);
-            if (!CurrentGameWork || player.Closed || player.LeavingArea) return at;
+            if (found == 0) first = (id, gold);
+            else
+            {
+                if (batch is null) { batch = [first]; }
+                batch.Add((id, gold));
+            }
+            found++;
         }
+        if (found == 0) return at;
+        if (found == 1)
+        {
+            await PickUpGold(player, first.Id, first.Gold!, "auto-looted", start);
+            return at;
+        }
+        await PickUpGoldBatch(player, batch!, start);
         return at;
+    }
+
+    // Auto-loots multiple gold piles in one send gate and one stash Persist() instead of N sequential SQLite writes.
+    static async Task PickUpGoldBatch(Player player, List<(uint Id, WorldItemObject Gold)> piles, (int X, int Y) pathFrom)
+    {
+        if (player.Connection.LockstepClient)
+        {
+            var ready = new List<(uint Id, WorldItemObject Gold, WorldObject Target)>(piles.Count);
+            bool inFrame = InAreaFrame(player);
+            for (int i = 0; i < piles.Count; i++)
+            {
+                var (id, gold) = piles[i];
+                if (!inFrame && !player.Connection.WorldOutput.Has(id)) continue;
+                var target = player.Connection.WorldOutput.PublishedObject(id);
+                if (target.IsReady) ready.Add((id, gold, target));
+                else
+                {
+                    await PickUpGold(player, id, gold, "auto-looted", pathFrom);
+                    if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
+                }
+            }
+            if (ready.Count == 0) return;
+            WorldObject[] targets = new WorldObject[ready.Count];
+            for (int i = 0; i < ready.Count; i++) targets[i] = ready[i].Target;
+            byte[]? goldUpdate = null;
+            await SendWorldBatch(player, targets, _ =>
+            {
+                if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0 || player.Paused
+                    || HardcoreProgressBlocked(player) || !GameEvents.AllowsLoot(player)) return null;
+                var here = player.Walk.Position(AreaTime(player));
+                double radius = SystemSettings.Default.GoldAutoLootRadius;
+                List<(uint Id, WorldItemObject Gold, WorldObject Target, (object? By, bool Shared) Origin)>? taken = null;
+                long added = 0;
+                for (int i = 0; i < ready.Count; i++)
+                {
+                    var (id, gold, target) = ready[i];
+                    if (!IsGold(gold) || DistanceToPath((gold.GridX, gold.GridY), pathFrom, here) > radius) continue;
+                    var origin = player.Instance.Ground.Origin(id);
+                    if (!origin.Shared && !ReferenceEquals(origin.By, player)) continue;
+                    if (player.Instance.Ground.Take(id, gold) is null) continue;
+                    (taken ??= new(ready.Count)).Add((id, gold, target, origin));
+                    added += gold.Item.StackSize;
+                }
+                if (taken is null) return null;
+                uint total;
+                try { total = PersonalStashOf(player).AddGold(added); }
+                catch
+                {
+                    for (int i = 0; i < taken.Count; i++)
+                        player.Instance.Ground.Restore(taken[i].Id, taken[i].Gold, taken[i].Origin.By, taken[i].Origin.Shared);
+                    throw;
+                }
+                goldUpdate = InstanceEntities.Gold(total);
+                var records = new OutputRecord[taken.Count];
+                for (int i = 0; i < taken.Count; i++)
+                {
+                    var removeBytes = InstanceProtocol.RemoveObject(taken[i].Id);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(removeBytes.AsSpan(6), uint.MaxValue);
+                    records[i] = OutputRecord.Remove(taken[i].Target, WorldOrder.Last, removeBytes,
+                        i == 0 ? $"gold auto-looted x{taken.Count} (+{added})" : null);
+                }
+                return new OutputBatch(records);
+            });
+            if (goldUpdate is { Length: > 0 }) await Send(player, goldUpdate, null);
+            return;
+        }
+        foreach (var (id, gold) in piles)
+        {
+            await PickUpGold(player, id, gold, "auto-looted", pathFrom);
+            if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
+        }
     }
 
     // How far a cell is from the straight way between two others.

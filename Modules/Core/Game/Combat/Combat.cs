@@ -3029,7 +3029,8 @@ public static partial class Game
     }
 
     static Task CorpseCleared(Player player, uint id, SpawnedMonster m) =>
-        SendWorldRecord(player, id, [], $"0x02b2 corpse of 0x{id:x} stops blocking", atGate: () =>
+        SendWorldRecord(player, id, [], GameServer.Core.Diagnostics.ServerTrace.Combat || GameServer.Core.Diagnostics.ServerTrace.Ai
+            ? $"0x02b2 corpse of 0x{id:x} stops blocking" : null, atGate: () =>
         {
             using (ProjectileMutation(player, phase: "send"))
             {

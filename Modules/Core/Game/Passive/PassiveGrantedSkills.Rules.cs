@@ -84,18 +84,48 @@ public static partial class Game
     // the same buff and grant) is the one with an executor (PlayerMinions.cs).
     static bool IsRelicSkill(string effectId) => effectId is "SummonElementalRelic" or "SummonElementalRelicHardMode";
 
+    sealed class RelicTriggerCache
+    {
+        public int PassivesCount = -1;
+        public int AscendancyCount = -1;
+        public int NodeHash;
+        public bool HardMode;
+        public (PassiveGrantedSkills.Grant Grant, int AllyRadius)? Result;
+    }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, RelicTriggerCache> RelicTriggerCaches = new();
+
     /// <summary>The relic skill the player's passives grant and the radius of the buff (BuffTemplates 546, the player
     /// and his allies within 60 cells) whose can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique
     /// lets their kills and hits trigger it; null without both.</summary>
     static (PassiveGrantedSkills.Grant Grant, int AllyRadius)? RelicTriggerOf(Player player)
     {
-        ushort[] nodes;
-        nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+        var passives = player.Character.Passives;
+        var ascendancy = player.Character.MainAscendancy.Allocated;
+        if (passives.Count == 0 && ascendancy.Count == 0) return null;
+        bool hardMode = LeagueFor(player).HardMode;
+        int hash = 17;
+        foreach (ushort n in passives) hash = unchecked(hash * 31 + n);
+        foreach (ushort n in ascendancy) hash = unchecked(hash * 31 + n);
+        var cache = RelicTriggerCaches.GetOrCreateValue(player);
+        if (cache.PassivesCount == passives.Count && cache.AscendancyCount == ascendancy.Count
+            && cache.NodeHash == hash && cache.HardMode == hardMode)
+            return cache.Result;
+        ushort[] nodes = [.. passives, .. ascendancy];
         uint? enables = Stat.CanTriggerSummonElementalRelicOnNearbyAllyKillOrOnHitRareOrUnique;
-        if (PassiveBuffAuras.AllyAurasFor(nodes, LeagueFor(player).HardMode).FirstOrDefault(a => a.Stats.Any(s => s.Key == enables && s.Value != 0))
-            is not { } buff) return null;
-        var grant = (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes).FirstOrDefault(g => IsRelicSkill(g.EffectId));
-        return grant.Node == 0 ? null : (grant, buff.Radius);
+        (PassiveGrantedSkills.Grant Grant, int AllyRadius)? result = null;
+        if (PassiveBuffAuras.AllyAurasFor(nodes, hardMode).FirstOrDefault(a => a.Stats.Any(s => s.Key == enables && s.Value != 0))
+            is { } buff)
+        {
+            var grant = (hardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes).FirstOrDefault(g => IsRelicSkill(g.EffectId));
+            if (grant.Node != 0) result = (grant, buff.Radius);
+        }
+        cache.PassivesCount = passives.Count;
+        cache.AscendancyCount = ascendancy.Count;
+        cache.NodeHash = hash;
+        cache.HardMode = hardMode;
+        cache.Result = result;
+        return result;
     }
 
     /// <summary>

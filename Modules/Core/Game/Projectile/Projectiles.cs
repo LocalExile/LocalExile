@@ -475,28 +475,21 @@ public static partial class Game
         // side and its size. The list itself is new every time: the runtime holds one while a hit changes the next.
         readonly Dictionary<SpawnedMonster, (uint Id, object Walk, bool Hostile, int Size, ProjectileActor Actor)> actorOf =
             new(ReferenceEqualityComparer.Instance);
+        readonly List<EntityId> nearActorIds = [];
         ProjectileActor? playerActor;
 
-        public IReadOnlyList<ProjectileActor> Actors(long from, long until)
+        ProjectileActor CachedMonsterActor(uint id, SpawnedMonster monster)
         {
-            var result = new List<ProjectileActor>(Player.Area.Monsters.Count + Player.Totems.All.Count + 1);
-            foreach (var (id, monster) in Player.Area.Monsters)
-            {
-                if (monster.Dead || monster.Life == 0 || monster.WorldHidden || ArenaHazards.Untargetable(Player, monster)) continue;
-                var walk = monster.Walk;
-                int size = LivingCollision.Size(monster);
-                if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
-                    || kept.Hostile != monster.Hostile || kept.Size != size)
-                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, MonsterActor(Key(id, monster), walk, monster.Hostile, size));
-                result.Add(kept.Actor);
-            }
-            // A monster that died or left keeps its record and generation until here; in a long fight (a horde, a
-            // Simulacrum run) both tables would hold every monster the area ever had. Pruned now and then, not per step:
-            // records only for the living, generations only for the dead that left the list (a corpse keeps its key).
-            if (actorOf.Count > 2 * result.Count + 64) PruneActors();
-            // The monsters come in id order; the totems and the player go where that order puts them, so the runtime
-            // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
-            // A totem's id and place never change, so it keeps one record for as long as it is listed.
+            var walk = monster.Walk;
+            int size = LivingCollision.Size(monster);
+            if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
+                || kept.Hostile != monster.Hostile || kept.Size != size)
+                actorOf[monster] = kept = (id, walk, monster.Hostile, size, MonsterActor(Key(id, monster), walk, monster.Hostile, size));
+            return kept.Actor;
+        }
+
+        void AddTotemsAndPlayer(List<ProjectileActor> result)
+        {
             var totems = Player.Totems.All;
             double clock = AreaTime(Player);
             for (int i = 0; i < totems.Count; i++)
@@ -505,6 +498,46 @@ public static partial class Game
                 InOrder(result, playerActor ??= new(new(Player.Id, epoch), 1,
                     t => Vector(Player.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
+        }
+
+        public IReadOnlyList<ProjectileActor> Actors(long from, long until)
+        {
+            var living = Player.Area.SyncLivingMonsters();
+            var result = new List<ProjectileActor>(living.Count + Player.Totems.All.Count + 1);
+            for (int i = 0; i < living.Count; i++)
+            {
+                var (id, monster) = living[i];
+                if (monster.Dead || monster.Life == 0 || monster.WorldHidden || ArenaHazards.Untargetable(Player, monster)) continue;
+                result.Add(CachedMonsterActor(id, monster));
+            }
+            // A monster that died or left keeps its record and generation until here; in a long fight (a horde, a
+            // Simulacrum run) both tables would hold every monster the area ever had. Pruned now and then, not per step:
+            // records only for the living, generations only for the dead that left the list (a corpse keeps its key).
+            if (actorOf.Count > 2 * result.Count + 64) PruneActors();
+            // The monsters come in id order; the totems and the player go where that order puts them, so the runtime
+            // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
+            // A totem's id and place never change, so it keeps one record for as long as it is listed.
+            AddTotemsAndPlayer(result);
+            return result;
+        }
+
+        public IReadOnlyList<ProjectileActor> ActorsNear(ProjectileVector centre, double radius, long at)
+        {
+            if (!Player.Area.Driven || Player.Area.Monsters.Count < 48) return Actors(at, at);
+            nearActorIds.Clear();
+            Player.Area.Grid.Near(((int)Math.Round(centre.X), (int)Math.Round(centre.Y)),
+                (int)Math.Ceiling(radius) + GameArea.WalkSlack + 4, nearActorIds);
+            nearActorIds.Sort();
+            var result = new List<ProjectileActor>(nearActorIds.Count + Player.Totems.All.Count + 1);
+            var monsters = Player.Area.Monsters;
+            for (int i = 0; i < nearActorIds.Count; i++)
+            {
+                uint id = nearActorIds[i].Value;
+                if (!monsters.TryGetValue(id, out var monster) || monster.Dead || monster.Life == 0
+                    || monster.WorldHidden || ArenaHazards.Untargetable(Player, monster)) continue;
+                result.Add(CachedMonsterActor(id, monster));
+            }
+            AddTotemsAndPlayer(result);
             return result;
         }
 
@@ -704,7 +737,7 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
-                    BleedReflected(CharacterPlayerStats(Player)));
+                    BleedReflected(shot.ActualCaster is null ? player : CharacterPlayerStats(Player)));
             if (shot.ActualCaster is null) RageOnHitLocked(Player, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);

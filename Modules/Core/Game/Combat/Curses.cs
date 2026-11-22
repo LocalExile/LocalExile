@@ -88,10 +88,14 @@ public static partial class Game
         return true;
     }
 
-    static void CursesOnHitLocked(Player player, SpawnedMonster target, ushort sourceSkill, bool spell, double now)
+    static void CursesOnHitLocked(Player player, SpawnedMonster target, ushort sourceSkill, bool spell, double now,
+        IReadOnlyDictionary<uint, int>? sourceStats = null)
     {
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
-        var source = sourceSkill != 0 ? SupportedSkill(player, sourceSkill) : null;
+        bool mayHextouch = sourceSkill != 0
+            && (sourceStats is null || GolemStat(sourceStats, Stat.ApplyLinkedCursesOnHitPct) > 0);
+        if (!mayHextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;
+        var source = mayHextouch ? SupportedSkill(player, sourceSkill) : null;
         bool hextouch = source is not null && GolemStat(source.Stats, Stat.ApplyLinkedCursesOnHitPct) is var chance
             && RandomRolls.Chance(chance, 100, AreaRng(player));
         if (!hextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;

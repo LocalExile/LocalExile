@@ -23,11 +23,36 @@ public static partial class Game
         foreach (uint key in VaalSoulCost.Inputs) stats[key] = VaalSoulInput(player, playerStats, own, key);
     }
 
+    sealed class VaalRefreshCache
+    {
+        public long EquipmentMutations = -1;
+        public int PassivesCount = -1;
+        public int AscendancyCount = -1;
+        public int Level = -1;
+        public bool Alive;
+        public bool HasVaalSources;
+        public bool HardMode;
+    }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, VaalRefreshCache> VaalRefreshCaches = new();
+
     // Reconcile before an await as well as at the send gate: a queued removal must lose its balance even if readded
     // before publication. Requirements/inactive equipment are refreshed by the normal character stat seam.
     public static void RefreshVaalSouls(Player player)
     {
         if (player.VaalSoulsRetired || player.Closed) return;
+        var items = ItemsOf(player);
+        long mutations = items.Mutations;
+        int passivesCount = player.Character.Passives.Count;
+        int ascCount = player.Character.MainAscendancy.Allocated.Count;
+        int level = player.Pools.Level;
+        bool alive = player.PlayerLife > 0;
+        bool hardMode = LeagueFor(player).HardMode;
+        var cache = VaalRefreshCaches.GetOrCreateValue(player);
+        if (!cache.HasVaalSources && cache.EquipmentMutations == mutations && cache.PassivesCount == passivesCount
+            && cache.AscendancyCount == ascCount && cache.Level == level && cache.Alive == alive
+            && cache.HardMode == hardMode && player.VaalSouls.Read().Length == 0)
+            return;
         var playerStats = CharacterPlayerStats(player);
         var requirements = CurrentGemRequirements(player);
         var sources = new List<(uint, uint)>();
@@ -47,12 +72,28 @@ public static partial class Game
         }
         player.VaalSouls.Reconcile(sources);
         if (player.PlayerLife == 0) player.VaalSouls.ClearBalance();
+        cache.EquipmentMutations = mutations;
+        cache.PassivesCount = passivesCount;
+        cache.AscendancyCount = ascCount;
+        cache.Level = level;
+        cache.Alive = alive;
+        cache.HardMode = hardMode;
+        cache.HasVaalSources = sources.Count > 0;
     }
 
     // Called with Life=0/Dead=true in the SAME Monsters section as the lethal mutation, before notification awaits.
     // Shared hit paths do not carry an object ID; resolve actual ownership here without accepting another recipient.
-    public static void CollectVaalSoulAtDeathLocked(Player player, SpawnedMonster monster) =>
+    public static void CollectVaalSoulAtDeathLocked(Player player, SpawnedMonster monster)
+    {
+        if (monster.Life != 0 || !monster.Dead || monster.SoulKillProcessed) return;
+        RefreshVaalSouls(player);
+        if (player.VaalSouls.Read().Length == 0)
+        {
+            monster.SoulKillProcessed = true;
+            return;
+        }
         CollectVaalSoulOnKill(player, player.Area.Monsters.FirstOrDefault(kv => ReferenceEquals(kv.Value, monster)).Key, monster);
+    }
 
     // Consume ineligible deaths too. Notifications may only publish current state; they never call this method.
     public static bool CollectVaalSoulOnKill(Player player, uint id, SpawnedMonster monster)
@@ -85,7 +126,9 @@ public static partial class Game
     public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(Player player)
     {
         RefreshVaalSouls(player);
-        var current = player.VaalSouls.Read().ToDictionary(b => b.ActiveSkillsRow);
+        var budgets = player.VaalSouls.Read();
+        if (budgets.Length == 0 && player.SentVaalSouls.Count == 0) return ([], []);
+        var current = budgets.ToDictionary(b => b.ActiveSkillsRow);
         var seeds = new List<VaalSoulSeed>();
         var updates = new List<VaalSoulUpdate>();
         foreach (var budget in current.Values.OrderBy(b => b.ActiveSkillsRow))

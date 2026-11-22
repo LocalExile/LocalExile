@@ -68,11 +68,14 @@ public sealed class MonsterAiCadence
         return true;
     }
 
-    public bool TryAttackChase(SpawnedMonster monster, double now)
+    public bool TryAttackChase(SpawnedMonster monster, double now, double staggerSeconds = 0)
     {
         var schedule = monsters.GetValue(monster, _ => new());
         if (!Due(now, schedule.NextChase)) return false;
-        schedule.NextChase = now + AttackChaseSeconds;
+        // On a large pack's first chase, spread each monster's subsequent 200 ms repath across the frames of the
+        // window so hundreds of monsters do not all pathfind on the same 7th frame while the other 6 sit idle.
+        double offset = double.IsNegativeInfinity(schedule.NextChase) && staggerSeconds > 0 ? staggerSeconds : 0;
+        schedule.NextChase = now + AttackChaseSeconds + offset;
         schedule.LastChase = now;
         return true;
     }
