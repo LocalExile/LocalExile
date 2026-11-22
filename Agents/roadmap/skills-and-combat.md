@@ -212,6 +212,9 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Open:**
   - Nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
+  - Ordinary player Ice Spear (#1101, item 23) has sequential shots and a distance-based second form.
+    Match the distance-dependent spread for each shot, including Volley and nova layouts. Check the
+    second-form transition, contacts around the boundary and return flight in both supported clients.
   - Verify both Ball Lightning orbs' visible launch cells, bolts, first and last strikes, and expiry in both
     clients. Compare a close player cast and a spell totem cast with the 3.29.3c forward release, and
     compare single and multiple orbs when a strike coincides with a wall impact. Check that each visible

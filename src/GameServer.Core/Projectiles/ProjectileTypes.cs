@@ -83,7 +83,13 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
     public Func<ProjectileEntity, int, ProjectileFlightLayout?>? FlightLayout { get; init; }
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
-    double DamageMultiplier = 1);
+    double DamageMultiplier = 1)
+{
+    /// <summary>Change only after the path through Positioned cells strictly exceeds Distance.</summary>
+    public bool MeasureInCells { get; init; }
+    /// <summary>Apply the form's release snapshot to this flight's payload, including its final source overrides.</summary>
+    public Func<object?, object?>? ChangePayload { get; init; }
+}
 public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
 public sealed record ProjectileTargetedRecipe(string Stage, int Count, double Radius);
 
@@ -353,7 +359,7 @@ public sealed class ProjectileEntity
     public long UseId => Release.Id;
     public long EmissionId { get; }
     public long ParentId { get; }
-    public ProjectileUse Use { get; }
+    public ProjectileUse Use { get; internal set; }
     public ProjectileProfile Profile => Use.Profile;
     public ProjectileVector Position { get; internal set; }
     public ProjectileVector Direction { get; internal set; }
@@ -368,6 +374,16 @@ public sealed class ProjectileEntity
     public double Distance { get; internal set; }
     public double Speed { get; internal set; }
     public int Form { get; internal set; }
+    internal sealed record FormLeg((int X, int Y) Start, float Previous)
+    {
+        internal float DistanceAt(ProjectileVector position)
+        {
+            var (x, y) = position.Cell;
+            int dx = x - Start.X, dy = y - Start.Y;
+            return Previous + MathF.Sqrt(dx * dx + dy * dy);
+        }
+    }
+    internal FormLeg? CurrentFormLeg;
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Split, TerrainBounces;

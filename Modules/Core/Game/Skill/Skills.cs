@@ -677,8 +677,9 @@ public static partial class Game
                 stats[tornadoMode] = 4;
             // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
-            // Ball Lightning reads it to select the spiral or stationary action.
-            if (IsLeapSlam(conn, effect) || SkillsFor(conn).EffectId(effect) is "BallLightningAltX" or "BallLightningAltY")
+            // Ball Lightning selects its spiral/stationary action, and ordinary Ice Spear's variation 2 gains
+            // full pierce in its second form (variation 0 starts with full pierce).
+            if (IsLeapSlam(conn, effect) || SkillsFor(conn).EffectId(effect) is "BallLightningAltX" or "BallLightningAltY" or "IceSpear")
                 stats[StatKeys.SkillBehaviourVariation] = SkillsFor(conn).BehaviourVariation(effect);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b3860a) and without it died on their first tick, so none was drawn.

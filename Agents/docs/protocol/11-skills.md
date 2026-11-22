@@ -2258,6 +2258,19 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads
   carried durations 1.212375/0.606187/2.424749 seconds. Before the patch, both 0 and +100% used 95.7 cells per second.
   These checks cover travel timing, not moving-target collision or pixel-level matching with the official game.
+- **Ordinary player Ice Spear (3.29.3c).** `GrantedEffects.IceSpear` supplies action variation 2.
+  The first spear leaves at release. The action queues the others at
+  `0.35 seconds / projectile count / (1 + cast speed / 100)` (`0x141a0a260`, `0x141a0a510`).
+  It tests distance after movement. Each straight leg adds the Euclidean distance between its start and
+  current integer Positioned cells (`0x141bb0e00`). The form changes strictly beyond
+  `20.199 × (100 + ice_spear_distance_before_form_change_+%) / 100` cells (`0x141a0a6a0`).
+  Variation 2 starts with ordinary pierce. At the change (`0x141a0a7c0`) the spear gains full pierce
+  and applies its second-form speed stat to its launch speed. The gem grants 300% more speed,
+  600% increased critical chance and +30 to +49 critical multiplier by level. At level 1, with no
+  other modifiers, the two forms have 7.5% and 52.5% critical chance and 150% and 180% multiplier.
+  Eight stock projectile rigs have `frozenspear_ntransition` at animation index 3.
+  Predictive and lockstep server inputs, controlled hits and offline 3.29.3c calculations cover the
+  form and timing. The seeded spread and graphical verification in both clients remain open.
 - **Maximum range and action speed (2026-10-31).** One movement instance is capped at 150 client units = 15 m
   (10 units per metre; 1 Gateway cell is 0.1 m). The Gateway baseline is now 150 cells through
   `system_settings.projectile_maximum_range_cells`; `projectile_distance_override` sets an exact shorter distance and

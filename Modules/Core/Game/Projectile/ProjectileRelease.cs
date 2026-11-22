@@ -486,7 +486,7 @@ public static partial class Game
         // (3.29.3c Positioned trace: player (391,352), every bolt starts (388,352) aimed left).
         double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         ProjectileVector? terrainAim = null;
-        if (GatewayProjectileSkillProfiles.IsBallLightningOrb(effectId))
+        if (GatewayProjectileSkillProfiles.IsBallLightningOrb(effectId) || effectId == "IceSpear")
         {
             int offset = Get("projectile_firing_forward_distance_override");
             bool noOffset = from.HasValue || Get("projectiles_not_offset") != 0;

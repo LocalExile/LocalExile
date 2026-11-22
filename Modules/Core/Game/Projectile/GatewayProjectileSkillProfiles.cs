@@ -12,7 +12,7 @@ public static class GatewayProjectileSkillProfiles
     public const int ClusterPlacementAttempts = 3;
     public const double RollingMagmaBounceCells = 16;
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
-        { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
+        { "Fireball", "IceSpear", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
             "KineticBolt", "KineticBoltAltX", "KineticBoltAltY",
             "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike", "HolyFlameTotem" });
 

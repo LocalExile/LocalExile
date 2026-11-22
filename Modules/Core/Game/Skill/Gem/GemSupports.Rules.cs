@@ -879,7 +879,10 @@ public static partial class Game
             : (cost.ManaFlat, cost.ManaPercent);
     }
 
-    public static int SupportedCriticalMultiplier(ClientState conn, ushort skillId)
+    public static int SupportedCriticalMultiplier(ClientState conn, ushort skillId) =>
+        SupportedCriticalMultiplier(conn, skillId, 0);
+
+    static int SupportedCriticalMultiplier(ClientState conn, ushort skillId, int formBonus)
     {
         var gem = SupportedSkill(conn, skillId);
         int extra = Stats.Key("base_critical_strike_multiplier_+") is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
@@ -895,6 +898,6 @@ public static partial class Game
             extra += GolemStat(player, "sigil_critical_strike_multiplier_+") + GolemStat(gem.Stats, "sigil_critical_strike_multiplier_+");
         return CriticalHitMultiplier((long)(SkillsFor(conn).IsAttack(gem.Effect)
             ? AttackCriticalMultiplier(conn, player, gem.Effect, gem.Stats)
-            : conn.Pools.SpellCriticalStrikeMultiplier) + extra, player, gem.Stats);
+            : conn.Pools.SpellCriticalStrikeMultiplier) + extra + formBonus, player, gem.Stats);
     }
 }

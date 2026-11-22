@@ -167,6 +167,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   If a projectile hits before its first output, its retained impact or stuck arrow is created directly at the stop.
   Ball Lightning of Static stays at its placement for two seconds and strikes each nearby enemy every 150 ms.
   Area modifiers change its 28-cell reach, and successive casts can coexist.
+  Ordinary player Ice Spear fires in sequence. After travelling more than 20.199 cells at base, each spear
+  gains full pierce, four times its launch speed and its second-form critical bonuses. Targets keep their
+  own critical modifiers. Seeded spread and on-screen checks are open.
   When several flights reach a wall at the same simulation instant, each resolves its own crossing at the surface,
   including a diagonal path blocked only by the cell beside a corner.
   The orbs' on-screen flight, stationary placement, wall impacts and expiry still need verification in both clients.

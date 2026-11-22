@@ -2,7 +2,7 @@ namespace GameServer.Core.Projectiles;
 
 public sealed partial class ProjectileRuntime
 {
-    void StartStages(ProjectileEntity p)
+    void StartStages(ProjectileEntity p, ProjectileEntity? continuing)
     {
         if (p.Profile.WanderInterval > 0)
         {
@@ -16,13 +16,13 @@ public sealed partial class ProjectileRuntime
             Schedule(Now + p.Profile.WanderInterval, Wander);
         }
         if (p.Form == 0 && p.Profile.FormChange is { } form)
-            Schedule(Now + (long)Math.Ceiling(Math.Max(0, form.Distance - p.Distance) / p.Speed * QuantaPerSecond), () =>
-            {
-                if (!projectiles.ContainsKey(p.Id)) return;
-                p.Form = 1; p.Speed *= form.SpeedMultiplier; p.Pierce = form.Pierce;
-                p.DamageMultiplier *= form.DamageMultiplier;
-                Publish(ProjectileEventKind.Redirect, p);
-            });
+        {
+            if (form.MeasureInCells)
+                StartFormLeg(p, form, continuing is null ? 0 : continuing.CurrentFormLeg!.DistanceAt(continuing.Position));
+            else
+                Schedule(Now + (long)Math.Ceiling(Math.Max(0, form.Distance - p.Distance) / p.Speed * QuantaPerSecond),
+                    () => ChangeForm(p, form));
+        }
         if (p.Profile.Pulse is { } pulse)
         {
             if (pulse.Interval <= 0) throw new ArgumentOutOfRangeException(nameof(pulse));
@@ -59,6 +59,38 @@ public sealed partial class ProjectileRuntime
             }
             Schedule(Now + emission.Interval, Emit);
         }
+    }
+
+    void ChangeForm(ProjectileEntity p, ProjectileFormRecipe form)
+    {
+        if (!projectiles.ContainsKey(p.Id)) return;
+        p.CurrentFormLeg = null;
+        p.Form = 1;
+        p.Speed *= form.SpeedMultiplier;
+        p.Pierce = form.Pierce;
+        p.DamageMultiplier *= form.DamageMultiplier;
+        if (form.ChangePayload is { } change) p.Use = p.Use with { Payload = change(p.Use.Payload) };
+        Publish(ProjectileEventKind.Redirect, p);
+    }
+
+    // Each straight leg adds the distance between its integer cells. Find the first crossing once per leg,
+    // so an ordinary flight pays no per-tick cost and a turn discards the old leg's pending change.
+    void StartFormLeg(ProjectileEntity p, ProjectileFormRecipe form, float previous)
+    {
+        var leg = p.CurrentFormLeg = new(p.Position.Cell, previous);
+        if (leg.DistanceAt(p.Position + p.Direction * p.Remaining) <= form.Distance) return;
+        long first = 0, last = (long)Math.Ceiling(p.Remaining / p.Speed * QuantaPerSecond);
+        while (first < last)
+        {
+            long middle = first + (last - first) / 2;
+            var position = p.Position + p.Direction * (middle / (double)QuantaPerSecond * p.Speed);
+            if (leg.DistanceAt(position) > form.Distance) last = middle;
+            else first = middle + 1;
+        }
+        Schedule(Now + first, () =>
+        {
+            if (ReferenceEquals(p.CurrentFormLeg, leg)) ChangeForm(p, form);
+        });
     }
 
     void EmitChildren(ProjectileEntity parent, ProjectileEmissionRecipe recipe)

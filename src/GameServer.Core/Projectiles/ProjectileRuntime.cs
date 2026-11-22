@@ -199,7 +199,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
         p.SetForkSegment(position);
         Publish(ProjectileEventKind.Spawn, p);
-        StartStages(p);
+        StartStages(p, continuing);
         return p;
     }
 
@@ -720,6 +720,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         p.TerrainApproach = null;
         p.SetForkSegment(origin);
+        if (p.CurrentFormLeg is { } leg) StartFormLeg(p, p.Profile.FormChange!, leg.DistanceAt(p.Position));
         Publish(ProjectileEventKind.Redirect, p);
     }
 

@@ -826,10 +826,10 @@ public static partial class Game
 
         void UpdateForm(ProjectileEntity p, Visual visual)
         {
-            if (PresentationFor(p).SecondFormClip is not { } clip) return;
+            if (p.Form == 0 || PresentationFor(p).SecondFormClip is not { } clip) return;
             World(visual.Id, () =>
             {
-                if (visual.Ended || !visual.Created || p.Form == 0 || visual.SecondFormStarted) return null;
+                if (visual.Ended || !visual.Created || visual.SecondFormStarted) return null;
                 // Continuation children may already be in their second form at birth.
                 visual.SecondFormStarted = true;
                 return InstanceProtocol.AnimationUpdate(visual.Id, 0, clip, 1);

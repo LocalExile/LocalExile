@@ -133,6 +133,7 @@ public static partial class Game
         {
             SpecializeRelease = (context, use) =>
             {
+                if (effect == "IceSpear") return IceSpearRelease(context, use);
                 // Player base increased area is already included in the panel total. Lay the skill's own
                 // supported stats over the area-specific player snapshot, then scale each base radius once.
                 var areaStats = SkillAreaStats(context.Conn, SupportedSkill(context.Conn, context.SkillId).Stats, context.Gem.Effect);
@@ -152,4 +153,39 @@ public static partial class Game
                 } } };
             }
         };
+
+    static ProjectileUse IceSpearRelease(ProjectileReleaseContext context, ProjectileUse use)
+    {
+        var conn = context.Conn;
+        var shot = (ProjectileOffense)use.Payload!;
+        int bonus = context.Get("ice_spear_second_form_critical_strike_chance_+%");
+        int Chance(long increase) => SupportedCriticalChanceFor(conn, context.SkillId, release: true, bonus + increase);
+        int blind = conn.Pools.VsBlindedCriticalPct;
+        int chance = Chance(0);
+        int multiplier = SupportedCriticalMultiplier(conn, context.SkillId, context.Get("ice_spear_second_form_critical_strike_multiplier_+"));
+        int? vsBlind = blind == 0 ? null : Chance(blind);
+        var vsGround = SpellCriticalChanceVsGround(conn, Chance, blind);
+        object ChangePayload(object? payload) => ((ProjectileOffense)payload!) with
+        {
+            CriticalChance = chance, CriticalMultiplier = multiplier, VsBlindedCriticalChance = vsBlind, VsGroundCriticalChance = vsGround
+        };
+        // The player action tests the accumulated Positioned cell distance strictly after each movement update.
+        float distance = (100 + context.Get("ice_spear_distance_before_form_change_+%")) * 20.199f / 100;
+        float speed = 1 + context.Get("ice_spear_second_form_projectile_speed_+%_final") / 100f;
+        int rate = FinalCastSpeedPct(context.Get, () => HoldingFishingRod(conn),
+            context.Get("cast_speed_+%") + context.Own("base_cast_speed_+%"));
+        // The first spear leaves immediately. A nonpositive cast rate never advances the detached follow-up timer.
+        int count = rate <= -100 ? 1 : use.Profile.Count;
+        long delay = count == 1 ? 0 : ProjectileRuntime.Time(.35f / count / (1 + rate / 100f));
+        // The eight stock Ice Spear rigs with this flight/impact pair all have frozenspear_ntransition at slot 3.
+        var visual = shot.Presentation;
+        if (SkillsFor(conn).Clips(use.Profile.Id) is { Flight.Name: "frozenspear_idle", Impact.Name: "frozenspear_impact" })
+            visual = (visual ?? new ProjectilePresentation()) with { SecondFormClip = 3 };
+        return use with
+        {
+            Profile = use.Profile with { Count = count, SequentialDelay = delay,
+                FormChange = new(distance, speed, -1) { MeasureInCells = true, ChangePayload = ChangePayload } },
+            Payload = shot with { Presentation = visual }
+        };
+    }
 }
