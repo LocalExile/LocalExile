@@ -1045,6 +1045,8 @@ public static partial class Game
         var weapons = WeaponProfileFor(conn);
         var activeWeapon = WeaponProfileFor(conn, activeSet: true);
         var bonus = PassiveBonus(WithDevDefenceInputs(conn, sources), weapons, snapshot.Attributes);
+        if (MapModsOf(conn)?.Get("map_players_spell_damage_%_suppressed") is int prevention and not 0)
+            bonus = bonus with { SpellSuppressionEffect = ActorScale.Saturate((long)bonus.SpellSuppressionEffect + prevention) };
         int EquipmentInput(string name) => Stats.Key(name) is uint key
             ? conn.PlayerStats.TryGetValue(key, out int value) ? value : sources.GetValueOrDefault(key) : 0;
         var gear = EquippedBaseDefences(conn, EquipmentInput);
