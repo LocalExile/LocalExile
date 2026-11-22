@@ -37,7 +37,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   and `KingInMists.cs` the two-form Ritual pinnacle), verify mixed-ground pack boundaries and ground priority for
   authored encounters, verify zero-range encounter points, variable choices when a pack has only fixed entries,
   and how explicit rooms combine with area weights. Check boss life and secondary hits in a desktop Strand fight
-  with boss modifiers and after re-entry. Remaining work includes varieties with BlightTower / Mercenary … components
+  with boss modifiers and after re-entry, including a party runner change. Remaining work includes varieties with BlightTower / Mercenary … components
   (each needs its deserializer, schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
   forms (Abberath2, Shakari2, Malachai's second form) created by their fight, tile spawner bosses
   (Marceus).

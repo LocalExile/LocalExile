@@ -51,6 +51,8 @@ public static partial class Game
         var old = world.Runner;
         world.Runner = conn;
         if (old is null || ReferenceEquals(old, conn)) return;
+        // The successor saves the population, including damage and deaths since the previous runner left.
+        conn.MonstersPlaced = old.MonstersPlaced;
         double now = conn.Clock.Elapsed.TotalSeconds;
         int count = 0;
         foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))

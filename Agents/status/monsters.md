@@ -173,7 +173,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Gateway checks cover the grant and each stat set at the actor's level for ordinary monsters, boss kits and raised or
   restored spectres. Boss mortars use the same level for their projectile counts. The client visuals still need a run.
 
-- Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
+- Population follows local gates and waits for walkability. Isolated pockets stay empty. When a party member takes over
+  the instance, its next monster save includes deaths and damage after the previous runner left (Gateway verified).
 
 - Native variety weapons reach ordinary monster inventories; explicit equipment overrides remain authoritative.
   Native appearance references resolve; rendered model parity remains unverified.

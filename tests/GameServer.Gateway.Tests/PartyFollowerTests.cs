@@ -21,11 +21,12 @@ public sealed class PartyFollowerTests
         var instance = new InstanceState();
         var first = runtime.Connection(instance, firstWire);
         var sleeping = runtime.Connection(instance, sleepingWire);
-        instance.World.Runner = first;
+        Assert.True(Game.ClaimMonsterHost("first", first));
+        first.MonstersPlaced = true;
         const uint id = 0x08000000;
         var variety = Game.Monsters.All.First();
         var monster = new SpawnedMonster("shared victim", new PlayerWalk(110, 100, 30), 60, 8, 1000)
-            { Life = 0, Dead = true };
+            { Variety = variety, Life = 0, Dead = true };
         instance.World.Monsters[id] = monster;
         instance.World.MonsterOrigins[id] = new(InstanceEntities.ObjectTypeHash(variety.Id),
             new MonsterObject(110, 100, 1000, variety.ComponentsOrBase, variety.AnimatedObject),
@@ -51,6 +52,16 @@ public sealed class PartyFollowerTests
         monster.Dead = false; monster.Life = 500;
         await Game.SyncInstanceMonsters("revived", firstWire.Stream, firstWire.Ciphers, first);
         Assert.Equal(1, Count(firstWire, Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]))));
+
+        Game.KeepInstanceMonsters(first);
+        Assert.Equal(500u, Assert.Single(instance.Monsters!).Life);
+        first.Closed = true;
+        Assert.False(Game.ClaimMonsterHost("successor", sleeping));
+        Assert.Same(sleeping, instance.World.Runner);
+        monster.Life = 0;
+        monster.Dead = true;
+        Game.KeepInstanceMonsters(sleeping);
+        Assert.Empty(instance.Monsters!);
     }
 
     [Fact]
