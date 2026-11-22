@@ -21,14 +21,14 @@ public static partial class Game
         {
             var stats = PetrifiedBloodEffectStats(player, effect, level, quality);
             var context = ReservationContext(player, skillId);
-            if (!ReservationBudgetFits(player, reservation.ManaPercent, context.Life, context.Efficiency))
+            if (!ReservationBudgetFits(player, reservation.Percent, context.Life, context.Efficiency))
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
                 return false;
             }
             player.PetrifiedBlood.Activate(skillId, effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                 Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
+                reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
                 AreaTime(player), context.Life, context.Efficiency);
             ClampReservedResources(player);
             started = true;
@@ -56,11 +56,11 @@ public static partial class Game
         if (gem.Name is null || GemSkillInstanceDisabled(player, gem.Effect, gem.Id) is not null
             || SupportedReservationCost(player, gem.Id) is not { } reservation) return;
         var context = ReservationContext(player, gem.Id);
-        if (!ReservationBudgetFits(player, reservation.ManaPercent, context.Life, context.Efficiency)) return;
+        if (!ReservationBudgetFits(player, reservation.Percent, context.Life, context.Efficiency)) return;
         var stats = PetrifiedBloodEffectStats(player, gem.Effect, gem.Level, gem.Quality);
         player.PetrifiedBlood.Activate(gem.Id, gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
             Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-            reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
+            reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
             AreaTime(player), context.Life, context.Efficiency);
         ClampReservedResources(player);
         player.AuraStatsDirty = true;

@@ -961,11 +961,7 @@ public static partial class Game
         int manaFlat = reservation.ManaFlat, manaPercent = reservation.ManaPercent;
         int lifeFlat = reservation.LifeFlat, lifePercent = reservation.LifePercent;
         bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
-        bool mine = Supports.Of(gem.Effect)?.Types.Contains(35) == true;
-        bool lifeInstead = SkillsFor(player).LifeReservation(gem.Effect, gem.Level)
-            || Get(Stat.BaseSkillReserveLifeInsteadOfMana) != 0 || Get(Stat.SkillReserveLifeInsteadOfMana) != 0
-            || curse && Get(Stat.CurseAuraSkillsReserveLife) != 0
-            || mine && Get(Stat.SkillsThatThrowMinesReserveLife) != 0;
+        bool lifeInstead = ReservesLifeInstead(player, gem, curse, Get);
         if (lifeInstead)
         {
             lifeFlat += manaFlat;

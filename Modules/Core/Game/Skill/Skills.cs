@@ -1440,7 +1440,7 @@ public static partial class Game
                 var context = ReservationContext(player, id);
                 player.PetrifiedBlood.Refresh(gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                     Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                    reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), context.Life, context.Efficiency);
+                    reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(player)), context.Life, context.Efficiency);
                 if (!ReservationBudgetFits(player)) player.PetrifiedBlood.Suspend();
                 ClampReservedResources(player);
                 player.AuraStatsDirty = true;

@@ -76,6 +76,36 @@ public sealed class BloodMagicTests
         Assert.Equal(0u, with.Mana);
     }
 
+    // With Blood Magic an aura's Mana reservation is taken from Life instead, Petrified Blood's too.
+    [Fact]
+    public async Task Blood_magic_keystone_reserves_life()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        bool bloodMagic = false;
+        using var sources = GameEvents.PlayerStatSources.Add("Game", (p, stats) => !bloodMagic || !ReferenceEquals(p, f.Player)
+            ? stats : new Dictionary<uint, int>(stats) { [Stat.KeystoneBloodMagic] = 1 });
+
+        ushort purity = f.Equip(("Purity of Fire", 1)).Single();
+        var mana = Game.SupportedReservationCost(f.Player, purity)!.Value;
+        Assert.False(Game.ReservationContext(f.Player, purity).Life);
+        Assert.True(mana.ManaPercent > 0);
+        bloodMagic = true;
+        f.Player.PlayerSkillsCache = null;
+        var life = Game.SupportedReservationCost(f.Player, purity)!.Value;
+        Assert.True(Game.ReservationContext(f.Player, purity).Life);
+        Assert.Equal((0, 0, mana.ManaFlat, mana.ManaPercent),
+            (life.ManaFlat, life.ManaPercent, life.LifeFlat, life.LifePercent));
+
+        ushort id = f.Equip(("Petrified Blood", 1)).Single();
+        var petrified = Game.SupportedSkill(f.Player, id);
+        var cost = Game.SupportedReservationCost(f.Player, id)!.Value;
+        Assert.True(await Game.TogglePetrifiedBlood(f.Player, id, petrified.Effect, "Petrified Blood", cost,
+            petrified.Level, petrified.Quality));
+        Assert.True(f.Player.PetrifiedBlood.ReservesLife);
+        Assert.Equal(cost.LifePercent, f.Player.PetrifiedBlood.ManaPercent);
+        Assert.True(Game.ReservedLife(f.Player) > 0);
+    }
+
     // The Blood Magic keystone turns a skill's whole Mana cost into a Life cost: Tornado Shot's 9 Mana is paid as
     // 9 Life, Mana stays full, and no Lifetap buff comes with it (that buff belongs to the support gem).
 }
