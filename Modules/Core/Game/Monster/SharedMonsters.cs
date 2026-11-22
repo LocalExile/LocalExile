@@ -73,11 +73,12 @@ public static partial class Game
     {
         // Only a client that was shown the monster can be sent its actions and component updates (SharedKills.ToOthers).
         if (conn.Instance is not null && m.Target is null && !conn.MonsterViews.ContainsKey(id)) return false;
-        double TargetDistance(ClientState owner, double distance)
+        (double Distance, bool Taunted) TargetPriority(ClientState owner, double distance)
         {
-            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return distance;
+            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return (distance, false);
             var minion = GolemTargetLocked(owner, id, m, at, now, distance);
-            return minion.G is null ? distance : Math.Min(distance, minion.Distance);
+            return minion.G is null ? (distance, false)
+                : (Math.Min(distance, minion.Distance), minion.G.Taunts.GetValueOrDefault(id) > now);
         }
         if (DecoyTarget(m, now) is { } decoy)
         {
@@ -91,28 +92,30 @@ public static partial class Game
             }
             return true;
         }
-        d = TargetDistance(conn, d);
+        var candidate = TargetPriority(conn, d);
         var t = m.Target;
         bool live = t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
         if (live && ReferenceEquals(t, conn))
         {
-            if (!m.Aggro && d > m.AggroRange) m.Target = null; // gave up: free for whoever comes
+            if (!m.Aggro && candidate.Distance > m.AggroRange) m.Target = null; // gave up: free for whoever comes
             return true;
         }
         // In its reach, or still chasing (the AI gives up beyond twice its aggro range, as before).
         double reach = Math.Max(1, m.AggroRange) * (m.Aggro && !live ? 2 : 1);
-        if (conn.PlayerLife == 0 || d > reach || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) return false;
+        if (conn.PlayerLife == 0 || candidate.Distance > reach || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) return false;
         if (live)
         {
             var there = t!.Walk.Position(now);
             double dt = Math.Sqrt((double)(at.X - there.X) * (at.X - there.X) + (double)(at.Y - there.Y) * (at.Y - there.Y));
-            if (d + TargetMargin >= TargetDistance(t, dt)) return false;
+            var incumbent = TargetPriority(t, dt);
+            if (incumbent.Taunted || (!candidate.Taunted && candidate.Distance + TargetMargin >= incumbent.Distance)) return false;
         }
         // From another player: what it did for that one ends (its next pass orders after this one).
         if (t is not null)
         {
             (m.LastTarget, m.SwingGeneration) = (null, null);
             m.ActionGeneration++;
+            if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
         }
         m.Target = conn;
         return true;
