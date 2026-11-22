@@ -53,6 +53,20 @@ public class MagebloodTests
                 return Game.MagebloodSources(conn, character).Where(s => s.Effect == Effect("Jade Flask")).Max(s => s.Value);
             }
             Assert.Equal(Evasion(_ => 0) * 3 / 2, Evasion(name => name == "flask_effect_+%" ? 50 : 0));
+
+            // Each line is read from its stat on any worn item, not from the belt slot or the unique's name: an amulet
+            // with only the "always apply" line applies the flasks and does not forbid using them.
+            bar.Remove(PlayerInventories.Belt, 310);
+            Assert.Empty(Game.MagebloodSources(conn, _ => 0));
+            var section = mageblood.Mods.First(m => m.Hash == leftmost.Hash).Section;
+            var amulet = ItemCatalog.Create(items.Find("Onyx Amulet")!) with { Rarity = ItemRarity.Rare };
+            bar.Put(PlayerInventories.Amulet, new(320, 0, 0,
+                amulet with { Mods = [.. amulet.Mods, leftmost.With(section, [2], Random.Shared)] }));
+            var worn = Game.MagebloodSources(conn, _ => 0).Select(s => s.Effect).ToHashSet();
+            Assert.Contains(Effect("Granite Flask"), worn);
+            Assert.Contains(Effect("Jade Flask"), worn);
+            Assert.DoesNotContain(Effect("Basalt Flask"), worn);
+            Assert.False(Game.MagebloodBlocksFlaskUse(conn, Flask("Basalt Flask", ItemRarity.Magic)));
         }
         finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
     }
