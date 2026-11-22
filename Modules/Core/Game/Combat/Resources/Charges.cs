@@ -261,9 +261,9 @@ public static partial class Game
         {
             int priorContacts = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
             var stats = CharacterPlayerStats(conn);
-            bool relevant = amount > 0 && (type == DamageType.Physical
-                || PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
-                    && DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
+            bool relevant = amount > 0
+                && PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
+                && (type == DamageType.Physical || DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
             var armour = IncomingArmourLocked(conn, relevant, priorContacts, stats);
             return MitigateTakenWithArmour(conn, type, amount, resistance, maxResistance, armour.EffectiveArmour, stats);
         }

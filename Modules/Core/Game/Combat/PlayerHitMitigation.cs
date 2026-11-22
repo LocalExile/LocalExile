@@ -6,6 +6,7 @@ using GameServer.Core.World;
 public static class PlayerHitMitigation
 {
     public const string ArmourAppliesToChaos = "base_armour_applies_to_chaos_damage";
+    public const string Transcendence = "keystone_prismatic_bulwark";
 
     public const string ArmourPercentToElemental = "armour_%_applies_to_fire_cold_lightning_damage",
         ArmourPercentToChaos = "base_armour_%_applies_to_chaos_damage";
@@ -16,9 +17,9 @@ public static class PlayerHitMitigation
     /// Hits" (Kahuturoa's Leadership).</summary>
     public static int ArmourPercent(CharacterStats.Pools pools, DamageType type, Func<string, int> get) => type switch
     {
-        DamageType.Physical => 100,
+        DamageType.Physical => get(Transcendence) != 0 ? 0 : 100,
         DamageType.Chaos => pools.ArmourAppliesToChaosDamage ? 100 : Math.Clamp(get(ArmourPercentToChaos), 0, 100),
-        _ when DamageTypes.IsElemental(type) => Math.Clamp(get(ArmourPercentToElemental), 0, 100),
+        _ when DamageTypes.IsElemental(type) => get(Transcendence) != 0 ? 100 : Math.Clamp(get(ArmourPercentToElemental), 0, 100),
         _ => 0,
     };
 
@@ -31,7 +32,8 @@ public static class PlayerHitMitigation
         int physicalReduction = 0, int elementalReduction = 0, int? effectiveArmour = null, int? armourPercent = null)
     {
         int armour = effectiveArmour ?? pools.Armour;
-        if (type == DamageType.Physical) return DamageModel.MitigatePhysical(damage, armour, physicalReduction);
+        if (type == DamageType.Physical)
+            return DamageModel.MitigatePhysical(damage, armourPercent == 0 ? 0 : armour, physicalReduction);
         int share = armourPercent ?? (type == DamageType.Chaos && pools.ArmourAppliesToChaosDamage ? 100 : 0);
         int fromArmour = share > 0 ? DamageModel.ArmourReduction((int)((long)armour * share / 100), damage) : 0;
         if (DamageTypes.IsElemental(type)) return DamageModel.Reduce(damage, fromArmour + elementalReduction);

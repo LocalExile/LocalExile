@@ -36,9 +36,9 @@ public static partial class Game
             if (!blocked && DamageTypes.IsElemental(type) && GamblerFor(stats).UsesNinetyResistance(conn.IncomingHitRandom))
                 resistance = maximum = 90;
             bool immune = PlayerImmunities(conn, stats).Contains(type);
-            bool armourRelevant = type == DamageType.Physical ? amount > 0
-                : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
-                    && DamageModel.Mitigate(amount, resistance, maximum) > 0;
+            bool armourRelevant = amount > 0
+                && PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
+                && (type == DamageType.Physical || DamageModel.Mitigate(amount, resistance, maximum) > 0);
             var armour = IncomingArmourLocked(conn, !blocked && !immune && !avoided && armourRelevant, priorContacts, stats);
             int dealt = immune || avoided ? 0 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour,
                 stats, attack: !spell, ranged: ranged && !spell, spell: spell);
@@ -78,9 +78,10 @@ public static partial class Game
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats)
     {
         var (physical, elemental) = PlayerDamageReduction(conn, stats);
-        if (type == DamageType.Physical)
-            return $"{DamageModel.ArmourReduction(effectiveArmour, amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
         int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        if (type == DamageType.Physical)
+            return $"{DamageModel.ArmourReduction(share > 0 ? effectiveArmour : 0, amount)}% armour"
+                + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
         return $"{DamageModel.Capped(resistance, maxResistance)}% resistance" +
             (share > 0
                 ? $" + {DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"

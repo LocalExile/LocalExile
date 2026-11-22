@@ -1047,6 +1047,13 @@ public static partial class Game
         var bonus = PassiveBonus(WithDevDefenceInputs(conn, sources), weapons, snapshot.Attributes);
         int EquipmentInput(string name) => Stats.Key(name) is uint key
             ? conn.PlayerStats.TryGetValue(key, out int value) ? value : sources.GetValueOrDefault(key) : 0;
+        if (EquipmentInput(PlayerHitMitigation.Transcendence) != 0)
+            bonus = bonus with
+            {
+                FireMaxResistance = bonus.FireMaxResistance - 15,
+                ColdMaxResistance = bonus.ColdMaxResistance - 15,
+                LightningMaxResistance = bonus.LightningMaxResistance - 15,
+            };
         var gear = EquippedBaseDefences(conn, EquipmentInput);
         var slots = EquippedArmourDefences(conn, EquipmentInput).ToArray();
         var shieldDefence = slots.FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
