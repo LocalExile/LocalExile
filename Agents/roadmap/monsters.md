@@ -28,8 +28,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([status](../status/monsters.md#partly-working)); integrated native evidence is scoped in
   [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
   Check template and variety life regeneration on the client, including the Sanguine Wave and Mammothcage.
-  Check the Grinning Totem's caster and recipient effects in the graphical client, including when two totems overlap.
-  The Gateway applies the strongest in-range life aura on the instance recovery tick.
+  Check the life and physical damage totems' caster and recipient effects in the graphical client, including overlaps
+  and the allies-only unique map totem. Verify the official aura sampling and attack timing during a range crossing.
   Native TakeHit recovery stops locomotion and invalidates ordinary pending attacks for the same recovery interval.
   AI decisions now use 50 ms game-time steps with 100 ms bounded repaths and full-duration attack busy periods.
   Historical LocalExile controls verify chase response, turning, pacing and native pause; this port awaits a rerun.

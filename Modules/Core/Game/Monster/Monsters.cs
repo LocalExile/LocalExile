@@ -258,15 +258,20 @@ public static partial class Game
         && (variety.BossHealthBar || Packs.BossesFor(conn.Layout.Id, mapsOnly: true).Contains(variety.Row)
             || MapScarabBosses.IsBoss(variety) || MapBeyond.IsBoss(variety) || MapValdoUniques.IsHarvestBoss(variety.Row));
 
-    internal static MonsterAttack WithMonsterMods(MonsterAttack attack, MonsterModEffects effects) => attack with
+    internal static MonsterAttack WithMonsterMods(MonsterAttack attack, MonsterModEffects effects, int physicalAura = 0)
     {
-        Damage = effects.Hit(attack.BaseDamage),
-        Seconds = attack.Summon is { CastSeconds: > 0 } summon ? summon.CastSeconds
-            : attack.SkillSpeed is { } speed
-                ? attack.Spell ? effects.CastSeconds(attack.BaseSeconds, speed.Increased, speed.More)
-                    : effects.AttackSeconds(attack.BaseSeconds, speed.Increased, speed.More)
-                : effects.AttackSeconds(attack.BaseSeconds, attack.Spell),
-    };
+        var unbuffed = effects.Hit(attack.BaseDamage);
+        return attack with
+        {
+            DamageBasis = (effects, unbuffed),
+            Damage = physicalAura == 0 ? unbuffed : effects.Hit(attack.BaseDamage, physicalAura),
+            Seconds = attack.Summon is { CastSeconds: > 0 } summon ? summon.CastSeconds
+                : attack.SkillSpeed is { } speed
+                    ? attack.Spell ? effects.CastSeconds(attack.BaseSeconds, speed.Increased, speed.More)
+                        : effects.AttackSeconds(attack.BaseSeconds, speed.Increased, speed.More)
+                    : effects.AttackSeconds(attack.BaseSeconds, attack.Spell),
+        };
+    }
 
     public static Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
@@ -321,7 +326,7 @@ public static partial class Game
         // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
         if (!friendly || ownedSkills is null || mods is null)
             mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
-        if (!friendly) mods = WithSpeciesLifeRegeneration(variety, mods);
+        if (!friendly) mods = WithSpeciesRecoveryAndAuras(variety, mods);
         // Additional encounter scaling composes with rolled rarity and map effects.
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         bool mapBoss = !friendly && IsMapBoss(conn, variety, rarity);
@@ -410,6 +415,8 @@ public static partial class Game
             : KingInMists.IsBoss3(variety) ? KingInMists.Boss3AttackSkill
             : summon is null && !kingActor && effect >= 0 && catalog.ActionHash(effect) is ushort hash ? (ushort)(hash & 0x3fff)
             : SkillCatalog.FirstSkillId;
+        var physicalAura = SeparatePhysicalAura(mods.Effects, mods.Mods);
+        int selfDamageAura = friendly ? 0 : physicalAura.Self;
         var attack = WithMonsterMods(new MonsterAttack(skillId, swing, reach, baseDamage)
         {
             Spell = spell,
@@ -425,7 +432,7 @@ public static partial class Game
             Summon = summon,
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
-        }, mods.Effects);
+        }, physicalAura.Effects, selfDamageAura);
         if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(conn, level, skillId, mods.Effects);
         var skill = effect >= 0
             ? catalog.FindMonsterSkill(attack.SkillId, effect, level,
@@ -449,7 +456,7 @@ public static partial class Game
         // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
         // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
-            : BossKits.Kit(conn, variety, level, effect, attack, mods, mapBoss);
+            : BossKits.Kit(conn, variety, level, effect, attack, mods, mapBoss, selfDamageAura);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
@@ -601,6 +608,12 @@ public static partial class Game
                 EntranceGrace = waitingForBanditChoice || !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             };
+            if (physicalAura.Included != 0)
+            {
+                int extra = selfDamageAura - physicalAura.Included;
+                spawned.PhysicalDamageAura = (!friendly, selfDamageAura == 0 ? 0 : id, selfDamageAura, extra);
+                spawned.SetGrantedStat(PhysicalAuraStat, extra);
+            }
             MonsterEmerge.AddLocked(conn, id, spawned, emerge, waits);
             if (sideAreaGuard >= 0) SideAreaVessels.PlaceGuard(conn.Instance, sideAreaGuard, id);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
@@ -2417,7 +2430,8 @@ public static partial class Game
         // with this hit's one armour decision.
         var gambler = GamblerFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
-        var hitDamage = a.Damage;
+        var hitDamage = MonsterAuraHitDamage(m, a, a.Damage);
+        ailmentBase = ReferenceEquals(ailmentBase, a.Damage) ? hitDamage : MonsterAuraHitDamage(m, a, ailmentBase);
         if (a.SourceEffects is null)
         {
             if (m.EncounterStats is { } encounter) hitDamage = MonsterModEffects.AddedTo(hitDamage, encounter);

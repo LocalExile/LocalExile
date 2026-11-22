@@ -143,15 +143,34 @@ public sealed class MapInstanceTests
             var totem = Game.Monsters.Find("Metadata/Monsters/Totems/TikiTotemMonsterHealthRegen")!;
             uint source = await Game.SpawnMonster(remote, stream, ciphers, conn, totem, level, MonsterRarity.Normal, 30, 30, bulk: true);
             var neighbors = new Dictionary<uint, SpawnedMonster> { [source] = conn.Monsters[source], [again.ObjectId] = again };
+            var damageTotem = Game.Monsters.Find("Metadata/Monsters/Totems/TikiTotemMonsterDamage")!;
+            uint damageSource = await Game.SpawnMonster(remote, stream, ciphers, conn, damageTotem, level, MonsterRarity.Normal, 30, 30, bulk: true);
+            neighbors[damageSource] = conn.Monsters[damageSource];
+            neighbors[restored.ObjectId] = restored;
+            conn.Monsters[damageSource].Walk.Teleport(30, 30, 0);
+            restored.Walk.Teleport(90, 30, 0);
+            var outsideHit = restored.Kit[1].Attack.Damage[DamageType.Physical];
             conn.Monsters[source].Walk.Teleport(30, 30, 0);
             again.Walk.Teleport(90, 30, 0);
             Game.RegenerateMonstersLocked(neighbors, .5, .5);
             Assert.Equal(230, again.Effects["life_regeneration_rate_per_minute_%"]);
             Assert.Equal(150, conn.Monsters[source].Effects["life_regeneration_rate_per_minute_%"]);
             Assert.Equal(80, Assert.Single(SavedMonster.Save([again], .5)).Mods.Effects["life_regeneration_rate_per_minute_%"]);
+            const string physical = "physical_damage_+%";
+            var ordered = restored.Kit[1].Attack;
+            var insideHit = restored.Mods.Effects.Plus(physical, 50).Hit(ordered.BaseDamage)[DamageType.Physical];
+            Assert.True(insideHit.Max > outsideHit.Max);
+            Assert.Equal(insideHit, ordered.Damage[DamageType.Physical]);
+            Assert.Equal(damageSource, again.PhysicalDamageAura.Source);
+            Assert.Equal(source, again.LifeAura.Source);
+            Assert.Equal(again.Mods.Effects[physical], Assert.Single(SavedMonster.Save([again], .5)).Mods.Effects[physical]);
+            restored.Walk.Teleport(91, 30, .5);
             again.Walk.Teleport(91, 30, .5);
             Game.RegenerateMonstersLocked(neighbors, .5, 1);
             Assert.Equal(80, again.Effects["life_regeneration_rate_per_minute_%"]);
+
+            Assert.Equal(outsideHit, restored.Kit[1].Attack.Damage[DamageType.Physical]);
+            Assert.Equal(insideHit, ordered.Damage[DamageType.Physical]);
 
             var valdoMods = new MapMods(new Dictionary<string, int>
             {

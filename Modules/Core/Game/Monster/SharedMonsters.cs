@@ -757,11 +757,11 @@ public static partial class Game
             var packets = new WorldRecordBuilder(conn, admission);
             using (conn.Performance.Lock(world.Monsters, "shared-monsters"))
             {
-                List<(uint Id, SpawnedMonster Monster)>? lifeAuras = null;
+                List<(uint Id, SpawnedMonster Monster)>? auras = null;
                 void Remember(uint id, SpawnedMonster monster, MonsterView view)
                 {
                     conn.MonsterViews[id] = view;
-                    if (LifeAuraChanged(monster, view)) (lifeAuras ??= []).Add((id, monster));
+                    if (MonsterAurasChanged(monster, view)) (auras ??= []).Add((id, monster));
                 }
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
@@ -842,9 +842,9 @@ public static partial class Game
                 // A rise can follow this create before the next periodic publication. Its queued update must see
                 // the just-admitted view; the recipient's send gate orders that update after these create bytes.
                 // A lower-id recipient can refer to a totem created later in this same projection.
-                if (lifeAuras is not null)
-                    foreach (var (id, monster) in lifeAuras)
-                        conn.MonsterViews[id] = PresentLifeAura(conn, packets, id, monster, conn.MonsterViews[id]);
+                if (auras is not null)
+                    foreach (var (id, monster) in auras)
+                        conn.MonsterViews[id] = PresentMonsterAuras(conn, packets, id, monster, conn.MonsterViews[id]);
                 conn.AwakeMonsters = AwakeMonsterIds(conn);
             }
             return packets.Build();

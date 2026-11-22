@@ -121,7 +121,8 @@ public static partial class Game
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.SourceEffects, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical,
+        var damagePacket = MonsterAuraHitDamage(source, attack, attack.Damage);
+        var rolled = MonsterModHit(source, attack.SourceEffects, damagePacket.Roll(random), m.Life, m.MaxLife, random, out bool critical,
             now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack))
             .Scale(SappedDamageFactor(source, now));
         bool elementalImmune = GolemElementalImmune(g);

@@ -420,6 +420,11 @@ tick, including the source itself. Overlapping instances of this buff use the st
 adds to it. BuffVisuals row 94 has separate emitter and recipient effects. Each observer receives 0x1c1 on entry and
 0x1c2 on loss. Their appearance and the official server's sampling cadence still need a graphical client capture.
 
+The physical damage totems use `MonsterTotemAuraDamage1_`. BuffTemplates row 356 gives 60 cells and targets
+`[1,2]` (self and allies). The unique map damage-and-evasion totem uses row 62, 50 cells and `[2]` (allies).
+Both use BuffDefinitions row 88, stat 26 (`physical_damage_+%`) and a +50 roll. BuffVisuals row 92 has separate
+emitter and recipient effects. Rows 88 and 90 both clear `IsRecovery` and `__col44`, so neither adds the optional words to 0x1c1.
+
 **Open:** other variety modifiers and their aura recipients are incomplete; monsters have no base
 resistance or armour yet (open PRs #225 / #226 add base resistance), the player no penetration, so the mods'
 resistances cannot be penetrated; no monster energy shield; the unsupported mods' systems;

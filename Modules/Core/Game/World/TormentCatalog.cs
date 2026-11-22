@@ -99,10 +99,11 @@ public static class TormentCatalog
         .Distinct().Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>().Select(m => m.Hash).ToHashSet());
 
     /// <summary>The Touches and Grips actually rolled on this monster, including a kept monster's older mod list.</summary>
-    internal static MonsterModEffects EffectsOn(MonsterModSet mods)
+    internal static MonsterModEffects AttackEffectsOn(MonsterModSet mods)
     {
         var rolls = mods.Mods.Where(m => TouchAndGripHashes.Value.Contains(m.Hash)).ToArray();
-        return rolls.Length == 0 ? MonsterModEffects.None : new(Game.MonsterModRolls.Value.RolledStats(rolls));
+        return rolls.Length == 0 ? MonsterModEffects.None
+            : Game.SeparatePhysicalAura(new(Game.MonsterModRolls.Value.RolledStats(rolls)), rolls).Effects;
     }
 
     static readonly Lazy<(ushort Touched, ushort Possessed)> EffectHashes = new(() =>

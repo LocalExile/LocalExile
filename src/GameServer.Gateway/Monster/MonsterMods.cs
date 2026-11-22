@@ -99,7 +99,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     static readonly object MoreLock = new();
 
     /// <summary>A hand-over for modules: each stat in <paramref name="life"/> (<paramref name="damage"/>) that a monster
-    /// has multiplies its <see cref="MaxLife(uint)"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
+    /// has multiplies its <see cref="MaxLife(uint)"/> (<see cref="Hit(DamagePacket)"/>) by max(0, 1 + value / 100), a "more" modifier. The
     /// framework names none; with none handed over, or none on the monster, the factor is exactly 1. Disposing the result
     /// (the module's lifetime) takes back the stats it added.</summary>
     public static IDisposable HandOverMore(IReadOnlyCollection<string> life, IReadOnlyCollection<string> damage) =>
@@ -150,7 +150,9 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// and lowered by monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the
     /// rarity's hit always was (Hillock at level 1: 6.6–12.3 → 7–12); then the "gain as extra" stats add their types
     /// (fire, cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
-    public DamagePacket Hit(DamagePacket source)
+    public DamagePacket Hit(DamagePacket source) => Hit(source, 0);
+
+    public DamagePacket Hit(DamagePacket source, int additionalPhysicalIncrease)
     {
         if (source.IsZero) return source;
         double more = (1 + this["monster_rarity_damage_+%_final"] / 100.0)
@@ -167,7 +169,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         var hit = source.Select((type, range) =>
         {
             if (range.IsZero) return range;
-            int increased = this["damage_+%"] + (type == DamageType.Physical ? this["physical_damage_+%"] : 0);
+            int increased = this["damage_+%"] + (type == DamageType.Physical ? this["physical_damage_+%"] + additionalPhysicalIncrease : 0);
             double factor = (1 + increased / 100.0) * more;
             return new(Math.Max(1, Math.Round(range.Min * factor)), Math.Max(1, Math.Round(range.Max * factor)));
         }).Convert(conversion).Round();
@@ -192,7 +194,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     }
 
     /// <summary>A hit with the "gain as extra" stats of <paramref name="extra"/> added and its damage_+% (an encounter's
-    /// buffs, given after the monster's own hit was fixed at its spawn: <see cref="Hit"/>; the increase is applied on the
+    /// buffs, given after the monster's own hit was fixed at its spawn: <see cref="Hit(DamagePacket)"/>; the increase is applied on the
     /// fixed hit, not summed with the monster's own).</summary>
     public static DamagePacket AddedTo(DamagePacket hit, IReadOnlyDictionary<string, int> extra)
     {

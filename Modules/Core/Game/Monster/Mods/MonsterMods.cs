@@ -90,16 +90,16 @@ public static partial class Game
         return rolls.Create(all, set.NameWords, MonsterRarity.Magic, level);
     }
 
-    // Apply the variety's own recovery after the shared magic roll. Keep the row with this monster so
-    // restoring it preserves its roll. MonsterLifeAuras reconciles a rolled aura with nearby sources.
-    static MonsterModSet WithSpeciesLifeRegeneration(MonsterCatalog.Variety variety, MonsterModSet set)
+    // Roll each supported species row after the shared rarity roll and preserve it in instance saves.
+    static MonsterModSet WithSpeciesRecoveryAndAuras(MonsterCatalog.Variety variety, MonsterModSet set)
     {
         var catalog = MonsterModRolls.Value;
         foreach (int row in variety.SpeciesModsOrEmpty)
         {
-            if (catalog.Mods.Row(row) is not { } mod || !mod.Stats.Any(stat => stat.Id == LifeAuraStat) ||
-                (mod.BuffTemplate is not null && !LifeAuraMods.Value.ContainsKey(mod.Hash)) ||
-                set.Mods.Any(kept => kept.Hash == mod.Hash)) continue;
+            if (catalog.Mods.Row(row) is not { } mod || set.Mods.Any(kept => kept.Hash == mod.Hash)) continue;
+            bool supported = mod.BuffTemplate is null ? mod.Stats.Any(stat => stat.Id == LifeAuraStat)
+                : MonsterAuraMods.Value.ContainsKey(mod.Hash);
+            if (!supported) continue;
 
             var roll = mod.Roll(ModSection.Hidden, Random.Shared);
             set = set with { Mods = [.. set.Mods, roll], Effects = set.Effects.Combine(catalog.RolledStats([roll])) };
@@ -407,10 +407,14 @@ public static partial class Game
         double now = 0, int onHitPct = 0)
     {
         var changed = new List<(uint, uint)>();
-        var auras = GatherLifeAuras(monsters, now);
+        var auras = GatherMonsterAuras(monsters, now);
+        var recovery = auras?.GetValueOrDefault(LifeAuraBuff);
+        var physical = auras?.GetValueOrDefault(PhysicalAuraBuff);
         foreach (var (id, m) in monsters)
         {
-            ApplyLifeAura(id, m, auras, now);
+            ApplyMonsterAura(id, m, recovery, now, RecoveryAura, ref m.LifeAura);
+            if (ApplyMonsterAura(id, m, physical, now, PhysicalAura, ref m.PhysicalDamageAura))
+                BossKits.RefreshPhysicalAura(m);
             double spreadRecovery = SpreadPoisonRecovery(m, now);
             var hit = m.RegenerationHit;
             if (hit is { } source && now >= source.At + RecentlySeconds) m.RegenerationHit = null;

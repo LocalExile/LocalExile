@@ -85,8 +85,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their life, hit, attack time, walk (sent as movement_velocity_+%, the client walks at the same speed), resistances,
   physical reduction, block, evasion, critical strikes and regeneration act on the server (each checked live); the
   instance keeps them. Hostile monsters keep their variety's own life regeneration on spawn and re-entry.
-  A Grinning Totem regenerates its own life and that of nearby hostile monsters. Overlapping sources of the same
-  recovery buff apply the strongest rate. The Gateway sends the source and recipient buffs to each observer.
+  Grinning Totems grant nearby hostile monsters their variety's life regeneration or increased physical damage.
+  The strongest source of each buff applies. Physical increases add together before hit conversion and gain as extra.
+  Each observer receives the source and recipient buffs.
   The instance runner adds template and modifier recovery once per interval, including across a party handoff.
   Izaro's trial script fills its own idols.
   Only the 37 mods the server can honour roll; the other 74 are listed in [14](../docs/protocol/14-monster-packs.md)

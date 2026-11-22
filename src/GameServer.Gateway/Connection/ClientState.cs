@@ -85,6 +85,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public (int Increased, int More)? SkillSpeed { get; init; }
     public double BaseSeconds { get; } = Seconds;
     public DamagePacket BaseDamage { get; } = Damage;
+    // The selected attack keeps its damage when its owner's buffs change. Rebind the next order from this basis.
+    public (MonsterModEffects? Modifiers, DamagePacket Unbuffed)? DamageBasis { get; init; }
 
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
@@ -278,6 +280,7 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     public int TemplateLifeRegeneration { get; private init; }
     // Current species aura on the shared actor. Extra is the portion outside its rolled modifier set.
     public (bool Emits, uint Source, int Rate, int Extra) LifeAura;
+    public (bool Emits, uint Source, int Rate, int Extra) PhysicalDamageAura;
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
     // clip through its current ACT; rig indexes are retained as extraction/profile diagnostics.
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];
@@ -291,12 +294,30 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     public IReadOnlyDictionary<string, int>? EncounterStats;
     /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
     public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    Dictionary<string, int>? grantedStats;
+    (MonsterModEffects Basis, MonsterModEffects Effects)? grantedEffects;
+
+    // Area grants change on entry or exit. Reuse their sum across the stat lookups in an attack.
+    public void SetGrantedStat(string stat, int value)
+    {
+        if (value == 0) grantedStats?.Remove(stat);
+        else (grantedStats ??= new(StringComparer.Ordinal))[stat] = value;
+        grantedEffects = null;
+    }
+
     MonsterModEffects EncounterEffects => EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
     public MonsterModEffects Effects
     {
         get
         {
-            var effects = EncounterEffects;
+            var effects = Mods.Effects;
+            if (grantedStats is { Count: > 0 })
+            {
+                if (grantedEffects is not { } sum || !ReferenceEquals(sum.Basis, effects))
+                    grantedEffects = sum = (effects, effects.Combine(grantedStats));
+                effects = sum.Effects;
+            }
+            if (EncounterStats is { } encounter) effects = effects.Combine(encounter);
             foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
             return Curses.Effects(effects);
         }
