@@ -663,6 +663,14 @@ public static class InstanceProtocol
         return result;
     }
 
+    /// <summary>Custom mod message envelope (non-retail extension): u16 BE 0xF7E0, u32 BE payload length
+    /// (≤ <see cref="ModEnvelopeMaxPayload"/>), followed by <c>payloadLen</c> bytes. Framed cleanly so subsequent
+    /// retail messages in the same TCP read continue decoding and split envelopes reassemble across reads.</summary>
+    public const ushort ModEnvelopeId = 0xF7E0;
+
+    /// <summary>Maximum payload length accepted in a <see cref="ModEnvelopeId"/> frame (1 MiB).</summary>
+    public const int ModEnvelopeMaxPayload = 1 << 20;
+
     static WireMeasure TryClientMessageLength(ushort id, ReadOnlySpan<byte> data, out int length)
     {
         switch (id)
@@ -695,6 +703,9 @@ public static class InstanceProtocol
             // 2 + WStr + WStr + u32 + u8 (shop buy, writer 0x141fa1160).
             case 0x012c:
                 return MeasureTwoWStrMessage(data, suffixBytes: 5, out length);
+            // u16 id + 4 narrow UTF-8 strings (each u16 BE len + bytes; shop delivery quote/order, writer 0x141fa1600).
+            case 0x0130 or 0x0138:
+                return MeasureFourNarrowStrMessage(data, out length);
             // u16 id, u8 flags, optional u32 when bit 0 is clear (writer 0x141fa1b30, main frame loop 0x140d551f0).
             case 0x0158:
                 return Measure0158(data, out length);
@@ -707,12 +718,24 @@ public static class InstanceProtocol
             // u16 id, u32 BE, u16 BE n, n * u32 BE (salvage box open, writer 0x141fa3bf0 → 0x141faa4a0).
             case 0x026e:
                 return MeasureSalvageBox(data, out length);
+            // u16 id, u8 count, count * u8 (Heist sign contract, writer 0x141fa3d30 → 0x141fab790).
+            case 0x0279:
+                return MeasureU8ListMessage(data, prefixBytes: 2, out length);
+            // u16 id, u8 wing, u8 count, count * u8 (Heist blueprint crew, writer 0x141fa3fc0 → 0x141fab790).
+            case 0x027f:
+                return MeasureU8ListMessage(data, prefixBytes: 3, out length);
             // u16 id, u8, u8 n1, n1 bytes, u8 n2, n2 bytes, u8, u8 (recombine, writer 0x141fa49e0).
             case 0x028f:
                 return MeasureRecombine(data, out length);
+            // u16 id, u32 BE netId, u8 count, count * (u8 + u32 BE + u32 BE) (Necropolis Lantern enter, writer 0x141fa5c10).
+            case 0x02a5:
+                return MeasureNecropolisLantern(data, out length);
             // u16 id, u8 ruleset, CompactUInt(len), len bytes (ruleset message, writer 0x141fa7c10 / reader 0x141fa7ca0).
             case InstanceRulesets.ActionId:
                 return InstanceRulesets.MeasureActionLength(data, out length);
+            // Custom mod envelope (non-retail): u16 BE 0xF7E0, u32 BE payloadLen (<= ModEnvelopeMaxPayload), payload bytes.
+            case ModEnvelopeId:
+                return MeasureModEnvelope(data, out length);
             default:
                 if (KnownClientLength(id) is int fixedLen) { length = fixedLen; return WireMeasure.Ok; }
                 length = 0;
@@ -803,6 +826,53 @@ public static class InstanceProtocol
         int n2At = 4 + data[3];
         if (n2At >= data.Length) return WireMeasure.Incomplete;
         int total = n2At + 1 + data[n2At] + 2;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureFourNarrowStrMessage(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        int pos = 2;
+        for (int i = 0; i < 4; i++)
+        {
+            if (data.Length - pos < 2) return WireMeasure.Incomplete;
+            int strLen = BinaryPrimitives.ReadUInt16BigEndian(data[pos..]);
+            pos += 2 + strLen;
+            if (pos > data.Length) return WireMeasure.Incomplete;
+        }
+        length = pos;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureU8ListMessage(ReadOnlySpan<byte> data, int prefixBytes, out int length)
+    {
+        length = 0;
+        if (data.Length <= prefixBytes) return WireMeasure.Incomplete;
+        int total = prefixBytes + 1 + data[prefixBytes];
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureNecropolisLantern(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 7) return WireMeasure.Incomplete;
+        int total = 7 + data[6] * 9;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureModEnvelope(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 6) return WireMeasure.Incomplete;
+        uint payloadLen = BinaryPrimitives.ReadUInt32BigEndian(data[2..]);
+        if (payloadLen > ModEnvelopeMaxPayload) return WireMeasure.Invalid;
+        int total = 6 + (int)payloadLen;
         if (data.Length < total) return WireMeasure.Incomplete;
         length = total;
         return WireMeasure.Ok;
