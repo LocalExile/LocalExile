@@ -119,6 +119,7 @@ public static class CharacterStats
         // can add spell suppression chance per complete group of 15 Dexterity.
         bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0)
     {
+        public bool NoEnergyShield { get; init; }
         public static readonly Bonus None = new();
     }
 
@@ -267,7 +268,7 @@ public static class CharacterStats
         long totalEnergyShieldPct = (b.NoIntelligenceBonuses ? 0L : intel / 10L) + b.EnergyShieldPct
             + (long)b.EnergyShieldPctPerTenStrength * (str / 10);
         int energyShieldPct = (int)Math.Clamp(totalEnergyShieldPct, int.MinValue, int.MaxValue);
-        uint energyShield = (uint)Rating(Increased(b.EnergyShield, b.ShieldEnergyShield, b.BodyEnergyShield,
+        uint energyShield = b.NoEnergyShield ? 0u : (uint)Rating(Increased(b.EnergyShield, b.ShieldEnergyShield, b.BodyEnergyShield,
             totalEnergyShieldPct, (long)b.ShieldEnergyShieldPct + b.SharedShieldDefencesPct, b.BodyEnergyShieldPct));
         int Max(int bonus) => Math.Min(DamageModel.MaxResistCap, DamageModel.DefaultMaxResistance + bonus);
         int maxBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxBlockChance + b.BlockChanceMax);

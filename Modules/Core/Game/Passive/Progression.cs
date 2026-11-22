@@ -1521,7 +1521,8 @@ public static partial class Game
             DexterityAccuracyTriple: Get("dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead") != 0,
             AccuracyEqualsIntelligence: Get("gain_accuracy_rating_equal_to_intelligence") != 0,
             ManaReservationEfficiencyPct: manaReservation, LifeReservationEfficiencyPct: lifeReservation,
-            AuraEffectPct: auraEffect, AuraAreaPct: auraArea);
+            AuraEffectPct: auraEffect, AuraAreaPct: auraArea)
+        { NoEnergyShield = Get("keystone_miracle_of_thaumaturgy") != 0 };
     }
 
     // The character's passive skill points (one per level after the first, plus the extra points from
