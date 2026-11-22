@@ -574,7 +574,7 @@ public static partial class Game
             ProjectileUse Capture()
             {
                 ushort sequence = barrage is null ? (ushort)0 : ushort.MaxValue;
-                var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, sequence,
+                var use = CaptureGemProjectileFrom(placed, conn, session, placed.Skill, payload, shot, critical, sequence,
                     from: at, attackContact: barrage?.Fire.Point);
                 use = DirectProjectileVolley(conn, session, placed.Skill, payload, use, sequence, 0, barrage, Firing);
                 return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true } };

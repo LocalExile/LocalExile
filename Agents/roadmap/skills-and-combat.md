@@ -217,7 +217,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     compare single and multiple orbs when a strike coincides with a wall impact. Check that each visible
     trap or mine projectile stops in the last open cell when several reach a wall together. Check how
     the client draws the last part of an orbit when its final waypoint falls short of the stop.
-    The Static variant still needs a separate check (#1101).
+    Compare repeated Static casts, trap and mine placement, visible bolts and expiry in both clients (#1101).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
   - Monster weapon projectiles: `monster_projectile_weapon`, `monster_snipe` and `monster_puncture` (109 varieties'

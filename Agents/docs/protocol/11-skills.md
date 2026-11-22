@@ -2245,6 +2245,14 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   Area modifiers change that reach. Each bolt uses the single-target spell projectile hit. Additional orbs from
   the same cast share the interval for each enemy, including on return. Spell Echo starts its own interval.
   Delay and lifetime are based on observed player mechanics. Flight and bolt presentation await checks in both clients.
+  Ball Lightning of Static uses action variation 2.
+  Its 3.29.3c release (`0x141a38360`) selects the prepared aim or, with `skill_is_trapped`, the prepared source.
+  An existing Static orb on the same actor within 40 world units gives one pair of offsets in [−40, 40],
+  drawn from the action sequence and actor id.
+  The placement walks projectile grid layer 1 through the destination and keeps the last open cell before a blocker.
+  A blocked first cell preserves the original selection.
+  The movement callback (`0x141a38e10`) skips flight for variation 2 and starts the spiral for variation 1.
+  The Static gem's 28-cell radius and the [two-second, 150 ms strike model](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_int.lua#L1377-L1407) give 13 strikes on a target that stays in range.
   Other final factors, conditional and per-charge sources, and action-specific variation still need their own verification.
   Live validation used a copied OfflineWitch database and three Fireball casts over the same 116-cell path.
   At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads

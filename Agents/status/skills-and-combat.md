@@ -165,9 +165,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   A straight flight's final glide targets that cell.
   A spiral's last waypoint can fall short of its stop.
   If a projectile hits before its first output, its retained impact or stuck arrow is created directly at the stop.
+  Ball Lightning of Static stays at its placement for two seconds and strikes each nearby enemy every 150 ms.
+  Area modifiers change its 28-cell reach, and successive casts can coexist.
   When several flights reach a wall at the same simulation instant, each resolves its own crossing at the surface,
   including a diagonal path blocked only by the cell beside a corner.
-  The orbs' on-screen flight, wall impacts and expiry still need verification in both clients.
+  The orbs' on-screen flight, stationary placement, wall impacts and expiry still need verification in both clients.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).

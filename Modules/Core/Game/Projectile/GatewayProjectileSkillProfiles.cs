@@ -28,7 +28,7 @@ public static class GatewayProjectileSkillProfiles
 
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
-    public static bool IsBallLightningOrb(string? effect) => effect is "BallLightning" or "BallLightningAltX";
+    public static bool IsBallLightningOrb(string? effect) => effect is "BallLightning" or "BallLightningAltX" or "BallLightningAltY";
     internal const double BallLightningLifetimeSeconds = 2;
 
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
@@ -63,6 +63,8 @@ public static class GatewayProjectileSkillProfiles
                 Pulse = new("ball-lightning", 0, ProjectileRuntime.Time(pulseMilliseconds / 1000d))
                     { HitOnSpawn = false, AreaDamage = false, ShareIntervalAcrossUse = true }
             };
+            if (effect == "BallLightningAltY")
+                return p with { Stationary = true, Speed = 0, Range = 0, Count = 1, CannotReturn = true };
         }
         else if (IsKineticBlast(effect))
         {

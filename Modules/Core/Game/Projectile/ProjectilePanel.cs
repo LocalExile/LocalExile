@@ -69,7 +69,7 @@ public static partial class Game
             Put("total_number_of_arrows_to_fire", total);
             Put("virtual_total_number_of_arrows", total);
         }
-        if (groundRain is not null) return; // Rain arrows land at their destination without a flight interaction.
+        if (groundRain is not null || profile.Stationary) return; // Neither use has a flight interaction.
         Put("projectile_number_of_targets_to_pierce", profile.CannotPierce || profile.Pierce < 0 ? 0 : profile.Pierce);
         Put("virtual_always_pierce", !profile.CannotPierce && profile.Pierce < 0 ? 1 : 0);
         Put("virtual_projectiles_cannot_pierce", profile.CannotPierce ? 1 : 0);

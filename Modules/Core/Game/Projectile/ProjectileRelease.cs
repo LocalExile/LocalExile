@@ -299,7 +299,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, ProjectileUse use, ushort sequence,
         uint repeatsLeft)
     {
-        if (use.Payload is not ProjectileOffense { ClientPredicted: true }) return use;
+        if (use.Profile.Stationary || use.Payload is not ProjectileOffense { ClientPredicted: true }) return use;
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
@@ -427,6 +427,14 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
+        (int X, int Y)? from = null, ContactPoint? attackContact = null) =>
+        CaptureGemProjectileFrom(null, conn, session, skillId, gem, aim, criticalRoll, sequence, repeatsLeft, releaseDelay,
+            totem, cryExerted, repeat, sacrifice, reoccurrenceMore, from, attackContact);
+
+    static ProjectileUse CaptureGemProjectileFrom(PlacedSkills.Placed? placed, ClientState conn, ProjectileSession session, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
+        SkillCriticalRoll criticalRoll, ushort sequence, uint repeatsLeft = 0, double releaseDelay = 0,
+        TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
         (int X, int Y)? from = null, ContactPoint? attackContact = null)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
@@ -458,6 +466,7 @@ public static partial class Game
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         bool barrageGem = IsBarrageGem(effectId);
         var profile = definition.Parameters.Resolve(Get, speed, bowProjectiles);
+        uint orbCaster = profile.Stationary && placed is not null ? placed.Id : emitter;
         var at = totem?.At ?? from ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
@@ -479,18 +488,23 @@ public static partial class Game
         ProjectileVector? terrainAim = null;
         if (GatewayProjectileSkillProfiles.IsBallLightningOrb(effectId))
         {
-            terrainAim = target;
             int offset = Get("projectile_firing_forward_distance_override");
             bool noOffset = from.HasValue || Get("projectiles_not_offset") != 0;
             int maximum = ClientProjectileRange(Get);
             var line = ProjectileFiringLine.Prepare(origin, target, offset, noOffset, maximum, false,
                 () => ProjectileActionAngle(sequence, 0, repeatsLeft, emitter, 6.28318f));
-            origin = ProjectileFiringLine.Cell(line.From);
+            if (profile.Stationary)
+                target = origin = session.StaticBallLightningPosition(at, line, placed is { Mine: false }, gem.Effect, sequence, orbCaster);
+            else
+            {
+                terrainAim = target;
+                origin = ProjectileFiringLine.Cell(line.From);
+                var ray = (line.To - line.From) * ProjectileFiringLine.CellsPerWorld;
+                target = profile.Count == 1 ? line.RangeEnd(maximum) : origin + new ProjectileVector(ray.X, ray.Y);
+            }
             var layout = conn.Layout;
             admitted = origin.X >= 0 && origin.Y >= 0
                 && (layout.GridW == 0 || origin.X < layout.GridW && origin.Y < layout.GridH);
-            var ray = (line.To - line.From) * ProjectileFiringLine.CellsPerWorld;
-            target = profile.Count == 1 ? line.RangeEnd(maximum) : origin + new ProjectileVector(ray.X, ray.Y);
         }
         else if (totem is null && from is null)
         {
@@ -633,7 +647,7 @@ public static partial class Game
                 // Pending casts still require their source; released projectiles live with the area session.
                 Leech = totem is null ? shot.Leech : new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
         }
-        var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
+        var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(orbCaster, conn.ProjectileEpoch), 1, origin, target)
             { LaunchSource = ProjectileSession.Vector(at), TerrainAim = terrainAim, Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
                 CanEmit = admitted ? null : static () => false,
                 LaunchSourceAt = rain && totem is null && from is null

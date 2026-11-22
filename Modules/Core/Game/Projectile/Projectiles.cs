@@ -690,7 +690,7 @@ public static partial class Game
                 if (presentation.FlightClip is { } clip)
                     World(id, () => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
                 UpdateForm(p, visual);
-                Glide(p, visual);
+                if (!p.Profile.Stationary) Glide(p, visual);
             }
             else if (value.Kind == ProjectileEventKind.Redirect && visuals.TryGetValue(p.Id, out var redirect))
             {

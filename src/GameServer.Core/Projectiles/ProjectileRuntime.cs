@@ -122,8 +122,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     static void Validate(ProjectileProfile p)
     {
-        if (p.Count is < 1 or > 256 || !double.IsFinite(p.Speed) || p.Speed <= 0
-            || !double.IsFinite(p.Range) || p.Range <= 0 || !double.IsFinite(p.Radius) || p.Radius < 0
+        if (p.Count is < 1 or > 256 || !double.IsFinite(p.Speed) || !double.IsFinite(p.Range)
+            || (p.Stationary ? p.Speed != 0 || p.Range != 0 : p.Speed <= 0 || p.Range <= 0)
+            || !double.IsFinite(p.Radius) || p.Radius < 0
             || p.Lifetime <= 0 || p.LandingDelay is <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
@@ -320,7 +321,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         if (p.Profile.LandingDelay.HasValue)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Landing, default, Point: p.Use.Aim) : null;
-        if (p.WaitUntil > Now)
+        if (p.Profile.Stationary || p.WaitUntil > Now)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Lifetime, default) : null;
         long end = Math.Min(horizon, p.ExpiresAt);
         // A range-limited sweep can stop partway through its last quantum. Date its wall impact at the flight speed.
