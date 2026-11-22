@@ -40,7 +40,7 @@ public sealed class ElementalArmyExposureTests
         target.Exposures.Clear();
         HitWith(DamagePacket.Of(DamageType.Physical, 100, 100));
         Assert.Empty(target.Exposures);
-        Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [1, 1] });
+        Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [1, 1, 1] });
         id = await Game.SummonFighter("test", f.Stream, f.Ciphers, f.Conn, source,
             Game.SummonData.Find("SummonSkeletons")!, (100, 100));
         fighter = f.Conn.Summons.Fighters[id];
@@ -60,12 +60,12 @@ public sealed class ElementalArmyExposureTests
     public async Task Item_granted_beast_applies_exposure_from_the_support_in_its_armour()
     {
         using var f = new MinionUtilityTests.Fixture();
-        f.Equip(("Elemental Army Support", 20), ("Added Cold Damage Support", 20));
+        f.Equip(("Elemental Army Support", 20), ("Added Cold Damage Support", 20), ("Meat Shield Support", 20));
         var items = Game.ItemsOf(f.Conn);
         var weapon = items.Items(PlayerInventories.Weapon1).Single();
         var armour = new UniqueCatalog(Program.Items).Create("Yriel's Fostering (Ursa)", new Random(17))!;
         items.Remove(PlayerInventories.Weapon1, weapon.Id);
-        items.Add(PlayerInventories.BodyArmour, 0, 0, armour with { Sockets = weapon.Item.Sockets, Links = [1, 1] });
+        items.Add(PlayerInventories.BodyArmour, 0, 0, armour with { Sockets = weapon.Item.Sockets, Links = [1, 1, 1] });
         var source = Game.GemSkillEffects(f.Conn).Single();
         Game.QueueBeastCompanionLocked(f.Conn, Game.SupportedSkill(f.Conn, source.Id), source.Id, null);
         await Game.TickBeastCompanions("test", f.Stream, f.Ciphers, f.Conn, 1, Game.CombatLifetime);
@@ -74,5 +74,14 @@ public sealed class ElementalArmyExposureTests
         Assert.NotNull(Game.MinionHitTargetLocked(f.Conn, beast.Id, beast.Monster, 900, target, 1,
             new Random(1), checkReach: false, accuracy: 1000000));
         Assert.Equal(-10, Game.MonsterExposure(target, DamageType.Cold, 1));
+
+        f.Conn.Walk.Teleport(100, 100, 1);
+        var near = Game.MinionHitTargetLocked(f.Conn, beast.Id, beast.Monster, 900, target, 1,
+            new Random(1), checkReach: false, accuracy: 1000000);
+        f.Conn.Walk.Teleport(150, 100, 1);
+        Assert.Null(Game.MinionTargetLocked(f.Conn, beast.Id, beast.Monster, (105, 100), (150, 100), 1));
+        var far = Game.MinionHitTargetLocked(f.Conn, beast.Id, beast.Monster, 900, target, 1,
+            new Random(1), checkReach: false, accuracy: 1000000);
+        Assert.True(near!.Value.Damage > far!.Value.Damage);
     }
 }
