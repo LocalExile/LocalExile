@@ -309,3 +309,12 @@ gives the per-rarity `…_Closed_AOFile` looping glow (no SoundEvents) and the `
 SummonedMonsterEffect` (`chestsummon.ao`: `Chests/TrapTrigger/MonsterSpawn/Spawn_$(#)` and `Layer_$(#)`) and
 `StrongboxCorpseExplode`'s is `MiscAnimated StrongboxExplosion` (`strongbox_explode/rig.ao`: `NewStrongBoxExplode`).
 What `started` does is not verified.
+The Chest flag byte's **bit 1** is the box's activated flag: the client's warning routine (`0x1415d6470`) reads it and
+plays `Audio/…/Chests/TrapTrigger/Trigger_$(#).ogg` for a mod with `chest_play_warning_sound`. A closed box created
+with the bit set showed no nameplate at all (live 2026-11-22), so the server sets it only on the opened object. The
+`ObjectMagicProperties` component has a real 0x2bc reader (slot 17 forwards to slot 20 `0x141e7e080`), so a currency
+change is sent in place and the client's nameplate and selection stay. A daemon skill's record must carry the area
+level's `active_skill_area_of_effect_radius` and `total_skill_area_of_effect_radius_+%_including_final`, and its
+`skill_behaviour_variation` (`GrantedEffects.SkillID`, e.g. ChestExplode's 30), or the client draws the wrong effect or
+none. Not solved (issue "Strongbox daemon spells"): Firestorm's and Lightning Storm's falling projectiles (the client
+draws only the first) and Putrifying's corpse detonation (one delayed cast, 21 cells).

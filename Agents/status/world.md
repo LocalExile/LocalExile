@@ -120,7 +120,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   waves and guard the box, Revive raises the dead near it. An opening plays as the game's (live 2026-11-22): the
   model's own `open` clip with its lid sounds, the rarity's `ChestEffects` glow while closed and its open effect, the
   box shown opened once the clip is over, then the guards' dust columns with the spawn sounds (their wave waits for the
-  clip, as the daemons do). Gems with experience drop at a random level up to 20;
+  clip, as the daemons do). The spell daemons' hits act, but their falling projectiles are not right yet: Firestorm and
+  Lightning Storm show only the client's first meteor/bolt, and Putrifying's single delayed corpse explosion finds
+  nothing unless corpses already lie within 21 cells (the "Strongbox daemon spells" issue). Gems with experience drop at a random level up to 20;
   Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
   Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
   "Vaal Vessels"). Currency changes a closed

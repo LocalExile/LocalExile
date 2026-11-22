@@ -338,9 +338,10 @@ public static partial class MapStrongboxes
         if (StrongboxCatalog.Find(box.Type) is not { } type) return;
         var (remote, stream, ciphers) = conn.Wire;
         if (shown.Contains(box.Id)) await SendWorldRemoval(remote, stream, ciphers, conn, box.Id, null);
-        // Chest bit 1 tells the client the box plays a warning sound (chest_play_warning_sound, the trap mods' hidden
-        // stat); the client plays it from its own stat checks.
-        byte chestFlags = StrongboxMods.Stat(ItemsFor(conn).Mods, type, box.Explicits, "chest_play_warning_sound") != 0 ? (byte)0x02 : (byte)0;
+        // Chest bit 1 is the box's activated flag: the client plays a trap mod's warning sound (chest_play_warning_sound)
+        // and drops the nameplate. Set only once the box is open — a closed box created with it showed no label at all
+        // (live 2026-11-22).
+        byte chestFlags = ChestFlags(conn, type, box);
         await SendWorldCreate(remote, stream, ciphers, conn, box.Id,
             InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
                 StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase > 0, box.Rarity,
@@ -352,6 +353,13 @@ public static partial class MapStrongboxes
         shown.Add(box.Id);
         await Wear(conn, box);
     }
+
+    /// <summary>The Chest component's extra flags for this box: bit 1 (0x02) once it is open, when one of its mods carries
+    /// <c>chest_play_warning_sound</c> — the client plays the trap mod's warning then (and shows no nameplate). A closed
+    /// box carries none, whatever its mods.</summary>
+    static byte ChestFlags(ClientState conn, StrongboxCatalog.Definition type, Box box) =>
+        box.Phase > 0 && StrongboxMods.Stat(ItemsFor(conn).Mods, type, box.Explicits, "chest_play_warning_sound") != 0
+            ? (byte)0x02 : (byte)0;
 
     /// <summary>The rarity's looping glow on a closed box, and none on an opened one: the ChestEffects row's
     /// <c>…_Closed_AOFile</c> (white/blue/gold/brown for normal/magic/rare/unique; their default animation is "loop") is

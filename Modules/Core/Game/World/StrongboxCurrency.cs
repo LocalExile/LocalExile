@@ -50,14 +50,34 @@ public static partial class MapStrongboxes
             }
             area.Boxes[box.Index] = changed;
             Keep(conn, area);
-            uint inventory = PlayerInventories.InventoryId(row);
+uint inventory = PlayerInventories.InventoryId(row);
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventory, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventory}: {currency!.Name} used" + (taken.Left is { } l ? $", {l.Item.StackSize} left" : ", stack gone"));
             Console.WriteLine(Log($"{currency.Name}: {Label(conn, box)} → {Label(conn, changed)}"));
-            foreach (var member in Members(conn)) await Present(member, changed, true);
+            // ObjectMagicProperties has a 0x2bc reader: update the box's rarity and mods in place, where the client's
+            // nameplate and selection stay put (a new object dropped the label). Only a change to the Chest flag byte — the
+            // trap mods' warning bit, which has no 0x2bc reader — needs a new object.
+            foreach (var member in Members(conn))
+                if (ChestFlags(conn, type, box) != ChestFlags(conn, type, changed)) await Present(member, changed, true);
+                else await UpdateBoxMods(member, type, changed);
         }
         finally { area.Gate.Release(); }
         return true;
+    }
+
+    /// <summary>The box's ObjectMagicProperties by S→C 0x2bc: the same bytes a created box's component carries
+    /// (<see cref="QuestObject"/>), so the client rerolls the nameplate, rarity colour and mod lines without a new object.</summary>
+    static async Task UpdateBoxMods(ClientState conn, StrongboxCatalog.Definition type, Box box)
+    {
+        int index = type.Components.ToList().IndexOf("ObjectMagicProperties");
+        if (index < 0) return;
+        var mods = box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : type.Mods;
+        var w = new BlobWriter();
+        if (mods.Count == 0 && box.Rarity == 0) w.U16(0).U8(0).U8(0);
+        else { MagicProperties.Write(w, box.Rarity, true, mods); w.U8(0); }
+        var (remote, stream, ciphers) = conn.Wire;
+        await SendWorldRecord(remote, stream, ciphers, conn, box.Id, InstanceEntities.ComponentUpdate(box.Id, (byte)index, w.ToArray()),
+            $"strongbox 0x{box.Id:x} mods updated in place: {Label(conn, box)}");
     }
 
     /// <summary>What the currency (a BaseItemTypes id) makes of the box, or null with the reason: only a closed,
