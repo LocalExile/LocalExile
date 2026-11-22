@@ -650,6 +650,9 @@ public static partial class Game
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
         if (totem && Stats.Key("damage_+%") is uint damage)
             stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, "totem_damage_+%");
+        if (GolemStat(stats, "trap_damage_+%") is int trapDamage and not 0
+            && PlacedKind(gem) is { Trap: true, Mine: false } && Stats.Key("damage_+%") is uint trapDamageKey)
+            stats[trapDamageKey] = ActorScale.Add(trapDamageKey, stats.GetValueOrDefault(trapDamageKey), trapDamage);
         int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
             : Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);

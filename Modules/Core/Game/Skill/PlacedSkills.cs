@@ -592,6 +592,7 @@ public static partial class Game
             int Get(string n) => GolemStat(placed.Own, n) + GolemStat(player, n);
             double increased = new[] { "damage_+%", "fire_damage_+%", "elemental_damage_+%", "damage_over_time_+%",
                 "fire_damage_over_time_+%", "burn_damage_+%", "area_damage_+%" }.Sum(Get);
+            if (!placed.Mine) increased += Get("trap_damage_+%");
             if (Get("spell_damage_modifiers_apply_to_skill_dot") != 0) increased += Get("spell_damage_+%");
             double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
