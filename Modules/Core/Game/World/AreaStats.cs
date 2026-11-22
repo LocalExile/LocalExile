@@ -18,6 +18,8 @@ public static partial class Game
     {
         var stats = MergeSkillStats(player is null ? AreaPlayerStats(conn)
             : SkillArea.WithoutPlayerBase(new(player), Stats.Key(SkillArea.BaseIncreased)), own);
+        if (MapModsOf(conn)?.Get(SkillArea.MapAreaFinal) is int mapArea and not 0 && Stats.Key(SkillArea.MapAreaFinal) is uint mapKey)
+            stats[mapKey] = mapArea;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         var skills = SkillsFor(conn);
         bool known = effect >= 0;

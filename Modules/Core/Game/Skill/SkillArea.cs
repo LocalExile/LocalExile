@@ -31,8 +31,10 @@ public static class SkillArea
     [
         "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",
         "support_concentrated_effect_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final_from_skill_specific_stat",
-        "blood_sand_stance_melee_skills_area_of_effect_+%_final",
+        "blood_sand_stance_melee_skills_area_of_effect_+%_final", MapAreaFinal,
     ];
+
+    public const string MapAreaFinal = "map_players_skill_area_of_effect_+%_final";
 
     const string MorePerRemovableCharge = "area_of_effect_+%_final_per_removable_power_frenzy_or_endurance_charge";
 

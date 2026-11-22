@@ -298,6 +298,9 @@ public static partial class Game
             WithBlind(conn, built);
             WithUsingFlask(conn, built);
             WithSoulEater(conn, built);
+            if (MapModsOf(conn)?.Get(SkillArea.MapAreaFinal) is int mapArea and not 0
+                && Stats.Key(SkillArea.MapAreaFinal) is uint mapAreaKey)
+                built[mapAreaKey] = mapArea;
             MaximumPoolItemSources.Apply(built, Stats, conn.Pools.Life, conn.Pools.Mana, devSet);
             // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
             ActorScale.Project(built, rawOverrides, CosmeticScaleSources(conn));
