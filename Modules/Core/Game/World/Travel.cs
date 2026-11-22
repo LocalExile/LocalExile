@@ -340,15 +340,17 @@ public static partial class Game
                 .Distinct().Order()];
     }
 
-    // Entering an area marks it visited (saved, added to the saved ones) before the player object carries the quest flags.
-    public static void RecordVisit(ClientState conn)
+    // Entering an area marks it visited (saved, added to the saved ones) after the player object is sent so the client's
+    // 0x2bc quest-flag diff sees the area's StartQuestFlags (Visited-*) transition 0 -> 1 and plays its Enter* voice line.
+    public static bool RecordVisit(ClientState conn)
     {
-        if (WaypointCatalog.Visits.For(conn.Layout.Id).Count == 0) return;
+        if (WaypointCatalog.Visits.For(conn.Layout.Id).Count == 0) return false;
         lock (conn.Monsters)
         {
-            if (HardcoreProgressBlocked(conn)) return;
-            lock (conn.Waypoints) if (!conn.Visited.Add(conn.Layout.Id)) return;
+            if (HardcoreProgressBlocked(conn)) return false;
+            lock (conn.Waypoints) if (!conn.Visited.Add(conn.Layout.Id)) return false;
             CharacterSaves.AddVisited(CharacterName(conn), [conn.Layout.Id]);
+            return true;
         }
     }
 

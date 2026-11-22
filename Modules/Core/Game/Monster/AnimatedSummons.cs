@@ -9,6 +9,19 @@ public static partial class Game
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment,
         AnimatedGuardianGear? GuardianGear = null);
 
+    static string AnimatedGuardianDeathKey(ClientState conn) =>
+        "Game.AnimatedGuardianDeath:" + CharacterName(conn).ToUpperInvariant();
+
+    static void RecordAnimatedGuardianDeath(ClientState conn)
+    {
+        if (HideoutCatalog.ByArea(conn.Layout.Hash) is null)
+            conn.Instance?.ContentState.TryAdd(AnimatedGuardianDeathKey(conn), "1");
+    }
+
+    static bool AnimatedGuardianUnavailable(ClientState conn) =>
+        HideoutCatalog.ByArea(conn.Layout.Hash) is null
+        && conn.Instance?.ContentState.ContainsKey(AnimatedGuardianDeathKey(conn)) == true;
+
     static AnimatedGuardianGear? CaptureAnimatedGuardianGearLocked(ClientState conn, SummonCatalog.Definition definition) =>
         definition.Family == "AnimatedGuardian"
             ? new(conn.Summons.GuardianEquipment, new(conn.Summons.GuardianEquipment))

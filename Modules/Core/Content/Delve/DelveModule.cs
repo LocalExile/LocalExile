@@ -116,6 +116,11 @@ public sealed partial class DelveModule : IModule
         GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
             var player = PlayerOf(conn);
+            if (player.AreaId is HubId or "Delve_Main" && !conn.HasQuestFlag("DelveOwner"))
+            {
+                var w = conn.Wire;
+                await SetQuestFlags(w.Remote, w.Stream, w.Ciphers, conn, ["DelveOwner"]);
+            }
             _states.GetOrCreateValue(player).GaugePending = true;
             await SpawnCrawler(module, player);
             await SpawnGenerator(module, player);
@@ -158,14 +163,14 @@ public sealed partial class DelveModule : IModule
             // Niko's View Subterranean Chart: SendOpenScreen( DelveMapScreen, 1 ), S→C 0x7b kind 0x1c with 1.
             if (talk.Script.Contains("DelveMapScreen", StringComparison.Ordinal))
             {
-                world.NpcEndTalk();
+                await world.NpcClose("0x0084 close NPC dialogue for Subterranean Chart");
                 await OpenChart(module, talk.Player);
                 return true;
             }
             // Niko's Visit Mine Encampment: BeginDelve(), to the Azurite Mine Encampment, as /goto does.
             if (talk.Script.Contains("BeginDelve", StringComparison.Ordinal))
             {
-                world.NpcEndTalk();
+                await world.NpcClose("0x0084 close NPC dialogue for Mine Encampment");
                 var conn = ConnOf(talk.Player); var wire = conn.Wire;
                 if (conn.Layout.Hash != Hub)
                     await ChangeArea(wire.Remote, wire.Stream, wire.Ciphers, conn,
@@ -285,7 +290,28 @@ public sealed partial class DelveModule : IModule
         else if (id == InstanceDelve.PurchaseId && bytes[2] <= 1)
             changed = ChangeEquipment(world.AccountData, p => DelveEquipment.Purchase(p, bytes[2] != 0, bytes[3]));
         await player.Send(DelveData(world), "Delve equipment state");
-        if (changed) await world.RefreshStats("Delve equipment upgrade");
+        if (changed)
+        {
+            await world.RefreshStats("Delve equipment upgrade");
+            if (id == InstanceDelve.PurchaseId)
+            {
+                var conn = ConnOf(player);
+                var equipment = Equipment(world.AccountData);
+                List<int> crafted = [];
+                lock (conn.Monsters)
+                {
+                    if (equipment.Dynamite >= 1 && !conn.LeagueQuestFlags.Contains(Quests.League.DelveCraftedDynamite))
+                        crafted.Add(Quests.League.DelveCraftedDynamite);
+                    if (equipment.Flares >= 2 && !conn.LeagueQuestFlags.Contains(Quests.League.DelveCraftedFlares))
+                        crafted.Add(Quests.League.DelveCraftedFlares);
+                }
+                if (crafted.Count > 0)
+                {
+                    var wire = conn.Wire;
+                    await SetLeagueQuestFlags(wire.Remote, wire.Stream, wire.Ciphers, conn, crafted);
+                }
+            }
+        }
     }
 
     // The Delve Crawler in the Azurite Mine Encampment. A click on it opens the Subterranean Chart, as Niko's option does.

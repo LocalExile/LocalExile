@@ -95,10 +95,13 @@ public static class AilmentPanelStats
                 rows.Add(($"maximum_{name}", PerMinute(max * percent / 100.0 * charges)));
             }
         }
+        bool tinctureWeapon = context.Attack && !context.Spell && get("tincture_applied") != 0;
         if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
         Add("ignite", DamageType.Fire, get("all_damage_can_ignite") != 0
+            || tinctureWeapon && get("all_damage_with_tinctured_weapons_can_ignite") != 0
             ? DamageTypes.ConversionOrder : [DamageType.Fire], IgnitePercent);
         Add("poison", DamageType.Chaos, get("all_damage_can_poison") != 0
+            || tinctureWeapon && get("all_damage_with_tinctured_weapons_can_poison") != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
         if (get("chaos_damage_chance_to_poison_%") != 0)
             Add("poison", DamageType.Chaos, [DamageType.Chaos], PoisonPercent, chaosOnly: true);
@@ -115,14 +118,17 @@ public static class AilmentPanelStats
         // bleed on canDeal.Physical, poison on canDeal.Chaos and ignite on canDeal.Fire).
         if (get("never_damaging_ailments") != 0 || DamageStats.Prohibited(ailmentType, get, context.Attack))
             return (0, 0);
+        bool tinctureWeapon = context.Attack && !context.Spell && get("tincture_applied") != 0;
         double common = (double)get("damage_+%") + get("damage_over_time_+%") + get("base_ailment_damage_+%")
             + get(Slug(ailmentType) + "_damage_+%") + get(Slug(ailmentType) + "_damage_over_time_+%")
             + additionalIncreased
             + ailmentType switch
             {
                 DamageType.Physical => get("bleeding_damage_+%"),
-                DamageType.Fire => get("burn_damage_+%") + get("ignite_damage_+%") + get("elemental_damage_+%"),
-                _ => get("base_poison_damage_+%"),
+                DamageType.Fire => get("burn_damage_+%") + get("ignite_damage_+%") + get("elemental_damage_+%")
+                    + (tinctureWeapon ? get("ignite_damage_+%_with_tinctured_weapons") : 0),
+                _ => get("base_poison_damage_+%")
+                    + (tinctureWeapon ? get("poison_damage_+%_with_tinctured_weapons") : 0),
             };
         bool bowAttack = context.Attack && !context.Spell
             && get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type") == WeaponTypeStats.Bow;
@@ -149,9 +155,11 @@ public static class AilmentPanelStats
         // multiplier is not in this merged view).
         bool perfectAgony = get("keystone_ailment_crit") != 0;
         double dotMultiplier = perfectAgony
-            ? Math.Max(0, (150 + get("base_critical_strike_multiplier_+")) / 100.0)
+            ? Math.Max(0, (150 + get("base_critical_strike_multiplier_+")
+                + (tinctureWeapon ? get("critical_strike_multiplier_+_with_tinctured_weapons") : 0)) / 100.0)
             : Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
                 + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
+                + (tinctureWeapon ? get("damage_over_time_multiplier_+_with_tinctured_weapons") : 0)
                 + (critical && !neverFromCrit ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100);
         double multiplier = dotMultiplier
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).

@@ -250,7 +250,8 @@ public static partial class Game
             {
                 string slug = type.ToString().ToLowerInvariant();
                 conversion.AddSkill(DamageType.Physical, type, Raw($"base_physical_damage_%_to_convert_to_{slug}") + Raw($"skill_physical_damage_%_to_convert_to_{slug}"));
-                conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]);
+                conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]
+                    + mods[$"base_physical_damage_%_to_convert_to_{slug}"]);
                 conversion.AddGain(DamageType.Physical, type, mods[$"physical_damage_%_to_add_as_{slug}"]);
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
@@ -428,9 +429,12 @@ public static partial class Game
             conn.MinionOrigins[golem.Id] = origin with { Object = SyncLifeMaximum(origin.Object, m, maximum) };
         golem.ShieldPool.SetMaximum(NativeEnergyShield(pools.MaximumEnergyShield));
         PublishEnergyShieldLocked(conn, golem);
-        golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player, now, ownerResistances);
-        golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
+        if (!golem.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal))
+        {
+            golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player, now, ownerResistances);
+            golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
+        }
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
             [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out origin))

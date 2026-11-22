@@ -292,6 +292,7 @@ public sealed partial class DeepwaterModule
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         conn.NpcTalkScript = null;
         await player.Send(InstanceNpcs.Talk(0), $"0x0084 object 0: Valerie's dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
         if (chart)
