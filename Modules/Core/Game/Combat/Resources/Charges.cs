@@ -25,6 +25,15 @@ public static partial class Game
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(conn), (from, until) => conn.Walk.MovingSeconds(from, until)));
 
+    // The one place a combat event of a player's is recorded: the charge rules take it (applied at the charge ticker's
+    // next step), then the other modules and the mods (GameEvents.Combat). Charge commands (Grant, Set, Spend) are not
+    // events and go to the session directly.
+    public static void RaiseCombatEvent(ClientState conn, ChargeEvent e)
+    {
+        ChargesOf(conn).Enqueue(e);
+        GameEvents.RaiseCombat(conn, e);
+    }
+
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
     // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it. skillStats: the used
@@ -60,9 +69,9 @@ public static partial class Game
             selfBleeding = conn.IncomingAilments.Bleeding(now);
             selfPoisoned = conn.IncomingAilments.PoisonStacks(now) > 0;
         }
-        ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
+        RaiseCombatEvent(conn, new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
-            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
+            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned) { Monster = m });
         CurseCharges(conn, m, false);
     }
 
@@ -88,7 +97,7 @@ public static partial class Game
             if (conn.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(conn, CharacterPlayerStats(conn));
             TryGainElusiveLocked(conn, critical: false, kill: true, now);
         }
-        ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
+        RaiseCombatEvent(conn, new ChargeEvent.Kill(m.Rarity, frozen, poisons) { Monster = m });
         SelfBuffsOnKill(conn);
         CurseCharges(conn, m, true);
     }
@@ -97,7 +106,8 @@ public static partial class Game
     // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c). critical: the monster's hit was a critical
     // strike. Daresso's Defiance's "You gain Onslaught for X seconds per Endurance Charge when Hit" counts the charges
     // held before its own "You lose all Endurance Charges when Hit" (a ChargeGains rule) takes them.
-    public static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false, bool critical = false)
+    public static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false, bool critical = false,
+        SpawnedMonster? by = null)
     {
         bool onslaught = false;
         lock (conn.Monsters)
@@ -112,8 +122,8 @@ public static partial class Game
                 onslaught = true;
             }
         }
-        ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit(critical));
-        if (blocked) ChargesOf(conn).Enqueue(new ChargeEvent.Block(spell));
+        RaiseCombatEvent(conn, new ChargeEvent.WhenHit(critical) { Monster = by });
+        if (blocked) RaiseCombatEvent(conn, new ChargeEvent.Block(spell) { Monster = by });
         // The callers hold the Monsters lock: the buff goes out from the thread pool.
         if (onslaught && conn.Wire is (var remote, { } stream, var ciphers))
             _ = Task.Run(() => SendKillOnslaught(remote, stream, ciphers, conn));
@@ -126,7 +136,7 @@ public static partial class Game
         if (effect < 0) return;
         var skills = SkillsFor(conn);
         bool curse = CurseCatalog.All.ContainsKey(skills.EffectId(effect) ?? "");
-        ChargesOf(conn).Enqueue(new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped")));
+        RaiseCombatEvent(conn, new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped")));
     }
 
     // Transfer: the charges go with the player to the area of the new ticket.

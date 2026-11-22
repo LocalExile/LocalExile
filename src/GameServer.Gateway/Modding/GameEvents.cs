@@ -154,6 +154,17 @@ public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, strin
     public void Later(Func<Task> send) => Afterwards.Add(send);
 }
 
+/// <summary>Something that happened to a player's character in a fight: a hit it dealt, a kill, a hit that reached it, a
+/// block, a stun it caused, a skill it used. The game module's records derive from this and carry the facts of each
+/// (<c>ChargeEvent.Hit</c>, <c>Kill</c>, <c>WhenHit</c>, <c>Block</c>, <c>Stun</c>, <c>SkillUse</c>); handed over by
+/// <see cref="GameEvents.Combat"/>.</summary>
+public abstract record CombatEvent
+{
+    /// <summary>The monster on the other side (hit, killed, stunned, or the attacker), when the place that recorded the
+    /// event knows it.</summary>
+    public SpawnedMonster? Monster { get; init; }
+}
+
 /// <summary>Where the framework hands over to the league's code, the modules and the mods.</summary>
 public static class GameEvents
 {
@@ -547,6 +558,20 @@ public static class GameEvents
     {
         foreach (var run in OutgoingDamage.For(conn)) rolled = run(conn, player, monster, rolled);
         return rolled;
+    }
+
+    /// <summary>A combat event of this connection's character, as it is recorded. A handler runs where the event
+    /// happened, which is often inside the Monsters lock and several times per hit: it must be quick, and must not send,
+    /// wait or take another lock. Work that needs any of those is queued and done on <see cref="Tick"/>.</summary>
+    public static readonly GameEvent<Action<ClientState, CombatEvent>> Combat = new();
+
+    /// <summary>Hands a combat event to its subscribers. With none (the usual case) this is one check.</summary>
+    public static void RaiseCombat(ClientState conn, CombatEvent e)
+    {
+        if (!Combat.Any) return;
+        foreach (var (owner, run) in Combat.Subscribers(conn))
+            try { run(conn, e); }
+            catch (Exception ex) { Console.WriteLine($"[events] {owner}: Combat failed: {ex.Message}"); }
     }
 
     public static async Task<bool> AnyObjectUse(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)

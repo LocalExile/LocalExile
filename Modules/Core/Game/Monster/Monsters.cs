@@ -2454,7 +2454,7 @@ public static partial class Game
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats);
         ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(conn, a, baseHit, blocked, now, stats);
-        RecordIncomingHitLocked(conn, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);
+        RecordIncomingHitLocked(conn, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical, m);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki

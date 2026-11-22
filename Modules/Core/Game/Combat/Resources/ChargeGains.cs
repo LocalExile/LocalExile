@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>Something that can grant charges (issue #237): a hit, a kill, being hit, a block, a skill's own grant, or
 /// the /charges command.</summary>
-public abstract record ChargeEvent
+public abstract record ChargeEvent : CombatEvent
 {
     /// <summary>The player hit a monster (one per monster hit). <paramref name="Skill"/>: the stats of the skill used
     /// (its "on hit" chances, e.g. Flicker Strike's 15%); <paramref name="SkillEffect"/>: its GrantedEffects Id;
