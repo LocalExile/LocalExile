@@ -24,7 +24,7 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
-    internal static int AreaDropStat(ClientState conn, string id, MapMods? areaMods = null)
+    internal static int AreaStat(ClientState conn, string id, MapMods? areaMods = null)
     {
         if (conn.Instance?.KeptAreaStats is { } kept)
             return kept.GetValueOrDefault(Program.Stats.Key(id)!.Value);
@@ -39,7 +39,7 @@ public static partial class Game
 
     internal static void ApplyAreaDropCorruption(ClientState conn, List<ItemDrops.Drop> drops, Random random, MapMods? areaMods = null)
     {
-        int chance = AreaDropStat(conn, "map_items_drop_corrupted_%", areaMods);
+        int chance = AreaStat(conn, "map_items_drop_corrupted_%", areaMods);
         if (chance > 0)
             CorruptDrops(drops, chance, random, static type => type.CanBeCorrupted || type.Components.Contains("Map"));
     }
@@ -106,7 +106,7 @@ public static partial class Game
     {
         if ((mods?.Get("map_spawn_two_bosses") ?? 0) == 0) return spawns;
         var list = spawns.ToList();
-        foreach (var boss in list.Where(s => s.Rarity == MonsterRarity.Unique).ToList())
+        foreach (var boss in list.Where(s => s.Rarity == MonsterRarity.Unique && !s.IsAdditionalUnique).ToList())
             list.Add(boss with { X = boss.X + 6, Pack = boss.Pack + "-twin" });
         return list;
     }

@@ -177,7 +177,7 @@ public static class SideAreaVessels
         var run = MapRunOf(conn);
         int level = run is { Area.Level: > 0 } ? run.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id);
         var catalog = ItemsFor(conn);
-        int Count(string id) => AreaDropStat(conn, id);
+        int Count(string id) => AreaStat(conn, id);
 
         var rewards = new List<ItemDrops.Drop> { Reward(catalog, level, Random.Shared) };
         int gems = Count("map_vaal_vessel_drop_X_vaal_gems");

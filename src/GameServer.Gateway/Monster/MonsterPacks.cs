@@ -66,6 +66,8 @@ public sealed class PackCatalog(string folder = "data")
         /// (<see cref="MapBossOverride"/>).</summary>
         public IReadOnlySet<int> Absent { get; init; } = new HashSet<int>();
 
+        public IReadOnlyList<AreaPopulation.AdditionalUnique> AdditionalUniques { get; init; } = [];
+
         /// <summary>How much denser than the ordinary its scattered packs stand (the Labyrinth's: LabyrinthTrials.PackDensity).</summary>
         public double Density { get; init; } = 1;
 
@@ -205,7 +207,12 @@ public static class AreaPopulation
     public static int PopulationSeed(ushort areaHash, uint areaSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
         FormattableString.Invariant($"population:{areaHash:x4}:{areaSeed:x8}")));
 
-    public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack);
+    public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack)
+    {
+        public bool IsAdditionalUnique { get; init; }
+    }
+
+    public sealed record AdditionalUnique(string Source, int Variety, int Count, Func<int, int, bool> Fits);
 
     public sealed record AdditionalPacks(string Source, IReadOnlyList<PackCatalog.Pack> Packs, int Count, double Size = 1);
 
@@ -563,7 +570,7 @@ public static class AreaPopulation
             centres.Add((p.X, p.Y));
             notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
         }
-        if (packs.Count == 0 && additionalPacks is not { Count: > 0 }) return spawns;
+        if (packs.Count == 0 && additionalPacks is not { Count: > 0 } && area.AdditionalUniques.Count == 0) return spawns;
         // One pass over the grid serves the depth flood, the reach flood and every member's cell: the delegate was asked
         // up to eight times per cell, over 3.2 million cells on a generated map.
         var cells = new bool[w * h];
@@ -592,6 +599,28 @@ public static class AreaPopulation
         Shuffle(candidates, rng);
         bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
             && (reach is null || reach[y * w + x]) && cells[y * w + x];
+        bool FreeCentre((int X, int Y) cell) => !Near(cell, arrival, SpawnClearance)
+            && !transitions.Any(t => Near(cell, t, TransitionClearance)) && !centres.Any(other => Near(cell, other, PackSpacing))
+            && (scatterable is null || scatterable(cell.X, cell.Y));
+
+        foreach (var unique in area.AdditionalUniques)
+        {
+            if (!spawnable(unique.Variety))
+            {
+                notes.Add($"additional unique {unique.Source}: cannot create variety {unique.Variety}");
+                continue;
+            }
+            int placed = 0;
+            foreach (var cell in candidates)
+            {
+                if (placed == unique.Count) break;
+                if (!FreeCentre(cell) || !unique.Fits(cell.X, cell.Y) || !taken.Add(cell)) continue;
+                spawns.Add(new Spawn(unique.Variety, cell.X, cell.Y, MonsterRarity.Unique, unique.Source) { IsAdditionalUnique = true });
+                centres.Add(cell);
+                placed++;
+            }
+            notes.Add($"additional unique {unique.Source}: placed {placed}/{unique.Count}");
+        }
         foreach (var request in additionalPacks ?? [])
         {
             int placed = 0, first = spawns.Count;
@@ -600,8 +629,7 @@ public static class AreaPopulation
                 foreach (var c in candidates)
                 {
                     if (placed >= request.Count) break;
-                    if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance))
-                        || centres.Any(o => Near(c, o, PackSpacing)) || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+                    if (!FreeCentre(c)) continue;
                     var pack = choices[rng.Next(choices.Count)];
                     int before = spawns.Count;
                     AddPack(spawns, taken, ReachableMember, c, pack, RollRarity(rng.Next(100)), true, rng, spawnable, packSize: serverSize * request.Size);
@@ -622,8 +650,7 @@ public static class AreaPopulation
         foreach (var c in candidates)
         {
             if (plans.Count >= wanted) break;
-            if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance)) || centres.Any(o => Near(c, o, PackSpacing))
-                || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+            if (!FreeCentre(c)) continue;
             if (PickAt(c.X, c.Y) is not { } pack) continue;
             centres.Add(c);
             plans.Add((c, pack));

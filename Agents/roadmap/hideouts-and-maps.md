@@ -13,7 +13,8 @@ completion (`HarvestLeagueBoss` has no `Bosses_MonsterVarietiesKeys`, so AtlasPr
 the Atlas RandomContent nodes (MapDeviceRecipes 74-89, whose RecipeItems hold the placeholder 3920) to reach the
 Overgrown Grove; a 3.29 source for `map_harvest_%_chance_for_faridun_seed` (Mirage areas); Oshabi's Sacred Suffering
 ground and vine teleports; the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and
-enchants.
+enchants. Valdo's standalone Harvest bosses use the area population's reachable cells. Their original spawn positions,
+fight phases and client presentation still need verification.
 
 ### Switching hideout templates
 
