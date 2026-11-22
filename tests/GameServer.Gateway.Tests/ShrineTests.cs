@@ -252,6 +252,33 @@ public sealed class ShrineTests
         finally { await ShrineManager.LeaveArea(conn); }
     }
 
+    [Fact]
+    public async Task Atlas_effect_scales_shrine_values_and_keeps_flags()
+    {
+        ShrineRegistry.RegisterDefaults();
+        var instance = new InstanceState();
+        await using var player = await ShrineWire.Open(instance);
+        var conn = player.Conn;
+        var area = new MapDevice.MapArea(conn.Layout.Hash, "MapWorldsStrand", "Test map", 16);
+        var mods = new MapMods(new Dictionary<string, int> { ["map_shrine_granted_player_buff_effect_+%"] = 20 });
+        instance.OpenedWith(new MapDevice.Run(conn.Character!, area, mods));
+        try
+        {
+            Assert.Equal(1, await ShrineManager.SpawnAroundPlayer(conn, ["Acceleration"]));
+            uint shrine = uint.Parse(instance.ContentState["Shrines/id/112/100"]);
+            conn.Walk.Teleport(112, 100, 0);
+            Assert.True(await ShrineManager.Use(conn, new(shrine, 0, 1, 0), 0));
+            var stats = ShrineManager.AddStats(conn, []);
+            Assert.Equal(96, stats.GetValueOrDefault(Program.Stats.Key("base_projectile_speed_+%")!.Value));
+            Assert.Equal(1, stats.GetValueOrDefault(Program.Stats.Key("has_shrine_effect")!.Value));
+        }
+        finally
+        {
+            await ShrineManager.LeaveArea(conn);
+            ShrineRegistry.RegisterDefaults();
+        }
+    }
+
     static async Task Lifecycle()
     {
         ShrineRegistry.RegisterDefaults();
