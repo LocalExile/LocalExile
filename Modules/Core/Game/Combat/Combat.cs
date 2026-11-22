@@ -1069,6 +1069,13 @@ public static partial class Game
             if (!TryCapturePlacedCastAdmissionLocked(conn, skillId, out placedAdmission)) return false;
         }
         if (InTown(conn) || conn.PlayerLife == 0) return false;
+        // Direct placed casts do not have the native action handler's preflight. Reserve once, before any output wait.
+        if (actionToken is null && cooldownUse is null && !locationInstant && placedAdmission is { } placement
+            && CooldownForSkill(conn, skillId) is { } placedCooldown
+            && !TryBeginSkillCooldownUse(conn, skillId, placement.Effect, placedCooldown, false, () => { },
+                out cooldownUse, requestedAt: conn.Clock.Elapsed.TotalSeconds,
+                admit: () => PlacedCastAdmissionCurrent(conn, placement)))
+            return false;
         await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return false;

@@ -320,7 +320,10 @@ public static partial class Game
                             * Math.Max(.01, 1 + Get(admission.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
-                        { LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get) };
+                    {
+                        LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
+                        EffectDurationSeconds = GolemStat(payload, "skill_effect_duration") / 1000d
+                    };
                     conn.Placed.All.Add(id, placement);
                     if (!ReservationBudgetFits(conn))
                     {
@@ -676,17 +679,23 @@ public static partial class Game
                             else { skitter = true; bot.NextOrb = now + 3; }
                         }
                     }
-                    bool nearby = !placed.Mine && conn.Monsters.Values.Any(m => m is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(m.Walk.Position(now), placed.At) <= placed.TriggerRadius);
+                    var effect = SkillsFor(conn).EffectId(placed.Effect);
+                    bool conversion = !placed.Mine && effect == "ConversionTrap";
+                    var trigger = conversion ? ConversionTrapTriggerLocked(conn, placed, now) : default;
+                    bool nearby = !placed.Mine && (conversion ? trigger.Value is not null
+                        : conn.Monsters.Values.Any(m => m is { Hostile: true, Dead: false, Life: > 0 }
+                            && Dist(m.Walk.Position(now), placed.At) <= placed.TriggerRadius));
                     if (!skitter && !nearby && now < placed.DetonateAt) continue;
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
                         conn.RecentEvents.Record(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds);
-                    PlacedDamageLocked(remote, stream, ciphers, conn, placed, now, bytes);
+                    if (conversion) TriggerConversionTrapLocked(conn, placed, trigger, now, bytes);
+                    else PlacedDamageLocked(remote, stream, ciphers, conn, placed, now, bytes);
                     PlacedChargesLocked(conn, placed, nearby, now);
-                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine"}");
-                    if (skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine")
+                    bool rearm = skitter && placed.Mine && effect != "SmokeMine";
+                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={rearm}");
+                    if (rearm)
                     {
                         placed.SkitterTriggered = true; placed.DetonateAt = double.PositiveInfinity;
                         conn.Placed.All[placed.Id] = placed with { Armed = now + .5 };

@@ -35,7 +35,7 @@ public static partial class Game
             var to = t.Walk.Position(now);
             double d = Dist(to, at);
             bool prey = stats is not null && IsPrey(conn, stats, targetId, t, now);
-            if (!prey && (d >= nearest || d > range || Dist(to, player) > ownerRange)) continue;
+            if (!prey && (d >= nearest || d > range || m.ConversionUntil is null && Dist(to, player) > ownerRange)) continue;
             nearest = d;
             double reach = MinionReach(a, t), f = d > 0 ? Math.Max(0, reach - 1) / d : 0;
             best = new(targetId, t, to, d <= reach,
@@ -54,7 +54,7 @@ public static partial class Game
         MonsterAttack? attack = null, int? accuracy = null)
     {
         var t = targetMonster;
-        if (!CurrentGameWork || (attack ?? m.Attack) is not { } a || m.Dead || !conn.Minions.Fights(id) && !m.AlliedFighter || !conn.Monsters.TryGetValue(id, out var self)
+        if (!CurrentGameWork || (attack ?? m.Attack) is not { } a || m.Dead || !conn.Minions.Fights(id) && !m.FightsForPlayers || !conn.Monsters.TryGetValue(id, out var self)
             || !ReferenceEquals(self, m) || t.Dead || t.Life == 0 || !t.Hostile
             || !conn.Monsters.TryGetValue(targetId, out var current) || !ReferenceEquals(current, t)) return null;
         var at = m.Walk.Position(now);
@@ -113,7 +113,8 @@ public static partial class Game
         var (_, m, from, targetId, targetMonster, toAt, contactAt) = attack;
         var target = new MinionTarget(targetId, targetMonster, toAt, true, toAt);
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !conn.Closed && !conn.LeavingArea
-            && (conn.Minions.Fights(id) || m.AlliedFighter)
+            && (conn.Minions.Fights(id) || m.FightsForPlayers)
+            && (m.ConversionUntil is null || IsMonsterRunner(conn))
             && conn.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead
             && conn.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack);
         lock (conn.Monsters) if (!Current()) return;

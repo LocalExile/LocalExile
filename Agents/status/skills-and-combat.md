@@ -224,6 +224,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
 - Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
+- Conversion Trap temporarily changes the allegiance of the non-unique enemy that triggers it. The converted enemy
+  fights other monsters until the skill effect ends.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing.

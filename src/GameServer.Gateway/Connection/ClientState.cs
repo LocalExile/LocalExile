@@ -216,7 +216,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
-    public bool Hostile { get; init; } = true;
+    readonly bool hostile = true;
+    public bool Hostile { get => hostile && ConversionUntil is null; init => hostile = value; }
+    // The original team is kept while Conversion Trap borrows this monster. Guarded by the Monsters lock.
+    public double? ConversionUntil;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
     /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it.</summary>
@@ -231,6 +234,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
     /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
     public bool AlliedFighter;
+    public bool FightsForPlayers => AlliedFighter || ConversionUntil is not null;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;

@@ -410,6 +410,7 @@ public static partial class Game
         foreach (var (id, m) in conn.Monsters)
         {
             BearTrapChangesLocked(conn, id, m, now, packets);
+            ConversionTrapChangesLocked(conn, id, m, now, packets);
             // A knockback is presented before the ailment-idle skip: an idle monster still moves.
             if (m.KnockbackPending is (int kx, int ky))
             {

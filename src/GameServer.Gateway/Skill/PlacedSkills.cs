@@ -15,6 +15,7 @@ public sealed class PlacedSkills
         int Flat, int Percent, bool ReservesLife, int Efficiency)
     {
         public DamageSnapshot? Offense { get; init; }
+        public double EffectDurationSeconds { get; init; }
         public double DetonateAt = double.PositiveInfinity;
         public bool SkitterTriggered;
         public int Chain;
