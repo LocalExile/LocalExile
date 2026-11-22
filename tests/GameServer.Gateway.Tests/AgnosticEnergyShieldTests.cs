@@ -7,12 +7,10 @@ public sealed class AgnosticEnergyShieldTests
     {
         using var f = new TriggeredSummonTests.Fixture();
         var conn = f.Conn;
-        uint baseShield = Program.Stats.Key("base_maximum_energy_shield")!.Value;
-        uint agnostic = Program.Stats.Key("keystone_miracle_of_thaumaturgy")!.Value;
-        var stats = new Dictionary<uint, int> { [baseShield] = 100 };
-        var character = Game.SkillsFor(conn).ClassFor(conn.ClassRow);
-        CharacterStats.Pools Pools() => CharacterStats.For(character, 90,
-            Game.PassiveBonus(stats, new WeaponProfile(false, false, false, false, false), default));
+        const ushort agnostic = 19732;
+        uint extraShield = Program.Stats.Key("maximum_life_%_to_add_as_maximum_energy_shield")!.Value;
+        conn.PlayerStats[extraShield] = 20;
+        CharacterStats.Pools Pools() => Game.BuildPoolsFor(conn, 90);
 
         conn.Pools = Pools();
         uint maximum = conn.Pools.EnergyShield;
@@ -20,13 +18,13 @@ public sealed class AgnosticEnergyShieldTests
         conn.EnergyShield.SetMaximum(maximum, refill: true);
         Assert.Equal(maximum, conn.EnergyShield.Current);
 
-        stats[agnostic] = 1;
+        conn.Passives.Add(agnostic);
         conn.Pools = Pools();
         Assert.Equal(0u, conn.Pools.EnergyShield);
         Assert.Equal(0u, conn.EnergyShield.Maximum);
         Assert.Equal(0u, conn.EnergyShield.Current);
 
-        stats.Remove(agnostic);
+        conn.Passives.Remove(agnostic);
         conn.Pools = Pools();
         Assert.Equal(maximum, conn.EnergyShield.Maximum);
     }
