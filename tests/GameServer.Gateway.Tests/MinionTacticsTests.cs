@@ -232,6 +232,10 @@ public sealed class MinionTacticsTests
             Assert.Equal(dash, fighter.Pending?.Ability.Effect == 10844);
             if (dash)
             {
+                var start = f.Conn.Minions.OutputQueue.Last(o => o.Kind == PlayerMinions.OutputKind.GolemAction);
+                var records = (byte[][])Invoke("GolemActionRecords", f.Conn, start)!;
+                var movement = Assert.Single(records);
+                Assert.Equal(0x2909, System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(movement.AsSpan(^4)));
                 var action = fighter.Pending!;
                 uint life = monster.Life;
                 Game.GolemAbilityContactLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, action, 1);

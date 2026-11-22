@@ -215,6 +215,11 @@ public static partial class Game
         if (!g.Charges.TryGetValue(a.Effect, out var charges)) g.Charges[a.Effect] = charges = new();
         double after = charges.TryPeek(out _) ? charges.Last() : now;
         if (pending.RepeatIndex == 0 && a.Cooldown > 0) charges.Enqueue(Math.Max(now, after) + a.Cooldown);
+        // The skeleton dash needs movement presentation. A generic skill start can crash the 3.29.3d client.
+        // Contact publishes the authoritative landing position after checking the path again.
+        if (a.Effect == 10844)
+            return [InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y,
+                0x2909, conn.NextActionSequence(), 0x0408)];
         var action = a.Effect is 9927 or 9928
             ? InstanceProtocol.InstantAction(id, a.Skill, pending.Aim.X, pending.Aim.Y)
             : InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y, a.Skill,
