@@ -1,5 +1,9 @@
 using System.Collections.Concurrent;
+using System.Net.Sockets;
+using GameServer.Core;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 
 /// <summary>
 /// Skills an item grants that are triggered, not cast ("Trigger Level 10 Assassin's Mark when you Hit a Rare or Unique
@@ -139,12 +143,12 @@ public static partial class Game
         // itself, SpellCentre): the triggered action goes to the client, which draws the skill, and the hit lands at
         // once (AreaSkillHit's immediate form, as a trigger gem's Ice Nova). Only the skills named in
         // TriggeredAreaSkills: a ground effect, a chain or a storm is not one hit because its stat set has damage.
-        RegisterTriggeredSkillExecutor(new("area", (_, grant) => TriggeredAreaSkills.Contains(grant.EffectId),
+        RegisterTriggeredSkillExecutor(new("area", (_, grant) => TriggeredAreaSkills.ContainsKey(grant.EffectId),
             (fire, grant) =>
             {
                 var conn = fire.Conn;
                 if (conn.Wire is not (var remote, { } stream, var ciphers)) return;
-                ushort id; (int X, int Y) from, aim; uint mana, life;
+                ushort id; (int X, int Y) from, aim; uint mana, life; uint? targetId = null;
                 lock (conn.Monsters)
                 {
                     if (conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea || InTown(conn)
@@ -152,7 +156,13 @@ public static partial class Game
                         || GemSkillInstanceDisabled(conn, gem.Effect, actor, triggered: true) is not null) return;
                     double now = AreaTime(conn);
                     from = conn.Walk.Position(now);
-                    aim = fire.Word("at") != "self" && fire.Event.Monster is { } monster ? monster.Walk.Position(now) : from;
+                    aim = from;
+                    if (fire.Word("at") != "self" && fire.Event.Monster is { } monster)
+                    {
+                        aim = monster.Walk.Position(now);
+                        foreach (var (objectId, known) in conn.Monsters)
+                            if (ReferenceEquals(known, monster)) { targetId = objectId; break; }
+                    }
                     if (!PayMana(conn, actor, out mana, out life)) return;
                     id = actor;
                 }
@@ -168,23 +178,108 @@ public static partial class Game
                 {
                     if (!Current()) return;
                     using var triggered = EnterTriggered(depth);
-                    ushort sequence;
-                    lock (conn.Monsters) sequence = conn.LockstepClient ? NextLockstepSequence(conn) : ++conn.Twister.Sequence;
-                    await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y,
-                        sequence: sequence, flags: conn.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true),
-                        $"0x01ce {skill.Name} triggered by its item at ({aim.X}, {aim.Y})");
+                    // How the client is told (TriggeredAreaDraw): which form of the action draws these skills is being
+                    // found out in game, so every form is a setting.
+                    string draw = TriggeredAreaDraw;
+                    if (draw != "none")
+                    {
+                        bool asTriggered = draw is "triggered" or "target";
+                        uint? target = draw is "target" or "instant-target" ? targetId : null;
+                        ushort sequence;
+                        lock (conn.Monsters) sequence = conn.LockstepClient ? NextLockstepSequence(conn)
+                            : asTriggered ? ++conn.Twister.Sequence : (ushort)0xffff;
+                        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y,
+                            target, sequence, conn.LockstepClient ? (ushort)0x101 : (ushort)0, asTriggered),
+                            $"0x01ce {skill.Name} triggered by its item at ({aim.X}, {aim.Y}), drawn as {draw}{(target is { } t ? $" on 0x{t:x}" : "")}");
+                    }
+                    // The client accepts the triggered action (and counts the skill's use) but shows nothing for these
+                    // skills from it (live 2026-11-22: 40 accepted, none seen), so the art is an effect object at the
+                    // spot, as a kill explosion's and a herald's are.
+                    if (TriggeredAreaArt && TriggeredAreaSkills.GetValueOrDefault(grant.EffectId) is { } art)
+                        await PresentEffectArt(remote, stream, ciphers, conn, art, aim);
                     await AreaSkillHit(remote, stream, ciphers, conn, id, skill, from, aim, immediate: true, triggeredCurrent: Current);
                     if (mana > 0 || life > 0) await SendSkillCost(remote, stream, ciphers, conn, life, $"{skill.Name} cost");
                 });
             }));
     }
 
-    /// <summary>The item-triggered spells that are one area hit at their target, released by the "area" executor.
-    /// A module or mod adds one it has checked with <see cref="AllowTriggeredAreaSkill"/>.</summary>
-    static HashSet<string> TriggeredAreaSkills = ["LightningBolt", "FireBurstOnHit", "TriggeredExplosion"];
-
-    public static void AllowTriggeredAreaSkill(string effectId)
+    /// <summary>The item-triggered spells that are one area hit at their target, released by the "area" executor, each
+    /// with the art shown where it goes off (a MiscAnimated Id, or an .ao path; null for none). The game's tables
+    /// do not name the art of these three, so each has the nearest of the client's effects until the real one is
+    /// identified. A module or mod adds a skill it has checked with <see cref="AllowTriggeredAreaSkill"/>.</summary>
+    static Dictionary<string, string?> TriggeredAreaSkills = new()
     {
-        lock (TriggeredSkillGate) TriggeredAreaSkills = [.. TriggeredAreaSkills, effectId];
+        ["LightningBolt"] = "HeraldOfThunderStrike",
+        ["FireBurstOnHit"] = "PrismaticBurstFire",
+        ["TriggeredExplosion"] = "FireNovaEnchantment",
+    };
+
+    /// <summary>Whether the "area" executor shows its art (the effect object). A switch for testing.</summary>
+    public static volatile bool TriggeredAreaArt = true;
+
+    /// <summary>How the client is told of an item-triggered area spell: "triggered" (the triggered form of the server's
+    /// action, 0x1ce with its trigger bit), "instant" (the plain form, as a server-run gem use), "target" or
+    /// "instant-target" (the same with the monster as the action's target), or "none".</summary>
+    public static volatile string TriggeredAreaDraw = "triggered";
+
+    public static void AllowTriggeredAreaSkill(string effectId, string? art = null)
+    {
+        lock (TriggeredSkillGate) TriggeredAreaSkills = new(TriggeredAreaSkills) { [effectId] = art };
+    }
+
+    /// <summary>The .ao file of one of the client's MiscAnimated effects by its Id, or the text itself when it already
+    /// is a path; null when the client has no such effect.</summary>
+    public static string? EffectArtAo(string art)
+    {
+        if (art.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)) return art;
+        foreach (var row in ClientTables.Table("MiscAnimated"))
+            if (string.Equals(row.Text("Id"), art, StringComparison.OrdinalIgnoreCase)) return row.Text("AOFile");
+        return null;
+    }
+
+    /// <summary>The Ids of the client's MiscAnimated effects that contain this text: for a tool that lets a person pick one.</summary>
+    public static IReadOnlyList<string> EffectArtIds(string part, int most = 20)
+    {
+        var found = new List<string>();
+        foreach (var row in ClientTables.Table("MiscAnimated"))
+            if (row.Text("Id") is { } id && id.Contains(part, StringComparison.OrdinalIgnoreCase))
+            {
+                found.Add(id);
+                if (found.Count >= most) break;
+            }
+        return found;
+    }
+
+    /// <summary>Shows one of the client's effects at a spot for a while, as an effect object: a MiscAnimated Id or an
+    /// .ao path. Removed by the projectile session's own scheduler, so nothing is left running for it.</summary>
+    public static async Task<bool> PresentEffectArt(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, string art, (int X, int Y) at, float scale = 1, double seconds = 2)
+    {
+        if (EffectArtAo(art) is not { } ao) return false;
+        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        uint id;
+        lock (conn.Monsters)
+        {
+            if (!session.Active || conn.LeavingArea) return false;
+            id = conn.TakeObjectId();
+            conn.ProjectileObjects.Add(id);
+        }
+        var effect = new EffectObject(at.X, at.Y, ao) { Scale = scale };
+        bool created = await SendWorldCreate(conn, id,
+            () => session.Active ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()) : null,
+            $"0x02bb effect {art} at ({at.X}, {at.Y})", wake: true, transport: (remote, stream, ciphers));
+        lock (conn.Monsters)
+        {
+            if (!created) { conn.ProjectileObjects.Remove(id); return false; }
+            if (!session.Active) return true;
+            long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds))
+                + ProjectileRuntime.Time(seconds);
+            session.Runtime.Schedule(until, () => session.WorldRecords(id, () =>
+            {
+                conn.ProjectileObjects.Remove(id);
+                return [InstanceProtocol.RemoveObject(id)];
+            }, remove: true));
+        }
+        return true;
     }
 }
