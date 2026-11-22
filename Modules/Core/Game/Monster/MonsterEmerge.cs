@@ -22,9 +22,11 @@ public enum EmergeKind
 /// Striders …; Agents/docs/protocol/10-chat-and-commands.md §5 "Emerge monsters"). Their type has the basic action
 /// <c>Emerge</c> (ActionTypes 16641 = 0x4101, skill id 0x0101) and a Transitionable without <c>num_states</c> (2 states)
 /// whose client script <c>create_untransitioned</c> plays the emerge clip and pauses it. A type whose client Targetable
-/// says <c>targetable = false</c> (or whose create_untransitioned runs DisableTargetable) is <see cref="EmergeKind.Buried"/>,
-/// the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state, except campaign Yugul: his paused
-/// entrance must rise before generic AI can fight, or his native Targetable stays disabled until an instance rebind.
+/// says <c>targetable = false</c> (or whose create_untransitioned runs DisableTargetable or DisableRendering) is
+/// <see cref="EmergeKind.Buried"/>, the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state
+/// when <see cref="EmergeKind.Lurking"/> (scripted bosses that start targetable), whereas <see cref="EmergeKind.Buried"/>
+/// unique bosses (except scripted encounter actors such as the Goddess of Justice) rise through this system so they
+/// become visible and targetable before generic AI fights them.
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
 /// Transitionable → 2 (0x2bc; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
@@ -70,18 +72,19 @@ public sealed class MonsterEmerge
     /// <summary>The Emerge basic action's skill id (ActionTypes HASH16 &amp; 0x3fff: 0x0101), null without the table.</summary>
     public ushort? SkillId => _action is ushort hash ? (ushort)(hash & 0x3fff) : null;
 
-    /// <summary>Unique bosses whose .ot starts untransitioned with paused emerge and targetable = false
-    /// (campaign Yugul, Amarissa and Ambrosia): they must rise or spawn risen (state 2) to become targetable.</summary>
-    public static bool IsUniqueEmerge(MonsterCatalog.Variety v) =>
-        v.Id is "Metadata/Monsters/Frog/FrogGod/SilverFrog"
-            or "Metadata/Monsters/Seawitch/SeaWitchBossSpark"
-            or "Metadata/Monsters/Seawitch/SeaWitchBossFirestorm";
+    /// <summary>Unique monsters whose emergence is controlled by their own encounter script rather than proximity rise.</summary>
+    static bool IsScriptedUniqueEmerge(MonsterCatalog.Variety v) =>
+        v.Id == IzaroGoddess.Variety;
 
-    /// <summary>How a monster of this variety and rarity starts (see <see cref="EmergeKind"/>).</summary>
+    /// <summary>How a monster of this variety and rarity starts (see <see cref="EmergeKind"/>). Ordinary monsters use
+    /// both <see cref="EmergeKind.Buried"/> and <see cref="EmergeKind.Lurking"/>; unique monsters use
+    /// <see cref="EmergeKind.Buried"/> (except scripted encounter actors), because buried types start untargetable or
+    /// with rendering disabled until transitioned.</summary>
     public EmergeKind Kind(MonsterCatalog.Variety v, MonsterRarity rarity = MonsterRarity.Normal) =>
-        (rarity != MonsterRarity.Unique || IsUniqueEmerge(v))
-            && v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
-            && _types.TryGetValue(v.BaseType, out var kind) ? kind : EmergeKind.None;
+        v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
+            && _types.TryGetValue(v.BaseType, out var kind)
+            && (rarity != MonsterRarity.Unique || (kind == EmergeKind.Buried && !IsScriptedUniqueEmerge(v)))
+            ? kind : EmergeKind.None;
 
     /// <summary>Whether area packs may place this variety: not an "Emerge" variety that would wait for good (a
     /// Transitionable whose start the server cannot play). Emerge varieties without a Transitionable are ordinary.</summary>
@@ -91,7 +94,7 @@ public sealed class MonsterEmerge
     /// <summary>The Transitionable state of a new monster: 1 while it waits to rise, 2 for an emerge monster that has
     /// risen (kept by the instance), else the type's own (MonsterCatalog: num_states, 1 when the .ot gives none).</summary>
     public static byte CreateState(MonsterCatalog.Variety v, EmergeKind kind, bool unrisen) =>
-        kind == EmergeKind.None ? (!unrisen && IsUniqueEmerge(v) ? RisenState(v) : v.TransitionStates)
+        kind == EmergeKind.None ? v.TransitionStates
             : unrisen ? UnrisenState : RisenState(v);
 
     /// <summary>The fully transitioned state: num_states, 2 when the .ot gives none.</summary>
@@ -169,7 +172,7 @@ public sealed class MonsterEmerge
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
         foreach (var (id, m) in player.Area.DormantMonsters)
-            if (Near(m, out var at)) risen.Add((id, m, at, SecondsOf(m)));
+            if (!m.Asleep && Near(m, out var at)) risen.Add((id, m, at, SecondsOf(m)));
         foreach (var (id, m, _, _) in risen)
         {
             player.Area.DormantMonsters.Remove(id);
@@ -217,7 +220,9 @@ public sealed class MonsterEmerge
         string start = t.TextOrNull("client_transitionable_create_untransitioned") ?? "";
         // Only a type that waits in a paused clip rises: others (Hillock's sword stage) use the Transitionable otherwise.
         if (!start.Contains("PauseAnimation", StringComparison.Ordinal)) return EmergeKind.None;
-        bool untargetable = t.BoolOrNull("client_targetable") == false || start.Contains("DisableTargetable", StringComparison.Ordinal);
+        bool untargetable = t.BoolOrNull("client_targetable") == false
+            || start.Contains("DisableTargetable", StringComparison.Ordinal)
+            || start.Contains("DisableRendering", StringComparison.Ordinal);
         return untargetable ? EmergeKind.Buried : EmergeKind.Lurking;
     }
 

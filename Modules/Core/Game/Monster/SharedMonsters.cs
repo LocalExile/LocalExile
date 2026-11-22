@@ -150,7 +150,7 @@ public static partial class Game
         var players = view.Frames.Players().Where(p => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent)
             .Select(p => p.Walk.Position(now)).ToArray();
         if (players.Length == 0) return;
-        foreach (var (id, m) in area.Monsters)
+        foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters))
         {
             if (m.Dead || m.Life <= 0 || m.OwnerId is not null || m.WorldHidden) continue;
             var at = m.Walk.Position(now);
@@ -241,6 +241,7 @@ public static partial class Game
                 $"0x0020 the area's {area.MonsterTypes.Count} monster type(s)", AreaDelta.Kind.Message, only: player);
         foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters).OrderBy(e => e.Key))
         {
+            if (player.Connection.WorldOutput.Has(id)) continue;
             bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
             if (!m.WorldHidden && ((!m.Dead && m.Life > 0) || corpse) && m.OwnerId != player.Id)
                 AddMonsterCreate(player, id, m, now, only: player);

@@ -564,13 +564,12 @@ public static partial class Game
         }
         else
         {
-            // A boss far from the player (Dominus at the top of the Sceptre, created at the area entry) stays out of the
-            // wake zone until the player comes near: KeepWakeZone wakes it there. Woken at creation, the client put its far
-            // copy to sleep on its own while the server still had it awake, and the boss life bar (0x2bc boss_life_bar) for
+            // A boss or buried monster far from the player (Dominus at the top of the Sceptre, The Faun in The Ledge)
+            // stays out of the wake zone until a player comes near: StepAreaWake wakes it at WakeZoneReturn (163 cells),
+            // long before a buried monster rises at MonsterEmerge.Range (24 cells). Woken at creation far away, the
+            // client put its far copy to sleep on its own while the server still had it awake, and a 0x2bc update for
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
-            // A boss waiting to rise (Yugul) stays out of conn.Monsters until it does, where nothing would wake it: it is
-            // created awake, as every other buried monster is; its bar only comes after the rise.
-            bool farBoss = !waits && variety.BossHealthBar && FarFromPlayers(player, (x, y));
+            bool farBoss = (variety.BossHealthBar || waits) && FarFromPlayers(player, (x, y));
             // Bulk (an area's population): the create carries its wake and its rarity glow, so the client reads them in the
             // same admission and the producer waits for neither — each waited for a birth otherwise, a frame per object on
             // a lockstep client (746 monsters, 3.2 s). A far boss still wakes when the player comes near.

@@ -97,6 +97,12 @@ public sealed class BossKitsTests
             var emerge = new MonsterEmerge();
             var kind = emerge.Kind(yugul, GameServer.Core.Protocol.Instance.MonsterRarity.Unique);
             Assert.Equal(EmergeKind.Buried, kind);
+            Assert.Equal(EmergeKind.Buried, emerge.Kind(
+                Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Goatman/GoatmanLeapSlamNavaliBoss")),
+                GameServer.Core.Protocol.Instance.MonsterRarity.Unique));
+            Assert.Equal(EmergeKind.None, emerge.Kind(
+                Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find(IzaroGoddess.Variety)),
+                GameServer.Core.Protocol.Instance.MonsterRarity.Unique));
             Assert.Equal(EmergeKind.None, emerge.Kind(brutus,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Unique));
             var waiting = new SpawnedMonster("Yugul", new(20, 20, 1), 60, 2, maxLife: 100) { Variety = yugul };
