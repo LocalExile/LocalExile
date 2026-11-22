@@ -411,8 +411,8 @@ public static partial class Game
             else if (InstanceProtocol.IsLockstepRequest(id))
             {
                 // The client chose lockstep (07 §6): it is served as it asks.
-                OnLockstepRequest(remote, conn, id, bytes);
-                if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(remote, stream, ciphers, conn);
+                if (OnLockstepRequest(remote, conn, id, bytes))
+                    await AimLockstepChannel(remote, stream, ciphers, conn);
             }
             else if (id == InstancePause.RequestId)
                 await SetPaused(remote, stream, ciphers, conn, InstancePause.ReadRequest(bytes));

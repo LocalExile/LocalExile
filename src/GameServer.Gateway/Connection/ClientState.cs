@@ -1323,6 +1323,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public double NextChannelHitAt;
     /// <summary>When the channel last heard from the client (its start, or a C→S 0x197 update; Clock seconds).</summary>
     public double LastChannelUpdateAt;
+    /// <summary>Whether the next lockstep frame owes a moving channel a cursor update.</summary>
+    public bool LockstepChannelAimPending;
+    /// <summary>The cursor and frame time last applied to the current moving channel.</summary>
+    public ((int X, int Y) Aim, double At)? LastLockstepChannelAim;
     /// <summary>The instance this connection is in (its number), for a portal back to it.</summary>
     public ulong InstanceNumber { get; init; }
     /// <summary>Arrive at this cell instead of the spawn (back through a town portal).</summary>

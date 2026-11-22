@@ -1285,6 +1285,8 @@ public static partial class Game
                     bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
                     conn.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
                     if (walkChanges) conn.ApplyMovementSpeed();
+                    conn.LastLockstepChannelAim = null;
+                    conn.LockstepChannelAimPending = HeldLockstepMovingChannel(conn);
                     if (GolemStat(SupportedSkill(conn, skillId).Stats, "cast_while_channelling_time_ms") > 0)
                         BeginChannelTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId,
                             action, conn.ChannelGeneration, to, conn.Clock.Elapsed.TotalSeconds);
@@ -2104,6 +2106,11 @@ public static partial class Game
                     {
                         ChannelAimedAt(conn, aim.X, aim.Y, at);
                         conn.LastChannelUpdateAt = now;
+                        if (HeldLockstepMovingChannel(conn))
+                        {
+                            conn.LastLockstepChannelAim = (aim, at);
+                            conn.LockstepChannelAimPending = false;
+                        }
                     }
                     aimLockstepChannel = conn.LockstepSkill.Channel is not null;
                 }
@@ -2143,7 +2150,8 @@ public static partial class Game
                 // Winter Orb's channel is held by the button, not by the aim: a still cursor keeps the aimed cell and the
                 // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
                 // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
-                && (conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                && (HeldLockstepMovingChannel(conn)
+                    || conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
                     || IsSnipeChannelling(conn, skill)
                     || conn.PaidChannel is { } paid && paid.Skill == skill
                         && SkillsFor(conn).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
