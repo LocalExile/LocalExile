@@ -494,6 +494,7 @@ public static partial class Game
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         if (ApplyMonsterHitLocked(conn, target, damage, allyAt: from) is not { } hit) return false;
+        if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, Random.Shared);
         if (hit.StageStarts)
         { CommitBossStage(remote, stream, ciphers, conn, id, target, now); hit = hit with { StageStarts = false }; }
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.

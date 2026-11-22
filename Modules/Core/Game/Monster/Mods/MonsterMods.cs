@@ -208,8 +208,8 @@ public static partial class Game
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
             * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
             * (1 + e["physical_damage_taken_+%"] / 100.0);
-        double typed = mitigated[DamageType.Fire].Min * (e["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now))
-            + mitigated[DamageType.Lightning].Min * e["lightning_damage_taken_+%"];
+        double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
+            + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
         double coldTaken = cold == 0 ? 0 : cold * MonsterColdHitTaken(m, spell, now, elementalFactor, additionalTakenPct);
         return (int)Math.Round((total - cold - elementalDamage) * factor + elementalDamage * elementalFactor + coldTaken + withered
             + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
@@ -224,6 +224,14 @@ public static partial class Game
         return cold == 0 && elementalFactor is { } factor ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: cold + additionalTakenPct);
     }
+
+    static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
+    {
+        DamageType.Fire => (double)effects["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now),
+        DamageType.Cold => IncreasedColdTaken(m, now),
+        DamageType.Lightning => effects["lightning_damage_taken_+%"],
+        _ => 0,
+    };
 
     public static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
         double now = double.NaN)
