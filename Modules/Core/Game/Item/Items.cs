@@ -1546,6 +1546,10 @@ public static partial class Game
             ? RollsFor(conn).ApplyLock(target.Item, random)
             : target.Item.Mirrored || target.Item.Vestigial ? null
             : target.Item.Corrupted && type?.Id != Wisdom && !CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") ? null
+            : type?.Id == CurrencyEffects.FacetorsLens
+                ? (ItemsFor(conn).ByHash(target.Item.TypeHash) is { } lensGemType
+                    ? CurrencyEffects.ApplyFacetorsLens(target.Item, ItemsFor(conn).Gem(lensGemType), used.Item.GemExperience)
+                    : null)
             : CurrencyResult(conn, target.Item, used.Item.TypeHash, random);
         // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the
         // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
@@ -1615,6 +1619,8 @@ public static partial class Game
         if (targetTab is null && targetRow == PlayerInventories.Flask)
             await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
         await CheckCraftingAchievements(conn, type!.Id, target.Item, identified.Item);
+        if (type.Id == CurrencyEffects.FacetorsLens)
+            await CheckGemLevelAchievements(conn, identified.Item, ItemsFor(conn).GemLevel(identified.Item));
         Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
             : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))

@@ -328,7 +328,7 @@ public static class CurrencyEffects
             or OrbOfAlchemy or ChaosOrb or DivineOrb or BlessedOrb or OrbOfScouring or OrbOfTransmutation
             or OrbOfAlteration or OrbOfAugmentation or RegalOrb or ExaltedOrb or OrbOfAnnulment or AncientOrb
             or ArmourersScrap or SacredOrb or BlacksmithsWhetstone or OrbOfChance or VaalOrb or GlassblowersBauble
-            or GemcuttersPrism or FracturingOrb or CartographersChisel or EldritchChaosOrb or EldritchExaltedOrb
+            or GemcuttersPrism or FacetorsLens or FracturingOrb or CartographersChisel or EldritchChaosOrb or EldritchExaltedOrb
             or EldritchAnnulmentOrb or OrbOfBinding or OrbOfUnmaking
             or TaintedChaosOrb or TaintedExaltedOrb or TaintedChromaticOrb or TaintedOrbOfFusing or TaintedJewellersOrb
             or TaintedArmourersScrap or TaintedBlacksmithsWhetstone or TaintedCatalyst
@@ -480,6 +480,20 @@ public static class CurrencyEffects
     public static Item? Gemcutter(Item item) =>
         !item.Components.Contains("SkillGem") || !item.Components.Contains("Quality") || item.Corrupted || item.Quality >= MaximumQuality ? null
             : item with { Quality = (byte)(item.Quality + 1) };
+
+    public const string FacetorsLens = "Metadata/Items/Currency/CurrencyAddGemExperience";
+
+    /// <summary>Facetor's Lens: adds its stored experience (<paramref name="storedExperience"/>) to a non-corrupted,
+    /// non-mirrored skill gem that has not yet reached its maximum level experience cap.</summary>
+    public static Item? ApplyFacetorsLens(Item target, ItemCatalog.GemType? gem, int storedExperience)
+    {
+        if (storedExperience <= 0 || gem is null || !target.Components.Contains("SkillGem") || target.Corrupted || target.Mirrored)
+            return null;
+        int maxXp = gem.ExperienceFor(gem.MaxLevel);
+        if (maxXp <= 0 || target.GemExperience < 0 || target.GemExperience >= maxXp) return null;
+        long next = Math.Min((long)maxXp, (long)target.GemExperience + storedExperience);
+        return target with { GemExperience = (int)next };
+    }
 
     public const string OrbOfChance = "Metadata/Items/Currency/CurrencyUpgradeRandomly";
 
