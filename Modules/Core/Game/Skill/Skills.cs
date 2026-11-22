@@ -249,6 +249,8 @@ public static partial class Game
     public static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
         CachedPlayerStats(conn, out baselineLifePerSecond);
 
+    const string CorruptedSoul = "keystone_corrupted_defences";
+
     public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(ClientState conn, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
@@ -268,6 +270,9 @@ public static partial class Game
             var devSet = rawOverrides.Keys.ToHashSet();
             foreach (var (k, v) in BaseStats(conn)) built.TryAdd(k, v);
             EnsureFortificationPools(conn);
+            if (Stats.Key(CorruptedSoul) is uint corruptedSoul && built.GetValueOrDefault(corruptedSoul) != 0
+                && Stats.Key(IncomingResourceDefences.BypassStat) is uint nonChaosBypass)
+                built[nonChaosBypass] = ActorScale.Saturate((long)built.GetValueOrDefault(nonChaosBypass) + 50);
             // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
             // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances
             // already fold the same value into the pools. Additive with whatever won above, as a derived stat source.

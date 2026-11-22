@@ -1295,10 +1295,11 @@ public static partial class Game
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life, sources);
+        int lifeAsEnergyShield = ActorScale.Saturate((long)EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield")
+            + (EquipmentInput(CorruptedSoul) != 0 ? 15 : 0));
         pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
             pools.Life, pools.Mana, pools.EnergyShieldPct,
-            EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield"),
-            EquipmentInput("mana_%_to_add_as_energy_shield")) };
+            lifeAsEnergyShield, EquipmentInput("mana_%_to_add_as_energy_shield")) };
         return pools with
         {
             FortificationRevision = FortificationOf(conn).Revision,
