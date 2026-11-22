@@ -38,6 +38,8 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
             recovery += (long)Get(player, "generals_cry_cooldown_speed_+%") + Get(own, "generals_cry_cooldown_speed_+%");
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
             recovery += (long)Get(player, "golem_cooldown_recovery_+%") + Get(own, "golem_cooldown_recovery_+%");
+        if (StanceCatalog.IsStance(skills.EffectId(effect)))
+            recovery += (long)Get(player, "stance_skill_cooldown_speed_+%") + Get(own, "stance_skill_cooldown_speed_+%");
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
         return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses);
     }
