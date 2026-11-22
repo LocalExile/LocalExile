@@ -173,6 +173,7 @@ public static partial class Game
         sources = WithHerEmbrace(conn, sources);
         sources = WithElusive(conn, sources);
         sources = WithTinctures(conn, sources);
+        sources = WithTimedBuffs(conn, sources);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithRighteousFireSpellBonus(conn, sources);

@@ -53,19 +53,28 @@ public static class EffectRules
     public sealed record Check(string Fact, bool Not);
 
     /// <summary>What an effect kind takes and does: its value parameters (numbers) and name parameters (words), by name.</summary>
-    public sealed record Kind(string Name, string[] Values, string[] Names, Action<Fire> Run, Func<string, string, bool>? NameOk = null);
+    public sealed record Kind(string Name, string[] Values, string[] Names, Action<Fire> Run, Func<string, string, bool>? NameOk = null)
+    {
+        /// <summary>Value parameters a row may leave out, with the number used then.</summary>
+        public IReadOnlyDictionary<string, double> Defaults { get; init; } = new Dictionary<string, double>();
+        /// <summary>Further keys the kind reads itself in <see cref="Prepare"/>.</summary>
+        public string[] Extra { get; init; } = [];
+        /// <summary>Reads the kind's own keys when a row loads: what it returns is handed to <see cref="Fire.Data"/>, and
+        /// a <see cref="FormatException"/> refuses the row.</summary>
+        public Func<JsonElement, object?>? Prepare { get; init; }
+    }
 
-    public sealed record EffectSpec(Kind Kind, Value[] Values, string?[] Names);
+    public sealed record EffectSpec(Kind Kind, Value[] Values, string?[] Names, object? Data);
     public sealed record Rule(string Stat, int Ord, What When, Check[] Checks, bool Any, Value Chance, Value? Cooldown, EffectSpec[] Do);
 
     /// <summary>One effect of a rule that fired, with its numbers resolved for this actor.</summary>
-    public readonly record struct Fire(ClientState Conn, CombatEvent Event, double Now, Kind Kind, double[] Values, string?[] Names)
+    public readonly record struct Fire(ClientState Conn, CombatEvent Event, double Now, Kind Kind, double[] Values, string?[] Names, object? Data)
     {
         public double Number(string name) => Values[Array.IndexOf(Kind.Values, name)];
         public string? Word(string name) => Names[Array.IndexOf(Kind.Names, name)];
     }
 
-    sealed record LiveEffect(Kind Kind, double[] Values, string?[] Names);
+    sealed record LiveEffect(Kind Kind, double[] Values, string?[] Names, object? Data);
     sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do);
     sealed class Live
     {
@@ -160,11 +169,13 @@ public static class EffectRules
             string kindName = effect.GetProperty("kind").GetString() ?? "";
             if (!Kinds.TryGetValue(kindName, out var kind)) throw new FormatException($"unknown effect kind \"{kindName}\"");
             foreach (var property in effect.EnumerateObject())
-                if (property.Name != "kind" && !kind.Values.Contains(property.Name) && !kind.Names.Contains(property.Name))
+                if (property.Name != "kind" && !kind.Values.Contains(property.Name) && !kind.Names.Contains(property.Name)
+                    && !kind.Extra.Contains(property.Name))
                     throw new FormatException($"the effect \"{kindName}\" has no parameter \"{property.Name}\"");
             var values = new Value[kind.Values.Length];
             for (int i = 0; i < values.Length; i++)
                 values[i] = effect.TryGetProperty(kind.Values[i], out var v) ? ParseValue(v)
+                    : kind.Defaults.TryGetValue(kind.Values[i], out double byDefault) ? new(byDefault, null, false, 1, 0, null, null)
                     : throw new FormatException($"the effect \"{kindName}\" needs \"{kind.Values[i]}\"");
             var names = new string?[kind.Names.Length];
             for (int i = 0; i < names.Length; i++)
@@ -174,7 +185,7 @@ public static class EffectRules
                 if (kind.NameOk is { } ok && !ok(kind.Names[i], names[i] ?? ""))
                     throw new FormatException($"the effect \"{kindName}\" does not know {kind.Names[i]} \"{names[i]}\"");
             }
-            effects.Add(new(kind, values, names));
+            effects.Add(new(kind, values, names, kind.Prepare?.Invoke(effect)));
         }
         if (effects.Count == 0) throw new FormatException("\"do\" is empty");
         return new(stat, ord, (What)when, [.. checks], any, chance, cooldown, [.. effects]);
@@ -215,7 +226,7 @@ public static class EffectRules
                     var spec = rule.Do[i];
                     var numbers = new double[spec.Values.Length];
                     for (int n = 0; n < numbers.Length; n++) numbers[n] = spec.Values[n].Resolve(own, get);
-                    effects[i] = new(spec.Kind, numbers, spec.Names);
+                    effects[i] = new(spec.Kind, numbers, spec.Names, spec.Data);
                 }
                 lists ??= new List<LiveRule>?[WhatNames.Length];
                 (lists[(int)rule.When] ??= []).Add(new(rule, chance, rule.Cooldown?.Resolve(own, get) ?? 0, effects));
@@ -249,7 +260,7 @@ public static class EffectRules
             if (rule.Cooldown > 0)
                 lock (live) (live.ReadyAt ??= [])[rule.Rule] = now + rule.Cooldown;
             foreach (var effect in rule.Do)
-                try { effect.Kind.Run(new(conn, e, now, effect.Kind, effect.Values, effect.Names)); }
+                try { effect.Kind.Run(new(conn, e, now, effect.Kind, effect.Values, effect.Names, effect.Data)); }
                 catch (Exception ex) { Console.WriteLine($"[rules] {rule.Rule.Stat}: the effect {effect.Kind.Name} failed: {ex.Message}"); }
             if (Fired.Any)
             {
@@ -312,6 +323,7 @@ public static class EffectRules
         + (rule.Cooldown > 0 ? $"cooldown {rule.Cooldown:0.###} s, " : "")
         + string.Join(" + ", rule.Do.Select(d => d.Kind.Name
             + string.Concat(d.Kind.Names.Select((n, i) => $" {n}={d.Names[i]}"))
+            + (d.Data is { } data ? $" {data}" : "")
             + string.Concat(d.Kind.Values.Select((n, i) => $" {n}={d.Values[i]:0.###}"))));
 
     /// <summary>The actor's live rules as text, one line each: for tools that show them.</summary>

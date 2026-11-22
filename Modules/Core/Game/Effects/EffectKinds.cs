@@ -21,6 +21,23 @@ public static partial class Game
                 _ = Task.Run(() => SendKillOnslaught(remote, stream, ciphers, conn));
         }));
 
+        // A buff for "seconds", by one of the client's BuffTemplates rows ("template") or by its BuffDefinitions Id
+        // with a value per stat ("buff", "values"); "effect" scales its stats (percent, 100 = as given).
+        EffectRules.Register(new("buff", ["seconds", "effect"], [], fire =>
+        {
+            var conn = fire.Conn;
+            bool gained;
+            lock (conn.Monsters)
+                gained = GainTimedBuffLocked(conn, (BuffSpec)fire.Data!, fire.Number("seconds"), fire.Number("effect") / 100, fire.Now);
+            if (gained && conn.Wire is (var remote, { } stream, var ciphers))
+                _ = Task.Run(() => SendTimedBuffs(remote, stream, ciphers, conn));
+        })
+        {
+            Defaults = new Dictionary<string, double> { ["effect"] = 100 },
+            Extra = ["template", "buff", "values"],
+            Prepare = BuffSpecOf,
+        });
+
         // "count" charges of "type" (endurance, frenzy, power), as a skill's own grant: the charge rules apply it at
         // their next step, with the maximum and the refresh they give any gain.
         EffectRules.Register(new("charge", ["count"], ["type"], fire =>

@@ -1053,6 +1053,7 @@ public static partial class Game
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
                 await SendAntiquarian(remote, stream, ciphers, conn);
                 await SendKillOnslaught(remote, stream, ciphers, conn);
+                await SendTimedBuffs(remote, stream, ciphers, conn);
                 await SendSpreadPoisonRegeneration(remote, stream, ciphers, conn);
                 await SendSoulEater(remote, stream, ciphers, conn);
                 await SendVaalAuraExpiry(remote, stream, ciphers, conn);
