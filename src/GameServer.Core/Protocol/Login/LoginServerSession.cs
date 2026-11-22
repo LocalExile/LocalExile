@@ -42,9 +42,9 @@ public sealed class LoginServerSession(AccountService accounts)
         CreateCharacter m => Create(m),
         // Delete on the character screen, after its confirmation (0x140cfaf60): the character's name and a byte (0 live).
         WStringU8Message { MessageId: DeleteCharacterId } m => Delete(m.Text),
-        // "Leagues with progress" (0x140d166d0): the leagues a character could migrate progress from. None yet; the
-        // client then shows "There are no available leagues to migrate progress from."
-        EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, [])],
+        // "Leagues with progress" (0x140d166d0 → 0x140cc82a0): consecutive (source, parent) league pairs a character
+        // could migrate progress from. Empty shows "There are no available leagues to migrate progress from."
+        EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, LeaguesWithProgressList())],
         _ => [],
     };
 
@@ -248,6 +248,38 @@ public sealed class LoginServerSession(AccountService accounts)
         foreach (uint v in (ReadOnlySpan<uint>)[m.U50, m.U54])
             if (v <= (uint)CharacterClass.Shadow) return (CharacterClass)v;
         return null;
+    }
+
+    /// <summary>
+    /// Builds the S→C 0x1a (<see cref="LeaguesWithProgress"/>) vector for C→S 0x19. The client migration panel
+    /// (<c>0x140d171a0</c> → <c>0x140d166d0</c> → <c>0x140cc82a0</c>) iterates the vector in consecutive
+    /// <c>(source, parent)</c> pairs (<c>r15 += 2</c>, row constructor <c>0x140cc72b0</c>), formatting the first entry
+    /// with <c>LeaguesWithProgressEntryLabel</c> (<c>"League: {0}"</c>, ClientString <c>0x16ca</c>) and the second with
+    /// <c>LeaguesWithProgressEntryParentLabel</c> (<c>"Parent League: {0}"</c>, ClientString <c>0x16cb</c>).
+    /// </summary>
+    private LeagueEntry[] LeaguesWithProgressList()
+    {
+        if (Session is null) return [];
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pairs = new List<(League Source, League Parent)>();
+        foreach (var c in accounts.Characters(Session.AccountId))
+        {
+            if (c.HardcoreDeath?.PermanentlyDead == true) continue;
+            if (Leagues.FindLoaded(c.League) is not { Parent: { Length: > 0 } parentName } source) continue;
+            if (string.Equals(parentName, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!seen.Add(source.Name)) continue;
+            if (Leagues.FindLoaded(parentName) is not { } parent) continue;
+            pairs.Add((source, parent));
+        }
+        if (pairs.Count == 0) return [];
+        pairs.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Source.Name, b.Source.Name));
+        var entries = new LeagueEntry[pairs.Count * 2];
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            entries[i * 2] = pairs[i].Source.Entry();
+            entries[i * 2 + 1] = pairs[i].Parent.Entry();
+        }
+        return entries;
     }
 
     /// <summary>
