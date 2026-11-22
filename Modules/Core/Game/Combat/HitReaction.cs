@@ -8,7 +8,10 @@ using GameServer.Core.World;
 /// Minions, explosions and /kill pass their plain damage and no owner.</summary>
 public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
     ClientState? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false,
-    double BaseSeconds = 0, IReadOnlyDictionary<uint, int>? Skill = null);
+    double BaseSeconds = 0, IReadOnlyDictionary<uint, int>? Skill = null)
+{
+    public int DoubleDurationChance { get; init; }
+}
 
 /// <summary>
 /// A monster's stun, presented as its hit reaction (native Actor TakeHit recovery, sent by <c>SendMonsterFlinch</c>).
@@ -71,7 +74,9 @@ public static class HitReaction
         if (m.SwingGeneration == m.ActionGeneration && !m.StageRunning) m.BusyUntil = now;
         m.SwingGeneration = null;
         m.ActionGeneration++;
-        m.FlinchUntil = now + Seconds(hit, m);
+        double seconds = Seconds(hit, m);
+        if (RandomRolls.Chance(hit.DoubleDurationChance, 100, random)) seconds *= 2;
+        m.FlinchUntil = now + seconds;
         // An act boss's row states its own repeat immunity (2 s after the stun ends); a unique without one keeps the wiki's 4 s.
         double immunity = BossMods.StunImmunityMilliseconds(m.Variety) is int ms ? ms / 1000d
             : m.Rarity == MonsterRarity.Unique ? BossImmunitySeconds : 0;
@@ -106,6 +111,6 @@ public static partial class Game
         bool guaranteed = stunning > 0 && fullLife && (Get("always_stun_enemies_that_are_on_full_life") > 0
             || tinctureWeapon && Get("always_stun_enemies_that_are_on_full_life_with_tinctured_weapons") > 0);
         return new(stunning, thresholdReduction, duration, melee, conn, Guaranteed: guaranteed,
-            Skill: own);
+            Skill: own) { DoubleDurationChance = Get("chance_to_double_stun_duration_%") };
     }
 }
