@@ -3577,7 +3577,7 @@ public static partial class Game
         }
         drops.AddRange(MadeDrops(conn, modded));
         modded?.ApplyTransforms(drops);
-        if (MapBeyond.CorruptsDrops(conn, m.Variety?.Id)) CorruptDrops(drops);
+        ApplyMonsterDropCorruption(conn, m.Variety?.Id, drops, Random.Shared);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.

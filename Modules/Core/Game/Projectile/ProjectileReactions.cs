@@ -227,7 +227,7 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         drops.AddRange(MadeDrops(conn, modded));
         modded?.ApplyTransforms(drops);
-        if (MapBeyond.CorruptsDrops(conn, monster.Variety?.Id)) CorruptDrops(drops);
+        ApplyMonsterDropCorruption(conn, monster.Variety?.Id, drops, random);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;

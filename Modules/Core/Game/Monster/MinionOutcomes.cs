@@ -125,7 +125,7 @@ public static partial class Game
         drops.AddRange(MadeDrops(conn, modded));
         if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(conn, monster));
         modded?.ApplyTransforms(drops);
-        if (MapBeyond.CorruptsDrops(conn, variety?.Id)) CorruptDrops(drops);
+        ApplyMonsterDropCorruption(conn, variety?.Id, drops, Random.Shared);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = Random.Shared.NextDouble() * Math.Tau, radius = 3 + Random.Shared.NextDouble() * 3;

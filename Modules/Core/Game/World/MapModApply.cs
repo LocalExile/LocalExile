@@ -24,6 +24,22 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    internal static int AreaStatValue(ClientState conn, string id)
+    {
+        if (MapModsOf(conn) is { } mods) return mods.Get(id);
+        if (conn.Instance?.KeptAreaStats is { Count: > 0 } kept && Program.Stats.Key(id) is uint key)
+            return kept.GetValueOrDefault(key);
+        return 0;
+    }
+
+    internal static void ApplyMonsterDropCorruption(ClientState conn, string? varietyId, List<ItemDrops.Drop> drops, Random random)
+    {
+        if (MapBeyond.CorruptsDrops(conn, varietyId)) CorruptDrops(drops);
+        int chance = AreaStatValue(conn, "map_items_drop_corrupted_%");
+        if (chance > 0)
+            CorruptDrops(drops, chance, random, static type => type.CanBeCorrupted || type.Components.Contains("Map"));
+    }
+
     /// <summary>The vital and deadly Atlas keystones' more monster life and damage (Wellspring of Creation, Dance of
     /// Destruction): the area's map_ stat becomes the monster stat of the same name, which acts as a more modifier on
     /// the monster's life or hit (handed over to MonsterModEffects.HandOverMore in GameModule.Load).</summary>

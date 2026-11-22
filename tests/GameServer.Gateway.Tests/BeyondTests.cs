@@ -174,6 +174,7 @@ public sealed class BeyondTests
         var atlas = new Dictionary<uint, int>
         {
             [(uint)Key("map_beyond_boss_grants_special_buff_on_death")] = 1,
+            [(uint)Key("map_items_drop_corrupted_%")] = 10,
             [(uint)Key("map_beyond_monster_tainted_currency_quantity_+%")] = 50,
             [(uint)Key("map_beyond_monster_experience_+%")] = 50,
             [(uint)Key("map_beyond_boss_spawn_chance_+%")] = 1200,
@@ -259,9 +260,21 @@ public sealed class BeyondTests
                 new(ItemCatalog.Create(equipType), equipType),
                 new(ItemCatalog.Create(currencyType), currencyType),
             };
-            Game.CorruptDrops(mixedDrops);
+            Game.ApplyMonsterDropCorruption(owner.Conn, ktash.Variety!.Id, mixedDrops, new Random(8));
             Assert.True(mixedDrops[0].Item.Corrupted);
             Assert.False(mixedDrops[1].Item.Corrupted);
+
+            var flask = Program.Items.Find("Metadata/Items/Flasks/FlaskLife1")!;
+            ItemDrops.Drop[] kinds = [new(ItemCatalog.Create(equipType), equipType), new(ItemCatalog.Create(flask), flask), mixedDrops[1]];
+            var ordinary = Enumerable.Range(0, 64).SelectMany(_ => kinds).ToList();
+            var expected = new Random(83);
+            Game.ApplyMonsterDropCorruption(owner.Conn, natural.Id, ordinary, new Random(83));
+            for (int i = 0; i < ordinary.Count; i++)
+            {
+                var original = kinds[i % kinds.Length];
+                bool corrupted = original.Type != currencyType && expected.Next(100) < 10;
+                Assert.Equal(original.Item with { Corrupted = corrupted }, ordinary[i].Item);
+            }
 
             var beyondXp = new ExperienceGain(owner.Conn, Game.ModMonster(ktash, spot), 1000);
             MapBeyond.Experience(beyondXp);

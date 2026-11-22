@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Accounts;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -45,18 +46,21 @@ public static partial class Game
     }
 
     // Marks every corruptible item in a monster's drop list as corrupted (DropRoll.Corrupted): equipment, jewels, gems and maps.
-    public static void CorruptDrops(List<ItemDrops.Drop> drops)
+    public static void CorruptDrops(List<ItemDrops.Drop> drops) =>
+        CorruptDrops(drops, 100, Random.Shared, static type =>
+            !type.Components.Contains("Charges") && !type.Components.Contains("DeepwaterChart") && !type.Components.Contains("HeistBlueprint")
+            && (type.CanBeCorrupted || type.Components.Contains("Mods") || type.Components.Contains("SkillGem")
+                || type.Components.Contains("Map") || type.Components.Contains("MapKey")));
+
+    static void CorruptDrops(List<ItemDrops.Drop> drops, int chance, Random random, Func<ItemCatalog.BaseType, bool> eligible)
     {
         for (int i = 0; i < drops.Count; i++)
         {
-            var d = drops[i];
-            if (d.Item.Corrupted || d.Item.Mirrored || d.Item.Vestigial || d.Type.Stackable || d.Type.Unmodifiable
-                || d.Type.Components.Contains("Charges") || d.Type.Components.Contains("Quest")
-                || d.Type.Components.Contains("DeepwaterChart") || d.Type.Components.Contains("HeistBlueprint")) continue;
-            if (d.Type.CanBeCorrupted || d.Type.Components.Contains("Mods")
-                || d.Type.Components.Contains("SkillGem") || d.Type.Components.Contains("Map")
-                || d.Type.Components.Contains("MapKey"))
-                drops[i] = d with { Item = d.Item with { Corrupted = true } };
+            var drop = drops[i];
+            if (drop.Item.Corrupted || drop.Item.Mirrored || drop.Item.Vestigial || drop.Type.Stackable
+                || drop.Type.Unmodifiable || drop.Type.Components.Contains("Quest")) continue;
+            if (eligible(drop.Type) && RandomRolls.Chance(chance, 100, random))
+                drops[i] = drop with { Item = drop.Item with { Corrupted = true } };
         }
     }
 
