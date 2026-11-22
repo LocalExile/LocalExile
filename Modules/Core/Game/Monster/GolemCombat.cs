@@ -91,6 +91,11 @@ public static partial class Game
         if (g.Definition.Kind == "HolyRelic")
         { GolemFollowLocked(conn, g, owner, now); return; }
         if (ReaperConsumeLocked(conn, g, now)) return;
+        if (g.Definition.Id == "SummonReaperAltY")
+        {
+            GolemFollowLocked(conn, g, owner, now);
+            return;
+        }
         if (g.Definition.Kind == "Carrion" && g.Definition.Special && m.Life < m.MaxLife &&
             g.Abilities.FirstOrDefault(a => a.Effect == 10801) is { } consume && GolemReady(g, consume, now))
         {
@@ -369,7 +374,6 @@ public static partial class Game
                         && Dist(other.Walk.Position(now), splashAt) <= splash.Radius + LivingCollision.Size(other))
                         GolemHitLocked(remote, stream, ciphers, conn, g, spread, otherId, other, now);
             }
-            if (a.Effect == 136 && Random.Shared.Next(100) < GolemStat(a.Stats, "chance_to_taunt_on_hit_%")) g.Taunts[id] = now + 3;
         }
         if (a.Effect == 5268)
         {
@@ -514,6 +518,7 @@ public static partial class Game
             InflictMonsterBlind(conn, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 Random.Shared);
             MinionAilmentsLocked(conn, g, a, id, target, critical, now);
+            MinionTauntOnHitLocked(conn, g, a, supported.Stats, id, target, now);
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(conn, g, now);
         return true;
