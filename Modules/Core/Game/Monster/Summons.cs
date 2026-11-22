@@ -149,7 +149,8 @@ public static partial class Game
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
-        MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null)
+        MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null,
+        AnimatedSource? preparedEquipment = null)
     {
         SupportedGem gem;
         Dictionary<uint, int> player;
@@ -193,9 +194,9 @@ public static partial class Game
                 if (definition.Family == "Spectre") path = corpse.Variety!.Id;
                 aim = corpse.Walk.Position(AreaTime(conn));
             }
-            if (definition.Family is "AnimatedWeapon" or "AnimatedGuardian" or "Clone")
+            if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" or "Clone")
             {
-                animated = AnimatedItems(conn, definition, gem, aim, target, restoredEquipment);
+                animated = preparedEquipment ?? AnimatedItems(conn, definition, gem, aim, target, restoredEquipment);
                 if (animated is null) return 0;
                 if (animated.Ground is { } item) aim = (item.GridX, item.GridY);
             }
@@ -261,7 +262,7 @@ public static partial class Game
             ownedLooks: SummonLooks(fighter),
             ownedAdmission: () => (replacement is null || SummonReplacementCurrentLocked(conn, replacement))
                 && (animated?.GuardianGear is not { } guardian || AnimatedGuardianGearCurrentLocked(conn, guardian))
-                && (animated?.Ground is not { } item || conn.Instance.Ground.Take(animated.Id, item) is not null),
+                && ConsumeAnimatedSourceLocked(conn, animated),
             ownedCurrent: () => conn.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
                 && (replacement is { } admission
                     ? SummonReplacementCurrentLocked(conn, admission)
@@ -270,7 +271,10 @@ public static partial class Game
             owned: (id, monster) =>
             {
                 if (consumed is not null) ConsumeSummonCorpseLocked(conn, consumed, playerConsumesCorpse);
-                if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
+                if (animated?.Ground is not null)
+                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
+                if (animated?.BladeSource is not null)
+                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "lingering blade animated"));
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
                 bool SameLimit(GolemState.Golem g) => g.Definition.Kind == definition.Family && !g.Monster.Dead
                     && (definition.Family != "Clone" || conn.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
@@ -427,5 +431,5 @@ public static partial class Game
                 stats[key] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == kind && !g.Monster.Dead && g.Monster.Life > 0);
     }
     static readonly IReadOnlyDictionary<string, string> SummonCountNames = new Dictionary<string, string> { ["Absolution"] = "absolution_sentinels", ["VaalAbsolution"] = "vaal_absolution_sentinels", ["Phantasm"] = "phantasms", ["Zombie"] = "zombies", ["Spectre"] = "spectres", ["Skeleton"] = "skeletons",
-            ["RagingSpirit"] = "raging_spirits", ["HolyRelic"] = "relics", ["Reaper"] = "reapers", ["AnimatedWeapon"] = "animated_weapons", ["AnimatedGuardian"] = "animated_armour" };
+            ["RagingSpirit"] = "raging_spirits", ["HolyRelic"] = "relics", ["Reaper"] = "reapers", ["VaalAnimatedWeapon"] = "vaal_animated_weapons", ["AnimatedWeapon"] = "animated_weapons", ["AnimatedGuardian"] = "animated_armour" };
 }

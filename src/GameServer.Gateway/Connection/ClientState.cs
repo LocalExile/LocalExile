@@ -630,7 +630,7 @@ public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, 
     public bool PaysLife, OutOfLife;
     public double LifeCostCarry;
     public bool Ended;
-    public readonly Queue<(uint Id, double Landed, double Gone)> Blades = new();
+    public readonly List<(uint Id, (int X, int Y) At, double Landed, double Gone)> Blades = [];
 }
 
 // The last instance list shown (0xae); 0xaf picks a row of it.
@@ -1082,6 +1082,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
     public BladefallTrarthusState? BladefallTrarthus;
+    public readonly List<BladefallTrarthusState> LingeringBladeSources = [];
     /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
     public string? ModelHands;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
