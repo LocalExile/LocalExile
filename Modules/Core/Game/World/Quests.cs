@@ -129,7 +129,7 @@ public static partial class Game
         // The quest engine's objects and chests whose state follows a flag (World/Quest/QuestEngine.cs).
         await UpdateQuestObjectStates(remote, stream, ciphers, conn, change.Effective);
         foreach (uint id in change.Removed)
-            await Send(remote, stream, ciphers, [], $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { lock (conn.Monsters) return conn.Closed || conn.LeavingArea || conn.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
         if (on) await CharacterVoiceLines.OnQuestFlagsPublishedHeld(conn, change.Effective);
     }
