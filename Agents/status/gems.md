@@ -71,8 +71,8 @@ Nothing yet.
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
-  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
-  Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
+  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
+  Flight and arming times and the native multi-throw patterns remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
@@ -116,6 +116,7 @@ Nothing yet.
   Unleash stores seals per linked spell and spends them on extra projectile, area and summon releases.
   Greater Spell Echo scales repeated area and projectile hits. Focused Channelling scales channelled area hits by elapsed whole seconds.
   Meat Shield reduces damage taken by supported minions, and Elemental Army adds elemental damage and Exposure on hit.
+  Meat Shield reduces damage taken by supported minions and lets targetable minions taunt on hit. Elemental Army scales their elemental damage paths.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and
   Awakened `support_spell_cascade_sideways`, so the aimed centre still lands the main hit; captured from the 3.29.3b
   client (2026-11-04): Reap's five Awakened areas were 28-29 cells apart at a 28.5 effective radius.

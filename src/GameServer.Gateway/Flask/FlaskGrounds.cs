@@ -132,6 +132,8 @@ public static class FlaskGrounds
     public sealed record Ground(Kind Kind, int X, int Y, int Radius, double Ends, uint? Object = null,
         int EnemyDamageTakenPct = 0)
     {
+        public Func<double, bool>? SourceAlive { get; init; }
+        public bool GrantsCurseImmunity { get; init; }
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
     }
 
@@ -152,10 +154,21 @@ public static class FlaskGrounds
         int _stationaryRadius;
         double _lingerSeconds, _profaneLingerSeconds, _lastCovered = double.NegativeInfinity;
         Ground? _stationary;
+        double _lastCurseImmune = double.NegativeInfinity;
+        bool _curseImmune;
 
         public bool Any
         {
             get { lock (_lock) return !Idle; }
+        }
+
+        public bool NeedsMonsterUpdates
+        {
+            get
+            {
+                lock (_lock) return _blinded.Count > 0 || _profane.Count > 0
+                    || _grounds.Any(g => g.Kind is Kind.SmokeCloud or Kind.ProfaneGround);
+            }
         }
 
         bool Idle => _grounds.Count == 0 && _blinded.Count == 0 && _profane.Count == 0 && _consecrated is null
@@ -212,11 +225,15 @@ public static class FlaskGrounds
             {
                 if (!alive)
                 {
-                    _lastCovered = double.NegativeInfinity;
+                    _lastCovered = _lastCurseImmune = double.NegativeInfinity;
+                    _curseImmune = false;
                     return false;
                 }
                 bool covered = _grounds.Append(_stationary).Any(g => g?.Kind == Kind.ConsecratedGround && g.Covers(at));
                 if (covered) _lastCovered = now;
+                bool protectedHere = covered && _grounds.Any(g => g.GrantsCurseImmunity && g.Covers(at));
+                if (protectedHere) _lastCurseImmune = now;
+                _curseImmune = protectedHere || now < _lastCurseImmune + _lingerSeconds;
                 return covered || now < _lastCovered + _lingerSeconds;
             }
         }
@@ -255,7 +272,7 @@ public static class FlaskGrounds
         {
             lock (_lock)
             {
-                List<Ground> ended = [.. _grounds.Where(g => g.Ends <= now)];
+                List<Ground> ended = [.. _grounds.Where(g => g.Ends <= now || g.SourceAlive?.Invoke(now) == false)];
                 foreach (var g in ended) _grounds.Remove(g);
                 return ended;
             }
@@ -377,8 +394,11 @@ public static class FlaskGrounds
         /// consecrated_ground_effect_+%.</summary>
         public IReadOnlyList<(string Stat, int Value)> PlayerStats(int effectPct = 0)
         {
-            lock (_lock) return _consecrated is null ? [] : Consecrated(effectPct);
+            lock (_lock) return _consecrated is null ? [] : _curseImmune
+                ? [.. Consecrated(effectPct), ("immune_to_curses", 1)] : Consecrated(effectPct);
         }
+
+        public bool CurseImmune { get { lock (_lock) return _curseImmune; } }
 
         /// <summary>Whether the player currently carries the ground_consecration effect maintained by the ticker.</summary>
         public bool Consecrated
