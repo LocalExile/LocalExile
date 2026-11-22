@@ -66,6 +66,7 @@ public static partial class Game
         var player = sources ?? CharacterPlayerStats(conn);
         int Own(string n) => GolemStat(gem.Stats, n);
         int Get(string n) => GolemStat(player, n) + Own(n);
+        bool hexMaster = Get("keystone_hex_master") != 0;
         if (monster.Mods.Effects["immune_to_curses"] != 0 || !definition.Mark && monster.Mods.Effects["hexproof"] != 0
             && Get("ignore_hexproof") == 0 && Get("hexes_ignore_hexproof") == 0
             && !RandomRolls.Chance(Get("chance_to_ignore_hexproof_%"), 100, Random.Shared)) return false;
@@ -77,7 +78,7 @@ public static partial class Game
             * Math.Max(0, 1 + Own("support_hextouch_curse_effect_+%_final") / 100.0)
             * Math.Max(0, 1 + monster.Mods.Effects["curse_effect_on_self_+%_final"] / 100.0)
             * Math.Max(0, 1 + monster.Mods.Effects["map_monsters_curse_effect_on_self_+%_final"] / 100.0)
-            * effectMultiplier;
+            * effectMultiplier * (hexMaster ? .8 : 1);
         var stats = gem.Stats.Where(p => CurseRecipientStats.Contains(Stats.Name(p.Key) ?? ""))
             .ToDictionary(p => Stats.Name(p.Key)!, p => (int)Math.Truncate(p.Value * factor));
         double seconds = definition.Mark ? double.PositiveInfinity : SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"),
@@ -91,7 +92,8 @@ public static partial class Game
             foreach (var m in conn.Monsters.Values.Where(m => !ReferenceEquals(m, monster)))
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == conn.PeerId && c.Mark).ToArray()) m.Curses.Remove(mark.Caster, mark.Effect);
         monster.Curses.Put(new(conn.PeerId, effect, skill, definition.Buff, conn.NextBuff++, now,
-            aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats), CurseLimit(conn, player));
+            aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate,
+            aura, definition.Mark, stats), CurseLimit(conn, player));
         return true;
     }
 
