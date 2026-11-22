@@ -312,6 +312,7 @@ public static class ShrineManager
         if (!definition.Lesser) duration += MapModsOf(conn)?.Get("map_shrine_granted_player_buff_duration_+%") ?? 0;
         shrine.Duration = Math.Clamp(shrine.Duration * Math.Max(0L, 100L + duration) / 100, 0, int.MaxValue);
         int effectPercent = Stat("shrine_buff_effect_on_self_+%") + (MapModsOf(conn)?.Get("map_player_shrine_buff_effect_on_self_+%") ?? 0);
+        if (!definition.Lesser) effectPercent += MapModsOf(conn)?.Get("map_shrine_granted_player_buff_effect_+%") ?? 0;
         if (effectPercent != 0 && (definition.Monster is not null || definition.Lesser))
             shrine.Stats = shrine.Stats.Select(s => (s.Key, Stats.Name(s.Key) is "has_shrine_effect" or "always_crit" or "base_cannot_be_damaged" or "global_knockback" or "extra_gore"
                 ? s.Value : (int)Math.Clamp((long)s.Value * Math.Max(0L, 100L + effectPercent) / 100, int.MinValue, int.MaxValue))).ToArray();
