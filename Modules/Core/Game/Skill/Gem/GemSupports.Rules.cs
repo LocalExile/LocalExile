@@ -38,12 +38,15 @@ public static partial class Game
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(conn).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(conn, equipment).Where(g => !g.Support && g.ManuallyCast
+        // A skill an effect rule triggers (RuleTriggeredGrant) is one of the Actor's skills too, as the game lists it:
+        // its id is what its cost, its supports and the client know it by. It cannot be used by hand (TriggerOnlyReason).
+        return [.. AllWornGrantedSkillsOf(conn, equipment).Where(g => !g.Support
             && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
-            && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
+            && (RuleTriggeredGrant(conn, g) || g.ManuallyCast
+                && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId == SnipeEffect || AuraCatalog.Supported(g.EffectId)
-                || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];
+                || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId)))))];
     }
 
     public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix";

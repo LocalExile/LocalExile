@@ -33,10 +33,18 @@ public static class EffectRules
     {
         public static readonly Value Always = new(100, null, false, 1, 0, null, null);
 
-        public double Resolve(int own, Func<string, int> get)
+        /// <summary>A number of the rule's carrier by name (a granted skill's "cooldown" or "level"), in place of a stat.</summary>
+        public string? Data { get; init; }
+
+        public double Resolve(int own, Func<string, int> get, IReadOnlyDictionary<string, double>? data = null)
         {
             double value = Fixed;
-            if (OwnStat || Stat is not null)
+            if (Data is not null)
+            {
+                double raw = data is not null && data.TryGetValue(Data, out double found) ? found : 0;
+                value = raw == 0 ? Fallback : raw * Scale;
+            }
+            else if (OwnStat || Stat is not null)
             {
                 int raw = OwnStat ? own : get(Stat!);
                 value = raw == 0 ? Fallback : raw * Scale;
@@ -46,7 +54,8 @@ public static class EffectRules
             return value;
         }
 
-        public override string ToString() => OwnStat ? Scaled("the stat") : Stat is not null ? Scaled(Stat) : $"{Fixed:0.###}";
+        public override string ToString() => Data is not null ? Scaled($"the carrier's {Data}")
+            : OwnStat ? Scaled("the stat") : Stat is not null ? Scaled(Stat) : $"{Fixed:0.###}";
         string Scaled(string from) => (Scale == 1 ? from : $"{from} x {Scale:0.######}") + (Fallback != 0 ? $" (else {Fallback:0.###})" : "");
     }
 
@@ -65,35 +74,51 @@ public static class EffectRules
     }
 
     public sealed record EffectSpec(Kind Kind, Value[] Values, string?[] Names, object? Data);
-    /// <summary>Who: whose event fires the rule (CombatActors: "self" unless the row says otherwise); null for anyone's.</summary>
-    public sealed record Rule(string Stat, int Ord, What When, string? Who, Check[] Checks, bool Any, Value Chance, Value? Cooldown, EffectSpec[] Do);
+    /// <summary>Who: whose event fires the rule (CombatActors: "self" unless the row says otherwise); null for anyone's.
+    /// Carrier: where the rule's stat is read. Null: the actor's own summed stats. Otherwise a kind of
+    /// <see cref="Source"/> ("skill": each skill an item grants), and the rule is live once for each one that has it.</summary>
+    public sealed record Rule(string Stat, int Ord, What When, string? Who, Check[] Checks, bool Any, Value Chance, Value? Cooldown, EffectSpec[] Do)
+    {
+        public string? Carrier { get; init; }
+    }
+
+    /// <summary>
+    /// Something of an actor that carries stats of its own and can turn rules on for it: a skill an item grants today
+    /// (later a buff, a minion, a ground patch). Key tells two of them apart and keeps a cooldown across stat builds;
+    /// Get reads its stats; Data are its own named numbers a row's values may use; Thing is what an effect kind acts on.
+    /// </summary>
+    public sealed record Source(string Carrier, object Key, Func<string, int> Get, IReadOnlyDictionary<string, double> Data,
+        object Thing, string Label);
 
     /// <summary>One effect of a rule that fired, with its numbers resolved for this actor.</summary>
     public readonly record struct Fire(ClientState Conn, CombatEvent Event, double Now, Kind Kind, double[] Values, string?[] Names, object? Data)
     {
+        /// <summary>The carrier whose stat turned the rule on, for a rule that has one.</summary>
+        public Source? Source { get; init; }
         public double Number(string name) => Values[Array.IndexOf(Kind.Values, name)];
         public string? Word(string name) => Names[Array.IndexOf(Kind.Names, name)];
     }
 
     sealed record LiveEffect(Kind Kind, double[] Values, string?[] Names, object? Data);
-    sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do);
+    sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do, Source? Source = null);
     sealed class Live
     {
         public LiveRule[][] ByWhat = NoRules;
-        public Dictionary<Rule, double>? ReadyAt;
+        public Dictionary<(Rule Rule, object? Source), double>? ReadyAt;
     }
-    sealed record Table(int Revision, Rule[] Rules, HashSet<string> Stats);
+    sealed record Table(int Revision, Rule[] Rules, HashSet<string> Stats, Dictionary<string, Rule[]> ByCarrier);
 
     static readonly LiveRule[][] NoRules = [.. WhatNames.Select(_ => Array.Empty<LiveRule>())];
     static readonly RuleTable<ClientState, Live> Lives = new();
     static readonly Dictionary<string, Kind> Kinds = new(StringComparer.Ordinal);
     static readonly object Gate = new();
-    static Table _table = new(-1, [], []);
+    static Table _table = new(-1, [], [], new());
+    static readonly HashSet<string> KnownCarriers = new(StringComparer.Ordinal);
 
     /// <summary>The facts each event can answer, for a rule's checks.</summary>
     static readonly Dictionary<What, string[]> Facts = new()
     {
-        [What.Hit] = ["critical", "spell", "attack", "killed", "frozen", "bleeding", "marked", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Hit] = ["critical", "spell", "attack", "killed", "frozen", "bleeding", "marked", "has_mark", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Kill] = ["frozen", "poisoned", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.WhenHit] = ["critical"],
         [What.Block] = ["spell", "attack"],
@@ -104,8 +129,31 @@ public static class EffectRules
     /// <summary>Adds an effect kind. The game module registers its own when it loads; a mod can add more.</summary>
     public static void Register(Kind kind)
     {
-        lock (Gate) { Kinds[kind.Name] = kind; _table = new(-1, [], []); }
+        lock (Gate) { Kinds[kind.Name] = kind; _table = new(-1, [], [], new()); }
     }
+
+    /// <summary>Makes a carrier name known, so rows may use it ("carrier":"skill").</summary>
+    public static void RegisterCarrier(string carrier)
+    {
+        lock (Gate) { KnownCarriers.Add(carrier); _table = new(-1, [], [], new()); }
+    }
+
+    /// <summary>Whether a loaded rule reads its stat from this kind of carrier: what the carrier's owner asks before it
+    /// gathers its sources.</summary>
+    public static bool HasCarrierRules(string carrier) => Enabled && Current().ByCarrier.ContainsKey(carrier);
+
+    /// <summary>Whether a loaded rule of this carrier is turned on by one of these stats.</summary>
+    public static bool CarrierRuleFor(string carrier, Func<string, int> get)
+    {
+        if (!Enabled || !Current().ByCarrier.TryGetValue(carrier, out var rules)) return false;
+        foreach (var rule in rules)
+            if (get(rule.Stat) != 0) return true;
+        return false;
+    }
+
+    /// <summary>Changes whenever the loaded rules do (and with the on/off switch): what a carrier's owner keys a
+    /// remembered answer about them by.</summary>
+    public static int Revision => Enabled ? Current().Revision : -1;
 
     /// <summary>Whether an effect rule drives this stat now, so the code that read it before leaves it alone.</summary>
     public static bool Handles(string stat) => Enabled && Current().Stats.Contains(stat);
@@ -135,7 +183,8 @@ public static class EffectRules
                 { Console.WriteLine($"[rules] refused the rule of {row.Stat} #{row.Ord}: {e.Message}"); }
             }
             Console.WriteLine($"[rules] {rules.Count} effect rule(s) loaded, {Kinds.Count} effect kind(s) (game data revision {revision})");
-            Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Select(r => r.Stat)]));
+            Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Where(r => r.Carrier is null).Select(r => r.Stat)],
+                rules.Where(r => r.Carrier is not null).GroupBy(r => r.Carrier!).ToDictionary(g => g.Key, g => g.ToArray())));
             return _table;
         }
     }
@@ -146,7 +195,7 @@ public static class EffectRules
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         foreach (var property in root.EnumerateObject())
-            if (property.Name is not ("when" or "who" or "checks" or "any" or "chance" or "cooldown" or "do"))
+            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "chance" or "cooldown" or "do"))
                 throw new FormatException($"unknown key \"{property.Name}\"");
         string whenName = root.GetProperty("when").GetString() ?? "";
         int when = Array.IndexOf(WhatNames, whenName);
@@ -193,7 +242,11 @@ public static class EffectRules
             effects.Add(new(kind, values, names, kind.Prepare?.Invoke(effect)));
         }
         if (effects.Count == 0) throw new FormatException("\"do\" is empty");
-        return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects]);
+        string? carrier = root.TryGetProperty("carrier", out var carried) ? carried.GetString() : null;
+        if (carrier is not null && !KnownCarriers.Contains(carrier)) throw new FormatException($"unknown carrier \"{carrier}\"");
+        if (carrier is null && (chance.Data ?? cooldown?.Data ?? effects.SelectMany(e => e.Values).FirstOrDefault(v => v.Data is not null)?.Data) is { } data)
+            throw new FormatException($"the value \"{data}\" is a carrier's, and the rule has no \"carrier\"");
+        return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects]) { Carrier = carrier };
     }
 
     static Value ParseValue(JsonElement e)
@@ -201,40 +254,52 @@ public static class EffectRules
         if (e.ValueKind == JsonValueKind.Number) return new(e.GetDouble(), null, false, 1, 0, null, null);
         double? Number(string name) => e.TryGetProperty(name, out var n) ? n.GetDouble() : null;
         foreach (var property in e.EnumerateObject())
-            if (property.Name is not ("fixed" or "from" or "stat" or "scale" or "fallback" or "min" or "max"))
+            if (property.Name is not ("fixed" or "from" or "stat" or "data" or "scale" or "fallback" or "min" or "max"))
                 throw new FormatException($"unknown value key \"{property.Name}\"");
         bool own = e.TryGetProperty("from", out var from)
             && (from.GetString() == "stat" ? true : throw new FormatException($"unknown value source \"{from.GetString()}\""));
         string? stat = e.TryGetProperty("stat", out var s) ? s.GetString() : null;
         double? value = Number("fixed");
-        if ((own ? 1 : 0) + (stat is not null ? 1 : 0) + (value is not null ? 1 : 0) != 1)
-            throw new FormatException("a value needs exactly one of \"fixed\", \"from\" and \"stat\"");
+        string? data = e.TryGetProperty("data", out var d) ? d.GetString() : null;
+        if ((own ? 1 : 0) + (stat is not null ? 1 : 0) + (value is not null ? 1 : 0) + (data is not null ? 1 : 0) != 1)
+            throw new FormatException("a value needs exactly one of \"fixed\", \"from\", \"stat\" and \"data\"");
         if (stat is not null && Program.Stats.Key(stat) is null) throw new FormatException($"unknown stat \"{stat}\"");
-        return new(value ?? 0, stat, own, Number("scale") ?? 1, Number("fallback") ?? 0, Number("min"), Number("max"));
+        return new(value ?? 0, stat, own, Number("scale") ?? 1, Number("fallback") ?? 0, Number("min"), Number("max")) { Data = data };
     }
 
-    /// <summary>Works out the actor's live rules from its stats. Called where the player stats are built.</summary>
-    public static void Configure(ClientState conn, Func<string, int> get)
+    /// <summary>Works out the actor's live rules from its stats, and from the stats of its carriers
+    /// (<paramref name="sources"/>) for the rules that name one. Called where the player stats are built.</summary>
+    public static void Configure(ClientState conn, Func<string, int> get, IReadOnlyList<Source>? sources = null)
     {
         var table = Enabled ? Current() : null;
         List<LiveRule>?[]? lists = null;
+        void Add(Rule rule, int own, Source? source)
+        {
+            // A carrier's own stats come first for a value that names a stat; the actor's are behind them.
+            Func<string, int> read = source is null ? get : name => source.Get(name) is var held and not 0 ? held : get(name);
+            double chance = rule.Chance.Resolve(own, read, source?.Data);
+            if (chance <= 0) return;
+            var effects = new LiveEffect[rule.Do.Length];
+            for (int i = 0; i < effects.Length; i++)
+            {
+                var spec = rule.Do[i];
+                var numbers = new double[spec.Values.Length];
+                for (int n = 0; n < numbers.Length; n++) numbers[n] = spec.Values[n].Resolve(own, read, source?.Data);
+                effects[i] = new(spec.Kind, numbers, spec.Names, spec.Data);
+            }
+            lists ??= new List<LiveRule>?[WhatNames.Length];
+            (lists[(int)rule.When] ??= []).Add(new(rule, chance, rule.Cooldown?.Resolve(own, read, source?.Data) ?? 0, effects, source));
+        }
         if (table is not null)
             foreach (var rule in table.Rules)
             {
-                int own = get(rule.Stat);
-                if (own == 0) continue;
-                double chance = rule.Chance.Resolve(own, get);
-                if (chance <= 0) continue;
-                var effects = new LiveEffect[rule.Do.Length];
-                for (int i = 0; i < effects.Length; i++)
+                if (rule.Carrier is null)
                 {
-                    var spec = rule.Do[i];
-                    var numbers = new double[spec.Values.Length];
-                    for (int n = 0; n < numbers.Length; n++) numbers[n] = spec.Values[n].Resolve(own, get);
-                    effects[i] = new(spec.Kind, numbers, spec.Names, spec.Data);
+                    if (get(rule.Stat) is var own and not 0) Add(rule, own, null);
                 }
-                lists ??= new List<LiveRule>?[WhatNames.Length];
-                (lists[(int)rule.When] ??= []).Add(new(rule, chance, rule.Cooldown?.Resolve(own, get) ?? 0, effects));
+                else if (sources is not null)
+                    foreach (var source in sources)
+                        if (source.Carrier == rule.Carrier && source.Get(rule.Stat) is var held and not 0) Add(rule, held, source);
             }
         // No live rule and nothing kept from before: the usual case, and it makes nothing.
         if (lists is null && !Lives.TryGetValue(conn, out _)) return;
@@ -266,16 +331,16 @@ public static class EffectRules
             if (!Passes(rule.Rule, e, conn)) continue;
             if (rule.Cooldown > 0)
                 lock (live)
-                    if (live.ReadyAt is { } ready && ready.TryGetValue(rule.Rule, out double at) && now < at) continue;
+                    if (live.ReadyAt is { } ready && ready.TryGetValue((rule.Rule, rule.Source?.Key), out double at) && now < at) continue;
             if (rule.Chance < 100 && Random.Shared.NextDouble() * 100 >= rule.Chance) continue;
             if (rule.Cooldown > 0)
-                lock (live) (live.ReadyAt ??= [])[rule.Rule] = now + rule.Cooldown;
+                lock (live) (live.ReadyAt ??= [])[(rule.Rule, rule.Source?.Key)] = now + rule.Cooldown;
             foreach (var effect in rule.Do)
-                try { effect.Kind.Run(new(conn, e, now, effect.Kind, effect.Values, effect.Names, effect.Data)); }
+                try { effect.Kind.Run(new(conn, e, now, effect.Kind, effect.Values, effect.Names, effect.Data) { Source = rule.Source }); }
                 catch (Exception ex) { Console.WriteLine($"[rules] {rule.Rule.Stat}: the effect {effect.Kind.Name} failed: {ex.Message}"); }
             if (Fired.Any)
             {
-                string text = $"{rule.Rule.Stat} on {WhatNames[what]}: {Describe(rule)}";
+                string text = $"{(rule.Source is { } from ? from.Label + ": " : "")}{rule.Rule.Stat} on {WhatNames[what]}: {Describe(rule)}";
                 foreach (var (owner, run) in Fired.Subscribers(conn))
                     try { run(conn, text); }
                     catch (Exception ex) { Console.WriteLine($"[events] {owner}: EffectRules.Fired failed: {ex.Message}"); }
@@ -310,6 +375,7 @@ public static class EffectRules
         ("frozen", ChargeEvent.Kill k) => k.Frozen,
         ("bleeding", HitLanded { Monster: { } m }) => m.Bleeds.Burning,
         ("marked", HitLanded { Monster: { } m }) => Game.MarkedBy(conn, m),
+        ("has_mark", HitLanded) => Game.HasMarkedEnemy(conn),
         ("poisoned", ChargeEvent.Kill k) => k.Poisons > 0,
         ("melee", ChargeEvent.Stun s) => s.Melee,
         ("vaal", ChargeEvent.SkillUse u) => u.Vaal,
@@ -347,7 +413,7 @@ public static class EffectRules
         var byWhat = Volatile.Read(ref live.ByWhat);
         for (int what = 0; what < byWhat.Length; what++)
             foreach (var rule in byWhat[what])
-                lines.Add($"{rule.Rule.Stat} on {WhatNames[what]}"
+                lines.Add($"{(rule.Source is { } from ? from.Label + ": " : "")}{rule.Rule.Stat} on {WhatNames[what]}"
                     + (rule.Rule.Checks.Length > 0 ? $" if {string.Join(rule.Rule.Any ? " or " : " and ", rule.Rule.Checks.Select(c => (c.Not ? "not " : "") + c.Fact))}" : "")
                     + $": {Describe(rule)}");
         return lines;

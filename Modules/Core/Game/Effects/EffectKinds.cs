@@ -43,6 +43,8 @@ public static partial class Game
             Prepare = BuffSpecOf,
         });
 
+        EnsureTriggeredSkills();
+
         // "count" charges of "type" (endurance, frenzy, power), as a skill's own grant: the charge rules apply it at
         // their next step, with the maximum and the refresh they give any gain.
         EffectRules.Register(new("charge", ["count"], ["type"], fire =>

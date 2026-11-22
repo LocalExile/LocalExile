@@ -25,6 +25,14 @@ public static partial class Game
     /// out something only the hit event needs.</summary>
     public static bool HitListened(ClientState conn) => GameEvents.Combat.Any || EffectRules.Listens(conn, EffectRules.What.Hit);
 
+    /// <summary>"You have a Mark": a Mark this player cast is on some monster of the area.</summary>
+    public static bool HasMarkedEnemy(ClientState conn)
+    {
+        foreach (var monster in conn.Monsters.Values)
+            if (!monster.Dead && MarkedBy(conn, monster)) return true;
+        return false;
+    }
+
     // Per hit, inside the Monsters lock: nothing is built unless a rule or a subscriber listens.
     public static void HitLandedLocked(ClientState conn, SpawnedMonster m, bool critical, bool spell,
         IReadOnlyDictionary<uint, int>? skill, string who)

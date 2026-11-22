@@ -23,6 +23,9 @@ public static partial class Game
     {
         if (GolemStat(gem.Stats, "cast_on_lose_cats_stealth") != 0)
             return "this skill can only trigger when Cat's Stealth is lost";
+        // A granted skill an effect rule triggers (a row keyed by one of its own stats) is never used by hand.
+        if (gem.WornGrant is not null && EffectRules.CarrierRuleFor(SkillCarrier, name => GolemStat(gem.Stats, name)))
+            return "this skill is triggered by the item that grants it";
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))
             return "this skill can only trigger when damage is taken";
         if (GolemStat(gem.Stats, "cast_spell_on_linked_attack_crit") != 0)
