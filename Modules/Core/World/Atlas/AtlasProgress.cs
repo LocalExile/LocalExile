@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameServer.Modding;
 using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Atlas;
 
@@ -14,9 +15,10 @@ namespace GameServer.Modules.Atlas;
 public static class AtlasProgress
 {
     public sealed record Node(int Row, string Id, ushort Hash16, string Name, IReadOnlySet<string> Areas, IReadOnlySet<string> Bosses,
-        IReadOnlySet<string> FinalBosses);
+        IReadOnlySet<string> FinalBosses, int BonusTier = 0);
 
     const string CompletedKey = "completed";
+    const string RewardedKey = "rewarded";
 
     /// <summary>The masks' rows: the client reads 22 bytes and keeps rows below 170 (the Atlas's maps; later rows are
     /// RandomContent nodes).</summary>
@@ -43,14 +45,48 @@ public static class AtlasProgress
     public static IReadOnlySet<string> Completed(ISavedData data) =>
         (data.Get(CompletedKey) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>Saves the nodes as completed; false when they all were.</summary>
-    public static bool Complete(ISavedData data, IEnumerable<Node> nodes) => data.Change(CompletedKey, old =>
+    /// <summary>Normal Atlas nodes use their base tier for the rarity requirement and cannot grant a bonus below that tier.</summary>
+    public static bool QualifiesForPoint(Node node, MapDevice.Run? run)
     {
-        var ids = (old ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
-        int before = ids.Count;
-        ids.UnionWith(nodes.Select(n => n.Id));
-        return ids.Count == before ? null : string.Join(',', ids.Order(StringComparer.Ordinal));
-    });
+        if (node.BonusTier == 0) return true;
+        if (run is null || run.Area.Tier < node.BonusTier) return false;
+        return node.BonusTier switch
+        {
+            <= 5 => run.Mods.MapRarity is ItemRarity.Magic or ItemRarity.Rare,
+            <= 10 => run.Mods.MapRarity == ItemRarity.Rare,
+            _ => run.Mods.MapRarity == ItemRarity.Rare && run.Mods.Corrupted,
+        };
+    }
+
+    public static int RewardedCount(ISavedData data) =>
+        (data.Get(RewardedKey) ?? data.Get(CompletedKey) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Length;
+
+    /// <summary>Records clears and independently awards eligible points. The caller owns the save transaction.</summary>
+    public static (bool Completed, int Points) RecordClear(ISavedData data, IReadOnlyList<Node> nodes, bool qualifies)
+    {
+        // Existing saves already earned points for these clears. Record that credit before the first new completion.
+        if (data.Get(RewardedKey) is null)
+            data.Change(RewardedKey, old => old is null ? data.Get(CompletedKey) ?? "" : null);
+        bool completed = Complete(data, nodes);
+        int points = qualifies ? AddNodes(data, RewardedKey, nodes) : 0;
+        return (completed, points);
+    }
+
+    /// <summary>Saves the nodes as completed; false when they all were.</summary>
+    public static bool Complete(ISavedData data, IEnumerable<Node> nodes) => AddNodes(data, CompletedKey, nodes) > 0;
+
+    static int AddNodes(ISavedData data, string key, IEnumerable<Node> nodes)
+    {
+        int added = 0;
+        return data.Change(key, old =>
+        {
+            var ids = (old ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+            int before = ids.Count;
+            ids.UnionWith(nodes.Select(n => n.Id));
+            added = ids.Count - before;
+            return added == 0 ? null : string.Join(',', ids.Order(StringComparer.Ordinal));
+        }) ? added : 0;
+    }
 
     public static bool Reset(ISavedData data) => data.Change(CompletedKey, old => string.IsNullOrEmpty(old) ? null : "");
 
@@ -113,12 +149,12 @@ public static class AtlasProgress
         foreach (var row in a)
             areaRows.Add((row.Text("Id") ?? "", row.Text("Name") ?? "",
                 [.. row.Ints("Bosses_MonsterVarietiesKeys")]));
-        var byRow = new Dictionary<int, (string Id, ushort Hash16, string Name, HashSet<int> Areas)>();
-        void Add(int r, string id, ushort hash, string name, IEnumerable<int> areaIndexes)
+        var byRow = new Dictionary<int, (string Id, ushort Hash16, string Name, HashSet<int> Areas, int BonusTier)>();
+        void Add(int r, string id, ushort hash, string name, IEnumerable<int> areaIndexes, int bonusTier = 0)
         {
             if (r < 0 || r >= MaskRows) return;
             if (!byRow.TryGetValue(r, out var cur))
-                byRow[r] = cur = (id, hash, name, []);
+                byRow[r] = cur = (id, hash, name, [], bonusTier);
             foreach (int i in areaIndexes)
                 if (i >= 0 && i < areaRows.Count) cur.Areas.Add(i);
         }
@@ -139,7 +175,7 @@ public static class AtlasProgress
                     .Where(i => i >= 0 && i < areaRows.Count).Distinct()];
                 if (map && rowAreas.Length > 0)
                     Add(r, row.Text("Id") ?? "", (ushort)row.Int("HASH16"),
-                        areaRows[rowAreas[0]].Name, rowAreas);
+                        areaRows[rowAreas[0]].Name, rowAreas, row.Bool("IsNormalMap") ? row.Int("Tier") : 0);
             }
             if (ClientTables.Has("MapDeviceRecipes"))
             {
@@ -177,7 +213,7 @@ public static class AtlasProgress
                 .Select(list => Variety(list[^1])).Where(id => id.Length > 0).ToHashSet(StringComparer.Ordinal);
             return new Node(kv.Key, n.Id, n.Hash16, n.Name,
                 n.Areas.Select(i => areaRows[i].Id).ToHashSet(StringComparer.Ordinal),
-                bosses, finals.Count > 0 ? finals : bosses);
+                bosses, finals.Count > 0 ? finals : bosses, n.BonusTier);
         })], onAtlas);
     }
 }

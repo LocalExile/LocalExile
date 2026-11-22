@@ -1,4 +1,6 @@
 using GameServer.Modules.Atlas;
+using GameServer.Modding;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -6,6 +8,56 @@ namespace GameServer.Gateway.Tests;
 public sealed class AtlasProgressTests
 {
     static AtlasProgress.Node Chateau => AtlasProgress.Find("Chateau")!;
+
+    [Fact]
+    public void NormalMapBonusUsesTheNodesTierAndTheActivatedItemsRarity()
+    {
+        var cells = AtlasProgress.Find("Cells")!;
+        Assert.Equal(1, cells.BonusTier);
+        MapDevice.Run Run(int tier, ItemRarity rarity, bool corrupted = false) =>
+            new("Tester", new(cells.Hash16, cells.Id, cells.Name, tier),
+                new(MapMods.None.Stats) { MapRarity = rarity, Corrupted = corrupted });
+
+        Assert.False(AtlasProgress.QualifiesForPoint(cells, null));
+        Assert.False(AtlasProgress.QualifiesForPoint(cells, Run(1, ItemRarity.Normal)));
+        Assert.True(AtlasProgress.QualifiesForPoint(cells, Run(7, ItemRarity.Magic)));
+        var yellow = cells with { BonusTier = 6 };
+        Assert.False(AtlasProgress.QualifiesForPoint(yellow, Run(7, ItemRarity.Magic)));
+        Assert.False(AtlasProgress.QualifiesForPoint(yellow, Run(5, ItemRarity.Rare)));
+        Assert.True(AtlasProgress.QualifiesForPoint(yellow, Run(6, ItemRarity.Rare)));
+        var red = cells with { BonusTier = 11 };
+        Assert.False(AtlasProgress.QualifiesForPoint(red, Run(11, ItemRarity.Rare)));
+        Assert.True(AtlasProgress.QualifiesForPoint(red, Run(11, ItemRarity.Rare, corrupted: true)));
+    }
+
+    [Fact]
+    public void ClearedMapsCanEarnTheirPointLaterAndOldCreditDoesNotAwardTwice()
+    {
+        var cells = AtlasProgress.Find("Cells")!;
+        var data = new SavedData();
+        Assert.True(AtlasProgress.Complete(data, [Chateau]));
+        Assert.Equal(1, AtlasProgress.RewardedCount(data));
+
+        Assert.Equal((true, 0), AtlasProgress.RecordClear(data, [cells], qualifies: false));
+        Assert.Equal(1, AtlasProgress.RewardedCount(data));
+        Assert.Equal((false, 1), AtlasProgress.RecordClear(data, [Chateau, cells], qualifies: true));
+        Assert.Equal((false, 0), AtlasProgress.RecordClear(data, [cells], qualifies: true));
+        Assert.Equal(2, AtlasProgress.RewardedCount(data));
+    }
+
+    sealed class SavedData : ISavedData
+    {
+        readonly Dictionary<string, string> _values = new();
+
+        public string? Get(string key) => _values.GetValueOrDefault(key);
+
+        public bool Change(string key, Func<string?, string?> change)
+        {
+            if (change(Get(key)) is not { } value) return false;
+            _values[key] = value;
+            return true;
+        }
+    }
 
     [Fact]
     public void MessagesCarryTheNodesRowMasksAndHash()

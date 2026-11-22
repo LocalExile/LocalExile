@@ -37,9 +37,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Atlas passive tree foundation (2026-10-30): the three saved presets are sent with their node lists and point budget
   (S→C 0x3d); C→S 0x3e/0x3f allocate/refund nodes and save them; `/atlas_tree` opens the tree and
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
-  client updated the tree; the presets are saved. The budget now comes from the Atlas's completed maps: one point per
-  map first completed, up to 100 (#382), derived at login/area entry from the saved completed set and awarded on a real
-  completion. A fresh save earns its first map point on its first completion. The server
+  client updated the tree; the presets are saved. The map point budget caps at 100 (#382) and uses a saved record of
+  rewarded maps. A normal map awards its point on the first qualifying clear: magic or rare for T1–5 nodes, rare for
+  T6–10, and corrupted rare for T11–16. The activated map must meet the node's base tier. Old clears retain their
+  existing point credit. The server
   holds the Atlas graph (client.db `passive_graph*`, graph `atlas`) and refuses an allocation off the graph, of an
   icon-only node (the masteries), or not touching the start or an allocated node, and a refund that cuts allocated nodes
   off from the start (`AtlasPassives.CanAllocate/CanRefund`; not yet tried live). A save's old nodes are kept
