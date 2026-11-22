@@ -2,6 +2,23 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    const int AggressiveMinionMinimumRange = 80;
+    const int DefensiveMinionMaximumRange = 30;
+    const int MeatShieldNearbyRange = 30;
+
+    static (bool Aggressive, bool Defensive) MinionStance(IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> player, bool isGolem, bool recentlyBlocked)
+    {
+        bool aggressive = GolemStat(own, "minion_larger_aggro_radius") != 0
+            || GolemStat(player, "minion_larger_aggro_radius") != 0
+            || isGolem && GolemStat(player, "golems_larger_aggro_radius") != 0
+            || GolemStat(player, "minion_are_aggressive_if_have_blocked_recently") != 0
+                && recentlyBlocked;
+        bool defensive = GolemStat(own, "minions_are_defensive") != 0
+            || GolemStat(player, "minions_are_defensive") != 0;
+        return (aggressive && !defensive, defensive && !aggressive);
+    }
+
     internal static bool SignalPreyLocked(ClientState conn, ushort source, SupportedGem gem,
         (int X, int Y) aim, uint target, double now)
     {
@@ -31,8 +48,8 @@ public static partial class Game
         conn.Summons.SignalledPrey = null;
     }
 
-    static bool IsPrey(ClientState conn, GolemState.Golem fighter, uint id, SpawnedMonster monster, double now) =>
-        GolemStat(fighter.Own, "support_minion_use_focussed_target") != 0
+    static bool IsPrey(ClientState conn, IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster monster, double now) =>
+        GolemStat(own, "support_minion_use_focussed_target") != 0
         && conn.Summons.SignalledPrey is { } prey && now < prey.Until && prey.Id == id
         && ReferenceEquals(prey.Monster, monster) && conn.Monsters.GetValueOrDefault(id) == monster;
 
@@ -50,9 +67,17 @@ public static partial class Game
     static double MinionTacticsDamage(ClientState conn, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
     {
         double more = MinionTacticsBaseDamage(conn, fighter, now);
-        if (IsPrey(conn, fighter, id, target, now))
+        if (IsPrey(conn, fighter.Own, id, target, now))
             more *= Math.Max(0, 1 + GolemStat(fighter.Own, "support_minion_focus_fire_damage_+%_final_vs_focussed_target") / 100d);
-        return more;
+        return more * MeatShieldDamage(conn, fighter.Own, target, now);
+    }
+
+    static double MeatShieldDamage(ClientState conn, IReadOnlyDictionary<uint, int> own, SpawnedMonster target, double now)
+    {
+        int nearby = GolemStat(own, "support_minion_defensive_stance_minion_damage_+%_final_against_enemies_near_you");
+        if (nearby != 0 && Dist(conn.Walk.Position(now), target.Walk.Position(now)) <= MeatShieldNearbyRange)
+            return Math.Max(0, 1 + nearby / 100d);
+        return 1;
     }
 
     static void MinionTauntOnHitLocked(ClientState conn, GolemState.Golem fighter, GolemState.Ability ability,

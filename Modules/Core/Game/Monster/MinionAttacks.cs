@@ -23,17 +23,24 @@ public static partial class Game
     {
         if (m.Attack is not { } a || conn.PlayerLife == 0) return null;
         MinionTarget? best = null;
+        var beast = conn.Beasts.Active;
+        var stats = beast?.Id == id && ReferenceEquals(beast.Monster, m) ? beast.SkillStats : null;
+        var (aggressive, defensive) = stats is null ? default : MinionStance(stats, CharacterPlayerStats(conn), false, false);
+        int range = aggressive ? Math.Max(AggressiveMinionMinimumRange, m.AggroRange) : m.AggroRange;
+        int ownerRange = defensive ? Math.Min(DefensiveMinionMaximumRange, range) : range;
         double nearest = double.MaxValue;
         foreach (var (targetId, t) in conn.Monsters)
         {
             if (targetId == id || !t.Hostile || t.Dead || t.Life == 0 || double.IsPositiveInfinity(t.BusyUntil)) continue;
             var to = t.Walk.Position(now);
             double d = Dist(to, at);
-            if (d >= nearest || d > m.AggroRange || Dist(to, player) > m.AggroRange) continue;
+            bool prey = stats is not null && IsPrey(conn, stats, targetId, t, now);
+            if (!prey && (d >= nearest || d > range || Dist(to, player) > ownerRange)) continue;
             nearest = d;
             double reach = MinionReach(a, t), f = d > 0 ? Math.Max(0, reach - 1) / d : 0;
             best = new(targetId, t, to, d <= reach,
                 ((int)Math.Round(to.X + (at.X - to.X) * f), (int)Math.Round(to.Y + (at.Y - to.Y) * f)));
+            if (prey) break;
         }
         return best;
     }
@@ -64,6 +71,8 @@ public static partial class Game
             ? conn.Golems.OwnerStats.GetValueOrDefault(key) : 0;
         if (supported is null && Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
             new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects["damage_+%"] / 100.0)));
+        if (supported is not null && conn.Beasts.Active is { } companion)
+            offense = offense.Scale(MeatShieldDamage(conn, companion.SkillStats, t, now));
         var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
         if (ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is not { } hit) return null;
