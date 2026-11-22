@@ -12,21 +12,23 @@ public sealed class MapRecoveryRateTests
         Stat("life_recovery_rate_+%", 50);
         Stat("base_energy_shield_regeneration_rate_per_minute", 600);
         Stat("energy_shield_recovery_rate_+%", 50);
-        (double Life, double Mana, double Shield, double Recharge) Rates()
+        (double Life, double Mana, double Shield, double Recharge) Rates(ClientState player)
         {
-            var stats = Game.CharacterPlayerStats(conn);
+            var stats = Game.CharacterPlayerStats(player);
             int Get(string name) => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-            return (PanelStats.LifePerMinute(Get, conn.Pools.Life), PanelStats.ManaPerMinute(Get, conn.Pools.Mana),
+            return (PanelStats.LifePerMinute(Get, player.Pools.Life), PanelStats.ManaPerMinute(Get, player.Pools.Mana),
                 EnergyShield.RegenPerMinute(300, Get), EnergyShield.RechargePerMinute(300, Get));
         }
 
-        var ordinary = Rates();
+        var ordinary = Rates(conn);
         Assert.Equal((1500d, 900d, 9000d), (ordinary.Life, ordinary.Shield, ordinary.Recharge));
         var area = new MapDevice.MapArea(conn.Layout.Hash, "MapWorldsStrand", "Test map", 16);
         var mods = new MapMods(new Dictionary<string, int> { [PanelStats.MapLifeAndEnergyShieldRecovery] = -60 });
         conn.Instance!.OpenedWith(new MapDevice.Run(conn.Character!, area, mods));
-        Assert.Equal((600d, ordinary.Mana, 360d, 3600d), Rates());
-        conn.Instance = new();
-        Assert.Equal(ordinary, Rates());
+        Assert.Equal((600d, ordinary.Mana, 360d, 3600d), Rates(conn));
+        var returned = new ClientState(conn.Layout, 2, 1)
+            { Instance = new(), Character = conn.Character, Pools = conn.Pools, LeagueModule = conn.LeagueModule };
+        foreach (var row in conn.PlayerStats) returned.PlayerStats[row.Key] = row.Value;
+        Assert.Equal(ordinary, Rates(returned));
     }
 }
