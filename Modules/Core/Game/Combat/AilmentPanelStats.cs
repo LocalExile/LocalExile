@@ -97,9 +97,11 @@ public static class AilmentPanelStats
         }
         bool tinctureWeapon = context.Attack && !context.Spell && get("tincture_applied") != 0;
         if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
-        Add("ignite", DamageType.Fire, get("all_damage_can_ignite") != 0
-            || tinctureWeapon && get("all_damage_with_tinctured_weapons_can_ignite") != 0
-            ? DamageTypes.ConversionOrder : [DamageType.Fire], IgnitePercent);
+        DamageType[] ignite = get("all_damage_can_ignite") != 0
+            || tinctureWeapon && get("all_damage_with_tinctured_weapons_can_ignite") != 0 ? DamageTypes.ConversionOrder
+            : get("unique_cold_damage_ignites") != 0 ? [DamageType.Fire, DamageType.Cold] : [DamageType.Fire];
+        if (get("unique_fire_damage_shocks") != 0) ignite = [.. ignite.Where(type => type != DamageType.Fire)];
+        Add("ignite", DamageType.Fire, ignite, IgnitePercent);
         Add("poison", DamageType.Chaos, get("all_damage_can_poison") != 0
             || tinctureWeapon && get("all_damage_with_tinctured_weapons_can_poison") != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);

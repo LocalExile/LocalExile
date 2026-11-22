@@ -244,7 +244,11 @@ public sealed class MonsterElementalAilments
         bool Counts(DamageType type)
         {
             string name = type.ToString().ToLowerInvariant();
-            return attacker($"{name}_damage_cannot_{ailment}") == 0 && (type == own
+            bool reassigned = (type, ailment) is (DamageType.Cold, "freeze") && attacker("unique_cold_damage_ignites") != 0
+                || (type, ailment) is (DamageType.Lightning, "shock") && attacker("unique_lightning_damage_freezes") != 0;
+            bool enabled = (type, ailment) is (DamageType.Fire, "shock") && attacker("unique_fire_damage_shocks") != 0
+                || (type, ailment) is (DamageType.Lightning, "freeze") && attacker("unique_lightning_damage_freezes") != 0;
+            return !reassigned && attacker($"{name}_damage_cannot_{ailment}") == 0 && (type == own || enabled
                 || attacker($"all_damage_can_{ailment}") != 0 || attacker($"{name}_damage_can_{ailment}") != 0
                 || critical && attacker($"all_damage_from_critical_strikes_can_{ailment}") != 0
                 || ailment == "shock" && DamageTypes.IsElemental(type) && attacker("elemental_damage_can_shock") != 0);
