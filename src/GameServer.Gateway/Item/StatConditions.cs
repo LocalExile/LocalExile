@@ -490,6 +490,7 @@ public static class StatConditions
         ("cast_dash", UsedDash, false), ("used_dash", UsedDash, false),
         ("used_ruby_flask", UsedRubyFlask, false), ("used_sapphire_flask", UsedSapphireFlask, false),
         ("used_topaz_flask", UsedTopazFlask, false), ("used_amethyst_flask", UsedAmethystFlask, false),
+        ("used_life_flask", UsedLifeFlask, false),
         ("dealt_non_crit", NonCrit, false), ("dealt_non_critical_strike", NonCrit, false),
         ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mines", DetonatedMine, false),
         ("detonated_mine", DetonatedMine, false),
@@ -501,6 +502,7 @@ public static class StatConditions
     ];
 
     /// <summary>The recent-event keys <see cref="Subject.Recent"/> carries, as this class uses them.</summary>
+    public const string HitEnemyWithWeapon = "hit_enemy_with_weapon";
     public const string HitEnemy = "hit_enemy", KilledEnemy = "killed_enemy", KilledCursedEnemy = "killed_cursed_enemy",
         ShatteredEnemy = "shattered_enemy", FrozeEnemy = "froze_enemy", Crit = "crit", Blocked = "blocked",
         BlockedStun = "blocked_stun", TakenSavageHit = "taken_savage_hit", BeenHit = "been_hit", BeenStunned = "been_stunned",
@@ -509,6 +511,7 @@ public static class StatConditions
         UsedMovementSkill = "used_movement_skill", UsedRetaliation = "used_retaliation", TauntedEnemy = "taunted_enemy",
         UsedVaalSkill = "used_vaal_skill", UsedDash = "used_dash", UsedRubyFlask = "used_ruby_flask",
         UsedSapphireFlask = "used_sapphire_flask", UsedTopazFlask = "used_topaz_flask", UsedAmethystFlask = "used_amethyst_flask",
+        UsedLifeFlask = "used_life_flask",
         NonCrit = "non_crit", Crit8Seconds = "crit_8_seconds",
         DetonatedMine = "detonated_mine", UsedSkill = "used_skill", SpentMana = "spent_mana",
         ChangedStance = "changed_stance",

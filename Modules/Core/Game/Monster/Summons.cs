@@ -371,7 +371,6 @@ public static partial class Game
             {
                 if (conn.PlayerLife == 0 || fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])
                 {
-                    if (fighter.Definition.Kind == "AnimatedGuardian" && (fighter.Monster.Dead || fighter.Monster.Life == 0)) state.GuardianEquipment.Clear();
                     RemoveSummonLocked(conn, fighter, now); changed = true; continue;
                 }
                 if (player is null) { GolemStepLocked(remote, stream, ciphers, conn, fighter, now); continue; }

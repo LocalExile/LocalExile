@@ -6,6 +6,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    sealed class GolemWanderClock { public double Next; }
+    static readonly RuleTable<GolemState.Golem, GolemWanderClock> GolemWander = new();
+
     internal static bool GolemCurrent(ClientState conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
         && (conn.Golems.All.GetValueOrDefault(g.Id) == g || conn.Reservations.Fighters.GetValueOrDefault(g.Id) == g || conn.Summons.Fighters.GetValueOrDefault(g.Id) == g)
         && conn.Monsters.GetValueOrDefault(g.Id) == g.Monster;
@@ -83,9 +86,16 @@ public static partial class Game
             return;
         }
         if (InTown(conn)) { GolemFollowLocked(conn, g, owner, now); return; }
-        if (g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) || g.Definition.Kind == "HolyRelic")
+        if (g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal))
+        { SkitterStepLocked(conn, g, here, owner, now); return; }
+        if (g.Definition.Kind == "HolyRelic")
         { GolemFollowLocked(conn, g, owner, now); return; }
         if (ReaperConsumeLocked(conn, g, now)) return;
+        if (g.Definition.Id == "SummonReaperAltY")
+        {
+            GolemFollowLocked(conn, g, owner, now);
+            return;
+        }
         if (g.Definition.Kind == "Carrion" && g.Definition.Special && m.Life < m.MaxLife &&
             g.Abilities.FirstOrDefault(a => a.Effect == 10801) is { } consume && GolemReady(g, consume, now))
         {
@@ -189,16 +199,52 @@ public static partial class Game
         return [InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(conn, g.Monster.Level, [a]), []), action];
     }
 
+    // Skitterbots actively seek nearby enemies so their Chilling and Shocking auras reach monsters instead of orbiting
+    // the player. Prefer enemies not yet affected by this bot's ailment, falling back to the nearest enemy in leash range.
+    static void SkitterStepLocked(ClientState conn, GolemState.Golem g, (int X, int Y) here, (int X, int Y) owner, double now)
+    {
+        var ailment = g.Definition.Kind == "SkitterCold"
+            ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock;
+        int auraRadius = SkitterAuraRadius(g);
+        bool bestUncovered = false;
+        double bestDist = double.MaxValue;
+        (int X, int Y) bestAt = default;
+        bool found = false;
+        foreach (var (id, monster) in conn.Monsters)
+        {
+            if (monster is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+                || conn.AsleepMonsters.Contains(id) || double.IsPositiveInfinity(monster.BusyUntil)) continue;
+            var at = monster.Walk.Position(now);
+            if (Dist(at, owner) > 100) continue;
+            bool uncovered = monster.Ailments.Magnitude(ailment, now) <= 0;
+            double dist = Dist(at, here);
+            if (!found || (uncovered && !bestUncovered) || (uncovered == bestUncovered && dist < bestDist))
+            {
+                found = true;
+                bestUncovered = uncovered;
+                bestDist = dist;
+                bestAt = at;
+            }
+        }
+        if (!found) { GolemFollowLocked(conn, g, owner, now); return; }
+        if (bestDist > Math.Max(6, auraRadius * 0.5))
+            GolemMoveLocked(conn, g, bestAt, now);
+    }
+
     static void GolemFollowLocked(ClientState conn, GolemState.Golem g, (int X, int Y) owner, double now)
     {
         double distance = Dist(g.Monster.Walk.Position(now), owner);
         if (distance > 18) GolemMoveLocked(conn, g, NextToPlayer(conn), now);
-        else if (now >= g.NextMove && now >= g.Monster.Walk.ArrivesAt)
+        else
         {
-            int n = (int)((g.Id + (uint)(now / 4)) % 8);
-            double angle = n * Math.PI / 4;
-            GolemMoveLocked(conn, g, (owner.X + (int)(Math.Cos(angle) * 9), owner.Y + (int)(Math.Sin(angle) * 9)), now);
-            g.NextMove = now + 3 + g.Id % 3;
+            var wander = GolemWander.GetOrCreateValue(g);
+            if (now >= wander.Next && now >= g.NextMove && now >= g.Monster.Walk.ArrivesAt)
+            {
+                int n = (int)((g.Id + (uint)(now / 4)) % 8);
+                double angle = n * Math.PI / 4;
+                GolemMoveLocked(conn, g, (owner.X + (int)(Math.Cos(angle) * 9), owner.Y + (int)(Math.Sin(angle) * 9)), now);
+                wander.Next = now + 3 + g.Id % 3;
+            }
         }
     }
 
@@ -328,7 +374,6 @@ public static partial class Game
                         && Dist(other.Walk.Position(now), splashAt) <= splash.Radius + LivingCollision.Size(other))
                         GolemHitLocked(remote, stream, ciphers, conn, g, spread, otherId, other, now);
             }
-            if (a.Effect == 136 && Random.Shared.Next(100) < GolemStat(a.Stats, "chance_to_taunt_on_hit_%")) g.Taunts[id] = now + 3;
         }
         if (a.Effect == 5268)
         {
@@ -472,6 +517,7 @@ public static partial class Game
             InflictMonsterBlind(conn, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 Random.Shared);
             MinionAilmentsLocked(conn, g, a, id, target, critical, now);
+            MinionTauntOnHitLocked(conn, g, a, supported.Stats, id, target, now);
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(conn, g, now);
         return true;

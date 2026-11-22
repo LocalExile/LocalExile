@@ -41,13 +41,20 @@ catch (Exception e) when (e is GameServer.Storage.SqlUpdateException or IOExcept
 // Agents/docs/dev/item-crafter.md). Before ServerLog, whose timestamps would break the JSON lines.
 if (args is ["crafter"])
 {
-    // The catalogs' own load lines would break the JSON.
-    var stdout = Console.Out;
-    Console.SetOut(TextWriter.Null);
-    var lines = ItemCrafter.Catalog(Items, Rolls, Bench, StatDescriptions.Load()).Select(l => l.ToJsonString()).ToList();
-    Console.SetOut(stdout);
-    foreach (string line in lines) Console.WriteLine(line);
-    return 0;
+    try
+    {
+        foreach (string line in Program.CrafterCatalog(GameData.DefaultPath)) Console.WriteLine(line);
+        return 0;
+    }
+    catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or GameServer.Storage.SqlUpdateException)
+    {
+        Console.Error.WriteLine($"[gateway] {GameData.DefaultPath} can't be opened: {e.Message}");
+        return 1;
+    }
+    finally
+    {
+        GameData.Close();
+    }
 }
 // `labyrinth [yyyy-mm-dd | seed]`: the day's four Labyrinths, rooms with their map positions, connections and secrets
 // (LabyrinthDay.Listing; today's by default, Game_LAB_SEED's when set). /lab_layout's date came with it.
@@ -199,6 +206,23 @@ public sealed partial class Program
     // Magic and rare items (ItemRolls.cs).
     public static readonly ItemRolls Rolls = new(Items);
     public static readonly BenchCrafting Bench = new(Items, Rolls);
+
+    /// <summary>Opens world.db so system settings (socket capacities) and mod range overrides are loaded, then builds
+    /// the crafter catalog JSON lines with stdout muted so load messages do not break the JSON stream.</summary>
+    public static List<string> CrafterCatalog(string worldPath)
+    {
+        var stdout = Console.Out;
+        Console.SetOut(TextWriter.Null);
+        try
+        {
+            GameTables.Isolated(() => GameData.Open(worldPath));
+            return [.. ItemCrafter.Catalog(Items, Rolls, Bench, StatDescriptions.Load()).Select(l => l.ToJsonString())];
+        }
+        finally
+        {
+            Console.SetOut(stdout);
+        }
+    }
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.
     public static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
