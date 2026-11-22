@@ -878,6 +878,52 @@ public static class InstanceProtocol
         return WireMeasure.Ok;
     }
 
+    /// <summary>First 8 bytes of the 16-byte SipHash-2-4 key for C→S 0x0E (<c>0x142fc9c38</c> in 3.29.3c, loaded by
+    /// <c>0x14214ee50</c> and concatenated with login 0x14 / instance 0x27 <c>Data8</c>).</summary>
+    public static ReadOnlySpan<byte> OpeningDigestKeyPrefix => [0x8d, 0x75, 0x09, 0xa3, 0xfe, 0xa5, 0x17, 0x81];
+
+    /// <summary>Computes the 12-byte C→S 0x0E <see cref="InstanceOpening.Digest"/>: 8-byte little-endian SipHash-2-4
+    /// over <paramref name="unixTime"/> (LE) with key <see cref="OpeningDigestKeyPrefix"/> ‖ <paramref name="data8"/>,
+    /// followed by <paramref name="unixTime"/> in big-endian (<c>0x14214ee50</c> / <c>0x141f97550</c>).</summary>
+    public static byte[] ComputeOpeningDigest(ReadOnlySpan<byte> data8, uint unixTime)
+    {
+        if (data8.Length != 8) throw new ArgumentException("Opening Data8 must be 8 bytes.", nameof(data8));
+        Span<byte> key = stackalloc byte[16];
+        OpeningDigestKeyPrefix.CopyTo(key);
+        data8.CopyTo(key[8..]);
+        Span<byte> timeLe = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(timeLe, unixTime);
+        var digest = new byte[12];
+        SipHash24.ComputeBytes(key, timeLe, digest);
+        BinaryPrimitives.WriteUInt32BigEndian(digest.AsSpan(8, 4), unixTime);
+        return digest;
+    }
+
+    /// <summary>Verifies a client's C→S 0x0E <see cref="InstanceOpening.Digest"/> against <paramref name="data8"/> in
+    /// constant time. When <paramref name="nowUnixSeconds"/> is given, also checks that the embedded 32-bit Unix
+    /// timestamp is within <paramref name="maxSkewSeconds"/> (handling uint32 wrap safely).</summary>
+    public static bool VerifyOpeningDigest(InstanceOpening opening, ReadOnlySpan<byte> data8, long? nowUnixSeconds = null,
+        long maxSkewSeconds = 300)
+    {
+        if (opening is null || opening.Digest.Length != 12 || data8.Length != 8) return false;
+        uint clientTime = BinaryPrimitives.ReadUInt32BigEndian(opening.Digest.AsSpan(8, 4));
+        Span<byte> key = stackalloc byte[16];
+        OpeningDigestKeyPrefix.CopyTo(key);
+        data8.CopyTo(key[8..]);
+        Span<byte> timeLe = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(timeLe, clientTime);
+        Span<byte> expected = stackalloc byte[8];
+        SipHash24.ComputeBytes(key, timeLe, expected);
+        if (!CryptographicOperations.FixedTimeEquals(expected, opening.Digest.AsSpan(0, 8))) return false;
+        if (nowUnixSeconds is long now)
+        {
+            if (maxSkewSeconds < 0) return false;
+            long diff = unchecked((int)(clientTime - (uint)now));
+            if (Math.Abs(diff) > maxSkewSeconds) return false;
+        }
+        return true;
+    }
+
     /// <summary>Parses the client's plaintext opening, or null if fewer than <see cref="OpeningLength"/> bytes arrived.</summary>
     public static InstanceOpening? TryReadOpening(ReadOnlySpan<byte> buf)
     {
@@ -938,9 +984,11 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
 }
 
 /// <summary>
-/// C→S 0x0F + 0x0E. Ticket is login 0x14's u32 at +0x38. Digest: 12 bytes the client computes over a constant 8 bytes,
-/// 0x14's Data8 and the u32 _time64 (0x141fe7d90 family, algorithm not identified yet). Address is 0x14's u32 at +0x34.
-/// U32_128 is always 0, Realm is 0x40 (international) and Flag is global 0x1445998ce.
+/// C→S 0x0F + 0x0E (<c>0x14214ee50</c>, writer <c>0x141f97550</c>). Ticket is login 0x14's u32 at +0x38. Digest is
+/// 12 bytes: 8-byte little-endian SipHash-2-4 (<c>0x141fe7d90</c>) over the low 32 bits of <c>_time64(NULL)</c> (LE)
+/// keyed by the 8-byte constant at <c>0x142fc9c38</c> (3.29.3c, <see cref="InstanceProtocol.OpeningDigestKeyPrefix"/>)
+/// concatenated with 0x14/0x27 <c>Data8</c>, followed by that 32-bit Unix timestamp in big-endian. Address is 0x14's
+/// u32 at +0x34. U32_128 is always 0, Realm is 0x40 (international) and Flag is global 0x1445998ce.
 /// </summary>
 public sealed record InstanceOpening(uint Ticket, byte[] Digest, uint Address, uint U32_128, byte Realm, byte Flag);
 
@@ -975,6 +1023,19 @@ public sealed class InstanceKeyring(byte[] secret)
         Span<byte> t = stackalloc byte[4];
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(t, ticket);
         return HMACSHA512.HashData(secret, t);
+    }
+
+    /// <summary>Derives the 8-byte ticket-bound <c>Data8</c> nonce sent in login S→C 0x14 and instance S→C 0x27,
+    /// distinct from <see cref="Key"/> via the <c>"D8"</c> domain separator (<c>[ticket BE, 0x44, 0x38]</c>).</summary>
+    public byte[] Data8(uint ticket)
+    {
+        Span<byte> input = stackalloc byte[6];
+        BinaryPrimitives.WriteUInt32BigEndian(input, ticket);
+        input[4] = 0x44;
+        input[5] = 0x38;
+        Span<byte> mac = stackalloc byte[64];
+        HMACSHA512.HashData(secret, input, mac);
+        return mac[..8].ToArray();
     }
 
     /// <summary>The server's Salsa20 pair for a ticket (mirror of the client's isClient=1 setup).</summary>

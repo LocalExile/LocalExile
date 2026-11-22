@@ -68,7 +68,6 @@ public partial class Program
                     pending.AddRange(buffer.AsSpan(0, n));
                     opening = InstanceProtocol.TryReadOpening([.. pending]);
                 }
-                ticket = opening.Ticket;
                 if (GameLogicOrNull is null)
                 {
                     Console.WriteLine($"[gateway] {remote} the game module is not loaded; connection refused");
@@ -76,6 +75,12 @@ public partial class Program
                 }
                 Console.WriteLine($"[gateway] {remote} opening: ticket=0x{opening.Ticket:x8} digest={Convert.ToHexString(opening.Digest)} " +
                                   $"address=0x{opening.Address:x8} u32={opening.U32_128} realm=0x{opening.Realm:x2} flag={opening.Flag}");
+                if (!InstanceProtocol.VerifyOpeningDigest(opening, keyring.Data8(opening.Ticket), DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
+                {
+                    Console.WriteLine($"[gateway] {remote} opening digest mismatch for ticket 0x{opening.Ticket:x8}; connection refused");
+                    return;
+                }
+                ticket = opening.Ticket;
 
                 // Which area and instance this ticket was issued for (Auth's instance registry).
                 var resolved = await InstanceControl.CallAsync(new ControlRequest { Op = "resolve", Ticket = ticket });
