@@ -90,6 +90,23 @@ public static partial class Game
         return rolls.Create(all, set.NameWords, MonsterRarity.Magic, level);
     }
 
+    // Apply the variety's own recovery after the shared magic roll. Keep the row with this monster so
+    // restoring it preserves its roll. A buff template gives recovery to the aura's recipients.
+    static MonsterModSet WithSpeciesLifeRegeneration(MonsterCatalog.Variety variety, MonsterModSet set)
+    {
+        var catalog = MonsterModRolls.Value;
+        foreach (int row in variety.SpeciesModsOrEmpty)
+        {
+            if (catalog.Mods.Row(row) is not { BuffTemplate: null } mod ||
+                !mod.Stats.Any(stat => stat.Id == "life_regeneration_rate_per_minute_%") ||
+                set.Mods.Any(kept => kept.Hash == mod.Hash)) continue;
+
+            var roll = mod.Roll(ModSection.Hidden, Random.Shared);
+            set = set with { Mods = [.. set.Mods, roll], Effects = set.Effects.Combine(catalog.RolledStats([roll])) };
+        }
+        return set;
+    }
+
     /// <summary>The stats the client needs for the mods (it applies no modifier of its own to a monster, 14 §2): the
     /// rarity's life stats and the final maximum_life its life bars read, movement_velocity_+% for its walk (the server
     /// walks it at the same speed), actor_scale_+% for its size and life_regeneration_rate_per_minute_%.</summary>

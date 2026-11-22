@@ -84,8 +84,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Hasted").
   Their life, hit, attack time, walk (sent as movement_velocity_+%, the client walks at the same speed), resistances,
   physical reduction, block, evasion, critical strikes and regeneration act on the server (each checked live); the
-  instance keeps them. The instance runner adds the monster template's life regeneration to active modifiers
-  once per interval, including across a party handoff. Izaro's trial script fills its own idols.
+  instance keeps them. Hostile monsters keep their variety's own life regeneration on spawn and re-entry.
+  The instance runner adds template and modifier recovery once per interval, including across a party handoff.
+  Izaro's trial script fills its own idols.
   Only the 37 mods the server can honour roll; the other 74 are listed in [14](../docs/protocol/14-monster-packs.md)
   §5.
   Code: `MonsterMods.cs`, `Modules/Core/Game/Monster/Mods/MonsterMods.cs`, `MagicProperties.cs`.

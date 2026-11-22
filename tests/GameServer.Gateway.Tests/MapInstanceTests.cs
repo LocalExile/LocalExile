@@ -129,6 +129,17 @@ public sealed class MapInstanceTests
             Assert.Equal((uint)restored.Mods.Effects.MaxLife(baseLife), restored.MaxLife);
             Assert.Equal(boss.Life, restored.Life);
 
+            // An older instance can hold a wounded monster from before species modifiers were saved.
+            var sanguine = Game.Monsters.Find("Metadata/Monsters/BloodElemental/BloodElementalBossInvasion")!;
+            var legacy = new SavedMonster(sanguine.Row, level, MonsterRarity.Normal, true, 30, 30, 100);
+            var recovered = conn.Monsters[await Game.RestoreMonster(remote, stream, ciphers, conn, sanguine, legacy, bulk: true)];
+            var kept = Assert.Single(SavedMonster.Save([recovered], 0));
+            var again = conn.Monsters[await Game.RestoreMonster(remote, stream, ciphers, conn, sanguine, kept, bulk: true)];
+            Assert.Empty(again.Mods.Affixes);
+            Assert.Equal(80, again.Effects["life_regeneration_rate_per_minute_%"]);
+            Assert.Equal(100u, again.Life);
+            Assert.Equal(kept.Mods.Mods, again.Mods.Mods);
+
             var valdoMods = new MapMods(new Dictionary<string, int>
             {
                 ["map_contains_X_harvest_bear_bosses"] = 2,

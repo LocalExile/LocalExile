@@ -321,6 +321,7 @@ public static partial class Game
         // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
         if (!friendly || ownedSkills is null || mods is null)
             mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
+        if (!friendly) mods = WithSpeciesLifeRegeneration(variety, mods);
         // Additional encounter scaling composes with rolled rarity and map effects.
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         bool mapBoss = !friendly && IsMapBoss(conn, variety, rarity);

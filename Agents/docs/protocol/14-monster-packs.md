@@ -409,7 +409,11 @@ against (5 081 → 10 162: 45% → 29% to hit); of Deadliness crit on every hit 
 regenerated 3% per second; a kept rare came back with its name, mods and life. The monsters' accuracy is checked
 only by the tests (the player was never evaded).
 
-**Open:** the variety's own mods (MonsterVarieties `ModsKeys`) are not sent or applied; monsters have no base
+The Sanguine Wave and Mammothcage both reference `MonsterImplicitLifeRegen1` (80% of maximum life per minute).
+The Gateway includes direct recovery rows in the hidden list and sends their summed rate in Stats. The official
+server's choice of modifier list for these rows has yet to be captured.
+
+**Open:** other variety modifiers and their aura recipients are incomplete; monsters have no base
 resistance or armour yet (open PRs #225 / #226 add base resistance), the player no penetration, so the mods'
 resistances cannot be penetrated; no monster energy shield and no auras on their allies; the unsupported mods' systems;
 whether the real server sends the rarity's own mods, and in which list. The monster's attack stats on the client
