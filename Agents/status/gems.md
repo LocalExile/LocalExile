@@ -71,8 +71,8 @@ Nothing yet.
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
-  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
-  Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
+  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
+  Flight and arming times and the native multi-throw patterns remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).

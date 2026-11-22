@@ -482,7 +482,8 @@ public static partial class Game
         double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(conn), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
-        bool projectile = !bear && payload.Name is not null && payload.Effect == placed.Effect
+        bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
+        bool projectile = !bear && currentSkill
             && UsesProjectileRuntime(placed.Effect) && ResolveProjectileDefinition(placed.Effect) is not null;
         KeyValuePair<uint, SpawnedMonster> target = default;
         (int X, int Y) aim = placed.At;
@@ -517,10 +518,18 @@ public static partial class Game
             });
             return;
         }
+        using var statScope = new PlayerStatScope(conn, fresh: true);
         double more = ReservationAura(conn, "SummonSkitterbots") is { } skitter
             ? Math.Max(0, 1 + ReservationStat(conn, skitter, "skitterbots_trap_mine_damage_+%_final") / 100d) : 1;
-        var player = placed.Offense?.Caster ?? CharacterPlayerStats(conn);
+        var owner = CharacterPlayerStats(conn);
+        var player = placed.Offense?.Caster ?? owner;
         bool spell = placed.Offense?.Spell ?? spellDamage;
+        bool attack = SkillsFor(conn).IsAttack(placed.Effect);
+        int chance = currentSkill ? SupportedReleaseCriticalChance(conn, placed.Skill) : 0;
+        int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(conn, placed.Skill, release: true) : null;
+        GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(conn, placed.Skill, release: true) : null;
+        int multiplier = currentSkill ? SupportedCriticalMultiplier(conn, placed.Skill) : 100;
+        var criticalRoll = currentSkill ? new SkillCriticalRoll(CriticalExtraRollsFor(conn, owner, placed.Own)) : null;
         foreach (var (id, m) in conn.Monsters.ToArray())
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
@@ -537,10 +546,13 @@ public static partial class Game
                 profile.Hit.Scale(more).Roll(Random.Shared), now);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now);
+            bool critical = currentSkill && RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsGround),
+                placed.Own, attack, criticalRoll, owner);
+            int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, owner, placed.Own) : 100;
+            if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             if (placed.Mine)
             {
                 // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
-                var owner = CharacterPlayerStats(conn);
                 int coefficient = Math.Max(0, GolemStat(owner, "mine_damage_leeched_as_life_to_you_permyriad"));
                 if (coefficient > 0)
                 {
@@ -555,20 +567,20 @@ public static partial class Game
             OwnedKillLocked(m, hit.Life);
             var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
                 CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
-            AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical: false, 100, player, placed.Own, now,
+            AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, hitMultiplier, player, placed.Own, now,
                 Random.Shared, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own), playerHit: false);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,
                     CriticalMin = profile.Ignite.CriticalMin * more, CriticalMax = profile.Ignite.CriticalMax * more };
-                foreach (var packet in IgniteOnHitLocked(conn, id, m, ignite, critical: false, now, playerIgnite: false) ?? [])
+                foreach (var packet in IgniteOnHitLocked(conn, id, m, ignite, critical, now, playerIgnite: false) ?? [])
                     conn.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
             }
             if (!m.Dead && !spell && rolled[DamageType.Physical].Max > 0)
             {
                 var bleed = profile.Bleed with { Min = profile.Bleed.Min * more, Max = profile.Bleed.Max * more,
                     CriticalMin = profile.Bleed.CriticalMin * more, CriticalMax = profile.Bleed.CriticalMax * more };
-                foreach (var packet in BleedOnHitLocked(conn, id, m, bleed, critical: false, now) ?? [])
+                foreach (var packet in BleedOnHitLocked(conn, id, m, bleed, critical, now) ?? [])
                     conn.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
             }
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);

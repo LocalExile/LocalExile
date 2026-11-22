@@ -182,6 +182,7 @@ public static partial class Game
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
+        if (g.Definition.Kind == "AnimatedGuardian") RecordAnimatedGuardianDeath(conn);
         if (g.SoulEater is not null)
         {
             g.SoulEaterUntil = 0;
