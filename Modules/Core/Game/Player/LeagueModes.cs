@@ -23,9 +23,11 @@ public static partial class Game
                 HardModeSkills = new("data", hardMode: true);
                 HardModePassives = new("data", hardMode: true);
                 HardModeAtlasPassives = new("data", hardMode: true);
+                LoadMapAreaStats();
                 HardModeRolls = new(HardModeItems);
                 HardModeUniques = new(HardModeItems);
                 HardModeEssences = new(HardModeItems, HardModeRolls);
+                HardModeAtlas = new(HardModeItems);
                 HardModeCrafting = new(HardModeItems, HardModeRolls);
                 RuthlessGrantedSkills = NewGrantedSkills(ruthless: true);
                 RuthlessWornGrantedSkillCatalog = new(HardModeSkills, HardModeItems.Mods, ruthless: true);
@@ -37,7 +39,7 @@ public static partial class Game
             }
             // Drops read the league's gem rules, which exist once every module loaded, so each HardMode league has its own.
             if (league is not null && !HardModeDrops.ContainsKey(league.Id))
-                HardModeDrops[league.Id] = new(HardModeItems, HardModeRolls, hardMode: true, uniques: HardModeUniques, league: league.Rules);
+                HardModeDrops[league.Id] = new(HardModeItems, HardModeRolls, hardMode: true, maps: HardModeAtlas, uniques: HardModeUniques, league: league.Rules);
         }
     }
 
@@ -49,6 +51,7 @@ public static partial class Game
     public static ItemRolls HardModeRolls = default!;
     public static UniqueCatalog HardModeUniques = default!;
     public static EssenceCrafting HardModeEssences = default!;
+    public static AtlasCatalog HardModeAtlas = default!;
     public static readonly ConcurrentDictionary<string, ItemDrops> HardModeDrops = new();
 
     public static ItemCatalog ItemsFor(Player player) => LeagueFor(player).HardMode ? HardModeItems : Items;
@@ -58,7 +61,13 @@ public static partial class Game
     public static UniqueCatalog UniquesFor(Player player) => LeagueFor(player).HardMode ? HardModeUniques : Uniques;
     public static EssenceCrafting EssencesFor(Player player) => LeagueFor(player).HardMode ? HardModeEssences : Essences;
     public static ItemDrops DropsFor(Player player) => LeagueFor(player) is { HardMode: true } league
-        ? HardModeDrops[league.Id] : Drops;
+        ? HardModeDrops.TryGetValue(league.Id, out var drops) ? drops : HardModeDropsFor(league) : Drops;
+
+    static ItemDrops HardModeDropsFor(LeagueRuntime league)
+    {
+        LoadHardModeData(league);
+        return HardModeDrops[league.Id];
+    }
 
     public sealed class VitalsAdmission
     {

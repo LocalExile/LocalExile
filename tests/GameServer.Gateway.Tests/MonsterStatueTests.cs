@@ -30,4 +30,22 @@ public sealed class MonsterStatueTests
         Assert.Equal(InstanceMonsterStatue.CreatorAction, action);
         Assert.Equal(0x3040u, target);
     }
+
+    [Fact]
+    public void Coalesced_create_and_tick_frames_without_throwing_in_ReadCreate()
+    {
+        byte[] packet = [0x02, 0x09, 0x36, 0x5B, 0xD6, 0x38, 0x00, 0x00, 0x30, 0x40];
+        byte[] tick = Convert.FromHexString("001B00000000AA");
+
+        var framed = InstanceProtocol.SplitClientMessages([.. packet, .. tick], out var partial, out var unknown);
+
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+        Assert.Equal(0, ClientInbox.UnframedRun(0, framed.Count, unknown.Length));
+        Assert.Equal(new ushort[] { InstanceMonsterStatue.CreateId, InstanceProtocol.TickId }, framed.Select(m => m.Id));
+
+        var (action, target) = InstanceMonsterStatue.ReadCreate(framed[0].Bytes);
+        Assert.Equal(InstanceMonsterStatue.CreatorAction, action);
+        Assert.Equal(0x3040u, target);
+    }
 }

@@ -39,7 +39,10 @@ public static partial class Game
             player.LockstepHold.Update((here.X + dx, here.Y + dy));
             player.LockstepSkill.Update((here.X + dx, here.Y + dy));
             if (player.ChannelSkill != 0 && player.LockstepSkill.Channel == player.ChannelSkillSequence)
+            {
                 player.LastChannelUpdateAt = AreaTime(player);
+                SnipeAimedAt(player, (here.X + dx, here.Y + dy));
+            }
         }
         else if (id == InstanceProtocol.LockstepMoveStopId)
         {
@@ -78,6 +81,12 @@ public static partial class Game
     // 0x141e9b860 discards its path. The player stands. Only a new press (0x400) asks again.
     static readonly ConditionalWeakTable<Player, StrongBox<bool>> UsePressConsumed = new();
 
+    // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
+    // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
+    static bool LockstepRepeats(Player player, ushort skill) =>
+        !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
+            && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
+
     static bool PressAfterUse(Player player, ushort flags)
     {
         if (!UsePressConsumed.TryGetValue(player, out var consumed) || !consumed.Value) return true;
@@ -85,10 +94,6 @@ public static partial class Game
         consumed.Value = false;
         return true;
     }
-
-    // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
-    static bool LockstepRepeats(Player player, ushort skill) =>
-        !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem && SkillsFor(player).IsChannelled(gem.Effect));
 
     static ushort NextLockstepSequence(Player player)
     {
@@ -154,6 +159,7 @@ public static partial class Game
                 ended = channel;
                 player.ChannelSkill = 0;
                 player.ChannelGeneration++;
+                SnipeWakeChannel(player);
             }
             // Readiness belongs to the client's frame. Projectile time may already be ahead of it; using that
             // clock can start a Move before pickup completion, whose cleanup then discards the new path.
@@ -359,7 +365,7 @@ public static partial class Game
             () => LockstepAttackCutIn(player, skill, sequence) + player.LockstepActionTail)
         {
             GroundTarget = aim,
-            GroundAttackSeconds = () => LockstepAttackSeconds(player, skill),
+            GroundAttackSeconds = () => LockstepAttackSeconds(player, skill, sequence),
         };
         try
         {
@@ -431,6 +437,17 @@ public static partial class Game
     {
         if (GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
         {
+            var supported = SupportedSkill(player, skill);
+            var placed = PlacedKind(supported);
+            if (placed.Trap || placed.Mine)
+            {
+                var stats = CharacterPlayerStats(player);
+                return Math.Max(TickSeconds, PlacedThrowSeconds(
+                    n => GolemStat(supported.Stats, n) + GolemStat(stats, n),
+                    placed.Mine, ChargesOf(player).Effective(ChargeType.Frenzy)) / PlayerActionFactor(player));
+            }
+            if (IsTotemSkill(player, skill))
+                return Math.Max(TickSeconds, TotemPlacementSeconds(player, skill, gem.Effect));
             if (SkillsFor(player).IsChannelled(gem.Effect)) return 0;
             // The native spell duration divides the virtual base by cast speed (0x1419f1960).
             // The repeat counter restarts the same action (0x1419e6370); hold through every cast, not just its first.
@@ -456,7 +473,7 @@ public static partial class Game
             || Has(Stat.MultistrikeDamagePlusPctFinalOnSecondRepeat))) return null;
         bool cannotCancelBeforeContact = Has(Stat.CannotCancelSkillBeforeContactPoint);
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
-        var window = Animations.SpellMoveWindow(ao, WeaponProfileFor(player, activeSet: true), CastAnimationKind.Projectile,
+        var window = Animations.SpellMoveWindow(ao, AnimationWeaponProfileFor(player), CastAnimationKind.Projectile,
             start, duration / (1d + repeats), cannotCancelBeforeContact);
         return window is { } cast ? cast with
         {
@@ -467,9 +484,10 @@ public static partial class Game
     }
 
     // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).
-    static double LockstepAttackSeconds(Player player, ushort skill) => skill == SkillCatalog.FirstSkillId
-        ? Math.Max(TickSeconds, WeaponFor(player).AttackSeconds(CharacterPlayerStats(player)) / PlayerActionFactor(player))
-        : SupportedAttackSeconds(player, skill);
+    // A dual-wielded use takes its own hand's time (AttackHands, from the use's sequence).
+    static double LockstepAttackSeconds(Player player, ushort skill, ushort sequence = 0) => skill == SkillCatalog.FirstSkillId
+        ? Math.Max(TickSeconds, DefaultAttackSeconds(player, sequence, CharacterPlayerStats(player)) / PlayerActionFactor(player))
+        : SupportedAttackSeconds(player, skill, sequence);
 
     // When, after a swing's start, the client lets a Move cut the attack short: its clip's lock_cancelling keyframe where
     // it has one, else its contact (live 2026-11-03, the first Move the client ran at once: a wand's 0.334 s into a
@@ -480,9 +498,9 @@ public static partial class Game
     // an attack gem's cut-in uses its clip's lock_cancelling keyframe (or contact when none is listed, AttackCutIn).
     public static double LockstepAttackCutIn(Player player, ushort skill, ushort sequence = 0)
     {
-        double seconds = LockstepAttackSeconds(player, skill);
+        double seconds = LockstepAttackSeconds(player, skill, sequence);
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(player, activeSet: true);
+        var weapon = AnimationWeaponProfileFor(player);
         if (skill == SkillCatalog.FirstSkillId)
             return Animations.DefaultAttackCutInSeconds(ao, weapon, sequence, seconds);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);

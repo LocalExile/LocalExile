@@ -60,6 +60,32 @@ public sealed class GroundStackPickupTests
         Assert.Equal(before + 7, Game.PersonalStashOf(f.Player).Gold);
     }
 
+    [Fact]
+    public async Task Lockstep_gold_pickup_removes_the_published_object_in_a_world_frame()
+    {
+        using var f = new Fixture();
+        using var wire = new PartyFollowerTests.Wire();
+        var player = f.Player;
+        player.Connection.LockstepClient = true;
+        player.Connection.Session = new("lockstep-gold", wire.Stream, wire.Ciphers);
+        await Program.BeginWorldFrames(player, .033);
+        var gold = new WorldItemObject(100, 100, ItemCatalog.Create(Program.Items.Find(ItemDrops.GoldId)!) with { StackSize = 7 });
+        uint id = player.Instance.Ground.Add(gold, player, shared: false);
+        var creation = Game.SendGroundItem(player, id, gold, "create test gold");
+        await Program.EndWorldFrame(player, (.033, .066));
+        await creation;
+        Assert.True(player.Connection.WorldOutput.Has(id));
+
+        uint before = Game.PersonalStashOf(player).Gold;
+        var pickup = Game.PickUpGold(player, id, gold, "auto-looted");
+        await Program.EndWorldFrame(player, (.066, .099));
+        await pickup;
+        Assert.Equal(before + 7, Game.PersonalStashOf(player).Gold);
+        Assert.False(player.Connection.WorldOutput.Has(id));
+        Assert.Contains(Program.HistoryFor(wire.Ciphers).Lines(),
+            line => line.Contains($"02BD{id:X8}FFFFFFFF", StringComparison.Ordinal));
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly GameServer.Modding.IModuleLifetime? previousRules = Game.CombatLifetime;

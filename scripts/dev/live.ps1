@@ -383,12 +383,14 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 # waits for them. The default client starts plainly, as before.
 function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
+    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
+    & dotnet $authTool verify-patch (Join-Path $client 'Game.patched.exe') (Join-Path $repo 'data\login-keys.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Client login key preflight failed. Rebuild Auth if needed, then explicitly regenerate Client\Game.patched.exe with GameServer.Auth patch; see Agents/GettingStarted.md.' }
     # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
     # --repair gives a zero root hash a value (the client never skips patching with one).
     & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash $client --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
     # Which allowed client build this is, and the versions LocalExile supports (ClientBuilds).
-    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
     if (Test-Path $authTool) {
         & dotnet $authTool build (Join-Path $client 'Game.exe') 2>$null | Where-Object { $_ -like 'This client is *' } |
             ForEach-Object { Write-Host $_ }

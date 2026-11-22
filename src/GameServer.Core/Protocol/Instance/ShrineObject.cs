@@ -32,7 +32,7 @@ public sealed record ShrineObject(int GridX, int GridY, float Rotation = 0, floa
         {
             switch (c)
             {
-                case "Positioned": w.Positioned(GridX, GridY, Rotation, fixedHeight: Height is float z ? BlobWriter.FixedHeight(z) : null); break;
+                case "Positioned": w.Positioned(GridX, GridY, Rotation, fixedHeight: Height is float z && !float.IsNaN(z) ? BlobWriter.FixedHeight(z) : null); break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
                 case "Buffs": w.U16(0); break;

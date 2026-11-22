@@ -87,11 +87,11 @@ public static partial class Game
             accuracy = MonsterBlindRating(player, id, attacker, accuracy, now, sources);
             if (!RampageAttackHits(player, targetId, weapon, accuracy, now, AreaRng(player), sources)) return null;
             var packet = MonsterModHit(attacker, attack.Damage.Roll(AreaRng(player)), weapon.Life,
-                weapon.MaxLife, AreaRng(player), out bool critical, now: now);
+                weapon.MaxLife, AreaRng(player), out bool critical, now: now).Scale(SappedDamageFactor(attacker, now));
             var (damage, _) = MonsterDamage(weapon, packet, critical, true, default);
             weapon.Life = (uint)Math.Max(0, (long)weapon.Life - damage);
             if (weapon.Life == 0) weapon.Dead = true;
             return [];
-        }, "Monster hit on Rampage weapon");
+        }, "Monster hit on Rampage weapon", recordId: targetId);
     }
 }

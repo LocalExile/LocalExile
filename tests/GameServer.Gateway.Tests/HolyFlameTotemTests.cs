@@ -48,6 +48,17 @@ public sealed class HolyFlameTotemTests
             Game.TickSpellTotemsLocked(f.Player,bytes);
             session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast+1));
             Assert.True(f.Player.Area.Monsters[900].Life<100000);Assert.Equal(mana,f.Player.PlayerMana);
+
+            var ground = f.Player.FlaskGrounds;
+            Assert.False(ground.NeedsMonsterUpdates);
+            var edge = (totem.At.X + 16, totem.At.Y);
+            Assert.True(ground.OnConsecrated(true, edge, 0));
+            ground.SetConsecrated(true, () => 100);
+            Assert.Contains((Stat.ImmuneToCurses, 1), ground.PlayerStats());
+            totem.DiedAt = 1;
+            Assert.Single(ground.Expire(1));
+            Assert.False(ground.OnConsecrated(true, edge, 1));
+            Assert.False(ground.CurseImmune);
         }
         finally {session.Invalidate();await session.OutputCompleted;}
     }

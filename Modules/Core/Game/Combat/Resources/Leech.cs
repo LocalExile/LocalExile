@@ -55,13 +55,15 @@ public static partial class Game
                 ? 1 : 0;
     }
 
-    public static void ConfigureLeech(Player player, Func<uint, int> get, bool onLowLife)
+    public static void ConfigureLeech(Player player, Func<uint, int> get, bool onLowLife,
+        IReadOnlyDictionary<uint, int>? replacements = null)
     {
-        int claws = (ActiveMainHand(player)?.Type?.Class == "Claw" ? 1 : 0)
-            + (ActiveOffHand(player)?.Type?.Class == "Claw" ? 1 : 0);
+        int? Replacement(uint key) => replacements is not null && replacements.TryGetValue(key, out int value) ? value : null;
+        int claws = (WeaponIdentity.CountsAs(ActiveMainHand(player), ItemsFor(player).Mods, "Claw") ? 1 : 0)
+            + (WeaponIdentity.CountsAs(ActiveOffHand(player), ItemsFor(player).Mods, "Claw") ? 1 : 0);
         LeechOf(player).Configure(ProjectileWorldTime(player),
-            LeechLimits.Resolve(get, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield, onLowLife),
-            get, claws);
+            LeechLimits.Resolve(get, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield, Replacement, onLowLife),
+            get, Replacement, claws);
         LeechOf(player).OnKill = KillRecovery.From(get, player.Pools.Level);
         TrimLeechLocked(player);
     }
@@ -80,10 +82,10 @@ public static partial class Game
     }
 
     public static LeechSources HitLeechSources(IReadOnlyDictionary<uint, int> player, bool attack,
-        IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? local = null)
+        IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? local = null, bool melee = false)
     {
         int Get(uint key) => (int)Math.Clamp((long)player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0), int.MinValue, int.MaxValue);
-        return LeechSources.From(Get, attack, name => local?.GetValueOrDefault(name) ?? 0);
+        return LeechSources.From(Get, attack, name => local?.GetValueOrDefault(name) ?? 0) with { Melee = melee };
     }
 
     // Invoke only inside an accepted direct-hit transaction, after evasion/block and before impale reflection.
@@ -112,14 +114,15 @@ public static partial class Game
         }
         double now = ProjectileWorldTime(player);
         var instant = session.Hit(now, amounts, player.PlayerLife >= LifeCap(player),
-            player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum, sources.Attack);
+            player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum, sources.Attack, sources.Melee);
         var gain = sources.GainOnHit;
         uint life = player.PlayerLife, mana = player.PlayerMana;
         // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
         // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool. Petrified
         // Blood caps the actual recovery like regeneration/Recoup; the leech instance itself remains until full Life.
+        // Vaal Pact blocks the life gain on hit (it is not leech); the leeched instant life still recovers.
         player.PlayerLife = PetrifiedBlood.RecoverLife(player, life,
-            instant.Life + (session.RecoversLife ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
+            instant.Life + (session.RecoversLife && !session.LifeGainOnHitBlocked ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
         player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), instant.Mana + gain.Mana,
             ref session.ManaInstantCarry);
         player.EnergyShield.Gain(instant.EnergyShield + (session.RecoversEnergyShield ? gain.EnergyShield : 0));

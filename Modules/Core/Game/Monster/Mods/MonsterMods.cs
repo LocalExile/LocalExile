@@ -15,6 +15,8 @@ public static partial class Game
         MonsterModRolls = new MonsterModCatalog(Items.Mods);
     }
 
+    static bool MonsterOnLowLife(SpawnedMonster monster) => !monster.Dead && monster.Life > 0
+        && (ulong)monster.Life * 2 <= monster.MaxLife;
     // Monster-domain Mods.dat rows, their names and effects; loaded with the first magic or rare monster.
     public static MonsterModCatalog MonsterModRolls = default!;
 
@@ -27,13 +29,71 @@ public static partial class Game
     /// choice) when it has any, else freshly rolled for its rarity. Area packs pass <paramref name="alone"/> false;
     /// their magic monsters share one roll per monster name in the instance.</summary>
     public static MonsterModSet MonsterModsFor(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
-        MonsterModSet? kept, bool alone)
+        MonsterModSet? kept, bool alone) =>
+        MonsterModsFor(player, variety, level, rarity, kept, alone, extraMagicMods: 0);
+
+    /// <summary>Overload allowing an area/cell to grant additional modifiers to magic monsters
+    /// (<c>map_magic_monster_num_additional_modifiers</c>).</summary>
+    public static MonsterModSet MonsterModsFor(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
+        MonsterModSet? kept, bool alone, int extraMagicMods)
     {
         if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
         var rolls = MonsterModRolls;
-        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, AreaRng(player), alone);
-        var shared = MagicModsOf.GetValue(player.Instance, _ => []);
-        lock (shared) return rolls.SharedMagic(shared, variety, level, AreaRng(player));
+        int magicExtra = rarity == MonsterRarity.Magic
+            ? Math.Max(0, extraMagicMods + (MapModsOf(player)?.Get(Stat.MapMagicMonsterNumAdditionalModifiers) ?? 0))
+            : 0;
+        if (rarity != MonsterRarity.Magic) return rolls.Roll(variety, level, rarity, AreaRng(player), alone);
+        if (magicExtra == 0)
+        {
+            if (alone) return rolls.Roll(variety, level, rarity, AreaRng(player), alone);
+            var shared = MagicModsOf.GetValue(player.Instance, _ => []);
+            lock (shared) return rolls.SharedMagic(shared, variety, level, AreaRng(player));
+        }
+        int want = 1 + magicExtra;
+        if (alone) return RollMagicWithExtra(rolls, variety, level, want, alone: true, AreaRng(player));
+        var sharedExtra = MagicModsOf.GetValue(player.Instance, _ => []);
+        string key = $"{variety.Name}|+{magicExtra}";
+        lock (sharedExtra)
+        {
+            var tags = rolls.TagsOf(variety, MonsterRarity.Magic, alone: false);
+            bool Fits(MonsterModSet s) => s.Affixes.All(a => rolls.Mods.ByHash(a.Hash) is { } m && m.Level <= level && m.WeightFor(tags) > 0);
+            if (sharedExtra.TryGetValue(key, out var existing) && Fits(existing)) return existing;
+            string scopedKey = key + "|" + string.Join(",", tags.Order(StringComparer.Ordinal));
+            if (!sharedExtra.TryGetValue(scopedKey, out existing))
+                sharedExtra[scopedKey] = existing = RollMagicWithExtra(rolls, variety, level, want, alone: false, AreaRng(player));
+            sharedExtra.TryAdd(key, existing);
+            return existing;
+        }
+    }
+
+    static MonsterModSet RollMagicWithExtra(MonsterModCatalog rolls, MonsterCatalog.Variety variety, int level, int want, bool alone, Random rng)
+    {
+        var set = rolls.Roll(variety, level, MonsterRarity.Magic, rng, alone, count: want);
+        var currentAffixes = set.Affixes.ToList();
+        if (currentAffixes.Count >= want) return set;
+        // Rarity.dat caps magic prefix+suffix at 1+1=2; when a map/cell grants +2 additional magic mods (want=3),
+        // draw remaining distinct-family mods from the monster's pool so all requested affixes apply.
+        var tags = rolls.TagsOf(variety, MonsterRarity.Magic, alone);
+        var pool = rolls.Pool(tags, level, rolls.RollUnsupported);
+        var chosen = currentAffixes.Select(a => rolls.Mods.ByHash(a.Hash)).OfType<ModCatalog.Mod>().ToList();
+        var all = set.Mods.ToList();
+        while (chosen.Count < want)
+        {
+            var allowed = pool.Where(p => !chosen.Any(c => c.Hash == p.Mod.Hash || c.Families.Intersect(p.Mod.Families).Any())).ToList();
+            if (allowed.Count == 0) break;
+            long total = allowed.Sum(p => (long)p.Weight);
+            if (total <= 0) break;
+            long pick = rng.NextInt64(total);
+            var picked = allowed[^1].Mod;
+            foreach (var (mod, weight) in allowed)
+            {
+                if (pick < weight) { picked = mod; break; }
+                pick -= weight;
+            }
+            chosen.Add(picked);
+            all.Add(picked.Roll(ModSection.Explicit, rng));
+        }
+        return rolls.Create(all, set.NameWords, MonsterRarity.Magic, level);
     }
 
     /// <summary>The stats the client needs for the mods (it applies no modifier of its own to a monster, 14 §2): the
@@ -56,19 +116,30 @@ public static partial class Game
     /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call in the area's frame.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
-        out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false)
+        out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
+        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null)
     {
         var e = m.Effects;
-        critical = !cannotCrit && e.CriticalChance > 0 && random.Next(10_000) < e.CriticalChance;
-        double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
+        // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
+        int baseCrit = e.CriticalChance;
+        if (baseCrit == 0 && e[Stat.CriticalStrikeChancePlusPct] is int incCrit and > 0)
+            baseCrit = (int)Math.Clamp(500L * (100 + incCrit) / 100, 0, 10_000);
+        int chance = baseCrit + additionalCritical;
+        critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
+        int extraMult = critical
+            ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e[Stat.BaseCriticalStrikeMultiplierPlus] + (extraCriticalMultiplier?.Invoke() ?? 0))
+            : 0;
+        int selfReduction = critical ? Math.Clamp(selfCriticalReduction?.Invoke() ?? 0, 0, 100) : 0;
+        double factor = critical ? (100 + extraMult * (100 - selfReduction) / 100.0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? Stat.EnfeebleDamagePlusPctVsRareOrUniqueFinal : Stat.EnfeebleDamagePlusPctFinal] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
         int spiderDamage = m.SpiderWebs.Damage(now);
-        if (executioner > 0 || spiderDamage != 0)
+        int lowLife = MonsterOnLowLife(m) ? e[Stat.DamagePlusPctWhenOnLowLife] : 0;
+        if (executioner > 0 || spiderDamage != 0 || lowLife != 0)
         {
             int increased = e[Stat.DamagePlusPct] + e[Stat.PhysicalDamagePlusPct];
-            factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage) / (100d + increased) : 0;
+            factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage + lowLife) / (100d + increased) : 0;
         }
         return factor == 1 ? rolled : rolled.Scale(factor);
     }
@@ -90,6 +161,7 @@ public static partial class Game
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
+                + ScorchedResistance(m, type, now)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
             Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
@@ -106,43 +178,63 @@ public static partial class Game
     /// chill, the Intimidate or Unnerve on it at <paramref name="now"/>; without a time those do not count). Blocking is rolled before
     /// (<see cref="MonsterBlocks"/>).
     /// </summary>
-    public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
+    public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN,
+        bool ignorePhysicalReduction = false)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction);
+
+    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction: false);
+
+    static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        int additionalTakenPct, bool ignorePhysicalReduction = false)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
-        double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+        int physReduction = e.PhysicalReduction - CrushReduction(m, now);
+        if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
+        double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
         // physical part.
-        double factor = MonsterDamageTaken(m, spell, now, hit: true);
+        double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
         double withered = m.Withered.Count == 0 ? 0
-            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, hit: true, chaos: true) - factor);
+            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true,
+                increasedPct: additionalTakenPct) - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true);
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
             * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
             * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
-        // Its fire, cold and lightning damage taken (Izaro's statues' buffs) on those parts.
-        double typed = mitigated[DamageType.Fire].Min * e[Stat.FireDamageTakenPlusPct] + mitigated[DamageType.Cold].Min * e[Stat.ColdDamageTakenPlusPct]
-            + mitigated[DamageType.Lightning].Min * e[Stat.LightningDamageTakenPlusPct];
+        // Its fire, cold and lightning damage taken (Izaro's statues' buffs, Covered in Ash) on those parts.
+        double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
+            + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
+            + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
     }
+
+    static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
+    {
+        DamageType.Fire => (double)effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
+        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct],
+        DamageType.Lightning => effects[Stat.LightningDamageTakenPlusPct],
+        _ => 0,
+    };
 
     public static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
         double now = double.NaN) =>
         mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
             ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                 * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
-            .Scale(m.Effects.DamageTaken(spell));
+            .Scale(m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     public static int SelfCriticalReduction(Player player)
@@ -152,7 +244,7 @@ public static partial class Game
     }
 
     public static int SelfCriticalReduction(Func<uint, int> get) =>
-        get(Stat.SelfTakeNoExtraDamageFromCriticalStrikes) != 0 ? MonsterModEffects.CriticalMultiplier
+        get(Stat.SelfTakeNoExtraDamageFromCriticalStrikes) != 0 ? 100
             : get(Stat.BaseSelfCriticalStrikeMultiplierMinusPct);
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
@@ -206,14 +298,20 @@ public static partial class Game
     {
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
+        double increasedTaken = type switch
+        {
+            DamageType.Physical => (double)m.Effects[Stat.PhysicalDamageTakenPlusPct] + MaimedPhysicalTaken(m, now),
+            DamageType.Fire => (double)m.Effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
+            DamageType.Cold => m.Effects[Stat.ColdDamageTakenPlusPct],
+            DamageType.Lightning => m.Effects[Stat.LightningDamageTakenPlusPct],
+            _ => 0,
+        };
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
-            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
-                chaos: type == DamageType.Chaos);
-        // Pride's more damage, the Maim support's increased physical damage taken and Flesh and Stone's Blood Stance
-        // all apply to the physical part only.
+            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken);
+        // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
-            factor *= (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + MaimedPhysicalTaken(m, now) / 100.0)
-                * (1 + m.Effects[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+            factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
         return factor;
     }
 

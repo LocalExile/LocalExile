@@ -6,6 +6,39 @@ using static Program;
 
 static class VendorsFeature
 {
+    // NPCTalk 950 finishes league flag 1163; the Purchase Items row 952 requires it on the client.
+    internal const int LillyGemShopLeagueFlag = 1163;
+    static bool CampaignLilly(string id) => id is "Metadata/NPC/Act6/Lilly" or "Metadata/NPC/Act10/Lilly"
+        or "Metadata/NPC/Epilogue/Lilly" or "Metadata/NPC/Epilogue/Lilly2";
+
+    internal static async Task<bool> BeginLillyGemIntroduction(Player player, uint id, SpawnedNpc npc)
+    {
+        if (!CampaignLilly(npc.Npc.Id) || LeagueFor(player).HardMode || player.Character.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return false;
+        var flags = player.Character.QuestFlagsSnapshot();
+        // These rows have an account context, so the generic automatic-conversation selector leaves them to a module.
+        var talk = Npcs.TalksOf(npc.Npc).FirstOrDefault(t => t.Introduction
+            && t.StartFlag == GemVendorStock.LillyUnlock && t.Available(flags));
+        if (talk is null) return false;
+        await global::Game.ExecuteQuestConversation(player, id, npc, talk);
+        return player.InNpcTalk;
+    }
+
+    internal static async Task FinishLillyGemIntroduction(Player player)
+    {
+        if (!player.InNpcTalk || player.NpcFinishFlag != GemVendorStock.LillyUnlock
+            || player.Character.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return;
+        lock (player.Npcs)
+            if (player.Npcs.GetValueOrDefault(player.TalkingTo) is not { } npc || !CampaignLilly(npc.Npc.Id)) return;
+        await SetLeagueQuestFlags(player, [LillyGemShopLeagueFlag]);
+    }
+
+    internal static IReadOnlySet<string> VendorQuestFlags(Player player)
+    {
+        var flags = player.Character.QuestFlagsSnapshot();
+        if (player.Character.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) flags.Add(GemVendorStock.LillyUnlock);
+        return flags;
+    }
+
     internal static async Task BuyFromShop(Player player, InstanceNpcs.Buy buy)
     {
         if (player.NpcRewardOffer is not null)
@@ -37,9 +70,26 @@ static class VendorsFeature
         var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
         bool finite = shop.Finite.TryGetValue(id,out var token);
         bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(player),key,token,PersonalStashOf(player));
+        var bought = offer.Item.Item;
+        if (Gambling.OfferOf(shop,id) is { } gamble)
+        {
+            // A gamble: a new item of the offer's kind at its price. It need not have the shown item's size, so it goes to the
+            // cell asked for when it fits there and to the inventory's first free cell otherwise; never straight onto equipment.
+            if (gamble.Roll(AreaRng(player)) is not { } rolled) { await player.Commands!.Reply("Nothing to gamble for at your level."); return; }
+            bought = rolled with { Price = bought.Price };
+            if (row is byte asked && asked != PlayerInventories.MainInventory && asked != PlayerInventories.Cursor) row = null;
+        }
+        // A gamble window opened before a module reload lost its offers (Gambling.Open): never sell the "Random …" item itself.
+        else if (catalog.ByHash(bought.TypeHash)?.Class == "HiddenItem")
+        { await player.Commands!.Reply("Talk to the gambler again to gamble."); return; }
         var purchase = ItemMoves.PurchaseVendor(items,
             shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(player),
-            offer.Item.Item,catalog,ShapeOf,Consume,row,x,y);
+            bought,catalog,ShapeOf,Consume,row,x,y);
+        if (purchase is null && row is not null && bought != offer.Item.Item)
+        {
+            row = null;
+            purchase = ItemMoves.PurchaseVendor(items, stash, PersonalStashOf(player), bought, catalog, ShapeOf, Consume);
+        }
         if (purchase is null) { await player.Commands!.Reply("Unable to buy: check the price, inventory space and available stock."); return; }
         if (finite) shop.Items.Remove(id);
         foreach (var payment in purchase.Payments) await SendStashPayment(player,stash,payment.Stash);
@@ -56,7 +106,11 @@ static class VendorsFeature
                 await Send(player,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                     items.NextRevision(PlayerInventories.Cursor),[],[displaced]),"0x00bf replaced equipment to cursor");
             await SendEquipment(player,items);
-            if (equipped.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(player);
+            if (equipped.Row == PlayerInventories.Flask)
+            {
+                await ReconcileTincturesAfterFlaskBarChange(player);
+                await RefreshMagebloodFlasks(player);
+            }
         }
         else if (row is byte destination && destination != PlayerInventories.MainInventory)
             await Send(player,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
@@ -83,6 +137,7 @@ static class VendorsFeature
         // Keep the durable item in its reserved server cell, but show it only in the offer grid.
         await Send(player, InstanceItems.InventoryChange(fromInventory, items.NextRevision(row), [offered.Id], []),
             $"0x00bf inventory {fromInventory}: hide offered item {offered.Id}");
+        if (row == PlayerInventories.Flask) await ReconcileTincturesAfterFlaskBarChange(player);
         var inOffer = offered with { X = x, Y = y };
         await Send(player, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [], [inOffer], NpcShops.Manager),
             $"0x00bf sell offer: item {inOffer.Id} at ({x}, {y})");
@@ -240,7 +295,19 @@ static class VendorsFeature
     }
 
     // Purchase Items: the NPC's stock as one shop tab (S→C 0xc0, inventory manager 1), then S→C 0x8c opens the buy window on it.
-    internal static async Task OpenNpcShop(Player player, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null)
+    // Gamble for Items: the gamble window's tabs (Gambling.Window), opened as the black market (window kind 10).
+    internal static async Task OpenGamble(Player player, uint npcObject, SpawnedNpc npc)
+    {
+        if (Items.Error is not null) { await OpenNpcShop(player, npcObject, npc); return; }
+        var notes = new List<string>();
+        var (window, offers) = Gambling.Window(player, npc.Npc.Id, ItemsOf(player).NewItemId, notes);
+        foreach (var n in notes) Console.WriteLine($"[gateway] {player.Connection.Remote} gamble {npc.Npc.Name}: {n}");
+        await OpenNpcShop(player, npcObject, npc, window, Gambling.WindowKind);
+        if (player.Shop is { } shop) Gambling.Remember(shop, offers);
+    }
+
+    internal static async Task OpenNpcShop(Player player, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null,
+        ushort windowKind = 0)
     {
         if (player.Sale is not null) await CloseSale(player, accepted: false);
         await RefreshBenchBalance(player, clear: true);
@@ -263,7 +330,7 @@ static class VendorsFeature
         // 0x8c's u16 is the window kind (0x140740840, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
         // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073ef50). The NPC's DialogueStyle
         // picks the window, not the u8 (0x140dca580). A tab's compact value is its colour (0x14073ef50: ARGB, 0 the default).
-        await Send(player, InstanceNpcs.Dialogue(npcObject, 0, false, ids,
+        await Send(player, InstanceNpcs.Dialogue(npcObject, windowKind, false, ids,
             nativeTabs ? [] : [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
     }
@@ -275,7 +342,7 @@ static class VendorsFeature
         var gems = GemVendorStock.Sells(npc.Npc.Id)
             ? GemVendorStock.For(catalog,Npcs,SkillsFor(player),league.HardMode,league.Rules.SupportGemRewards) : null;
         var stock = gems is not null
-            ? gems.Stock(npc.Npc.Id,player.Character.ClassRow,player.Character.QuestFlagsSnapshot(),league.HardMode,player.Pools.Level,league.Rules) : [];
+            ? gems.Stock(npc.Npc.Id,player.Character.ClassRow,VendorQuestFlags(player),league.HardMode,player.Pools.Level,league.Rules) : [];
         if (league.Rules.FullGemStock && npc.Npc.Id == "Metadata/NPC/Act1/Nessa")
             return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(player).NewItemId,notes,gemStock:stock,
                 gemPrice:gems!.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);

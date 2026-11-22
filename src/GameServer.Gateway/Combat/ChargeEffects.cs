@@ -37,8 +37,10 @@ public static class ChargeEffects
     /// <summary>One per-charge stat: × the charges of <paramref name="Type"/> held (null: all three types together), it
     /// adds to each of <paramref name="Targets"/>. <paramref name="Cap"/> limits the total ("up to 50%").
     /// <paramref name="Special"/>: a stat per the type's special charge (Brutal, Affliction, Absorption), which counts
-    /// the type's charges only while they are converted (<see cref="Charges.ConversionFlag"/>).</summary>
-    public sealed record Rule(uint Stat, ChargeType? Type, uint[] Targets, int? Cap = null, bool Special = false);
+    /// the type's charges only while they are converted (<see cref="Charges.ConversionFlag"/>). <paramref name="PerMaximum"/>:
+    /// × the type's maximum instead of the charges held ("per maximum Power Charge").</summary>
+    public sealed record Rule(uint Stat, ChargeType? Type, uint[] Targets, int? Cap = null, bool Special = false,
+        bool PerMaximum = false);
 
     // The physical one goes into the passives' base form, which the virtual total and the hits read; the elemental one has
     // no base form.
@@ -188,9 +190,12 @@ public static class ChargeEffects
     /// which the charges add to) and <c>additional_elemental_damage_reduction_%</c>.
     /// <paramref name="converted"/>: the types whose charges are their special type's now (<see cref="Charges.Converted"/>;
     /// null: none). A converted type's charges count for its special rules only: the standard per-charge and "no
-    /// charges" stats see none of them (pinned PoB CalcPerform zeroes the standard count).
+    /// charges" stats see none of them (pinned PoB CalcPerform zeroes the standard count). <paramref name="rules"/>: a
+    /// caller's own rules after these; <paramref name="maximum"/>: the maxima its <see cref="Rule.PerMaximum"/> rules
+    /// count (none without it).
     /// </summary>
-    public static Dictionary<uint, int> Expand(Func<uint, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null)
+    public static Dictionary<uint, int> Expand(Func<uint, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null,
+        IEnumerable<Rule>? rules = null, Func<ChargeType, int>? maximum = null)
     {
         var added = new Dictionary<uint, int>();
         void Add(uint stat, long value)
@@ -200,11 +205,12 @@ public static class ChargeEffects
         int Standard(ChargeType type) => converted?.Invoke(type) == true ? 0 : held(type);
         int Special(ChargeType type) => converted?.Invoke(type) == true ? held(type) : 0;
         int total = Charges.Types.Sum(Standard);
-        foreach (var rule in PerCharge)
+        foreach (var rule in rules is null ? PerCharge : PerCharge.Concat(rules))
         {
             int perCharge = get(rule.Stat);
             if (perCharge == 0) continue;
-            long value = (long)perCharge * (rule.Type is { } t ? rule.Special ? Special(t) : Standard(t) : total);
+            long value = (long)perCharge * (rule.PerMaximum ? rule.Type is { } m ? maximum?.Invoke(m) ?? 0 : 0
+                : rule.Type is { } t ? rule.Special ? Special(t) : Standard(t) : total);
             if (rule.Cap is int cap) value = Math.Min(value, cap);
             foreach (uint target in rule.Targets) Add(target, value);
         }

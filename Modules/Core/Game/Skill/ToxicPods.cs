@@ -33,9 +33,12 @@ public static partial class Game
         readonly ConditionalWeakTable<SpawnedMonster, PodDamage> dotRemainders = new();
         sealed class PodDamage { public double Fraction; }
 
-        internal void RainArt(ProjectileVector at, string? ao, double duration, double? radius = null)
+        internal void RainArt(ProjectileVector at, string? ao, double duration, double? radius = null, float rotation = 0,
+            uint? clip = null, (uint Clip, double Seconds)? endClip = null)
         {
-            if (ao is not null) Effect((int)Math.Round(at.X), (int)Math.Round(at.Y), ao, ProjectileRuntime.Time(duration), radius);
+            if (ao is not null) Effect((int)Math.Round(at.X), (int)Math.Round(at.Y), ao, ProjectileRuntime.Time(duration), radius,
+                rotation: rotation, startClip: clip,
+                endClip: endClip is { } end ? (end.Clip, ProjectileRuntime.Time(end.Seconds)) : null);
         }
 
         void LeavePod(ToxicPod pod, SpawnedMonster m)
@@ -85,6 +88,7 @@ public static partial class Game
                     monster.Life = life;
                     monster.Aggro = life > 0;
                     if (stage) CommitProjectileBossStage(this, id, monster, now);
+                    World(id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(monster, life)));
                     if (life == 0)
                     {
                         SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);

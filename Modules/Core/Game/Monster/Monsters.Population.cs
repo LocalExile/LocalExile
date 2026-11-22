@@ -92,8 +92,21 @@ public static partial class Game
         var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
         // Any other room of a generated layout places its pack points the same way: the rooms the layout gives a magic
         // or rare pack of their own (The Chamber of Innocence: twelve magic packs).
+        // A sub-area an ExtraTerrainFeatures row adds is that row's world area; the map's population stays out (the
+        // Sacred Grove beside a map: ServerLevels.Level.FeatureAreas).
+        var featureAreas = layout.Level?.FeatureAreas ?? [];
+        bool InFeatureArea(int x, int y)
+        {
+            for (int i = 0; i < featureAreas.Count; i++)
+            {
+                var a = featureAreas[i];
+                if (x >= a.X0 && y >= a.Y0 && x < a.X1 && y < a.Y1) return true;
+            }
+            return false;
+        }
         var layoutPacks = (layout.Level?.PackRooms ?? [])
-            .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase))).SelectMany(r => r.Points);
+            .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase)))
+            .SelectMany(r => r.Points).Where(p => !InFeatureArea(p.X, p.Y));
         var trapClear = new HashSet<(int X, int Y)>();
         // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
         var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, player.Seed) is { } labyrinthLevel
@@ -106,6 +119,11 @@ public static partial class Game
                     trapClear.Add((trap.X + dx, trap.Y + dy));
         // Where the later forms the area leaves out would stand, for a quest that forms one (Quests.FormsRule).
         var laterForms = AreaPopulation.LaterFormPoints(area, points, walkable);
+        foreach (var form in quests.FormPlacements(layout.Id))
+            if (points.FirstOrDefault(p => p.Name.Equals(form.BossPoint, StringComparison.OrdinalIgnoreCase)) is { } point
+                && AreaPopulation.BossCell(point, walkable) is { } cell
+                && Monsters.Find(form.Next) is { } formVariety)
+                laterForms[formVariety.Row] = cell;
         var nests = new List<AreaPopulation.Spawn>();
         if (layout.Id == RyslathaEncounter.Area && quests.FormsAfter(layout.Id, RyslathaEncounter.Nest).Count > 0)
         {
@@ -116,13 +134,18 @@ public static partial class Game
         }
         var mapMods = MapModsOf(player);
         var scale = mapMods?.Packs ?? default;
+        Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null
+            : (x, y) => !trapClear.Contains((x, y)) && !InFeatureArea(x, y);
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             safePoints, points,
             AreaPopulation.PopulationSeed(layout.Hash, player.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
-            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
+            scatterable: scatterable,
+            localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
+                    && t.Transition.TeleportTo.HasValue)
+                .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
             additionalPacks: MapScarabPacks.Requests(mapMods),
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.

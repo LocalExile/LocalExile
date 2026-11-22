@@ -273,17 +273,7 @@ public static partial class Game
             if (!left) await SetQuestFlags(player, rule.Flags);
         }
         // A boss that forms once these are all dead (Quests.FormsRule: The Depraved Trinity), at its own boss point.
-        foreach (var rule in QuestsOf(player).FormsAfter(area, variety.Id))
-        {
-            bool left, formed;
-            (int X, int Y) where;
-            left = player.Area.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
-            formed = player.Area.Monsters.Values.Any(o => o.Variety?.Id == rule.Next);
-            where = player.LaterFormPoints.GetValueOrDefault(rule.Next, at);
-            if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
-            Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} died, the last of {rule.Varieties.Length}: {boss.Name} forms at ({where.X}, {where.Y})");
-            await SpawnMonster(player, boss, m.Level, MonsterRarity.Unique, where.X, where.Y);
-        }
+        await FormQuestBosses(player, m, variety.Id, at);
         // Device-recipe phases (Maven's Nucleus, Sirus after the throne, Atziri): not quest flags, same spawn path.
         if (area != Sirus.Area && MapBossFights.Current.FormsAfter(area, variety.Id, id =>
             {
@@ -313,8 +303,12 @@ public static partial class Game
         if (MapBossFights.Current.Unlock(CharacterName(player), variety.Id) is { } stone)
         {
             if (stone.Flag.Length > 0) await SetQuestFlags(player, [stone.Flag]);
+            var stoneType = ItemsFor(player).Find(stone.ItemId);
+            if (stoneType is not null
+                && QuestRewardCatalog.Load().Find(111)?.Choices.FirstOrDefault(c => c.ItemRow == stoneType.Row)?.RequiredLeagueFlag is int voidstoneLqf)
+                await SetLeagueQuestFlags(player, [voidstoneLqf]);
             await DropGroundItem(player, stone.ItemId, at, m.Label);
-            string name = ItemsFor(player).Find(stone.ItemId)?.Name ?? stone.ItemId.Split('/')[^1];
+            string name = stoneType?.Name ?? stone.ItemId.Split('/')[^1];
             await Send(player, InstanceChat.ChatLine($"Atlas: {name} unlocked."),
                 $"0x0017 Voidstone slot {stone.Slot} from {m.Label}");
         }
@@ -346,6 +340,12 @@ public static partial class Game
         await SyncQuestItems(player, removeItems: true);
         await RemoveDoneQuestItemsFromGround(player);
         string area = player.Layout.Id;
+        if (area is "1_1_11_1" or "1_1_11_2" && !ClientHasQuestFlag(player, "a1q3-KilledSeaWitch"))
+        {
+            ushort merveilLine = area == "1_1_11_1" ? (ushort)68 : (ushort)69; // MerveilEnterWrath / MerveilEnterAnger
+            await Send(player, InstanceNpcs.TextAudio(0, 8, merveilLine),
+                $"0x01c7 Merveil area entry dialogue {merveilLine}");
+        }
         if (QuestsOf(player).OnEntered(area) is { Count: > 0 } entered) await SetQuestFlags(player, entered);
         var chests = QuestsOf(player).Chests(area);
         var near = QuestsOf(player).NearObjects(area);
@@ -354,7 +354,7 @@ public static partial class Game
         var notes = new List<string>();
         var placed = new QuestObjectTypes.AreaPlacements(area, player.Seed, notes);
         var doors = PlacedQuestDoors(player, placed);
-        lock (player.QuestNpcs) player.QuestNpcs.AddRange([.. QuestNpcCandidates(player, placed), .. AppearedBefore(player)]);
+        lock (player.QuestNpcs) player.QuestNpcs.AddRange([.. QuestNpcCandidates(player, placed), .. AppearedBefore(player, placed)]);
         await UpdateQuestNpcs(player, "entering the area");
         var nearSpawns = QuestsOf(player).NearSpawns(area);
         if (chests.Count + near.Count + blockers.Count + questObjects.Count + nearSpawns.Count + doors.Count == 0) return;
@@ -433,8 +433,11 @@ public static partial class Game
 
     // ---- the engine's quest objects (Quests.ObjectRule) ----
 
-    // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned).
-    public static bool QuestObjectTransitioned(Player player, Quests.ObjectRule rule) => rule.TransitionedBy is { } flag && ClientHasQuestFlag(player, flag);
+    // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned), unless an
+    // UntransitionedBy flag has returned it to state 1 (Prisoner's Gate spikes reopening on a1q9-RoadOpened).
+    public static bool QuestObjectTransitioned(Player player, Quests.ObjectRule rule) =>
+        rule.TransitionedBy is { } flag && ClientHasQuestFlag(player, flag)
+        && (rule.UntransitionedBy is null || !ClientHasQuestFlag(player, rule.UntransitionedBy));
 
     public static byte[] QuestObjectBlob(Player player, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
     {
@@ -572,7 +575,8 @@ public static partial class Game
     {
         List<(uint Id, Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)> objects;
         lock (player.QuestObjects)
-            objects = [.. player.QuestObjects.Where(o => o.Value.Rule.TransitionedBy is { } f && effective.Contains(f)).Select(o => (o.Key, o.Value.Rule, o.Value.At, o.Value.Info))];
+            objects = [.. player.QuestObjects.Where(o => o.Value.Rule.TransitionedBy is { } f && effective.Contains(f)
+                || o.Value.Rule.UntransitionedBy is { } u && effective.Contains(u)).Select(o => (o.Key, o.Value.Rule, o.Value.At, o.Value.Info))];
         foreach (var (id, rule, at, info) in objects)
         {
             bool done = QuestObjectTransitioned(player, rule);
@@ -794,7 +798,10 @@ public static partial class Game
             lock (player.Npcs) player.Npcs.Remove(npcId);
             byte level = (byte)Math.Clamp(Packs.For(player.Layout.Id)?.AreaLevel ?? 1, 1, 100);
             Console.WriteLine($"[gateway] {player.Connection.Remote} {npc.Npc.Name} turns into {variety.Name} ({talk.Option})");
-            await SpawnMonster(player, variety, level, MonsterRarity.Unique, npc.X, npc.Y);
+            uint bossId = await SpawnMonster(player, variety, level, MonsterRarity.Unique, npc.X, npc.Y);
+            if (rule.Variety == "Metadata/Monsters/Skeletons/SkeletonBossFairgraves")
+                await Send(player, InstanceNpcs.TextAudio(bossId, 4, 153),
+                    "0x01c7 Fairgraves combat dialogue (FairgravesAttacks)");
         }
     }
 
@@ -816,7 +823,29 @@ public static partial class Game
         foreach (var (rule, x, y) in player.QuestNear)
         {
             if (Dist(at, (x, y)) > Quests.SightRange || rule.Flags.All(player.Character.HasQuestFlag)) continue;
-            if (rule.Needs is null) { await SetQuestFlags(player, rule.Flags); continue; }
+            bool pietySpikeIntro = rule.ObjectType == "Metadata/NPC/Act1/PietyBlockage" && !player.Character.HasQuestFlag("a1q9-RoadBlocked");
+            if (rule.Needs is null)
+            {
+                await SetQuestFlags(player, rule.Flags);
+                if (pietySpikeIntro)
+                {
+                    // PietyBlockage.ot has no client PlayTextAudio; send her class-specific Prisoner's Gate line via 0x1c7.
+                    ushort line = player.Character.ClassRow switch
+                    {
+                        4 => 388, // Duelist
+                        5 => 389, // Shadow
+                        6 => 390, // Templar
+                        1 => 391, // Witch
+                        0 => 392, // Marauder
+                        3 => 393, // Ranger
+                        2 => 394, // Scion
+                        _ => 387, // PietyIntroSpikePassageNormal
+                    };
+                    await Send(player, InstanceNpcs.TextAudio(0, 31, line),
+                        $"0x01c7 Piety Prisoner's Gate dialogue {line}");
+                }
+                continue;
+            }
             // A conditional sight (Quests.NearWith): only with its needs, and the quest items its flags finish go.
             if (!rule.Needs.All(f => ClientHasQuestFlag(player, f))) continue;
             await ConsumeQuestItemsAndSet(player, [.. rule.Flags.Where(f => !player.Character.HasQuestFlag(f))],
@@ -912,5 +941,22 @@ public static partial class Game
         await Game.SendWorldRemoval(player, id, $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
         var own = rule.Flags.Where(f => !Quests.IsInstanceFlag(f)).ToArray();
         if (own.Length > 0) await SetQuestFlags(player, own);
+        if (m.Variety is { } variety)
+            await FormQuestBosses(player, m, variety.Id, m.Walk.Position(ProjectileWorldTime(player)));
+    }
+
+    // A FormsRule can follow either a death or a quest threshold, using the point fitted for the new variety.
+    static async Task FormQuestBosses(Player player, SpawnedMonster source, string variety, (int X, int Y) at)
+    {
+        foreach (var rule in QuestsOf(player).FormsAfter(player.Layout.Id, variety))
+        {
+            bool left = player.Area.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
+            bool formed = player.Area.Monsters.Values.Any(o => o.Variety?.Id == rule.Next);
+            var where = player.LaterFormPoints.GetValueOrDefault(rule.Next, at);
+            if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {source.Label} leaves: {boss.Name} forms at ({where.X}, {where.Y})");
+            await SpawnMonster(player, boss, source.Level, MonsterRarity.Unique, where.X, where.Y,
+                lifePercent: rule.InitialLifePercent);
+        }
     }
 }

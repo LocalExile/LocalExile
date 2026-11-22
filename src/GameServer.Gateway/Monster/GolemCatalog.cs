@@ -28,16 +28,30 @@ public sealed class GolemCatalog
     public (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Skill(SkillCatalog skills, int effect, int actorLevel)
         => scaling.Skill(skills, effect, actorLevel);
 
+    /// <summary>Native level-scaled skill stats when the tables and stat-set rows exist; false otherwise.</summary>
+    public bool TrySkill(SkillCatalog skills, int effect, int actorLevel,
+        out (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) result)
+    {
+        if (scaling.Available)
+            return scaling.TrySkill(skills, effect, actorLevel, out result);
+        result = default;
+        return false;
+    }
+
     sealed class Scaling
     {
-        readonly ClientTable effects, sets, levels;
-        readonly Dictionary<int, ClientRow[]> rows;
+        readonly ClientTable? effects, sets;
+        readonly Dictionary<int, ClientRow[]> rows = [];
         readonly double basis, increment;
+        public bool Available => effects is not null && sets is not null;
+
         public Scaling(string folder)
         {
+            if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("GrantedEffectStatSets")
+                || !ClientTables.Has("GrantedEffectStatSetsPerLevel") || !ClientTables.Has("GameConstants")) return;
             effects = ClientTables.Table("GrantedEffects");
             sets = ClientTables.Table("GrantedEffectStatSets");
-            levels = ClientTables.Table("GrantedEffectStatSetsPerLevel");
+            var levels = ClientTables.Table("GrantedEffectStatSetsPerLevel");
             rows = levels.GroupBy(r => r.Int("StatSet"))
                 .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Int("PlayerLevelReq")).ToArray());
             double Constant(string id) { var r = ClientTables.Table("GameConstants").First(r => r.Text("Id") == id);
@@ -45,14 +59,37 @@ public sealed class GolemCatalog
             basis = Constant("SkillDamageBaseEffectiveness"); increment = Constant("SkillDamageIncrementalEffectiveness");
         }
 
+        public bool TrySkill(SkillCatalog skills, int effect, int actorLevel,
+            out (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) result)
+        {
+            if (effects is null || sets is null || effect < 0 || effect >= effects.Count)
+            {
+                result = default;
+                return false;
+            }
+            int set = effects[effect].IntOrNull("StatSet1") ?? -1;
+            if (set < 0 || set >= sets.Count || !rows.TryGetValue(set, out var candidates) || candidates.Length == 0)
+            {
+                result = default;
+                return false;
+            }
+            result = Compute(skills, effect, actorLevel, set, candidates);
+            return true;
+        }
+
         public (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Skill(SkillCatalog skills, int effect, int actorLevel)
         {
-            int set = effects[effect].Int("StatSet1");
-            var candidates = rows[set];
+            int set = effects![effect].Int("StatSet1");
+            return Compute(skills, effect, actorLevel, set, rows[set]);
+        }
+
+        (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Compute(SkillCatalog skills, int effect,
+            int actorLevel, int set, ClientRow[] candidates)
+        {
             var row = candidates.LastOrDefault(r => r.Int("PlayerLevelReq") <= actorLevel, candidates[0]);
             int level = row.Int("GemLevel");
             var stats = skills.EffectStats(effect, level).ToDictionary(p => p.Item1, p => p.Item2);
-            var definition = sets[set];
+            var definition = sets![set];
             double effectiveness = (basis + increment * (actorLevel - 1)) * definition.Real("BaseEffectiveness")
                 * Math.Pow(1 + definition.Real("IncrementalEffectiveness"), actorLevel - 1);
             var keys = row.Ints("FloatStats"); var interpolation = row.Ints("StatInterpolations");

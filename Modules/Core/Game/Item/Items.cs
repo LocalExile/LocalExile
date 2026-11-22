@@ -23,6 +23,7 @@ public static partial class Game
         bool visible = PlayerInventories.ShowsOnModel(row);
         bool promotesOffhand = row is PlayerInventories.Weapon1 or PlayerInventories.Weapon2;
         string? passiveRefusal = null;
+        bool spentClusterRemoval = false;
         if (visible || promotesOffhand)
         {
             // The pickup, offhand promotion and (for a visible row) source reconciliation are complete before either
@@ -77,7 +78,7 @@ public static partial class Game
                     picked = items.PickUp(row, pick.ItemId);
                     if (picked is not null)
                     {
-                        if (ClusterSize(picked.Item) is not null) SpendClusterRemoval(player);
+                        if (ClusterSize(picked.Item) is not null) { SpendClusterRemoval(player); spentClusterRemoval = true; }
                         CompletePassiveJewelMutationLocked(player, sourcesBefore);
                     }
                 }
@@ -103,8 +104,16 @@ public static partial class Game
         }
         foreach (var (packet, label) in equipmentOutputs) await Send(player, packet, label);
         if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(player, items);
-        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(player);
-        if (row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(player);
+        if (row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(player);
+            await RefreshMagebloodFlasks(player);
+        }
+        if (row == PlayerInventories.PassiveJewels)
+        {
+            await SendPassiveJewelStats(player);
+            if (spentClusterRemoval) await SendPassives(player);
+        }
     }
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
@@ -130,7 +139,8 @@ public static partial class Game
                     if (displacedBefore is not null)
                         displacedSources = GemSourceRowsLocked(player, host.Id, (int)s.Socket, displacedBefore);
                 }
-                if (items.Items(PlayerInventories.Cursor) is [var held, ..] && GemRequirementsUnmet(player, held.Item) is { } unmet)
+                if (items.Items(PlayerInventories.Cursor) is [var held, ..]
+                    && GemRequirementsUnmetAt(player, held.Item, null, targetItemId: s.ItemId) is { } unmet)
                     missing = unmet;
                 else
                 {
@@ -530,9 +540,18 @@ public static partial class Game
             if (!player.Character.Passives.Contains(Passives.JewelNodeForSlot(x)!.Value)) return "the passive jewel socket is not allocated";
         }
         if (item is null) return "no held item";
+        if (!item.Identified) return "identify the jewel before socketing it";
         if (ItemsFor(player).ByHash(item.TypeHash) is not { } type) return "unknown item type";
         if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
-        if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
+        if (!IsNormalJewel(item))
+        {
+            if (ClusterSize(item) is not int clusterSize) return "that cluster jewel size is not supported yet";
+            if (ClusterNodeBudget(item) <= 0) return "this cluster jewel has no passive skills to expand";
+            if (expansion && Passives.ClusterParent(x) is int parentCell
+                && ItemsOf(player).Items(PlayerInventories.PassiveJewels).FirstOrDefault(i => i.X == parentCell) is { } parentHolder
+                && ClusterSize(parentHolder.Item) is int parentSize && clusterSize >= parentSize)
+                return $"{type.Name} does not fit inside this cluster socket";
+        }
         var jewelMods = ItemsFor(player).Mods;
         bool spectrum = GrandSpectrum.IsSpectrum(item, jewelMods);
         if (spectrum)
@@ -640,7 +659,8 @@ public static partial class Game
         return size switch { 2 => 2, 1 => 1, _ => 0 };
     }
 
-    /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
+    /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a
+    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
     /// one of the sockets that jewel has. The tree socket must be allocated for the jewel to be there at all, which the
     /// socketing path already checks.</summary>
     public static bool ClusterSlotOpen(Player player, int cell)
@@ -649,12 +669,11 @@ public static partial class Game
         if (Passives.ClusterParent(cell) is not int parent) return false;
         var items = ItemsOf(player);
         var holder = items.Items(PlayerInventories.PassiveJewels).FirstOrDefault(i => i.X == parent);
-        if (holder is null || ClusterSize(holder.Item) is not int size) return false;
-        if (size != Passives.ClusterCellSize(cell) + 1) return false;
-        // Any of the parent's expansion cells is accepted: the client decides which of them its socket layout opens (its
-        // numbering did not follow the socket count ? for a two-socket large it offers cell 53 as well), and only a
-        // cell the client shows can be reached by a player's move.
-        return Passives.ClusterSlots(parent).Contains(cell);
+        if (holder is null || ClusterSize(holder.Item) is not int size || size <= 0) return false;
+        if (ClusterSocketCount(holder.Item) <= 0 || !Passives.ClusterSlots(parent).Contains(cell)) return false;
+        if (ClusterJewelLayout.For(parent, holder.Item) is { } layout)
+            return layout.ChildSockets.ContainsKey(cell);
+        return size > Passives.ClusterCellSize(cell);
     }
 
     /// <summary>Whether a cluster jewel is socketed: in a tree socket (any size the socket takes, so a medium cluster
@@ -732,13 +751,16 @@ public static partial class Game
         var items = ItemsOf(player);
         HashSet<ushort> allocated;
         allocated = [.. player.Character.Passives, .. player.Character.DescendancyNodes];
-        foreach (var item in items.Items(PlayerInventories.PassiveJewels).ToArray())
+        static int SocketDepth(int cell) =>
+            Passives.JewelNodeForSlot(cell) is not null || Passives.CharmNodeForSlot(cell) is not null ? 0
+            : Passives.ClusterParent(cell) is int p && Passives.JewelNodeForSlot(p) is not null ? 1 : 2;
+        foreach (var item in items.Items(PlayerInventories.PassiveJewels).OrderBy(i => SocketDepth(i.X)).ToArray())
         {
-            bool valid = Passives.CharmNodeForSlot(item.X) is { } charmNode
+            bool valid = item.Item.Identified && (Passives.CharmNodeForSlot(item.X) is { } charmNode
                 ? IsCharm(item.Item) && allocated.Contains(charmNode)
                 : Passives.ClusterNodeForSlot(item.X) is not null
                     ? ClusterSlotOpen(player, item.X) && JewelFitsCell(item.X, item.Item)
-                    : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item);
+                    : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item));
             if (valid) continue;
             var removed = items.Remove(PlayerInventories.PassiveJewels, item.Id);
             if (removed is null) continue;
@@ -779,6 +801,11 @@ public static partial class Game
         if (!CurrentGameWork) return;
         var items = ItemsOf(player);
         var flask = items.Items(PlayerInventories.Flask).FirstOrDefault(i => i.X == slot);
+        if (flask is not null && ItemsFor(player).ByHash(flask.Item.TypeHash) is { } tinctureType && ItemsFor(player).TinctureOf(tinctureType) is { } tincture)
+        {
+            await UseTincture(player, slot, flask, tinctureType, tincture);
+            return;
+        }
         if (flask is not null && ItemsFor(player).ByHash(flask.Item.TypeHash) is { } utilityType && ItemsFor(player).UtilityFlaskOf(utilityType) is { } utility)
         {
             await UseUtilityFlask(player, slot, flask, utilityType, utility);
@@ -805,9 +832,12 @@ public static partial class Game
         bool canRecover, copyLife;
         FlaskRecovery.Use r;
         ResourceEffectsState recoveryOwner;
+        int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
+        Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
+            : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,
-            name => Get(name) + (name == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0), player.PlayerLife, player.PlayerMaxLife, playerLevel);
+            stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0), player.PlayerLife, player.PlayerMaxLife, playerLevel);
         copyLife = ManaFlaskCopiesLife(r, character);
         canRecover = Flasks.CanRecover(use, player.PlayerLife, LifeCap(player), player.PlayerMana, (uint)UnreservedMana(player))
             || copyLife && player.PlayerLife < LifeCap(player)
@@ -838,7 +868,7 @@ public static partial class Game
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
-            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct)));
+            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct)));
         await SpendFlask(player, flask, charges, slot, CurrentRecovery,
             spent => AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, during));
     }
@@ -900,7 +930,8 @@ public static partial class Game
             $"0x02bb create world item 0x{id:x} at ({x}, {y})", justDropped: true);
     }
 
-    // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
+    // C→S 0x24 / 0x018f on a world item: walk there, then auto-equip into an empty compatible slot (when AutoEquipFlag
+    // is set and the inventory panel is closed) or put it in the cursor / main inventory, and remove the object (0x2bd).
     public static async Task PickUpGroundItem(Player player, uint id, WorldItemObject ground,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
@@ -957,68 +988,145 @@ public static partial class Game
             await SendPickup(player, id, pickup);
             return;
         }
-        InventoryItem? placed;
-        List<string> pickupFlags;
+        InventoryItem? placed = null;
+        byte[]? inventoryPacket = null;
+        List<string> pickupFlags = [];
         (byte X, byte Y) cell = (0, 0);
-        bool autoEquipped = false;
         if (HardcoreProgressBlocked(player)) return;
-        if (!toCursor)
+        using (ProjectileMutation(player, advance: false, phase: "ground item pickup"))
         {
-            if (use.AutoEquip && questFlags is null && items.FindAutoEquipSlot(ground.Item, ShapeOf) is { } equip
-                && LevelTooLow(player, equip.Row, ground.Item) is null)
+            if (!toCursor)
             {
-                row = equip.Row;
-                cell = (equip.X, equip.Y);
-                autoEquipped = true;
-            }
-            else if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } free)
-            {
-                Console.WriteLine($"[gateway] {player.Connection.Remote} world item 0x{id:x}: no room in the inventory");
-                return;
-            }
-            else cell = free;
-        }
-        if (player.Instance.Ground.Take(id) is null) return;   // already picked up
-        // The start weapon stops waiting; the Put below saves both changes at once.
-        if (player.Instance.IsStartWeapon(CharacterName(player), id) && items.ClaimStartWeapon())
-            Console.WriteLine($"[gateway] {player.Connection.Remote} start weapon picked up");
-
-        // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
-        pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f));
-        bool visibleEquip = autoEquipped && PlayerInventories.ShowsOnModel(row);
-        placed = KeepOnGroundIfNotSaved(player, ground, () =>
-        {
-            InventoryItem Put()
-            {
-                if (!visibleEquip)
-                    return items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
-                using (ProjectileMutation(player, advance: false, phase: "auto-equip pickup"))
-                using (new PlayerStatScope(player, fresh: true))
+                if ((use.Flags & InstanceTransfer.InventoryOpenFlag) == 0 && use.AutoEquip
+                    && AutoEquipSlotLocked(player, items, ground.Item, shape) is var (equipRow, equipCell))
                 {
-                    var sourcesBefore = PlayerSkillSourcesLocked(player);
-                    var equipped = items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
-                    RecomputePoolsAndSpeed(player);
-                    ReconcileBeastCompanionsLocked(player);
-                    ReconcileEquipmentSourceLifetimesLocked(player, sourcesBefore);
-                    return equipped;
+                    row = equipRow;
+                    cell = equipCell;
+                }
+                else if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is { } free)
+                {
+                    cell = free;
+                }
+                else
+                {
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} world item 0x{id:x}: no room in the inventory");
+                    return;
                 }
             }
-            if (CharacterSaves.Load(CharacterName(player))?.Tutorial is { } tutorial)
-                foreach (bool support in new[] { false, true })
-                    if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(player), tutorial, support), id))
-                        return TutorialObjects.Claim(CharacterName(player), support, ground.Item, Put);
-            return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put) : Put();
-        }, id);
+            if (player.Instance.Ground.Take(id) is null) return;   // already picked up
+            // The start weapon stops waiting; the Put below saves both changes at once.
+            if (player.Instance.IsStartWeapon(CharacterName(player), id) && items.ClaimStartWeapon())
+                Console.WriteLine($"[gateway] {player.Connection.Remote} start weapon picked up");
+
+            bool isEquipment = ItemModStats.EquipmentRows.Contains(row);
+            var sourcesBefore = isEquipment ? PlayerSkillSourcesLocked(player) : [];
+            var itemToPut = row == PlayerInventories.Flask
+                ? FlaskCharges.WhenEquipped(ground.Item, safeArea: InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null)
+                : ground.Item;
+
+            // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
+            pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f));
+            placed = KeepOnGroundIfNotSaved(player, ground, () =>
+            {
+                InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, itemToPut));
+                if (CharacterSaves.Load(CharacterName(player))?.Tutorial is { } tutorial)
+                    foreach (bool support in new[] { false, true })
+                        if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(player), tutorial, support), id))
+                            return TutorialObjects.Claim(CharacterName(player), support, ground.Item, Put);
+                return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put) : Put();
+            }, id);
+            if (placed is not null)
+            {
+                if (isEquipment)
+                {
+                    using (new PlayerStatScope(player, fresh: true))
+                    {
+                        RecomputePoolsAndSpeed(player);
+                        ReconcileBeastCompanionsLocked(player);
+                        ReconcileEquipmentSourceLifetimesLocked(player, sourcesBefore);
+                    }
+                }
+                inventoryPacket = InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]);
+            }
+        }
         await Game.SendWorldRemoval(player, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
-        if (placed is null) return;
-        if (row == PlayerInventories.Flask) placed = EmptyIfEquippedInHostileArea(player, items, placed);
-        uint invId = PlayerInventories.InventoryId(row);
-        await Send(player, InstanceItems.InventoryChange(invId, items.NextRevision(row), [], [placed]),
-            toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory {invId}: add item {placed.Id} at ({cell.X}, {cell.Y})");
-        if (visibleEquip) await SendEquipment(player, items);
-        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(player);
+        if (placed is null || inventoryPacket is null) return;
+        uint inventoryId = PlayerInventories.InventoryId(row);
+        await Send(player, inventoryPacket,
+            toCursor ? $"0x00bf cursor: hold item {placed.Id}"
+            : row == PlayerInventories.MainInventory ? $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})"
+            : $"0x00bf inventory {inventoryId}: auto-equip item {placed.Id} at ({cell.X}, {cell.Y})");
+        if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(player, items);
+        if (row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(player);
+            await RefreshMagebloodFlasks(player);
+        }
         if (pickupFlags.Count > 0) await SetQuestFlags(player, pickupFlags);
         if (questFlags is not null) await SyncQuestItems(player, removeItems: false);
+    }
+
+    static readonly byte[] AutoEquipRows =
+    [
+        PlayerInventories.Weapon1, PlayerInventories.Offhand1,
+        PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves,
+        PlayerInventories.Boots, PlayerInventories.Belt, PlayerInventories.Amulet,
+        PlayerInventories.Ring1, PlayerInventories.Ring2, PlayerInventories.Flask,
+    ];
+
+    // Finds an empty compatible equipment or flask slot for a ground item when the client's auto_equip flag (0x0008) is
+    // set, checking identification, level/attribute/gem requirements and inventory-refusal hooks. Weapon1/Offhand1 always
+    // hold the active weapon set (SwapWeaponSets trades them with rows 14/15). Call under ProjectileMutation.
+    static (byte Row, (byte X, byte Y) Cell)? AutoEquipSlotLocked(Player player, PlayerInventories items, Item item,
+        PlayerInventories.Shape shape)
+    {
+        if (!item.Identified || string.IsNullOrEmpty(shape.Class)) return null;
+        var catalog = ItemsFor(player);
+        if (catalog.ByHash(item.TypeHash) is not { } type) return null;
+        List<byte>? candidates = null;
+        foreach (byte candidate in AutoEquipRows)
+        {
+            if (!PlayerInventories.Accepts(candidate, shape.Class)) continue;
+            if (GameEvents.FirstInventoryRefusal(player, candidate, item) is not null) continue;
+            (candidates ??= []).Add(candidate);
+        }
+        var target = candidates is null ? null : items.FindEmptySlot(candidates, shape, ShapeOf);
+        if (target is null && shape.Class == "Ring"
+            && GameEvents.FirstInventoryRefusal(player, PlayerInventories.Ring3, item) is null
+            && CharacterPlayerStats(player).GetValueOrDefault(Stat.EnableRingSlot3) != 0)
+            target = items.FindEmptySlot([PlayerInventories.Ring3], shape, ShapeOf);
+        if (target is null) return null;
+        return AutoEquipRequirementsMetLocked(player, catalog, item, type) ? target : null;
+    }
+
+    static bool AutoEquipRequirementsMetLocked(Player player, ItemCatalog catalog, Item item, ItemCatalog.BaseType type)
+    {
+        int reqLevel = ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods);
+        var (rawStr, rawDex, rawInt) = ItemModStats.AttributeRequirements(catalog, item, type);
+        int reqPct = AttributeRequirementsPct(player);
+        int reqStr = ScaledRequirement(rawStr, reqPct);
+        int reqDex = ScaledRequirement(rawDex, reqPct);
+        int reqInt = ScaledRequirement(rawInt, reqPct);
+        foreach (var socket in item.Sockets)
+        {
+            if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
+                reqLevel = Math.Max(reqLevel, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods));
+            else if (socket.Gem is { } gem)
+            {
+                if (catalog.ByHash(gem.TypeHash) is { } gemBase && !LeagueFor(player).Rules.AllowsGemBase(gemBase.Id))
+                    return false;
+                var g = SocketedGemRequirements(player, gem, reqPct);
+                reqLevel = Math.Max(reqLevel, g.Level);
+                reqStr = Math.Max(reqStr, g.Str);
+                reqDex = Math.Max(reqDex, g.Dex);
+                reqInt = Math.Max(reqInt, g.Int);
+            }
+        }
+        if (player.Pools.Level < reqLevel) return false;
+        if (reqStr > 0 && RequirementAttribute(player, Stat.Strength, player.Pools.Strength) < reqStr) return false;
+        if (reqDex > 0 && RequirementAttribute(player, Stat.Dexterity, player.Pools.Dexterity) < reqDex) return false;
+        if (reqInt > 0 && RequirementAttribute(player, Stat.Intelligence, player.Pools.Intelligence) < reqInt) return false;
+        return true;
     }
 
     public static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
@@ -1412,8 +1520,8 @@ public static partial class Game
     }
 
     /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is
-    /// AreaRng(conn) normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
-    static Item? CurrencyResult(Player player, Item target, uint currencyTypeHash, Random random)
+    /// AreaRng(player) normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
+    internal static Item? CurrencyResult(Player player, Item target, uint currencyTypeHash, Random random)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var type = ItemsFor(player).ByHash(currencyTypeHash);
@@ -1461,6 +1569,7 @@ public static partial class Game
             CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target, random),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target),
             CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target, RollsFor(player), random),
+            CurrencyEffects.VaalOrb when target.Components.Contains("SkillGem") => CorruptGem(ItemsFor(player), target, random),
             CurrencyEffects.VaalOrb => ItemsFor(player).ByHash(target.TypeHash) is { } vaalType
                 ? CurrencyEffects.Vaal(target, vaalType, ItemsFor(player).Requirements(vaalType), RollsFor(player), random) : null,
             CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(player), random),
@@ -1478,6 +1587,42 @@ public static partial class Game
             _ => type is not null && CurrencyEffects.TryAction(ItemsFor(player), RollsFor(player), target, type, random,
                     out var byAction, UniquesFor(player).RollsOf(target)) ? byAction : null,
         };
+    }
+
+    // Vaal Orb on a gem: four equal outcomes, no change, one level up or down (over the cap is experience -1), 1-10
+    // quality up or down (0-23), or its Vaal gem keeping a transfigured skill (wiki Vaal Orb "Gems").
+    static Item? CorruptGem(ItemCatalog catalog, Item item, Random random)
+    {
+        if (item.Corrupted || item.Mirrored || catalog.ByHash(item.TypeHash) is not { Supported: true } type
+            || catalog.Gem(type) is not { MaxLevel: > 0, Variants.Count: > 0 } gem) return null;
+
+        var corrupted = item with { Corrupted = true };
+        int level = gem.Level(item.GemExperience);
+        switch (random.Next(4))
+        {
+            case 1:
+                int next = Math.Max(1, level + (random.Next(2) == 0 ? -1 : 1));
+                return next == level ? corrupted
+                    : corrupted with { GemExperience = next > gem.MaxLevel ? -1 : gem.ExperienceFor(next) };
+            case 2:
+                int quality = random.Next(1, 11) * (random.Next(2) == 0 ? -1 : 1);
+                return corrupted with { Quality = (byte)Math.Clamp(item.Quality + quality, 0, 23) };
+            case 3:
+                if (gem.VaalBaseRow is int row && catalog.Row(row) is { Supported: true } vaalType
+                    && catalog.Gem(vaalType) is { MaxLevel: > 0 } vaalGem
+                    && vaalGem.Variants.FirstOrDefault(v => v.Creatable && v.Effect2 == gem.Variant(item.GemVariant).Effect) is { } variant)
+                {
+                    return corrupted with
+                    {
+                        TypeHash = vaalType.Hash, Components = vaalType.Components, VisualIdentity = vaalType.VisualIdentity,
+                        GemVariant = variant.Index,
+                        GemExperience = vaalGem.Level(item.GemExperience) == level ? item.GemExperience
+                            : vaalGem.ExperienceFor(level),
+                    };
+                }
+                break;
+        }
+        return corrupted;
     }
 
     // C→S 0x71: an item used on another one. A Scroll of Wisdom identifies an unidentified item (its explicit mods and rare
@@ -1539,7 +1684,7 @@ public static partial class Game
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
-                (isEssence || CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") || type?.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
+                (type is not null && CurrencyEffects.Recognizes(ItemsFor(player), type, isEssence)
                     ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links / fixed defence bases)" : $"not handled: {hex}"));
             return;
         }
@@ -1588,6 +1733,8 @@ public static partial class Game
                 if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(player, items);
             }
         }
+        if (targetTab is null && targetRow == PlayerInventories.Flask)
+            await ReconcileTincturesAfterFlaskBarChange(player);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
             : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(player).Mods.Describe))
@@ -1635,6 +1782,7 @@ public static partial class Game
         Item? held = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
         string why = "unknown inventory";
         PlayerInventories.Placement? done = null;
+        bool spentClusterRemoval = false;
         if (PlayerInventories.Row(a.InventoryId) is not byte row) why = "unknown inventory";
         else if (row == PlayerInventories.PassiveJewels)
         {
@@ -1644,6 +1792,7 @@ public static partial class Game
                 var targetItem = items.Items(row).FirstOrDefault(i => i.Id == a.ItemId);
                 if (targetItem is null) why = "no such item";
                 else if (LevelTooLow(player, row, held) is { } low) why = low;
+                else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
                 else if (PassiveJewelRefusal(player, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
                 else if (ClusterRemovalRefusal(player, targetItem) is { } clusterRefusal) why = clusterRefusal;
                 else if (AllocationBypassRemovalRefusal(player, targetItem) is { } bypassRefusal) why = bypassRefusal;
@@ -1654,13 +1803,17 @@ public static partial class Game
                     if (done is not null)
                     {
                         if (done.Displaced is { } displaced && ClusterSize(displaced.Item) is not null)
+                        {
                             SpendClusterRemoval(player);
+                            spentClusterRemoval = true;
+                        }
                         CompletePassiveJewelMutationLocked(player, sourcesBefore);
                     }
                 }
             }
         }
         else if (LevelTooLow(player, row, held) is { } low) why = low;
+        else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
             expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player));
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(player, lr, held) is { } tooLow) why = tooLow;
@@ -1680,9 +1833,16 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(player, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(player);
+        if (done.Row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(player);
+            await RefreshMagebloodFlasks(player);
+        }
         if (done.Row == PlayerInventories.PassiveJewels)
+        {
             await SendPassiveJewelStats(player);
+            if (spentClusterRemoval) await SendPassives(player);
+        }
     }
 
     // Shift held on a 0x4a: flag bit 2 (the sender's param 7; live 2026-10-19, Flags = 4 with Shift, 0 without).
@@ -1711,6 +1871,7 @@ public static partial class Game
         PlayerInventories.Placement? done = null;
         string why = "unknown inventory";
         Item? placement;
+        bool spentClusterRemoval = false;
         if (PlayerInventories.Row(place.InventoryId) is not byte row) why = "unknown inventory";
         else if (PlayerInventories.ShowsOnModel(row))
         {
@@ -1722,6 +1883,7 @@ public static partial class Game
                 {
                     placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                     if (LevelTooLow(player, row, placement) is { } low) why = low;
+                    else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
                     else
                     {
                         var sourcesBefore = PlayerSkillSourcesLocked(player);
@@ -1743,6 +1905,7 @@ public static partial class Game
                 placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                 var leaving = items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y);
                 if (LevelTooLow(player, row, placement) is { } low) why = low;
+                else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
                 else if (leaving is not null && ClusterRemovalRefusal(player, leaving) is { } clusterRefusal)
                     why = clusterRefusal;
                 else if (leaving is not null && AllocationBypassRemovalRefusal(player, leaving) is { } bypassRefusal)
@@ -1755,7 +1918,10 @@ public static partial class Game
                     if (done is not null)
                     {
                         if (done.Displaced is { } displaced && ClusterSize(displaced.Item) is not null)
+                        {
                             SpendClusterRemoval(player);
+                            spentClusterRemoval = true;
+                        }
                         CompletePassiveJewelMutationLocked(player, sourcesBefore);
                     }
                 }
@@ -1765,6 +1931,7 @@ public static partial class Game
         {
             placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
             if (LevelTooLow(player, row, placement) is { } low) why = low;
+            else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
             else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
                 expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player));
@@ -1784,8 +1951,16 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(player, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(player);
-        if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(player);
+        if (done.Row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(player);
+            await RefreshMagebloodFlasks(player);
+        }
+        if (done.Row == PlayerInventories.PassiveJewels)
+        {
+            await SendPassiveJewelStats(player);
+            if (spentClusterRemoval) await SendPassives(player);
+        }
     }
 
     static void CompletePassiveJewelMutationLocked(Player player, IReadOnlyList<PlayerSkillSource> sourcesBefore)

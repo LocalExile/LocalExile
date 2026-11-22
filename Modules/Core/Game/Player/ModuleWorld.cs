@@ -173,6 +173,7 @@ public sealed class ModuleItemCrafting : IItemCrafting
 
     public uint? TypeHash(string id) => catalog.Find(id)?.Hash;
     public IReadOnlySet<string> ModTypes => _modTypes;
+    public bool Modifiable(Item item) => rolls.Modifiable(item);
 
     public bool HasExplicitStat(Item item, IReadOnlyCollection<string> stats) => item.Mods.Where(m => m.Section == ModSection.Explicit)
         .Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s => stats.Contains(s.Name)) == true);
@@ -185,6 +186,8 @@ public sealed class ModuleItemCrafting : IItemCrafting
 
     public Item? ConvertMod(Item item, IReadOnlyDictionary<string, string> map, Random rng)
     {
+        // A unique's explicits are its own rolls, not pool affixes: the bench refuses uniques and unmodifiable items.
+        if (item.Rarity == ItemRarity.Unique || !rolls.Modifiable(item)) return null;
         var fractured = item.FracturedIndexes();
         var candidates = Enumerable.Range(0, item.Mods.Count).Where(i => item.Mods[i].Section == ModSection.Explicit
             && !fractured.Contains(i) && catalog.Mods.ByHash(item.Mods[i].Hash) is { } mod && map.ContainsKey(mod.ModType)).ToList();

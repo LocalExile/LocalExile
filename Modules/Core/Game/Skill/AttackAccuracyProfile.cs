@@ -12,7 +12,9 @@ public readonly record struct AttackAccuracyProfile(int Rating, int MoreVsUnique
     {
         bool Flag(uint key) => (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
         return new(pools.Accuracy, pools.AccuracyMoreVsUniquePct, pools.AccuracyMoreInCloseRangePct,
-            Flag(Stat.GlobalAlwaysHit) || (local?.GetValueOrDefault(Stat.LocalAlwaysHit) ?? 0) != 0);
+            // Resolute Technique: "Your hits can't be Evaded".
+            Flag(Stat.GlobalAlwaysHit) || (local?.GetValueOrDefault(Stat.LocalAlwaysHit) ?? 0) != 0
+            || Flag(Stat.ResoluteTechnique));
     }
 
     public int Chance(int evasion, bool unique, bool close) => CannotBeEvaded ? 100

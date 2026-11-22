@@ -20,7 +20,7 @@ public static partial class Game
         return CooldownForSkill(player, sources.FirstOrDefault(g => g.Id == source).Name is not null ? source : sources[0].Id);
     }
 
-    internal static SingleUseCooldown? CooldownForSkill(Player player, ushort skillId)
+    public static SingleUseCooldown? CooldownForSkill(Player player, ushort skillId)
     {
         var supported = SupportedSkill(player, skillId);
         // From the skill and the stats (Embrace Madness's also from its live state): kept with the skills (ActiveSkills).
@@ -31,6 +31,10 @@ public static partial class Game
         }
         return CooldownPlan(player, supported, CharacterPlayerStats(player));
     }
+
+    /// <summary>The client-facing stored-use state of one skill, null when it has none.</summary>
+    public static SingleUseCooldownState? SingleUseState(Player player, int effect, ushort skillId) =>
+        player.SingleUseCooldowns.GetValueOrDefault(CooldownKey(player, effect, skillId));
 
     // Ikiaho's Leadership: travel skills recover cooldowns faster (the level 1 spirit's 100 is a 2x rate).
     public static int TravelSkillCooldownSpeed(SkillCatalog skills, int effect,
@@ -47,6 +51,8 @@ public static partial class Game
         var own = supported.Stats;
         if (skills.EffectId(effect) is "Convocation" or "ConvocationOld" && Stat.BaseCooldownSpeedPlusPct is var recovery)
             own = new Dictionary<uint, int>(own) { [recovery] = own.GetValueOrDefault(recovery) + GolemStat(playerStats, Stat.ConvocationCooldownSpeedPlusPct) };
+        if (skills.EffectId(effect) == "BrandRecall" && Stat.BaseCooldownSpeedPlusPct is var recallRecovery)
+            own = new Dictionary<uint, int>(own) { [recallRecovery] = own.GetValueOrDefault(recallRecovery) + BrandRecallCooldownBonusPct(player, playerStats) };
         // Fold both flat Travel recovery and its per-Frenzy coefficient into this skill's own input.
         // The published standard count includes minimum charges and excludes converted Affliction Charges.
         if (skills.IsTravel(effect) && Stat.BaseCooldownSpeedPlusPct is var travelRecovery)
@@ -193,6 +199,12 @@ public static partial class Game
                 if (reserve && !TryPlanStanceLocked(player, requestedSkill, effect, acceptedAt, out stancePlan)) return false;
             }
             if (skillId is ushort manual && TriggerOnlyReason(SupportedSkill(player, manual)) is not null) return false;
+            // A guard skill shares one cooldown with the other guard skills, and its own buff has to be over before a
+            // new one starts: Immortal Call's cooldown does not recover during its effect, so it is ready again only
+            // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
+            // a bypass charge or a cost is spent.
+            if (skillId is not null && SkillsFor(player).IsGuard(effect)
+                && !TriggerGuardReady(player, AreaTime(player))) return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(player)
@@ -318,8 +330,9 @@ public static partial class Game
                 || key < 0 && state.NativeSkillId != id) continue;
             state.Refresh(now, state.Rate);
             if (!state.NeedsNativeRefresh) continue;
-            updates.Add(new(id, state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
-                state.TotalBaseMilliseconds / 1000f, (float)state.Rate, state.SpentUses));
+            updates.Add(new(id, state.Held ? state.TotalBaseMilliseconds / 1000f
+                    : state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
+                state.TotalBaseMilliseconds / 1000f, state.Held ? 0f : (float)state.Rate, state.SpentUses));
             synchronized.Add(state);
         }
         if (updates.Count == 0) return null;

@@ -55,7 +55,11 @@ public static partial class Game
         long critical = chance + get(Stat.BleedOnCritPctWithAttacks) + Local(Stat.LocalBleedOnCriticalStrikeChancePct)
             + 50L * Local(Stat.LocalChanceToBleedOnCrit50Pct)
             + (melee ? get(Stat.BleedOnMeleeCriticalStrike) != 0 ? 100 : get(Stat.BleedOnMeleeCritChancePct) : 0);
-        double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get(Stat.BleedDurationPlusPct)
+        // Puncture (bleed_duration_is_skill_duration): its bleed lasts the skill's duration, with the skill duration
+        // modifiers (ActiveSkills puncture: "affected by modifiers to skill duration"), then the bleed's own.
+        double baseSeconds = get(Stat.BleedDurationIsSkillDuration) != 0 && get(Stat.BaseSkillEffectDuration) > 0
+            ? SkillDurationModifiers.Seconds(get(Stat.BaseSkillEffectDuration), _ => 0, get) : Ailments.BleedDurationSeconds;
+        double seconds = baseSeconds * Math.Max(0, 1 + ((double)get(Stat.BleedDurationPlusPct)
             + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
             * MonsterIgnites.DurationMultiplier(get);
         bool dance = get(Stat.KeystoneCrimsonDance) != 0;
@@ -67,11 +71,13 @@ public static partial class Game
             Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100),
             dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
             dance ? 0 : (int)Math.Clamp((long)aggravate + get(Stat.AggravateBleedingOnAttackCritChancePct), 0, 100),
-            !dance && get(Stat.AggravateInflictedBleeding) != 0, rupture);
+            !dance && get(Stat.AggravateInflictedBleeding) != 0, rupture,
+            NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
+            OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
     }
 
-    /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
-    /// (<paramref name="weapon"/>) brings no main-hand local chance.</summary>
+    /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; the swung weapon
+    /// (<paramref name="weapon"/>: a shield skill's shield, a dual-wielded off hand) brings its own local chance.</summary>
     public static MonsterIgnites.Settings SupportedBleed(Player player, ushort skillId, bool spell,
         IReadOnlyDictionary<uint, int> playerStats, SkillCatalog.Unarmed? weapon = null, bool melee = false,
         long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
@@ -89,17 +95,18 @@ public static partial class Game
             ? SupportedAilmentRows(player, skillId, "main_hand", weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);
         return WithOverheat(player, skillId, BleedSettings(rows, "main_hand", get,
-            weapon is null ? MainHandLocalSources(player) : null, melee, bow: false));
+            weapon is null ? MainHandLocalSources(player) : weapon.LocalSources, melee, bow: false));
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
     public static MonsterIgnites.Settings DefaultAttackBleed(Player player, IReadOnlyDictionary<uint, int> playerStats,
-        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
+        int? accuracy = null)
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
         return BleedSettings(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats))), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get, sourceWeapon.LocalSources, melee: true, bow: false);
     }
@@ -115,6 +122,8 @@ public static partial class Game
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
+        // Elemental Overload: the ailment is not from a critical strike, so it rolls the hit's chance and aggravate.
+        if (settings.NeverFromCrit) critical = false;
         SettleBleeding(target, now);
         target.Bleeds.Stacks = settings.Stacks;
         if (target.Bleeds.Burning
@@ -126,6 +135,7 @@ public static partial class Game
                 e[Stat.ImmuneToBleeding] != 0 || e[Stat.CannotGainBleeding] != 0 || e[Stat.BaseCannotGainBleeding] != 0,
                 player.IgniteRandom, out double perSecond)) return null;
         player.Area.ActiveBleedMonsters.Add(id);
+        InflictedLocked(player, target, AilmentType.Bleed, now + settings.Seconds);
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
         {

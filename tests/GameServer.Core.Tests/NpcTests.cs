@@ -14,4 +14,17 @@ public class NpcTests
             Convert.ToHexString(blob));
     }
 
+    [Fact]
+    public void Npc_blob_preserves_overridden_state_machine_flag()
+    {
+        // Retail StateMachine (0x141e42430): overridden states carry flag 0x02 so the client keeps the server value.
+        var states = new StateMachineData([0, 0], 1, ["active", "speaking"]).Set("speaking", 1);
+        byte[] plain = new NpcObject(236, 190, NpcObject.BaseComponents).Blob();
+        byte[] blob = new NpcObject(236, 190, [.. NpcObject.BaseComponents, "StateMachine"], StateMachine: states).Blob();
+        Assert.Equal(plain[..^1], blob[..(plain.Length - 1)]);
+        // 2 states, 1 timer; state 0 = (0, flags 0x00); state 1 = (1, flags 0x02); timer 0 = (u32 0, u8 0); tasks 0x00.
+        Assert.Equal("0201" + "0000" + "0102" + "0000000000" + "00",
+            Convert.ToHexString(blob.AsSpan(plain.Length - 1)));
+    }
+
 }

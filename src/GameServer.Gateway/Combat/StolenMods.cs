@@ -24,7 +24,11 @@ public sealed class StolenMods
 
     /// <summary>A slain monster's affixes: each one's stats by Stats.dat Id, by the affix's Mods.dat hash.</summary>
     public void Steal(MonsterModSet mods, ModCatalog catalog, double now) =>
-        Add(Eligible(mods, catalog), catalog, now + Seconds, belt: true);
+        Steal(mods, catalog, now, Seconds);
+
+    /// <summary>A slain monster's affixes for an explicit duration in seconds.</summary>
+    public void Steal(MonsterModSet mods, ModCatalog catalog, double now, double seconds) =>
+        Add(Eligible(mods, catalog), catalog, now + seconds, belt: true);
 
     public void StealRandom(MonsterModSet mods, ModCatalog catalog, int count, double now, Random random)
     {

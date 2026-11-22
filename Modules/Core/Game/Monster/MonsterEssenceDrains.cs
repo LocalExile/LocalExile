@@ -130,7 +130,11 @@ static partial class Game
         {
             if (life == 0)
                 SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-            Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of essence drain" : null);
+            if (life == 0 && DotDeathKind(m, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind),
+                    $"0x01b1 monster 0x{id:x} ({m.Label}) died of essence drain");
+            else
+                Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of essence drain" : null);
             if (life == 0)
             {
                 Console.WriteLine($"[gateway] essence drain killed 0x{id:x} ({m.Label})");

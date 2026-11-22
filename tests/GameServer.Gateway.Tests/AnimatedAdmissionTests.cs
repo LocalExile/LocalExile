@@ -63,6 +63,51 @@ public sealed class AnimatedAdmissionTests
         Assert.Single(f.Player.Summons.Fighters);
     }
 
+    [Fact]
+    public async Task Guardian_death_keeps_saved_equipment_and_blocks_both_variants_for_that_character_in_the_instance()
+    {
+        using var f = new Fixture();
+        var sword = ItemCatalog.Create(Program.Items.Find("Rusted Sword")!);
+        uint drop = f.Player.Instance.Ground.Add(new WorldItemObject(100, 100, sword));
+        uint id = await f.Summon("AnimateGuardian", drop);
+        var guardian = f.Player.Summons.Fighters[id];
+        Game.GolemDieLocked(f.Player, guardian, 1);
+        await Game.SummonsTick(f.Player, 1);
+        Assert.False(f.Player.Summons.Fighters.ContainsKey(id));
+        Assert.Same(sword, f.Player.Summons.GuardianEquipment[2]);
+        Assert.NotNull(CharacterSaves.ModuleData(f.Player.Character.Name!, "Game.AnimatedGuardianEquipment"));
+
+        var nextDrop = new WorldItemObject(100, 100, sword);
+        uint next = f.Player.Instance.Ground.Add(nextDrop);
+        Assert.Equal(0u, await f.Summon("AnimateGuardian", next));
+        Assert.Same(nextDrop, f.Player.Instance.Ground.Get(next));
+
+        Player Arrive(InstanceState instance, string character) => new(f.Player.Layout, 1, 1)
+            { Instance = instance, Character = { Name = character } };
+        foreach (string effect in new[] { "AnimateGuardian", "AnimateGuardianAltX" })
+        {
+            int row = Program.Skills.EffectRow(effect);
+            Assert.NotNull(Game.ActorSkillDisabledCore(Arrive(f.Player.Instance, f.Player.Character.Name!), row, null));
+            Assert.Null(Game.ActorSkillDisabledCore(Arrive(new(), f.Player.Character.Name!), row, null));
+            Assert.Null(Game.ActorSkillDisabledCore(Arrive(f.Player.Instance, "OtherGuardianOwner"), row, null));
+        }
+    }
+
+    [Fact]
+    public async Task Guardian_can_use_its_retained_equipment_after_dying_in_a_hideout()
+    {
+        var hideout = HideoutCatalog.Default!;
+        using var f = new Fixture(new(hideout.AreaHash16, hideout.AreaId, 1000, 1000, 100, 100, null, []));
+        var sword = ItemCatalog.Create(Program.Items.Find("Rusted Sword")!);
+        uint drop = f.Player.Instance.Ground.Add(new WorldItemObject(100, 100, sword));
+        uint id = await f.Summon("AnimateGuardian", drop);
+        Game.GolemDieLocked(f.Player, f.Player.Summons.Fighters[id], 1);
+        await Game.SummonsTick(f.Player, 1);
+        uint returned = await f.Summon("AnimateGuardian", 0);
+        Assert.NotEqual(0u, returned);
+        Assert.Same(sword, f.Player.Summons.Fighters[returned].Equipment[2]);
+    }
+
     internal sealed class Fixture : IDisposable
     {
         readonly string save = Path.Combine(Path.GetTempPath(), $"animated-admission-{Guid.NewGuid():N}.db");
@@ -74,18 +119,19 @@ public sealed class AnimatedAdmissionTests
         readonly Task drain;
         internal readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         internal NetworkStream Stream => writer.GetStream();
-        internal readonly Player Player = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
+        internal readonly Player Player;
+        internal Fixture(AreaLayout? layout = null)
         {
-            Character = { Name = "Animate" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
-            Instance = new(),
-            PlayerLife = 10000,
-            PlayerMana = 10000,
-            Connection = { PlayerSent = true },
-            Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("animate-test", "Standard", false, false), new HashSet<string>(["Game"]))
-        };
-        internal Fixture()
-        {
+            Player = new(layout ?? new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
+            {
+                Character = { Name = "Animate" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
+                Instance = new(),
+                PlayerLife = 10000,
+                PlayerMana = 10000,
+                Connection = { PlayerSent = true },
+                Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                LeagueModule = new(new League("animate-test", "Standard", false, false), new HashSet<string>(["Game"]))
+            };
             Saves.Open(save); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             Player.Clock.Start(); Player.Summons.Restored = Player.Golems.Restored = true;

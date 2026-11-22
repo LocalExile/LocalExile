@@ -138,6 +138,18 @@ public static partial class Game
         return (ushort)Cosmetics.Portals[(int)((uint)seed % (uint)Cosmetics.Portals.Count)].Index;
     }
 
+    static InstanceMapDevice.Portal SinglePortalEntry(Player player, uint id, ushort area) =>
+        new(id, area, CharacterName(player), Variation: PortalVariation(player, id));
+
+    /// <summary>
+    /// For a portal that already stands when the player arrives: its 0x8f entry, sent before its create. The client plays a
+    /// portal's opening whenever 0x8f lists it for the first time (or changed), and it keeps an entry whose object does not
+    /// exist yet, so the lists after the create (ListPortal, the same entry) show it idle (21-hideouts.md §5).
+    /// </summary>
+    public static Task ListStandingPortal(Player player, uint id, ushort area, string what) =>
+        Send(player, InstanceMapDevice.Portals(0, [SinglePortalEntry(player, id, area)]),
+            $"0x008f portal 0x{id:x} leads to 0x{area:x4} before its create ({what} stands already)");
+
     // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.
     // With an id, only while that portal stands. False when nothing was sent.
     static async Task<bool> SendSinglePortals(Player player, string why, uint only = 0)
@@ -146,9 +158,7 @@ public static partial class Game
         bool Stands(uint id) => player.ReturnPortal?.Id == id || player.BackPortal?.Id == id;
         foreach (uint gone in portals.Keys.Where(id => !Stands(id)).ToList()) portals.TryRemove(gone, out _);
         if (portals.IsEmpty || (only != 0 && !portals.ContainsKey(only))) return false;
-        string owner = CharacterName(player);
-        var list = portals.OrderBy(p => p.Key)
-            .Select(p => new InstanceMapDevice.Portal(p.Key, p.Value, owner, Variation: PortalVariation(player, p.Key))).ToList();
+        var list = portals.OrderBy(p => p.Key).Select(p => SinglePortalEntry(player, p.Key, p.Value)).ToList();
         await Send(player, InstanceMapDevice.Portals(0, list),
             $"0x008f {string.Join(", ", list.Select(p => $"portal 0x{p.ObjectId:x} leads to 0x{p.Area:x4}"))} (variation {string.Join(", ", list.Select(p => p.Variation))}; {why})");
         return true;

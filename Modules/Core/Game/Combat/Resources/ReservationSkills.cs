@@ -46,11 +46,9 @@ public static partial class Game
     {
         var skill = SupportedSkill(player, aura.SkillId);
         var playerStats = CharacterPlayerStats(player);
-        int Get(uint n) => GolemStat(skill.Stats, n) + GolemStat(playerStats, n);
         int ms = ReservationStat(player, aura, name);
-        return Math.Max(0, (ms > 0 ? ms : fallback) / 1000.0 * (1 + Get(Stat.SkillEffectDurationPlusPct) / 100.0)
-            * Math.Max(0, 1 + Get(Stat.Of("support_increased_duration_skill_effect_duration_+%_final")) / 100.0)
-            * Math.Max(0, 1 + Get(Stat.SupportReducedDurationSkillEffectDurationPlusPctFinal) / 100.0));
+        return SkillDurationModifiers.Seconds(ms > 0 ? ms : fallback, n => GolemStat(playerStats, n), n => GolemStat(skill.Stats, n),
+            DurationKinds(player, aura.Effect));
     }
 
     static void ReservationHitLocked(Player player, SpawnedMonster target)
@@ -81,9 +79,9 @@ public static partial class Game
     static void ReservationWhenHitLocked(Player player, uint attacker, SpawnedMonster monster, bool blocked, double now)
     {
         if (ReservationAura(player, "ArcticArmour") is { } arctic)
-            monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
+            InflictedLocked(player, monster, monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
                 ReservationStat(player, arctic, Stat.ArcticArmourChillWhenHitDuration) / 1000.0, now,
-                n => GolemStat(CharacterPlayerStats(player), n), n => monster.Mods.Effects[n], stated: 30);
+                n => GolemStat(CharacterPlayerStats(player), n), n => monster.Mods.Effects[n], stated: 30));
         if (blocked && ReservationAura(player, "TempestShield") is { } tempest)
             player.Reservations.Procs.Enqueue(new(tempest.SkillId, monster.Walk.Position(now), attacker));
     }
@@ -116,7 +114,7 @@ public static partial class Game
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
         return (increased, webs, ignited, bleeding, lowLife) =>
         {
-            int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
+            int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
             increased += SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(player, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
@@ -132,16 +130,15 @@ public static partial class Game
     public sealed record ReservationDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
-    static double ReservationRadius(Player player, AuraCatalog.Aura aura, int fallback)
+    // skill and playerStats: the caller's own (a Herald proc runs per kill; the radius builds no stats of its own).
+    static double ReservationRadius(Player player, AuraCatalog.Aura aura, int fallback, SupportedGem skill,
+        IReadOnlyDictionary<uint, int> playerStats)
     {
-        var skill = SupportedSkill(player, aura.SkillId);
-        var playerStats = CharacterPlayerStats(player);
-        int Get(uint n) => GolemStat(skill.Stats, n) + GolemStat(playerStats, n);
         int basis = ReservationStat(player, aura, Stat.ActiveSkillBaseAreaOfEffectRadius);
-        return SkillArea.Radius(basis > 0 ? basis : fallback, Get, spell: false);
+        return SkillRadius(player, basis > 0 ? basis : fallback, skill.Stats, spell: false, aura.Effect, playerStats);
     }
 
-    static void ReservationDamageLocked(Player player,
+    internal static void ReservationDamageLocked(Player player,
         AuraCatalog.Aura aura, (int X, int Y) at, double now, uint target = 0)
     {
         using var statScope = new PlayerStatScope(player, fresh: true);
@@ -181,7 +178,7 @@ public static partial class Game
             blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false, false);
             targetProfile = secondary;
         }
-        double radius = ReservationRadius(player, aura, aura.EffectId == "TempestShield" ? 60 : 32);
+        double radius = ReservationRadius(player, aura, aura.EffectId == "TempestShield" ? 60 : 32, skill, playerStats);
         var candidates = player.Area.MonstersNear(at, radius).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 && !MonsterAsleep(player, p.Key) && Dist(p.Value.Walk.Position(now), at) <= radius)
             .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at)).ToArray();
@@ -209,7 +206,7 @@ public static partial class Game
                     : Player(Stat.GlobalCannotCrit) != 0 || Own(Stat.GlobalCannotCrit) != 0 ? 0
                     : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic),
                         (long)Player(Stat.CriticalStrikeChancePlusPct) + Own(Stat.CriticalStrikeChancePlusPct), Player, Own);
-                bool critical = RandomRolls.Chance(criticalChance, 10000, AreaRng(player));
+                bool critical = RandomRolls.Chance(criticalChance + BrittleCriticalChance(m, now), 10000, AreaRng(player));
                 int multiplier = spell ? SupportedCriticalMultiplier(player, aura.SkillId)
                     : CriticalHitMultiplier(150L + Player(Stat.BaseCriticalStrikeMultiplierPlus)
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, skill.Stats);
@@ -229,9 +226,12 @@ public static partial class Game
                         && IgniteOnHitLocked(player, id, m, profile.Ignite, critical, now) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
-                CommitAcceptedHitLocked(player, id, m, hit, damage, now, aura.Name, playerKill: true);
+                var to = m.Walk.Position(now);
+                // Immediate kind 3 before the life update reaches the client's result consumer; 0xffff has no consuming action.
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(player.Id, 0xffff, id,
-                    flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), aura.Name + " triggered hit", id, m, WorldId: player.Id));
+                    flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
+                    angle: HitAngle(to.X - at.X, to.Y - at.Y)), aura.Name + " triggered hit", id, m, WorldId: player.Id));
+                CommitAcceptedHitLocked(player, id, m, hit, damage, now, aura.Name, playerKill: true);
                 if (ignited is { } packetsToSend)
                     for (int i = 0; i < packetsToSend.Count; i++)
                         player.Minions.OutputQueue.Add(new(packetsToSend[i],
@@ -253,16 +253,18 @@ public static partial class Game
             * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100.0)
             * Math.Max(0, 1 + ReservationStat(player, aura, Stat.HeraldOfAshBurningDamagePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Get(Stat.DeliriumAuraDamageOverTimePlusPctFinal) / 100.0);
-        double radius = ReservationRadius(player, aura, 10);
+        double radius = ReservationRadius(player, aura, 10, skill, playerStats);
+        double burnSeconds = ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 4000);
         foreach (var (id, m) in player.Area.Monsters)
             if (m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } && Dist(m.Walk.Position(now), at) <= radius
-                && m.HeraldBurns.Add(now, dps, ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 4000)))
+                && m.HeraldBurns.Add(now, dps, burnSeconds))
             {
                 player.Area.ActiveHeraldBurnMonsters.Add(id);
                 m.LastHitBy = player;
                 if (m.HeraldBurns.Buff is not null) continue;
                 m.HeraldBurns.Buff = 1;
-                player.Area.Buffs.Set(id, new(877, player.Id));
+                ushort? burnVisual = aura.ArtVariation != 0 ? Art.BuffVisual("herald_of_ash_burning_buff", aura.ArtVariation) : null;
+                player.Area.Buffs.Set(id, new(877, player.Id, Visual: burnVisual));
             }
     }
 
@@ -347,7 +349,7 @@ public static partial class Game
         if (state.Trail.Count == 0) return;
         foreach (var m in player.Area.Monsters.Values)
             if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= t.Radius))
-                m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10);
+                InflictedLocked(player, m, m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10));
     }
 
     static void AddChilledGroundLocked(Player player, (int X, int Y) at, double until, int radius, string artPath)

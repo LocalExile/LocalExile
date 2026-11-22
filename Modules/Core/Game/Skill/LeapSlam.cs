@@ -56,7 +56,7 @@ public static partial class Game
     public static LeapSlam.Phases LeapSlamTiming(Player player, ushort skillId, int effect, double seconds)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(player, activeSet: true);
+        var weapon = AnimationWeaponProfileFor(player);
         var leave = Animations.SkillAnimationEventBounds(ao, weapon, "leapslam", "leave_ground");
         var hit = Animations.SkillAnimationEventBounds(ao, weapon, "leapslam", "hit_ground");
         if (leave is null || hit is null || leave.Value.Name != hit.Value.Name)

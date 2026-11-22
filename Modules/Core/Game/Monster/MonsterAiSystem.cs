@@ -99,6 +99,8 @@ public static partial class Game
             StartMinionSwing(player, attack);
         foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
             _ = RunPlannedRampageWeaponSwing(player, cadence, id, m, action, target, weapon);
+        foreach (var (id, m, action, totem) in plan.DecoySwings)
+            _ = RunDecoySwing(player, cadence, id, m, action, totem);
     }
 
     // Work of the area's pass that sends, run as the player's: on their frame waits (AreaUpdateContext) and output guard.

@@ -49,6 +49,8 @@ public static partial class Game
         {
             SpawnedNpc? speaker;
             lock (player.Npcs) speaker = player.Npcs.GetValueOrDefault(use.TargetId);
+            if (speaker is null || speaker.Npc.Id == BanditChoices.In(player)?.Variety)
+                speaker = BanditChoices.Speaker(player, use.TargetId);
             if (speaker is not null)
             {
                 await TalkToNpc(player, use, speaker, requestedAt);
@@ -166,7 +168,8 @@ public static partial class Game
                 await GameEvents.RunLocalGateUsed(player);
             return;
         }
-        if (use.Ctrl)
+        bool labyrinthEntry = player.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance;
+        if (use.Ctrl && !labyrinthEntry)
         {
             await ShowInstances(player, dest, atWaypoint: false,
                 arrivalEntrance: AreaTransitionCatalog.PairedEntrance(player.Layout.Hash, dest, transition.Entrance));
@@ -174,8 +177,10 @@ public static partial class Game
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(player), player.Layout.Id, player.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false)
-            { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(player.Layout.Hash, dest, transition.Entrance) };
+            AreaTransitionCatalog.IdOf(dest), transition.Entrance, player.LabyrinthEntry);
+        if (labyrinthEntry && transfer is null) return;
+        transfer ??= new PendingTransfer(dest, 0, false)
+        { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(player.Layout.Hash, dest, transition.Entrance) };
         await ChangeArea(player, transfer, use.ToString());
     }
 
@@ -339,6 +344,7 @@ public static partial class Game
         // never held together. The endgame flags not earned yet (Quests.EndgameOnly: EndGameAvailable before Kitava) only
         // in a hideout and a map area, where the map device and the maps need them.
         var own = player.Character.QuestFlagsSnapshot();
+        BanditChoices.AddDialogueFlags(player, own);
         string[] endgame;
         endgame = [.. Quests.EndgameOnly.Where(player.Character.UnearnedQuestFlags.Contains)];
         if (endgame.Length > 0 && (inHideout || MapDevices.IsMapArea(player.Layout.Hash))) own.UnionWith(endgame);
@@ -349,13 +355,15 @@ public static partial class Game
                 .Distinct().Order()];
     }
 
-    // Entering an area marks it visited (saved, added to the saved ones) before the player object carries the quest flags.
-    public static void RecordVisit(Player player)
+    // Entering an area marks it visited (saved, added to the saved ones) after the player object is sent so the client's
+    // 0x2bc quest-flag diff sees the area's StartQuestFlags (Visited-*) transition 0 -> 1 and plays its Enter* voice line.
+    public static bool RecordVisit(Player player)
     {
-        if (WaypointCatalog.Visits.For(player.Layout.Id).Count == 0) return;
-        if (HardcoreProgressBlocked(player)) return;
-        lock (player.Character.Waypoints) if (!player.Character.Visited.Add(player.Layout.Id)) return;
+        if (WaypointCatalog.Visits.For(player.Layout.Id).Count == 0) return false;
+        if (HardcoreProgressBlocked(player)) return false;
+        lock (player.Character.Waypoints) if (!player.Character.Visited.Add(player.Layout.Id)) return false;
         CharacterSaves.AddVisited(CharacterName(player), [player.Layout.Id]);
+        return true;
     }
 
     // C→S 0x4d: a waypoint picked on the World panel. An activated waypoint changes area (the player arrives next to its
@@ -528,7 +536,7 @@ public static partial class Game
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn)
         {
-            AreaLayouts.CameFrom[r.Ticket] = player.Layout.Hash;
+            AreaLayouts.CameFrom[r.Ticket] = KitavaActTen.ArrivalSource(player.Layout.Id, t.Area) ?? player.Layout.Hash;
             if (t.ArrivalEntrance is int entrance) AreaLayouts.ArrivalEntrances[r.Ticket] = entrance;
         }
         if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;

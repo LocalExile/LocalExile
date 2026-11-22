@@ -142,12 +142,16 @@ public static partial class Game
         // A ground placed this step has its members from the next movement update; until then its cells decide.
         bool covered = state.Grounds.Any(g => g.Kind == FlaskGrounds.Kind.ConsecratedGround
             && (InZone(player, player.Id, FlaskGroundZones, g.Id, player.Id) || g.Covers(here)));
-        if (state.SetConsecrated(state.OnConsecrated(alive, covered, now), () => 1) is { } consecrated)
+        bool curseImmune = covered && state.Grounds.Any(g => g.GrantsCurseImmunity
+            && (InZone(player, player.Id, FlaskGroundZones, g.Id, player.Id) || g.Covers(here)));
+        bool wasCurseImmune = state.CurseImmune;
+        if (state.SetConsecrated(state.OnConsecrated(alive, covered, now, curseImmune), () => 1) is { } consecrated)
         {
             if (consecrated.Added) player.Area.Buffs.Set(player.Id, new(FlaskGrounds.ConsecratedBuffRow, player.Id));
             else player.Area.Buffs.Clear(player.Id, FlaskGrounds.ConsecratedBuffRow, player.Id);
             pending.StatRevision++;
         }
+        else if (wasCurseImmune != state.CurseImmune) pending.StatRevision++;
         state.StopTickerIfIdle();
     }
 

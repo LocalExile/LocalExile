@@ -20,14 +20,22 @@ public static class InstanceChat
         public bool IsCommand => Text.StartsWith('/');
     }
 
-    /// <summary>Bytes of the 0x15 at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
-    public static int? Length(ReadOnlySpan<byte> m)
+    /// <summary>Bytes of the 0x15 at the start of <paramref name="m"/>, or null if it is not complete yet (or invalid).</summary>
+    public static int? Length(ReadOnlySpan<byte> m) =>
+        MeasureLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureLength(ReadOnlySpan<byte> m, out int length)
     {
-        var r = new LoginReader(m);
-        r.U16();
-        r.WStr();
-        for (int links = r.U8(); links > 0; links--) r.U32();
-        return r.Short ? null : r.Position;
+        length = 0;
+        if (m.Length < 2) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[2..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        int linksAt = 2 + textLength;
+        if (linksAt >= m.Length) return WireMeasure.Incomplete;
+        int total = linksAt + 1 + 4 * m[linksAt];
+        if (m.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
     }
 
     /// <summary>C→S 0x12, 0x13 and 0x14 (senders in 0x14018faa0): one per item linked in a line, just before its 0x15. Only

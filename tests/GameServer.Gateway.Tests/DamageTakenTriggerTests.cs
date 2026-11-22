@@ -87,6 +87,7 @@ public class DamageTakenTriggerTests
             using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
             using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
             using var reader = listener.AcceptTcpClient();
+            player.Connection.Session = new("coc-test", writer.GetStream(), new ConnectionCiphers(new byte[64], false));
             var session = new Game.ProjectileSession(player);
             try
             {
@@ -97,7 +98,54 @@ public class DamageTakenTriggerTests
                 Assert.False(Game.ReleaseCriticalTrigger(player, session, source, true, true, (20, 0), 10.135));
                 Assert.True(Game.ReleaseCriticalTrigger(player, session, source, true, true, (20, 0), 10.137));
             }
-            finally { session.Invalidate(); }
+            finally { session.Invalidate(); player.Connection.WorldOutput.Close(); }
+        });
+    }
+    // Cast on Melee Kill: only a hostile kill by the linked melee attack releases the next linked spell.
+    [Fact]
+    public void Cast_on_melee_kill_releases_linked_spells_only_on_hostile_melee_kills()
+    {
+        WithCharacter(player =>
+        {
+            player.Clock.Start();
+            var names = new[] { "SkillGemCleave", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastOnKill" };
+            var robe = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+            { Sockets = [.. names.Select(n => new ItemSocket(SocketColour.White,
+                ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + n)!)))], Links = [4] };
+            Game.ItemsOf(player).Add(PlayerInventories.BodyArmour, 0, 0, robe);
+            Game.ItemsOf(player).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+            var attack = Game.GemSkillEffects(player).Single(s => s.Name == "Cleave");
+            var fireball = Game.GemSkillEffects(player).Single(s => s.Name == "Fireball");
+            var pulse = Game.GemSkillEffects(player).Single(s => s.Name == "Freezing Pulse");
+            Assert.Null(Game.CaptureCriticalTriggerSource(player, attack.Id));
+            var source = Assert.IsType<Game.LinkedTriggerSource>(Game.CaptureMeleeKillTriggerSource(player, attack.Id));
+            Assert.Equal(new[] { fireball.Id, pulse.Id }, source.Spells.Select(s => s.Skill));
+            Assert.Contains("melee attack's kill", Game.TriggerOnlyReason(Game.SupportedSkill(player, fireball.Id))!);
+            Assert.Null(Game.TriggerOnlyReason(Game.SupportedSkill(player, attack.Id)));
+            Assert.Equal(1.2, GemSupportDamage.Multipliers(GameServer.Core.World.DamageTypeHistory.Fire,
+                [(Stat.SupportCastOnMeleeKillSpellDamagePlusPctFinal, 20)], new HashSet<int> { 1 }).GeneralOrPhysical, 9);
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+            using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
+            using var reader = listener.AcceptTcpClient();
+            player.Connection.Session = new("comk-test", writer.GetStream(), new ConnectionCiphers(new byte[64], false));
+            var session = new Game.ProjectileSession(player);
+            try
+            {
+                int action = player.ActionCount; uint mana = player.PlayerMana;
+                Assert.False(Game.ReleaseMeleeKillTrigger(player, session, source, false, true, (20, 0), 10));
+                Assert.False(Game.ReleaseMeleeKillTrigger(player, session, source, true, false, (20, 0), 10));
+                Assert.Equal(mana, player.PlayerMana);
+                Assert.True(Game.ReleaseMeleeKillTrigger(player, session, source, true, true, (20, 0), 10));
+                session.AdvanceTo(0);
+                var first = Assert.IsType<ProjectileOffense>(Assert.Single(session.Runtime.Projectiles).Use.Payload);
+                Assert.Equal(fireball.Id, first.SourceSkill); Assert.False(first.ClientPredicted);
+                Assert.True(player.PlayerMana < mana);
+                Assert.True(Game.ReleaseMeleeKillTrigger(player, session, source, true, true, (20, 0), 10));
+                session.AdvanceTo(0);
+                Assert.Contains(session.Runtime.Projectiles, p => ((ProjectileOffense)p.Use.Payload!).SourceSkill == pulse.Id);
+                Assert.Equal(action, player.ActionCount);
+            }
+            finally { session.Invalidate(); player.Connection.WorldOutput.Close(); }
         });
     }
     static void EquipLinkedSpells(Player player, bool channel = false, bool awakened = false)
@@ -136,7 +184,7 @@ public class DamageTakenTriggerTests
           Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
           LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
       };
-        TestRequirements.Waive(player);
+        using var waived = TestRequirements.Waive(player);
         player.Clock.Stop();
         try { run(player); }
         finally { PlayerInventories.Forget(player.Character.Name!); lifetime.Stop(_ => { }); Game.CombatLifetime = oldLifetime; Program.SetGameLogic(old!); TestEnvironment.ReleaseSaves(path); }

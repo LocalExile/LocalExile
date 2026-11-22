@@ -182,7 +182,11 @@ public static partial class Game
             if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;
         });
         Step(PlayerStatStep.VaalPrevention, (player, stats, _) => WithVaalPrevention(player, stats));
-        Step(PlayerStatStep.VaalAura, (player, stats, _) => WithVaalAura(player, stats));
+        Step(PlayerStatStep.VaalAura, (player, stats, _) =>
+        {
+            WithVaalAura(player, stats);
+            WithTemporaryAuraStats(player, stats);
+        });
         Step(PlayerStatStep.SpiritLeadership, (player, stats, _) => AddSpiritLeadershipStats(player, stats));
         Step(PlayerStatStep.TotemAura, (player, stats, _) => AddTotemAuraStats(player, stats));
         Step(PlayerStatStep.Rage, (player, stats, _) => WithRage(player, stats));
@@ -203,6 +207,9 @@ public static partial class Game
             if (Stat.EvasionRating is var evasionKey)
                 stats[evasionKey] = PlayerEvasion(player, statsAt);
             WithLeechConditions(player, stats);
+            // The low-life flag the damage pipeline reads (Pain Attunement's "30% more Spell Damage when on Low Life"), kept
+            // here with the other live state flags so it cannot go stale with the cached stat head.
+            stats[Stat.OnLowLife] = CriticalOnLowLife(player, stats) ? 1 : 0;
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
             outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) / 60;

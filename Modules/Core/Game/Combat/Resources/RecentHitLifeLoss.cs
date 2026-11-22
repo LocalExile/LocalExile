@@ -87,7 +87,7 @@ public static partial class Game
         state.Settle(now, player.PlayerMaxLife);
         uint lost = (uint)Math.Min(player.PlayerLife, Math.Max(0, Math.Floor(state.Pending)));
         state.Pending -= lost;
-        player.PlayerLife -= lost;
+        player.PlayerLife = VaalImmortalCallLife(player, player.PlayerLife - lost, now);
         if (player.PlayerLife == 0)
         {
             state.Clear(now); player.InvalidateIncomingHits(); RecordHardcoreDeath(player);

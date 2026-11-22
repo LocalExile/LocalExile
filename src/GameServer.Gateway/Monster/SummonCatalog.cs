@@ -59,6 +59,7 @@ public sealed class SummonCatalog
             new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", Stat.BaseNumberOfRagingSpiritsAllowed, Stat.Of("active_raging_spirit_count"), Follows: false, Targetable: false),
             new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", Stat.BaseNumberOfReapersAllowed, Stat.Of("active_reaper_count"), true),
             new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", Stat.BaseNumberOfRelicsAllowed, Stat.NumberOfActiveRelics, true, Targetable: false),
+            new("VaalAnimateWeapon", "VaalAnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.NumberOfActiveVaalAnimatedWeapons),
             new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.Of("active_animated_weapon_count")),
             new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", 0, Stat.Of("active_animated_guardian_count"), true),
             new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),

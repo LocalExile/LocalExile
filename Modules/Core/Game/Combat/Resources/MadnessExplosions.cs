@@ -52,7 +52,7 @@ public static partial class Game
             var conversion = DamageStats.Conversion(playerStats, Stats, attack: null);
             ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false, bool lowLife = false)
             {
-                int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
+                int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
                 increased += SpiderDamageIncrease(Get, webs);
                 var woven = SpiderRawDamage(receipt.Raw, Get, webs);
                 var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion, spell: false, area: true,

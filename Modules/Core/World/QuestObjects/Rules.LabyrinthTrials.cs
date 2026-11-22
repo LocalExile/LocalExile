@@ -18,12 +18,17 @@ static partial class QuestobjectsRules
     internal static async Task UseLabyrinthSelect(Player player) =>
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthSelectUi), "0x007b open the Labyrinth select window");
 
-    // The Ascendancy Chamber's font (Act3Objects.AscendancyFont): the Labyrinth's two ascendancy points (once per tier; Izaro
-    // is not fought yet, so reaching the font is enough), then 0x7b kind 0x0a: the client opens its class selector for an
-    // unascended character (its choice comes back as C→S 0x39, ChooseAscendancyClass), else the passive tree.
+    // The Ascendancy Chamber's font (Act3Objects.AscendancyFont): two points once per tier, then 0x7b kind 0x0a.
+    // It opens the class selector for an unascended character (C→S 0x39, ChooseAscendancyClass), else the passive tree.
+    // Only once Izaro's last trial is won in this instance (the chamber is the last arena's own area).
     internal static async Task UseAscendancyFont(Player player)
     {
         if (LabyrinthDay.DifficultyOf(player.Layout.Id) is not int tier) return;
+        if (!player.Instance.HasState(IzaroFights.Beaten))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} the font: Izaro is not beaten in this instance");
+            return;
+        }
         try
         {
             int earned = await AwardAscendancyPoints(player, [global::AscendancyRules.AwardKeys[tier - 1]]);

@@ -64,7 +64,15 @@ public static partial class Game
         }
         await TickBeastCompanions(player, now, rules);
         if (!Current()) return;
+        await TickEssenceSummons(player, now);
+        if (!Current()) return;
+        await TickEssenceDeathSpawns(player);
+        if (!Current()) return;
+        await TickEssenceInsectContacts(player);
+        if (!Current()) return;
         MinionUtilityTick(player, now);
+        InfernalLegionTickLocked(player, now);
+        TickEssenceAurasLocked(player, now);
         await GolemsTick(player, now);
         if (!Current()) return;
         await SummonsTick(player, now);
@@ -72,6 +80,8 @@ public static partial class Game
         await ReservationSkillsTick(player, now);
         if (!Current()) return;
         await PlacedSkillsTick(player, now);
+        if (!Current()) return;
+        await MirageWarriorsTick(player, now);
         if (!Current()) return;
         if (player.Minions.All.Count == 0 && player.Minions.Bodies.Count == 0
             && player.Minions.PendingRelics == 0 && player.Minions.OutputQueue.Count == 0)

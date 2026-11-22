@@ -79,10 +79,12 @@ public static partial class Game
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.Persistent) return double.PositiveInfinity;
+        bool secondary = definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal);
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
-            : definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal) ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
+            : secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
         var playerStats = CharacterPlayerStats(player);
-        return SkillDurationModifiers.Seconds(ms, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n));
+        return SkillDurationModifiers.Seconds(ms, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n),
+            DurationKinds(player, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
     }
 
     static SpawnedMonster? SummonCorpse(Player player, (int X, int Y) aim, uint target, double radius = 15)
@@ -153,7 +155,8 @@ public static partial class Game
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
-        MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null)
+        MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null,
+        AnimatedSource? preparedEquipment = null)
     {
         SupportedGem gem;
         Dictionary<uint, int> playerStats;
@@ -195,9 +198,9 @@ public static partial class Game
             if (definition.Family == "Spectre") path = corpse.Variety!.Id;
             aim = corpse.Walk.Position(AreaTime(player));
         }
-        if (definition.Family is "AnimatedWeapon" or "AnimatedGuardian" or "Clone")
+        if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" or "Clone")
         {
-            animated = AnimatedItems(player, definition, gem, aim, target, restoredEquipment);
+            animated = preparedEquipment ?? AnimatedItems(player, definition, gem, aim, target, restoredEquipment);
             if (animated is null) return 0;
             if (animated.Ground is { } item) aim = (item.GridX, item.GridY);
         }
@@ -215,6 +218,9 @@ public static partial class Game
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
+        if (inheritedMods is null && definition.Family == "RagingSpirit")
+            inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
+                [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
         var fighter = new GolemState.Golem(0, null!, native, source)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = new(gem.Stats), Player = new(playerStats), Limit = limit,
@@ -259,7 +265,7 @@ public static partial class Game
             ownedLooks: SummonLooks(fighter),
             ownedAdmission: () => (replacement is null || SummonReplacementCurrentLocked(player, replacement))
                 && (animated?.GuardianGear is not { } guardian || AnimatedGuardianGearCurrentLocked(player, guardian))
-                && (animated?.Ground is not { } item || player.Instance.Ground.Take(animated.Id, item) is not null),
+                && ConsumeAnimatedSourceLocked(player, animated),
             ownedCurrent: () => player.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
                 && (replacement is { } admission
                     ? SummonReplacementCurrentLocked(player, admission)
@@ -268,7 +274,10 @@ public static partial class Game
             owned: (id, monster) =>
             {
                 if (consumed is not null) ConsumeSummonCorpseLocked(player, consumed, playerConsumesCorpse);
-                if (animated?.Ground is not null) player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
+                if (animated?.Ground is not null)
+                    player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
+                if (animated?.BladeSource is not null)
+                    player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "lingering blade animated"));
                 if (definition.Family == "AnimatedGuardian") player.Summons.GuardianEquipment = new(fighter.Equipment);
                 bool SameLimit(GolemState.Golem g) => g.Definition.Kind == definition.Family && !g.Monster.Dead
                     && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
@@ -373,7 +382,6 @@ public static partial class Game
             {
                 if (player.PlayerLife == 0 || fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])
                 {
-                    if (fighter.Definition.Kind == "AnimatedGuardian" && (fighter.Monster.Dead || fighter.Monster.Life == 0)) state.GuardianEquipment.Clear();
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }
                 if (playerStats is null) { GolemStepLocked(player, fighter, now); continue; }
@@ -425,6 +433,7 @@ public static partial class Game
         ["Absolution"] = Stat.NumberOfActiveAbsolutionSentinels, ["VaalAbsolution"] = Stat.NumberOfActiveVaalAbsolutionSentinels,
         ["Phantasm"] = Stat.NumberOfActivePhantasms, ["Zombie"] = Stat.NumberOfActiveZombies, ["Spectre"] = Stat.NumberOfActiveSpectres,
         ["Skeleton"] = Stat.NumberOfActiveSkeletons, ["RagingSpirit"] = Stat.NumberOfActiveRagingSpirits, ["HolyRelic"] = Stat.NumberOfActiveRelics,
-        ["Reaper"] = Stat.NumberOfActiveReapers, ["AnimatedWeapon"] = Stat.NumberOfActiveAnimatedWeapons, ["AnimatedGuardian"] = Stat.NumberOfActiveAnimatedArmour,
+        ["Reaper"] = Stat.NumberOfActiveReapers, ["VaalAnimatedWeapon"] = Stat.NumberOfActiveVaalAnimatedWeapons,
+        ["AnimatedWeapon"] = Stat.NumberOfActiveAnimatedWeapons, ["AnimatedGuardian"] = Stat.NumberOfActiveAnimatedArmour,
     };
 }

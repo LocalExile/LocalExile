@@ -99,6 +99,9 @@ public static class CosmeticsFeature
         // A Righteous Fire already burning from this gem takes the new art at once: casting again while it burns does
         // nothing, so it is lit again with the new ring and buff visuals only while the exact pick-time owner still exists.
         await RelightRighteousFire(player, "restyled by the skill pick", expectedRelight, slot.GemHash);
+        // Active reservation skills (Tempest Shield, auras, heralds, Arctic Armour) likewise re-emit their buffs with
+        // the new art variation / hide flag so the pick applies immediately.
+        await RefreshReservationCosmetics(player, slot.GemHash);
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole

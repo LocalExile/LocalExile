@@ -80,7 +80,7 @@ public static partial class Game
         (int X, int Y) at, int radius, int epoch, int percent, Func<uint, int> get, DamageConversion conversion)
     {
         int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
-        var consumed = new List<(uint Id, string Label, (int X, int Y) At)>();
+        var consumed = new List<(uint Id, string Label, (int X, int Y) At, bool Remove)>();
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit, int Damage)>();
         using (ProjectileMutation(player))
         {
@@ -95,11 +95,11 @@ public static partial class Game
                 player.Area.Monsters.Remove(id);
                 var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);
                 var centre = corpse.Walk.Position(now);
-                consumed.Add((id, corpse.Label, centre));
+                consumed.Add((id, corpse.Label, centre, !corpse.CreatedAsCorpse));
                 foreach (var (targetId, m) in player.Area.MonstersNear(centre, blast).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
-                    int damage = MonsterDamage(m, hit, AreaRng(player), default);
+                    int damage = MonsterTakes(m, hit, AreaRng(player), spell: false, now: now);
                     if (ApplyMonsterHitLocked(player, m, damage) is not { } applied) continue;
                     if (applied.StageStarts)
                     {
@@ -111,7 +111,7 @@ public static partial class Game
             }
         }
         var art = new List<uint>();
-        foreach (var (id, label, centre) in consumed)
+        foreach (var (id, label, centre, remove) in consumed)
         {
             uint effect;
             effect = player.TakeObjectId();
@@ -119,7 +119,7 @@ public static partial class Game
             await SendWorldCreate(player, effect, () => InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()),
                     $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})", wake: true, awaitBirth: false);
-            await Game.SendWorldRemoval(player, id, $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
+            if (remove) await Game.SendWorldRemoval(player, id, $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
         }
         if (art.Count > 0)
             _ = AreaFrames.Start(async () =>

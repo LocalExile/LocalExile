@@ -58,20 +58,23 @@ public static partial class Game
         int RawCritical(uint name) => IsCriticalProhibition(name) ? 0 : Get(name);
         int effect = SkillEffectId(player, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(player).EffectRow(id) : -1;
         var weapon = WeaponProfileFor(player, activeSet: true);
-        var sourceWeapon = WeaponFor(player);
+        // Two wands alternate: this use's hand (AttackHands) fires its own bolt.
+        var hand = DefaultAttackHand(player, sequence);
+        var sourceWeapon = HandWeapon(player, hand);
+        int handAccuracy = HandAccuracy(player, hand, character);
         int criticalChance = CriticalProhibited(player, attack: true)
-            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, player.Pools.CriticalStrikeChancePct, RawCritical)
-            : player.Pools.AttackCriticalStrikeChance;
+            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, HandWeaponCritical(player, hand), player.Pools.CriticalStrikeChancePct, RawCritical)
+            : HandAttackCriticalChance(player, hand, character);
         var captured = OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(player).EffectStats(effect, 1), Stats,
-            PlayerAccuracy(player, character), criticalChance, player.Pools.CriticalStrikeMultiplier);
+            handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier);
         bool wand = projectileId == OrdinaryRangedAttack.Wand;
         long additionalBlindedIncreased = PlayerHitDamage.VsBlindedDamageStat is var blindedDamageKey
             ? character.GetValueOrDefault(blindedDamageKey) : 0;
         var blindedCapture = additionalBlindedIncreased == 0 ? null
             : OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(player).EffectStats(effect, 1), Stats,
-                PlayerAccuracy(player, character), criticalChance, player.Pools.CriticalStrikeMultiplier,
+                handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier,
                 additionalBlindedIncreased);
-        var raw = SupportedAttackDamage.Raw(sourceWeapon, Get);
+        var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
         var conversion = DamageStats.Conversion(character, Stats, attack: true);
         var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
@@ -79,14 +82,16 @@ public static partial class Game
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
+            WeaponAttack = true,
+            TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             Spider = !HasSpiderDamage(Get) ? null : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
                 Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<uint, int>(sourceWeapon.LocalSources),
                 Bow: !wand),
             SkillStats = SkillsFor(player).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
-            VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(player, character, release: true),
-            VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true),
+            VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(player, character, release: true, hand: hand),
+            VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true, hand: hand),
             Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
             ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
@@ -101,7 +106,7 @@ public static partial class Game
                 MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
                     projectileAttack: true)),
             MaimChance = Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
-            CriticalRoll = criticalRoll, Leech = captured.Leech,
+            CriticalRoll = criticalRoll, Leech = captured.Leech, WeaponLocal = sourceWeapon.LocalSources,
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
             LocalStunThresholdReduction = sourceWeapon.LocalSources?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
             AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,

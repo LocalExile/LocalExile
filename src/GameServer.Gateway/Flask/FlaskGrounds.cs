@@ -135,6 +135,8 @@ public static class FlaskGrounds
         static uint lastId;
         /// <summary>The ground's own id (its zone's key); a copy made with <c>with</c> is the same ground.</summary>
         public uint Id { get; init; } = Interlocked.Increment(ref lastId);
+        public Func<double, bool>? SourceAlive { get; init; }
+        public bool GrantsCurseImmunity { get; init; }
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
     }
 
@@ -155,10 +157,21 @@ public static class FlaskGrounds
         int _stationaryRadius;
         double _lingerSeconds, _profaneLingerSeconds, _lastCovered = double.NegativeInfinity;
         Ground? _stationary;
+        double _lastCurseImmune = double.NegativeInfinity;
+        bool _curseImmune;
 
         public bool Any
         {
             get { lock (_lock) return !Idle; }
+        }
+
+        public bool NeedsMonsterUpdates
+        {
+            get
+            {
+                lock (_lock) return _blinded.Count > 0 || _profane.Count > 0
+                    || _grounds.Any(g => g.Kind is Kind.SmokeCloud or Kind.ProfaneGround);
+            }
         }
 
         bool Idle => _grounds.Count == 0 && _blinded.Count == 0 && _profane.Count == 0 && _consecrated is null
@@ -209,20 +222,31 @@ public static class FlaskGrounds
         /// <summary>Whether the player counts as on consecrated ground: covered by one of his grounds now, or within the
         /// linger after the last moment one covered him (the wiki: the effects linger after they would normally be removed,
         /// by leaving or by the ground ending). A death ends the linger.</summary>
-        public bool OnConsecrated(bool alive, (int X, int Y) at, double now) =>
-            OnConsecrated(alive, Covers(Kind.ConsecratedGround, at), now);
+        public bool OnConsecrated(bool alive, (int X, int Y) at, double now)
+        {
+            bool covered, protectedHere;
+            lock (_lock)
+            {
+                covered = _grounds.Any(g => g.Kind == Kind.ConsecratedGround && g.Covers(at));
+                protectedHere = covered && _grounds.Any(g => g.GrantsCurseImmunity && g.Covers(at));
+            }
+            return OnConsecrated(alive, covered, now, protectedHere);
+        }
 
         /// <summary>The same, when whether a consecrated ground covers the player is known (the grounds' zones).</summary>
-        public bool OnConsecrated(bool alive, bool covered, double now)
+        public bool OnConsecrated(bool alive, bool covered, double now, bool curseImmune = false)
         {
             lock (_lock)
             {
                 if (!alive)
                 {
-                    _lastCovered = double.NegativeInfinity;
+                    _lastCovered = _lastCurseImmune = double.NegativeInfinity;
+                    _curseImmune = false;
                     return false;
                 }
                 if (covered) _lastCovered = now;
+                if (curseImmune) _lastCurseImmune = now;
+                _curseImmune = curseImmune || now < _lastCurseImmune + _lingerSeconds;
                 return covered || now < _lastCovered + _lingerSeconds;
             }
         }
@@ -276,7 +300,7 @@ public static class FlaskGrounds
         {
             lock (_lock)
             {
-                List<Ground> ended = [.. _grounds.Where(g => g.Ends <= now)];
+                List<Ground> ended = [.. _grounds.Where(g => g.Ends <= now || g.SourceAlive?.Invoke(now) == false)];
                 foreach (var g in ended) _grounds.Remove(g);
                 return ended;
             }
@@ -410,8 +434,11 @@ public static class FlaskGrounds
         /// consecrated_ground_effect_+%.</summary>
         public IReadOnlyList<(uint Stat, int Value)> PlayerStats(int effectPct = 0)
         {
-            lock (_lock) return _consecrated is null ? [] : Consecrated(effectPct);
+            lock (_lock) return _consecrated is null ? [] : _curseImmune
+                ? [.. Consecrated(effectPct), (Stat.ImmuneToCurses, 1)] : Consecrated(effectPct);
         }
+
+        public bool CurseImmune { get { lock (_lock) return _curseImmune; } }
 
         /// <summary>Whether the player currently carries the ground_consecration effect maintained by the ticker.</summary>
         public bool Consecrated

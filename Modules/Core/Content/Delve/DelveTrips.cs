@@ -27,31 +27,29 @@ public sealed partial class DelveModule
         if (mine.Pending?.Id == plan.Id) return;
         if (Sulphite(world.CharacterData) < plan.Cost)
         { await modPlayer.Tell($"This trip requires {plan.Cost} sulphite."); return; }
-        if (DelveTerrain.Seed(plan.From, plan.To) != 1)
+        // Validate the generated layout and rails before transferring, including the first trip.
+        IEnumerable<string> previousShapes = mine.SeenRoutes ?? [];
+        if (mine.LastScene is { SceneSeed: > 0 } last && last.RailShape?.StartsWith("v1:", StringComparison.Ordinal) != true
+            && DelveRailRoute.Load("Delve_Main", last.SceneSeed) is { } previousRail)
+            previousShapes = previousShapes.Append(previousRail.Shape());
+        var shapes = previousShapes.ToArray();
+        DelveMine.Plan? prepared = null;
+        for (int retry = 0; retry < 12; retry++)
         {
-            IEnumerable<string> previousShapes = mine.SeenRoutes ?? [];
-            if (mine.LastScene is { SceneSeed: > 0 } last && last.RailShape?.StartsWith("v1:", StringComparison.Ordinal) != true
-                && DelveRailRoute.Load("Delve_Main", last.SceneSeed) is { } previousRail)
-                previousShapes = previousShapes.Append(previousRail.Shape());
-            var shapes = previousShapes.ToArray();
-            DelveMine.Plan? prepared = null;
-            for (int retry = 0; retry < 12; retry++)
-            {
-                DelveMine.Plan candidate;
-                try { candidate = DelveTerrain.Procedural(mine, plan, AreaRng(player)); }
-                catch (ArgumentException ex) { await modPlayer.Tell(ex.Message); return; }
-                if (ServerLevels.PrepareDelve(candidate.SceneSeed, DelveMine.MonsterLevel(plan.Depth), candidate.Terrain!) is not { } scene) continue;
-                var rails = DelveRailRoute.Load("Delve_Main", candidate.SceneSeed);
-                if (rails is null || (mine.SeenTerrain ?? []).Contains(scene.TileHash))
-                { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
-                string shape = rails.Shape();
-                if (shapes.Any(old => DelveRailRoute.Similar(old, shape))) { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
-                prepared = candidate with { TerrainHash = scene.TileHash, RailShape = shape };
-                break;
-            }
-            if (prepared is null) { await modPlayer.Tell("A new connected mine route could not be generated. No sulphite was spent."); return; }
-            plan = prepared;
+            DelveMine.Plan candidate;
+            try { candidate = DelveTerrain.Procedural(mine, plan, AreaRng(player)); }
+            catch (ArgumentException ex) { await modPlayer.Tell(ex.Message); return; }
+            if (ServerLevels.PrepareDelve(candidate.SceneSeed, DelveMine.MonsterLevel(plan.Depth), candidate.Terrain!) is not { } scene) continue;
+            var rails = DelveRailRoute.Load("Delve_Main", candidate.SceneSeed);
+            if (rails is null || (mine.SeenTerrain ?? []).Contains(scene.TileHash))
+            { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
+            string shape = rails.Shape();
+            if (shapes.Any(old => DelveRailRoute.Similar(old, shape))) { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
+            prepared = candidate with { TerrainHash = scene.TileHash, RailShape = shape };
+            break;
         }
+        if (prepared is null) { await modPlayer.Tell("A new connected mine route could not be generated. No sulphite was spent."); return; }
+        plan = prepared;
         var attempt = new Attempt(plan, world.AccountData) { Player = modPlayer, Owner = CharacterName(player) };
         _attempts[plan.Id] = attempt;
         if (!DelveMine.Change(world.AccountData, m => m.Pending is null && m.Current == plan.From
@@ -329,6 +327,11 @@ public sealed partial class DelveModule
         if (!DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m.Finish(attempt.Plan.Id) : null)) return;
         character.Change(DepthKey, text => Math.Max(int.TryParse(text, out int deepest) ? deepest : 0, trip.Depth).ToString());
         if (!trip.TryComplete(false)) return;
+        if (attempt.Plan.Reward)
+        {
+            uint azurite = (uint)(30 + Math.Max(0, trip.Depth - 1) * 10);
+            ChangeEquipment(attempt.Account, p => p with { Azurite = p.Azurite + azurite });
+        }
         player.Instance.SetState(DestinationFlag(modPlayer));
         var at = state.CrawlerCell;
         for (int i = 0; i < drops.Count; i++)
@@ -345,6 +348,8 @@ public sealed partial class DelveModule
         await EnsureDestinationLight(modPlayer, state, state.CrawlerCell);
         await CreateCrawlerBody(modPlayer, state, state.CrawlerCell.X, state.CrawlerCell.Y, trip.Heading(trip.Length), roaming: false);
         await PlayCompletionEffect(modPlayer, state, state.CrawlerCell);
+        if (attempt.Plan.Reward && Equipment(attempt.Account).Azurite >= 30 && !player.Character.HasQuestFlag("NikoHaveEnoughAzurite"))
+            await SetQuestFlags(player, ["NikoHaveEnoughAzurite"]);
         await PublishChart(module, modPlayer);
         foreach (var (id, ground) in groundItems)
         {

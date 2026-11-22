@@ -23,8 +23,9 @@ public static partial class Game
     {
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);
-        foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
-            if (items.Items(row) is [var equipped, ..] && !IsInactive(player, equipped.Id)
+        foreach (var (row, equipped) in EquipmentForStats(player))
+            if (row is PlayerInventories.BodyArmour or PlayerInventories.Helmet or PlayerInventories.Gloves or PlayerInventories.Boots or PlayerInventories.Offhand1
+                && !IsInactive(player, equipped.Id)
                 && catalog.ByHash(equipped.Item.TypeHash) is { } type && catalog.Defences(type) is { } defences)
             {
                 var (a, e, s) = ItemDefences.Calculate(equipped.Item, defences, catalog.Mods);
@@ -145,6 +146,8 @@ public static partial class Game
     public static IReadOnlyDictionary<uint, int>? MainHandLocalSources(Player player) =>
         WeaponFor(player).LocalSources;
 
+    static bool OneHandMelee(ItemCatalog.BaseType type) => WeaponIdentity.OneHandMelee(type.Class);
+
     // Current actions and passive weapon conditions use only the hands' active rows. A normal weapon swap trades
     // these rows with 14/15 before recomputing pools; an explicit false is reserved for inspecting both stored sets.
     public static WeaponProfile WeaponProfileFor(Player player, bool activeSet = true)
@@ -153,16 +156,26 @@ public static partial class Game
         return WeaponProfileFrom(row => items.Items(row), id => IsInactive(player, id), ItemsFor(player), activeSet, () => HasShield(player));
     }
 
+    // Animation suffixes and contact geometry use the physical weapon, not its additional gameplay identities.
+    public static WeaponProfile AnimationWeaponProfileFor(Player player)
+    {
+        var items = ItemsOf(player);
+        return WeaponProfileFrom(row => items.Items(row), id => IsInactive(player, id), ItemsFor(player),
+            activeSet: true, () => HasShield(player), expandedIdentities: false);
+    }
+
     // WeaponProfileFor from rows read once (the stat snapshot's tail inputs hold rows 2 and 3, the active set's hands).
     public static WeaponProfile WeaponProfileFrom(Func<byte, IReadOnlyList<InventoryItem>> rowItems, Func<uint, bool> inactive,
-        ItemCatalog catalog, bool activeSet, Func<bool> hasShield)
+        ItemCatalog catalog, bool activeSet, Func<bool> hasShield) =>
+        WeaponProfileFrom(rowItems, inactive, catalog, activeSet, hasShield, expandedIdentities: true);
+
+    static WeaponProfile WeaponProfileFrom(Func<byte, IReadOnlyList<InventoryItem>> rowItems, Func<uint, bool> inactive,
+        ItemCatalog catalog, bool activeSet, Func<bool> hasShield, bool expandedIdentities)
     {
         // An inactive weapon (requirements not met) is not there at all: the class is unarmed, as the default attack's
         // unarmed fallback (WeaponFor) is.
         ItemCatalog.BaseType? At(byte row) => rowItems(row).Where(i => !inactive(i.Id))
             .Select(i => catalog.ByHash(i.Item.TypeHash)).FirstOrDefault(t => t is not null);
-        static bool OneHandMelee(ItemCatalog.BaseType t) => t.Class is "Claw" or "Dagger" or "Rune Dagger"
-            or "One Hand Sword" or "Thrusting One Hand Sword" or "One Hand Axe" or "One Hand Mace" or "Sceptre";
         static bool OneHand(ItemCatalog.BaseType t) => OneHandMelee(t) || t.Class == "Wand";
         static bool TwoHandMelee(ItemCatalog.BaseType t) => t.Class is "Two Hand Sword" or "Two Hand Axe"
             or "Two Hand Mace" or "Staff" or "Warstaff";
@@ -172,9 +185,22 @@ public static partial class Game
         var off1 = At(3);
         var main2 = activeSet ? null : At(14);
         var off2 = activeSet ? null : At(15);
+        // A loop, not LINQ: every stat-sources lookup reaches this through ItemConditionFlags.
+        bool AllTypes(byte row)
+        {
+            if (!expandedIdentities) return false;
+            var items = rowItems(row);
+            for (int k = 0; k < items.Count; k++)
+                if (!inactive(items[k].Id) && WeaponIdentity.AllOneHandMelee(items[k].Item, catalog.Mods)) return true;
+            return false;
+        }
+        bool mainAll1 = AllTypes(2), offAll1 = AllTypes(3),
+            mainAll2 = !activeSet && AllTypes(14), offAll2 = !activeSet && AllTypes(15);
+        bool allTypes = mainAll1 || offAll1 || mainAll2 || offAll2;
         var all = new[] { main1, off1, main2, off2 }.OfType<ItemCatalog.BaseType>().ToList();
         var dual = Pair(main1, off1) || Pair(main2, off2);
-        var claws = (main1?.Class == "Claw" && off1?.Class == "Claw") || (main2?.Class == "Claw" && off2?.Class == "Claw");
+        var claws = ((main1?.Class == "Claw" || mainAll1) && (off1?.Class == "Claw" || offAll1))
+            || ((main2?.Class == "Claw" || mainAll2) && (off2?.Class == "Claw" || offAll2));
         var unarmed = main1 is null && main2 is null;
         var mainItem = rowItems(2).Concat(activeSet ? [] : rowItems(14)).Where(i => !inactive(i.Id)).Select(i => i.Item).FirstOrDefault();
         var local = mainItem is null ? [] : ItemModStats.Local(mainItem, catalog.Mods);
@@ -190,11 +216,11 @@ public static partial class Game
             Melee: unarmed || all.Any(t => OneHandMelee(t) || TwoHandMelee(t)),
             OneHandMelee: all.Any(OneHandMelee),
             TwoHandMelee: all.Any(TwoHandMelee),
-            Axe: all.Any(t => t.Class is "One Hand Axe" or "Two Hand Axe"),
-            Sword: all.Any(t => t.Class is "One Hand Sword" or "Thrusting One Hand Sword" or "Two Hand Sword"),
-            Mace: all.Any(t => t.Class is "One Hand Mace" or "Two Hand Mace"),
-            Claw: all.Any(t => t.Class == "Claw"),
-            Dagger: all.Any(t => t.Class is "Dagger" or "Rune Dagger"),
+            Axe: allTypes || all.Any(t => t.Class is "One Hand Axe" or "Two Hand Axe"),
+            Sword: allTypes || all.Any(t => t.Class is "One Hand Sword" or "Thrusting One Hand Sword" or "Two Hand Sword"),
+            Mace: allTypes || all.Any(t => t.Class is "One Hand Mace" or "Two Hand Mace"),
+            Claw: allTypes || all.Any(t => t.Class == "Claw"),
+            Dagger: allTypes || all.Any(t => t.Class is "Dagger" or "Rune Dagger"),
             Wand: all.Any(t => t.Class == "Wand"),
             // The main hand's local critical chance and accuracy feed its character calculations. Local attack speed
             // is item metadata here; ItemWeaponStats already includes it in that hand's duration.

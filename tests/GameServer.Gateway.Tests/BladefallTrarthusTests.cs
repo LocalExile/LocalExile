@@ -23,6 +23,17 @@ public class BladefallTrarthusTests
             Own("bladefall_volley_frequency_+%_per_100_maximum_mana"), 691));
         Assert.Equal(700, BladefallVolleys.FrequencyMs(700, 2, 99));
         Assert.Equal(2073, BladefallVolleys.ManaPerMinute(Own("base_mana_cost_%_per_minute"), 691));
+        var conn = new Player(new(1, "bladefall", 100, 100, 100, 100, null, []), 1, 1);
+        var state = conn.BladefallTrarthus = new(1, 2, 3) { CostPerMinute = 300 };
+        Assert.Equal(5, Game.BladefallManaSpent(conn, 1));
+        state.PaysLife = true;
+        Assert.Equal(0, Game.BladefallManaSpent(conn, 1));
+        Assert.Equal(0u, Lifetap.PayOngoingLife(4, .75, ref state.LifeCostCarry, out bool exhausted));
+        Assert.False(exhausted);
+        Assert.Equal(1u, Lifetap.PayOngoingLife(4, .5, ref state.LifeCostCarry, out exhausted));
+        Assert.Equal(.25, state.LifeCostCarry);
+        Assert.Equal(2u, Lifetap.PayOngoingLife(3, 5, ref state.LifeCostCarry, out exhausted));
+        Assert.True(exhausted);
         Assert.NotNull(BladefallVolleys.BuffRow(BladefallVolleys.CostBuff));
         Assert.NotNull(BladefallVolleys.BuffRow(BladefallVolleys.BladesBuff));
 

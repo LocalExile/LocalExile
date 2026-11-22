@@ -26,17 +26,18 @@ public static partial class Game
             ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
         return WithOverheat(player, skillId, MonsterPoisons.Settings.From(rows, hand, get,
-            spell || weapon is not null ? null : MainHandLocalSources(player)));
+            spell ? null : weapon is null ? MainHandLocalSources(player) : weapon.LocalSources));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
     public static MonsterPoisons.Settings DefaultAttackPoison(Player player, IReadOnlyDictionary<uint, int> playerStats,
-        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
+        int? accuracy = null)
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats))), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get, sourceWeapon.LocalSources);
     }
@@ -90,6 +91,7 @@ public static partial class Game
         for (int i = 0; i < stacks; i++)
             if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
         if (accepted == 0) return false;
+        InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
         return true;
     }
@@ -144,7 +146,11 @@ public static partial class Game
         {
             if (life == 0)
                 SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-            Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of poison" : null);
+            if (life == 0 && DotDeathKind(m, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind),
+                    $"0x01b1 monster 0x{id:x} ({m.Label}) died of poison");
+            else
+                Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of poison" : null);
             if (life == 0) await DotKilled(player, id, m);
         }
     }

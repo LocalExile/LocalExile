@@ -8,6 +8,23 @@ public static partial class Game
         new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
             m.Rarity, at.X, at.Y) { ObjectId = m.ObjectId };
 
+    // A mod's stacks (DropRoll.Stacks): each stackable item type with its count, split at the type's stack size.
+    public static IEnumerable<ItemDrops.Drop> ModStacks(Player player, DropRoll? modded)
+    {
+        if (modded is null || modded.Stacks.Count == 0) yield break;
+        foreach (var (query, count) in modded.Stacks)
+        {
+            if (count <= 0) continue;
+            if (ItemsFor(player).Find(query) is not { Supported: true, Stackable: true } type)
+            {
+                Console.WriteLine($"[mods] a mod's stack \"{query}\" is no stackable item type the server can create");
+                continue;
+            }
+            for (int left = count; left > 0; left -= type.MaxStack)
+                yield return new(ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(left, type.MaxStack) }, type);
+        }
+    }
+
     // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
     public static ItemDrops.Drop? ModDrop(Player player, string query, int itemLevel)
     {
@@ -18,6 +35,30 @@ public static partial class Game
         if (type.Stackable) return new(ItemCatalog.Create(type), type);
         var (sockets, links) = ItemsFor(player).DefaultSockets(type, itemLevel);
         return new(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, type);
+    }
+
+    // A mod's ready-made drops (DropRoll.Made); one whose base type the server does not know is left out.
+    public static IEnumerable<ItemDrops.Drop> MadeDrops(Player player, DropRoll? modded)
+    {
+        foreach (var item in modded?.Made ?? [])
+            if (ItemsFor(player).ByHash(item.TypeHash) is { } type) yield return new(item, type);
+            else Console.WriteLine($"[mods] a mod's drop 0x{item.TypeHash:x8} is no item type the server knows");
+    }
+
+    // Marks every corruptible item in a monster's drop list as corrupted (DropRoll.Corrupted): equipment, jewels, gems and maps.
+    public static void CorruptDrops(List<ItemDrops.Drop> drops)
+    {
+        for (int i = 0; i < drops.Count; i++)
+        {
+            var d = drops[i];
+            if (d.Item.Corrupted || d.Item.Mirrored || d.Item.Vestigial || d.Type.Stackable || d.Type.Unmodifiable
+                || d.Type.Components.Contains("Charges") || d.Type.Components.Contains("Quest")
+                || d.Type.Components.Contains("DeepwaterChart") || d.Type.Components.Contains("HeistBlueprint")) continue;
+            if (d.Type.CanBeCorrupted || d.Type.Components.Contains("Mods")
+                || d.Type.Components.Contains("SkillGem") || d.Type.Components.Contains("Map")
+                || d.Type.Components.Contains("MapKey"))
+                drops[i] = d with { Item = d.Item with { Corrupted = true } };
+        }
     }
 
     /// <summary>The items the league's and the mods' drop changes add to a kill (DropRoll.Items as /item makes them,

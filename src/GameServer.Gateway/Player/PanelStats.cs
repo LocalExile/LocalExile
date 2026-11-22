@@ -484,8 +484,9 @@ public static class PanelStats
             }
         }
         if (referenceAccuracy is int accuracy)
-            result.Add((Stat.ChanceToEvadePct, Math.Clamp(DamageModel.EvadeChance(pools.Evasion, accuracy)
-                + get(Stat.ChanceToEvadeAttacksPct), 0, EvadeChanceCap)));
+            result.Add((Stat.ChanceToEvadePct, get(Stat.KeystoneUnwaveringStance) != 0 ? 0
+                : Math.Clamp(DamageModel.EvadeChance(pools.Evasion, accuracy)
+                    + get(Stat.ChanceToEvadeAttacksPct), 0, EvadeChanceCap)));
         if (pools.Ward > 0)
             result.Add((Stat.WardDelay, (int)Math.Clamp(Math.Round(WardState.Delay(get) * 1000), 0, int.MaxValue)));
         if (get(Stat.EnergyShieldRechargeApplyToMana) != 0)

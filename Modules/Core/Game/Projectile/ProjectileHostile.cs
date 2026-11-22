@@ -189,7 +189,19 @@ public static partial class Game
             session.Enqueue(() => PublishMinionOutcomes(player));
             return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }
-        if (contact.Target.Id != player.Id || player.PlayerLife == 0 || InGracePeriod(player)) return ProjectileHitResult.Miss;
+        if (contact.Target.Id != player.Id)
+        {
+            var totems = player.Totems.All;
+            for (int i = 0; i < totems.Count; i++)
+                if (totems[i].Id == contact.Target.Id && totems[i].DecoyRadius > 0)
+                {
+                    double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+                    return DecoyTakeHitLocked(player, totems[i], shot.Monster, shot.Attack, now, contact.Multiplier)
+                        ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
+                }
+            return ProjectileHitResult.Miss;
+        }
+        if (player.PlayerLife == 0 || InGracePeriod(player)) return ProjectileHitResult.Miss;
         var outcome = CommitHostilePlayerHitLocked(session, contact, shot);
         if (outcome is null) return ProjectileHitResult.Miss;
         session.World(shot.MonsterId, outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");

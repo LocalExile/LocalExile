@@ -40,6 +40,7 @@ public static partial class Game
         bool ignoresDots = GolemIgnoresDots(golem);
         double fireFactor = elementalImmune || ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Fire, to);
         int fire = m.Ignites.Advance(to, fireFactor, 0, out double? fireAt);
+        int legion = InfernalLegionSelfDamage(golem, to - from, fireFactor);
         int bleed = m.Bleeds.Advance(to, ignoresDots ? 0 : BleedTaken(m, to),
             ignoresDots ? 0 : AggravatedExtra(m, to), out double? bleedAt);
         int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to),
@@ -50,10 +51,12 @@ public static partial class Game
         foreach (double? at in new[] { fireAt, bleedAt, poisonAt })
             if (at is double value && (lastDamageAt is not double last || value > last))
                 lastDamageAt = value;
+        if (legion > 0) lastDamageAt = to;
         if (lastDamageAt is double endpoint) golem.ShieldPool.Interrupt(endpoint);
 
         long lifeDamage = 0;
         if (fire > 0) lifeDamage += golem.ShieldPool.Damage(fire, bypass: false, lastDamageAt!.Value);
+        if (legion > 0) lifeDamage += golem.ShieldPool.Damage(legion, bypass: false, to);
         if (bleed > 0) lifeDamage += golem.ShieldPool.Damage(bleed, bypass: false, lastDamageAt!.Value);
         if (poison > 0)
             lifeDamage += golem.ShieldPool.Damage(poison,
@@ -62,13 +65,15 @@ public static partial class Game
         if (lifeDamage > 0)
         {
             m.Life = (uint)Math.Max(0, (long)m.Life - lifeDamage);
-            player.Minions.OutputQueue.Add(new([], "golem damage over time", golem.Id, m, PlayerMinions.OutputKind.Life));
+            player.Minions.OutputQueue.Add(new([], "golem damage over time", golem.Id, m, PlayerMinions.OutputKind.Life,
+                DeathKind: DotDeathKind(m, m.Life)));
         }
         if (m.Life == 0 || !GolemCurrent(player, golem))
         {
             if (m.Life == 0 && GolemCurrent(player, golem)) GolemDieLocked(player, golem, to);
             return;
         }
+        if (MinionInstabilityLocked(player, golem, to)) return;
         UpdateGolemDotBuffsLocked(player, golem, to);
     }
 

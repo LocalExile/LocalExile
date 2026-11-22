@@ -16,6 +16,7 @@ public sealed class VendorsModule : IModule
     public static void LoadData()
     {
         global::VendorsRules.LoadRulesNpcsData();
+        global::Gambling.LoadGameData();
         // Every gem stock a league of the normal data set can ask for, with and without the support gem rewards (the
         // HardMode ones are built with that data set: Game.LoadHardModeData).
         foreach (bool supports in new[] { true, false })
@@ -27,14 +28,18 @@ public sealed class VendorsModule : IModule
     {
         LoadData();
         DivinationFeature.Load(module);
-        GameEvents.NpcTalk.Add(module.Manifest.Id, (player,_,_) => { player.Shop = null; return Task.FromResult(false); });
+        GameEvents.NpcTalk.Add(module.Manifest.Id, async (player, id, npc) =>
+        {
+            player.Shop = null;
+            return await BeginLillyGemIntroduction(player, id, npc);
+        });
         GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
             (player, args) => RefreshKirac(player));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
         {
             var player = kill.Player;
             if (kill.Monster.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Unique
-                && global::Game.MapRunOf(player) is { } map && map.Owner.Equals(CharacterName(player), StringComparison.OrdinalIgnoreCase))
+                && global::Game.MapRunOf(player) is { Atlas: true } map && map.Owner.Equals(CharacterName(player), StringComparison.OrdinalIgnoreCase))
                 KiracProgress.Complete(PersonalStashOf(player),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
         });
@@ -44,13 +49,15 @@ public sealed class VendorsModule : IModule
             SpawnedNpc? npc;
             lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(player.TalkingTo);
             if (npc is null) return false;
-            if (talk.Category == "BuyItems") await OpenNpcShop(player, player.TalkingTo, npc);
+            if (talk.Category == "BuyItems" && Gambling.Gambles(npc.Npc.Id)) await OpenGamble(player, player.TalkingTo, npc);
+            else if (talk.Category == "BuyItems") await OpenNpcShop(player, player.TalkingTo, npc);
             else if (talk.Category == "SellItems") await OpenNpcSale(player, npc);
             else return false;
             return true;
         });
         GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, async player =>
         {
+            await FinishLillyGemIntroduction(player);
             player.Shop = null;
             if (player.Sale is not null) await CloseSale(player, accepted: false);
         });
@@ -113,6 +120,11 @@ public sealed class VendorsModule : IModule
         GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await CtrlBuyFromShop(player, InstanceNpcs.ReadCtrlBuy(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceNpcs.TakeAllRewardsId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await ClaimAllNpcRewards(player);
             return true;
         });
     }

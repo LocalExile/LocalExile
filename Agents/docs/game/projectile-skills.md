@@ -7,6 +7,13 @@ Ordinary bows and catalog gems retain the same counts, scoped extras, aim-sensit
 prohibitions and phase-specific direct admission. Catalog metadata supplies straight flight for other projectile gems;
 it does not establish those skills' special mechanics. Missing metadata or damage plans are refused before costs.
 
+Bow and wand attack gems (`skill_can_fire_arrows`, `skill_can_fire_wand_projectiles`) have no row named after their
+effect. They fire the held weapon's projectile: Projectiles.dat has skill art by weapon (`FrenzyArrow`/`FrenzyWand`,
+`PunctureArrow`, `PowerSiphonProjectile`), matched by name like the other rows (the client's link is not known), else
+`DefaultArrow`/`WandProjectile`. Area, channelled, rain, melee, Vaal and Barrage (`projectiles_barrage`) gems are not
+straight shots and stay refused: Explosive, Galvanic, Ensnaring and Scourge Arrow, Snipe, Kinetic Rain/Fusillade,
+Somatic Shell, Barrage, Vaal Power Siphon.
+
 ## Implemented behavior
 
 | Skill | Enemy contact | Terrain | Maximum range / return endpoint | Quantity and area damage |

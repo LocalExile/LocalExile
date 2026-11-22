@@ -4,10 +4,11 @@ using GameServer.Core.World;
 /// <summary>A hit's stun inputs: its stunning damage (<see cref="HitReaction.StunningDamage"/>), the attacker's stun
 /// threshold reduction and stun duration increases, whether it is melee (the duration), the player whose "when you
 /// stun" gains it feeds, the melee hit's raw fortification damage plus whether that same hit already fortified, and
-/// whether a qualifying hit guarantees a stun. Minions, explosions and /kill pass their plain damage and no owner.</summary>
+/// whether a qualifying hit guarantees a stun, and the stunning skill's own stats (its "on stun" charge gains).
+/// Minions, explosions and /kill pass their plain damage and no owner.</summary>
 public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
     Player? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false,
-    double BaseSeconds = 0);
+    double BaseSeconds = 0, IReadOnlyDictionary<uint, int>? Skill = null);
 
 /// <summary>
 /// A monster's stun, presented as its hit reaction (native Actor TakeHit recovery, sent by <c>SendMonsterFlinch</c>).
@@ -50,7 +51,11 @@ public static class HitReaction
         if (m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 }) return false;
         if (m.CannotBeStunned || m.Mods.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;   // Unwavering
         if (random.NextDouble() * 100 >= Chance(hit, m.MaxLife)) return false;
-        if (hit.Owner is { } owner) Game.ChargesOf(owner).Enqueue(new ChargeEvent.Stun());
+        if (hit.Owner is { } owner)
+        {
+            Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;
+            Game.ChargesOf(owner).Enqueue(new ChargeEvent.Stun(hit.Melee, own));
+        }
         // "Melee Hits which Stun have X% chance to Fortify" (wiki Fortification): a stun from a melee hit that did not
         // already Fortify it rolls the chance once and grants the hit's damage-based stacks. A stun during a running
         // recovery counts too, before the recovery shortcut below.
@@ -95,8 +100,15 @@ public static partial class Game
         // Sample before the caller applies this hit: a damaging hit can leave its previously full-life target injured.
         uint preLife = lifeBefore ?? m.Life;
         bool fullLife = preLife > 0 && preLife == m.MaxLife;
-        int duration = Get(Stat.BaseStunDurationPlusPct) + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0);
-        bool guaranteed = stunning > 0 && fullLife && Get(Stat.AlwaysStunEnemiesThatAreOnFullLife) > 0;
-        return new(stunning, Get(Stat.BaseStunThresholdReductionPlusPct) + local, duration, melee, player, Guaranteed: guaranteed);
+        bool tinctureWeapon = !spell && Get(Stat.TinctureApplied) != 0;
+        int duration = Get(Stat.BaseStunDurationPlusPct)
+            + (tinctureWeapon ? Get(Stat.StunDurationPlusPctWithTincturedWeapons) : 0)
+            + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0);
+        int thresholdReduction = Get(Stat.BaseStunThresholdReductionPlusPct) + local
+            + (tinctureWeapon ? Get(Stat.StunThresholdReductionPlusPctWithTincturedWeapons) : 0);
+        bool guaranteed = stunning > 0 && fullLife && (Get(Stat.AlwaysStunEnemiesThatAreOnFullLife) > 0
+            || tinctureWeapon && Get(Stat.AlwaysStunEnemiesThatAreOnFullLifeWithTincturedWeapons) > 0);
+        return new(stunning, thresholdReduction, duration, melee, player, Guaranteed: guaranteed,
+            Skill: own);
     }
 }

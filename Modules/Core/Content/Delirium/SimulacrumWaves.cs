@@ -46,6 +46,9 @@ public sealed partial class DeliriumModule
             [Stat.MapMonstersAdditionalLightningResistance] = Stat.BaseLightningDamageResistancePct,
             [Stat.MapMonstersAdditionalChaosResistance] = Stat.BaseChaosDamageResistancePct,
             [Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase] = Stat.MovementSpeedCannotBeReducedBelowBase,
+            // Read by AlternateAilmentsOnPlayerLocked. Sapped stays out: Sap on the player's damage is not modelled.
+            [Stat.MapMonstersChanceToScorchPct] = Stat.ChanceToScorchPct,
+            [Stat.MapMonstersChanceToInflictBrittlePct] = Stat.ChanceToInflictFrostburnPct,
         };
         var candidates = ClientTables.Table("AfflictionEndgameWaveMods")
             .Where(r => r.Int("__col3") > 0 && wave >= r.Int("__col1") && wave <= r.Int("__col2"))

@@ -26,7 +26,15 @@ public static class GemSupportDamage
         Stat.SupportPulveriseMeleeAreaDamagePlusPctFinal, Stat.SupportFortifyMeleeDamagePlusPctFinal,
         Stat.SupportBarrageDamagePlusPctFinal, Stat.SupportCrueltyHitDamagePlusPctFinal,
         Stat.SupportViciousProjectilesPhysicalDamagePlusPctFinal, Stat.SupportViciousProjectilesChaosDamagePlusPctFinal,
-        Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal, Stat.SupportCastOnCritSpellDamagePlusPctFinal, Stat.CastOnDamageTakenDamagePlusPctFinal, Stat.IncAoePlusMoreAreaDamagePlusPctFinal, Stat.DoedreAuraDamagePlusPctFinal, Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal
+        Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal, Stat.SupportCastOnCritSpellDamagePlusPctFinal, Stat.CastOnDamageTakenDamagePlusPctFinal, Stat.IncAoePlusMoreAreaDamagePlusPctFinal, Stat.DoedreAuraDamagePlusPctFinal, Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal,
+        Stat.SupportCastOnMeleeKillSpellDamagePlusPctFinal,
+        // The trap, mine and totem supports' own more/less damage: Trap, Trap and Mine Damage, Cluster Traps,
+        // Multiple Traps, Blastchain Mine, High-Impact Mine, Locus Mine, Multiple Totems and Focused Ballista.
+        Stat.SupportTrapDamagePlusPctFinal, Stat.SupportTrapAndMineDamagePlusPctFinal,
+        Stat.SupportClustertrapDamagePlusPctFinal, Stat.SupportMultithrowDamagePlusPctFinal,
+        Stat.SupportGemMineDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
+        Stat.SupportLocusMineDamagePlusPctFinal, Stat.SupportAdditionalTotemDamagePlusPctFinal,
+        Stat.SupportFocusedBallistaTotemDamagePlusPctFinal, Stat.SupportBrandDamagePlusPctFinal
     ];
 
     /// <summary>Each matching support modifier applies once to the portion's complete visited-type set.
@@ -62,7 +70,9 @@ public static class GemSupportDamage
         if (name.Contains("_fire_", StringComparison.Ordinal) && (history & DamageTypeHistory.Fire) == 0) return false;
         if (name.Contains("_cold_", StringComparison.Ordinal) && (history & DamageTypeHistory.Cold) == 0) return false;
         if (name.Contains("_lightning_", StringComparison.Ordinal) && (history & DamageTypeHistory.Lightning) == 0) return false;
-        if (name.Contains("melee", StringComparison.Ordinal) && !types.Contains(19)) return false;
+        // Cast on Melee Kill's more damage is the triggered spell's: "melee" names its trigger, not the hit.
+        if (name.Contains("melee", StringComparison.Ordinal) && name != "support_cast_on_melee_kill_spell_damage_+%_final"
+            && !types.Contains(19)) return false;
         if (name.Contains("spell", StringComparison.Ordinal) && !types.Contains(1)) return false;
         if (name.Contains("projectile", StringComparison.Ordinal) && !types.Contains(2)) return false;
         if (name.Contains("area", StringComparison.Ordinal) && !types.Contains(7)) return false;

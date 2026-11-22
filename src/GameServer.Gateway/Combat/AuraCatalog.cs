@@ -12,7 +12,8 @@ public static class AuraCatalog
         WornGrantedSkills.Grant? WornGrant = null, IReadOnlyList<(uint Key, int Value)>? SkillStats = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
         bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false,
-        int LifeFlat = 0, int LifePercent = 0)
+        int LifeFlat = 0, int LifePercent = 0,
+        int ArtVariation = 0, bool HideVisual = false, ushort? SourceVisual = null, ushort? BuffVisual = null)
     {
         public object? StanceOwner { get; init; }
     }
@@ -24,18 +25,18 @@ public static class AuraCatalog
         // Both source and received buffs instantiate these native behaviours, which read two words unchecked.
         uint[]? behaviourData = aura.EffectId switch
         {
-            "TempestShield" => [0u, 0u],
+            "TempestShield" => [(uint)Math.Max(0, aura.ArtVariation), aura.HideVisual ? 1u : 0u],
             "TemporalRift" => [42u, 100u],
             _ => null,
         };
         if (aura.SourceBuff is not null)
-            yield return new(aura.BuffRow, player, aura.SkillId, AuraSource: true, DisplayState: 0, List: behaviourData);
+            yield return new(aura.BuffRow, player, aura.SkillId, AuraSource: true, DisplayState: 0, Visual: aura.SourceVisual, List: behaviourData);
         // An enemy hex aura has a source on its caster, never a received self curse.
         if (!CurseCatalog.Hex(aura.EffectId))
-            // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag from the first two
-            // list entries without checking its length (0x1417a9410).
+            // TempestShieldBuff's native behaviour reads the art variation and hide-user-buff flag
+            // from the first two list entries without checking its length (0x1417a9410).
             yield return new(aura.BuffRow, player, aura.SkillId, ActiveSkill: action is ushort hash ? (aura.SkillId, hash) : null,
-                DisplayState: receivedDisplayState, List: behaviourData);
+                DisplayState: receivedDisplayState, Visual: aura.BuffVisual, List: behaviourData);
     }
 
     /// <summary>Whether a buff row is one of the auras' (a player's own aura buffs are replaced as one group).</summary>

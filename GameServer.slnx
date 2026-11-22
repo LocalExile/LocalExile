@@ -14,6 +14,7 @@
   <Folder Name="/Modules/">
     <Project Path="Modules/Core/Game/Game.csproj" />
     <Project Path="Modules/Core/Content/Anarchy/Anarchy.csproj" />
+    <Project Path="Modules/Core/Content/Deepwater/Deepwater.csproj" />
     <Project Path="Modules/Core/Content/Delve/Delve.csproj" />
     <Project Path="Modules/Core/Content/Delirium/Delirium.csproj" />
     <Project Path="Modules/Core/Content/Harvest/Harvest.csproj" />
@@ -39,7 +40,9 @@
     <Project Path="Modules/Custom/Survivors/SurvivorsSkills/SurvivorsSkills.csproj" />
     <Project Path="Modules/Custom/Survivors/SurvivorsRewards/SurvivorsRewards.csproj" />
     <Project Path="Modules/Custom/Survivors/SurvivorsRun/SurvivorsRun.csproj" />
+    <Project Path="Modules/Legacy/Idols/Idols.csproj" />
     <Project Path="Modules/Legacy/PhreciaAscendancies/PhreciaAscendancies.csproj" />
+    <Project Path="Modules/Legacy/Content/HarvestHeartOfTheGrove/HarvestHeartOfTheGrove.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GameServer.Data.Tests/GameServer.Data.Tests.csproj" />

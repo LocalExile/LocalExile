@@ -20,7 +20,7 @@ public static partial class Game
         IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
     {
         // The active items are worked out once: every check below would otherwise ask each worn item again.
-        activeItems = activeItems?.ToArray() ?? ItemsOf(player).EquipmentSnapshot()
+        activeItems = activeItems?.ToArray() ?? EquipmentForStats(player)
             .Where(e => !IsInactive(player, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         var ailments = player.ElementalAilments.Snapshot(now);
         var leech = LeechOf(player).Active(now);
@@ -76,9 +76,9 @@ public static partial class Game
             ["_while_es_leeching"] = alive && leech.EnergyShield,
             ["_while_leeching"] = alive && (leech.Life || leech.Mana || leech.EnergyShield),
         };
-        var activeRings = activeItems?.ToArray() ?? ItemsOf(player).EquipmentSnapshot()
+        var activeRings = activeItems?.ToArray() ?? EquipmentForStats(player)
             .Where(e => !IsInactive(player, e.Item.Id)).Select(e => e.Item.Item).ToArray();
-        foreach (var (key, value) in ConditionalRings(ItemsOf(player).EquipmentSnapshot(), activeRings).Flags) flags[key] = value;
+        foreach (var (key, value) in ConditionalRings(EquipmentForStats(player), activeRings).Flags) flags[key] = value;
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
         // The uniques spell the life/mana states with "when"; the same state answers both keys.
         foreach (var (when, whileKey) in WhenFlags) flags[when] = flags[whileKey];
@@ -128,12 +128,13 @@ public static partial class Game
         flags["_while_have_cats_agility"] = catsAgility;
         flags["_if_you_have_cats_agility"] = catsAgility;
         var charges = ChargesOf(player);
+        Func<uint, int> observed = charges.ObservedStat;   // one delegate for the three types
         foreach (var type in Charges.Types)
         {
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
-                charges.Converted(type), alive);
+                charges.Converted(type), alive, ChargeScaling.CountsAsMaximum(type, observed));
         }
-        var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(player).EquipmentSnapshot(), ItemsFor(player), activeRings);
+        var equipmentFlags = QualifiedEquipmentItemFlags(flags, EquipmentForStats(player), ItemsFor(player), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(player, RequalifyElusive(player,
             RequalifyHerEmbrace(player, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, activeItems);
         var result = RequalifySourcePhasing(player, avatarFlags, lowLifeSources, player.RecentEvents.Snapshot(now),
@@ -199,7 +200,7 @@ public static partial class Game
 
     static int ItemReservationPercent(Player player, IEnumerable<Item>? activeItems)
     {
-        var active = activeItems?.ToArray() ?? ItemsOf(player).EquipmentSnapshot()
+        var active = activeItems?.ToArray() ?? EquipmentForStats(player)
             .Where(e => !IsInactive(player, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         return WornItemSum(player, active).GetValueOrDefault(LifeReservation.ItemPercentStat);
     }
@@ -238,6 +239,7 @@ public static partial class Game
         public bool CheckedGod;
         public bool HasConditionalMods;
         public bool HasBeastCompanions;
+        public long ItemStatRevision = GameEvents.ItemStatSources.Revision;
     }
 
     static readonly Store<Player, ConditionalItemPoolState> ConditionalItemPools = new();
@@ -290,9 +292,11 @@ public static partial class Game
         bool god = player.God;
         var cached = player.StatSourcesCache;
         var elusive = ElusivePanelState(player);
+        long itemStatRevision = GameEvents.ItemStatSources.Revision;
+        bool providersChanged = state.ItemStatRevision != itemStatRevision;
         // Fast path: when equipment, passives, level, god mode, and StatSourcesCache are unchanged, and no worn item
         // carries a conditional mod or beast companion, skip rebuilding EquipmentStatSources on every incoming hit.
-        if (cached is not null && ReferenceEquals(state.Applied, cached)
+        if (!providersChanged && cached is not null && ReferenceEquals(state.Applied, cached)
             && state.CheckedInventoryMutations == invMutations
             && state.CheckedPassivesCount == passivesCount
             && state.CheckedTattooRevision == tattooRevision
@@ -305,11 +309,11 @@ public static partial class Game
             && GameEvents.ExemptItems(player).Count == 0
             && player.IncomingAilments.PoisonStacks(AreaTime(player)) == cached.Key.PoisonStacks)
             return false;
-        var snapshot = items.EquipmentSnapshot();
-        EquipmentStatSources(player, snapshot);
+        state.ItemStatRevision = itemStatRevision;
+        EquipmentStatSources(player, EquipmentForStats(player));
         ReconcileBeastCompanionsLocked(player);
         var current = player.StatSourcesCache;
-        if (current is not null && (state.CheckedInventoryMutations != invMutations || !ReferenceEquals(state.Applied, current)))
+        if (current is not null && (providersChanged || state.CheckedInventoryMutations != invMutations || !ReferenceEquals(state.Applied, current)))
         {
             state.CheckedInventoryMutations = invMutations;
             state.CheckedPassivesCount = passivesCount;
@@ -326,7 +330,7 @@ public static partial class Game
         int onslaughtEffect = Stat.OnslaughtEffectPlusPct is var effectKey
             ? current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
         bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
-        if (current is null || ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
+        if (current is null || !providersChanged && ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
         state.Applied = current;
         state.AppliedElusive = elusive;
         state.AppliedOnslaughtEffect = onslaughtEffect;
@@ -340,7 +344,7 @@ public static partial class Game
                     || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
         bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
             == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
-        if (sameElusive && sameHerEmbrace && sameOnslaughtEffect
+        if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect
             && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
             || before is not null && before.Attributes == current.Attributes
             && before.Inactive.SetEquals(current.Inactive)

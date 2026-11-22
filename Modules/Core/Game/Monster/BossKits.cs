@@ -19,12 +19,12 @@ public static class BossKits
     }
 
     /// <summary>A boss the ordinary AI plays as a kit: a monster the campaign places as a boss (IsCampaignBoss: any of
-    /// the ten acts' named monsters, big and small) or one with a life bar of its own, with more
+    /// the ten acts' named monsters, big and small), one with a life bar, or an Essence Karui spirit, with more
     /// than one effect the client can play. A boss with an encounter controller never asks (PlanMonsterAi skips it
     /// before this).</summary>
     public static bool IsKitBoss(SkillCatalog catalog, MonsterCatalog.Variety? variety) =>
         variety is not null && (variety.BossHealthBar || IsCampaignBoss(variety) || variety.Id == Yugul.Image
-            || SolarisLunaris.IsCelestial(variety))
+            || SolarisLunaris.IsCelestial(variety) || variety.Id == EssenceKaruiSpirit)
             && Effects(catalog, variety).Count > 1;
 
     /// <summary>Whether the campaign places this monster as a boss: an area with a town to return to names it in
@@ -389,6 +389,54 @@ public static class BossKits
         return skills;
     }
 
+    /// <summary>Piety, the Abomination's sweeping 360-degree beam (<c>PietyCorruptedLightningBeam</c>, ActionType 354):
+    /// rotates −900° (2.5 turns) over the active portion of its 11.2 s cast, 120-cell length, 0.33 s per-target hit
+    /// cooldown (3.29.3c client RE: 0x141b49320, 0x141b4960d, 0x141b4974d).</summary>
+    public const int PietyBeamEffect = 5003;
+
+    /// <summary>Avarius and Innocence (<c>transitionable_num_states = 3</c>) must start in state 1, not their final state 3:
+    /// the client's <c>AvariusSuperProjectile</c> admission check (0x141a3775a) refuses to run when Transitionable is 3.
+    /// Amarissa and Ambrosia (<c>SeaWitchBossDaughter.ot</c>) have <c>Targetable = false</c> until state 2, and Merveil
+    /// Form 1 starts in state 1 so stepping 1 → 2 on aggro triggers her native <c>MerveilStartFight</c> dialogue.</summary>
+    public static byte StartState(MonsterCatalog.Variety variety, byte otherwise) =>
+        variety.Id is "Metadata/Monsters/AvariusCasticus/AvariusCasticus"
+            or "Metadata/Monsters/AvariusCasticus/AvariusCasticusDivine"
+            or "Metadata/Monsters/AvariusCasticus/AvariusCasticusMap"
+            or "Metadata/Monsters/AvariusCasticus/AvariusCasticusDivineMap"
+            or "Metadata/Monsters/seawitchillusion/BossMerveil"
+            ? (byte)1
+        : variety.Id is "Metadata/Monsters/Seawitch/SeaWitchBossSpark"
+            or "Metadata/Monsters/Seawitch/SeaWitchBossFirestorm"
+            ? (byte)2
+        : otherwise;
+
+    /// <summary>Shared StateMachine overrides for kit bosses at spawn: Brutus's <c>brute.ot</c> gates his chain-hook
+    /// dialogue (<c>BrutusChainRandom</c>) behind <c>dialogue_lines == 1</c>.</summary>
+    public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
+        variety.Id == "Metadata/Monsters/Brute/BossBrute"
+            ? variety.StateMachine?.Set("dialogue_lines", 1) : null;
+
+    /// <summary>The granted effect row a boss's kit entry came from for <paramref name="attack"/>, or −1.</summary>
+    public static int EffectOf(SpawnedMonster monster, MonsterAttack attack)
+    {
+        for (int i = 0; i < monster.Kit.Count; i++)
+            if (monster.Kit[i].Attack.SkillId == attack.SkillId) return monster.Kit[i].Effect;
+        return -1;
+    }
+
+    /// <summary>Whether <paramref name="attack"/> is off cooldown for this boss's kit (always true for non-kit monsters
+    /// and zero-cooldown skills).</summary>
+    public static bool Ready(SpawnedMonster monster, MonsterAttack attack, double now)
+    {
+        for (int i = 0; i < monster.Kit.Count; i++)
+        {
+            var entry = monster.Kit[i];
+            if (entry.Attack.SkillId == attack.SkillId)
+                return entry.CooldownSeconds <= 0 || monster.KitReadyAt.GetValueOrDefault(entry.Effect) <= now;
+        }
+        return true;
+    }
+
     /// <summary>One action of a kit, built the way a monster's default attack is (DepravedTrinity.Attack): the skill's
     /// own damage and cast time at the actor's level, the reach it reaches the player from, and the projectile whose flight
     /// carries the hit. Its id is the kit slot (0x4000 + the kit index), which is the one the actor's skill list names.</summary>
@@ -398,10 +446,13 @@ public static class BossKits
         var native = GolemData.Skill(catalog, effect, actorLevel);
         int Raw(uint key) => native.Stats.GetValueOrDefault(key);
         bool spell = catalog.IsSpell(effect);
+        // A ranged skill reaches its variety's MaximumAttackDistance (AttackRange); a spell keeps the aggro range it is
+        // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
+        bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         var damage = DamagePacket.Empty;
         // A spell's damage is its spell_*_base_{type}_damage; one with none deals its secondary_*_base_{type}_damage
         // (Bear Trap's), the damage its action deals when it is not cast as a spell hit.
-        if (spell)
+        if (spell || ranged)
             foreach (string prefix in new[] { "spell", "secondary" })
             {
                 foreach (var type in DamageTypes.ConversionOrder)
@@ -412,22 +463,36 @@ public static class BossKits
                 }
                 if (!damage.IsZero) break;
             }
-        if (!spell)
+        if (spell && damage.IsZero)
+        {
+            int coneMin = Raw(Stat.Of("malachai_elemental_cone_spell_minimum_damage")),
+                coneMax = Raw(Stat.Of("malachai_elemental_cone_spell_maximum_damage"));
+            if (coneMax > 0)
+            {
+                double minThird = coneMin / 3d, maxThird = coneMax / 3d;
+                damage = damage.Add(DamageType.Fire, new(minThird, maxThird))
+                    .Add(DamageType.Cold, new(minThird, maxThird))
+                    .Add(DamageType.Lightning, new(minThird, maxThird));
+            }
+        }
+        if (!spell && damage.IsZero)
         {
             var (min, max) = Monsters.BaseDamage(variety, actorLevel) ?? (1, 1);
             int more = Raw(Stat.ActiveSkillDamagePlusPctFinal);
             damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(native.Multiplier * Math.Max(0, 1 + more / 100d));
         }
         double seconds = (spell && catalog.CastTimeMs(effect) > 0 ? catalog.CastTimeMs(effect) / 1000d : variety.AttackMs / 1000d)
+            / Math.Max(.01, 1 + Raw(spell ? Stat.CastSpeedPlusPct : Stat.AttackSpeedPlusPct) / 100d)
             / Math.Max(.01, 1 + Raw(spell ? Stat.ActiveSkillCastSpeedPlusPctFinal : Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
-        // A ranged skill reaches its variety's MaximumAttackDistance (AttackRange); a spell keeps the aggro range it is
-        // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
-        bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         // A ranged spell casts from as far as it sees the player, up to the farthest its action reaches (ActionClasses).
         double reach = ranged && spell
             ? Math.Max(variety.AttackRange, Math.Min(variety.AggroRange, ActionClasses.SpellActionDistance(effect, Raw)))
-            : variety.AttackRange;
+            : ranged && Raw(Stat.SpellMaximumActionDistancePlusPct) is > 0 and var distPct
+                ? Math.Min(Math.Max(variety.AttackRange, variety.AggroRange), variety.AttackRange * (1 + distPct / 100d))
+                : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
+        if (projectile is not null && !spell && reach < 45)
+            reach = 45;
         var summon = MonsterSummonOf(catalog, effect, actorLevel);
         int hits = 1 + Math.Max(0, Raw(Stat.BaseSkillNumberOfAdditionalHits))
             + (Raw(Stat.SkillDoubleHitsWhenDualWielding) != 0 && DualWields(variety) ? 1 : 0);
@@ -435,6 +500,7 @@ public static class BossKits
         {
             Spell = spell,
             DualWielding = HasOffHandWeapon(variety),
+            CorruptedBlood = CorruptedBloodOnHit.From(Raw),
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
@@ -444,8 +510,9 @@ public static class BossKits
         };
     }
 
-    /// <summary>The attack this boss acts with now: a ready skill of its kit that reaches the player, else the attack it
-    /// had (the default swing, which the walk-up brings into reach). Null only when it has no attack at all.
+    /// <summary>The attack this boss acts with now: a ready skill of its kit that reaches the player, else a non-cooldown
+    /// chase attack (preferring melee walk-up so an out-of-reach boss closes in instead of re-casting an on-cooldown
+    /// ranged special). Null only when it has no attack at all.
     /// <para>A skill with a cooldown the tables give it is the boss's special: ready, it takes the turn, which is what
     /// the cooldown is for. Between specials (and for the skills without one, the default swing included) the skill used
     /// longest ago takes it, so the whole list is played rather than one move repeated; on a tie the default swing does,
@@ -481,15 +548,33 @@ public static class BossKits
             bestTier = tier;
             bestUsed = used;
         }
-        // Nothing ready reaches: the default swing (the kit's first entry that is no trigger), which the walk-up brings
-        // into reach. Not the monster's current attack: that is the kit's last choice, and a special played again past
-        // its cooldown.
-        // One the monster cannot use now (a summon at its limit, a corpse skill with no corpse) only when no other is left.
-        return best?.Attack
-            ?? monster.Kit.FirstOrDefault(entry => entry.TriggerThreshold == 0 && Arakaali.Allowed(monster, entry.Effect)
-                && (usable is null || usable(entry.Attack)))?.Attack
-            ?? monster.Kit.FirstOrDefault(entry => entry.TriggerThreshold == 0 && Arakaali.Allowed(monster, entry.Effect))?.Attack
-            ?? monster.Kit[0].Attack;
+        return best?.Attack ?? Fallback(monster, usable);
+    }
+
+    // When no kit skill is both in reach and off cooldown, never return the last-used special in monster.Attack (which
+    // would be an InPlace ranged skill on cooldown and immediately re-fire, bypassing its cooldown). Prefer a
+    // zero-cooldown pathing melee swing so the boss walks into melee reach, then any zero-cooldown skill, then any
+    // pathing melee skill, then the first allowed entry.
+    static MonsterAttack? Fallback(SpawnedMonster monster, Func<MonsterAttack, bool>? usable = null)
+    {
+        MonsterAttack? anyNoCooldown = null, anyMelee = null, anyUsable = null, anyAllowed = null;
+        for (int i = 0; i < monster.Kit.Count; i++)
+        {
+            var entry = monster.Kit[i];
+            if (entry.TriggerThreshold != 0 || !Arakaali.Allowed(monster, entry.Effect)) continue;
+            bool ok = usable is null || usable(entry.Attack);
+            bool noCooldown = entry.CooldownSeconds <= 0;
+            bool melee = !entry.Attack.InPlace;
+            if (ok && melee && noCooldown) return entry.Attack;
+            if (ok)
+            {
+                anyNoCooldown ??= noCooldown ? entry.Attack : null;
+                anyMelee ??= melee ? entry.Attack : null;
+                anyUsable ??= entry.Attack;
+            }
+            anyAllowed ??= entry.Attack;
+        }
+        return anyNoCooldown ?? anyMelee ?? anyUsable ?? anyAllowed ?? monster.Kit[0].Attack;
     }
 
     /// <summary>Records the swing just ordered: the skill it used goes on cooldown, and even one without a cooldown

@@ -80,9 +80,12 @@ public static partial class Game
             atlas.Select(atlasCharacter, selected);
         player.Character.Waypoints.UnionWith(save?.Waypoints ?? []);
         player.Character.Visited.UnionWith(save?.Visited ?? []);
-        player.Character.UnearnedQuestFlags = [.. Quests.EveryCharacter.Except(save?.QuestFlags ?? [])];
+        // Legacy saves (before OpeningTutorial) and imported builds have no Tutorial record: keep their tutorials
+        // disabled without rewriting the save, while new characters start with tutorials active until skipped or completed.
+        var initialFlags = save is { Tutorial: null } ? Quests.EveryCharacter.Concat(Quests.AllTutorialFlags) : Quests.EveryCharacter;
+        player.Character.UnearnedQuestFlags = [.. initialFlags.Except(save?.QuestFlags ?? [])];
         // An unearned endgame flag is not the character's (Quests.EndgameOnly): PlayerQuestFlags sends it where it is needed.
-        player.Character.QuestFlags = [.. save?.QuestFlags ?? [], .. Quests.EveryCharacter.Where(f => !(Quests.EndgameOnly.Contains(f) && player.Character.UnearnedQuestFlags.Contains(f)))];
+        player.Character.QuestFlags = [.. save?.QuestFlags ?? [], .. initialFlags.Where(f => !(Quests.EndgameOnly.Contains(f) && player.Character.UnearnedQuestFlags.Contains(f)))];
         // The league's (SetLeagueQuestFlags): every character of the account in this league shares them.
         player.Character.LeagueQuestFlags.UnionWith(PersonalStashOf(player).LeagueQuestFlags);
         player.Character.ExtraPassivePoints = save?.ExtraPassivePoints ?? 0;
@@ -162,6 +165,7 @@ public static partial class Game
         sources = WithAvatarOfFire(player, sources);
         sources = WithHerEmbrace(player, sources);
         sources = WithElusive(player, sources);
+        sources = WithTinctures(player, sources);
         sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources)))))));
         // The stat buffs on the player's entity in its area (AreaStatBuffs): sources like any other, so the pools have them.
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
@@ -189,6 +193,7 @@ public static partial class Game
         Player player, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IEnumerable<ushort>? nodes, int? level, Action? afterConditionCapture)
     {
+        equipment = EquipmentForStats(player, equipment);
         // A level change can trim the list while /set_stat builds pools outside the combat lock.
         // Mastery dictionaries are replaced as a whole, so retaining their current reference is safe.
         long probe = ConnectionPerformance.ProbeStart();   // Game_TRACE=lag: [latency-lookup]
@@ -768,7 +773,8 @@ public static partial class Game
         // four seconds (RecentEvents), and the attributes an "if you have at least N X" id compares. A condition it
         // cannot answer stays unmodelled and keeps its previous behaviour rather than counting wrongly.
         var conditionSubject = ConditionSubject(rawAttributes, active);
-        var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(player).Mods, Stats, conditionSubject));
+        var sources = ItemModStats.Plus(FoldPassiveConditions(passives, conditionSubject),
+            ItemModStats.Global(active, ItemsFor(player).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
@@ -781,8 +787,8 @@ public static partial class Game
                 RequalifyChargeConditions(player, conditionFlags, sources), phaseInputs, recentEvents, auraEffects, conditionNow);
             if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
             conditionFlags = chargeFlags;
-            sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(player).Mods, Stats,
-                ConditionSubject(rawAttributes, active)));
+            sources = ItemModStats.Plus(FoldPassiveConditions(passives, ConditionSubject(rawAttributes, active)),
+                ItemModStats.Global(active, ItemsFor(player).Mods, Stats, ConditionSubject(rawAttributes, active)));
             DevotionStats.Apply(sources, Stats);
             GrandSpectrum.Apply(sources, Stats);
         }
@@ -804,6 +810,29 @@ public static partial class Game
         PublishQualifiedItemLifeReservationPercent(player, qualifiedItemReservationPercent);
         player.Connection.Performance.LookupMiss(probe, missed);
         return (sources, attributes, inactive, wornItems);
+    }
+
+    /// <summary>Moves a conditional passive stat onto its plain name when its condition holds, exactly as an item mod
+    /// does (issue #504, #1102): <c>attack_skills_damage_+%_while_dual_wielding</c> counts as
+    /// <c>attack_skills_damage_+%</c> only while dual wielding, and not at all otherwise. A condition this build cannot
+    /// answer, a stat with a consumer of its own (<c>DedicatedConsumers</c>) and an id whose plain name this build does
+    /// not know all keep their previous behaviour, so nothing that counted before stops counting.</summary>
+    internal static Dictionary<uint, int> FoldPassiveConditions(IReadOnlyDictionary<uint, int> passives,
+        StatConditions.Subject subject)
+    {
+        var folded = new Dictionary<uint, int>(passives.Count);
+        void Add(uint key, int value) => folded[key] = ActorScale.Add(key, folded.GetValueOrDefault(key), value);
+        foreach (var (key, raw) in passives)
+        {
+            if (Stats.Name(key) is not { } name) { Add(key, raw); continue; }
+            var state = StatConditions.Of(name, subject);
+            if (!StatConditions.Counts(state)) continue;
+            int value = StatConditions.Counted(name, raw, state, subject, Stats.Has, out var targets);
+            if (targets is null) Add(key, value);
+            else foreach (string target in targets)
+                    if (Stats.Key(target) is uint targetKey) Add(targetKey, value);
+        }
+        return folded;
     }
 
     static int ActiveNonVaalSkillMinionCountLocked(Player player, double now)
@@ -1007,6 +1036,7 @@ public static partial class Game
         List<AuraCatalog.Aura> auras;
         auras = AffectingAuras(player);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
+        aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
         int CatInput(uint key) => sources.GetValueOrDefault(key);
         var cat = CatAspectPhaseStatsLocked(player, bonus.AuraEffectPct, CatInput);
         bonus = bonus with
@@ -1119,7 +1149,9 @@ public static partial class Game
         }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
-        var pools = CharacterStats.For(classInfo, level, bonus);
+        int ResolveAccuracy(long basis, long increased) => PlayerAccuracyModifiers.Calculate(basis, increased,
+            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore));
+        var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
         // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
         int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
@@ -1132,7 +1164,7 @@ public static partial class Game
             pools = CharacterStats.For(classInfo, level, bonus with
             {
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
-            });
+            }, ResolveAccuracy);
         if (true)
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
@@ -1281,7 +1313,8 @@ public static partial class Game
             + (weapons.Dagger ? Get(Stat.Of("dagger_critical_strike_multiplier_+")) + Get(Stat.CriticalStrikeMultiplierWithDaggerPlus) : 0)
             + (weapons.Wand ? Get(Stat.WandCriticalStrikeMultiplierPlus) : 0)
             + (weapons.Bow ? Get(Stat.BowCriticalStrikeMultiplierPlus) + Get(Stat.GlobalCriticalStrikeMultiplierPlusWhileHoldingBow) : 0)
-            + (weapons.Staff ? Get(Stat.StaffCriticalStrikeMultiplierPlus) + Get(Stat.GlobalCriticalStrikeMultiplierPlusWhileHoldingStaff) : 0);
+            + (weapons.Staff ? Get(Stat.StaffCriticalStrikeMultiplierPlus) + Get(Stat.GlobalCriticalStrikeMultiplierPlusWhileHoldingStaff) : 0)
+            + (Get(Stat.TinctureApplied) != 0 ? Get(Stat.CriticalStrikeMultiplierPlusWithTincturedWeapons) : 0);
         int spellCriticalMultiplier = Get(Stat.BaseCriticalStrikeMultiplierPlus)
             + Get(Stat.BaseSpellCriticalStrikeMultiplierPlus) + Get(Stat.SpellCriticalStrikeMultiplierPlus);
         // Overwhelm's per-nearby-enemy multiplier joins the generic one (client 0x14276e1f0), for attacks and spells.
@@ -1338,6 +1371,10 @@ public static partial class Game
             NoStrengthBonuses: Get(InherentAttributeBonuses.NoStrengthBonuses) != 0,
             NoDexterityBonuses: Get(InherentAttributeBonuses.NoDexterityBonuses) != 0,
             NoIntelligenceBonuses: Get(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
+            // Magebane: "Dexterity provides no inherent bonus to Evasion Rating; +1% Chance to Suppress Spell Damage
+            // per 15 Dexterity" (poewiki /wiki/Magebane).
+            NoDexterityEvasion: Get(Stat.KeystoneMagebane) != 0,
+            SpellSuppressionPerFifteenDexterity: Get(Stat.KeystoneMagebane) != 0 ? 1 : 0,
             Armour: Get(Stat.BasePhysicalDamageReductionRating), ArmourPct: armourPct,
             Evasion: Get(Stat.BaseEvasionRating), EvasionPct: evasionPct,
             EvasionWhileMovingPct: Get(Stat.EvasionRatingPlusPctWhileMoving),
@@ -1659,7 +1696,7 @@ public static partial class Game
             return;
         }
         player.Character.OfferedDescendancyRow = 0;
-        await ChangeArea(player, new PendingTransfer(player.Layout.Hash, 0, false), $"descendancy row {row} chosen");
+        await ChangeArea(player, AscendancyReload(player), $"descendancy row {row} chosen");
     }
 
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an
@@ -1708,22 +1745,34 @@ public static partial class Game
     public static async Task ChangeClusterPassive(Player player,
         ushort node, bool allocate)
     {
-        bool socketed = false;
         bool changed = false;
-        socketed = ClusterJewelSocketed(player);
-        if (socketed && node <= MaxClusterNodeId)
+        string? refusal = null;
+        if (!ClusterJewelSocketed(player)) refusal = "no cluster jewel socketed";
+        else if (node > MaxClusterNodeId) refusal = "not a cluster node id";
+        else
         {
             bool willChange = allocate ? !player.Character.ClusterPassives.Contains(node) : player.Character.ClusterPassives.Contains(node);
-            IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
-                ? CaptureGemSourceRowsLocked(player) : [];
-            changed = allocate ? player.Character.ClusterPassives.Add(node) : player.Character.ClusterPassives.Remove(node);
-            if (changed) CharacterSaves.SetClusterPassives(CharacterName(player), player.Character.ClusterPassives);
-            if (changed) CompletePassiveJewelMutationLocked(player, sourcesBefore);
+            if (allocate && willChange)
+            {
+                var (points, _, nodes, _) = PassiveState(player);
+                int unspent = points + PassivesFor(player).PointsGranted(nodes) + AscendancyOrdinaryPoints(player)
+                    - nodes.Count - player.Character.ClusterPassives.Count;
+                if (unspent <= 0) refusal = "no passive skill points remaining";
+                else if (!ClusterNodeExists(player, node)) refusal = "node absent from socketed cluster jewels";
+                else if (player.Character.ClusterPassives.Count >= ClusterNodeBudget(player)) refusal = "cluster jewel passive budget reached";
+            }
+            if (refusal is null)
+            {
+                IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
+                    ? CaptureGemSourceRowsLocked(player) : [];
+                changed = allocate ? player.Character.ClusterPassives.Add(node) : player.Character.ClusterPassives.Remove(node);
+                if (changed) CharacterSaves.SetClusterPassives(CharacterName(player), player.Character.ClusterPassives);
+                if (changed) CompletePassiveJewelMutationLocked(player, sourcesBefore);
+            }
         }
-        if (!socketed || node > MaxClusterNodeId)
+        if (refusal is not null)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: " +
-                $"{(socketed ? "not a cluster node id" : "no large cluster jewel socketed")}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: {refusal}");
             await SendPassives(player);
             return;
         }
@@ -1734,6 +1783,19 @@ public static partial class Game
         // A cluster's passives give their stats only when the whole cluster is allocated (ClusterJewelStats), so the
         // node that completes it must refresh the character's stats as well as the tree.
         await SendPassiveJewelStats(player);
+    }
+
+    public static bool ClusterNodeExists(Player player, ushort node)
+    {
+        foreach (var jewel in ItemsOf(player).Items(PlayerInventories.PassiveJewels))
+        {
+            if (ClusterSize(jewel.Item) is null) continue;
+            if (Passives.JewelNodeForSlot(jewel.X) is null && !ClusterSlotOpen(player, jewel.X)) continue;
+            // An unmeasured layout still uses the existing point and jewel budget checks.
+            if (ClusterJewelLayout.For(jewel.X, jewel.Item) is not { } layout
+                || layout.ByOffset.ContainsKey(node - layout.Base)) return true;
+        }
+        return false;
     }
 
     /// <summary>The largest cluster jewel node id the client sends with the expansion flag: its own layout index, well

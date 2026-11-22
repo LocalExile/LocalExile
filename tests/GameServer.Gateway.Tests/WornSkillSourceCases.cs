@@ -80,6 +80,7 @@ static class WornSkillSourceCases
             Assert.True(supported.RequirementsMet);
             Assert.Contains(supported.Supports, s => s.Effect.Row == effect);
             Assert.Null(Game.GemSkillInstanceDisabled(player, source.Effect, source.Id));
+            CheckBeastSupportLevel(player);
             player.God = false;
             player.Character.Experience = CharacterStats.ExperienceFor(1);
             player.Pools = player.Pools with { Level = 1, Strength = 1, Dexterity = 1, Intelligence = 1 };
@@ -92,5 +93,37 @@ static class WornSkillSourceCases
             PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previous!);
         }
+    }
+
+    static void CheckBeastSupportLevel(Player player)
+    {
+        var catalog = Program.Items;
+        var armour = new UniqueCatalog(catalog).Create("Yriel's Fostering (Ursa)", new Random(17))!;
+        Item Support(string name, int level)
+        {
+            var gem = catalog.FindGem(name)!.Value;
+            return ItemCatalog.Create(gem.Type) with
+            { GemVariant = gem.Variant.Index, GemExperience = catalog.Gem(gem.Type)!.ExperienceFor(level) };
+        }
+        var items = Game.ItemsOf(player);
+        var trigger = Support("Cast when Damage Taken Support", 1);
+        var empower = Support("Empower Support", 3);
+        var host = items.Add(PlayerInventories.BodyArmour, 0, 0, armour with
+        {
+            Sockets = [new(SocketColour.White, trigger), new(SocketColour.White, empower)], Links = [1, 1],
+        })!;
+        int effect = Program.Skills.EffectRow(Game.SummonBeastialUrsaEffect);
+        var skill = Assert.Single(Game.GemSkillEffects(player), s => s.Effect == effect);
+        var beast = Game.SupportedSkill(player, skill.Id);
+        Assert.True(beast.RequirementsMet);
+        Assert.Equal(20, beast.Level);
+        int triggerEffect = Program.Skills.EffectRow("SupportCastWhenDamageTaken");
+        Assert.Equal(70, Program.Skills.PlayerLevelReq(effect, beast.Level));
+        Assert.Equal(38, Program.Skills.PlayerLevelReq(triggerEffect, 1));
+        Assert.Empty(beast.Supports);
+        items.Change(PlayerInventories.BodyArmour, host.Id, item => item with
+        { Sockets = [item.Sockets[0] with { Gem = Support("Cast when Damage Taken Support", 20) }, item.Sockets[1]] });
+        Assert.Equal(70, Program.Skills.PlayerLevelReq(triggerEffect, 20));
+        Assert.Equal(triggerEffect, Assert.Single(Game.SupportedSkill(player, skill.Id).Supports).Effect.Row);
     }
 }

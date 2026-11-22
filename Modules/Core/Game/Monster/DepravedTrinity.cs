@@ -27,10 +27,11 @@ public static class DepravedTrinity
         uint? Label(string key) => labels.TryGetValue(key, out uint hash) ? hash : null;
         var names = new[] { "Doedre", "Maligaro", "Shavronne" };
         var original = c.Layout.AreaTransitions.ToArray();
+        var rooms = level.Records.SelectMany(r => r.Rooms).ToArray();
         for (int n = 0; n < names.Length; n++)
         {
-            var room = level.Records.SelectMany(r => r.Rooms).FirstOrDefault(r =>
-                r.Room.Path.Contains("/" + names[n] + "/Unique/organ_", StringComparison.Ordinal));
+            string domain = "/" + names[n] + "/Unique/";
+            var room = rooms.FirstOrDefault(r => r.Room.Path.Contains(domain + "organ_", StringComparison.Ordinal));
             if (room is null) continue;
             var pads = room.Room.Points.Where(p => p.Name == "telepad").Select(p =>
             {
@@ -47,7 +48,17 @@ public static class DepravedTrinity
                 c.ReplaceAreaTransition(id, updated);
                 routes.Gates[updated] = (n, returning);
             }
-            Replace(hub.Id, hub.Transition, pads[1], Label("UnholySubBossDomain" + names[n]), false);
+            var landing = pads[1];
+            // The organ room's outer pad belongs to its arena door. The hub leads to the
+            // gauntlet's arrival pad, before the generated path that connects the two rooms.
+            var gauntlet = rooms.FirstOrDefault(r => r.Room.Path.EndsWith(domain + "gauntlet_telepad.arm", StringComparison.Ordinal));
+            if (gauntlet?.Room.Points.FirstOrDefault(p => p.Name == "telepad") is { } pad)
+            {
+                var (x, y) = Orientation.Map(gauntlet.Orientation, (int)pad.X, (int)pad.Y,
+                    gauntlet.Room.Width * 23, gauntlet.Room.Height * 23);
+                landing = (gauntlet.X * 23 + x, gauntlet.Y * 23 + y);
+            }
+            Replace(hub.Id, hub.Transition, landing, Label("UnholySubBossDomain" + names[n]), false);
             foreach (var (id, gate) in original.Where(p => p.Transition.GridX >= room.X * 23 && p.Transition.GridX < (room.X + room.Width) * 23
                 && p.Transition.GridY >= room.Y * 23 && p.Transition.GridY < (room.Y + room.Height) * 23))
             {

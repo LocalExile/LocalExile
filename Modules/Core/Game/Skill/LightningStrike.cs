@@ -16,7 +16,7 @@ static partial class Game
         var session = ProjectilesFor(player);
         session.Advance();
         double acceptedAt = swingAt ?? ProjectileWorldTime(player);
-        double duration = SupportedAttackSeconds(player, skillId);
+        double duration = SupportedAttackSeconds(player, skillId, sequence);
         double contact = GemAttackContactDelay(player, gem.Effect, duration, out _, out _);
         int repeats = MeleeAttackRepeats(player, skillId);
         int action = player.ActionCount;
@@ -92,7 +92,8 @@ static partial class Game
     // Scheduled contacts commit rewards and queue charge gains before yielding to the outbox. A held socket must
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
-        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true)
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true,
+        byte hitCode = 0)
     {
         var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -104,9 +105,13 @@ static partial class Game
         }
         var playerAt = player.Walk.Position(now);
         var target = monster.Walk.Position(now);
-        session.Packet(InstanceProtocol.ActionHit(player.Id, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
-            kind: 3, angle: HitAngle(target.X - playerAt.X, target.Y - playerAt.Y)));
-        Note($"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
+        var order = HitOrder(player, player.Id);
+        // World records, as a projectile's hit: the copy for a party member gets its key renamed only on a declared record.
+        session.World(player.Id, InstanceProtocol.ActionHit(player.Id, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
+            kind: 3, code: hitCode, angle: HitAngle(target.X - playerAt.X, target.Y - playerAt.Y),
+            orderKey: order.Key, checkpoint: order.Hit));
+        session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
+            $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {
             CommitProjectileCritFlasks(session, now, AreaRng(player));

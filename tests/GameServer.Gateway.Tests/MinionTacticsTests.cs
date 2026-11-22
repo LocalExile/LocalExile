@@ -39,6 +39,83 @@ public sealed class MinionTacticsTests
     }
 
     [Fact]
+    public async Task Eviscerating_reaper_follows_until_the_owner_requests_its_dash()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 };
+        var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            ushort source = f.Equip(("Summon Reaper of Eviscerating", 20)).Single();
+            var definition = Game.SummonData.Find("SummonReaperAltY")!;
+            uint id = await Game.SummonFighter(f.Player, source, definition, (100, 100));
+            var reaper = f.Player.Summons.Fighters[id];
+            f.Player.Walk.Teleport(100, 100, 0);
+            reaper.Monster.Walk.Teleport(100, 100, 0);
+            var target = Enemy(f, 900, 105);
+
+            Game.GolemStepLocked(f.Player, reaper, clock.Time);
+            Assert.Null(reaper.Pending);
+            Assert.Equal(0u, reaper.Target);
+            Assert.True(await Game.CastSummon(f.Player, source, definition,
+                (105, 100), 900, f.Player.ActionInterruptionGeneration, () => true));
+            Assert.Same(reaper, Assert.Single(f.Player.Summons.Fighters).Value);
+            var command = Assert.IsType<GolemState.Action>(reaper.Pending);
+            Assert.Equal(10584, command.Ability.Effect);
+            Assert.Same(target, command.Victim);
+        }
+        finally { Game.AreaUpdateContext.Value = outer; }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Meat_shield_taunts_after_an_accepted_hit_and_drops_the_roll_when_unlinked(bool lockstep)
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 };
+        var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            f.Player.Connection.LockstepClient = lockstep;
+            f.Equip(("Summon Skeletons", 20), ("Meat Shield Support", 20)); Link(f, 2);
+            var fighter = f.Player.Summons.Fighters[await Skeleton(f)];
+            f.Player.Minions.Random = new ZeroRandom();
+            var near = Enemy(f, 900, 105);
+            Assert.True(Hit(f, fighter, 900, near, clock.Time));
+            Assert.Equal(20, fighter.Own[Program.Stats.Key("minion_chance_to_taunt_on_hit_%")!.Value]);
+            Assert.Equal(4d, fighter.Taunts[900]);
+            var targetAt = near.Walk.Position(clock.Time);
+            near.Attack = new(0x3188, 2, 8, DamagePacket.Empty);
+            var peer = new Player(f.Player.Layout, 2, 1)
+                { Instance = f.Player.Instance, PlayerLife = 1000, Connection = { LockstepClient = lockstep } };
+            peer.Walk.Teleport(targetAt.X + 1, targetAt.Y, 0);
+            f.Player.Walk.Teleport(targetAt.X + 10, targetAt.Y, 0);
+            near.Target = peer;
+            Assert.True(Game.MonsterTargetsLocked(f.Player, 900, near, targetAt, 10, clock.Time));
+            Assert.Same(f.Player, near.Target);
+            Assert.True((bool)Invoke("GolemEnemyOrderLocked", f.Player, 900u, near, clock.Time, 10d)!);
+            Assert.Same(fighter, Assert.Single(f.Player.Golems.IncomingHits).Target);
+            // Even a distant summoner retains the monster while their taunting skeleton is in reach.
+            f.Player.Walk.Teleport(targetAt.X + 40, targetAt.Y, 0);
+            fighter.Monster.Walk.Teleport(targetAt.X + 25, targetAt.Y, 0);
+            Assert.False(Game.MonsterTargetsLocked(peer, 900, near, targetAt, 1, clock.Time));
+
+            Link(f, 1, 1);
+            clock.Time = 2;
+            Assert.True(Hit(f, fighter, 900, near, clock.Time));
+            Assert.Equal(4d, fighter.Taunts[900]);
+            clock.Time = 4;
+            Assert.True(Game.MonsterTargetsLocked(peer, 900, near, targetAt, 1, clock.Time));
+            Assert.Same(peer, near.Target);
+            Assert.True(double.IsFinite(near.BusyUntil));
+        }
+        finally { Game.AreaUpdateContext.Value = outer; }
+    }
+
+    [Fact]
     public async Task Predator_grants_only_its_active_companion_and_prioritizes_one_living_prey_until_expiry_or_source_loss()
     {
         using var f = new MinionUtilityTests.Fixture();
@@ -130,5 +207,73 @@ public sealed class MinionTacticsTests
             Assert.False(f.Player.Area.Buffs.HasRow(f.Player.Id, 1372));
         }
         finally { Game.AreaUpdateContext.Value = outer; }
+    }
+
+    [Fact]
+    public async Task Minion_stances_change_skeleton_targeting_and_cancel_each_other()
+    {
+        foreach (var (feeding, meatShield, target, dash) in new[]
+            { (false, false, 900u, false), (true, false, 900u, true), (false, true, 0u, false), (true, true, 900u, false) })
+        {
+            using var f = new MinionUtilityTests.Fixture();
+            var gems = new List<(string, int)> { ("Summon Skeletons", 20) };
+            if (feeding) gems.Add(("Feeding Frenzy Support", 20));
+            if (meatShield) gems.Add(("Meat Shield Support", 20));
+            f.Equip([.. gems]); Link(f, (byte)gems.Count);
+            var fighter = f.Player.Summons.Fighters[await Skeleton(f)];
+            f.Player.Walk.Teleport(100, 100, 0);
+            fighter.Monster.Walk.Teleport(100, 100, 0);
+            var monster = Enemy(f, 900, 143);
+            Game.GolemStepLocked(f.Player, fighter, 1);
+            Assert.Equal(target, fighter.Target);
+            Assert.Equal(dash, fighter.Pending?.Ability.Effect == 10844);
+            if (dash)
+            {
+                var start = f.Player.Minions.OutputQueue.Last(o => o.Kind == PlayerMinions.OutputKind.GolemAction);
+                var records = (byte[][])Invoke("GolemActionRecords", f.Player, start)!;
+                var movement = Assert.Single(records);
+                Assert.Equal(0x2909, System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(movement.AsSpan(^4)));
+                var action = fighter.Pending!;
+                uint life = monster.Life;
+                Game.GolemAbilityContactLocked(f.Player, fighter, action, 1);
+                Assert.Equal(action.Aim, fighter.Monster.Walk.Position(1));
+                Assert.Equal(life, monster.Life);
+            }
+
+            // Chaos Golems have a 50-cell native scan range. Feeding Frenzy raises it to 80.
+            using var golems = new MinionUtilityTests.Fixture();
+            gems[0] = ("Summon Chaos Golem", 20);
+            golems.Equip([.. gems]); Link(golems, (byte)gems.Count);
+            var definition = Game.GolemData.Find("SummonChaosGolem")!;
+            var id = await Game.SummonGolem(golems.Player,
+                Source(golems, definition.Id), definition, (100, 100));
+            var golem = golems.Player.Golems.All[id];
+            golems.Player.Walk.Teleport(100, 100, 0);
+            golem.Monster.Walk.Teleport(100, 100, 0);
+            Enemy(golems, 900, 180);
+            Game.GolemStepLocked(golems.Player, golem, 1);
+            Assert.Equal(feeding && !meatShield ? 900u : 0u, golem.Target);
+        }
+    }
+
+    [Fact]
+    public async Task Meat_shield_bonus_depends_on_distance_to_the_owner()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Summon Skeletons", 20), ("Meat Shield Support", 20)); Link(f, 2);
+        var fighter = f.Player.Summons.Fighters[await Skeleton(f)];
+        f.Player.Walk.Teleport(100, 100, 0);
+        fighter.Monster.Walk.Teleport(145, 100, 0);
+        var near = Enemy(f, 900, 105);
+        var far = Enemy(f, 901, 145);
+        Assert.True(Hit(f, fighter, 900, near, 1));
+        Assert.True(Hit(f, fighter, 901, far, 1));
+        Assert.Equal(130u, near.MaxLife - near.Life);
+        Assert.Equal(100u, far.MaxLife - far.Life);
+
+        fighter.Hazards.Add(new(4336, (125, 100), 2, 25, 100, DamageType.Chaos) { LastAt = 1 });
+        Game.GolemHazardsLocked(f.Player, fighter, 2);
+        Assert.Equal(260u, near.MaxLife - near.Life);
+        Assert.Equal(200u, far.MaxLife - far.Life);
     }
 }

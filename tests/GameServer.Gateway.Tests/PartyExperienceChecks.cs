@@ -61,13 +61,20 @@ static class PartyExperienceChecks
                 else if (route == "projectile")
                 {
                     var session = new Game.ProjectileSession(host);
-                    try { Game.CommitProjectileKill(session, victim.Id, victim.Monster, 0, new Random(4)); }
+                    try
+                    {
+                        using (Game.ProjectileMutation(host, advance: false))
+                            Game.CommitProjectileKill(session, victim.Id, victim.Monster, 0, new Random(4));
+                    }
                     finally { session.Invalidate(); await session.OutputCompleted; }
                 }
                 else
                 {
-                    Game.CommitAcceptedKillLocked(host, victim.Id, victim.Monster, 0, playerKill: false);
-                    Game.CommitAcceptedKillLocked(host, victim.Id, victim.Monster, 0, playerKill: false);
+                    using (Game.ProjectileMutation(host))
+                    {
+                        Game.CommitAcceptedKillLocked(host, victim.Id, victim.Monster, 0, playerKill: false);
+                        Game.CommitAcceptedKillLocked(host, victim.Id, victim.Monster, 0, playerKill: false);
+                    }
                 }
                 foreach (var member in players.Skip(1))
                     await Game.ApplyKillShares(member);

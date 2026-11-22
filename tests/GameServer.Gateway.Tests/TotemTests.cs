@@ -21,6 +21,50 @@ public sealed class TotemTests
         ["ShockwaveTotem", "HolyFlameTotem", "AncestorTotemSlash", "SearingBond", "WbFlameTotem"];
 
     [Fact]
+    public async Task Holy_flame_placement_does_not_start_a_paid_player_channel()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        var conn = f.Player;
+        var clock = new PlacementClock();
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            var gem = ItemCatalog.Create(Program.Items.Find("Holy Flame Totem")!);
+            var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!, [new(SocketColour.White, gem)], [1]);
+            var items = Game.ItemsOf(conn);
+            items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+            items.Add(PlayerInventories.Weapon1, 0, 0, host);
+            var source = Assert.Single(Game.GemSkillEffects(conn));
+
+            uint mana = conn.PlayerMana;
+            Assert.True(await Game.CastGemSkill(conn, source.Id,
+                (100, 100), (108, 100), actionToken: conn.ActionCount));
+            Assert.True(conn.PlayerMana < mana);
+            Assert.Null(conn.PaidChannel);
+            Assert.True(clock.Waited);
+        }
+        finally
+        {
+            conn.Closed = true;
+            clock.Release.TrySetResult();
+            Game.AreaUpdateContext.Value = previous;
+        }
+    }
+
+    sealed class PlacementClock : IPlayerUpdateSchedule
+    {
+        public readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Waited { get; private set; }
+        public double Now(Player conn) => 0;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            Waited = true;
+            return Release.Task;
+        }
+    }
+
+    [Fact]
     public void EveryTotemSkillCarriesSummonsTotemAndResolvesToASupportedVariety()
     {
         var skills = new SkillCatalog(); var monsters = new MonsterCatalog();
@@ -122,6 +166,58 @@ public sealed class TotemTests
             lifetime.Stop(ex => throw ex); Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!); TestEnvironment.ReleaseSaves(path);
         }
+    }
+
+    [Fact]
+    public async Task Decoy_totem_is_a_monster_target_until_it_dies()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        var conn = f.Player;
+        var gem = ItemCatalog.Create(Program.Items.Find("Decoy Totem")!);
+        var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!, [new(SocketColour.White, gem)], [1]);
+        var items = Game.ItemsOf(conn);
+        items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+        items.Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
+        var source = Game.GemSkillEffects(conn).Single(g => g.Name == "Decoy Totem");
+        var variety = Game.TotemVariety(conn, source.Effect);
+        Assert.NotNull(variety);
+        Assert.True(Game.TotemPathAvailable(conn, source.Id, source.Effect));
+        Assert.NotNull(await Game.CreateTotem(conn, source.Id, source.Effect,
+            source.Level, variety, (110, 100)));
+        var totem = Assert.Single(conn.Totems.All);
+        Assert.Equal(60, totem.DecoyRadius);
+        Assert.NotEqual(0, totem.GrantedId);
+
+        var attack = new MonsterAttack(0x3188, 1, 8, DamagePacket.Of(DamageType.Physical, 100, 100));
+        SpawnedMonster Enemy(int x) => new("enemy", new(x, 100, 8), 100, 2, 100) { Attack = attack, Target = conn };
+        var near = Enemy(116);
+        var far = Enemy(171);
+        // Two out of reach on the same side: each gets its own cell around the totem, not one on the line to it.
+        var packA = Enemy(150);
+        var packB = new SpawnedMonster("enemy", new(150, 102, 8), 100, 2, 100) { Attack = attack, Target = conn };
+        conn.Area.Monsters[0x3100] = near;
+        conn.Area.Monsters[0x3101] = far;
+        conn.Area.Monsters[0x3102] = packA;
+        conn.Area.Monsters[0x3103] = packB;
+        Game.TickTotemUses(conn);
+        Assert.NotNull(totem.TauntAt);
+        double now = totem.TauntAt.Value;
+        Game.ApplyDecoyTauntLocked(conn, totem, now);
+        Assert.Same(totem, Game.DecoyTarget(near, now)?.Source);
+        Assert.Null(Game.DecoyTarget(far, now));
+        var plan = Game.PlanMonsterAi(conn, new(), now);
+        var swing = Assert.Single(plan.DecoySwings);
+        Assert.Same(totem, swing.Totem);
+        Assert.Same(near, swing.Monster);
+        var chases = plan.Moves.Where(m => m.Monster == packA || m.Monster == packB).Select(m => m.To).ToArray();
+        Assert.Equal(2, chases.Length);
+        Assert.NotEqual(chases[0], chases[1]);
+
+        uint life = conn.PlayerLife;
+        Assert.True(Game.DecoyTakeHitLocked(conn, totem, near, attack, now, 100));
+        Assert.Equal(0u, totem.Life);
+        Assert.Equal(life, conn.PlayerLife);
+        Assert.Null(Game.DecoyTarget(near, now));
     }
 
     sealed class Wire : IDisposable

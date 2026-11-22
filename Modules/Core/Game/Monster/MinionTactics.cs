@@ -2,6 +2,23 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    const int AggressiveMinionMinimumRange = 80;
+    const int DefensiveMinionMaximumRange = 30;
+    const int MeatShieldNearbyRange = 30;
+
+    static (bool Aggressive, bool Defensive) MinionStance(IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> player, bool isGolem, bool recentlyBlocked)
+    {
+        bool aggressive = GolemStat(own, Stat.MinionLargerAggroRadius) != 0
+            || GolemStat(player, Stat.MinionLargerAggroRadius) != 0
+            || isGolem && GolemStat(player, Stat.GolemsLargerAggroRadius) != 0
+            || GolemStat(player, Stat.MinionAreAggressiveIfHaveBlockedRecently) != 0
+                && recentlyBlocked;
+        bool defensive = GolemStat(own, Stat.MinionsAreDefensive) != 0
+            || GolemStat(player, Stat.MinionsAreDefensive) != 0;
+        return (aggressive && !defensive, defensive && !aggressive);
+    }
+
     internal static bool SignalPreyLocked(Player player, ushort source, SupportedGem gem,
         (int X, int Y) aim, uint target, double now)
     {
@@ -30,8 +47,8 @@ public static partial class Game
         player.Summons.SignalledPrey = null;
     }
 
-    static bool IsPrey(Player player, GolemState.Golem fighter, uint id, SpawnedMonster monster, double now) =>
-        GolemStat(fighter.Own, Stat.SupportMinionUseFocussedTarget) != 0
+    static bool IsPrey(Player player, IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster monster, double now) =>
+        GolemStat(own, Stat.SupportMinionUseFocussedTarget) != 0
         && player.Summons.SignalledPrey is { } prey && now < prey.Until && prey.Id == id
         && ReferenceEquals(prey.Monster, monster) && player.Area.Monsters.GetValueOrDefault(id) == monster;
 
@@ -52,9 +69,33 @@ public static partial class Game
     static double MinionTacticsDamage(Player player, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
     {
         double more = MinionTacticsBaseDamage(player, fighter, now);
-        if (IsPrey(player, fighter, id, target, now))
+        if (IsPrey(player, fighter.Own, id, target, now))
             more *= Math.Max(0, 1 + GolemStat(fighter.Own, Stat.SupportMinionFocusFireDamagePlusPctFinalVsFocussedTarget) / 100d);
-        return more;
+        return more * MeatShieldDamage(player, fighter.Own, target, now);
+    }
+
+    static double MeatShieldDamage(Player player, IReadOnlyDictionary<uint, int> own, SpawnedMonster target, double now)
+    {
+        int nearby = GolemStat(own, Stat.SupportMinionDefensiveStanceMinionDamagePlusPctFinalAgainstEnemiesNearYou);
+        if (nearby != 0 && Dist(player.Walk.Position(now), target.Walk.Position(now)) <= MeatShieldNearbyRange)
+            return Math.Max(0, 1 + nearby / 100d);
+        return 1;
+    }
+
+    static void MinionTauntOnHitLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
+        IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster target, double now)
+    {
+        int chance = GolemStat(own, Stat.MinionChanceToTauntOnHitPct);
+        if (ability.Effect == 136) chance += GolemStat(ability.Stats, Stat.ChanceToTauntOnHitPct);
+        if (chance <= 0 || target.Effects[Stat.CannotBeTaunted] != 0
+            || player.Summons.Definitions.GetValueOrDefault(fighter.Id) is { Targetable: false }
+            || player.Minions.Random.Next(100) >= chance) return;
+
+        // A permanent minion can taunt many different monsters over its lifetime.
+        if (fighter.Taunts.Count >= 32)
+            foreach (var expired in fighter.Taunts.Where(t => t.Value <= now || !player.Area.Monsters.ContainsKey(t.Key)).ToArray())
+                fighter.Taunts.Remove(expired.Key);
+        fighter.Taunts[id] = now + FlaskGrounds.TauntSeconds / target.RecipientDebuffRate;
     }
 
     internal static void FeedingFrenzyOnHitLocked(Player player, GolemState.Golem fighter, double now)

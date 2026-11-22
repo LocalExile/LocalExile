@@ -34,6 +34,7 @@ public sealed class FortificationState
 
     public readonly record struct Value(int Current, long Uncapped, int Maximum, double? NextExpiry)
     {
+        public double? LatestExpiry { get; init; }
         public int LifeRegenerationPerMinutePercent(int perStack) => Product(Current, perStack);
         public int IncreasedAttackSpeedPercent(int perStack) => Product(Current, perStack);
         public double HitDamageFactor => Math.Max(0d, 1d - Current / 100d);
@@ -46,18 +47,32 @@ public sealed class FortificationState
     public Value Read(double now, int addedMaximum = 0)
     {
         Advance(now);
-        long uncapped = grants.Sum(g => (long)g.Count);
+        long uncapped = 0;
+        double? nextExpiry = null, latestExpiry = null;
+        foreach (var grant in grants)
+        {
+            uncapped += grant.Count;
+            nextExpiry = nextExpiry is null ? grant.ExpiresAt : Math.Min(nextExpiry.Value, grant.ExpiresAt);
+            latestExpiry = latestExpiry is null ? grant.ExpiresAt : Math.Max(latestExpiry.Value, grant.ExpiresAt);
+        }
         int maximum = Maximum(addedMaximum);
         activeMaximum = maximum;
-        return new((int)Math.Min(uncapped, maximum), uncapped, maximum,
-            grants.Count == 0 ? null : grants.Min(g => g.ExpiresAt));
+        return new((int)Math.Min(uncapped, maximum), uncapped, maximum, nextExpiry)
+        {
+            LatestExpiry = latestExpiry,
+        };
     }
 
     /// <summary>No hit damage formula is hidden here. The caller has explicitly supplied the number of stacks.</summary>
-    public bool GrantExplicitStacks(double now, int count, int durationIncreasePercent = 0)
+    public bool GrantExplicitStacks(double now, int count, int durationIncreasePercent = 0) =>
+        GrantExplicitStacks(now, count, durationIncreasePercent, BaseDurationSeconds);
+
+    /// <summary>Grants explicit stacks using the source's base duration before duration modifiers.</summary>
+    public bool GrantExplicitStacks(double now, int count, int durationIncreasePercent, double baseDurationSeconds)
     {
         Advance(now);
-        double duration = BaseDurationSeconds * Math.Max(0d, 1d + durationIncreasePercent / 100d);
+        if (!double.IsFinite(baseDurationSeconds) || baseDurationSeconds <= 0) return false;
+        double duration = baseDurationSeconds * Math.Max(0d, 1d + durationIncreasePercent / 100d);
         if (count <= 0 || duration <= 0) return false;
         grants.Add(new(count, now + duration / ExpiryRate));
         return true;
@@ -67,11 +82,16 @@ public sealed class FortificationState
     /// Applies the shared .1s hit-gain throttle to an already calculated count. A zero-stack result consumes no
     /// cooldown under the LocalExile model. Rejected/dead/stale contacts must be filtered by the caller before here.
     /// </summary>
-    public bool TryGrantFromHit(double now, int calculatedCount, int durationIncreasePercent = 0)
+    public bool TryGrantFromHit(double now, int calculatedCount, int durationIncreasePercent = 0) =>
+        TryGrantFromHit(now, calculatedCount, durationIncreasePercent, BaseDurationSeconds);
+
+    /// <summary>Applies the hit-gain throttle using the source's base duration.</summary>
+    public bool TryGrantFromHit(double now, int calculatedCount, int durationIncreasePercent, double baseDurationSeconds)
     {
         Advance(now);
         // One ULP admits the representational .2 + .1 versus .3 boundary without a gameplay-sized tolerance.
-        if (Math.BitIncrement(now) < nextHitGain || !GrantExplicitStacks(now, calculatedCount, durationIncreasePercent)) return false;
+        if (Math.BitIncrement(now) < nextHitGain
+            || !GrantExplicitStacks(now, calculatedCount, durationIncreasePercent, baseDurationSeconds)) return false;
         nextHitGain = now + HitGainIntervalSeconds;
         return true;
     }

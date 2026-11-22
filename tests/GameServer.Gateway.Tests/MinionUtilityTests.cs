@@ -47,18 +47,20 @@ public sealed class MinionUtilityTests
         internal ModuleLifetime Lifetime => lifetime;
         internal readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         internal NetworkStream Stream => writer.GetStream();
-        internal readonly Player Player = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
+        internal readonly Player Player;
+        internal Fixture(Random? criticalRandom = null)
         {
-            Character = { Name = "Animate" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
-            Instance = new(),
-            PlayerLife = 10000,
-            PlayerMana = 10000,
-            Connection = { PlayerSent = true },
-            Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("animate-test", "Standard", false, false), new HashSet<string>(["Game"]))
-        };
-        internal Fixture()
-        {
+            Player = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
+            {
+                Character = { Name = "Animate" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
+                Instance = new(),
+                PlayerLife = 10000,
+                PlayerMana = 10000,
+                Connection = { PlayerSent = true },
+                Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                LeagueModule = new(new League("animate-test", "Standard", false, false), new HashSet<string>(["Game"])),
+                CriticalRandom = criticalRandom ?? Random.Shared
+            };
             Saves.Open(save); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             Player.Clock.Start(); Player.Summons.Restored = Player.Golems.Restored = true;

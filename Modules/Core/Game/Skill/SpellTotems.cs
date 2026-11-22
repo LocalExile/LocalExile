@@ -17,7 +17,7 @@ public static partial class Game
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
         SummonData.Find(SkillsFor(player).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
-    static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
+    static bool SameSocketedSkillSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
         && a.Effect == b.Effect && a.Quality == b.Quality
         && a.SourceGem is not null && b.SourceGem is not null
         && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
@@ -66,6 +66,7 @@ public static partial class Game
             (Stat.BaseSpellCastTimeMs, SkillsFor(player).CastTimeMs(gem.Effect)),
             (Stat.VirtualBaseSpellCastTimeMs, SkillsFor(player).CastTimeMs(gem.Effect)) })
             if (name is var key) payload[key] = value;
+        payload[Stat.SkillIsNonPathing] = 1;
         if (!SkillsFor(player).IsAttack(gem.Effect) && TotemCastSeconds(player, skill) is double seconds && Stat.CastSpeedPlusPct is var speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(player).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(player).IsAttack(gem.Effect))
@@ -90,7 +91,7 @@ public static partial class Game
             && SupportedSkill(player, totem.SkillId) is var supported && supported.Host == totem.SourceHost
             && supported.SourceGem is not null && totem.SourceItem is not null
             && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem))
-            && (!TotemSources.TryGetValue(totem, out var captured) || SameTotemSource(captured, supported))
+            && (!TotemSources.TryGetValue(totem, out var captured) || SameSocketedSkillSource(captured, supported))
             && GemSkillInstanceDisabled(player, totem.Effect, totem.SkillId) is null
             && TotemPathAvailable(player, totem.SkillId, totem.Effect)
             && IsTotemSkill(player, totem.SkillId);

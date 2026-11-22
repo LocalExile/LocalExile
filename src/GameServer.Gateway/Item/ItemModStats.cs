@@ -117,14 +117,9 @@ public static class ItemModStats
                         // name, which is what the pools read (issue #504).
                         int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
                             : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
-                        if (state is StatConditions.State.Holds) value = StatConditions.ApplyRecentAmount(name, value, subject);
-                        if (state is StatConditions.State.Holds && statExists is not null
-                            && StatConditions.FoldAll(name, statExists, subject) is { Count: > 0 } targets)
-                        {
-                            value = StatConditions.ValueForFold(name, value);
-                            foreach (string target in targets) yield return (Stat.Of(target), value);
-                        }
-                        else yield return (id, value);
+                        value = StatConditions.Counted(name, value, state, subject, statExists, out var targets);
+                        if (targets is null) yield return (id, value);
+                        else foreach (string target in targets) yield return (Stat.Of(target), value);
                     }
             }
     }
@@ -211,15 +206,20 @@ public static class ItemModStats
     }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalRules> LocalCatalogs = new();
 
-    public static Dictionary<uint, int> Local(Item item, ModCatalog mods)
+    // Return a copy: callers merge their own values into these dictionaries.
+    public static Dictionary<uint, int> Local(Item item, ModCatalog mods) => new(LocalCached(item, mods));
+
+    /// <summary>One local stat without Local's copy, for read-only checks on hot paths.</summary>
+    public static int LocalValue(Item item, ModCatalog mods, uint stat) => LocalCached(item, mods).GetValueOrDefault(stat);
+
+    static Dictionary<uint, int> LocalCached(Item item, ModCatalog mods)
     {
         // A replacement game supplies a new rule generation. Weak keys let its old load context be collected.
-        // Return a copy: callers merge their own values into these dictionaries.
         var game = Program.GameLogicOrNull;
         var rules = LocalCatalogs.GetOrCreateValue(mods);
         var cache = (game is null ? rules.Default : rules.Games.GetOrCreateValue(game)).Items;
-        return new(cache.GetValue(item, current => new(SumValues(
-            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats);
+        return cache.GetValue(item, current => new(SumValues(
+            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats;
     }
 
     /// <summary>Local conditional rows need the current actor's subject and cannot use the immutable item cache.</summary>

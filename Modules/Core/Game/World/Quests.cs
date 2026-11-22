@@ -46,14 +46,25 @@ public static partial class Game
         var wanted = flags.Distinct().ToList();
         var clientBefore = PlayerQuestFlags(player);
         var ownBefore = player.Character.QuestFlagsSnapshot();
-        var had = wanted.ToDictionary(f => f, f => Quests.ClientHas(f, ownBefore, clientBefore));
+        bool InstanceHas(string flag) => player.Instance?.HasState(flag) == true;
+        var had = wanted.ToDictionary(f => f, f => Quests.IsInstanceFlag(f)
+            ? InstanceHas(f) : Quests.ClientHas(f, ownBefore, clientBefore));
         var changed = new List<string>();
+        List<string>? instanceChanges = null;
         foreach (string flag in wanted)
+        {
+            if (Quests.IsInstanceFlag(flag))
+            {
+                if (player.Instance is { } instance && (on ? instance.SetState(flag) : instance.ClearState(flag)))
+                    (instanceChanges ??= []).Add(flag);
+                continue;
+            }
             // A flag every character is given (Quests.EveryCharacter) but has not earned yet is earned now: saved, though
             // the client may have had it (Kitava's death sets EndGameAvailable, which a hideout and the maps had).
             if (on ? player.Character.QuestFlags.Add(flag) | player.Character.UnearnedQuestFlags.Remove(flag) : player.Character.QuestFlags.Remove(flag)) changed.Add(flag);
-        if (changed.Count == 0) return null;
-        CharacterSaves.ChangeQuestFlags(CharacterName(player), changed, on);
+        }
+        if (changed.Count == 0 && instanceChanges is null) return null;
+        if (changed.Count > 0) CharacterSaves.ChangeQuestFlags(CharacterName(player), changed, on);
         // A flag with refund points (QuestStaticRewards) was credited by the save: the balance follows it.
         if (on && changed.Any(f => QuestStaticRewards.Default.Find(f) is { RefundPoints: > 0 }))
         {
@@ -67,7 +78,8 @@ public static partial class Game
         }
         var all = PlayerQuestFlags(player);
         var own = player.Character.QuestFlagsSnapshot();
-        bool Has(string flag) => Quests.ClientHas(flag, own, all);
+        bool Has(string flag) => Quests.IsInstanceFlag(flag) ? InstanceHas(flag) : Quests.ClientHas(flag, own, all);
+        if (instanceChanges is not null) changed.AddRange(instanceChanges);
         var effective = Quests.EffectiveChanges(changed, f => had[f], Has);
         List<uint> gone = [.. player.QuestRoomObjects.Where(o => effective.Contains(o.Value.Flag) && Has(o.Value.Flag)).Select(o => o.Key)];
         foreach (uint id in gone) player.QuestRoomObjects.Remove(id);
@@ -97,14 +109,21 @@ public static partial class Game
         if (ChangesStaticRewards(change.Changed))
             await SendPassives(player);
         await UpdateShownTransitions(player, $"quest flags {string.Join(", ", change.Effective)}");
+        if (change.Effective.Any(Quests.IsInstanceFlag))
+        {
+            var instanceFlags = change.Effective.Where(Quests.IsInstanceFlag).ToArray();
+            foreach (var other in player.Instance.Presence.PlayersExcept(player.Id))
+                QueueDoorRefresh(other, instanceFlags);
+        }
         await UpdateQuestNpcs(player, $"quest flags {string.Join(", ", change.Effective)}");
         if (change.Effective.Contains(GlyphQuest.PlacedGlyphs))
             await ChangeSubmergedPassage(player, ClientHasQuestFlag(player, GlyphQuest.PlacedGlyphs));
         // The quest engine's objects and chests whose state follows a flag (World/Quest/QuestEngine.cs).
         await UpdateQuestObjectStates(player, change.Effective);
         foreach (uint id in change.Removed)
-            await Send(player, [], $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
+            await SendWorldRemoval(player, id, $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { return player.Closed || player.LeavingArea || player.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
+        if (on) await CharacterVoiceLines.OnQuestFlagsPublishedHeld(player, change.Effective);
     }
 
     // Whole flag sets are projections, not snapshots: combat can commit while a normal setter awaits the cipher gate.
@@ -150,19 +169,44 @@ public static partial class Game
         return count > 0 && done == count;
     }
 
-    // C→S 0x212: the Labyrinth the plaza's select window chose (1 Normal … 4 Eternal). With its trials done the door in front
-    // of the way in opens in this instance and the way in shows (to today's first room; only the Normal Labyrinth is built).
+    public static string? LabyrinthAdmissionFailure(Player player, int tier)
+    {
+        if (tier is not (1 or 2)) return "this difficulty is not supported";
+        if (tier == 2 && player.Pools.Level < 40) return "requires level 40";
+        if (tier == 2 && !player.Character.HasQuestFlag("LabyrinthComplete1")
+            && !player.Character.MainAscendancy.EarnedAwards.Contains(global::AscendancyRules.AwardKeys[0]))
+            return "requires completing the Normal Labyrinth";
+        return LabyrinthTrialsDone(player, tier, out int done, out int count)
+            ? null : $"requires all {count} trials ({done} completed)";
+    }
+
+    public static string? OpenLabyrinthEntrance(Player player, int tier, uint day)
+    {
+        if (player.Layout.Id != LabyrinthDay.Plaza || player.LabyrinthEntry is not null || player.Closed || player.LeavingArea)
+            return "the plaza entrance cannot be changed";
+        if (LabyrinthAdmissionFailure(player, tier) is { } failure) return failure;
+
+        var (id, portal) = player.Layout.AreaTransitions.FirstOrDefault(t => t.Transition.SourceType == LabyrinthDay.Entrance);
+        if (portal is null || LabyrinthDay.EntryFor(day, tier) is not { } entry) return "the first room is unavailable";
+        player.ReplaceAreaTransition(id, portal with { DestinationHash16 = entry.Destination });
+        player.LabyrinthEntry = entry;
+        return null;
+    }
+
+    // C→S 0x212: the plaza's choice opens a door and shows the selected day's first room for this player.
     public static async Task ChooseLabyrinth(Player player, byte tier)
     {
         if (player.Layout.Id != LabyrinthDay.Plaza) return;
-        bool done = LabyrinthTrialsDone(player, tier, out int have, out int count);
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0212 Labyrinth {tier} chosen: {have} of {count} of its trials done");
-        if (tier != 1)
+        string? failure;
+        try { failure = OpenLabyrinthEntrance(player, tier, LabyrinthDay.Seed); }
+        catch (Exception ex) when (ex is InvalidDataException or FileNotFoundException)
+        { failure = ex.Message; }
+        if (failure is not null)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} Labyrinth {tier}: only the Normal Labyrinth is built, the door stays shut");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0212 Labyrinth {tier} refused: {failure}");
             return;
         }
-        if (!done || !player.Instance.SetState(LabyrinthDay.PlazaDoorOpen)) return;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0212 Labyrinth {tier} chosen");
         await UpdateQuestObjectStates(player, [LabyrinthDay.PlazaDoorOpen]);
         await UpdateShownTransitions(player, "the Labyrinth's door opens");
     }
@@ -183,6 +227,10 @@ public static partial class Game
     // they do not, so a league without them has the layout as generated.
     public static bool TransitionShown(Player player, uint id, AreaTransitionObject transition)
     {
+        if (player.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance)
+            return player.LabyrinthEntry?.Destination == transition.DestinationHash16;
+        // A gate into an ExtraTerrainFeatures sub-area stands only where a module of the league fills it.
+        if (transition.Feature is { } feature && !GameEvents.FillsFeature(player, feature)) return false;
         if (Sirus.GateShown(player, transition) is bool sirusShown) return sirusShown;
         if (DepravedTrinity.GateShown(player, id, transition) is bool shown) return shown;
         if (KitavaActFive.GateShown(player, transition) is bool kitavaShown) return kitavaShown;
@@ -231,7 +279,8 @@ public static partial class Game
     // its ways by these, so the server's checks follow them.
     public static bool ClientHasQuestFlag(Player player, string flag)
     {
-        if (Quests.IsInstanceFlag(flag)) return player.Instance.HasState(flag);
+        if (Quests.IsInstanceFlag(flag))
+            return flag == LabyrinthDay.PlazaDoorOpen ? player.LabyrinthEntry is not null : player.Instance.HasState(flag);
         if (player.Character.HasQuestFlag(flag)) return true;
         if (Quests.Rows([flag]) is not [int row]) return false;
         bool inHideout = HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Hash == StashCatalog.DelveHub;
@@ -314,6 +363,23 @@ public static partial class Game
     }
 
     public static bool LyingOnBeach(Player player) => player.PeerTemplate is { WashedUp: true } && !player.TutorialGettingUp;
+
+    // C→S 0x020a: a tutorial step or Help Panel article completed or dismissed (u8 Tutorial.dat row).
+    // Row 17 (AllTutorials, from "Skip All Tutorials" or Options → "Disable Tutorials") sets every tutorial completion
+    // flag (rows 0..18, including CompletedSkillGemTutorial checked by TutorialManager at 0x140d46d50) plus
+    // TutorialPanelHideArticlePopups (row 77, checked by the Help Panel at 0x140a901ec/0x140a910e3/0x140a92dca); every
+    // other row sets its own QuestFlagComplete.
+    public static async Task CompleteTutorial(Player player, byte row)
+    {
+        if (Quests.TutorialFlag(row) is not { } flag)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020a tutorial row {row}: no completion flag, ignored");
+            return;
+        }
+        IReadOnlyList<string> flags = flag == Quests.CompletedAllTutorials ? Quests.AllTutorialFlags : [flag];
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020a tutorial row {row} -> {(flags.Count == 1 ? flag : $"{flag} ({flags.Count} flags)")}");
+        await SetQuestFlags(player, flags);
+    }
 
     // Ids of the invisible SunkenPassageBlockers on the server's walk estimate (blockers only: the client spawns them).
     public const uint PassageBlockerFirstId = 0xff000000;

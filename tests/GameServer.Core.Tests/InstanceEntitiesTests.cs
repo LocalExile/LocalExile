@@ -147,9 +147,30 @@ public class InstanceEntitiesTests
     [Fact]
     public void Animation_update_layout()
     {
-        // header, u8 kind (0 = play), u32 animation index, u32 float bits (speed 1.0).
-        Assert.Equal("01B2" + "00003000" + "00000000" + "0000" + "00" + "00000005" + "3F800000",
-            Convert.ToHexString(InstanceProtocol.AnimationUpdate(0x3000, 0, 5, 1f)));
+        const string header = "01B2" + "00003000" + "00000000" + "0000";
+        // Retail 0x141fe58a0: kinds 0/1 carry u32 index + f32 speed (21 B), kinds 2/3 carry f32 speed only (17 B),
+        // and kind >= 4 throws "Bad packet: InstanceClientAnimationUpdate".
+        byte[] k0 = InstanceProtocol.AnimationUpdate(0x3000, 0, 5, 1f);
+        byte[] k1 = InstanceProtocol.AnimationUpdate(0x3000, 1, 7, 2f);
+        byte[] k2 = InstanceProtocol.AnimationUpdate(0x3000, 2, 99, 0.5f);
+        byte[] k3 = InstanceProtocol.AnimationUpdate(0x3000, 3, 99, 3f);
+
+        Assert.Equal(21, k0.Length);
+        Assert.Equal(header + "00" + "00000005" + "3F800000", Convert.ToHexString(k0));
+        Assert.Equal(21, k1.Length);
+        Assert.Equal(header + "01" + "00000007" + "40000000", Convert.ToHexString(k1));
+        Assert.Equal(17, k2.Length);
+        Assert.Equal(header + "02" + "3F000000", Convert.ToHexString(k2));
+        Assert.Equal(17, k3.Length);
+        Assert.Equal(header + "03" + "40400000", Convert.ToHexString(k3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InstanceProtocol.AnimationUpdate(0x3000, 4, 99, 1f));
+
+        Assert.Equal(21, InstanceProtocol.AnimationUpdateLength(0));
+        Assert.Equal(21, InstanceProtocol.AnimationUpdateLength(1));
+        Assert.Equal(17, InstanceProtocol.AnimationUpdateLength(2));
+        Assert.Equal(17, InstanceProtocol.AnimationUpdateLength(3));
+        Assert.Equal(-1, InstanceProtocol.AnimationUpdateLength(4));
+        Assert.Equal(-1, InstanceProtocol.AnimationUpdateLength(255));
     }
 
     [Fact]
@@ -420,6 +441,62 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Effect_object_blob_orders_positioned_scale_before_height_and_animated_attachment_before_animation()
+    {
+        // Retail Positioned (0x141e323f0) reads flags0 0x20 (scale + stretches) before 0x04 (fixed height / native fields).
+        // Retail Animated (0x141e5afd0) reads bit 0x04 (bone attachment) before bit 0x08 (animation id, 0, speed),
+        // and requires bit 0x04 in the flags byte whenever a parent attachment is present.
+        var effect = new EffectObject(10, 20, "a.ao")
+        {
+            Flags0 = (byte)(EffectObject.FixedRotation | 0x04),
+            Scale = 2f,
+            AnimationWord = 22,
+            AnimationValue = -172f,
+            AnimatedFlags = 0x08,
+            AnimationId = 6,
+            Parent = 0x1000,
+            Bone = "<root>",
+            AttachKind = 0,
+            AttachFlags = 3,
+        };
+        byte[] blob = effect.Blob();
+        string expected =
+            "0000" +                                                               // object flags, base data count
+            "0A000000" + "14000000" + "00000000" + "0000" + "A4" + "00" +          // Positioned: flags0 = 0x80 | 0x20 | 0x04, flags1 = 0 (type's own blocking)
+            "00000040" + "0000803F" + "0000803F" +                                 // flags0 0x20: scale 2.0, stretchX 1.0, stretchY 1.0
+            "16000000" + "00002CC3" +                                              // flags0 0x04: word 22, value -172.0
+            "0D" + "04000000" + "61002E0061006F00" +                               // Animated: flags = 0x01 | 0x04 | 0x08, WStr32("a.ao")
+            "00100000" + "00000000" + "00000000" + "06000000" + "3C726F6F743E" +   // Animated 0x04: parent 0x1000, 0f, 0f, "<root>"
+            "0003" + "00000000" + "00000000" + "00000000" +                        // attachKind 0, attachFlags 3, offset (0, 0, 0)
+            "06000000" + "00000000" + "0000803F" +                                 // Animated 0x08: AnimationId 6, u32 0, speed 1.0
+            "00";                                                                  // tasks
+        Assert.Equal(expected, Convert.ToHexString(blob));
+
+        // Explicit 0x09 (bit0 | bit3) with a parent yields the same 0x0D flags and byte layout.
+        Assert.Equal(blob, (effect with { AnimatedFlags = 0x09 }).Blob());
+        // Explicit 0x09 or 0x0D without a parent omits bit 0x04 and the attachment record.
+        byte[] unattached = (effect with { AnimatedFlags = 0x09, Parent = 0 }).Blob();
+        Assert.Equal(0x09, unattached[38]);
+        Assert.Equal(unattached, (effect with { AnimatedFlags = 0x0D, Parent = 0 }).Blob());
+    }
+
+    [Fact]
+    public void Quest_object_stats_precede_trailing_zeroes()
+    {
+        // Retail Stats (0x1421c98b0) reads the compact stat count + (key, value) pairs before trailing u32 0, u32 0, u8 0.
+        const string prefix = "0000" + "0A000000" + "14000000" + "00000000" + "0000" + "0000";
+        byte[] empty = new QuestObject(10, 20, ["Positioned", "Stats"]).Blob();
+        Assert.Equal(prefix + "00" + "00000000" + "00000000" + "00" + "00", Convert.ToHexString(empty));
+
+        byte[] populated = new QuestObject(10, 20, ["Positioned", "Stats"])
+        {
+            Stats = [(0x142u, 833), (0x117u, 2)],
+        }.Blob();
+        const string statList = "02" + "8142" + "8341" + "8117" + "02";
+        Assert.Equal(prefix + statList + "00000000" + "00000000" + "00" + "00", Convert.ToHexString(populated));
+    }
+
+    [Fact]
     public void Buff_messages_layout()
     {
         // header (u32 id, u32, u16), u16 instance, u16 BuffDefinitions row, u32 source, u16 skill, u8 flags, u32 list count.
@@ -594,7 +671,7 @@ public class InstanceEntitiesTests
     public void Area_transition_with_a_tile_object_model_rotation_and_height()
     {
         // Live 2026-10-17: the Coast exit with the tile's arch (.tmd record beachencampment_v01_01_area_transition2):
-        // Positioned rotation float, flags0 bit2 = fixed height (u32 steps of 7.8125, float z), Animated bit0 + .ao path.
+        // Positioned rotation float, flags0 bit2 = fixed height (i32 -z/7.8125 marker, float z), Animated bit0 + .ao path.
         const string model = "Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_area_transition2.ao";
         byte[] b = new AreaTransitionObject(GridX: 388, GridY: 230, DestinationHash16: 0x7ad2, Model: model,
             Rotation: MathF.PI / 2, Height: -351.04f) { InTown = true }.Blob();
@@ -602,7 +679,7 @@ public class InstanceEntitiesTests
         Assert.StartsWith(
             "00" + "00" +
             "84010000" + "E6000000" + "DB0FC93F" + "0000" + "04" + "00" +   // Positioned (388, 230), 90°, flags0 0x04
-            "D3FFFFFF" + "1F85AFC3" +                                        // height -45 steps, z -351.04
+            "2D000000" + "1F85AFC3" +                                        // marker +45 (-z/7.8125), z -351.04
             "01" + "49000000" + Convert.ToHexString(System.Text.Encoding.Unicode.GetBytes(model)) +
             "00" + "02" + "D27A" + "00", hex);                               // AreaTransition as before
         Assert.Equal(41 + 8 + 4 + model.Length * 2, b.Length);

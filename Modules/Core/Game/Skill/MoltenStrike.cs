@@ -104,7 +104,7 @@ public static partial class Game
         out string? clip, out double fraction, out double earliestSeconds)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(player, activeSet: true);
+        var weapon = AnimationWeaponProfileFor(player);
         double latestLimit = Math.Max(0, attackSeconds - AttackTiming.LandMargin);
         if (SkillsFor(player).EffectId(effect) is { } effectId
             && Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId)) is { } found)
@@ -142,7 +142,7 @@ public static partial class Game
 
         double ruthless = RuthlessBlowMore(player, skillId, InitialStat);
         int meleeRepeats = MeleeAttackRepeats(player, skillId);
-        double attackSeconds = SupportedAttackSeconds(player, skillId);
+        double attackSeconds = SupportedAttackSeconds(player, skillId, sequence);
         double repeatInterval = meleeRepeats > 0 ? attackSeconds : 0;
         double acceptedAt = swingAt ?? AreaTime(player);
         var roll = criticalRoll ?? CaptureSkillCriticalRoll(player, skillId);
@@ -257,7 +257,9 @@ public static partial class Game
                 return;
             double now = ProjectileWorldTime(player);
             var playerAt = player.Walk.Position(now);
-            var weapon = WeaponFor(player);
+            // A dual-wielded use's hand (AttackHands): its reach, hit, chance and local modifiers.
+            var hand = AttackHandFor(player, skillId, sequence);
+            var weapon = HandWeapon(player, hand);
             var skillStats = SupportedSkill(player, skillId).Stats;
             int Stat(uint k) => skillStats.GetValueOrDefault(k);
             if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
@@ -287,7 +289,7 @@ public static partial class Game
                 targets.Add((eid, em, true));
 
             var splashMore = new Dictionary<uint, double>();
-            var merged = SupportedStats(player, skillId);
+            var merged = SkillAreaStats(player, SupportedSkill(player, skillId).Stats, gem.Effect);
             int SplashStat(uint k) => merged.GetValueOrDefault(k);
             if (targets.Count > 0 && MeleeSplash.Settings(SplashStat) is { } splash)
                 foreach (var (_, strikeMonster, _) in targets.ToArray())
@@ -310,23 +312,25 @@ public static partial class Game
             }
 
             playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
-            var local = MainHandLocalSources(player);
+            var local = HandLocalSources(player, hand);
+            var swingWeapon = OffHandSwing(player, hand);
             var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(playerStats, skillStats);
-            var meleeHit = SupportedHit(player, skillId);
+            var meleeHit = SupportedSwingHit(player, skillId, hand, w => SupportedHitFor(player, skillId, suppress: true, weapon: w));
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
             int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId);
-            var accuracy = SupportedAccuracy(player, skillId);
-            var leech = HitLeechSources(playerStats, true, skillStats, local);
+            var accuracy = SupportedAccuracy(player, skillId, hand);
+            var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
             var impale = ImpaleStats.From(playerStats, Stats, true, skillStats, local);
             var criticalImpale = ImpaleStats.From(playerStats, Stats, true, skillStats, local, critical: true);
-            var ignite = SupportedIgnite(player, skillId, spell: false, playerStats);
-            var bleed = SupportedBleed(player, skillId, spell: false, playerStats, melee: true);
-            var poison = SupportedPoison(player, skillId, spell: false, playerStats);
+            var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
+            var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
+            var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);
             ignite = RepeatAilment(ignite, repeatMore);
             bleed = RepeatAilment(bleed, repeatMore);
             poison = RepeatAilment(poison, repeatMore);
             var criticalTrigger = CaptureCriticalTriggerSource(player, skillId);
+            var meleeKillTrigger = CaptureMeleeKillTriggerSource(player, skillId);
             bool fortificationGranted = false;
             bool rageGranted = false;
             var hitOrigins = new List<ProjectileVector>();
@@ -351,16 +355,16 @@ public static partial class Game
                 var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                     GameEvents.WithOutgoingDamage(player, playerStats, m, (gambler with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats)
-                        .RollOutgoingHit(contactHit, AreaRng(player))), now);
+                        .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {
                     double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
                     rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                     m.HallowingFlameUntil = 0;
                 }
-                int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
-                    SupportedCriticalChanceVsBlinded(player, skillId, release: false),
-                    SupportedCriticalChanceVsGround(player, skillId, release: false));
+                int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand),
+                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, SwingWeaponCritical(player, hand)),
+                    SupportedCriticalChanceVsGround(player, skillId, release: false, SwingWeaponCritical(player, hand)));
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);
@@ -380,12 +384,18 @@ public static partial class Game
                 var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats,
                     cull: Cull.Of(playerStats, skillStats, critical, spell: false));
                 if (applied is not { } hit) continue;
+                if (weapon.ItemClass is not null) player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, now);
+                if (hit.Life == 0) RecordTinctureKill(m, TinctureKillBonusFor(player, playerStats, hand));
                 // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.
                 CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);
 
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
                 ReleaseCriticalTrigger(player, ProjectilesFor(player), criticalTrigger, critical, m.Hostile, mAt, now);
+                if (hit.Life == 0) ReleaseMeleeKillTrigger(player, ProjectilesFor(player),
+                    meleeKillTrigger, true, m.Hostile, mAt, now);
                 player.RecentEvents.RecordCriticalOutcome(now, critical);
+                if (ElementalOverloadCritLocked(player, skillId, null, playerStats, critical) is { } eoBuff)
+                    ProjectilesFor(player).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                 if (global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                 if (global::Stat.BaseKilledMonsterDroppedItemRarityPlusPct is var rarityKey)
@@ -432,6 +442,7 @@ public static partial class Game
             }
         }
 
+        var supportedStats = SupportedSkill(player, skillId).Stats;
         foreach (var r in results)
         {
             if (r.Critical) _ = GainFlaskChargesOnCrit(player);
@@ -441,7 +452,8 @@ public static partial class Game
                 melee: true, sequence: sequence, deaths: deaths, stun: r.Stun);
             await SendDotBuff(player, r.Ignited, r.IgniteLog);
             await SendDotBuff(player, r.Bled, r.BleedLog);
-            ChargesOnHit(player, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id);
+            ChargesOnHit(player, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id,
+                skillStats: supportedStats);
         }
         if (reflected.Count > 0 && playerStats is not null)
             using (ProjectileMutation(player)) ReflectAilmentsLocked(player, reflected, ProjectileWorldTime(player), playerStats, AreaRng(player));
@@ -488,7 +500,7 @@ public static partial class Game
                 Ignite = RepeatAilment(shot.Ignite, damageScale), Bleed = RepeatAilment(shot.Bleed, damageScale),
                 Poison = RepeatAilment(shot.Poison, damageScale) };
 
-        var areaStats = AreaSkillStats(player, skillId, SupportedSkill(player, skillId));
+        var areaStats = SkillAreaStats(player, own, gem.Effect);
         int AreaGet(uint name) => name == SkillArea.BaseIncreased
             ? own.GetValueOrDefault(name) + areaStats.GetValueOrDefault(Stat.MoltenStrikeRadiusPlusPct)
             : areaStats.GetValueOrDefault(name);

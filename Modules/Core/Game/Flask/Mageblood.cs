@@ -70,9 +70,15 @@ public static partial class Game
         var count = MagebloodFlaskCount(belt, items);
         if (count.Count == 0) return [];
         List<UtilityFlasks.Source> sources = [];
+        double now = AreaTime(player);
         foreach (var flask in MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), count, items))
             if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
-                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character, playerLevel ?? player.Pools.Level).Stats);
+            {
+                int adjacentEffect = flask.X <= byte.MaxValue ? AdjacentTinctureFlaskEffect(player, (byte)flask.X, character, now) : 0;
+                Func<uint, int> flaskCharacter = adjacentEffect == 0 ? character
+                    : stat => stat == Stat.FlaskEffectPlusPct ? character(stat) + adjacentEffect : character(stat);
+                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), flaskCharacter, playerLevel ?? player.Pools.Level).Stats);
+            }
         return sources;
     }
 

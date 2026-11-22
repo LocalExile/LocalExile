@@ -22,7 +22,7 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 # Name, outputs (the first is checked for presence and freshness), runner (dotnet | python), arguments, version, needs,
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
 $manifest = @(
-    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\InfluenceTags.json', 'data\tables\UniqueStashLayout.json', 'data\tables\UniqueStashTypes.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json', 'data\tables\DelveResourcePerLevel.json', 'data\tables\LabyrinthTrials.json', 'data\tables\GrantedEffectStatSets.json', 'data\tables\BuffDefinitions.json', 'data\tables\KiracLevels.json', 'data\tables\GameConstants.json', 'data\tables\SkillTrapVariations.json'); Runner = 'dotnet'
+    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\InfluenceTags.json', 'data\tables\UniqueStashLayout.json', 'data\tables\UniqueStashTypes.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json', 'data\tables\DelveResourcePerLevel.json', 'data\tables\LabyrinthTrials.json', 'data\tables\GrantedEffectStatSets.json', 'data\tables\BuffDefinitions.json', 'data\tables\KiracLevels.json', 'data\tables\GameConstants.json', 'data\tables\SkillTrapVariations.json', 'data\tables\CharacterAudioEvents.json', 'data\tables\CharacterEventTextAudio.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client'); Version = 6; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'vendor-stock'; Outputs = @('data\vendor-stock.json'); Runner = 'python'
@@ -41,16 +41,20 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'room-points'); Version = 10; Needs = @('tables')
        UsedBy = 'unique bosses and named packs (14-monster-packs.md), quest room objects (12-quests.md)' }
     # After area-transitions and room-points: --all also takes the object types those files name. The Labyrinth's
-    # elevator and objective marker are named by the arena's tiles, not by a room, so they are asked for by name.
+    # elevator and objective marker are named by the arena's tiles, not by a room, so they are asked for by name; so is
+    # Oshabi's soul tree, which the Harvest module places itself (no table, room or tile line names it), and the Allflame
+    # encounter rooms' lamp and barrels (only those TerrainFeatures rooms name them).
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json',
-                'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker'); Version = 11; Needs = @('tables', 'area-transitions', 'room-points')
+                'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker',
+                'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree', 'Metadata/Terrain/Leagues/Deepwater/Objects/CursedTreasureChestEncounterLamp',
+                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 13; Needs = @('tables', 'area-transitions', 'room-points')
        UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/anim_contacts.py'); Version = 9; Needs = @('tables')
+       Args = @('scripts/re/anim_contacts.py'); Version = 10; Needs = @('tables')
        UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), every contact frame of a clip, and all named events and clip lengths including clips without contact' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
@@ -80,7 +84,7 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 2; Needs = @()
        UsedBy = 'the Patch server''s root hash of the local GGPK (live.ps1 refreshes it before each client start; the HNC mask is in client.db)' }
     @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'; Servers = $true
-       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 4; Needs = @()
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 5; Needs = @()
        UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
     @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'stat-descriptions'); Version = 2; Needs = @()

@@ -19,7 +19,7 @@ public static partial class Game
         int Get(uint key) => stats.GetValueOrDefault(key);
         var recovery = BlockRecovery(player, stats);
         var leech = LeechOf(player);
-        long life = Get(Stat.CannotRecoverLife) == 0 ? (long)player.Pools.LifeGainedOnBlock + recovery.Life : 0;
+        long life = !LifeRecovery.NonLeechBlocked(Get) ? (long)player.Pools.LifeGainedOnBlock + recovery.Life : 0;
         long mana = (long)player.Pools.ManaGainedOnBlock + recovery.Mana;
         uint shield = Get(Stat.CannotRecoverEnergyShield) == 0 && Get(Stat.NoEnergyShieldRecovery) == 0 ? recovery.EnergyShield : 0;
         if (life > 0) player.PlayerLife = PetrifiedBlood.RecoverLife(player, player.PlayerLife, life, ref leech.LifeInstantCarry, minimum: 1);

@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static bool IsVaalMinion(string? effect) => effect is "VaalSummonSkeletons" or "VaalAbsolution" or "VaalDomination";
+    static bool IsVaalMinion(string? effect) => effect is "VaalSummonSkeletons" or "VaalAbsolution" or "VaalDomination" or "VaalAnimateWeapon";
     static Dictionary<uint, int> MergeSummonStats(IReadOnlyDictionary<uint,int> source, IReadOnlyDictionary<uint,int> retained)
     {
         var result = new Dictionary<uint,int>(source);
@@ -65,14 +65,14 @@ public static partial class Game
 
     internal static async Task<bool> ReleaseVaalMinions(Player player, ushort source, (int X,int Y) aim, Func<bool> current, uint target = 0)
     {
-        var gem=SupportedSkill(player,source);
+        var gem = SupportedSkill(player, source);
         bool Live() => current() && SameTriggerSource(gem, SupportedSkill(player, source));
         if (!gem.RequirementsMet || !IsVaalMinion(SkillsFor(player).EffectId(gem.Effect))
             || VaalMinionProxyDisabled(player, gem.Effect, source) is not null || !Live()) return false;
-        double now=AreaTime(player);
-        double duration=SkillDurationModifiers.Seconds(GolemStat(gem.Stats,Stat.BaseSkillEffectDuration),
-            n=>GolemStat(CharacterPlayerStats(player),n),n=>GolemStat(gem.Stats,n));
-        if (SkillsFor(player).EffectId(gem.Effect)=="VaalSummonSkeletons")
+        double now = AreaTime(player);
+        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration),
+            n => GolemStat(CharacterPlayerStats(player), n), n => GolemStat(gem.Stats, n), DurationKinds(player, gem.Effect));
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSummonSkeletons")
         {
             var definition=SummonData.Find("VaalSummonSkeletons")!;
             foreach (var (stat,body,variants) in new[] { ("melee","Melee",2), ("archer","Ranged",2), ("mage","Spellcaster",3), ("leader","General",4) })
@@ -84,7 +84,9 @@ public static partial class Game
                 }
             return true;
         }
-        var plan=VaalAscension(player,gem,target);
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalAnimateWeapon")
+            return await ReleaseVaalWeapons(player, source, gem, aim, duration, Live);
+        var plan = VaalAscension(player, gem, target);
         if (plan.Limit<=0) return false;
         if (plan.Refresh is { } refreshed)
         {

@@ -20,6 +20,7 @@ public sealed class PlayerWalk
     private readonly int _w, _h, _size;
     private readonly ClientPathfinder.SearchLimit _limit;
     private double _speed;
+    private double _movementBlockedUntil = double.NegativeInfinity;
     private List<Segment> _segments_ = [];
     // Every new walk or change of one goes through here: Changed tells the owner (whether it moves can change).
     private List<Segment> _segments { get => _segments_; set { _segments_ = value; Changed?.Invoke(); } }
@@ -76,6 +77,16 @@ public sealed class PlayerWalk
     }
 
     public double Speed => _speed;
+
+    /// <summary>Refuses new walk orders until the given simulation time: an order leaves the walker where it stands. The
+    /// walk under way goes on until the caller stops it (with an order). Teleports remain possible.</summary>
+    public void BlockMovementUntil(double until, double now)
+    {
+        if (until <= now) return;
+        _movementBlockedUntil = Math.Max(_movementBlockedUntil, until);
+    }
+
+    public bool MovementBlocked(double now) => now < _movementBlockedUntil;
 
     /// <summary>The frame a time's messages take effect in on this client, if it runs on frames: a lockstep client applies
     /// them at the frame's start, and its walkers only move on frames.</summary>
@@ -493,6 +504,11 @@ public sealed class PlayerWalk
     {
         now = Frame(now);
         var here = At(now, out double fraction);
+        if (MovementBlocked(now))
+        {
+            Teleport(here.X, here.Y, now);
+            return here;
+        }
         var bodies = _blockers();
         _precision = precision;
         // MoveTo tries the goal where the walker stands first (0x141e81950): in range with the line to the target's body,

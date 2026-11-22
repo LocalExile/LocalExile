@@ -24,7 +24,7 @@ public sealed class ScarabEncounterTests
         var mods = catalog.Of([slot], Program.Items.Mods);
         Assert.Equal(3, mods.Get(Stat.MapLeaguestoneAdditionalShrines));
         Dictionary<uint, int> Compose(MapMods input, Dictionary<uint, int>? atlas = null) =>
-            Game.ComposeMapAreaStats(input, 3, atlas ?? [], new HashSet<string>(), -1, false);
+            Game.ComposeMapAreaStats(input, 3, atlas ?? [], new HashSet<string>(), -1);
         var stats = Compose(mods);
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         int Base(IReadOnlyDictionary<uint, int> input) => ExtraTerrainFeatures.LeagueStruct(area with
@@ -157,7 +157,8 @@ public sealed class ScarabEncounterTests
             await MapStrongboxes.Enter(boxOwner.Player);
             MapStrongboxes.Box[] Boxes() => System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(boxInstance.ContentState["Ambush/boxes"])!;
             var boxes = Boxes();
-            Assert.Equal(4, boxes.Length);
+            Assert.Equal(MapStrongboxes.Count(boxOwner.Player, 70).Count, boxes.Length);
+            Assert.True(boxes.Length >= 4); // the four scarab boxes plus any natural Ambush roll
             await MapStrongboxes.Enter(boxPeer.Player);
             Assert.Equal(boxes.Select(b => b.Id), Boxes().Select(b => b.Id));
             Assert.All(boxes, b => Assert.True(layout.Walkable!(b.X, b.Y)));
@@ -342,18 +343,23 @@ public sealed class ScarabEncounterTests
         essenceRequest.Opening = opening with { Area = opening.Area with { Level = 70 }, Mods = MapRunCatalog.Load("data").Of(essenceRequest.Slots, Program.Items.Mods) };
         MapScarabContent.Describe(essenceRequest);
         MapEssences.Opening(essenceRequest);
-        Assert.Contains(essenceRequest.UnhandledContent, s => s.Contains("Essence.Stability"));
+        Assert.DoesNotContain(essenceRequest.UnhandledContent, s => s.Contains("Essence.Stability"));
         Assert.Contains(essenceRequest.UnhandledContent, s => s.Contains("replica balance"));
+        var ambush = Request("ScarabStrongboxNew1");
+        ambush.Opening = opening with { Area = opening.Area with { Level = 70 }, Mods = MapRunCatalog.Load("data").Of(ambush.Slots, Program.Items.Mods) };
+        MapScarabContent.Describe(ambush);
+        MapStrongboxes.Opening(ambush);
+        Assert.Empty(ambush.UnhandledContent);
         var terrors = Request("ScarabDomination4");
         MapScarabContent.Describe(terrors);
         MapScarabBosses.Opening(terrors);
         Assert.Empty(terrors.UnhandledContent);
     }
 
-    sealed class Wire(TcpClient writer, TcpClient reader, Player player, Task drain) : IAsyncDisposable
+    internal sealed class Wire(TcpClient writer, TcpClient reader, Player player, Task drain) : IAsyncDisposable
     {
         public Player Player => player;
-        public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed)
+        public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed, string? character = null)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
@@ -364,7 +370,7 @@ public sealed class ScarabEncounterTests
             var player = new Player(layout, 1, seed)
             {
                 Connection = { LockstepClient = false, PlayerSent = true, Session = new("scarab-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)) },
-                Character = { Name = "ScarabMap" + Guid.NewGuid().ToString("N") },
+                Character = { Name = character ?? "ScarabMap" + Guid.NewGuid().ToString("N") },
                 Instance = instance,
                 PlayerLife = 1000,
                 PlayerMana = 1000,

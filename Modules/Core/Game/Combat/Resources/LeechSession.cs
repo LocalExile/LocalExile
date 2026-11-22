@@ -11,9 +11,15 @@ public sealed class LeechSession
     bool convertLifeToEnergyShield;
     public bool ConvertsLifeToEnergyShield => convertLifeToEnergyShield;
     double lifeInstant, manaInstant, shieldInstant, convertedLifeInstant;
+    // Vaal Pact: "Life Leech from Melee Damage is Instant" — the life instant fraction a melee hit uses instead.
+    double meleeLifeInstant;
     bool recoverLife = true, recoverEnergyShield = true;
     public bool RecoversLife => recoverLife;
     public bool RecoversEnergyShield => recoverEnergyShield;
+    // Vaal Pact's "Cannot Recover Life other than from Leech": life gain on hit is not leech, so the keystone blocks it
+    // while leech itself keeps recovering. Regeneration and the other non-leech sources are gated where they commit.
+    bool vaalPact;
+    public bool LifeGainOnHitBlocked => vaalPact;
     public bool InstantLifeChanged, InstantManaChanged;
     public double LifeInstantCarry, ManaInstantCarry;
     // What a kill recovers (RecoverOnKill), from the same stat snapshot as this configuration.
@@ -51,32 +57,43 @@ public sealed class LeechSession
         return double.IsFinite(next) ? next : null;
     }
 
-    public void Configure(double now, LeechLimits.Snapshot value, Func<uint, int> get, int equippedClaws = 0)
+    public void Configure(double now, LeechLimits.Snapshot value, Func<uint, int> get,
+        Func<uint, int?>? replacements = null, int equippedClaws = 0)
     {
         var before = Active(now);
         int count = Count;
-        ConfigureCore(now, value, get, equippedClaws);
+        ConfigureCore(now, value, get, replacements, equippedClaws);
         Report(now, before, count);
         DisplayChanged?.Invoke();
     }
 
-    void ConfigureCore(double now, LeechLimits.Snapshot value, Func<uint, int> get, int equippedClaws)
+    void ConfigureCore(double now, LeechLimits.Snapshot value, Func<uint, int> get,
+        Func<uint, int?>? replacements, int equippedClaws)
     {
+        int? replacement(uint key) => replacements?.Invoke(key);
         limits = value;
-        convertLifeToEnergyShield = get(Stat.KeystoneGhostReaver) != 0 || get(Stat.LeechEnergyShieldInsteadOfLife) != 0;
-        keepLife = get(Stat.LifeLeechDoesNotStopAtFullLife) != 0
-            || get(Stat.VirtualLifeLeechDoesNotStopAtFullLife) != 0;
+        convertLifeToEnergyShield = replacement(Stat.VirtualLeechEnergyShieldInsteadOfLife) is int converted
+            ? converted != 0 : get(Stat.KeystoneGhostReaver) != 0 || get(Stat.LeechEnergyShieldInsteadOfLife) != 0;
+        keepLife = replacement(Stat.VirtualLifeLeechDoesNotStopAtFullLife) is int lifeOverleech
+            ? lifeOverleech != 0 : get(Stat.LifeLeechDoesNotStopAtFullLife) != 0
+                || get(Stat.VirtualLifeLeechDoesNotStopAtFullLife) != 0;
         keepEnergyShield = get(Stat.EnergyShieldLeechDoesNotStopOnFullEnergyShield) != 0;
         keepAttackEnergyShield = get(Stat.EnergyShieldLeechFromAttacksDoesNotStopOnFullEnergyShield) != 0;
         recoverLife = get(Stat.CannotRecoverLife) == 0;
         recoverEnergyShield = get(Stat.CannotRecoverEnergyShield) == 0;
+        vaalPact = get(Stat.KeystoneVaalPact) != 0;
         equippedClaws = Math.Clamp(equippedClaws, 0, 2);
         double commonInstant = (double)get(Stat.LeechPctIsInstant)
             + (equippedClaws > 0 ? get(Stat.LeechPctIsInstantWhileWieldingClaw) : 0);
-        lifeInstant = Math.Clamp(commonInstant + get(Stat.LifeLeechPctIsInstant)
+        lifeInstant = Math.Clamp(replacement(Stat.VirtualLifeLeechPctIsInstant)
+            ?? commonInstant + get(Stat.LifeLeechPctIsInstant)
                 + (double)equippedClaws * get(Stat.LifeLeechPctIsInstantPerEquippedClaw), 0, 100);
-        manaInstant = Math.Clamp(commonInstant, 0, 100);
-        shieldInstant = Math.Clamp(commonInstant, 0, 100);
+        // Vaal Pact: "Life Leech from Melee Damage is Instant". A melee hit's life leech is fully instant; a non-melee
+        // hit keeps the ordinary fraction. Ghost Reaver's life-to-ES conversion keeps its own (no interaction).
+        meleeLifeInstant = get(Stat.KeystoneVaalPact) != 0 || get(Stat.MeleeDamageLifeLeechIsInstant) != 0
+            ? 100 : lifeInstant;
+        manaInstant = Math.Clamp(replacement(Stat.VirtualManaLeechPctIsInstant) ?? commonInstant, 0, 100);
+        shieldInstant = Math.Clamp(replacement(Stat.VirtualEnergyShieldLeechPctIsInstant) ?? commonInstant, 0, 100);
         // GGG 3.22.1d explicitly preserves Life-instant sources through Ghost Reaver. Keep that source scope:
         // native ES grants do not inherit a Life-only bonus.
         convertedLifeInstant = lifeInstant;
@@ -97,18 +114,18 @@ public sealed class LeechSession
 
     public (double Life, double Mana, double EnergyShield) Hit(double now,
         (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
-        bool attack = false)
+        bool attack = false, bool melee = false)
     {
         var before = Active(now);
         int count = Count;
-        var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack);
+        var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack, melee);
         Report(now, before, count);
         return instant;
     }
 
     (double Life, double Mana, double EnergyShield) HitCore(double now,
         (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
-        bool attack)
+        bool attack, bool melee)
     {
         if (limits is null) return default;
         ClearFullCore(now, lifeFull, manaFull, shieldFull);
@@ -124,7 +141,8 @@ public sealed class LeechSession
         bool keepShield = keepEnergyShield || attack && keepAttackEnergyShield;
         double convertedShield = convertLifeToEnergyShield && !limits.Resources[0].CannotLeech
             ? Grant(2, amounts.Life, shieldFull, keepShield, convertedLifeInstant, recoverEnergyShield) : 0;
-        return (convertLifeToEnergyShield ? 0 : Grant(0, amounts.Life, lifeFull, keepLife, lifeInstant, recoverLife),
+        return (convertLifeToEnergyShield ? 0 : Grant(0, amounts.Life, lifeFull, keepLife,
+                melee ? meleeLifeInstant : lifeInstant, recoverLife),
             Grant(1, amounts.Mana, manaFull, false, manaInstant, true),
             convertedShield + Grant(2, amounts.EnergyShield, shieldFull, keepShield, shieldInstant, recoverEnergyShield));
     }

@@ -17,12 +17,19 @@ static partial class KitavaActTen
     internal static bool IsBody(MonsterCatalog.Variety? v) => v?.Id == Body;
     internal static bool IsActor(MonsterCatalog.Variety? v) => v?.Id is Body or Heart or Sin or Innocence;
     internal static LifePhaseGate? Phases(MonsterCatalog.Variety v) => v.Id is Body or Heart ? new([66, 33, 1]) : null;
-    internal const string Epilogue = "2_11_endgame_town", PortalType = "Metadata/QuestObjects/Act10/EpiloguePortal";
+    internal const string Epilogue = "2_11_endgame_town", Docks = "2_10_town",
+        PortalType = "Metadata/QuestObjects/Act10/EpiloguePortal";
     internal const uint EpilogueLabel = 410179532; // ClientStrings.EpilogueActName2; localized by the client.
 
     internal static AreaTransitionObject PortalFor(Player c, AreaTransitionObject portal) =>
         c.Layout.Id == Area && portal.SourceType == PortalType && AreaTransitionCatalog.HashOf(Epilogue) is { } destination
             ? portal with { DestinationHash16 = destination, Label = EpilogueLabel } : portal;
+
+    // Karui Shores' named entrance is connected to the docks. The direct epilogue portal
+    // uses that same arrival instead of the default waypoint cell.
+    internal static ushort? ArrivalSource(string area, ushort destination) =>
+        area == Area && destination == AreaTransitionCatalog.HashOf(Epilogue)
+            ? AreaTransitionCatalog.HashOf(Docks) : null;
 
     // The quest table supplies the native portal's position/model. Its server destination is the epilogue directly.
     // Replace only this connection's exit so cached layouts and already-open arenas behave alike after a module reload.

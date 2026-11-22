@@ -8,14 +8,18 @@ public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, StunHit? stun = null) => CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+        double now, string by, StunHit? stun = null)
+    {
+        OwnedKillLocked(monster, hit.Life);
+        CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+    }
 
     static void CommitAcceptedHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
+        double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null, bool damageOverTime = false)
     {
         var state = player.Minions;
         if (hit.Life == 0) SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-        if (HitReaction.TryFlinch(monster, stun ?? new(damage), now, AreaRng(player)))
+        if (!damageOverTime && HitReaction.TryFlinch(monster, stun ?? new(damage), now, AreaRng(player)))
             state.OutputQueue.Add(new([], $"0x01d1 monster 0x{id:x} TakeHit recovery", id, monster,
                 PlayerMinions.OutputKind.Flinch, monster.FlinchUntil, monster.ActionGeneration));
         state.OutputQueue.Add(new([], $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {hit.Life}/{monster.MaxLife}{(hit.Life == 0 ? " (dies)" : "")}",
@@ -26,6 +30,7 @@ public static partial class Game
     public static void CommitAcceptedKillLocked(Player player, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         HitSummonsOnDeathLocked(player, victimId, monster, now);
+        QueueEssenceDeathSpawnLocked(player, victimId, monster);
         var state = player.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
@@ -89,7 +94,8 @@ public static partial class Game
         }
         state.FlaskRewards.Add(new(monster.Rarity));
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
-        if (BossMods.GivesNoItems(variety)) return;
+        if (monster.NoRewards || BossMods.GivesNoItems(variety) || variety.Id == TutorialObjects.Zombie) return;
+        if (!GameEvents.AllowsLoot(player)) return;
         var balance = LeagueFor(player).Rules;
         var modded = GameEvents.RunDrops(PlayerOf(killer), modMonster);
         var drops = new List<ItemDrops.Drop>();
@@ -98,15 +104,18 @@ public static partial class Game
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, AreaRng(player), IncreasedItemRarity(player, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
-            if (DropsFor(player).Map(monster.Level, monster.Rarity, mapTier, AreaRng(player)) is { } map) drops.Add(map);
+            if (DropsFor(player).Map(monster.Level, monster.Rarity, mapTier, AreaRng(player), chanceFactor: modded?.MapRelated ?? 1) is { } map) drops.Add(map);
             if (DropsFor(player).Gold(monster.Level, monster.Rarity, AreaRng(player),
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }
         if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(player, monster));
         drops = ModdedDrops(player, modded, drops, monster.Level, monster.Rarity, IncreasedItemRarity(player, monster),
             balance.EquipmentRarityMultiplier, AreaRng(player));
+        drops.AddRange(MadeDrops(player, modded));
+        modded?.ApplyTransforms(drops);
+        if (MapBeyond.CorruptsDrops(player, variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = AreaRng(player).NextDouble() * Math.Tau, radius = 3 + AreaRng(player).NextDouble() * 3;
@@ -237,7 +246,8 @@ public static partial class Game
                 if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                 return output.Kind switch
                 {
-                    PlayerMinions.OutputKind.Life => [],
+                    PlayerMinions.OutputKind.Life => output.Target!.Life == 0 && output.DeathKind != InstanceProtocol.DeathKindNormal
+                        ? InstanceProtocol.LifeUpdate(output.TargetId!.Value, 0, u2c: output.DeathKind) : [],
                     PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(player),
                     PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(player.Id, CurrentExperience(player)),
                     PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action

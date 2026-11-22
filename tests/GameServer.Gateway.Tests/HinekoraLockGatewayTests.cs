@@ -193,7 +193,14 @@ public class HinekoraLockGatewayTests
         try
         {
             Task Send(byte[] packet) => global::Game.OnClientMessages([((ushort)(packet[0] << 8 | packet[1]), packet)], [], player).WaitAsync(TimeSpan.FromSeconds(5));
-            Task SendRaw(byte[] packet) => global::Game.OnClientMessages([], packet, player).WaitAsync(TimeSpan.FromSeconds(5));
+            Task SendRaw(byte[] packet)
+            {
+                var framed = InstanceProtocol.SplitClientMessages(packet, out var partial, out var unknown);
+                Assert.Empty(partial);
+                Assert.Empty(unknown);
+                Assert.Equal(0, ClientInbox.UnframedRun(0, framed.Count, unknown.Length));
+                return global::Game.OnClientMessages(framed, unknown, player).WaitAsync(TimeSpan.FromSeconds(5));
+            }
             async Task<Preview> ReadPreview()
             {
                 var header = new byte[14];

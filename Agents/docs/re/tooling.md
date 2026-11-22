@@ -174,6 +174,21 @@ the client runs. The bundle index also stores every path (about 1.2 million): `l
 ones (e.g. `dotnet run --project scripts/re/ggdump -- Client/Content.ggpk out list "beachtown_v2/"`). `.ot` files are UTF-16
 with a BOM; `.datc64` files are rows followed by `0xbb×8` and the variable data section.
 
+In a contributor's test on 2026-11-20, a copy of the 3.29.3c release client loaded a custom index and bundle and
+displayed the supplied tables and art.
+- A chunk may be one uncompressed Kraken block: `CC 06` and up to 262,144 bytes as they are (the chunk's size is 2 more).
+  The client's `OodleLZ_Decompress` (`0x142c9d520`) unpacked the stored bytes. The same raw payload failed with
+  `8C 06` in place of `CC 06` and when supplied without a block header.
+- The bundle header's u32 at offset 16 is 1 in the client's own index. The test index with 0 there closed the client
+  during startup, before `[ENGINE] Ready` in the log. With 1 the client loaded the index.
+- The index's file records are not sorted by hash. A new file's record added at the end, with its path added to its
+  directory's block, is found.
+- A directory record's hash is MurmurHash64A (seed `0x1337b33f`) of the lower-case directory path without a trailing
+  slash: true of all 74,033 directories that have files of their own in 3.29.3c. Each block lists one directory's files. The other 12,176
+  records yield no file paths when decoded.
+- `art/uiimages1.txt` is UTF-16LE without a BOM, a line per sprite: `"<name>" "<texture>.dds" x1 y1 x2 y2`. For
+  `InGame/BreachItemSymbol` both coordinate differences are 43. For its `InGame/4K/` variant both are 58.
+
 ## 4. Frida through REA (live client)
 
 REA's MCP tools: `start_frida_session` (mode `attach`, `pid`), `load_frida_script` (inline source), `frida_session_status`
@@ -360,7 +375,12 @@ Other formats:
   ooz-wasm rejects nine small blocks at their real size. Eight unpack with a larger output buffer, and their tracks parse from
   the first `size` bytes; `art/models/cinematic/facecrack/effects/rig.ast` (Leviathan) does not.
 - `<file>.header` repeats what the client needs before streaming the file (`0x1411ce9f0`, `0x1411ceef0`, `0x141149220`, u64
-  counts, padded with zeros): `.dds.header` holds the DDS header and smallest mips.
+  counts, padded with zeros): `.dds.header` holds the DDS header and smallest mips. For the Chaos Orb icon
+  (`Art/2DItems/Currency/CurrencyRerollRare.dds`, 80×80) the `.dds` is a DX10 DDS, DXGI format 28 (R8G8B8A8,
+  uncompressed), every mip down to 1×1; its `.dds.header` is u32 3, width, height, mip count, 21 (meaning unknown), the
+  size of the DDS that follows, the `.dds` file's size, then a legacy DDS (masks `ff`, `ff00`, `ff0000`, `ff000000`) of
+  its five smallest mips (20, 10, 5, 2, 1 pixels wide). A pair written to that layout shows as the item's art
+  in the client (live 2026-11-20).
 - `.tdt` (`0x1429fc500`): a file with a parent has a mask byte saying which groups it overrides. Grids are LZ4 blocks that
   unpack to 1, 2, 4 or 8 bits per cell plus a palette (`0x1429ff000`). Names of its later fields are not known.
 - `.mtp` (`0x141178730`) is a texture atlas keyed by `.tdt` path, `.pjd` (`0x141f03cf0`) three record lists with ranges into

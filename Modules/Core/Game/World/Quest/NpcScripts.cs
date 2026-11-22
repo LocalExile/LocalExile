@@ -67,6 +67,11 @@ public static partial class Game
     public static async Task ApplyQuestConversationStart(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, bool applyRowRules)
     {
         if (TalkStartFlag(player, talk) is { } start) await SetQuestFlags(player, [start]);
+        if (!applyRowRules && talk.StartLeagueFlag is int startLeague && GameEvents.UsesNpcLeagueFlags(player, npc.Npc))
+        {
+            bool has = player.Character.LeagueQuestFlags.Contains(startLeague);
+            if (!has) await SetLeagueQuestFlags(player, [startLeague]);
+        }
         if (applyRowRules && QuestsOf(player).OnTalkRow(talk.Row) is { Count: > 0 } byRow)
             await SetQuestFlags(player, byRow);
         await OnQuestTalk(player, npcId, npc, talk);
@@ -78,10 +83,12 @@ public static partial class Game
     public static async Task<bool> EndTalkScript(Player player, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
+        if (await BanditChoices.OpenVote(player, npcId, npc, talk)) return true;
         if (talk.NextChat is int next && Npcs.TalkOf(npc.Npc, next) is { } page)
         {
             player.InNpcTalk = true;
             player.NpcFinishFlag = page.FinishFlag;
+            player.NpcFinishLeagueFlag = GameEvents.UsesNpcLeagueFlags(player, npc.Npc) ? page.FinishLeagueFlag : null;
             player.NpcTalkScript = EndsWithScript(page) ? page : null;
             await ApplyQuestConversationStart(player, npcId, npc, page, applyRowRules: false);
             await Send(player, InstanceNpcs.Talk(npcId, (byte)page.Index),
@@ -92,6 +99,7 @@ public static partial class Game
         player.TalkingTo = 0;
         player.InNpcTalk = false;
         player.NpcFinishFlag = null;
+        player.NpcFinishLeagueFlag = null;
         player.NpcTalkScript = null;
         await Send(player, InstanceNpcs.Talk(0), $"0x0084 object 0: {npc.Npc.Name}'s dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
         if (talk.OpensScreen is { } screen)
@@ -109,7 +117,8 @@ public static partial class Game
             }
             // The fade (Script2 FadeToBlack) is the client's; the move follows after the script's delay.
             if (delay > 0) await AreaDelay(player, Math.Min(delay, 5));
-            await ChangeArea(player, new PendingTransfer(hash, 0, false, AtSpawn: true),
+            bool useShoreEntrance = player.Layout.Id == KitavaActTen.Docks && area == KitavaActTen.Epilogue;
+            await ChangeArea(player, new PendingTransfer(hash, 0, false, AtSpawn: !useShoreEntrance),
                 $"{npc.Npc.Name}: {talk.Option} (AreaTransitionTo {area}, {index})");
         }
         return true;

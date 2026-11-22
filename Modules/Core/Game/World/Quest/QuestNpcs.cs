@@ -46,14 +46,20 @@ public static partial class Game
     static string NpcAppearanceKey(string variety) => "quest-npc-kill:" + variety;
 
     // A character's old kill flags do not mean a new instance's boss has died. Keep the death site in the instance;
-    // corpses are omitted from its saved monster list. A later visit uses the NPC's completed entrance state.
-    public static IEnumerable<QuestNpc> AppearedBefore(Player player)
+    // corpses are omitted from its saved monster list. When a rule names a fallback room object (AtObject) for a
+    // story-critical hand-off (SinInnocence giving a5q6), a fresh instance still places the NPC there until GoneWith
+    // is set. A later visit uses the NPC's completed entrance state.
+    public static IEnumerable<QuestNpc> AppearedBefore(Player player, QuestObjectTypes.AreaPlacements? placed = null)
     {
         string area = player.Layout.Id;
         foreach (var rule in QuestsOf(player).Appearing(area).Where(r => r.GoneWith is not null))
         {
             if (!QuestsOf(player).OnMonsterKilled(area, rule.Variety).Any(f => ClientHasQuestFlag(player, f))) continue;
-            if (player.Instance.RememberedPosition(NpcAppearanceKey(rule.Variety)) is not { } at
+            var pos = player.Instance.RememberedPosition(NpcAppearanceKey(rule.Variety));
+            if (pos is null && rule.AtObject is { } fallback && placed is not null && !ClientHasQuestFlag(player, rule.GoneWith!)
+                && placed.Of(fallback).FirstOrDefault() is { } spot)
+                pos = (spot.X, spot.Y);
+            if (pos is not { } at
                 || Npcs.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType) continue;
             var (x, y) = player.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? player.Layout.Near(at) : at;
             if (npc.Components?.Contains("Transitionable") == true)
@@ -66,7 +72,7 @@ public static partial class Game
         new(npc, x, y, 0, area, rule.NpcType, rule, roomState: false);
 
     // The quest NPCs as the flags have them: created when they stand there now, removed when they no longer do, moved to
-    // their last Transitionable state when a flag transitions them.
+    // their configured Transitionable state (the last state by default) when a flag transitions them.
     public static async Task UpdateQuestNpcs(Player player, string why)
     {
         List<QuestNpc> candidates;
@@ -78,14 +84,28 @@ public static partial class Game
         {
             bool want = c.Present(quests, Has) && KitavaActTen.PreFightNpcShown(player, c.Npc.Id);
             bool transitioned;
-            lock (player.QuestNpcs) transitioned = QuestsOf(player).NpcTransitioned(area, c.Npc.Id, Has) || QuestsOf(player).NpcFreed(area, c.Npc.Id, player.Character.KilledVarieties);
+            byte transitionState;
+            lock (player.QuestNpcs)
+            {
+                transitioned = quests.NpcTransitioned(area, c.Npc.Id, Has) || quests.NpcFreed(area, c.Npc.Id, player.Character.KilledVarieties);
+                transitionState = quests.Npcs(area).FirstOrDefault(r => r.NpcType == c.Npc.Id && r.TransitionedTo is not null
+                    && (r.TransitionedBy is { } flag && Has(flag) || r.FreedBy is { } boss && player.Character.KilledVarieties.Contains(boss)))
+                    ?.TransitionedTo ?? NpcTransitionStates(c.Npc);
+            }
             bool transitionable = c.Npc.Components?.Contains("Transitionable") == true;
             if (want && c.Id == 0)
             {
                 var npc = !transitionable ? c.Npc
-                    : transitioned ? c.Npc with { TransitionState = NpcTransitionStates(c.Npc) }
+                    : transitioned ? c.Npc with { TransitionState = transitionState }
                     : c.RoomState ? c.Npc with { TransitionState = 1 } : c.Npc;
                 c.Id = await SpawnNpc(player, npc, c.X, c.Y, c.Angle);
+                if (c.Appears?.AdvanceOnAppearance == true)
+                {
+                    SpawnedNpc? spawned;
+                    lock (player.Npcs) spawned = player.Npcs.GetValueOrDefault(c.Id);
+                    if (spawned is not null)
+                        await StepNpcTransition(player, c.Id, spawned, "quest NPC entrance");
+                }
                 Console.WriteLine($"[gateway] {player.Connection.Remote} quest npc {c.Npc.Name} ({c.Npc.Id}) appears at ({c.X}, {c.Y}): {why}");
             }
             else if (!want && c.Id != 0)
@@ -101,7 +121,7 @@ public static partial class Game
             {
                 SpawnedNpc? spawned;
                 lock (player.Npcs) spawned = player.Npcs.GetValueOrDefault(c.Id);
-                byte last = NpcTransitionStates(c.Npc);
+                byte last = transitionState;
                 if (spawned is not null && spawned.State < last)
                 {
                     spawned.State = last;

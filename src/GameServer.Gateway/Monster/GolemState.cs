@@ -40,6 +40,7 @@ public sealed class GolemState
         public SkillCatalog.Unarmed? Weapon;
         public double HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
+        public Charges.State? CombatCharges;
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];
         public Action? Pending;

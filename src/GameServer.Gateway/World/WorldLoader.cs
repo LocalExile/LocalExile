@@ -46,6 +46,7 @@ public static class WorldLoader
         Step("crafting bench", () => Program.Bench = new(Program.Items, Program.Rolls));
         Step("passive tree", () => Program.Passives = new());
         Step("character stats", CharacterStats.LoadGameData);
+        Step("character audio", CharacterAudioCatalog.LoadGameData);
         Step("pantheon", PantheonCatalog.LoadGameData);
         Step("passive buffs", PassiveBuffAuras.LoadGameData);
         Step("spirit chieftains", SpiritChieftains.LoadGameData);
@@ -56,6 +57,7 @@ public static class WorldLoader
 
         // The world: areas, their layouts and objects, then the quests placed in them.
         Step("labyrinth trials", LabyrinthTrials.LoadGameData);
+        Step("terrain plugins", AreaTerrainPlugins.LoadGameData);
         Step("server levels", ServerLevels.LoadGameData);
         Step("quest object types", QuestObjectTypes.LoadGameData);
         Step("area transitions", AreaTransitionCatalog.LoadGameData);

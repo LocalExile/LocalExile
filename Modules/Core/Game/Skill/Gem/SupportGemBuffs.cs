@@ -7,6 +7,7 @@ public static partial class Game
 {
     // Inspiration charges cap at five (poedb: maximum_righteous_charges is the buff's own maximum).
     public const int InspirationMaxCharges = 5;
+    const uint InspirationElementalMore = Stat.ElementalDamagePlusPctFinalPerRighteousCharge;
 
     // BuffDefinitions rows: arcane_surge (895), righteous_charge (1378) and cruelty (1815).
     const ushort ArcaneSurgeBuffRow = 895, RighteousChargeBuffRow = 1378, CrueltyBuffRow = 1815;
@@ -52,6 +53,23 @@ public static partial class Game
             ArcaneSurgeManaRegenPct);
     }
 
+    // Normal and Vaal admissions have already debited these resources. Vaal Life costs retain the Vaal
+    // resource clock for the buff deadline. RF observes the committed change on the player tick's area clock.
+    static void ApplyPaidSupportCostsLocked(Player player, ushort skill, IReadOnlyDictionary<uint, int> own,
+        uint mana, int life, double? lifePaidAt = null)
+    {
+        if (mana == 0 && life == 0) return;
+        double now = AreaTime(player);
+        if (life > 0)
+        {
+            double prior = player.Lifetap.Until;
+            Lifetap.Spend(player, own, life, lifePaidAt ?? now);
+            if (prior != player.Lifetap.Until && player.RighteousFire is { ConditionalSupportMore.Lifetap: not 0 } rf)
+                RecordRighteousFireSupportChangeLocked(player, rf, now);
+        }
+        SupportManaSpentLocked(player, skill, own, mana, now);
+    }
+
     /// <summary>Arcane Surge and Inspiration bookkeeping for one paid supported skill. Called in the area's frame,
     /// after the skill's cost has been paid and before the cast starts.</summary>
     public static void SupportManaSpentLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> stats,
@@ -83,9 +101,10 @@ public static partial class Game
         // most, and refreshes the charges' ten-second lifetime.
         int gain = Get(Stat.GainRighteousChargeOnManaSpentPct);
         if (gain <= 0 && (Get(Stat.SupportInspirationManaCostPlusPctFinal) != 0
-            || Get(Stat.ElementalDamagePlusPctFinalPerRighteousCharge) != 0)) gain = 100;
+            || Get(InspirationElementalMore) != 0)) gain = 100;
         if (gain > 0)
         {
+            ExpireInspirationLocked(player.SupportGems, now);
             player.SupportGems.InspirationSpent += cost;
             int lose = Get(Stat.LoseAllRighteousChargesOnManaUseThreshold);
             if (lose > 0 && player.SupportGems.InspirationSpent >= lose)
@@ -109,6 +128,8 @@ public static partial class Game
                 if (player.SupportGems.InspirationCharges != before) player.SupportGems.PendingStats = true;
                 if (player.SupportGems.InspirationRefresh || player.SupportGems.PendingStats) PresentStats(player);
             }
+            if (player.RighteousFire is { ConditionalSupportMore.PerInspiration: not 0 } rf)
+                RecordRighteousFireSupportChangeLocked(player, rf, now);
         }
     }
 
@@ -120,7 +141,7 @@ public static partial class Game
     /// also grants 20% more Spell Damage to you".</summary>
     public static Dictionary<uint, int> WithSupportGemBuffs(Player player, Dictionary<uint, int> stats)
     {
-        stats = WithTriggeredGuard(player, stats);
+        stats = WithSelfBuffs(player, WithTriggeredGuard(player, stats));
         if (!player.SupportGems.ArcaneSurgeActiveAt(AreaTime(player))) return stats;
         StatsChangeIn(player.SupportGems.ArcaneSurgeUntil - AreaTime(player));
         int Get(uint k) => stats.GetValueOrDefault(k);
@@ -167,6 +188,15 @@ public static partial class Game
     {
         uint key = Stat.GainArcaneSurgeOnHitPctChance;
         if (RandomRolls.Chance(playerStats.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(player, now);
+    }
+
+    static void ExpireInspirationLocked(SupportGemState state, double now)
+    {
+        if (state.InspirationCharges > 0 && now >= state.InspirationUntil)
+        {
+            state.InspirationCharges = 0;
+            state.PendingStats = true;
+        }
     }
 
     static List<byte[]> PresentationLocked(Player player)
@@ -221,11 +251,7 @@ public static partial class Game
         }
 
         // Inspiration charges last ten seconds (longer with the support's quality) and all of them expire together.
-        if (state.InspirationCharges > 0 && now >= state.InspirationUntil)
-        {
-            state.InspirationCharges = 0;
-            state.PendingStats = true;
-        }
+        ExpireInspirationLocked(state, now);
         int charges = state.InspirationCharges;
         if (state.PresentedInspiration != 0 && charges == 0)
         {

@@ -52,6 +52,20 @@ public static class Lifetap
     public static bool ConvertsCostToLife(IReadOnlyDictionary<uint, int> stats) =>
         Value(stats, CostLifeStat) != 0 || Value(stats, AlternateCostLifeStat) != 0;
 
+    public static bool ConvertsCostToLife(IReadOnlyDictionary<uint, int> skill, IReadOnlyDictionary<uint, int> player) =>
+        ConvertsCostToLife(skill) || ConvertsCostToLife(player) || Value(player, Stat.KeystoneBloodMagic) != 0;
+
+    // A continuous Life cost keeps the fractional payment and stops before the last point of Life.
+    public static uint PayOngoingLife(uint life, double cost, ref double carry, out bool exhausted)
+    {
+        double due = carry + cost;
+        uint available = life > 0 ? life - 1 : 0;
+        uint paid = (uint)Math.Min(available, Math.Floor(due));
+        carry = due - paid;
+        exhausted = paid == available && due > 0;
+        return paid;
+    }
+
     /// <summary>Whether these stats come from Lifetap Support: its own spent-Life threshold is the specific marker.
     /// Generic Life-cost conversion (for example Blood Magic) must pay Life without granting Lifetap's buff.</summary>
     public static bool Supported(IReadOnlyDictionary<uint, int> stats) =>

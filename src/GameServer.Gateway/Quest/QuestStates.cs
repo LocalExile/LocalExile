@@ -18,7 +18,19 @@ public sealed class QuestStates
 
     public sealed record State(int Order, IReadOnlyList<string> Present, IReadOnlyList<string> Missing, string Text, string Message)
     {
-        public bool Matches(Func<string, bool> has) => Present.All(has) && !Missing.Any(has);
+        /// <summary>League quest flags required for this state (<c>QuestStates.__col13</c>, 1-based).</summary>
+        public IReadOnlyList<int> LeaguePresent { get; init; } = [];
+        /// <summary>League quest flags that must be absent for this state (<c>QuestStates.__col14</c>, 1-based).</summary>
+        public IReadOnlyList<int> LeagueMissing { get; init; } = [];
+        /// <summary>WorldAreas rows where this state applies (<c>QuestStates.Area</c>); empty for any area.</summary>
+        public IReadOnlyList<int> Areas { get; init; } = [];
+
+        public bool Matches(Func<string, bool> has) => Matches(has, null, null);
+
+        public bool Matches(Func<string, bool> has, Func<int, bool>? hasLeague, int? areaRow = null) =>
+            Present.All(has) && !Missing.Any(has)
+            && (hasLeague is null ? LeaguePresent.Count == 0 : LeaguePresent.All(hasLeague) && !LeagueMissing.Any(hasLeague))
+            && (areaRow is null || Areas.Count == 0 || Areas.Contains(areaRow.Value));
     }
 
     /// <summary>A CharacterStartQuestState row: the quests it completes and the flags it adds.</summary>
@@ -39,16 +51,24 @@ public sealed class QuestStates
     public bool IsSession(string flag) => session.Contains(flag);
 
     /// <summary>The state the quest log shows, or null when no row matches (the quest has not started).</summary>
-    public State? Current(string quest, Func<string, bool> has) => Of(quest).OrderBy(s => s.Order).FirstOrDefault(s => s.Matches(has));
+    public State? Current(string quest, Func<string, bool> has) => Current(quest, has, null, null);
+
+    /// <summary>The state the quest log shows with optional league quest flags and current WorldAreas row.</summary>
+    public State? Current(string quest, Func<string, bool> has, Func<int, bool>? hasLeague, int? areaRow = null) =>
+        Of(quest).OrderBy(s => s.Order).FirstOrDefault(s => s.Matches(has, hasLeague, areaRow));
 
     /// <summary>Whether the quest is complete: its Order 0 row matches, or the row shown is another ending with the same flags
     /// (a9q2's Order 0 is the feather given to Tasuni, missing IrashaTakeFeather; Order 1, the same book used, Irasha's), or
     /// with the same text and only some of an Order 0 row's flags (a7q1's Order 0 also needs a helped bandit's
     /// a2q1-QuestRewardTaken; Order 3, the book used alone, is the ending of a character that killed all three).</summary>
-    public bool Complete(string quest, Func<string, bool> has) =>
-        Of(quest).Any(s => s.Order == 0 && s.Matches(has))
-        || Current(quest, has) is { } shown && Of(quest).Any(s => s.Order == 0 && (s.Present.Order().SequenceEqual(shown.Present.Order())
-            || s.Text == shown.Text && shown.Present.All(s.Present.Contains)));
+    public bool Complete(string quest, Func<string, bool> has) => Complete(quest, has, null, null);
+
+    /// <summary>Whether the quest is complete with optional league quest flags and current WorldAreas row.</summary>
+    public bool Complete(string quest, Func<string, bool> has, Func<int, bool>? hasLeague, int? areaRow = null) =>
+        Of(quest).Any(s => s.Order == 0 && s.Matches(has, hasLeague, areaRow))
+        || Current(quest, has, hasLeague, areaRow) is { } shown && Of(quest).Any(s => s.Order == 0
+            && (s.Present.Order().SequenceEqual(shown.Present.Order()) && s.LeaguePresent.Order().SequenceEqual(shown.LeaguePresent.Order())
+                || s.Text == shown.Text && shown.Present.All(s.Present.Contains) && shown.LeaguePresent.All(s.LeaguePresent.Contains)));
 
     public static QuestStates Default = default!;
 
@@ -66,13 +86,19 @@ public sealed class QuestStates
             foreach (var q in doc)
                 result.quests.TryAdd(q.Text("Id") ?? "", (q.Int("Act"), q.Text("Name") ?? ""));
         }
+        int[] Ints(ClientRow r, string name) => r.Has(name) && !r.IsNull(name) ? r.Ints(name) : [];
         if (ClientTables.Has("QuestStates"))
             foreach (var s in ClientTables.Table("QuestStates"))
             {
                 if (s.IntOrNull("Quest") is not int qv || qv is not (>= 0 and var q) || q >= ids.Length) continue;
                 if (!result.byQuest.TryGetValue(ids[q], out var list)) result.byQuest[ids[q]] = list = [];
                 list.Add(new(s.Int("Order"), Flags(s, "FlagsPresent"), Flags(s, "FlagsMissing"),
-                    s.Text("Text") ?? "", s.TextOrNull("Message") ?? ""));
+                    s.Text("Text") ?? "", s.TextOrNull("Message") ?? "")
+                {
+                    LeaguePresent = Ints(s, "__col13"),
+                    LeagueMissing = Ints(s, "__col14"),
+                    Areas = Ints(s, "Area"),
+                });
             }
         if (ClientTables.Has("CharacterStartQuestState"))
             foreach (var p in ClientTables.Table("CharacterStartQuestState"))

@@ -12,8 +12,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   life (311 at level 1) and a second stage: at half life he pulls out his sword (ZombieBossExtract, Transitionable → 2)
   and heals at its extracted contact (~750 ms), with separate 3 s recovery; the force wall stands across the
   way to the gate until he dies, and the server closes the way on its own walk map too (`QuestBarriers`), so its
-  position estimate stops where the client stops; after his death the quest log says to enter the gate (every
-  character has `CompletedAllTutorials`); his death levels the character to 2, removes the wall and creates the gate
+  position estimate stops where the client stops; his death levels the character to 2, removes the wall, transitions
+  the Doorman (`Metadata/NPC/Act1/Doorman`, state 1 → 3) and creates the gate
   into Lioneye's Watch (the Gateway checks the flag too); Portal Scrolls do nothing on the Strand (its area mod
   MapNoPortals); no Resurrect in Town before a town.
   Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `Rules.AreaModCatalog.cs` (Portals module).
@@ -53,7 +53,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/quest_flag`.
   Kills, sightings, room objects come near, exits, cleared areas, quest chests, room NPCs, NPCs that turn into
   monsters, second forms and mirrored blockers are rules; quest items (their `.it` Quest flags: held, picked up,
-  handed in, removed, used), dialogue flags and scripts, session flags and the rewards come from the client's data.
+  handed in, removed, used), dialogue flags and scripts (including `NPCTalk` league quest flags for `hideout1`,
+  `delve2`, and `bestiary2`), session flags and the rewards come from the client's data.
   Quest chest and Rhoa Nest markers disappear for the character once their item is collected or handed in.
   Quest passive points (QuestStaticRewards) are counted from the flags into the tree's `extra_skill_points` and stay
   after a relog; refund points are credited once (the Book of Regrets: 54 → 56); QuestStaticRewards' stats are stat
@@ -71,19 +72,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   claimed; using the Book of Regrets gives two refund points, the Book of Skill a passive point (`extra_skill_points` 1).
   Docs: [12](../docs/protocol/12-quests.md) §8.
 - a1q2 "The Caged Brute": Brutus spawns in the Warden's
-  section (`mapboss2`); Piety's room sets `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered;
-  Tarkleigh's reward is claimed.
+  section (`mapboss2`) with intro and chain-hook dialogue; Piety spawns in her room (`PietyPrison`) and plays her
+  monologue on `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered; Tarkleigh's reward is claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - a1q6 "The Marooned Mariner": Fairgraves stands on his
   ship; "Marooned" gives the quest; the slave girl's chest in The Ship Graveyard Cave drops the Allflame; "Thank You"
-  hands it in and turns him into the boss, who fights; his death, Bestel's book and its passive point follow.
+  hands it in, plays his combat line (`FairgravesAttacks`) and turns him into the boss, who fights; his death,
+  Bestel's book and its passive point follow.
   Docs: [12](../docs/protocol/12-quests.md) §10.
-- a1q3 "The Siren's Cadence" and Act 2: Merveil, the Siren
-  spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and creates the
-  exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
+- a1q3 "The Siren's Cadence" and Act 2: Merveil plays her Cavern of Wrath/Anger entry and fight-start dialogue, Merveil,
+  the Siren spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and
+  creates the exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
-- a1q9 "The Way Forward", Act 1: Piety's blockage at Prisoner's
-  Gate sets `a1q9-SeenBlockage` and `a1q9-RoadBlocked`; the road to The Western Forest stays closed (Act 2 opens it).
+- a1q9 "The Way Forward", Act 1: Piety (`PietyBlockage`) and the visual spike walls (`SpikeBlockage`/`SpikeBlockage2`)
+  spawn at Prisoner's Gate, seal the pass with her class dialogue on `a1q9-SeenBlockage`/`a1q9-RoadBlocked`, and reopen
+  when Act 2 sets `a1q9-RoadOpened`.
   After all of Act 1 the save had every `Act1Complete` flag.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - Acts 2 and 3 (live 2026-10-30, seed 1, on the engine before the modules: the campaign runner on a character started
@@ -96,12 +99,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
   Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
   are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
+  The tower legionnaires now precede the miscreations, then Dominus appears at the roof's boss point.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
   The Library's candle opens the hidden door for the instance only.
   The two exits the layout disables and a quest gates (The Upper Sceptre of God → The Aqueduct, The Library → The
   Archives) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds).
   Every quest object, chest and NPC the rules name is placed at seed 1.
+  Helena's rescue uses her visible state 2 on the kill and on re-entry; Act 2 town Helena is gated on
+  `a2q6-HelenaInTown` (with town-entry recovery for older saves) so Greust offers his reward.
+  Sin's first appearance after Innocence advances the paused entrance to state 2, restores at `ArenaMiddle` in fresh
+  instances until `a5q6-QuestReceived`, and `SinOssuary` spawns transitioned/visible.
   Driver step files: `scripts/dev/campaign/quests/a2q*.py`, `a3q*.py`.
   Code: `Acts/Act2.cs`, `Acts/Act3.cs` (QuestObjects module).
   Docs: [12](../docs/protocol/12-quests.md) §11–12; [act 2](../docs/game/campaign/act2.md),
@@ -124,8 +132,9 @@ Part of [Status](../Status.md); what to build next in this area is in
    (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
    tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
-  The Belly side door and the four arena entrances open (the doors go when used or their guardian dies), Malachai's
-  portal returns to Highgate, and the Ossuary lever opens the passage after the Sign is taken.
+  The Belly side door and the four arena entrances open (the doors go when used or their guardian dies). Malachai's
+  first form retreats at 70% life. His second form starts at 92% in the next arena, and his portal returns to Highgate.
+  The Ossuary lever opens the passage after the Sign is taken.
   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
@@ -153,10 +162,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
   Act 8); a8q1, a8q5, a8q4, a8q6, a8q7 (the legion's multi-kill), a8q3 and a8q2 (both orbs at the fight starter,
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
-  barrier, both Shakaris), a9q4, a9q2 (the feather to Irasha), a9q1 (both ingredients in one click, the membrane, the
-  three spirits, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
+  barrier, Shakari retreats at 65% life and resumes in her second arena), a9q4, a9q2 (the feather to Irasha), a9q1
+  (both ingredients in one click, the membrane, the three spirit gauntlets, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
   (Bannon becomes Innocence: Oriath Docks' two stages; the Chambers shortcut waits for the instance's kill), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
-  earned, −60% with Act 5's, before him −30%; Sin's portal home) and A11q0 (Lilly sails to Karui Shores). Every act
+  earned, −60% with Act 5's, before him −30%; Sin's portal) and A11q0 (Lilly sails). Both routes arrive at
+  Karui Shores' shore entrance. Every act
   7–10 quest done with every act 7–10 flag of `EpilogueAtlasDemo`, 24 quest passive points and 20 refund points.
   The exits the layouts disable and a quest gates (The Ashen Fields' way north, The Harbour Bridge's into Act 9, Sin's
   portal home) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds); burnt Oriath's
@@ -188,17 +198,23 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fresh Duelist and Witch client checks confirmed the corrected lying direction and getup action.
   Skipped long and short speech started the bite within 0.07 seconds of closing, then combat after about 3.1 seconds.
   The combat zombie moved and animated its attacks, and the Duelist claimed Double Strike.
-  Tutorial popup acknowledgements and force walls 1/2 remain unimplemented, and placement still needs local captures.
+  Ground pickups now honour the client's `auto_equip` flag (`0x0008`), `TalkToWoundedExile` checks the active weapon
+  set, `C→S 0x020a` handles tutorial completion, "Skip All Tutorials", Options → "Disable Tutorials" (row 17 sets all
+  tutorial completion flags + `TutorialPanelHideArticlePopups`), and "Hide Popups" (row 77), and `Tutorial_Blocker_1`/`2`
+  block the beach and support-chest segments while tutorials are active (with `force_wall.ao` hull server barriers).
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.
-- The bandit vote (a2q7's help path: talking to a bandit lord opens the client's vote panel through
-  `DispatchRulesetEvent(BanditCallVote)`, VoteType/VoteState) is not implemented; its messages are not
-  reverse-engineered.
-  The lords are hostile and the choice comes from the kills (the campaign runner kills all three); the help rewards'
-  stats (QuestStaticRewards 4–6) apply once their flags are set.
+- In Act 2, solo players talk to a bandit leader to open the native Help or Kill choice. An allied leader accepts both
+  rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
+- Merveil's Caverns Trick Chests (`AmarissaTrickChest` in `1_1_11_1`, `AmbrosiaTrickChest` in `1_1_11_2`) spawn in
+  their chambers, open with loot and ambush with risen targetable Amarissa/Ambrosia plus Slimy Bloodsuckers
+  (not checked live). Code: `Rules.TrickChests.cs`, `Act1.cs`.
+- Player character voice lines (`CharacterAudioEvents`): area entry (`Visited-*` via post-`0x2bb` `0x2bc` diff,
+  Act 4 mines, first Atlas map), campaign and pinnacle boss kills and first NPC meetings trigger natively via
+  `PlayerQuestFlagsUpdate` `0x2bc` (not checked live). Docs: [12](../docs/protocol/12-quests.md).
 
 ## Not working yet
 

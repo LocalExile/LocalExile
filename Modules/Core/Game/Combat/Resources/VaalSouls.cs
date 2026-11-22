@@ -12,7 +12,7 @@ public static partial class Game
     public static int VaalSoulInput(Player player, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int> own, uint key)
     {
-                    // The selector describes this skill, not the caster. Only an explicit developer replacement is global.
+        // The selector describes this skill, not the caster. Only an explicit developer replacement is global.
         if (key == VaalSoulCost.Aura) return own.GetValueOrDefault(key);
         return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key), int.MinValue, int.MaxValue);
     }
@@ -32,6 +32,7 @@ public static partial class Game
         public bool Alive;
         public bool HasVaalSources;
         public bool HardMode;
+        public bool God;
     }
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, VaalRefreshCache> VaalRefreshCaches = new();
@@ -48,10 +49,11 @@ public static partial class Game
         int level = player.Pools.Level;
         bool alive = player.PlayerLife > 0;
         bool hardMode = LeagueFor(player).HardMode;
+        bool god = player.God;
         var cache = VaalRefreshCaches.GetOrCreateValue(player);
         if (!cache.HasVaalSources && cache.EquipmentMutations == mutations && cache.PassivesCount == passivesCount
             && cache.AscendancyCount == ascCount && cache.Level == level && cache.Alive == alive
-            && cache.HardMode == hardMode && player.VaalSouls.Read().Length == 0)
+            && cache.HardMode == hardMode && cache.God == god && player.VaalSouls.Read().Length == 0)
             return;
         var playerStats = CharacterPlayerStats(player);
         var requirements = CurrentGemRequirements(player);
@@ -78,6 +80,7 @@ public static partial class Game
         cache.Level = level;
         cache.Alive = alive;
         cache.HardMode = hardMode;
+        cache.God = god;
         cache.HasVaalSources = sources.Count > 0;
     }
 
@@ -106,26 +109,33 @@ public static partial class Game
             || player.PlayerLife == 0 || InTown(player)) return false;
         double now = AreaTime(player);
         if (Dist(monster.Walk.Position(now), player.Walk.Position(now)) > ExperienceRange) return false;
-        RefreshVaalSouls(player);
-        var stats = CharacterPlayerStats(player);
-        if (RageStat(stats, Stat.HasSoulGainPrevention) != 0)
+        // The sources are reconciled by the equipment and skill seams (RefreshVaalSouls there); a kill only adds one
+        // soul to what they set. Reading the whole player stat snapshot and every supported Vaal gem here cost 2-3 ms
+        // per corpse in a pack (measured 2026-11-18), and the prevention it read is this connection's own deadline
+        // (WithVaalPrevention publishes has_soul_gain_prevention from it). Vaal Immortal Call holds soul gain for
+        // its duration (the buff's cannot_gain_souls); its state is a cheap table read, not a stat build.
+        bool held = VaalImmortalCallActive(player, now);
+        bool prevented = player.VaalPreventionUntil > VaalResourceTime(player)
+            || CharacterPlayerStats(player).GetValueOrDefault(Stat.HasSoulGainPrevention) != 0;
+        if (prevented || held)
         {
-            Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: soul gain prevention (t={VaalResourceTime(player):0.000})");
+            Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: " +
+                $"{(held ? "Vaal Immortal Call" : "soul gain prevention")} (t={VaalResourceTime(player):0.000})");
             return false;
         }
         if (!player.VaalSouls.Gain()) return false;
-        // "Kills grant an additional Vaal Soul if you have Rampaged Recently".
-        if (RageStat(stats, Stat.GainAnAdditionalVaalSoulOnKillIfHaveRampagedRecently) != 0
-            && player.Rampage.Current.Active)
+        // "Kills grant an additional Vaal Soul if you have Rampaged Recently": only a streak needs the stat read.
+        if (player.Rampage.Current.Active
+            && CharacterPlayerStats(player).GetValueOrDefault(Stat.GainAnAdditionalVaalSoulOnKillIfHaveRampagedRecently) != 0)
             player.VaalSouls.Gain();
         return true;
     }
 
     // Native UPDATE clamps against OLD capacity. Unknown rows and increases must seed first, then restore current.
     // Empty lists preserve native entries, so every removed row needs an explicit zero update.
-    public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(Player player)
+    public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(Player player, bool reconcile = true)
     {
-        RefreshVaalSouls(player);
+        if (reconcile) RefreshVaalSouls(player);
         var budgets = player.VaalSouls.Read();
         if (budgets.Length == 0 && player.SentVaalSouls.Count == 0) return ([], []);
         var current = budgets.ToDictionary(b => b.ActiveSkillsRow);
@@ -154,13 +164,25 @@ public static partial class Game
     public static byte[]? VaalSoulPresentation(Player player)
     {
         if (player.Closed || player.LeavingArea || player.VaalSoulsRetired) return null;
-        var changes = VaalSoulChanges(player);
+        // Nothing a client can see has changed: no source walk, no stat snapshot, no packet. This runs after every
+        // kill (MonsterKilledBy, a projectile's commit), and a soul only moves on some of them.
+        if (!player.VaalSouls.Unpresented) return null;
+        // A gained or spent soul does not change the sources, so the presentation does not reconcile them.
+        var changes = VaalSoulChanges(player, reconcile: false);
+        player.VaalSouls.Presented();
         return changes.Seeds.Length == 0 && changes.Updates.Length == 0 ? null
             : InstanceEntities.PlayerSkillsChange(player.Id, [], [], changes.Seeds, changes.Updates, CanDetonateMines(player));
     }
 
+    /// <summary>Whether a presentation would send anything. A cheap pre-check for the per-kill callers: an unchanged
+    /// balance must not take the send gate.</summary>
+    public static bool VaalSoulsUnpresented(Player player) =>
+        !player.Closed && !player.LeavingArea && !player.VaalSoulsRetired && player.VaalSouls.Unpresented;
+
     public static Task SendVaalSouls(Player player) =>
-        SendWorldRecord(player, player.Id, [], null, atGate: () => VaalSoulPresentation(player));
+        VaalSoulsUnpresented(player)
+            ? SendWorldRecord(player, player.Id, [], null, atGate: () => VaalSoulPresentation(player))
+            : Task.CompletedTask;
 
     // Same transfer policy as Rage: one successful ticket owns the balance; loading time is frozen, no save schema.
     public static void CarryVaalSouls(Player player, uint ticket)

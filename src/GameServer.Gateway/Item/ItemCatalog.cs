@@ -18,7 +18,7 @@ public sealed class ItemCatalog
 
     private StashRules _stash;
 
-    /// <summary>Nothing left to build: the constructor reads the stash rules, gems, flasks, criticals and requirements.
+    /// <summary>Nothing left to build: the constructor reads the stash rules, gems, flasks, tinctures, criticals and requirements.
     /// Kept for the game module's startup warm-up.</summary>
     public void Warm() { }
     private readonly string _folder;
@@ -32,6 +32,8 @@ public sealed class ItemCatalog
         _rows = Load(folder, Mods);
         _questTypes = [.. _rows.Rows.Where(t => t.Quest is not null)];
         _byHash = _rows.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First());
+        _byId = _rows.Rows.GroupBy(t => t.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault(t => t.Supported) ?? g.First(), StringComparer.OrdinalIgnoreCase);
         _gems = LoadGems(folder, hardMode);
         _activeGemEffects = LoadActiveGemEffects(folder);
         _requirements = LoadRequirements(folder);
@@ -40,6 +42,7 @@ public sealed class ItemCatalog
         _defences = LoadDefences(folder);
         _flasks = LoadFlasks(folder, _rows.Rows, hardMode);
         _utilityFlasks = UtilityFlasks.Load(folder, _rows.Rows, hardMode);
+        _tinctures = Tinctures.Load(folder, _rows.Rows);
         _onslaught = _utilityFlasks.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null);
         _visualsById = LoadVisualsById(folder);
         _words = LoadWords(folder);
@@ -151,21 +154,26 @@ public sealed class ItemCatalog
     public BaseType? ByHash(uint hash) => _byHash.GetValueOrDefault(hash);
 
     private readonly Dictionary<uint, BaseType> _byHash;
+    // Find's first match (the exact Id) without a scan: drops name their items by Id on every kill.
+    private readonly Dictionary<string, BaseType> _byId;
 
     public ItemCatalog() : this("data") { }
 
-    readonly (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows) _currencyUses;
+    readonly (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes) _currencyUses;
 
     /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
     /// and Vaal variants are picked up from the table instead of an Id list.</summary>
     public string? CurrencyAction(BaseType t) =>
         _currencyUses.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
 
-    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels).</summary>
+    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels and jewellery catalysts).</summary>
     public byte? AlternateQualityOf(BaseType currency) =>
         _currencyUses.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
 
-    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows) LoadCurrencyUses(string folder)
+    /// <summary>AlternateQualityTypes rows for jewellery catalysts (every row with a ModEffectStat: Turbulent..Unstable, Sinistral, Dextral).</summary>
+    public IReadOnlyList<byte> JewelleryCatalystTypes => _currencyUses.CatalystTypes;
+
+    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes) LoadCurrencyUses(string folder)
     {
         var actions = new Dictionary<int, string>();
         if (ClientTables.Has("CurrencyItems"))
@@ -177,6 +185,7 @@ public sealed class ItemCatalog
                     actions.TryAdd(b, action);
         }
         var quality = new Dictionary<int, byte>();
+        var catalysts = new List<byte>();
         int rows = 0;
         if (ClientTables.Has("AlternateQualityTypes"))
         {
@@ -186,11 +195,13 @@ public sealed class ItemCatalog
             {
                 if (r.IntOrNull("Item") is int item)
                     quality.TryAdd(item, row);
+                if (r.IntOrNull("ModEffectStat") is not null)
+                    catalysts.Add(row);
                 row++;
                 rows++;
             }
         }
-        return (actions, quality, rows);
+        return (actions, quality, rows, [.. catalysts]);
     }
 
     public BaseType? Row(int row) => row >= 0 && row < _rows.Rows.Count ? _rows.Rows[row] : null;
@@ -209,6 +220,7 @@ public sealed class ItemCatalog
     {
         var rows = _rows.Rows;
         if (int.TryParse(query, out int row)) return Row(row) is { } numbered ? EmptyResonatorType(numbered) : null;
+        if (_byId.TryGetValue(query, out var byId)) return EmptyResonatorType(byId);
         foreach (Func<BaseType, bool> match in new Func<BaseType, bool>[]
         {
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
@@ -219,7 +231,9 @@ public sealed class ItemCatalog
         })
         {
             var hits = rows.Where(match).ToList();
-            if (hits.Count > 0) return EmptyResonatorType(hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
+            if (hits.Count > 0) return EmptyResonatorType(
+                hits.FirstOrDefault(t => t.Supported && (t.Class != "Tincture" || _tinctures.NativeRows.Contains(t.Row)))
+                ?? hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
         }
         return null;
     }
@@ -250,8 +264,11 @@ public sealed class ItemCatalog
         /// <summary>SkillGems GemColour: 1 red (strength), 2 green (dexterity), 3 blue (intelligence), 4 white.</summary>
         public int Colour { get; init; }
 
-        /// <summary>A Vaal gem's own row (IsVaalVariant) or an awakened one (RegularVariant set).</summary>
+        /// <summary>A Vaal gem's own row (IsVaalVariant), or an Awakened or exceptional upgrade (RegularVariant set, with
+        /// an experience type other than an ordinary GemProgressionN).</summary>
         public bool IsVaalOrAwakened { get; init; }
+        /// <summary>The base item row SkillGems links to for its Vaal version, if it has one.</summary>
+        public int? VaalBaseRow { get; init; }
 
         /// <summary>An Awakened row (its SkillGems RegularVariant names the ordinary gem it upgrades); its name starts
         /// with "Awakened ". 3.29 keeps the rows but disables the ordinary awakened supports for normal play.</summary>
@@ -467,6 +484,17 @@ public sealed class ItemCatalog
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.GetValueOrDefault(t.Row);
 
+    private readonly Tinctures.Catalog _tinctures;
+
+    /// <summary>A tincture's native timing and buff definition (<see cref="Tinctures"/>), or null for other types.</summary>
+    public Tinctures.Definition? TinctureOf(BaseType t) => _tinctures.ByRow.GetValueOrDefault(t.Row);
+
+    /// <summary>True for the native 3.25+ tincture bases in Tinctures.dat (excluding legacy 3.23 empty-implicit rows).</summary>
+    public bool IsNativeTincture(BaseType t) => _tinctures.NativeRows.Contains(t.Row);
+
+    /// <summary>Shared tincture BuffDefinitions rows (Mana Burn, Weeping Wounds, parent and unique tincture buffs).</summary>
+    public Tinctures.BuffRows TinctureBuffs => _tinctures.Buffs;
+
     private readonly UtilityFlasks.ExtraBuff? _onslaught;
 
     /// <summary>The Onslaught buff with the player's values, as the Silver Flask grants it (the only flask extra buff);
@@ -551,10 +579,14 @@ public sealed class ItemCatalog
         {
             bool vaal = r.Bool("IsVaalVariant");
             int expType = Row(r, "ItemExperienceType");
-            // RegularVariant also links these ordinary upgrades to their lesser support; both were captured for sale.
-            bool ordinaryUpgrade = baseName is "Greater Multiple Projectiles Support" or "Greater Volley Support";
-            bool awakened = !ordinaryUpgrade && Row(r, "RegularVariant") >= 0
-                && (expType < 0 || xt[expType].Text("Id") != "GemProgressionExceptionalPlus");
+            // RegularVariant links an upgrade to the gem it upgrades; its experience type tells which kind it is:
+            // GemProgressionN an ordinary gem, GemProgressionExceptional[Plus] an exceptional support, and
+            // GemProgressionPlusN an ordinary Awakened support, which 3.29 disables for normal play (not created).
+            string expId = expType >= 0 && expType < xt.Count ? xt[expType].Text("Id") ?? "" : "";
+            bool upgrade = Row(r, "RegularVariant") >= 0;
+            bool ordinaryUpgrade = upgrade && expId.Length > "GemProgression".Length
+                && expId.StartsWith("GemProgression", StringComparison.Ordinal) && char.IsAsciiDigit(expId["GemProgression".Length]);
+            bool awakened = upgrade && expId.StartsWith("GemProgressionPlus", StringComparison.Ordinal);
             bool rowCreatable = !baseName.StartsWith('[') && !baseName.StartsWith("WIP") && !awakened;
             bool exceptional = false;
             var variants = new List<GemVariant>();
@@ -571,12 +603,12 @@ public sealed class ItemCatalog
                 exceptional |= hasGemTags && effects[v].Ints("GemTags").Any(exceptionalTags.Contains);
                 variants.Add(new GemVariant(i, name, effect, effect2, creatable));
             }
-            bool exceptionalFallback = expType >= 0 && expType < xt.Count
-                && xt[expType].Text("Id") is "GemProgressionExceptional" or "GemProgressionExceptionalPlus";
+            bool exceptionalFallback = expId is "GemProgressionExceptional" or "GemProgressionExceptionalPlus";
             result.TryAdd(baseRow, new GemType(baseRow, r.Bool("IsSupport"), variants,
                 thresholds.GetValueOrDefault(expType) ?? [])
             {
-                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || (!ordinaryUpgrade && Row(r, "RegularVariant") >= 0),
+                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || (upgrade && !ordinaryUpgrade),
+                VaalBaseRow = r.IntOrNull("VaalVariant_BaseItemTypesKey"),
                 IsAwakened = baseName.StartsWith("Awakened ", StringComparison.Ordinal),
                 IsExceptional = exceptionalTags.Count > 0 ? exceptional : exceptionalFallback,
                 MtxSlotTypes = [.. r.Ints("MtxSlotTypes")],

@@ -15,6 +15,7 @@ public static partial class Game
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
     public static bool VaalExecutor(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
+            or VaalImmortalCallEffect or "VaalHaste" or "VaalSmite"
             || IsVaalMinion(SkillsFor(player).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "");
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(player);
@@ -47,9 +48,9 @@ public static partial class Game
                 Get(Stat.BaseRageCostEfficiencyPlusPct), free));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
         uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(player, id).GetValueOrDefault(Stat.ManaCost));
-        // Lifetap turns the whole upfront cost into Life.
+        // Lifetap and Blood Magic turn the whole upfront Mana cost into Life.
         uint life = 0;
-        if (!free && Lifetap.ConvertsCostToLife(gem.Stats))
+        if (!free && Lifetap.ConvertsCostToLife(gem.Stats, CharacterPlayerStats(player)))
         {
             life = mana;
             mana = 0;
@@ -57,7 +58,7 @@ public static partial class Game
         int preventionMs = SkillsFor(player).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
         bool buffScaled = Get(Stat.ModifiersToBuffEffectDurationAlsoAffectSoulPreventionDuration) != 0;
-        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, playerStats, gem.Stats)
+        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, playerStats, gem.Stats, SkillDurationModifiers.Kinds.Buff)
             : Get(Stat.ModifiersToSkillEffectDurationAlsoAffectSoulPreventionDuration) != 0
             ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n))
             : preventionMs / 1000d;
@@ -107,13 +108,11 @@ public static partial class Game
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
         player.PlayerMana -= plan.Mana;
-        if (plan.Life > 0)
-        {
-            player.PlayerLife -= plan.Life;
-            Lifetap.Spend(player, SupportedSkill(player, plan.Skill).Stats, (int)plan.Life, now);
-            PresentStats(player);
-        }
+        player.PlayerLife -= plan.Life;
         ManaSpentLocked(player, plan.Mana, stats);
+        if (plan.Life > 0 || plan.Mana > 0)
+            ApplyPaidSupportCostsLocked(player, plan.Skill, SupportedSkill(player, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
+        if (plan.Life > 0) PresentStats(player);
         if (attackDeadline is double next) player.NextAttackAt = next;
         player.VaalPreventionUntil = Math.Max(player.VaalPreventionUntil, now + plan.PreventionSeconds);
         Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(player).EffectId(plan.Effect)}, " +

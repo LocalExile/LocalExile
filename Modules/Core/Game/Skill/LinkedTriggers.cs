@@ -50,6 +50,25 @@ public static partial class Game
         return ReleaseLinkedSpell(player, session, source, "CoC", aim, at, Stat.CastSpellOnLinkedAttackCrit);
     }
 
+    // Cast on Melee Kill: a linked melee attack's killing blow releases the next linked spell, as a critical does.
+    public static LinkedTriggerSource? CaptureMeleeKillTriggerSource(Player player, ushort skill)
+    {
+        var gem = SupportedSkill(player, skill);
+        if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).IsMelee(gem.Effect) || gem.SourceGem is null
+            || PlacedKind(gem) is not (false, false) || GolemStat(gem.Stats, Stat.IsTotem) != 0
+            || GolemStat(gem.Stats, Stat.CastLinkedSpellsOnMeleeKillPct) <= 0) return null;
+        var spells = CaptureLinkedSpells(player, gem, Stat.CastLinkedSpellsOnMeleeKillPct, Stat.CastSpellOnLinkedMeleeKill);
+        return spells.Length == 0 ? null : new(skill, gem, spells, player.ProjectileEpoch, CombatLifetime);
+    }
+
+    // Called only for a hostile monster that the linked melee attack's own accepted hit killed.
+    public static bool ReleaseMeleeKillTrigger(Player player, ProjectileSession session, LinkedTriggerSource? source,
+        bool killed, bool hostile, (int X, int Y) aim, double at)
+    {
+        if (!killed || !hostile || source is null || !LinkedSourceCurrent(player, source) || !session.Active) return false;
+        return ReleaseLinkedSpell(player, session, source, "CoMK", aim, at, Stat.CastSpellOnLinkedMeleeKill);
+    }
+
     static bool ReleaseLinkedSpell(Player player, ProjectileSession session, LinkedTriggerSource source,
         string family, (int X, int Y) aim, double at, uint spellFlag)
     {

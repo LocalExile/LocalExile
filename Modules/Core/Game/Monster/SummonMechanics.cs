@@ -71,7 +71,7 @@ public static partial class Game
 
     static bool ReaperConsumeLocked(Player player, GolemState.Golem reaper, double now)
     {
-        if (reaper.Definition.Kind != "Reaper" || reaper.Definition.Id == "SummonReaperAltX") return false;
+        if (reaper.Definition.Kind != "Reaper") return false;
         if (reaper.WrathUntil > 0 && now >= reaper.WrathUntil)
         {
             reaper.WrathUntil = 0;

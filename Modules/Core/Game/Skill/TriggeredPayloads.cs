@@ -19,7 +19,7 @@ public static partial class Game
 
     // Prepare without payment or a player action. The caller commits exactly one cost before invoking this release.
     static Action? PrepareTriggeredPayload(Player player, ProjectileSession session, ushort id,
-        (int X, int Y) aim, Func<bool> current)
+        (int X, int Y) aim, Func<bool> current, (int X, int Y)? brandOrigin = null, SpawnedMonster? brandedTarget = null)
     {
         var gem = SupportedSkill(player, id);
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
@@ -35,11 +35,14 @@ public static partial class Game
             var critical = CaptureSkillCriticalRoll(player, id);
             return () => session.Schedule(session.Runtime.Now, () => current() && sacrifice.Current, () =>
             {
-                var use = CaptureGemProjectile(player, session, id, skill, aim, critical, sacrifice: sacrifice);
+                var use = CaptureGemProjectile(player, session, id, skill, aim, critical, from: brandOrigin, sacrifice: sacrifice);
                 use = ClientDrawnVolley(player, session, id, skill, use, 0, 0);
-                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
+                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, BrandedTarget = brandedTarget } };
             });
         }
+        if (brandOrigin is { } origin && TriggerAreaSpell(player, gem))
+            return () => session.Enqueue(() => AreaSkillHitForUse(null, player,
+                id, skill, origin, aim, immediate: true, triggeredCurrent: current, brandedTarget: brandedTarget));
         return () => session.Enqueue(() => ReleaseTriggeredNonProjectile(player, session, id, aim, current));
     }
 

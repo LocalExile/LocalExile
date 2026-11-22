@@ -24,6 +24,8 @@ public sealed class PlayerHitRecovery
     {
         if (damage <= 0 || maximumLife == 0 || get(Stat.CannotBeStunned) != 0
             || get(Stat.CannotBeStunnedByAttacks) != 0 || get(Stat.CannotBeStunnedByHitsOfOnlyPhysicalDamage) != 0
+            // Unwavering Stance: "Cannot be Stunned".
+            || get(Stat.KeystoneUnwaveringStance) != 0
             || EnergyShieldPresent(get) || get(Stat.MaximumLifeIsOne) != 0
             || get(Stat.AvoidInterruptionPct) != 0) return 0;
         // These need their own threshold calculation. Do not silently use life for a substituted threshold.

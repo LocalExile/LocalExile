@@ -21,24 +21,58 @@ public static class InstanceProtocol
     /// <summary>S→C 0x11 (no fields, class 0x1431768d8): switches both directions to Salsa20.</summary>
     public static byte[] StartEncryption() => new LoginWriter().U16(StartEncryptionId).ToArray();
 
+    public const ushort AddRulesetId = 0x1f;
+
+    /// <summary>S→C 0x1f: u8 Rulesets row, u32 (big-endian, unused by the factories). Unless the instance already holds a
+    /// ruleset of that row, the client builds it from its factory table and adds it to the instance's ruleset list
+    /// (instance dispatcher 0x142150ae0 case 8, slot 8 0x1415a6800); client code finds a ruleset there by its row.</summary>
+    public static byte[] AddRuleset(byte row, uint value = 0) => new LoginWriter().U16(AddRulesetId).U8(row).U32(value).ToArray();
+
+    /// <summary>0x1d's extra data (<see cref="AreaInstance.TerrainData"/>) holding only terrain plugin states: flag bytes
+    /// 0x00, 0x01 (second byte bit 0), u8 count, then per plugin its TerrainPlugins <c>__col1</c> id (u16), the state's
+    /// length (u16) and the state, little-endian (<c>0x141ecdad0</c> → world +0x70). At generation start the client
+    /// creates each listed plugin with its state, then the area's own plugin with an empty one unless listed
+    /// (<c>0x141eca930</c>).</summary>
+    public static byte[] TerrainPluginStates(IReadOnlyList<(ushort Plugin, byte[] State)> states)
+    {
+        if (states.Count is 0 or > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(states));
+        var bytes = new List<byte> { 0x00, 0x01, (byte)states.Count };
+        foreach (var (plugin, state) in states)
+        {
+            if (state.Length > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(states));
+            bytes.AddRange([(byte)plugin, (byte)(plugin >> 8), (byte)state.Length, (byte)(state.Length >> 8)]);
+            bytes.AddRange(state);
+        }
+        return [.. bytes];
+    }
+
     /// <summary>
     /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
-    /// (u32, u32), wstr, 24 flag bits, u8 +0x7e, u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler
-    /// (0x14215d6d0) needs the local player entity (0x22 + 0x2bb) to exist already.
+    /// (u32, u32), wstr, 24 flag bits, u8 +0x7e (world frame length in ms, passed to <c>0x141648b50</c> → world +0x11c),
+    /// u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler (0x14215d6d0) needs the local player entity
+    /// (0x22 + 0x2bb) to exist already.
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
     /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
-    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false)
+    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false, byte frameMs = 0)
     {
         var w = new LoginWriter().U16(EnterAreaId);
         InstanceStash.WriteTabs(w, stash ?? []);
-        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(0).U8(0).ToArray();
+        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
     }
 
     /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
     /// first; the client sends "current set is the first"). It then waits (session +0xcfa4 = 1) for S→C 0xde.</summary>
     public const ushort SwapWeaponsId = 0xdd;
+
+    /// <summary>C→S 0x193 (6 bytes, class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active
+    /// held/channelled action onto a target object (u32 BE target object id). Sent in both lockstep and predictive modes.</summary>
+    public const ushort RetargetActionId = 0x0193;
+    public const int RetargetActionLength = 6;
+
+    public static uint ReadRetargetAction(ReadOnlySpan<byte> m) =>
+        BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
 
     /// <summary>C→S 0x197 (10 bytes, live 2026-10-23 while Cyclone was held) and C→S 0x198 (the same 10 bytes, class and
     /// handler, which a channelled spell that stands still — Winter Orb — sends instead, live 2026-11-09): a channelled
@@ -319,12 +353,17 @@ public static class InstanceProtocol
 
     public const ushort LifeUpdateId = 0x1b1;
 
+    /// <summary>S→C 0x1b1 <c>u2c</c> death kind: 0 plays the ordinary death animation (Animation row 6), while 1, 3 and 4
+    /// select <c>DeathFromDegen</c> (Animation row 0x77, <c>0x141e9c200</c>).</summary>
+    public const byte DeathKindNormal = 0, DeathKindDegen = 1;
+
     /// <summary>
     /// S→C 0x1b1 (world group, class 0x1435e8258, read 0x141fe6fb0; world handler 0x14218ddf0 → the object's Life
     /// component): object header, u32 current (+0x20), u32 reserved (+0x24), u8 pool (+0x28: 0 life, 1 mana, 2 energy
-    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c), all big-endian. 0x141e70550 stores the
-    /// values in the pool. For the life pool the handler also calls the Life component's death slot (vtable +0xe8, with
-    /// the +0x2c byte) when life drops from ≥ 1 to &lt; 1, and its revive slot (+0x100) on the way back.
+    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c death kind: <see cref="DeathKindNormal"/>
+    /// or <see cref="DeathKindDegen"/>), all big-endian. 0x141e70550 stores the values in the pool. For the life pool the
+    /// handler also calls the Life component's death slot (vtable +0xe8, with the +0x2c byte) when life drops from ≥ 1 to
+    /// &lt; 1, and its revive slot (+0x100) on the way back.
     /// </summary>
     public static byte[] LifeUpdate(uint objectId, uint current, uint reserved = 0, byte pool = 0, ushort u2a = 0, byte u2c = 0,
         uint orderKey = 0, ushort checkpoint = 0) =>
@@ -343,15 +382,23 @@ public static class InstanceProtocol
             .U32(BitConverter.SingleToUInt32Bits(seconds)).U8(animationType).U8(checkInterruption ? (byte)1 : (byte)0).ToArray();
 
     /// <summary>
-    /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group; the handler maps it and 0x26f/0x270/0x271 to the
-    /// Animated component's <c>0x141e5d440</c>): object header, u8 kind, then per kind — 0/1: u32 animation index
-    /// (+0x24) and u32 float bits (+0x28), 2: u32 float bits (+0x2c), 3: u32 float bits (+0x28). Kind 0 calls
-    /// <c>0x141dbdbc0</c> ("play animation"), which bails when the index is past the actor's animation count, so a
-    /// wrong index is ignored rather than fatal (live 2026-10-25).
+    /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group, read <c>0x141fe58a0</c>; the handler maps it and
+    /// 0x26f/0x270/0x271 to the Animated component's <c>0x141e5d440</c>): object header (12 B), u8 kind, then per
+    /// kind — 0/1: u32 animation index (+0x24) and u32 float bits (+0x28) (21 B total); 2: u32 float bits (+0x2c)
+    /// (17 B total); 3: u32 float bits (+0x28) (17 B total); ≥4 throws "Bad packet: InstanceClientAnimationUpdate".
+    /// Kind 0 calls <c>0x141dbdbc0</c> ("play animation"), which bails when the index is past the actor's animation
+    /// count, so a wrong index is ignored rather than fatal (live 2026-10-25).
     /// </summary>
-    public static byte[] AnimationUpdate(uint objectId, byte kind, uint index, float speed) =>
-        new LoginWriter().U16(AnimationUpdateId).U32(objectId).U32(0).U16(0).U8(kind).U32(index)
-            .U32(BitConverter.SingleToUInt32Bits(speed)).ToArray();
+    public static int AnimationUpdateLength(byte kind) => kind <= 1 ? 21 : kind <= 3 ? 17 : -1;
+
+    public static byte[] AnimationUpdate(uint objectId, byte kind, uint index = 0, float speed = 1f)
+    {
+        if (kind > 3) throw new ArgumentOutOfRangeException(nameof(kind), kind, "S→C 0x1b2 AnimationUpdate only accepts kinds 0..3");
+        var w = new LoginWriter().U16(AnimationUpdateId).U32(objectId).U32(0).U16(0).U8(kind);
+        if (kind <= 1) w.U32(index).U32(BitConverter.SingleToUInt32Bits(speed));
+        else w.U32(BitConverter.SingleToUInt32Bits(speed));
+        return w.ToArray();
+    }
 
     /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
     public const uint FollowTerrain = 0x7fffffff;
@@ -445,9 +492,13 @@ public static class InstanceProtocol
     /// on C→S 0x0153 so the client displays "Entering Character Select" and replies with C→S 0x02cd.</summary>
     public const ushort CharacterSelectAreaHash = 0x4884;
 
-    /// <summary>C→S 0x020a (u16 id, u8 tutorial; 3 bytes): sent when a tutorial is completed or skipped (0x11 = Skip All Tutorials).</summary>
-    public const ushort TutorialCompleteId = 0x20a;
+    /// <summary>C→S 0x020a (3 bytes, vtable 0x14346cd00, writer 0x140e27920): a tutorial step or Help Panel article
+    /// completed or dismissed; payload byte is the Tutorial.dat row index (0..18 tutorials, 17 = AllTutorials,
+    /// 23..76 Help Panel articles, 77 = HidePopups).</summary>
+    public const ushort TutorialCompleteId = 0x020a;
+    public const int TutorialCompleteLength = 3;
     public const byte TutorialSkipAll = 0x11;
+    public static byte ReadTutorialComplete(ReadOnlySpan<byte> m) => m[2];
 
     /// <summary>C→S 0x1a (u16 id, u8 reason = 0; 3 bytes): Esc → "Exit to Log In Screen" (0x142168fe0(instance, 0)) and
     /// "Exit Path of Exile" (0x140cf1ab0), sent right after C→S 0x2cd before the client shuts down the instance socket.
@@ -531,9 +582,10 @@ public static class InstanceProtocol
     }
 
     /// <summary>
-    /// Splits decrypted C→S bytes into the messages <see cref="ClientPackets"/> lists (fixed length, or read from the message). Stops at the first unknown id (there is no length
-    /// prefix, so the rest cannot be framed) and returns it as <paramref name="unknown"/>; a known message cut off at the
-    /// end is returned as <paramref name="partial"/> to prepend to the next chunk.
+    /// Splits decrypted C→S bytes into the messages <see cref="ClientPackets"/> and <see cref="TryClientMessageLength"/> frame (fixed or variable length).
+    /// Stops at the first unknown id or malformed variable-length field (there is no length prefix, so the rest cannot be framed)
+    /// and returns it as <paramref name="unknown"/>; a known message cut off at the end is returned as <paramref name="partial"/>
+    /// to prepend to the next chunk. Never throws on malformed wire fields.
     /// </summary>
     public static List<(ushort Id, byte[] Bytes)> SplitClientMessages(ReadOnlySpan<byte> data, out byte[] partial, out byte[] unknown)
     {
@@ -543,14 +595,159 @@ public static class InstanceProtocol
         while (pos < data.Length)
         {
             if (data.Length - pos < 2) { partial = data[pos..].ToArray(); break; }
-            ushort id = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[pos..]);
-            int? known = ClientPackets.Length(id, data[pos..]);
-            if (known is not int len) { unknown = data[pos..].ToArray(); break; }
-            if (data.Length - pos < len) { partial = data[pos..].ToArray(); break; }
+            ushort id = BinaryPrimitives.ReadUInt16BigEndian(data[pos..]);
+            var status = TryClientMessageLength(id, data[pos..], out int len);
+            if (status == WireMeasure.Invalid) { unknown = data[pos..].ToArray(); break; }
+            if (status == WireMeasure.Incomplete || data.Length - pos < len) { partial = data[pos..].ToArray(); break; }
             result.Add((id, data.Slice(pos, len).ToArray()));
             pos += len;
         }
         return result;
+    }
+
+    static WireMeasure TryClientMessageLength(ushort id, ReadOnlySpan<byte> data, out int length)
+    {
+        switch (id)
+        {
+            case InstanceDelve.RouteId: return FromNullableLength(InstanceDelve.RouteLength(data), out length);
+            case InstanceChat.ChatId: return InstanceChat.MeasureLength(data, out length);
+            case InstanceItems.CommandId: return InstanceItems.MeasureCommandLength(data, out length);
+            case InstanceNpcs.BuyId: return FromNullableLength(InstanceNpcs.BuyLength(data), out length);
+            case InstanceNpcs.CtrlBuyId: return FromNullableLength(InstanceNpcs.CtrlBuyLength(data), out length);
+            case InstanceStash.ReorderTabsId: return FromNullableLength(InstanceStash.ReorderTabsLength(data), out length);
+            case InstanceStash.RenameTabId: return InstanceStash.MeasureRenameTabLength(data, out length);
+            case InstanceStash.MoveToAffinityTabId: return FromNullableLength(InstanceStash.MoveToAffinityTabLength(data), out length);
+            case InstanceStash.SetAffinitiesId: return FromNullableLength(InstanceStash.SetAffinitiesLength(data), out length);
+            case InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId:
+                return InstanceWaypoints.MeasureVisitHideoutLength(data, out length);
+            case InstanceSocial.FriendAddId: return InstanceSocial.MeasureFriendAddLength(data, out length);
+            // 2 + WStr (writer 0x141f98140).
+            case InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
+                or 0x0097 or 0x00ca or 0x0140 or 0x0141 or 0x0145 or 0x014d or 0x014e or 0x014f or 0x0155:
+                return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 0, out length);
+            // 2 + WStr + u8 (writer 0x141f9baf0).
+            case 0x0098 or 0x0144 or 0x0179:
+                return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 1, out length);
+            // 2 + u8 + WStr (Atlas tree rename, writer 0x141fa5e60).
+            case 0x02a7:
+                return MeasureWStrMessage(data, prefixBytes: 3, suffixBytes: 0, out length);
+            // 2 + WStr + WStr (writer 0x141f9b950; 0x0280 sent on area entry by 0x140d59480).
+            case 0x0081 or 0x0280:
+                return MeasureTwoWStrMessage(data, suffixBytes: 0, out length);
+            // 2 + WStr + WStr + u32 + u8 (shop buy, writer 0x141fa1160).
+            case 0x012c:
+                return MeasureTwoWStrMessage(data, suffixBytes: 5, out length);
+            // u16 id, u8 flags, optional u32 when bit 0 is clear (writer 0x141fa1b30, main frame loop 0x140d551f0).
+            case 0x0158:
+                return Measure0158(data, out length);
+            // u16 id, u16 BE len, len bytes (0x02cd writer 0x141fa6480; 0x02fc writer 0x141fa62c0).
+            case InstanceTransfer.LeaveAreaAckId or 0x02fc:
+                return MeasureBlob16(data, out length);
+            // u16 id, u16 BE len1, len1 bytes, u16 BE len2, len2 bytes (writer 0x141fa4140).
+            case 0x0281:
+                return MeasureTwoBlob16(data, out length);
+            // u16 id, u32 BE, u16 BE n, n * u32 BE (salvage box open, writer 0x141fa3bf0 → 0x141faa4a0).
+            case 0x026e:
+                return MeasureSalvageBox(data, out length);
+            // u16 id, u8, u8 n1, n1 bytes, u8 n2, n2 bytes, u8, u8 (recombine, writer 0x141fa49e0).
+            case 0x028f:
+                return MeasureRecombine(data, out length);
+            // u16 id, u8 ruleset, CompactUInt(len), len bytes (ruleset message, writer 0x141fa7c10 / reader 0x141fa7ca0).
+            case InstanceRulesets.ActionId:
+                return InstanceRulesets.MeasureActionLength(data, out length);
+            default:
+                if (KnownClientLength(id) is int fixedLen) { length = fixedLen; return WireMeasure.Ok; }
+                length = 0;
+                return WireMeasure.Invalid;
+        }
+    }
+
+    static WireMeasure FromNullableLength(int? len, out int length)
+    {
+        if (len is int v) { length = v; return WireMeasure.Ok; }
+        length = 0;
+        return WireMeasure.Incomplete;
+    }
+
+    static WireMeasure MeasureWStrMessage(ReadOnlySpan<byte> data, int prefixBytes, int suffixBytes, out int length)
+    {
+        length = 0;
+        if (data.Length < prefixBytes) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(data[prefixBytes..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        int total = prefixBytes + textLength + suffixBytes;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureTwoWStrMessage(ReadOnlySpan<byte> data, int suffixBytes, out int length)
+    {
+        length = 0;
+        if (data.Length < 2) return WireMeasure.Incomplete;
+        var s1 = LoginReader.TryMeasureWStr(data[2..], out int len1);
+        if (s1 != WireMeasure.Ok) return s1;
+        int secondAt = 2 + len1;
+        var s2 = LoginReader.TryMeasureWStr(data[secondAt..], out int len2);
+        if (s2 != WireMeasure.Ok) return s2;
+        int total = secondAt + len2 + suffixBytes;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure Measure0158(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 3) return WireMeasure.Incomplete;
+        int total = (data[2] & 1) != 0 ? 3 : 7;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureBlob16(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 4) return WireMeasure.Incomplete;
+        int total = 4 + BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureTwoBlob16(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 4) return WireMeasure.Incomplete;
+        int secondAt = 4 + BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
+        if (data.Length - secondAt < 2) return WireMeasure.Incomplete;
+        int total = secondAt + 2 + BinaryPrimitives.ReadUInt16BigEndian(data[secondAt..]);
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureSalvageBox(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 8) return WireMeasure.Incomplete;
+        int total = 8 + BinaryPrimitives.ReadUInt16BigEndian(data[6..]) * 4;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    static WireMeasure MeasureRecombine(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < 4) return WireMeasure.Incomplete;
+        int n2At = 4 + data[3];
+        if (n2At >= data.Length) return WireMeasure.Incomplete;
+        int total = n2At + 1 + data[n2At] + 2;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
     }
 
     /// <summary>Parses the client's plaintext opening, or null if fewer than <see cref="OpeningLength"/> bytes arrived.</summary>
@@ -571,6 +768,7 @@ public static class InstanceProtocol
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
 /// stats at +0x120 by 0x142189aa0. Other optional parts remain off. Defaults follow the constructor (0x1421a42b0).
+/// B28 is the league category (world +0xd0, <see cref="GameServer.Core.World.LeagueCategory"/>), 60 for none.
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,

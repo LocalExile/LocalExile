@@ -15,7 +15,8 @@ public static class PlayerHitDamage
     public static DamagePacket Resolve(DamagePacket raw, Func<uint, int> get, DamageConversion conversion,
         bool spell, bool melee = false, bool area = false, bool projectile = false,
         IEnumerable<(uint Id, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
-        bool secondary = false, bool wieldingWand = false, bool retaliation = false, long additionalIncreased = 0, bool wieldingBow = false)
+        bool secondary = false, bool wieldingWand = false, bool retaliation = false, long additionalIncreased = 0, bool wieldingBow = false,
+        HitIncreases additional = default)
     {
         // Secondary damage (Bear Trap, Herald of Ice's shatter) is neither an attack nor a spell: only the generic,
         // area and projectile buckets apply, and no attack/spell support classification.
@@ -33,6 +34,7 @@ public static class PlayerHitDamage
         double common = (double)get(Stat.DamagePlusPct) + (secondary ? 0 : get(spell ? Stat.SpellDamagePlusPct : Stat.AttackDamagePlusPct))
             + (melee ? get(Stat.MeleeDamagePlusPct) : 0) + (area ? get(Stat.AreaDamagePlusPct) : 0)
             + (projectile ? get(Stat.ProjectileDamagePlusPct) : 0)
+            + (supportTypes.Contains(64) || get(Stat.SkillGetsBrandDamageCritModifiers) != 0 ? get(Stat.SigilDamagePlusPct) : 0)
             + (spell || secondary ? 0 : DamageStats.SpellAttackIncrease(get, wieldingWand, retaliation))
             + additionalIncreased;
         // Iron Will: Strength's damage bonus applies to spell damage.
@@ -48,6 +50,9 @@ public static class PlayerHitDamage
             + (fullShield ? get(Stat.DamagePlusPctOnFullEnergyShield) : 0);
         bool bowAttack = wieldingBow && !spell && !secondary;
         if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowHitAndAilmentDamagePlusPct);
+        // Precise Technique: "40% more Attack Damage if Accuracy Rating is higher than Maximum Life".
+        bool preciseTechnique = !spell && !secondary && get(Stat.KeystonePreciseTechnique) != 0
+            && get(Stat.AccuracyRating) > get(Stat.MaximumLife);
         var typed = DamageTypes.ConversionOrder.Select(type =>
             (History: DamageTypes.HistoryOf(type), Increased: get(TypedIncreased[(int)type]))).ToArray();
         int elemental = get(Stat.ElementalDamagePlusPct)
@@ -64,11 +69,14 @@ public static class PlayerHitDamage
             if (bowAttack && (path.History & DamageTypeHistory.Elemental) != 0) increased += get(Stat.BowElementalDamagePlusPct);
             foreach (var source in typed)
                 if ((path.History & source.History) != 0) increased += source.Increased;
-            if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental;
+            if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental + additional.Elemental;
             if ((path.History & DamageTypeHistory.Physical) != 0)
-                increased += meleePhysical
+                increased += meleePhysical + additional.Physical
                     + (!melee && !spell && projectile && get(Stat.KeystoneStrongBowman) != 0 ? strength : 0)
                     + (lifeLeech ? (double)get(Stat.PhysicalDamagePlusPctWhileLifeLeeching) : 0);
+            if (additional.Typed is { } extra)
+                foreach (var source in extra)
+                    if ((path.History & source.History) != 0) increased += source.Increased;
 
             // Preserve the existing attack multiply-before-divide projection and spell factor construction.
             // Clamp the complete increased bucket once: a negative original-type subtotal must survive until here.
@@ -83,6 +91,12 @@ public static class PlayerHitDamage
                 range = range.Scale(Math.Max(0, 1 + get(get(Stat.InSandStance) != 0
                     ? Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInSandStance
                     : Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInBloodStance) / 100.0));
+            if (preciseTechnique) range = range.Scale(1.4);
+            // Elemental Overload: "40% more Elemental Damage with Hits and Ailments" while its window is open. The
+            // stat is the client's own carrier, published by the live stat view; a converted portion is elemental by
+            // its history, as the other elemental buckets are.
+            if ((path.History & DamageTypeHistory.Elemental) != 0)
+                range = range.Scale(Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
             result = result.Add(path.Type, range);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
@@ -102,6 +116,8 @@ public static class PlayerHitDamage
         * Math.Max(0, 1 + get(Stat.RighteousFireSpellDamagePlusPctFinal) / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
         * Math.Max(0, 1 + get(Stat.SpellDamagePlusPctFinalFromArcaneSurge) / 100.0)
+        // Pain Attunement: "30% more Spell Damage when on Low Life".
+        * (get(Stat.KeystonePainAttunement) != 0 && get(Stat.OnLowLife) != 0 ? 1.3 : 1)
         * ((history & DamageTypeHistory.Lightning) != 0
             ? Math.Max(0, 1 + get(Stat.WrathAuraSpellLightningDamagePlusPctFinal) / 100.0) : 1);
 
@@ -114,3 +130,9 @@ public static class PlayerHitDamage
         return types;
     }
 }
+
+/// <summary>Increases the caller computed for this hit beyond the resolver's generic buckets: a physical-only one, an
+/// elemental-only one, and per damage-type ones (a history so a converted portion inherits each type it was). The tree's
+/// "with &lt;weapon type&gt;" rows arrive here.</summary>
+public readonly record struct HitIncreases(int Physical = 0, int Elemental = 0,
+    IReadOnlyList<(DamageTypeHistory History, int Increased)>? Typed = null);

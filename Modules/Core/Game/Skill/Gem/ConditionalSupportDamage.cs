@@ -4,13 +4,14 @@ using GameServer.Core.World;
 // Hits and Ailments against Chilled Enemies", Behead "against Enemies on Low Life" (half its maximum Life or less, PoB
 // LowPoolThreshold), Damage on Full Life "Supported Attack Skills deal more Damage while on Full Life", Vile Toxins
 // "5% more Damage with Hits for each Poison on the Enemy, up to a maximum of 8 Poisons", Bloodlust "more Melee Physical
-// Damage against Bleeding Enemies" and Power Charge on Critical "more Damage per Power Charge". GemSupportDamage builds
+// Damage against Bleeding Enemies", Power Charge on Critical "more Damage per Power Charge" and Endurance Charge on Melee
+// Stun "more Damage per Endurance Charge". GemSupportDamage builds
 // the skill's hit without them, once per cast; these scale each target's roll.
 public static partial class Game
 {
     public static double ConditionalSupportMore(IReadOnlyDictionary<uint, int>? skill, bool attack, bool chilled,
         bool lowLife, bool fullLife, bool lifetap, int poisonStacks = 0, bool bleeding = false, int powerCharges = 0,
-        bool arcaneSurge = false, int recentIgnites = 0)
+        bool arcaneSurge = false, int recentIgnites = 0, int enduranceCharges = 0)
     {
         int Get(uint name) => skill is not null && name is var k ? skill.GetValueOrDefault(k) : 0;
         double more = 1;
@@ -26,6 +27,9 @@ public static partial class Game
         if (counted > 0) more *= Math.Max(0, 1 + Get(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack) * counted / 100.0);
         if (powerCharges > 0)
             more *= Math.Max(0, 1 + Get(Stat.SupportPowerChargeOnCritDamagePlusPctFinalPerPowerCharge) * powerCharges / 100.0);
+        // Endurance Charge on Melee Stun: "Supported Skills deal (4)% more Damage per Endurance Charge".
+        if (enduranceCharges > 0)
+            more *= Math.Max(0, 1 + Get(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge) * enduranceCharges / 100.0);
         // Controlled Blaze: "(3)% less Damage per Enemy Ignited Recently", floored by the support's minimum.
         int recentPer = Get(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinal);
         if (recentPer != 0)
@@ -51,18 +55,16 @@ public static partial class Game
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), fullLife,
             Lifetap.ActiveAt(player, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
-            ChargesOf(player).Effective(ChargeType.Power), ArcaneSurgeActive(player, now), recentIgnites);
+            ChargesOf(player).Effective(ChargeType.Power), ArcaneSurgeActive(player, now), recentIgnites,
+            ChargesOf(player).Effective(ChargeType.Endurance));
         var packet = more == 1 ? rolled : rolled.Scale(more);
-        // Immolate: added Fire Damage against Burning Enemies (the stat description's own wording).
-        if (target.Ignites.Burning)
+        // Immolate and Fire Trap: added Fire Damage against Burning Enemies (ignite, burning ground, RF, Herald burn).
+        int min = Get(Stat.GlobalMinimumAddedFireDamageVsBurningEnemies);
+        int max = Get(Stat.GlobalMaximumAddedFireDamageVsBurningEnemies);
+        if ((min > 0 || max > 0) && BurningTarget(player, target))
         {
-            int min = Get(Stat.GlobalMinimumAddedFireDamageVsBurningEnemies);
-            int max = Get(Stat.GlobalMaximumAddedFireDamageVsBurningEnemies);
-            if (min > 0 || max > 0)
-            {
-                double roll = min + AreaRng(player).NextDouble() * (Math.Max(min, max) - min);
-                packet = packet.Add(DamageType.Fire, new(roll, roll));
-            }
+            double roll = min + AreaRng(player).NextDouble() * (Math.Max(min, max) - min);
+            packet = packet.Add(DamageType.Fire, new(roll, roll));
         }
         // Bloodthirst: "gain X% of Maximum Life as added Physical Damage with Weapons while on Low Life".
         if (player.PlayerLife < player.PlayerMaxLife * 0.35)

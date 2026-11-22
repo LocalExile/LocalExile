@@ -70,6 +70,7 @@ public static partial class Game
                 + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
                 + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
         if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
+        if (hit.Life == 0 && shot.FromTotem) OwnedKillLocked(target, 0);
         if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
@@ -131,11 +132,14 @@ public static partial class Game
     {
         var player = session.Player;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
+        TinctureKillBonus? tinctureKill;
         bool destroyCorpse;
+        tinctureKill = playerKill ? TakeTinctureKill(player, monster) : null;
         destroyCorpse = playerKill && TakeUnhingedHitKillLocked(player, monster);
         if (playerKill) QueueMadnessExplosionLocked(player, id, monster);
         StopCorpseBlocking(player, id, monster);
-        if (player.VaalSouls.Read().Length > 0 || player.SentVaalSouls.Count > 0)
+        // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
+        if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var position = monster.Walk.Position(now);
@@ -159,7 +163,7 @@ public static partial class Game
             session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
             if (OnslaughtOnKill(player)) session.EnqueueLater(() => SendKillOnslaught(player));
             ChargesOnKill(player, monster);
-            RecoverOnKill(player, monster);
+            RecoverOnKill(player, monster, tinctureKill);
             GainPhasingOnKill(player);
             session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position));
         }
@@ -195,7 +199,7 @@ public static partial class Game
             }
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
-            : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods));
+            : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, tinctureKill?.FlaskChargesPct ?? 0));
         // The map overlay's "X monsters remain" (S→C 0x1a0): coalesced once per batch instead of once per kill.
         session.QueueRemainingMonsters();
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
@@ -214,6 +218,7 @@ public static partial class Game
     {
         var player = session.Player;
         if (!session.Active || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || monster.NoRewards
+            || BossMods.GivesNoItems(monster.Variety) || monster.Variety?.Id == TutorialObjects.Zombie
             || !GameEvents.AllowsLoot(player)) return;
         var random = AreaRng(player);
         var balance = LeagueFor(player).Rules;
@@ -223,12 +228,16 @@ public static partial class Game
         {
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(player, monster),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
             if (DropsFor(player).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(player, monster.Level, monster.Rarity, random));
         }
+        if (modded is { Stacks.Count: > 0 }) drops.AddRange(ModStacks(player, modded));
         drops = ModdedDrops(player, modded, drops, monster.Level, monster.Rarity, IncreasedItemRarity(player, monster),
             balance.EquipmentRarityMultiplier, random);
+        drops.AddRange(MadeDrops(player, modded));
+        modded?.ApplyTransforms(drops);
+        if (MapBeyond.CorruptsDrops(player, monster.Variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;

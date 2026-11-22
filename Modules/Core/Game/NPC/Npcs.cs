@@ -33,7 +33,8 @@ public static partial class Game
     public static async Task SpawnTownNpcs(Player player)
     {
         var notes = new List<string>();
-        var placements = HideoutFurniture(player)?.Npcs ?? NpcCatalog.In(player.Layout.Hash, player.Seed, notes);
+        var furniture = HideoutFurniture(player);
+        var placements = furniture?.Npcs ?? NpcCatalog.In(player.Layout.Hash, player.Seed, notes);
         if (player.Layout.Id == "1_4_town")
             placements = [.. placements, new("Metadata/NPC/League/Delve/DelveMiner", 352, 618, 280 * MathF.PI / 180)];
         foreach (var note in notes) Console.WriteLine($"[gateway] {player.Connection.Remote} npcs: {note}");
@@ -47,9 +48,18 @@ public static partial class Game
             // A town NPC a quest stages (DiallaTown / DiallaTownWithered …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
             if (quests.ManagesNpc(player.Layout.Id, p.Id)) continue;
             if (Npcs.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {player.Connection.Remote} npc {p.Id}: unknown or unsupported components"); continue; }
-            if (!p.FromRoom && player.Layout.Walkable is { } w && !w(p.X, p.Y)) Console.WriteLine($"[gateway] {player.Connection.Remote} npc {npc.Name}: ({p.X}, {p.Y}) is not walkable");
-            await SpawnNpc(player, npc, p.X, p.Y, p.Rotation);
+            var at = furniture is null ? TownNpcCell(player.Layout, p) : (p.X, p.Y);
+            if (at != (p.X, p.Y))
+                Console.WriteLine($"[gateway] {player.Connection.Remote} npc {npc.Name}: blocked cell ({p.X}, {p.Y}), placed at {at}");
+            await SpawnNpc(player, npc, at.Item1, at.Item2, p.Rotation);
         }
+    }
+
+    // Keep the client's room placements, which can intentionally stand on an unwalkable platform.
+    public static (int X, int Y) TownNpcCell(AreaLayout layout, NpcCatalog.Placement placement)
+    {
+        var at = (placement.X, placement.Y);
+        return !placement.FromRoom && layout.Walkable?.Invoke(at.X, at.Y) == false ? layout.Near(at) : at;
     }
 
     // A click on an NPC (C→S 0x24 on its object): the client walks to it first; follow it and answer once the player is there.
@@ -77,7 +87,9 @@ public static partial class Game
         player.TalkingTo = id;
         player.InNpcTalk = false;
         player.NpcFinishFlag = null;
+        player.NpcFinishLeagueFlag = null;
         player.NpcRewardOffer = null;
+        await CharacterVoiceLines.OnNpcTalked(player, npc.Npc.Id);
         if (await GameEvents.AnyNpcTalk(player, id, npc)) return;
         if (await ContinueQuestConversation(player, id)) return;
         // Ctrl, Alt or both held on the click (0x24 flags 0x0004, 0x0200): the NPC's option with that shortcut, as if it
@@ -109,6 +121,11 @@ public static partial class Game
                 player.NpcFinishFlag = null;
                 await SetQuestFlags(player, [finish]);
             }
+            if (player.NpcFinishLeagueFlag is int finishLeague)
+            {
+                player.NpcFinishLeagueFlag = null;
+                if (!player.Character.LeagueQuestFlags.Contains(finishLeague)) await SetLeagueQuestFlags(player, [finishLeague]);
+            }
             // The row's script decides what follows its talk: the next page, or the end of the dialogue.
             if (player.NpcTalkScript is { } script)
             {
@@ -124,6 +141,7 @@ public static partial class Game
         player.TalkingTo = 0;
         player.InNpcTalk = false;
         player.NpcFinishFlag = null;
+        player.NpcFinishLeagueFlag = null;
         player.NpcTalkScript = null;
         player.NpcRewardOffer = null;
         await Send(player, InstanceNpcs.Talk(0), "0x0084 object 0: npc dialogue closed (0x85)");
@@ -139,7 +157,11 @@ public static partial class Game
         SpawnedNpc? npc;
         lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(id);
         if (npc is null || player.TalkingTo != id) return false;
-        var next = Npcs.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(player)), player.AutomaticNpcTalkRows);
+        var flags = Quests.Names(PlayerQuestFlags(player));
+        NpcCatalog.Talk? next;
+        if (GameEvents.UsesNpcLeagueFlags(player, npc.Npc))
+            next = Npcs.NextConversationOf(npc.Npc, flags, player.AutomaticNpcTalkRows, new HashSet<int>(player.Character.LeagueQuestFlags));
+        else next = Npcs.NextConversationOf(npc.Npc, flags, player.AutomaticNpcTalkRows);
         if (next is null) return false;
         player.AutomaticNpcTalkRows.Add(next.Row);
         await ExecuteQuestConversation(player, id, npc, next);
@@ -161,18 +183,35 @@ public static partial class Game
         await ExecuteQuestConversation(player, id, npc, talk);
     }
 
-    public static Task ExecuteQuestConversation(Player player, uint id, SpawnedNpc npc, NpcCatalog.Talk talk) => RunNpcOption(player, id, npc, talk);
+    public static async Task ExecuteQuestConversation(Player player, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
+        if (!await BanditChoices.ChooseDialogue(player, id, npc, talk))
+            await RunNpcOption(player, id, npc, talk);
+    }
 
     // An NPCTalk row takes effect: picked from the list (0x82), next in a quest's talk, or the click's shortcut
     // (onClick: no talk is open). False when the row is not for this character now, or nothing answers it.
     static async Task<bool> RunNpcOption(Player player, uint id, SpawnedNpc npc, NpcCatalog.Talk talk, bool onClick = false)
     {
-        if (!talk.Available(Quests.Names(PlayerQuestFlags(player)))) return false;
+        var flags = Quests.Names(PlayerQuestFlags(player));
+        bool usesLeagueFlags = GameEvents.UsesNpcLeagueFlags(player, npc.Npc);
+        if (usesLeagueFlags)
+        {
+            if (!talk.Available(flags, new HashSet<int>(player.Character.LeagueQuestFlags))) return false;
+        }
+        else if (!talk.Available(flags)) return false;
         if (!await GameEvents.AllowNpcOption(player, talk)) return false;
         // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
         if (!await HandInQuestItems(player, talk, npc.Npc.Id)) return false;
+        if (usesLeagueFlags)
+        {
+            var toSet = talk.LeagueFlagsSet.Where(f => f is > 1 and <= Quests.League.Count).ToList();
+            if (talk.StartLeagueFlag is int slf && !toSet.Contains(slf)) toSet.Add(slf);
+            if (toSet.Count > 0) await SetLeagueQuestFlags(player, toSet);
+        }
         await ApplyQuestConversationStart(player, id, npc, talk, applyRowRules: true);
         player.NpcFinishFlag = talk.FinishFlag;
+        player.NpcFinishLeagueFlag = usesLeagueFlags ? talk.FinishLeagueFlag : null;
         player.NpcTalkScript = null;
         var option = new NpcOption(player, npc.Npc.Name, talk.Category, talk.Option,
             talk.Script, talk.TextAudio.Count > 0, talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer);
@@ -184,6 +223,11 @@ public static partial class Game
             else
             {
                 if (player.NpcFinishFlag is { } finish) { player.NpcFinishFlag = null; await SetQuestFlags(player, [finish]); }
+                if (player.NpcFinishLeagueFlag is int finishLeague)
+                {
+                    player.NpcFinishLeagueFlag = null;
+                    if (!player.Character.LeagueQuestFlags.Contains(finishLeague)) await SetLeagueQuestFlags(player, [finishLeague]);
+                }
                 // Let the owning module execute its no-audio script before generic FinishNPCChat consumes it.
                 offeredScript = true;
                 if (await GameEvents.AnyNpcOption(option)) return true;
@@ -205,14 +249,36 @@ public static partial class Game
         return false;
     }
 
+    /// <summary>For an offer with a league quest flag taken flag, whether the league holds it; null for any other offer.</summary>
+    public static bool? LeagueRewardTaken(Player player, QuestRewardCatalog.Offer offer)
+    {
+        if (offer.TakenLeagueFlag is not int flag) return null;
+        return player.Character.LeagueQuestFlags.Contains(flag);
+    }
+
     // A quest's reward window (0xc0 and 0x87). False when the offer has nothing for this character, or was taken.
     public static async Task<bool> OfferNpcReward(Player player, int offer)
     {
         var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(player).HardMode, supportGems: LeagueFor(player).Rules.SupportGemRewards);
-        var rewardItems = rewardCatalog.Choices(offer, player.Character.ClassRow)
-            .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(player), RollsFor(player))))
-            .Where(c => c.Item is not null).ToArray();
         if (rewardCatalog.Find(offer) is not { } rewardOffer) return false;
+        HashSet<int> leagueFlags = [.. player.Character.LeagueQuestFlags];
+        var allChoices = rewardCatalog.Choices(offer, player.Character.ClassRow);
+        var unlockedChoices = allChoices
+            .Where(c => c.RequiredLeagueFlag is not int req || leagueFlags.Contains(req))
+            .ToArray();
+        if (allChoices.Count > 0 && unlockedChoices.Length == 0) return false;
+        var rewardItems = unlockedChoices
+            .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(player), RollsFor(player))))
+            .Where(c => c.Item is not null)
+            .Select(c => ItemsFor(player).ByHash(c.Item!.TypeHash) is { } type
+                ? (c.Choice, Item: (Item?)GameEvents.ResolveRewardItem(player, offer, c.Item!, type)) : c)
+            .ToArray();
+        if (rewardOffer.Reclaimable)
+        {
+            var carriedTypes = QuestItems.Carried(ItemsOf(player)).Select(x => x.Item.Item.TypeHash).ToHashSet();
+            rewardItems = [.. rewardItems.Where(c => !carriedTypes.Contains(c.Item!.TypeHash))];
+            if (rewardItems.Length == 0) return false;
+        }
         // An offer none of whose choices can be built yet (unique gear, jewels) still counts as taken, so its quest completes
         // (campaign-quests.md E10): its taken flag is set without an item, and the options come back.
         if (rewardItems.Length == 0)
@@ -223,8 +289,13 @@ public static partial class Game
             await Send(player, InstanceNpcs.Talk(player.TalkingTo), $"0x0084 npc 0x{player.TalkingTo:x}: options again (offer {offer} taken without an item)");
             return true;
         }
-        if (QuestRewardCatalog.Taken(rewardOffer.TakenFlag, ItemsFor(player).ByHash(rewardItems[0].Item!.TypeHash)?.Quest,
-                f => ClientHasQuestFlag(player, f))) return false;
+        var rewardQuest = ItemsFor(player).ByHash(rewardItems[0].Item!.TypeHash)?.Quest;
+        // An offer with a league flag is taken by it or by its own flags (an offer with only a league flag has none).
+        // Reclaimable offers skip the single-item taken check (already filtered against carried items above).
+        if (LeagueRewardTaken(player, rewardOffer) == true
+            || !rewardOffer.Reclaimable
+            && (rewardOffer.TakenLeagueFlag is null || rewardOffer.TakenFlag is not null || rewardQuest is not null)
+            && QuestRewardCatalog.Taken(rewardOffer.TakenFlag, rewardQuest, f => ClientHasQuestFlag(player, f))) return false;
         player.InNpcTalk = false;
         player.NpcRewardOffer = offer;
         player.NpcRewardItems = rewardItems.ToDictionary(c => c.Choice.Id, c => c.Item!);

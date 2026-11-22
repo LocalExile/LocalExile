@@ -28,7 +28,7 @@ public class QuestEncounterRestoreTests
         public override IReadOnlyList<Quests.Quest> Table => [new Quests.Quest("appearance-test")
         {
             new Quests.AppearsRule("follower", "Metadata/Monsters/AvariusCasticus/AvariusCasticusDivine",
-                "Metadata/NPC/Act5/SinInnocence", "a5q6-QuestReceived"),
+                "Metadata/NPC/Act5/SinInnocence", "a5q6-QuestReceived") { AdvanceOnAppearance = true },
         }];
     }
 
@@ -58,6 +58,7 @@ public class QuestEncounterRestoreTests
         }
         Assert.Empty(host.Npcs);
         Assert.Equal("Metadata/NPC/Act5/SinInnocence", Assert.Single(peer.Npcs).Value.Npc.Id);
+        Assert.Equal(2, Assert.Single(peer.Npcs).Value.State);
         Assert.NotEqual(0u, Assert.Single(peer.QuestNpcs).Id);
     }
 }

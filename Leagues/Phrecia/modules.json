@@ -21,6 +21,7 @@
     "Core/World/Portals",
     "Core/World/QuestObjects",
     "Core/World/Shrines",
+    "Legacy/Idols",
     "Legacy/PhreciaAscendancies"
   ]
 }

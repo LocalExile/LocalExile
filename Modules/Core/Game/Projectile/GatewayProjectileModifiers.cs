@@ -12,6 +12,8 @@ public static class GatewayProjectileModifiers
         int splitTargets = Math.Max(get(Stat.ProjectileNumberToSplit), get(Stat.Of("projectile_number_of_targets_to_split_to")));
         int extra = skillExtraProjectiles + get(Stat.NumberOfAdditionalProjectiles)
             + get(attack ? Stat.AttacksNumberOfAdditionalProjectiles : Stat.SpellsNumberOfAdditionalProjectiles)
+            + (attack && WeaponIdentity.WieldingClawOrDagger(get)
+                ? get(Stat.AttackSkillAdditionalNumProjectilesWhileWieldingClawsDaggers) : 0)
             + (arrows ? AdditionalArrows(get) : 0);
         int pierce = skillPierce + Math.Max(get(Stat.ProjectileNumberOfTargetsToPierce), get(Stat.ProjectileBaseNumberOfTargetsToPierce));
         if (attack) pierce += Math.Max(get(Stat.ArrowNumberOfTargetsToPierce), get(Stat.ArrowBaseNumberOfTargetsToPierce));

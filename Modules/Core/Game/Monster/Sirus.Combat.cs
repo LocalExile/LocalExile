@@ -9,19 +9,20 @@ static partial class Sirus
     static readonly Store<Player, Exposure> Exposures = new();
     sealed class Exposure
     {
-        public double Dps, BeamUntil, NextBeam, BloodUntil, BloodDps;
-        public int BeamStacks, BloodStacks;
-        public ushort BeamBuff, BloodBuff;
+        public double Dps, BeamUntil, NextBeam;
+        public int BeamStacks;
+        public ushort BeamBuff;
         public readonly double[] DotCarry = new double[5];
     }
     static ushort[] ClearExposure(Player c)
     {
         if (!Exposures.TryGetValue(c, out var e)) return [];
+        ClearCorruptedBlood(c);
         c.Degens[e] = 0;
-        e.Dps = 0; e.BeamStacks = e.BloodStacks = 0; e.BeamUntil = e.BloodUntil = 0;
-        // The beam's and the corrupted blood's buffs end.
-        c.Area.Buffs.ClearRow(c.Id, 1525); c.Area.Buffs.ClearRow(c.Id, 238);
-        bool had = e.BeamBuff != 0 || e.BloodBuff != 0; e.BeamBuff = e.BloodBuff = 0;
+        e.Dps = 0; e.BeamStacks = 0; e.BeamUntil = 0;
+        // The beam's buff ends.
+        c.Area.Buffs.ClearRow(c.Id, 1525);
+        bool had = e.BeamBuff != 0; e.BeamBuff = 0;
         Array.Clear(e.DotCarry); return had ? [1] : [];
     }
     static async Task RemoveExposure(Player c)

@@ -23,9 +23,17 @@ public sealed class QuestObjectsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        GameEvents.NpcUsesLeagueFlags.Add(module.Manifest.Id, (_, npc) => npc.Id is
+            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/League/Delve/DelveMinerHub"
+            or "Metadata/NPC/League/Bestiary/EinharMenagerie");
         var acts = Acts();
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
         module.Lifetime.Own(Quests.Register(module.Manifest.Id, acts));
+        GameEvents.Packet(InstanceNpcs.VoteAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            if (bytes[2] <= 1) await BanditChoices.VoteAnswer(conn, bytes[2] == 1);
+            return true;
+        });
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
         // The player's quest view: what their quest state shows them (the walls and blockers they have not opened, quest
         // objects and chests as they left them, NPCs, the opening tutorial) is theirs alone to see and to bump into.
@@ -38,13 +46,21 @@ public sealed class QuestObjectsModule : IModule
                 await SpawnOpeningTutorial(player);
                 await SpawnGlyphQuest(player);
                 await SpawnTrialObjects(player);
+                // Existing saves that spoke to HelenaTown before she was gated have HelenaIntroduced without a2q6-HelenaInTown,
+                // leaving Greust's reward unavailable after a2q9-PoisonedTree blocked Baleful Gem drops.
+                if (player.Layout.Id == Act2Areas.ForestEncampment && ClientHasQuestFlag(player, "HelenaIntroduced")
+                    && !ClientHasQuestFlag(player, "a2q6-HelenaInTown"))
+                    await SetQuestFlags(player, ["a2q6-HelenaInTown"]);
                 // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
                 await StartQuestArea(player);
+                await SpawnLoreObjects(player);
+                await SpawnTrickChests(player);
                 await TickBeacon(player);
             }
             finally { Program.ViewOf.Value = null; }
         });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(Act6Areas.Beacon, TickBeacon));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(TutorialObjects.Strand, SyncTutorialWalls));
         // The quests after a kill's flags: quest drops (Hailrake's Medicine Chest), second forms (Merveil), NPCs that appear
         // or are freed, a fight of several bosses, a cleared area (a1q8).
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
@@ -72,6 +88,7 @@ public sealed class QuestObjectsModule : IModule
         GameEvents.MessagesHandled.Add(module.Manifest.Id, async (player, ids) =>
         {
             if (player.Connection.PlayerSent && ids.Any(QuestItems.MovesItems)) await SyncQuestItems(player, removeItems: true);
+            await SyncTutorialWalls(player);
         });
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
@@ -86,10 +103,9 @@ public sealed class QuestObjectsModule : IModule
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithDartSlow);
         GameEvents.NpcTalk.Add(module.Manifest.Id, async (player, id, npc) =>
         {
-            if (LabyrinthTrials.IsGlyph(npc.Npc.Id))
+            if (IsLoreType(npc.Npc.Id))
             {
-                await ReadTrialMonograph(player, id, npc);
-                return true;
+                return await ReadLoreObject(player, id, npc);
             }
             if (npc.Npc.Id != TutorialObjects.Exile) return false;
             await TalkToWoundedExile(player, id, npc);
@@ -109,6 +125,7 @@ public sealed class QuestObjectsModule : IModule
             lock (player.GlyphNests)
                 nests = [.. player.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
             foreach (var (id, nest) in nests) await OpenRhoaNestCore(player, id, nest);
+            await OpenTrickChestsNear(player, at, radius);
         });
         // A cast near a Labyrinth smashable wall breaks it (not this module's cast: it goes on).
         GameEvents.SkillCast.Add(module.Manifest.Id, (player, effect, skillId, from, current) =>
@@ -162,6 +179,7 @@ public sealed class QuestObjectsModule : IModule
             }
             // A Labyrinth room's stash: the one clicked is the stash the game opens (it knows one per area).
             if (QuestobjectsRules.PickLabyrinthStash(player, use.TargetId)) return false;
+            if (await UseTrickChest(player, use, requestedAt)) return true;
             return await UseTrialObject(player, use);
         });
     }

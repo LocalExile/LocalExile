@@ -29,16 +29,22 @@ public static partial class Game
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
-    // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it.
+    // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it. skillStats: the used
+    // skill's stats with its supports' (Power Charge on Critical); without them the gem's own.
     public static void ChargesOnHit(Player player, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
-        int quality = 0, bool? melee = null, bool primary = true)
+        int quality = 0, bool? melee = null, bool primary = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         if (critical)
             TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player));
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.RareHit);
         Func<uint, int>? skill = null;
-        if (effect >= 0)
+        if (skillStats is { Count: > 0 })
+        {
+            var own = skillStats;
+            skill = key => own.GetValueOrDefault(key);
+        }
+        else if (effect >= 0)
         {
             var skills = SkillsFor(player);
             var cache = ChargeHitSkillStats.GetOrCreateValue(skills);
@@ -48,8 +54,18 @@ public static partial class Game
                 return name => own.GetValueOrDefault(name);
             });
         }
+        double now = ProjectileWorldTime(player);
+        bool frozen = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0;
+        bool bleeding = m.Bleeds.Burning;
+        // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
+        bool marked = false;
+        foreach (var curse in m.Curses.All.Values)
+            if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
+        bool selfBleeding = player.IncomingAilments.Bleeding(now);
+        bool selfPoisoned = player.IncomingAilments.PoisonStacks(now) > 0;
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
-            skill, Killed: m.Dead || m.Life == 0, Primary: primary));
+            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
+            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
         CurseCharges(player, m, false);
     }
 
@@ -67,18 +83,44 @@ public static partial class Game
         bool frozen;
         double now = ProjectileWorldTime(player);
         frozen = m.Ailments.FrozenAtDeath(now);
+        int poisons = m.Poisons.Stacks(now);
         player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+        if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
-        ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
+        ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
+        SelfBuffsOnKill(player);
         CurseCharges(player, m, true);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
-    // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c).
-    public static void ChargesWhenHit(Player player, bool blocked, bool spell = false)
+    // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c). critical: the monster's hit was a critical
+    // strike. Daresso's Defiance's "You gain Onslaught for X seconds per Endurance Charge when Hit" counts the charges
+    // held before its own "You lose all Endurance Charges when Hit" (a ChargeGains rule) takes them.
+    public static void ChargesWhenHit(Player player, bool blocked, bool spell = false, bool critical = false)
     {
-        ChargesOf(player).Enqueue(new ChargeEvent.WhenHit());
-        if (blocked) ChargesOf(player).Enqueue(new ChargeEvent.Block(spell));
+        bool onslaught = false;
+        var session = ChargesOf(player);
+        int perCharge = session.ObservedStat(ChargeTriggers.OnslaughtPerEnduranceWhenHit);
+        int held = session.Converted(ChargeType.Endurance) ? 0 : session.Effective(ChargeType.Endurance);
+        double until = AreaTime(player) + perCharge / 1000.0 * held;
+        if (perCharge > 0 && held > 0 && player.PlayerLife > 0 && until > KillOnslaughtOf(player).Until)
+        {
+            KillOnslaughtOf(player).Until = until;
+            onslaught = true;
+        }
+        session.Enqueue(new ChargeEvent.WhenHit(critical));
+        if (blocked) session.Enqueue(new ChargeEvent.Block(spell));
+        if (onslaught) _ = AreaFrames.Start(() => SendKillOnslaught(player));
+    }
+
+    // A skill the player used, after its cost (CastGemSkill): the "when you use a Vaal Skill / Cast a Curse Spell /
+    // Throw a Trap" gains.
+    public static void ChargesOnSkillUse(Player player, int effect, bool vaal)
+    {
+        if (effect < 0) return;
+        var skills = SkillsFor(player);
+        bool curse = CurseCatalog.All.ContainsKey(skills.EffectId(effect) ?? "");
+        ChargesOf(player).Enqueue(new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped")));
     }
 
     // Transfer: the charges go with the player to the area of the new ticket.
@@ -117,12 +159,24 @@ public static partial class Game
             converted[type] = session.Converted(type);
             minimumConverted[type] = session.MinimumConverted(type);
         }
+        // "Count as having maximum number of … Charges": the effects count the maximum; the rows and buffs keep the
+        // charges really held.
+        // Every stat snapshot comes here: copy the counts only when one of them changes, and read the two stats with Get
+        // itself, not a delegate per type (performance.md, "Hot paths").
+        var counted = held;
+        foreach (var type in Charges.Types)
+            if (limits[type].Maximum > held[type]
+                && (Get(ChargeScaling.CountAsMaximumStat(type)) != 0 || Get(ChargeScaling.AllCountAsMaximum) != 0))
+            {
+                if (ReferenceEquals(counted, held)) counted = new(held);
+                counted[type] = limits[type].Maximum;
+            }
         // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
         // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
         int Coefficient(uint name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
         // Expand is a pure function of the coefficients (the stats), the counts and the conversions: the last
         // expansion is reused while they are the same (every stat snapshot expands twice, idle or not).
-        int[] heldNow = [.. Charges.Types.Select(t => held[t])];
+        int[] heldNow = [.. Charges.Types.Select(t => counted[t])];
         bool[] convertedNow = [.. Charges.Types.Select(t => converted[t])];
         var slot = ChargeExpansions.GetValue(player, _ => new());
         Dictionary<uint, int> added;
@@ -131,15 +185,17 @@ public static partial class Game
             added = VerifyStatSnapshotTail ? Verified(last.Added) : last.Added;
         else
         {
-            added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+            added = Expand();
             slot.Last = new(new(stats), heldNow, convertedNow, added);
         }
+        Dictionary<uint, int> Expand() => ChargeEffects.Expand(Coefficient, t => counted[t], t => converted[t],
+            ChargeScaling.Rules, t => limits[t].Maximum);
         var finalAdded = new Dictionary<uint, int>(added);
-        foreach (var (stat, value) in ItemChargeDefences.Expand(Coefficient, t => held[t], t => converted[t]))
+        foreach (var (stat, value) in ItemChargeDefences.Expand(Coefficient, t => counted[t], t => converted[t]))
             finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
-        foreach (var (stat, value) in ItemChargeDamage.Expand(Coefficient, t => held[t], t => converted[t]))
+        foreach (var (stat, value) in ItemChargeDamage.Expand(Coefficient, t => counted[t], t => converted[t]))
             finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
-        foreach (var (stat, value) in ItemChargeCosts.Expand(Coefficient, t => held[t], t => converted[t]))
+        foreach (var (stat, value) in ItemChargeCosts.Expand(Coefficient, t => counted[t], t => converted[t]))
             finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
         int poisonStacks;
         poisonStacks = player.IncomingAilments.PoisonStacks(AreaTime(player));
@@ -148,7 +204,7 @@ public static partial class Game
         // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
         Dictionary<uint, int> Verified(Dictionary<uint, int> reused)
         {
-            var fresh = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+            var fresh = Expand();
             if (!SameInOrder(fresh, reused))
             {
                 Interlocked.Increment(ref ChargeReuseMismatches);
@@ -227,7 +283,7 @@ public static partial class Game
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(Player player,
         ushort skillId, int effect)
-        => SkillsFor(player).IsWarcry(effect) && UseWarcry(player, effect, SupportedSkill(player, skillId).Stats);
+        => SkillsFor(player).IsWarcry(effect) && UseWarcry(player, effect, SupportedSkill(player, skillId).Stats, skillId);
 
     const int InfiniteWarcryPower = 999999;
 
@@ -241,7 +297,7 @@ public static partial class Game
     }
 
     public static bool UseWarcry(Player player, int effect,
-        IReadOnlyDictionary<uint, int> own)
+        IReadOnlyDictionary<uint, int> own, ushort skillId = 0)
     {
         if (!SkillsFor(player).IsWarcry(effect)) return false;
         bool enduring = SkillsFor(player).EffectId(effect) == "EnduringCry";
@@ -255,7 +311,7 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
         double until = AreaTime(player) + castSeconds;
         int epoch = player.ProjectileEpoch;
-        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect));
         double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
         _ = AreaFrames.Start(async () =>
         {
@@ -264,7 +320,7 @@ public static partial class Game
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
             foreach (var (k, v) in own) playerStats[k] = v;
-            int radius = SkillArea.Radius(WarcryRadius, name => name is var key ? playerStats.GetValueOrDefault(key) : 0, spell: false);
+            int radius = SkillRadius(player, WarcryRadius, own, spell: false, effect);
             double now = AreaTime(player);
             int power, taunted;
             (int X, int Y) here;
@@ -278,7 +334,10 @@ public static partial class Game
                 if (SkillsFor(player).EffectId(effect) == "IntimidatingCry")
                     if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
                         ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
-                await WarcryReleased(player, here, radius, epoch);
+                var warriors = skillId != 0 && IsGeneralsCry(player, effect)
+                    ? GeneralsCryReleased(player, skillId, here, radius, epoch)
+                    : Task.CompletedTask;
+                await Task.WhenAll(warriors, WarcryReleased(player, here, radius, epoch));
                 return;
             }
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
@@ -382,6 +441,7 @@ public static partial class Game
                     inTown: InTown(player), AreaRng(player),
                     mineDetonatedRecently: player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player)));
                 presentationPending = ChargePresentationPending(session);
+                ChargeSideEffectsLocked(player, session);
                 var refresh = ChargePoolRefreshes.GetOrCreateValue(player);
                 if (refresh.Pending) step = step with { CountsChanged = true };
                 refresh.Pending = false;
@@ -414,6 +474,20 @@ public static partial class Game
             if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} charges: {ServerLog.Describe(ex)}");
         }
         catch (Exception) { }   // the connection has gone
+    }
+
+    // Under the Monsters lock, after a step: the Life the loss triggers granted (Kingsguard), recovered as instant leech
+    // is and sent with the next vitals update.
+    static void ChargeSideEffectsLocked(Player player, ChargeSession session)
+    {
+        int life = session.TakeLifeGained();
+        if (life > 0 && player.PlayerLife > 0)
+        {
+            var leech = LeechOf(player);
+            uint before = player.PlayerLife;
+            player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, life, ref leech.LifeInstantCarry, minimum: 1);
+            leech.InstantLifeChanged |= before != player.PlayerLife;
+        }
     }
 
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in

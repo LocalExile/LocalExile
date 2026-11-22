@@ -224,6 +224,10 @@ public sealed class MapDevice
     public sealed record Run(string Owner, MapArea Area, MapMods Mods, int ItemRow = 0, Origin? ReturnTo = null)
     {
         public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo);
+
+        /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
+        /// module starts with its own mods (only those mods' stats apply).</summary>
+        public bool Atlas { get; init; } = true;
     }
 
     /// <summary>The map a transfer's ticket opens its instance with (<see cref="PendingTransfer.Map"/>), until that
@@ -273,6 +277,27 @@ public sealed class MapDevice
     public static OpenMap? AtEntrance(ushort area, ulong instance) => instance == 0 ? null
         : Open.Values.FirstOrDefault(m => (m.Entrance ?? m.ReturnTo) is { } o && o.Area == area && o.Instance == instance);
 
+    /// <summary>The device's area is a new instance of the same area (a hideout's instance is gone six minutes after its
+    /// last player leaves, and the device with it): the run's entrance and way back move to that instance, so the
+    /// portals left stand at the new device and the map's portal back leads to where the character is. The character's
+    /// open map after the move, or null without one; unchanged when neither points at the old instance.</summary>
+    public static OpenMap? Rebind(string character, ushort area, ulong instance)
+    {
+        if (instance == 0) return null;
+        while (Open.TryGetValue(character, out var map))
+        {
+            ulong[] gone = [.. new[] { map.Entrance, map.ReturnTo }.OfType<Origin>()
+                .Where(o => o.Area == area && o.Instance != 0 && o.Instance != instance)
+                .Select(o => o.Instance).Distinct()];
+            if (gone.Length == 0) return map;
+            var after = map with { Entrance = At(map.Entrance), ReturnTo = At(map.ReturnTo) };
+            if (Open.TryUpdate(character, after, map)) return after;
+            Origin? At(Origin? origin) => origin is { } at && at.Area == area && gone.Contains(at.Instance)
+                ? at with { Instance = instance } : origin;
+        }
+        return null;
+    }
+
     sealed class InstanceMap(OpenMap map) { public OpenMap Map { get; } = map; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstanceState, InstanceMap> InstanceMaps = new();
 
@@ -281,7 +306,14 @@ public sealed class MapDevice
 
     public static OpenMap? ForInstance(ushort area, ulong number, InstanceState? state)
     {
-        if (state is not null && InstanceMaps.TryGetValue(state, out var remembered)) return remembered.Map;
+        if (state is not null && InstanceMaps.TryGetValue(state, out var remembered))
+        {
+            var kept = remembered.Map;
+            // The device's instance can move while this map stays alive (an expired hideout, <see cref="Rebind"/>): the
+            // owner's live run of this same map carries the current way back, the kept copy the one from its entry.
+            return OpenOf(kept.Owner) is { } live && live.Run == kept.Run
+                ? kept with { Entrance = live.Entrance, ReturnTo = live.ReturnTo } : kept;
+        }
         var map = InInstance(area, number)?.Map;
         if (map is not null && state is not null)
         {

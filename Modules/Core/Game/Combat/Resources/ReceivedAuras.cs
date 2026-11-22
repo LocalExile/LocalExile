@@ -68,7 +68,7 @@ public static partial class Game
         bool Reaches(uint owner, ushort skill) => minion.Monster is null ? owner == player.Id : SharedAuraReaches(player, owner, skill, minion.Id);
         var skills = SkillsFor(player);
         var own = player.PlayerLife == 0 || InTown(player) ? [] : player.Auras.Values
-            .Where(a => AuraCatalog.Shared(a.EffectId) && Reaches(player.Id, a.SkillId))
+            .Where(a => SharedPlayerAura(a.EffectId) && Reaches(player.Id, a.SkillId))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = player.Pools.AuraEffectPct + a.SupportEffectPct });
         var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId)).Select(a => a.Aura);
         var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
@@ -76,12 +76,14 @@ public static partial class Game
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);
+        WithTemporaryAuraStats(auras, 0, values);
         if (MinionIntimidatingCryMovement(player, minion.Monster) is > 0 and var cryMovement)
             values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                 + cryMovement);
         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
             if (values.GetValueOrDefault(Stat.Of($"base_immune_to_{ailment}")) != 0) values[Stat.Of($"immune_to_{ailment}")] = 1;
         var bonus = AuraCatalog.Bonus(auras, 0, skills, Stats);
+        bonus = WithTemporaryAuraBonus(auras, 0, bonus);
         void Add(uint name, decimal raw)
         {
             int value = (int)Math.Clamp(raw, int.MinValue, int.MaxValue);

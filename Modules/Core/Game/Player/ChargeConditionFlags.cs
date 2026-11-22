@@ -8,13 +8,14 @@ public static partial class Game
             : default);
 
     static void SetChargeConditionFlags(Dictionary<string, bool> flags, ChargeType type,
-        int effective, int maximum, bool converted, bool alive)
+        int effective, int maximum, bool converted, bool alive, bool countsAsMaximum = false)
     {
         var names = ChargeFlagNames[type];
         int standard = converted ? 0 : effective;
         flags[names.None] = flags[names.YouHaveNone] = alive && standard == 0;
         flags[names.Any] = alive && standard > 0;
-        flags[names.AtMaximum] = alive && !converted && maximum >= 0 && effective >= maximum;
+        flags[names.AtMaximum] = alive && !converted && maximum >= 0
+            && (effective >= maximum || countsAsMaximum && maximum > 0);
     }
 
     static Dictionary<string, bool> RequalifyChargeConditions(Player player,
@@ -23,11 +24,12 @@ public static partial class Game
         var flags = new Dictionary<string, bool>(captured);
         int Get(uint key) => sources.GetValueOrDefault(key);
         var state = ChargesOf(player).State;
+        Func<uint, int> get = Get;   // one delegate for the three types: every stat lookup comes here
         foreach (var type in Charges.Types)
         {
-            var limits = Charges.LimitsOf(type, Get, state.Held(type));
+            var limits = ChargeMaxima.LimitsOf(type, get, state.Held(type));
             SetChargeConditionFlags(flags, type, state.Effective(type, limits), limits.Maximum,
-                Get(Charges.ConversionFlag(type)) != 0, player.PlayerLife > 0);
+                Get(Charges.ConversionFlag(type)) != 0, player.PlayerLife > 0, ChargeScaling.CountsAsMaximum(type, get));
         }
         return flags;
     }

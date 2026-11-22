@@ -32,8 +32,9 @@ public static class InstanceTransfer
     /// 2026-10-18): the picked-up item goes to the cursor instead of the inventory.</summary>
     public const ushort InventoryOpenFlag = 0x0002;
 
-    /// <summary>0x24 / 0x18f flag bit set when Options → UI → Auto-equip is enabled on the client: a picked-up
-    /// identified item equips into an empty compatible equipment or flask slot instead of the main inventory.</summary>
+    /// <summary>0x24 / 0x018f flag bit set when the client's <c>auto_equip</c> UI option is enabled (3.29.3c,
+    /// <c>0x14011f2ae</c> via <c>0x1419138c0</c>): a picked-up ground item equips into a compatible empty slot when the
+    /// character meets its requirements.</summary>
     public const ushort AutoEquipFlag = 0x0008;
 
     /// <summary>0x24 flag bit set when Alt is held and the target has an NPC component (the client's 0x1401285b0, which

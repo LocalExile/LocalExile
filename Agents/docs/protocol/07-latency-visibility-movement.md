@@ -634,6 +634,7 @@ on loopback with the window in the background), and the lowest of the last 16 is
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
 **0x2b8** (u8) sets the frame length in ms (`0x141648b50` stores the zero-extended byte as u32 at world `+0x11c`);
+S→C 0x21's byte `+0x7e` sets the same field on entering an area, and is all GGG sends (33 in 11 of 11 recorded enters);
 S→C **0x2b7** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
 intake (`0x14218dc20`, this=world `+0x1c8`) appends a null delimiter to the record vector (`+0x9e0`) and queues
 the current frame length (deque map at world `+0x9c0`, count `+0x9d8`). Before activation it adds neither.
@@ -674,6 +675,7 @@ factories, cancellation and quest capture; live nonregression and broader covera
 | 0x018e | 15 | use a skill at a location: i32 dx, i32 dy (the target relative to the player's cell), u16 skill id, u16 action flags, u8 (`018E 00000029 FFFFFFEF 2909 0402 00`) |
 | 0x018f | 11 | use a skill on an object: u32 object id, u16 skill id, u16 flags, u8 (instead of predictive 0x24) |
 | 0x0192 | 10 | the held skill's new target, every 69 ms while the button is down: i32 dx, i32 dy |
+| 0x0193 | 6 | retarget the active held/channelled action onto an object (sender `0x14011ecb0`, writer `0x140911210`, sent in both lockstep and predictive modes): u32 BE target object id |
 | 0x0195 | 2 | release |
 | 0x0196 | 4 | u16 skill id: release that skill |
 
@@ -804,7 +806,8 @@ frame's ticks): a 150 ms event comes in the fifth tick, in the monster's own tur
 frame n, event in n + 4, four of four; a search at the start of n + 4 still went round the corpse, one at n + 5 did
 not). `data/monster-takehit.json` has the event's time per variety (`death.unblock`): 150 ms for about 8500
 varieties, none for about 1950, 166 ms for 115 and 1833 ms for 12 (Hillock's rig); the clips of one variety agree,
-except five whose `DeathFromDegen` clip differs (listed under `unblockByKind`, not used). GGG's 0x2b2 follows its own
+except five whose `DeathFromDegen` clip differs (listed under `unblockByKind`): the 0x1b1's last byte picks `DeathFromDegen` (1, 3 or 4), sent for a death
+by damage over time except for those five (`DotDeathKind`). GGG's 0x2b2 follows its own
 death message by 4 or 5 frames for a 150 ms clip, by 0 for a clip without the event and by 54 or 55 for Hillock's
 (recordings of 2026-11-04), keyed by the monster with checkpoint 0x7000.
 

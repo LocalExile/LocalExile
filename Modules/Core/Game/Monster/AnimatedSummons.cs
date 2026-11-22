@@ -7,7 +7,20 @@ public static partial class Game
     sealed record AnimatedGuardianGear(Dictionary<byte, Item> Reference, Dictionary<byte, Item> Equipment);
 
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment,
-        AnimatedGuardianGear? GuardianGear = null);
+        AnimatedGuardianGear? GuardianGear = null, BladefallTrarthusState? BladeSource = null);
+
+    static string AnimatedGuardianDeathKey(Player player) =>
+        "Game.AnimatedGuardianDeath:" + CharacterName(player).ToUpperInvariant();
+
+    static void RecordAnimatedGuardianDeath(Player player)
+    {
+        if (HideoutCatalog.ByArea(player.Layout.Hash) is null)
+            player.Instance?.ContentState.TryAdd(AnimatedGuardianDeathKey(player), "1");
+    }
+
+    static bool AnimatedGuardianUnavailable(Player player) =>
+        HideoutCatalog.ByArea(player.Layout.Hash) is null
+        && player.Instance?.ContentState.ContainsKey(AnimatedGuardianDeathKey(player)) == true;
 
     static AnimatedGuardianGear? CaptureAnimatedGuardianGearLocked(Player player, SummonCatalog.Definition definition) =>
         definition.Family == "AnimatedGuardian"
@@ -72,7 +85,7 @@ public static partial class Game
         if (WeaponIn(player, (item, type)) is { } weapon)
         {
             if (definition.Family == "AnimatedGuardian") return weapon.Melee ? (byte)2 : (byte)0;
-            if (definition.Family != "AnimatedWeapon" || item.Sockets.Count >= 6) return 0;
+            if (definition.Family is not ("AnimatedWeapon" or "VaalAnimatedWeapon") || item.Sockets.Count >= 6) return 0;
             bool allowed = definition.Id == "AnimateWeaponAltY" ? !weapon.Melee : weapon.Melee;
             return allowed ? (byte)2 : (byte)0;
         }
@@ -86,11 +99,28 @@ public static partial class Game
     static readonly IReadOnlyDictionary<byte, byte> SummonVisibleSlots = new Dictionary<byte, byte>
         { [1] = 2, [2] = 0, [3] = 1, [4] = 4, [5] = 11, [6] = 8, [7] = 9, [8] = 5, [9] = 6, [10] = 10 };
 
+    static void AnimatedGuardianSmiteLocked(Player player, GolemState.Golem guardian, GolemState.Action action, double now)
+    {
+        var ability = action.Ability;
+        var origin = guardian.Monster.Walk.Position(now);
+        int range = GolemStat(ability.Stats, Stat.SmiteLightningTargetRange);
+        int count = GolemStat(ability.Stats, Stat.BaseSmiteNumberOfTargets);
+        var enemies = player.Area.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0,
+                Invulnerable: false, Asleep: false } && !MonsterAsleep(player, p.Key))
+            .Select(p => (Id: p.Key, Monster: p.Value, At: p.Value.Walk.Position(now))).ToArray();
+        var centres = enemies.Where(e => Dist(origin, e.At) <= range + LivingCollision.Size(e.Monster))
+            .OrderByDescending(e => e.Id == action.Target).ThenBy(e => Dist(e.At, action.Aim)).ThenBy(e => e.Id)
+            .Take(count).Select(e => e.At).ToArray();
+        foreach (var enemy in enemies)
+            if (centres.Any(centre => Dist(centre, enemy.At) <= ability.Radius + LivingCollision.Size(enemy.Monster)))
+                GolemHitLocked(player, guardian, ability, enemy.Id, enemy.Monster, now);
+    }
+
     static async Task<bool> AnimateGroundItem(Player player,
         WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == use.SkillId);
-        if (skill.Name is null || SummonData.Find(SkillsFor(player).EffectId(skill.Effect)) is not { Family: "AnimatedWeapon" or "AnimatedGuardian" }) return false;
+        if (skill.Name is null || SummonData.Find(SkillsFor(player).EffectId(skill.Effect)) is not { Family: "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" }) return false;
         var here = player.Walk.Position(AreaTime(player)); var aim = (ground.GridX, ground.GridY);
         if (!TryBeginSkillCooldownUse(player, use.SkillId, skill.Effect, CooldownForSkill(player, use.SkillId), false,
             () => { Interlocked.Increment(ref player.ActionCount); player.Walk.Order(here.X, here.Y, AreaTime(player)); }, out var accepted, requestedAt: requestedAt)) return true;

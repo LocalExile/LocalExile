@@ -36,7 +36,7 @@ public static class LeechLimits
     public static List<(uint Stat, int Value)> Compute(Func<uint, int> get, uint maximumLife, uint maximumMana,
         uint maximumEnergyShield, bool onLowLife = false)
     {
-        var limits = Resolve(get, maximumLife, maximumMana, maximumEnergyShield, onLowLife);
+        var limits = Resolve(get, maximumLife, maximumMana, maximumEnergyShield, onLowLife: onLowLife);
         var rows = new List<(uint Stat, int Value)> { (Stat.CannotLeech, limits.CannotLeech ? 1 : 0) };
         foreach (var resource in limits.Resources)
         {
@@ -52,19 +52,22 @@ public static class LeechLimits
     // Combat retains fractions; only Compute projects whole wire values. A small pool must not lose its recovery
     // merely because its per-instance amount displays below one whole resource point.
     public static Snapshot Resolve(Func<uint, int> get, uint maximumLife, uint maximumMana,
-        uint maximumEnergyShield, bool onLowLife = false)
+        uint maximumEnergyShield, Func<uint, int?>? replacement = null, bool onLowLife = false)
     {
-        decimal Input(uint name, int baseline = 0) => (decimal)baseline + get(name);
+        decimal Input(uint name, int baseline = 0) => replacement?.Invoke(name) is int set ? set : (decimal)baseline + get(name);
         bool Flag(uint name) => Input(name) != 0;
-        bool all = Flag(Stat.BaseCannotLeech) || Flag(Stat.CannotLeech) || Flag(Stat.MapPlayersCannotLeech);
+        bool ReplacedFlag(uint name, bool derived) => replacement?.Invoke(name) is int set ? set != 0 : derived;
+        bool all = ReplacedFlag(Stat.CannotLeech, Flag(Stat.BaseCannotLeech) || Flag(Stat.CannotLeech) || Flag(Stat.MapPlayersCannotLeech));
         bool lowLifeLifeMana = onLowLife && Flag(Stat.CannotLeechWhenOnLowLife);
         var resources = new List<Resource>();
         foreach (var (pool, maximum) in new[] { ("life", maximumLife), ("mana", maximumMana), ("energy_shield", maximumEnergyShield) })
         {
-            bool blocked = all || Flag(Stat.Of($"base_cannot_leech_{pool}"))
+            bool blocked = ReplacedFlag(Stat.Of($"cannot_leech_{pool}"), all || Flag(Stat.Of($"base_cannot_leech_{pool}"))
                 || Flag(Stat.Of($"cannot_leech_{pool}")) || pool != "energy_shield" && lowLifeLifeMana
-                || pool == "mana" && Flag(Stat.CannotLeechOrRegenerateMana);
+                || pool == "mana" && Flag(Stat.CannotLeechOrRegenerateMana));
             string maximumName = pool == "energy_shield" ? "energy_shield" : pool;
+            uint instanceVirtual = Stat.Of($"virtual_maximum_{pool}_leech_amount_per_leech_permyriad_max_{maximumName}");
+            uint rateVirtual = Stat.Of($"virtual_maximum_{pool}_leech_rate_permyriad_per_minute");
             decimal instance = Math.Max(0, Input(Stat.Of($"maximum_{pool}_leech_amount_per_leech_%_max_{maximumName}"), BaseInstancePercent))
                 * Math.Max(0, 100 + Input(Stat.Of($"maximum_{pool}_leech_amount_per_leech_+%")));
             decimal rate = Math.Max(0, Input(Stat.Of($"maximum_{pool}_leech_rate_%_per_minute"),
@@ -74,6 +77,8 @@ public static class LeechLimits
             if (pool == "energy_shield" && Flag(Stat.MaximumEnergyShieldLeechAmountPerLeechIsDoubled)) instance *= 2;
             if (pool == "life" && Flag(Stat.MaximumLifeLeechRatePctPerMinuteIsDoubled)) rate *= 2;
             if (pool == "energy_shield" && Flag(Stat.KeystoneGhostReaver)) rate *= 2;
+            instance = Math.Max(0, replacement?.Invoke(instanceVirtual) ?? instance);
+            rate = Math.Max(0, replacement?.Invoke(rateVirtual) ?? rate);
             if (blocked) (instance, rate) = (0, 0);
             resources.Add(new(pool, maximum, blocked, instance, rate));
         }

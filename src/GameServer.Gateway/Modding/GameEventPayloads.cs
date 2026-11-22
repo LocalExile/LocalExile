@@ -40,6 +40,48 @@ public sealed record AreaPopulated(Player Player, byte Level, int Seed, IReadOnl
     public IPlayer ModPlayer => Program.PlayerOf(Player);
 }
 
+/// <summary>A gamble window as it opens (<see cref="GameEvents.Gambles"/>).</summary>
+public sealed class GambleWindow
+{
+    public GambleWindow(Player player, string npc, int characterLevel) : this(player, npc, characterLevel, characterLevel) { }
+
+    public GambleWindow(Player player, string npc, int characterLevel, int priceLevel)
+    {
+        Player = player;
+        Npc = npc;
+        CharacterLevel = characterLevel;
+        PriceLevel = Math.Max(characterLevel, priceLevel);
+    }
+
+    public Player Player { get; }
+
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+
+    /// <summary>The NPC's <c>NPCs</c> id.</summary>
+    public string Npc { get; }
+
+    /// <summary>The character's level, which rolled item levels and offer unlock levels go by.</summary>
+    public int CharacterLevel { get; }
+
+    /// <summary>The level prices go by: at least <see cref="CharacterLevel"/>, raised to the account's league floor for a lower-level character.</summary>
+    public int PriceLevel { get; }
+
+    /// <summary>What the window offers, in order.</summary>
+    public List<GambleOffer> Offers { get; } = [];
+}
+
+/// <summary>One offer of a gamble window: the item it shows (a <c>HiddenItem</c> row such as "Random Ring"), its price in gold,
+/// what a purchase gives (null: nothing is bought) and the tab it is in.</summary>
+public sealed record GambleOffer(ItemCatalog.BaseType Shown, uint Gold, Func<Random, GameServer.Core.Protocol.Instance.Item?> Roll, string Tab = "Gamble");
+
+/// <summary>An item about to be placed into an inventory row (<see cref="GameEvents.InventoryPlacementRefusal"/>):
+/// <paramref name="Replaced"/> is the single item that will be swapped onto the cursor, or null when none is displaced.</summary>
+public sealed record InventoryPlacement(Player Player, byte Row, GameServer.Core.Protocol.Instance.Item Item,
+    GameServer.Core.Protocol.Instance.InventoryItem? Replaced)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+}
+
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
 public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets)
 {
@@ -87,8 +129,16 @@ public sealed class DropRoll(Player player, MonsterInfo monster)
     /// <summary>Scales the gold pile (1: the server's own).</summary>
     public double Gold { get; set; } = 1;
 
+    /// <summary>Scales the chance of a map-related drop (a map; 1: the server's own), as the monster stat
+    /// <c>map_related_item_drop_chance_+%_final_from_league</c> does.</summary>
+    public double MapRelated { get; set; } = 1;
+
     /// <summary>True: nothing of the server's own drops (the <see cref="Items"/> still do).</summary>
     public bool Cancel { get; set; }
+
+    /// <summary>Stackable items to drop as well, each a <c>BaseItemTypes</c> id or name and its count, split at the item's
+    /// stack size (the <see cref="Items"/> still drop besides).</summary>
+    public List<(string Item, int Count)> Stacks { get; } = [];
 
     /// <summary>Items to drop as well, each as /item takes it: a <c>BaseItemTypes</c> id or name, or a unique's name.</summary>
     public List<string> Items { get; } = [];
@@ -96,6 +146,9 @@ public sealed class DropRoll(Player player, MonsterInfo monster)
     /// <summary>Base types (a <c>BaseItemTypes</c> id or name) to drop as the kill's own items roll: its rarity chances
     /// (with <see cref="Rarity"/>) and the item level its rarity gives, so one may drop magic, rare or unique.</summary>
     public List<string> RolledItems { get; } = [];
+
+    /// <summary>Items to drop as well, as they are: already made and rolled.</summary>
+    public List<GameServer.Core.Protocol.Instance.Item> Made { get; } = [];
 
     /// <summary>Changes to every item the kill drops (the server's own, <see cref="Items"/> and <see cref="RolledItems"/>),
     /// in order: each takes a drop and returns what drops in its place (the drop itself, changed, or several of them).
@@ -107,6 +160,28 @@ public sealed class DropRoll(Player player, MonsterInfo monster)
     {
         foreach (var change in Changes) drops = drops.SelectMany(d => change(d, rng)).ToList();
         return drops;
+    }
+
+    Action<List<ItemDrops.Drop>>? _transforms;
+
+    /// <summary>True when at least one post-roll transform was registered.</summary>
+    public bool HasTransforms => _transforms is not null;
+
+    /// <summary>Registers a post-roll callback that inspects or mutates the kill's rolled drops before they are
+    /// stacked and placed on the ground. Multiple transforms run in registration order.</summary>
+    public void AddTransform(Action<List<ItemDrops.Drop>> transform)
+    {
+        ArgumentNullException.ThrowIfNull(transform);
+        _transforms += transform;
+    }
+
+    /// <summary>Runs every registered post-roll transform on <paramref name="drops"/>, in registration order.
+    /// A transform that throws is logged and skipped so later transforms and drop placement still run.</summary>
+    public void ApplyTransforms(List<ItemDrops.Drop> drops)
+    {
+        if (_transforms is null) return;
+        foreach (var transform in Delegate.EnumerateInvocationList(_transforms))
+            GameEventOwners.Guard(nameof(DropRoll), nameof(ApplyTransforms), () => transform(drops));
     }
 }
 

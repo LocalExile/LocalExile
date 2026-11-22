@@ -77,34 +77,49 @@ public static partial class Game
     // target leaves it to whoever is near.
     public static bool MonsterTargetsLocked(Player player, uint id, SpawnedMonster m, (int X, int Y) at, double d, double now)
     {
-        double TargetDistance(Player owner, double distance)
+        (double Distance, bool Taunted) TargetPriority(Player owner, double distance)
         {
-            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return distance;
+            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return (distance, false);
             var minion = GolemTargetLocked(owner, id, m, at, now, distance);
-            return minion.G is null ? distance : Math.Min(distance, minion.Distance);
+            return minion.G is null ? (distance, false)
+                : (Math.Min(distance, minion.Distance), minion.G.Taunts.GetValueOrDefault(id) > now);
         }
-        d = TargetDistance(player, d);
+        if (DecoyTarget(m, now) is { } decoy)
+        {
+            if (!ReferenceEquals(player, decoy.Owner)) return false;
+            if (!ReferenceEquals(m.Target, player))
+            {
+                (m.LastTarget, m.SwingGeneration) = (null, null);
+                m.ActionGeneration++;
+                if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
+                m.Target = player;
+            }
+            return true;
+        }
+        var candidate = TargetPriority(player, d);
         var t = m.Target;
         bool live = TargetLive(t, player);
         if (live && ReferenceEquals(t, player))
         {
-            if (!m.Aggro && d > m.AggroRange) m.Target = null; // gave up: free for whoever comes
+            if (!m.Aggro && candidate.Distance > m.AggroRange) m.Target = null; // gave up: free for whoever comes
             return true;
         }
         // In its reach, or still chasing (the AI gives up beyond twice its aggro range, as before).
         double reach = Math.Max(1, m.AggroRange) * (m.Aggro && !live ? 2 : 1);
-        if (player.PlayerLife == 0 || d > reach) return false;
+        if (player.PlayerLife == 0 || candidate.Distance > reach) return false;
         if (live)
         {
             var there = t!.Walk.Position(now);
             double dt = Math.Sqrt((double)(at.X - there.X) * (at.X - there.X) + (double)(at.Y - there.Y) * (at.Y - there.Y));
-            if (d + TargetMargin >= TargetDistance(t, dt)) return false;
+            var incumbent = TargetPriority(t, dt);
+            if (incumbent.Taunted || (!candidate.Taunted && candidate.Distance + TargetMargin >= incumbent.Distance)) return false;
         }
         // From another player: what it did for that one ends (its next pass orders after this one).
         if (t is not null)
         {
             (m.LastTarget, m.SwingGeneration) = (null, null);
             m.ActionGeneration++;
+            if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
         }
         m.Target = player;
         return true;
@@ -225,8 +240,11 @@ public static partial class Game
             area.Delta.Add(0, InstanceEntities.MonsterTypes([.. area.MonsterTypes.Select(t => ((ushort)t.Row, t.Level))]),
                 $"0x0020 the area's {area.MonsterTypes.Count} monster type(s)", AreaDelta.Kind.Message, only: player);
         foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters).OrderBy(e => e.Key))
-            if (!m.WorldHidden && !m.Dead && m.Life > 0 && m.OwnerId != player.Id)
+        {
+            bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
+            if (!m.WorldHidden && ((!m.Dead && m.Life > 0) || corpse) && m.OwnerId != player.Id)
                 AddMonsterCreate(player, id, m, now, only: player);
+        }
         foreach (var peer in player.Instance.PlayersExcept(player.Id))
             if (peer is { } other && other.Connection.PlayerSent && !other.Closed && !other.LeavingArea && other.PeerTemplate is not null)
                 foreach (var (bytes, kind) in PlayerCreate(other, player, now)) area.Delta.Add(other.Id, bytes, null, kind, only: player);
@@ -250,10 +268,11 @@ public static partial class Game
                 ? master.MinionOrigins.GetValueOrDefault(id) : null);
         if (o is null) return;
         bool dormant = area.DormantMonsters.ContainsKey(id);
+        bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
         var at = m.Walk.Position(now);
-        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = m.Life };
+        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = corpse ? 1u : m.Life };
         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
-        if (!dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
+        if (!corpse && !dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
             && !MonsterEmerge.Waiting(player, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
             && v.ComponentsOrBase.Contains("Transitionable"))
             shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
@@ -261,7 +280,11 @@ public static partial class Game
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(create.AsSpan(6), uint.MaxValue);
         area.Delta.Add(id, create, $"0x02bb monster 0x{id:x} where the area has it", AreaDelta.Kind.Create, only: only);
         if (!m.Asleep) area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), null, only: only);
+        if (corpse) area.Delta.Add(id, InstanceProtocol.LifeUpdate(id, 0), null, only: only);
         if (InstanceEntities.MonsterEquipmentUpdate(id, shown) is { } stance) area.Delta.Add(id, stance, null, only: only);
+        if (m.OwnerId is uint ownerId && player.Frames.Players().FirstOrDefault(p => p.Id == ownerId) is { } ownerPlayer
+            && MirageWarriorPeerDisplay(ownerPlayer, id, id) is { } warriorDisplay)
+            area.Delta.Add(id, warriorDisplay, null, only: only);
         SettleBleeding(m, now);
         var to = m.Walk.Destination;
         if (!dormant && to != at)

@@ -113,6 +113,25 @@ Part of [Status](../Status.md); what to build next in this area is in
   area takes its mode from its first mode-only C→S message (`ClientPackets`), and one with messages of both modes
   tells the player in chat to report it ([07](../docs/protocol/07-latency-visibility-movement.md) §6); before that input every client but a server-controlled one is
   served in lockstep. The
+- Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats (the Ambush scarabs
+  add to it), the type a Strongboxes row by weight and the area and atlas stats (live: The Crossroads, The Riverways,
+  a Geode map, Acts 8-10). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods, or are
+  unique (UniqueChests by weight, our 0.6% from the 2016 sample, with the area's unique chance; live: Strange Barrel,
+  Redblade Cache, Ashes of the Condemned, Deshret's Storm); a non-normal box has its rarity's hidden quantity and rarity.
+  The content, item and guard mods act; warband caches bring their warband. The daemon mods act when the box opens
+  (each daemon sends its skill; the server applies its hit, ailment or ground at the area level; live: Ice Nova,
+  Firestorm, Lightning Storm, a curse, corpse detonation, the torment and sandstorm streams): the summons arrive in
+  waves and guard the box, Revive raises the dead near it. Gems with experience drop at a random level up to 20;
+  Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
+  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
+  "Vaal Vessels"). Currency changes a closed
+  box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
+  unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). Our own:
+  `__col2` as the item count, Jumbled Abundance's one-in-four, the freeze's one second, stand-ins for the summons the
+  tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
+  [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
+
+- Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped
   in the observer's own frames) follow the client's frame rules, and world messages go out as explicit records in the
@@ -183,6 +202,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   at, not its WorldAreas level (2026-11-01). Before, a tier-16 Chateau (WorldAreas 71) took another topology than the
   client's, so the player spawned outside the client's layout (a black screen), and seeds the client cannot build
   were played.
+  The Allflame leagues play every area in league category 59 ([011](../docs/re/011-level-generation.md) §3): The Coast,
+  The Ship Graveyard and its Cave are generated in their Deepwater topologies.
 - **Level generator port.** `GameServer.Data/Terrain/Generation` reproduces the client's level generator: the tile
   grid, the walkability and projectile grids, the doodads, every cell's ground height (`CellHeights.cs`) and the area
   transitions and waypoints (`AreaObjects.cs`: the tiles' objects, and a room's `Waypoint` line where no tile places
@@ -192,10 +213,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   loads the client itself failed to generate, the port fails 112 the same way (115 expected once the gate reruns:
   the Sanctum Cellar, Nave and Vaults now fail as the client does). The 34 areas the client cannot
   generate at seed 1 (and that need no server data) were toured at random seeds the port generates: all 73 loads match.
+  The Allflame encounter areas (DeepwaterEncounter, DeepwaterEncounterVoyage) are built from the terrain plugin state
+  0x1d sends, or the client's default 2 × 2 grid without one ([011](../docs/re/011-level-generation.md) §3c4).
+  Verified live (3.29.3d, 2026-11-18): the client's tile hash equals the port's for a one-room chart and a 3 × 3
+  Voyage grid.
+  The Gateway generates them (`server_level_areas`); a live capture of each (2026-11-19, a one-room chart and a 3 × 3
+  Voyage) matches the port in walk and projectile grids, cell heights and doodads
+  (`levelgen walk`, `heights`, `doodads`).
   An unattended tour of every WorldAreas row with a topology (2026-10-27, `scripts/re/levelgen/tourloop.py`, which
   restarts and logs in the client by itself) left 234 of the 1932 rows with no client-side level to match: 17 without a
   topology, 202 that need data from the server (Incursion temples, Delve cells and biomes, Heist contracts, Synthesis
-  memories, the Sanctum floors, the Deepwater biome grid; they come with each league's server side, see the
+  memories, the Sanctum floors, the Deepwater grid; they come with each league's server side, see the
   [roadmap](../roadmap/world.md)), and 15 the client cannot generate at any seed tried (the
   list is written to data/areas-unavailable.txt). The port matches a load of every other row.
   A tour of 3 random seeds per matching area: all 519 match. Every traced load at another seed of that tour (1215,
@@ -233,7 +261,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   client.
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
-- **A Labyrinth run (Normal).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
+- **A Labyrinth run (Normal and Cruel).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
   done, then opens the statue for good and the way to the plaza behind it (`/trials off` shuts it). At the plaza the
   device opens the select window (0x7b kind 0x10); choosing Normal (C→S 0x212 = 1) opens the door with its animation
   and shows the way into the day's first room; the portal goes back to town. Each room is its own instance (the run
@@ -244,6 +272,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   In the last room's Ascendancy Chamber the font gives the tier's two ascendancy points and opens the class selector
   (0x7b kind 0x0a; the choice, C→S 0x39, is saved and reloads the same instance at the font), and its portal goes back to town.
   Checked live 2026-11-03: the class chosen there stays after a relog.
+  Cruel (C→S 0x212 = 2) requires level 40, Normal completion and the three Act 6–7 trials. The door and destination
+  are per player, and the run keeps the selected day. In both, defeating Izaro in the last arena unlocks the font and its two points.
+  Checked live 2026-11-19: the three plaques, all three fights, the return portal and the points after a relog.
   Izaro's three Aspirant's Trials: the corridor's gate opens when used (his prefight line), he rises on the elevator
   with the day's weapon as the player comes into the arena (the mechanic's line) and the arena's doors shut; his life
   bar goes in thirds from trial to trial: in the first two he leaves at the next third (his line, a walk to the
@@ -267,7 +298,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   mortars her Guardians' circles open under, casts the gargoyles' awakening beam from her hands, goes down with him and
   flies up when he dies. Checked live 2026-11-12. Code: `GoddessOfJustice.cs`, `Rules.IzaroGoddess.cs`.
   Not yet: his chests, the room's craft recipe, the enchanting bench,
-  Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
+  Merciless and Eternal, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
   `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`, `Rules.IzaroPortals.cs`,
   `Rules.IzaroChronos.cs`, `Rules.IzaroLieutenants.cs`), Game `IzaroIdols.cs`, `Act3.cs`, `Act8.cs`.
@@ -340,7 +371,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   An "entranceN" with no object of its own (the portal to Highgate after Malachai, Weylam's boat) is an exit without a
   model at its point, there from the start.
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
-  its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
+  its animation ([12](../docs/protocol/12-quests.md) §6); the Doorman and opening tutorial force walls 1/2 are now created.
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed, and whose generated layout places no
   waypoint either, puts the player at an arbitrary cell; every act area has a seed-1 capture, so this is what any other

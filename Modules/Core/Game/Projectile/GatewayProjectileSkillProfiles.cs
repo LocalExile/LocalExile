@@ -104,6 +104,15 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
 
+        else if (effect == "VolcanicFissure")
+            p = p with
+            {
+                Count = p.Count + Math.Max(0, get(Stat.VolcanicFissureNumberOfAdditionalProjectiles)),
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("volcanic-fissure", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
+            };
         else if (effect == "HolyFlameTotem")
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
         else if (IsCausticArrow(effect))
@@ -170,7 +179,9 @@ public static class GatewayProjectileSkillProfiles
         var secondary = KineticBoltSecondary(parent);
         return parent with
         {
-            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i : 0, parent.ZigZags,
+            // Native ZigZagProjectile (0x141a8ce97..0x141a8ced8) adds the volley index for all multi-projectile fans
+            // (LMP/GMP/Kinetic Bolt of Fragmentation), not only sequential Barrage volleys.
+            Legs = i => new KineticBoltLegs(sequence, i, parent.ZigZags,
                 parent.Speed, parent.Range, secondary),
             LegLeash = 0
         };

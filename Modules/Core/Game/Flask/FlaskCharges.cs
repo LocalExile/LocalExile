@@ -131,8 +131,11 @@ public static partial class Game
     // A kill: 1 / 3.5 / 6 / 11 charges to every flask by the monster's rarity (FlaskCharges.KillCharges), or with
     // Game_FLASK_CHARGES=full every flask full.
     public static Task GainKillCharges(Player player, MonsterRarity rarity, string why) =>
+        GainKillCharges(player, rarity, why, 0);
+
+    static Task GainKillCharges(Player player, MonsterRarity rarity, string why, int grantedPct) =>
         FlaskCharges.FullShortcut ? GainFlaskCharges(player, int.MaxValue, why)
-            : GainFlaskCharges(player, (_, _) => FlaskCharges.KillCharges(rarity, ItemsFor(player).Mods), why);
+            : GainFlaskCharges(player, (_, _) => FlaskCharges.KillCharges(rarity, ItemsFor(player).Mods, grantedPct), why);
 
     // A critical strike the player dealt (a hit that landed): each flask with "#% chance to gain a Flask Charge when you deal
     // a Critical Strike" (local_recharge_on_crit_%) rolls for one charge, and the character's chance and sure charges

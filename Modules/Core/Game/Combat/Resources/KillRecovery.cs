@@ -13,7 +13,7 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
 
     public static KillRecovery From(Func<uint, int> get, int level)
     {
-        bool life = get(Stat.CannotRecoverLife) == 0, shield = get(Stat.CannotRecoverEnergyShield) == 0;
+        bool life = !LifeRecovery.NonLeechBlocked(get), shield = get(Stat.CannotRecoverEnergyShield) == 0;
         return new(
             life ? get(Stat.BaseLifeGainedOnEnemyDeath) + get(Stat.LifeGainedOnEnemyDeathPerLevel) * level : 0,
             life ? get(Stat.RecoverPctMaximumLifeOnKill) : 0,
@@ -41,7 +41,9 @@ public static partial class Game
 {
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): its "on kill" recovery, at once. The
     // amounts follow the last player stat snapshot (ConfigureLeech), so a pack's deaths do not each rebuild the stats.
-    public static void RecoverOnKill(Player player, SpawnedMonster m)
+    public static void RecoverOnKill(Player player, SpawnedMonster m) => RecoverOnKill(player, m, null);
+
+    static void RecoverOnKill(Player player, SpawnedMonster m, TinctureKillBonus? tincture)
     {
         var session = LeechOf(player);
         if (player.PlayerLife == 0) return;
@@ -50,8 +52,8 @@ public static partial class Game
         double now = ProjectileWorldTime(player);
         var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
-        k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] : 0),
-            Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] };
+        k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] + (tincture?.Life ?? 0) : 0),
+            Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] + (tincture?.Mana ?? 0) };
         static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
         uint life = player.PlayerLife, mana = player.PlayerMana;
         player.PlayerLife = PetrifiedBlood.RecoverLife(player, life,

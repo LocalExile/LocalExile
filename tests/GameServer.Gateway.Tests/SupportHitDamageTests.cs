@@ -198,6 +198,62 @@ public sealed class SupportHitDamageTests
             Assert.Equal(1, Use(3, Plain));
             Assert.False(counts.ContainsKey(3));
         }
+        // Trap and mine throwing: 0.6 s and 0.3 s over the summed throwing speed and each support's more.
+        Assert.Equal(.6, Game.PlacedThrowSeconds(Get(), mine: false), 9);
+        Assert.Equal(.5, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 19), (Stat.TrapAndMineThrowingSpeedPlusPct, 1)), mine: false), 9);
+        Assert.Equal(.6 / (1.2 * .9), Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
+            (Stat.SupportTrapAndMineDamageTrapThrowingSpeedPlusPctFinal, -10)), mine: false), 9);
+        Assert.Equal(.3 / (1.5 * .45), Game.PlacedThrowSeconds(Get((Stat.MineLayingSpeedPlusPct, 50),
+            (Stat.SupportMinefieldMineThrowingSpeedPlusPctFinal, -55)), mine: true), 9);
+        Assert.Equal(15, Game.TrapTriggerRadius(Get((Stat.TrapTriggerRadiusPlusPct, 50))), 9);
+        Assert.Equal(.6 / 1.5, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
+            (Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge, 10)), mine: false, frenzyCharges: 3), 9);
+        // Swift Assembly's three chances are rolled separately and their extra throws add up.
+        static uint Swift(int extra) => extra switch
+        {
+            1 => Stat.SupportAdditionalTrapMinePctChanceFor1AdditionalTrapMine,
+            2 => Stat.SupportAdditionalTrapMinePctChanceFor2AdditionalTrapMine,
+            _ => Stat.SupportAdditionalTrapMinePctChanceFor3AdditionalTrapMine,
+        };
+        Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
+        Assert.Equal(6, Game.SwiftAssemblyExtra(Get((Swift(1), 100), (Swift(2), 100), (Swift(3), 100)), new Random(1)));
+        Assert.Equal(4, Game.SwiftAssemblyExtra(Get((Swift(1), 100), (Swift(2), 0), (Swift(3), 100)), new Random(1)));
+        Assert.Equal(2, Game.SwiftAssemblyExtra(Get((Swift(2), 100)), new Random(1)));
+        // Several traps or mines from one use scatter around the aim: within the support's circle, or a radius that
+        // grows with their number.
+        Assert.Equal((100, 100), Game.PlacedThrowPoint((100, 100), 1, 20, new Random(1)));
+        Assert.Equal(new[] { 0d, 20, 10, 14 }, new[] { Game.PlacedScatterRadius(1, 0), Game.PlacedScatterRadius(3, 20),
+            Game.PlacedScatterRadius(3, 0), Game.PlacedScatterRadius(5, 0) });
+        Assert.All(Enumerable.Range(1, 40), i => Assert.True(
+            Game.Dist(Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)), (100, 100)) <= 11));
+        Assert.Contains(Enumerable.Range(1, 40), i => Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)) != (100, 100));
+        // They cluster near the aim with a few outliers: most of 200 land within half the radius, some beyond it.
+        var scatter = new Random(1);
+        var landed = Enumerable.Range(0, 200).Select(_ => Game.Dist(Game.PlacedThrowPoint((100, 100), 3, 20, scatter), (100, 100))).ToArray();
+        Assert.InRange(landed.Count(d => d <= 10.5), 95, 175);
+        Assert.Contains(landed, d => d > 10.5);
+        // A detonation sequence speeds up: 250 ms, then 10% more detonation speed for each mine already gone off.
+        Assert.Equal(new[] { .25, .25 / 1.1, .25 / 1.5, .1 }, new[] { Game.MineSequenceGap(250, 0),
+            Game.MineSequenceGap(0, 1), Game.MineSequenceGap(250, 5), Game.MineSequenceGap(200, 10) });
+        Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
+        Assert.Equal(3, Game.SwiftAssemblyExtra(Get((Stat.SupportAdditionalTrapMinePctChanceFor3AdditionalTrapMine, 100)), new Random(1)));
+        Assert.Equal(1, Game.SwiftAssemblyExtra(Get((Stat.SupportAdditionalTrapMinePctChanceFor1AdditionalTrapMine, 100)), new Random(1)));
+        // A trap or mine fires at the nearest enemy that is not on it, else straight away from the player.
+        Assert.Equal((110, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(100, 100), (130, 100), (110, 100), (300, 100)]));
+        Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)]));
+        Assert.Equal((100, 80), Game.PlacedProjectileAim((100, 100), (100, 130), []));
+        Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (100, 100), []));
+        // The trap, mine and totem supports' own more/less damage multiplies the supported hit (level 1 values).
+        foreach (var (stat, value) in new[] { (Stat.SupportTrapDamagePlusPctFinal, -20),
+            (Stat.SupportTrapAndMineDamagePlusPctFinal, 30), (Stat.SupportClustertrapDamagePlusPctFinal, -61),
+            (Stat.SupportMultithrowDamagePlusPctFinal, -58), (Stat.SupportGemMineDamagePlusPctFinal, -60),
+            (Stat.SupportRemoteMine2DamagePlusPctFinal, -60), (Stat.SupportLocusMineDamagePlusPctFinal, -30),
+            (Stat.SupportAdditionalTotemDamagePlusPctFinal, -40), (Stat.SupportFocusedBallistaTotemDamagePlusPctFinal, 9) })
+        {
+            var (general, typed) = GemSupportDamage.Multipliers(DamageTypeHistory.Fire, [(stat, value)], new HashSet<int> { 1 });
+            Assert.Equal(1 + value / 100.0, general, 9);
+            Assert.Equal(1, typed);
+        }
     }
 
     // Elemental Focus and the never-ailment stats stop the ailments they name; Overcharge's Shock as though dealing 690%

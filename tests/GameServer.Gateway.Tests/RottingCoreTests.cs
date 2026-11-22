@@ -40,7 +40,7 @@ public sealed class RottingCoreTests
     }
 
     [GameFilesFact]
-    public void Native_organ_gates_keep_their_domain_names_and_land_outside_each_arena()
+    public void Native_organ_gates_keep_their_domain_names_and_land_at_each_gauntlet()
     {
         foreach (uint seed in new uint[] { 1, 2, 3 })
         {
@@ -64,8 +64,13 @@ public sealed class RottingCoreTests
                 Assert.NotEqual(hub.TeleportTo, arena.TeleportTo);
                 Assert.Equal((hub.GridX, hub.GridY), back.TeleportTo);
                 var landing = DepravedTrinity.Destination(c, hub)!.Value;
-                Assert.InRange(landing.X, room.X * 23, (room.X + room.Width) * 23 - 1);
-                Assert.InRange(landing.Y, room.Y * 23, (room.Y + room.Height) * 23 - 1);
+                var entry = Assert.Single(layout.Level!.Records.SelectMany(r => r.Rooms),
+                    r => r.Room.Path.EndsWith("/" + names[n] + "/Unique/gauntlet_telepad.arm"));
+                Assert.InRange(landing.X, entry.X * 23, (entry.X + entry.Width) * 23 - 1);
+                Assert.InRange(landing.Y, entry.Y * 23, (entry.Y + entry.Height) * 23 - 1);
+                var pad = Assert.Single(entry.Room.Points, p => p.Name == "telepad");
+                var (x, y) = Orientation.Map(entry.Orientation, (int)pad.X, (int)pad.Y, entry.Room.Width * 23, entry.Room.Height * 23);
+                Assert.Equal((entry.X * 23 + x, entry.Y * 23 + y), hub.TeleportTo);
                 Assert.True(c.Layout.WalkableFor(landing.X, landing.Y, 1));
             }
             var exit = Assert.Single(c.Layout.AreaTransitions, p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn").Transition;

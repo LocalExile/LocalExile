@@ -9,15 +9,18 @@ using static Game;
 using static Program;
 
 /// <summary>Retained Essence monoliths, released through the ordinary monster and loot paths.</summary>
-public static class MapEssences
+public static partial class MapEssences
 {
     public const string Type = "Metadata/MiscellaneousObjects/Monolith", Content = "Essence", Ascent = "Essence.Ascent",
-        Calcification = "Essence.Calcification";
+        Calcification = "Essence.Calcification", Stability = "Essence.Stability", Adaptation = "Essence.Adaptation";
     const string SaveKey = "Essence/monoliths";
     public sealed record Monolith(uint Id, int Index, int X, int Y, string Variety, IReadOnlyList<int> Essences,
         byte Stage = 1, uint Monster = 0)
     {
         public string? Source { get; init; }
+        public bool Corrupted { get; init; }
+        public bool ForcedRelease { get; init; }
+        public bool ReleaseEffectsApplied { get; init; }
     }
     sealed class Area
     {
@@ -25,6 +28,7 @@ public static class MapEssences
         public List<Monolith>? Monoliths;
         // Each monolith as the area's clients were last shown it.
         public readonly Dictionary<uint, Monolith> Shown = [];
+        public readonly HashSet<int> Dirty = [];
     }
     static readonly Store<InstanceState, Area> Areas = new();
     static readonly Store<Player, HashSet<uint>> Presented = new();
@@ -38,11 +42,14 @@ public static class MapEssences
         if (request.Campaign || request.Opening is not { } opening || MapEssenceCatalog.Pool(opening.Area.Level).Count == 0) return;
         if (Packs.For(opening.Area.Id)?.Scattered.Any(p => p.Pack.Entries.Any(e =>
             Monsters.Find(e.Variety.ToString()) is { Supported: true })) != true) return;
-        request.HandledContent.UnionWith([Content, Ascent, Calcification]);
+        request.HandledContent.UnionWith([Content, Ascent, Calcification, Stability, Adaptation]);
+        if (opening.Mods.Get(Stat.MapEssenceImprisonedMonstersEnhancedForEachEssence) != 0)
+            request.ContentWarnings.Add(("Essence.AdaptationScaling",
+                $"area={opening.Area.Id} content=Essence.Adaptation: release transfers an essence modifier; per-essence difficulty/reward enhancement is not implemented"));
         if (opening.Mods.Get(Stat.MapHasMonoliths) > 0 || opening.Mods.Get(Stat.MapRareMonstersTrappedInEssences) > 0
             || opening.Mods.Get(Stat.MapEssencesAre1TierHigherChancePct) > 0)
             request.ContentWarnings.Add(("Essence.Parity",
-                $"area={opening.Area.Id} content=Essence: release/reward lifecycle enabled; base essence multiplicity/weights use replica balance, corruption and specialised essence skills remain unsupported"));
+                $"area={opening.Area.Id} content=Essence: release/corruption/reward lifecycle enabled; base essence multiplicity/weights use replica balance; specialised essence skills remain unsupported"));
     }
 
     static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
@@ -90,6 +97,81 @@ public static class MapEssences
             var monolith = new Monolith(player.Instance.World.NewMonsterId(), monoliths.Count, at.Value.X, at.Value.Y,
                 variety.Id, essences) { Source = source };
             monoliths.Add(monolith);
+            Keep(player, area);
+            foreach (var member in Members(player)) await Present(member, monolith);
+            return true;
+        }
+        finally { area.Gate.Release(); }
+    }
+
+    public readonly record struct MonolithRequest(int X, int Y, string VarietyId, int Level, MapMods Mods);
+
+    /// <summary>Places additional Essence monoliths at explicit coordinates with explicit monster varieties and
+    /// per-location <see cref="MapMods"/> (respecting <c>map_essences_are_1_tier_higher_chance_%</c>).</summary>
+    public static async Task<int> SpawnMonolithsAt(Player player, IReadOnlyList<MonolithRequest> requests, Random random)
+    {
+        if (player.Instance is null || requests.Count == 0) return 0;
+        var area = Areas.GetValue(player.Instance, _ => new());
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Monoliths is null)
+            {
+                if (player.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                    area.Monoliths = JsonSerializer.Deserialize<List<Monolith>>(saved) ?? [];
+                else
+                    area.Monoliths = [];
+            }
+            var created = new List<Monolith>(requests.Count);
+            foreach (var req in requests)
+            {
+                if (Monsters.Find(req.VarietyId) is not { Supported: true } variety) continue;
+                var essences = MapEssenceCatalog.Roll(Math.Clamp(req.Level, 1, 100), req.Mods, random);
+                if (essences.Count == 0) continue;
+                var monolith = new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count, req.X, req.Y, variety.Id, essences);
+                area.Monoliths.Add(monolith);
+                created.Add(monolith);
+            }
+            if (created.Count > 0)
+            {
+                Keep(player, area);
+                foreach (var member in Members(player))
+                    foreach (var monolith in created)
+                        await Present(member, monolith);
+            }
+            return created.Count;
+        }
+        finally { area.Gate.Release(); }
+    }
+
+    /// <summary>Imprisons a rare monster of an explicit variety in an Essence monolith (for areas whose monster
+    /// packs come from biomes rather than <c>Packs.For(Layout.Id)</c>).</summary>
+    public static async Task<bool> ImprisonVariety(Player player, int x, int y, string varietyId, string source, int level,
+        MapMods mods, Random random)
+    {
+        if (player.Instance is null || Monsters.Find(varietyId) is not { Supported: true } variety) return false;
+        var area = Areas.GetValue(player.Instance, _ => new());
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Monoliths is null)
+            {
+                if (player.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                    area.Monoliths = JsonSerializer.Deserialize<List<Monolith>>(saved) ?? [];
+                else
+                    area.Monoliths = [];
+            }
+            if (area.Monoliths.Any(m => m.Source == source)) return true;
+            var essences = MapEssenceCatalog.Roll(Math.Clamp(level, 1, 100), mods, random);
+            if (essences.Count == 0) return false;
+            bool Floor(int cx, int cy) => player.Layout.WalkableFor(cx, cy, 4);
+            var blockers = player.MonsterPlacementBlockers(0);
+            (int X, int Y)? at = CollisionEscape.Clear((x, y), player.Layout.GridW, player.Layout.GridH, Floor, blockers, 4)
+                ? (x, y) : CollisionEscape.Find((x, y), player.Layout.GridW, player.Layout.GridH, Floor, blockers, moverSize: 4);
+            if (at is null) return false;
+            var monolith = new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count, at.Value.X, at.Value.Y,
+                variety.Id, essences) { Source = source };
+            area.Monoliths.Add(monolith);
             Keep(player, area);
             foreach (var member in Members(player)) await Present(member, monolith);
             return true;
@@ -190,18 +272,8 @@ public static class MapEssences
                 || !PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (monolith.X, monolith.Y), 20)) return true;
             if (monolith.Stage == 3)
             {
-                if (Monsters.Find(monolith.Variety) is not { Supported: true } variety) return true;
-                byte level = (byte)Math.Clamp(MapRunOf(player)!.Area.Level, 1, 100);
-                var mods = MapEssenceCatalog.Mods(player, variety, level, monolith.Essences);
-                uint monster = await SpawnMonster(player, variety, level, MonsterRarity.Rare,
-                    monolith.X, monolith.Y, mods: mods, unrisen: false, alone: false,
-                    owned: (id, _) =>
-                    {
-                        area.Monoliths[monolith.Index] = monolith with { Stage = 4, Monster = id };
-                        Keep(player, area);
-                    });
-                if (monster == 0) return true;
-                monolith = monolith with { Monster = monster };
+                await Release(player, area, monolith);
+                return true;
             }
             monolith = monolith with { Stage = (byte)(monolith.Stage + 1) };
             area.Monoliths[monolith.Index] = monolith;

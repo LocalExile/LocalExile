@@ -70,9 +70,16 @@ public sealed class MonsterEmerge
     /// <summary>The Emerge basic action's skill id (ActionTypes HASH16 &amp; 0x3fff: 0x0101), null without the table.</summary>
     public ushort? SkillId => _action is ushort hash ? (ushort)(hash & 0x3fff) : null;
 
+    /// <summary>Unique bosses whose .ot starts untransitioned with paused emerge and targetable = false
+    /// (campaign Yugul, Amarissa and Ambrosia): they must rise or spawn risen (state 2) to become targetable.</summary>
+    public static bool IsUniqueEmerge(MonsterCatalog.Variety v) =>
+        v.Id is "Metadata/Monsters/Frog/FrogGod/SilverFrog"
+            or "Metadata/Monsters/Seawitch/SeaWitchBossSpark"
+            or "Metadata/Monsters/Seawitch/SeaWitchBossFirestorm";
+
     /// <summary>How a monster of this variety and rarity starts (see <see cref="EmergeKind"/>).</summary>
     public EmergeKind Kind(MonsterCatalog.Variety v, MonsterRarity rarity = MonsterRarity.Normal) =>
-        (rarity != MonsterRarity.Unique || v.Id == "Metadata/Monsters/Frog/FrogGod/SilverFrog")
+        (rarity != MonsterRarity.Unique || IsUniqueEmerge(v))
             && v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
             && _types.TryGetValue(v.BaseType, out var kind) ? kind : EmergeKind.None;
 
@@ -84,7 +91,8 @@ public sealed class MonsterEmerge
     /// <summary>The Transitionable state of a new monster: 1 while it waits to rise, 2 for an emerge monster that has
     /// risen (kept by the instance), else the type's own (MonsterCatalog: num_states, 1 when the .ot gives none).</summary>
     public static byte CreateState(MonsterCatalog.Variety v, EmergeKind kind, bool unrisen) =>
-        kind == EmergeKind.None ? v.TransitionStates : unrisen ? UnrisenState : RisenState(v);
+        kind == EmergeKind.None ? (!unrisen && IsUniqueEmerge(v) ? RisenState(v) : v.TransitionStates)
+            : unrisen ? UnrisenState : RisenState(v);
 
     /// <summary>The fully transitioned state: num_states, 2 when the .ot gives none.</summary>
     public static byte RisenState(MonsterCatalog.Variety v) => (byte)Math.Max(2, (int)v.TransitionStates);

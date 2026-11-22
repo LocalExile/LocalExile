@@ -2,6 +2,17 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    public static bool ChaosDamageBypassesEnergyShield(Player player, IReadOnlyDictionary<uint, int> stats)
+    {
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        return Get(Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
+            && Get(Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
+            && !(Get(Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
+                && (ulong)player.PlayerLife * 100 > (ulong)player.PlayerMaxLife * (uint)LowLifeThresholdPct(stats))
+            && !(Get(Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
+                && (ulong)player.PlayerMana * 2 > player.Pools.Mana);
+    }
+
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
     // damage by type (only its proportions count).
     public static int DamagePlayerHitTyped(Player player, int physical, int other, int chaos, double at,
@@ -54,7 +65,9 @@ public static partial class Game
         if (ResourceEffectsCurrent(player, state)) state.Mana.Hit(at,
             (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get(Stat.DamageTakenGoesToManaPct));
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
-        return PetrifiedBlood.PreventHitLifeLoss(player, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at);
+        // Vaal Immortal Call's "you cannot die" holds that Life at 1 (wiki); the hit and its effects still land.
+        return VaalImmortalCallHitLife(player,
+            PetrifiedBlood.PreventHitLifeLoss(player, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at), at);
     }
 
     // Mana-before-Life uses the remaining typed weights after Aegis, Ward and ES. In particular, physical damage

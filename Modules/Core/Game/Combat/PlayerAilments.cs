@@ -5,12 +5,22 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    /// <summary>Lethe Shade: "100% more Duration of Ailments on you" (a multiplicative doubling). Reflected ailments are
+    /// excluded by the callers, which skip the factor for a reflection (poewiki /wiki/Lethe_Shade).</summary>
+    public static double LetheShadeAilmentDuration(Func<uint, int> get) =>
+        get(Stat.KeystoneLetheShade) != 0 ? 2 : 1;
+
     public static PlayerElementalAilments.HitSettings IncomingAilmentSettings(Func<uint, int> get) => new(
         get(Stat.AlwaysIgnite) != 0 ? 100 : get(Stat.BaseChanceToIgnitePct),
         get(Stat.AlwaysFreeze) != 0 ? 100 : get(Stat.BaseChanceToFreezePct),
         get(Stat.AlwaysShock) != 0 ? 100 : get(Stat.BaseChanceToShockPct),
         get(Stat.ActiveSkillChillEffectPlusPctFinal), get(Stat.ActiveSkillShockDurationPlusPctFinal),
-        get(Stat.ActiveSkillIgniteDamagePlusPctFinal)) { NeverFreeze = get(Stat.NeverFreeze) != 0 };
+        get(Stat.ActiveSkillIgniteDamagePlusPctFinal))
+    {
+        NeverFreeze = get(Stat.NeverFreeze) != 0,
+        // Scorch and Brittle (AlternateAilmentsOnPlayerLocked) read the boss skills' chance_to_scorch_% and the like.
+        SourceStats = get,
+    };
 
     public static void ApplyPlayerAilmentsLocked(Player player, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null) =>
@@ -30,8 +40,10 @@ public static partial class Game
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
         int fire = critical || settings.IgniteChance > 0 ? baseHit[DamageType.Fire].Roll(player.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
+        double durationFactor = LetheShadeAilmentDuration(Get);
         ApplyPlayerAilmentsLocked(player, now, ailments =>
-            ailments.Apply(ailmentBase, taken, critical, player.PlayerMaxLife, now, Get, player.IncomingHitRandom, settings, source));
+            ailments.Apply(ailmentBase, taken, critical, player.PlayerMaxLife, now, Get, player.IncomingHitRandom, settings, source,
+                durationFactor));
     }
 
     /// <summary>Apply one source's ailments under the combat lock. Hit, ground and reflected sources retain their
@@ -74,22 +86,33 @@ public static partial class Game
         {
             player.ElementalAilments.Clear();
             player.IncomingAilments.Clear();
+            ClearPlayerDecay(player);
+            ClearCorruptedBlood(player);
+            ClearEssenceAuraExposure(player);
             return 0;
         }
         double previousAction = player.ElementalAilments.ActionFactor(from);
         int Get(uint key) => stats.GetValueOrDefault(key);
+        // Lethe Shade: "Take 50% less Damage over Time if you've started taking Damage over Time in the past second".
+        // A damaging ailment's latest application is its onset; while one landed within the last second, all the
+        // damaging-ailment DoT the player takes is halved (a new application refreshes the window).
+        double dotStart = Math.Max(Math.Max(player.IncomingAilments.LatestStart, player.ElementalAilments.LatestIgniteStart), PlayerDecayStarted(player));
         var immunities = PlayerImmunities(player, stats);
-        int damage = 0, lifeDamage = 0;
+        if (Blood.TryGetValue(player, out var blood)) dotStart = Math.Max(dotStart, blood.Started);
+        int auraDamage = AdvanceEssenceAuraLocked(player, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
+        dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(player));
+        double letheFactor = Get(Stat.KeystoneLetheShade) != 0 && until - dotStart < 1 ? .5 : 1;
+        int damage = 0, lifeDamage = auraDamage;
         if (player.ElementalAilments.HasEffects)
         {
             damage = player.ElementalAilments.Advance(from, until, Get, Resistance(player, DamageType.Fire),
                 MaxResistance(player, DamageType.Fire), immunities.Contains(DamageType.Fire),
-                source => DamageTakenFromBlindedPct(player, source, stats));
+                source => DamageTakenFromBlindedPct(player, source, stats), letheFactor);
             if (Get(Stat.BaseCannotBeDamaged) > 0) damage = 0;
             damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref player.NonChaosDotTakenCarry,
                 IncomingResourceDefences.LessTakenPct(player.Pools, Get));
-            lifeDamage = player.Immune ? 0 : IncomingResourceDefences.DamageOverTime(player.EnergyShield,
-                damage, Get(IncomingResourceDefences.BypassStat), until, ref player.NonChaosDotBypassCarry);
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + (player.Immune ? 0 : IncomingResourceDefences.DamageOverTime(player.EnergyShield,
+                damage, Get(IncomingResourceDefences.BypassStat), until, ref player.NonChaosDotBypassCarry)));
         }
         if (player.PlayerLife > 0 && !player.IncomingAilments.Idle)
         {
@@ -99,12 +122,20 @@ public static partial class Game
                 player.Pools, player.EnergyShield, Get, Resistance(player, physical), MaxResistance(player, physical),
                 Resistance(player, chaos), MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), player.Walk.MovingSeconds,
-                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry));
+                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor));
         }
-        player.PlayerLife = (uint)Math.Max(0, (long)player.PlayerLife - lifeDamage);
+        lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvancePlayerDecayLocked(player, until, stats,
+            immunities.Contains(DamageType.Chaos), letheFactor));
+        if (blood is not null)
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvanceCorruptedBlood(player, blood, until, stats,
+                immunities.Contains(DamageType.Physical), letheFactor));
+        player.PlayerLife = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - lifeDamage), until);
         if (player.PlayerLife == 0)
         {
             player.InvalidateIncomingHits();
+            ClearPlayerDecay(player);
+            ClearCorruptedBlood(player);
+            ClearEssenceAuraExposure(player);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(player);
         }
@@ -151,7 +182,7 @@ public static partial class Game
                 * Math.Max(0, 1 + effects[Stat.BaseBleedDurationPlusPct] / 100.0);
             player.IncomingAilments.ApplyBleed(now, physical * 0.70 * more
                 * Math.Max(0, 1 + effects[Stat.MonsterBleedingDamagePlusPctFinal] / 100.0), seconds, source,
-                victim: Player);
+                victim: Player, durationFactor: LetheShadeAilmentDuration(Player));
         }
         if (poisonChance > 0 && poisonable && Player(Stat.CannotBePoisoned) == 0
             && Player(Stat.ImmuneToPoison) == 0
@@ -163,7 +194,7 @@ public static partial class Game
                 * Math.Max(0, 1 + effects[Stat.BasePoisonDurationPlusPct] / 100.0);
             player.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
                 * Math.Max(0, 1 + effects[Stat.MonsterPoisonDamagePlusPctFinal] / 100.0), seconds, source,
-                victim: Player);
+                victim: Player, durationFactor: LetheShadeAilmentDuration(Player));
         }
     }
 

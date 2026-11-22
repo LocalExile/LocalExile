@@ -32,6 +32,19 @@ public static partial class Game
         return taunted;
     }
 
+    /// <summary>This player's Yoke of Suffering value on a monster, as their enemy-debuff step sets it (0 while they do
+    /// not wear it, are dead or the monster is not a living enemy): only their own entry changes.</summary>
+    public static void KeepPerAilmentTypeTakenLocked(Player player, SpawnedMonster m, int value) =>
+        m.SetSourceValue(player.Id, PerAilmentTypeTaken, value);
+
+    /// <summary>A leaving player's per-source values come off the instance's monsters (SpawnedMonster.ForgetSource);
+    /// the other participants' stay.</summary>
+    public static void ForgetSourceValues(Player player)
+    {
+        foreach (var m in player.Area.Monsters.Values) m.ForgetSource(player.Id);
+        foreach (var m in player.Area.DormantMonsters.Values) m.ForgetSource(player.Id);
+    }
+
     // A nearby presentation (StatPresentations) steps the player's debuffs on the monsters that changed.
     public static Task TickPassiveAuras(Player player) =>
         EnemyDebuffsTick(player, AreaTime(player));
@@ -75,7 +88,7 @@ public static partial class Game
 
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
-        int FleshRadius, int FleshPhysical, int TauntedTakenPct, CurseAura[] Curses, IReadOnlyDictionary<uint, int>? CurseStats, int Hash);
+        int FleshRadius, int FleshPhysical, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses, IReadOnlyDictionary<uint, int>? CurseStats, int Hash);
 
     static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current)
     {
@@ -123,8 +136,10 @@ public static partial class Game
                 .. aegisReach > 0 ? [(AegisBlindZone, aegisReach, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. cursing ? curses.Select(c => (CurseZone + c.Aura.SkillId, c.Radius, here)) : Array.Empty<(uint, int, (int, int))>()],
             new(ReachesHostileMonsters(player, body: false), new EntityId(player.Id), id => MonsterDebuffsChanged(player, id.Value)));
+        // Yoke of Suffering: each wearer keeps their own value on a shared monster (PerAilmentTypeTaken).
+        int perAilmentType = StatOf(playerStats, Stat.AilmentTypesApplyDamageTakenPlusPct);
         var hash = new HashCode();
-        hash.Add(alive); hash.Add(InTown(player)); hash.Add(player.EnemyDebuffs.TauntedDamageTakenPct);
+        hash.Add(alive); hash.Add(InTown(player)); hash.Add(player.EnemyDebuffs.TauntedDamageTakenPct); hash.Add(perAilmentType);
         foreach (var a in auras)
         {
             hash.Add(a.Definition); hash.Add(a.Radius);
@@ -135,7 +150,7 @@ public static partial class Game
         foreach (var c in curses) { hash.Add(c.Aura.SkillId); hash.Add(c.Radius); }
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
         return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, player.EnemyDebuffs.TauntedDamageTakenPct,
-            curses, curseStats, hash.ToHashCode());
+            perAilmentType, curses, curseStats, hash.ToHashCode());
     }
 
     public static async Task EnemyDebuffsTick(Player player, double now)
@@ -211,6 +226,7 @@ public static partial class Game
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
         Timed(ref m.HinderedUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null);
+        Timed(ref m.CoveredInAshUntil, ref m.CoveredInAshShownUntil, ref m.CoveredInAshBuff, CoveredInAshBuffRow, null);
         for (int i = 0; i < ExposureTypes.Length; i++)
             if (!Timed(ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i], ExposureBuffRows[i], null))
                 EndExposureLocked(m, ExposureTypes[i]);
@@ -277,10 +293,11 @@ public static partial class Game
         // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
         int consecrated = living ? ConsecratedEnemyDamageTaken(player, id) : 0;
         m.TakenFromPlayer = ((taunted ? scope.TauntedTakenPct : 0) + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
+        KeepPerAilmentTypeTakenLocked(player, m, living ? scope.PerAilmentType : 0);
         // Its next timed change: a debuff or curse ending.
         void Next(double until) { if (until > now && until < wake) wake = until; }
         Next(m.TauntedUntil); Next(m.IntimidatedUntil); Next(m.UnnervedUntil); Next(m.CrushedUntil);
-        Next(m.MaimedUntil); Next(m.HinderedUntil);
+        Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.CoveredInAshUntil);
         foreach (double until in m.ExposureUntil) Next(until);
         foreach (var stack in m.Withered) Next(stack.Until);
         foreach (var curse in m.Curses.All.Values) Next(curse.Until);

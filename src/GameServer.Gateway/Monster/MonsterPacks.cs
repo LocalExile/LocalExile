@@ -331,7 +331,8 @@ public static class AreaPopulation
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
         Func<int, int, bool>? scatterable = null,
         IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
-        Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null, bool ordinaryPacks = true)
+        Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null, bool ordinaryPacks = true,
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -502,7 +503,7 @@ public static class AreaPopulation
         // A pack in a pocket the arrival cannot walk to is a monster the area's count keeps and nobody can kill: the
         // map reads "more than 50 monsters remaining" long after it was cleared. The walk map of a generated map has
         // such pockets (cells walled off from the entrance), so the packs stand only where the player can reach them.
-        var reach = Reachable(w, h, cells, arrival);
+        var reach = Reachable(w, h, cells, arrival, localTransitions);
         var candidates = new List<(int X, int Y)>();
         int pocket = 0;
         for (int y = 0; y < h; y += 3)
@@ -557,14 +558,22 @@ public static class AreaPopulation
             centres.Add(c);
             plans.Add((c, PickPack(packs, rng)));
         }
-        // Rarity per pack: rare (one rare member), magic (all members) or normal; at least MinRares rares.
-        var rarities = plans.Select(_ => RollRarity(rng.Next(100))).ToList();
-        for (int i = 0; rarities.Count(r => r == MonsterRarity.Rare) < Math.Min(MinRares, plans.Count) && i < 100; i++)
-            rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
-        Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
-        Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
+        bool strand = area.AreaId == TutorialObjects.Strand;
+        List<MonsterRarity> rarities;
+        if (strand)
+            // The Twilight Strand (1_1_1) spawns only normal scattered packs; Hillock is its sole non-normal monster.
+            rarities = [.. Enumerable.Repeat(MonsterRarity.Normal, plans.Count)];
+        else
+        {
+            // Rarity per pack: rare (one rare member), magic (all members) or normal; at least MinRares rares.
+            rarities = plans.Select(_ => RollRarity(rng.Next(100))).ToList();
+            for (int i = 0; rarities.Count(r => r == MonsterRarity.Rare) < Math.Min(MinRares, plans.Count) && i < 100; i++)
+                rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
+            Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
+            Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
+        }
         int scatteredStart = spawns.Count;
-        int memberBudget = area.AreaId == TutorialObjects.Strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
+        int memberBudget = strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
         int placedPacks = 0;
         for (int i = 0; i < plans.Count && spawns.Count - scatteredStart < memberBudget; i++)
         {
@@ -840,20 +849,29 @@ public static class AreaPopulation
         var cells = new bool[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) cells[y * w + x] = walkable(x, y);
-        return Reachable(w, h, cells, arrival);
+        return Reachable(w, h, cells, arrival, null);
     }
 
-    static bool[]? Reachable(int w, int h, bool[] walkable, (int X, int Y) arrival)
+    static bool[]? Reachable(int w, int h, bool[] walkable, (int X, int Y) arrival,
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions)
     {
         if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable[arrival.Y * w + arrival.X])
             return null;
         var seen = new bool[w * h];
         var q = new Queue<int>();
+        bool Floor((int X, int Y) p) => (uint)p.X < (uint)w && (uint)p.Y < (uint)h && walkable[p.Y * w + p.X];
+        var gates = (localTransitions ?? []).Where(t => Floor(t.From) && Floor(t.To))
+            .GroupBy(t => t.From.Y * w + t.From.X)
+            .ToDictionary(g => g.Key, g => g.Select(t => t.To.Y * w + t.To.X).Distinct().ToArray());
         seen[arrival.Y * w + arrival.X] = true;
         q.Enqueue(arrival.Y * w + arrival.X);
         while (q.Count > 0)
         {
             int i = q.Dequeue(), x = i % w, y = i / w;
+            // A gate is an edge only after its entrance is reached; an isolated destination alone is not a new seed.
+            if (gates.TryGetValue(i, out var destinations))
+                foreach (int destination in destinations)
+                    if (!seen[destination]) { seen[destination] = true; q.Enqueue(destination); }
             for (int dy = -1; dy <= 1; dy++)
             {
                 int ny = y + dy;
@@ -903,11 +921,21 @@ public static class AreaPopulation
         if (!File.Exists(capture) && level is null) { notes.Add($"no {capture} (live.ps1 -Walkmaps, then enter the area): no room points"); return ([], [], []); }
         // Which rooms the client placed, and where: the generated layout's, or the recorder's <area>_seed<seed>.rooms.json.
         bool placementsKnown = level is not null || File.Exists(Path.Combine(walkability, $"{areaId}_seed{seed}.rooms.json"));
-        var placed = new HashSet<(string, int, int)>();
+        // Per lower-case model: the cells a doodad of it is placed on, and the cells within FitTolerance of one (a fit's
+        // test is one lookup: a generated Voyage tests ~30 million doodad positions).
+        var placed = new Dictionary<string, HashSet<long>>(StringComparer.Ordinal);
+        var near = new Dictionary<string, HashSet<long>>(StringComparer.Ordinal);
         var byModel = new Dictionary<string, List<(int X, int Y)>>(StringComparer.OrdinalIgnoreCase);
+        static long Cell(int x, int y) => ((long)x << 32) | (uint)y;
         void Add(string model, int x, int y)
         {
-            if (!placed.Add((model.ToLowerInvariant(), x, y))) return;
+            string key = model.ToLowerInvariant();
+            if (!placed.TryGetValue(key, out var cells)) { placed[key] = cells = []; near[key] = []; }
+            if (!cells.Add(Cell(x, y))) return;
+            var around = near[key];
+            for (int dy = -FitTolerance; dy <= FitTolerance; dy++)
+                for (int dx = -FitTolerance; dx <= FitTolerance; dx++)
+                    around.Add(Cell(x + dx, y + dy));
             if (!byModel.TryGetValue(model, out var list)) byModel[model] = list = [];
             list.Add((x, y));
         }
@@ -927,13 +955,6 @@ public static class AreaPopulation
         {
             notes.Add($"{capture}: {ex.Message}");
             return ([], [], []);
-        }
-        bool Near(string model, int x, int y)
-        {
-            for (int dy = -FitTolerance; dy <= FitTolerance; dy++)
-                for (int dx = -FitTolerance; dx <= FitTolerance; dx++)
-                    if (placed.Contains((model.ToLowerInvariant(), x + dx, y + dy))) return true;
-            return false;
         }
         var points = new List<RoomPoint>();
         var objects = new List<RoomObject>();
@@ -955,15 +976,24 @@ public static class AreaPopulation
             var plain = room.Doodads.Where(d => d.Type is null).ToList();
             var seen = plain.Where(d => byModel.ContainsKey(d.Model)).ToList();
             var origins = new List<(int X, int Y)>();
-            foreach (var c in seen.Count == 0 ? [] : byModel[seen.MinBy(d => byModel[d.Model].Count).Model])
+            var anchor = seen.Count == 0 ? default : seen.MinBy(d => byModel[d.Model].Count);
+            // Each plain doodad's cells near a placed doodad of its model (null: none placed), and the hits a placement needs.
+            var nearOf = plain.Select(d => near.GetValueOrDefault(d.Model.ToLowerInvariant())).ToArray();
+            int need = Math.Max(4, (int)Math.Ceiling(FitShare * plain.Count));
+            foreach (var c in seen.Count == 0 || nearOf.Count(n => n is not null) < need ? [] : byModel[anchor.Model])
                 foreach (var (a, b, cc, dd) in Turns)
                 {
                     // grid = origin + M · local, M = [[a, b], [cc, dd]]
-                    var anchor = seen.MinBy(d => byModel[d.Model].Count);
                     int ox = c.X - (int)Math.Round(a * anchor.X + b * anchor.Y), oy = c.Y - (int)Math.Round(cc * anchor.X + dd * anchor.Y);
                     (int X, int Y) At(float lx, float ly) => (ox + (int)Math.Round(a * lx + b * ly), oy + (int)Math.Round(cc * lx + dd * ly));
-                    int hits = plain.Count(d => At(d.X, d.Y) is var g && Near(d.Model, g.X, g.Y));
-                    if (hits < Math.Max(4, (int)Math.Ceiling(FitShare * plain.Count))) continue;
+                    // Given up once it can no longer reach the share; only a kept placement's count is printed.
+                    int hits = 0, misses = 0;
+                    for (int i = 0; i < plain.Count && misses <= plain.Count - need; i++)
+                    {
+                        var g = At(plain[i].X, plain[i].Y);
+                        if (nearOf[i]?.Contains(Cell(g.X, g.Y)) == true) hits++; else misses++;
+                    }
+                    if (hits < need) continue;
                     if (origins.Any(o => Math.Abs(o.X - ox) <= 3 && Math.Abs(o.Y - oy) <= 3)) continue;
                     origins.Add((ox, oy));
                     foreach (var p in room.Points)

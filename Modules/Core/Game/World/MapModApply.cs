@@ -48,6 +48,21 @@ public static partial class Game
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsFire, Stat.PhysicalDamagePctToAddAsFire);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsCold, Stat.PhysicalDamagePctToAddAsCold);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsLightning, Stat.PhysicalDamagePctToAddAsLightning);
+        Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
+        Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
+        Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
+        if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
+            extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
+        Gain(Stat.MapMonstersAdditionalPhysicalDamageReduction, Stat.BaseAdditionalPhysicalDamageReductionPct);
+        Gain(Stat.MapMonstersAdditionalElementalResistance, Stat.BaseResistAllElementsPct);
+        Gain(Stat.MapMonstersAdditionalChaosResistance, Stat.BaseChaosDamageResistancePct);
+        if (mods.Get(Stat.MapMonstersAreHexproof) != 0)
+            extra[Stat.Hexproof] = 1;
+        Gain(Stat.MapMonstersCurseEffectOnSelfPlusPctFinal, Stat.MapMonstersCurseEffectOnSelfPlusPctFinal);
+        Gain(Stat.MapMonstersChanceToBlindOnHitPct, Stat.GlobalChanceToBlindOnHitPct);
+        Gain(Stat.MapMonstersCriticalStrikeChancePlusPct, Stat.CriticalStrikeChancePlusPct);
+        Gain(Stat.MapMonstersCriticalStrikeMultiplierPlus, Stat.BaseCriticalStrikeMultiplierPlus);
+        Gain(Stat.MapMonstersPenetrateElementalResistancesPct, Stat.ReduceEnemyElementalResistancePct);
         Gain(Stat.MapMonstersBaseBleedDurationPlusPct, Stat.BaseBleedDurationPlusPct);
         // The extracted map rows use the real monster stats rather than a synthetic "global" flag:
         // MapPoisoning: map_monsters_poison_on_hit=1;
@@ -95,11 +110,68 @@ public static partial class Game
             yield return extraCard;
         double scarab = MapDropFactor(mods, Stat.MapScarabDropChancePlusPctFinalFromUberMod,
             Stat.MapUnscaledScarabDropChancePlusPctFinalFromUberMod, Stat.MapScarabDropChancePlusPctFinalFromFaridunWish);
-        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel) is { } extraScarab)
+        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel, mods) is { } extraScarab)
             yield return extraScarab;
+        double currency = MapDropFactor(mods, Stat.MapCurrencyDropChancePlusPctFinalFromUberMod);
+        if (currency > 1)
+        {
+            double expected = CurrencyDropExpected(rarity) * (currency - 1);
+            int whole = (int)expected + (rng.NextDouble() < expected - (int)expected ? 1 : 0);
+            for (int i = 0; i < whole; i++)
+                if (drops.CurrencyDrop(monsterLevel, rng) is { } extraCurrency) yield return extraCurrency;
+        }
     }
 
-    static double MapDropFactor(MapMods mods, params uint[] ids)
+    public static double CurrencyDropExpected(MonsterRarity rarity) => rarity switch
+    {
+        MonsterRarity.Magic => 0.45,
+        MonsterRarity.Rare => 1.0,
+        MonsterRarity.Unique => 1.75,
+        _ => 0.15,
+    };
+
+    sealed record CachedCurrencyPool(object Snapshot, (ItemCatalog.BaseType Type, double Weight, int DropLevel)[] Pool);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog, CachedCurrencyPool> CurrencyPoolsByCatalog = new();
+
+    public static ItemDrops.Drop? RollWeightedCurrency(ItemCatalog catalog, int level, Random rng)
+    {
+        var snapshot = DropDataProvider.Default.Current;
+        if (!CurrencyPoolsByCatalog.TryGetValue(catalog, out var cached) || !ReferenceEquals(cached.Snapshot, snapshot))
+        {
+            var list = new List<(ItemCatalog.BaseType Type, double Weight, int DropLevel)>();
+            if (snapshot.CurrencyWeights.Count > 0)
+            {
+                foreach (var row in snapshot.CurrencyWeights.Values)
+                    if (row.Weight > 0 && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
+                        list.Add((t, row.Weight, Math.Max(t.DropLevel, row.DropLevel)));
+            }
+            if (list.Count == 0)
+            {
+                for (int i = 0; i < ItemDrops.Currency.Length; i++)
+                    if (catalog.Find(ItemDrops.Currency[i].Id) is { Supported: true } t)
+                        list.Add((t, ItemDrops.Currency[i].Weight, t.DropLevel));
+            }
+            cached = new CachedCurrencyPool(snapshot, [.. list]);
+            CurrencyPoolsByCatalog.AddOrUpdate(catalog, cached);
+        }
+        var pool = cached.Pool;
+        double total = 0;
+        for (int i = 0; i < pool.Length; i++)
+            if (pool[i].DropLevel <= level && pool[i].Weight > 0) total += pool[i].Weight;
+        if (total <= 0) return null;
+        double roll = rng.NextDouble() * total;
+        ItemCatalog.BaseType? picked = null;
+        for (int i = 0; i < pool.Length; i++)
+        {
+            var entry = pool[i];
+            if (entry.DropLevel > level || entry.Weight <= 0) continue;
+            picked = entry.Type;
+            if ((roll -= entry.Weight) < 0) break;
+        }
+        return picked is null ? null : new(ItemCatalog.Create(picked) with { StackSize = 1, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, picked);
+    }
+
+    static double MapDropFactor(MapMods mods, params ReadOnlySpan<uint> ids)
     {
         double factor = 1.0;
         foreach (uint id in ids) factor *= Math.Max(0, 100 + mods.Get(id)) / 100.0;

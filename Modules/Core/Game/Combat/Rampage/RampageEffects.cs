@@ -176,7 +176,8 @@ public static partial class Game
                 || target.OwnerId is not null || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), target)) return false;
             if (attack && !RampageAttackHits(player, id, target, accuracy, ProjectileWorldTime(player), AreaRng(player))) return false;
             if (MonsterBlocks(target, AreaRng(player), !attack)) return false;
-            bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0);
+            bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0)
+                + BrittleCriticalChance(target, ProjectileWorldTime(player));
             (damage, _) = MonsterDamage(target, packet.Roll(AreaRng(player)), critical, attack, default);
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(player)));
             hit = ApplyMonsterHitLocked(player, target, damage, rampageSource: true); // Proven by this contact's effect guard.

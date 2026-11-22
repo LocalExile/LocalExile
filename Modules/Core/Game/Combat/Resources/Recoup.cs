@@ -19,7 +19,7 @@ public static partial class Game
     /// raised by the Life recovery rate; cannot_recover_life stops it.</summary>
     public static double LifeRecoupOf(Func<uint, int> get, DamagePacket taken)
     {
-        if (get(Stat.CannotRecoverLife) != 0) return 0;
+        if (LifeRecovery.NonLeechBlocked(get)) return 0;
         double life = taken.MinTotal * get(Stat.DamageTakenGoesToLifeOver4SecondsPct);
         foreach (var (type, stat) in LifeRecoupByType) life += taken[type].Min * get(stat);
         return life / 100 * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0);

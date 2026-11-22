@@ -35,7 +35,7 @@ public sealed class LinkSkills
         public ushort SkillId => skillId;
         public string EffectId => effectId;
         public double Until;
-        public double ManaPerMinute;
+        public double ManaPerMinute, LifePerMinute, LifeCarry, LifePaidAt;
         // Its two buffs' rows, and the tags that tell this link's apart (Buff.Tag).
         public ushort SourceBuff, TargetBuff, SourceRow, TargetRow;
         public double? AwaySince;

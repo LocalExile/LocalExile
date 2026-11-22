@@ -27,7 +27,7 @@ public sealed class SpellTotemExecutionTests
 
     static Item Gem(string name) => ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)
         ?? Program.Items.FindGem(name)!.Value.Type);
-    static ushort Equip(Player player, string active, string support)
+    static ushort Equip(Player player, string active, string support, string? extraSupport = null)
     {
         var items = Game.ItemsOf(player);
         foreach (var previous in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Weapon1))
@@ -35,7 +35,8 @@ public sealed class SpellTotemExecutionTests
         var sword = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1")!);
         items.Add(PlayerInventories.Weapon1, 0, 0, sword with
         {
-            Sockets = [new(SocketColour.White, Gem(active)), new(SocketColour.White, Gem(support))], Links = [2],
+            Sockets = [.. new[] { active, support, extraSupport }.OfType<string>().Select(n => new ItemSocket(SocketColour.White, Gem(n)))],
+            Links = [(byte)(extraSupport is null ? 2 : 3)],
         });
         return Game.GemSkillEffects(player).Single().Id;
     }
@@ -130,7 +131,7 @@ public sealed class SpellTotemExecutionTests
 
     static async Task VerifySummonTotems()
     {
-        foreach (string active in new[] { "Summon Skeletons", "Raise Zombie", "Raise Spectre",
+        foreach (string active in new[] { "Summon Skeletons", "Summon Raging Spirit", "Raise Zombie", "Raise Spectre",
             "Animate Weapon", "Animate Guardian", "Summon Stone Golem", "Summon Holy Relic" })
         {
             var player = PlayerOf("SummonTotem" + Guid.NewGuid().ToString("N"));
@@ -139,7 +140,8 @@ public sealed class SpellTotemExecutionTests
             var session = Game.ProjectilesFor(player);
             try
             {
-                ushort skill = Equip(player, active, "SupportGemSpellTotem");
+                ushort skill = Equip(player, active, "SupportGemSpellTotem",
+                    active == "Summon Raging Spirit" ? "Summon Phantasm Support" : null);
                 var gem = Game.GemSkillEffects(player).Single(); var source = Game.SupportedSkill(player, skill);
                 Assert.True(Game.IsTotemSkill(player, skill));
                 Assert.True(Game.TotemPathAvailable(player, skill, gem.Effect));
@@ -167,6 +169,12 @@ public sealed class SpellTotemExecutionTests
                 await done.Task;
                 int expected = active == "Summon Skeletons" ? 2 : 1;
                 Assert.Equal(expected, player.Summons.Fighters.Count + player.Golems.All.Count);
+                if (active == "Summon Raging Spirit")
+                {
+                    var spirit = Assert.Single(player.Summons.Fighters.Values);
+                    Assert.Equal(0, spirit.Monster.Effects[Stat.IsTotem]);
+                    Assert.True(Game.SpellTotemCurrent(player, totem));
+                }
                 Assert.Equal(1000u, player.PlayerMana);
                 if (corpse is not null)
                 {

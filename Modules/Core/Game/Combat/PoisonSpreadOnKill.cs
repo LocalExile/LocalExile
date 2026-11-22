@@ -115,9 +115,11 @@ public static partial class Game
             if (m.Effects[Stat.CannotBePoisoned] != 0) continue;
             int avoid = m.Effects[Stat.AvoidPoisonPct];
             if (avoid > 0 && RandomRolls.Chance(avoid, 100, AreaRng(player))) continue;
-            if (m.Poisons.Add(now, dps, seconds * MonsterPoisons.SelfDuration(name => m.Effects[name])))
+            double lasts = seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]);
+            if (m.Poisons.Add(now, dps, lasts))
             {
                 player.Area.ActivePoisonMonsters.Add(mid);
+                InflictedLocked(player, m, AilmentType.Poison, now + lasts);
                 spread++;
             }
         }

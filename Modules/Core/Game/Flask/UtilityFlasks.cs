@@ -41,7 +41,10 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
             return false;
         }
-        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, Get, playerLevel);
+        int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
+        Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
+            : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
+        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel);
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.

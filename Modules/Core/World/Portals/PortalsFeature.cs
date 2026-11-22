@@ -6,8 +6,21 @@ using static Program;
 
 static class PortalsFeature
 {
+    // What the chat says when a run can no longer be entered and its portals are closed with it: the client's own
+    // BackendErrors texts (InstanceDoesNotExist, FailedToConnectToInstance).
+    const string MapInstanceGone = "The instance does not exist.";
+    const string MapNotEntered = "Failed to connect to instance";
+
     static MapDevice.Origin? MapReturnOrigin(Player player) =>
         MapDevice.ForInstance(player) is { } map ? map.ReturnTo ?? map.Entrance : null;
+
+    // A click on a portal back: at its cell by the device, in the instance the portal was opened from while that instance
+    // is live, else in a new one of the area when it is gone and the area is recreated on entry (a hideout is always seed 1,
+    // so the cell is the same, and the run's portals follow to its device: FollowDeviceToThisInstance). A transfer to an
+    // instance Auth no longer has is refused ("instance N unavailable in this league") and leaves the player in the map
+    // with a portal that does nothing (live 2026-11-18: the Simulacrum, six minutes after its hideout stood empty).
+    internal static PendingTransfer ReturnTransfer(MapDevice.Origin origin, bool instanceGone) =>
+        new(origin.Area, instanceGone ? 0 : origin.Instance, false, ArriveAt: (origin.X, origin.Y));
 
     // In a map's area (one a map item opens): a portal back to the hideout next to the arrival point, listed in 0x8f without
     // a device once the world is active (21-hideouts.md §5). It is not used up.
@@ -22,6 +35,7 @@ static class PortalsFeature
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
         var (x, y) = player.Layout.Near((player.Layout.SpawnX, player.Layout.SpawnY));
         uint id = player.TakeObjectId();
+        await global::Game.ListStandingPortal(player, id, destination, "the return portal");
         await global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()),
                 $"0x02bb create the return portal 0x{id:x} at ({x}, {y})", wake: true, awaitBirth: false);
@@ -45,6 +59,18 @@ static class PortalsFeature
         lock (player.MapPortals)
             if (!player.MapPortals.ContainsKey(use.TargetId) || player.MapPortalRun?.Run != run.Run) return;
         string character = run.Owner;
+        // The map's instance is gone (it expired while the hideout stood empty): the run ends here, before a portal is
+        // spent on a transfer that cannot arrive and the rest are left behind (live 2026-11-18). It asks for the open map's
+        // instance, not the run this connection's portals were placed with (still 0 for a guest who saw them before the
+        // first portal was taken).
+        ulong instance = MapDevice.OpenOf(character) is { } open && open.Run == run.Run ? open.Instance : 0;
+        if (instance != 0 && await AreaInstances.Gone(player, run.Area.Hash16, instance))
+        {
+            lock (player.MapPortals)
+                if (player.MapPortalRun?.Run != run.Run) return;   // another Activate replaced them meanwhile
+            await EndMapRun(player, run, MapInstanceGone);
+            return;
+        }
         // The portal at this place is used up: it is not there when the player comes back (the others are).
         if (MapDevice.TakePortal(character, at.Index, run.Run) is not var (map, left))
         {
@@ -61,7 +87,9 @@ static class PortalsFeature
             Done = r =>
             {
                 if (r.Ok) MapDevice.Entered(map, r.Instance);
-                else MapDevice.Close(character, run.Run);
+                // The instance went between the check and the transfer (or Auth refused it): the run is over, and the
+                // portals left must not stay as objects that do nothing when clicked.
+                else _ = EndMapRun(player, run, MapNotEntered);
             },
         }, $"map portal to {map.Area.Name}");
     }
@@ -164,8 +192,14 @@ static class PortalsFeature
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         if (MapReturnOrigin(player) is { } origin)
-            await ChangeArea(player,
-                new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)), "return to the map device");
+        {
+            bool gone = false;
+            if (AreaInstances.RecreatedOnEntry(origin.Area) && origin.Instance != 0)
+                gone = await AreaInstances.Gone(player, origin.Area, origin.Instance);
+            if (!PlayerActionCurrent(player, action)) return;   // the instance list took a moment
+            await ChangeArea(player, ReturnTransfer(origin, gone),
+                gone ? "return to the map device: its instance is gone, a new one" : "return to the map device");
+        }
         else if (player.ReturnPortalTo is ushort town and not 0)
             await ChangeArea(player, new PendingTransfer(town, 0, false, AtSpawn: true), "portal to town");
         else
@@ -206,16 +240,34 @@ static class PortalsFeature
             $"0x00e8 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
     }
 
-    // Whether Auth's list of the area's live instances, when it answered, no longer has the portal's instance.
-    internal static bool OriginExpired(ControlResponse response, ulong instance) =>
-        response.Ok && response.Instances is { } available && available.All(i => i.Id != instance);
-
+    // Drops the character's town portal whose source instance Auth no longer has: the area it leads to then gets no
+    // portal back to an instance that is gone.
     internal static async Task<bool> ExpireTownPortal(Player player, OpenPortal portal)
     {
-        var response = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = player.Ticket, Area = portal.Area });
-        if (!OriginExpired(response, portal.Instance)) return false;
+        if (!await AreaInstances.Gone(player, portal.Area, portal.Instance)) return false;
         OpenPortals.TryRemove(new KeyValuePair<string, OpenPortal>(CharacterName(player), portal));
         return true;
+    }
+
+    // A run that can no longer be entered ends: the map closes, the portals left go from every visitor, and the player
+    // who clicked is told why, instead of dead portals that do nothing when clicked staying until the next Activate
+    // (live 2026-11-18: a failed transfer removed the run while the client kept its three portals).
+    internal static async Task EndMapRun(Player player, MapDevice.OpenMap run, string why)
+    {
+        MapDevice.Close(run.Owner, run.Run);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} map run {run.Run} of {run.Area.Id} ends: {why}");
+        // The clicker is on its way out until a refused transfer resumes it, so it is added although DeviceVisitors
+        // leaves out a connection that is leaving the area.
+        foreach (var visitor in DeviceVisitors(player).Prepend(player).Distinct())
+        {
+            if (visitor.Closed) continue;
+            try
+            {
+                await RemoveMapPortals(visitor, run);
+                if (visitor == player) await Send(visitor, InstanceChat.ChatLine(why), $"0x0017 chat line \"{why}\"");
+            }
+            catch (Exception e) when (e is IOException or ObjectDisposedException) { } // Another visitor disconnected.
+        }
     }
 
     // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the
@@ -238,14 +290,19 @@ static class PortalsFeature
         }
         if (open.LeadsTo != player.Layout.Hash || await ExpireTownPortal(player, open) || player.Closed || player.LeavingArea
             || !OpenPortals.TryGetValue(CharacterName(player), out var current) || current != open) return;
-        var (x, y) = player.Layout.Near((player.Layout.SpawnX + 4, player.Layout.SpawnY));
+        var (x, y) = TownPortalPosition(player);
         uint id = player.TakeObjectId();
+        await global::Game.ListStandingPortal(player, id, open.Area, "the portal back");
         if (!await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}")) return;
         await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
         player.BackPortal = (id, x, y);
         global::Game.ListPortal(player, id, open.Area, "the portal back", MapPortalListMs);
     }
+
+    // The player's spawn follows its latest entrance or waypoint arrival; the standing portal does not.
+    internal static (int X, int Y) TownPortalPosition(Player player) =>
+        player.Layout.Near((player.Layout.Anchor.X + 4, player.Layout.Anchor.Y));
 
     // A Portal Scroll used (C→S 0x58) outside towns and hideouts: one scroll is spent and a portal opens where the player
     // stands, replacing the one there was (the scroll's earlier one, or a map's own portal back). From a map it leads to the
@@ -295,12 +352,14 @@ static class PortalsFeature
         // Beside the player, so the click that opens it is not on the player (a reopened portal stands where it stood).
         var (x, y) = !replace || player.Layout.Walkable is not { } walkable || !walkable(px + 3, py) ? (px, py) : (px + 3, py);
         uint id = player.TakeObjectId();
+        ushort leadsTo = toHideout ? mapOrigin?.Area ?? home!.AreaHash16 : town;
+        // Standing again on entry (not replace): listed before its create, so it shows idle rather than opening.
+        if (!replace) await global::Game.ListStandingPortal(player, id, leadsTo, "the town portal");
         if (!await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the Portal Scroll's portal 0x{id:x} at ({x}, {y})")) return;
         await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
         player.ReturnPortal = (id, x, y);
         player.ReturnPortalTo = toHideout ? (ushort)0 : town;
-        ushort leadsTo = toHideout ? mapOrigin?.Area ?? home!.AreaHash16 : town;
         string owner = CharacterName(player);
         // Map return portals never create an extra entrance beside the device: re-entry spends its shared six portals, and
         // arrives at this portal (MapEntrySpot).

@@ -50,8 +50,15 @@ public static partial class Game
     static extern IntPtr GetCurrentThread();
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     static extern bool GetThreadTimes(IntPtr thread, out long creation, out long exit, out long kernel, out long user);
+    // Linux: clock_gettime(CLOCK_THREAD_CPUTIME_ID = 3). Elsewhere the probe reports 0 rather than throwing.
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "clock_gettime")]
+    static extern int ClockGetTime(int clock, out Timespec time);
+    struct Timespec { public long Seconds, Nanoseconds; }
     static long ThreadCpuMilliseconds() =>
-        GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0;
+        OperatingSystem.IsWindows()
+            ? GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0
+            : OperatingSystem.IsLinux() && ClockGetTime(3, out var time) == 0 ? time.Seconds * 1000 + time.Nanoseconds / 1_000_000
+            : 0;
 
     public static async Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player player, long readAt = 0)
     {
@@ -167,7 +174,7 @@ public static partial class Game
                 string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(player, activeSet: true));
                 if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
                 {
-                    double duration = WeaponFor(player).AttackSeconds(CharacterPlayerStats(player));
+                    double duration = DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player));
                     if (!TryBeginRangedAttack(player, at, duration, use.SkillId, use.Slot, out var shot)) continue;
                     int projectileEpoch;
                     projectileEpoch = player.ProjectileEpoch;
@@ -247,7 +254,7 @@ public static partial class Game
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
                 bool leapSkill = attack && !IsTotemSkill(player, use.SkillId) && IsLeapSlam(player, gem.Effect);
-                if (attack && !leapSkill && !AttackReady(player, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
+                if (attack && !leapSkill && !AttackReady(player, use.SkillId, gem.Effect, gem.Level, out double attackSeconds, use.Slot))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={AreaTime(player):0.000})");
                     continue;
@@ -351,7 +358,7 @@ public static partial class Game
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
                             player.NextAttackAt = AttackTiming.After(at, player.NextAttackAt,
-                                Math.Max(TickSeconds, WeaponFor(player).AttackSeconds(CharacterPlayerStats(player)) / PlayerActionFactor(player)));
+                                Math.Max(TickSeconds, DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player)) / PlayerActionFactor(player)));
                     }
                 }
                 Mark("begin");
@@ -540,6 +547,13 @@ public static partial class Game
             }
             else if (id == InstanceEntities.PanelToggleId)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0123 panel {(bytes[2] != 0 ? "opened" : "closed")}");
+            else if (id == InstanceEntities.CancelBuffId)
+            {
+                uint raw = InstanceEntities.ReadCancelBuff(bytes);
+                if (raw <= ushort.MaxValue) await GameEvents.RunBuffCancel(player, (ushort)raw);
+            }
+            else if (id == InstanceProtocol.TutorialCompleteId)
+                await CompleteTutorial(player, InstanceProtocol.ReadTutorialComplete(bytes));
             else if (id == InstanceItems.DropItemId)
                 await DropItem(player);
             else if (id == InstanceItems.CommandId)
@@ -640,6 +654,10 @@ public static partial class Game
             }
             else if (id == InstanceItems.InventoryRequestId)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{id:x4} (inventory request, not handled yet): {Convert.ToHexString(bytes)}");
+            else if (id == InstanceSkinTransfers.BindId)
+                await NativeSkinTransfer(player, InstanceSkinTransfers.ReadBind(bytes));
+            else if (id == InstanceSkinTransfers.ReclaimId)
+                await NativeReclaimSkin(player, InstanceSkinTransfers.ReadReclaim(bytes));
             else if (id == InstanceItems.PickUpItemId)
                 await PickUpItem(player, InstanceItems.ReadPickUpItem(bytes));
             else if (id == InstanceProtocol.ExitToCharacterSelectId)
@@ -715,6 +733,8 @@ public static partial class Game
             }
             else if (id == InstanceProtocol.ChannelEndId)
                 ChannelReleased(player, player.ClockAt(readAt));
+            else if (id == InstanceProtocol.RetargetActionId)
+                await RetargetAction(player, InstanceProtocol.ReadRetargetAction(bytes), readAt);
             else if (id == InstanceProtocol.SwapWeaponsId)
             {
                 // The weapon swap: the hands' rows and the other set's trade their items (the client shows the active set in
@@ -789,8 +809,24 @@ public static partial class Game
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
                 await TakeFromStash(player, move.Tab, move.ItemId, all: move.Bulk != 0);
             }
-            else if (id == InstanceStash.MoveTabId)
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d1 stash tab into a folder (not handled): {Convert.ToHexString(bytes)}");
+            else if (id == InstanceStash.MoveTabId && bytes.Length >= InstanceStash.MoveTabLength)
+            {
+                // A tab into a folder, out of one, or (its own index as the folder) into a new one; the list goes out again.
+                var (kind, tab, folder) = InstanceStash.ReadMoveTab(bytes);
+                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
+                int? done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).MoveToFolder(tab, folder);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d1 stash {kind} tab {tab} into folder {(folder == ushort.MaxValue ? "none" : folder == tab ? "(new)" : folder)}: " +
+                    (done is int f ? f == ushort.MaxValue ? "out of its folder" : $"in folder {f}" : "refused"));
+                await SendTabListAgain(player, kind);
+            }
+            else if (id == InstanceStash.DeleteFolderId && bytes.Length >= InstanceStash.DeleteFolderLength)
+            {
+                var (kind, folder) = InstanceStash.ReadDeleteFolder(bytes);
+                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
+                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).DeleteFolder(folder);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d2 stash {kind} folder {folder} deleted: {(done ? "its tabs moved out" : "refused")}");
+                await SendTabListAgain(player, kind);
+            }
             else if (id == InstanceNpcs.OptionId)
                 await ChooseNpcOption(player, InstanceNpcs.ReadOption(bytes));
             else if (id == InstanceHideouts.SelectId)
@@ -854,13 +890,20 @@ public static partial class Game
                     if (!ReferenceEquals(arrivalLayout, player.Layout)) player.Use(arrivalLayout);
                     if (arrivalNote is not null) Console.WriteLine($"[gateway] {player.Connection.Remote} {arrivalNote}");
                     Sirus.ConfigureArrival(player);
-                    RecordVisit(player);
                     // An area with a Trial of Ascendancy gives the Lord's Labyrinth quest, before the player object carries the flags.
                     if (LabyrinthTrials.For(player.Layout.Id) is not null && !player.Character.HasQuestFlag(Quests.LabyrinthQuestReceived))
                         await SetQuestFlags(player, [Quests.LabyrinthQuestReceived]);
                     await SendPlayer(player);
                     await PlayerEnteredArea(player);
+                    // Record the area visit after 0x2bb PlayerObject is sent: the client's CharacterAudioController
+                    // (0x140108c80) snapshots the 0x2bb quest flags as its baseline, so the new area's StartQuestFlags
+                    // (Visited-*) must transition 0 -> 1 in a subsequent 0x2bc update (sent by SendWaypoints below, or
+                    // directly when the waypoint table is absent) for Enter* character voice lines to play once on first entry.
+                    bool newlyVisited = RecordVisit(player);
                     await SendWaypoints(player);
+                    if (newlyVisited && WaypointCatalog.Areas.Entries.Count == 0)
+                        await SendWorldRecord(player, player.Id, [], "0x02bc player quest flags (area visit)",
+                            atGate: () => QuestFlagPresentation(player));
                     uint gold = PersonalStashOf(player).Gold;
                     await Send(player, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (account, {player.Character.League ?? "Standard"})");
                     // The worn cosmetics (S→C 0x1f3): the client's worn table starts empty with every instance connection.
@@ -905,6 +948,27 @@ public static partial class Game
                     // matches the final standing cell and AreaBuffs.Set is never cleared during entry.
                     await StartGracePeriod(player);
                 }
+            }
+            else if (id == InstanceItems.CurrencyApplicationForesightRequestId)
+            {
+                // C→S 0x29d: Hinekora's Lock preview request (20 bytes). The 0x2a0 answer uses the same key.
+                var req = InstanceItems.ReadCurrencyApplicationForesightRequest(bytes);
+                var items = ItemsOf(player);
+                var currency = items.RowOf(req.CurrencyId) is byte currencyRow
+                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == req.CurrencyId) : null;
+                var target = items.RowOf(req.TargetId) is byte targetRow
+                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == req.TargetId) : null;
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                    ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
+                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
+                    : null;
+                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
+                player.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId,
+                    target?.Item.ForeseeSeed ?? 0, preview);
+                await Send(player, InstanceItems.CurrencyApplicationForesightResult(
+                    req.Key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+                    preview is null ? [] : [preview]),
+                    $"0x02a0 foresight preview key {req.Key} for item {req.TargetId}: {(preview is null ? "refused" : "preview")}");
             }
         }
         // a1q5: after a read that moved items, the Medicine Chest's flag (and its removal once Nessa has one), here on the

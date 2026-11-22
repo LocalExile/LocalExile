@@ -24,6 +24,9 @@ public static partial class Game
     // Speed): the client's own BuffDefinitions row (505) and the walk factor MonsterAilments applies while it runs.
     internal const ushort HinderedBuffRow = 505;
     internal const double HinderSeconds = 4;
+    // Covered in Ash (BuffDefinitions 807, cover_in_ash): 20% less Movement Speed and 20% increased Fire Damage taken.
+    public const ushort CoveredInAshBuffRow = 807;
+    public const int CoveredInAshFireTakenPct = 20;
 
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
@@ -72,7 +75,10 @@ public static partial class Game
         if (m.Effects[Stat.ImmuneToMaim] != 0 || RandomRolls.Chance(m.Effects[Stat.AvoidMaimPctChance], 100, random))
             return false;
         if (!RandomRolls.Chance(chance, 100, random)) return false;
-        { m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds); m.PresentationChanged?.Invoke(); }
+        // Settle elapsed bleed damage at its Rupture deadlines using the target's previous Maim.
+        if (physicalTaken > 0 && m.Bleeds.Burning) SettleBleeding(m, now);
+        m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
+        m.PresentationChanged?.Invoke();
         physicalTaken = Math.Max(0, physicalTaken);
         if (physicalTaken > 0 && (physicalTaken >= m.MaimedPhysicalTakenPct || m.MaimedPhysicalTakenUntil <= now))
         {
@@ -83,8 +89,11 @@ public static partial class Game
     }
 
     /// <summary>Whether a timed movement debuff is running, so an otherwise idle monster still needs its walk factor
-    /// recomputed (the ailment-idle skip must not starve Maim or Hinder).</summary>
-    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now;
+    /// recomputed (the ailment-idle skip must not starve Maim, Hinder or Covered in Ash).</summary>
+    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now || m.CoveredInAshUntil > now;
+
+    /// <summary>The increased fire damage Covered in Ash applies at <paramref name="now"/> (20% while active, 0 otherwise).</summary>
+    public static int CoveredInAshFireTaken(SpawnedMonster m, double now) => m.CoveredInAshUntil > now ? CoveredInAshFireTakenPct : 0;
 
     /// <summary>The physical damage reduction Crush takes away from a monster at <paramref name="now"/> (15% while
     /// crushed, 0 otherwise); without a time Crush does not count.</summary>
@@ -187,6 +196,9 @@ public static partial class Game
     public const int WitheredMaxStacks = 15;
     public const ushort WitheredBuffRow = 506;
 
+    public static double WitherDurationSeconds(double baseSeconds, Func<uint, int> get) =>
+        baseSeconds / Math.Max(0.01, 1 + get(Stat.WitherExpireSpeedPlusPct) / 100.0);
+
     /// <summary>How long a hit withers for, 0 for not: one roll for withered_on_hit_for_2_seconds_%_chance and Withering
     /// Touch's withered_on_hit_chance_%, for its support_withered_base_duration_ms or else 2 s, expiring slower by
     /// wither_expire_speed_+% (the Eldritch gloves' "Withered you Inflict expires X% slower").</summary>
@@ -194,16 +206,29 @@ public static partial class Game
     {
         if (!RandomRolls.Chance(get(Stat.WitheredOnHitFor2SecondsPctChance) + get(Stat.WitheredOnHitChancePct), 100, random)) return 0;
         double seconds = get(Stat.SupportWitheredBaseDurationMs) is > 0 and var ms ? ms / 1000.0 : 2;
-        return seconds / Math.Max(0.01, 1 + get(Stat.WitherExpireSpeedPlusPct) / 100.0);
+        return WitherDurationSeconds(seconds, get);
     }
 
     // A hit that landed on a living monster, in the area's frame: one more Withered stack, with withered_effect_+%.
     public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random)
     {
         if (m.Mods.Effects[Stat.ImmuneToWither] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;
+        ApplyWitherStacksLocked(m, 1, seconds, get, now);
+    }
+
+    // Adds <paramref name="stacks"/> Withered stacks with already-scaled duration <paramref name="seconds"/>
+    // (capped at WitheredMaxStacks = 15, replacing the earliest-ending stack).
+    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now)
+    {
+        if (stacks <= 0 || seconds <= 0 || m.Mods.Effects[Stat.ImmuneToWither] > 0) return;
+        double pct = WitheredPct * Math.Max(0, 1 + get(Stat.WitheredEffectPlusPct) / 100.0);
         m.Withered.RemoveAll(s => s.Until <= now);
-        if (m.Withered.Count >= WitheredMaxStacks) m.Withered.Remove(m.Withered.MinBy(s => s.Until));
-        { m.Withered.Add((now + seconds, WitheredPct * Math.Max(0, 1 + get(Stat.WitheredEffectPlusPct) / 100.0))); m.PresentationChanged?.Invoke(); }
+        for (int i = 0; i < stacks; i++)
+        {
+            if (m.Withered.Count >= WitheredMaxStacks) m.Withered.Remove(m.Withered.MinBy(s => s.Until));
+            m.Withered.Add((now + seconds, pct));
+        }
+        m.PresentationChanged?.Invoke();
     }
 
     /// <summary>The increased chaos damage its running Withered stacks give at <paramref name="now"/>, 0 without a time.</summary>

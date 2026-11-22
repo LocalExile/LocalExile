@@ -107,6 +107,21 @@ public sealed record MonsterGroundSpec(string Type, int ArtVariation, IReadOnlyD
 /// gives the player and how long it lasts.</summary>
 public sealed record MonsterDebuffSpec(ushort Row, IReadOnlyDictionary<uint, int> Stats, double Seconds);
 
+public sealed record CorruptedBloodOnHit(int Stacks, double Seconds, int PhysicalPerMinute, int AverageHitPercentPerMinute)
+{
+    public static CorruptedBloodOnHit? From(Func<uint, int> stat)
+    {
+        int cleave = stat(Stat.CorruptedBloodCleaveStacksToAdd);
+        int stacks = cleave > 0 ? cleave : stat(Stat.CorruptedBloodOnHitNumStacks);
+        if (stacks <= 0) return null;
+        int duration = stat(Stat.CorruptedBloodOnHitDuration);
+        // shortcut: cleave rows omit duration; use the other three-stack beam's five seconds until a retail cleave trace confirms it.
+        double seconds = duration > 0 ? duration / 1000d : cleave > 0 ? 5 : 0;
+        return new(stacks, seconds, cleave > 0 ? stat(Stat.BasePhysicalDamageToDealPerMinute) : 0,
+            stat(Stat.CorruptedBloodOnHitPctAverageDamageToDealPerMinutePerStack));
+    }
+}
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     /// <summary>The ground the skill leaves where its area lands or its projectile ends (Game.HostileGrounds); null for
@@ -120,6 +135,7 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public bool Proxy { get; init; }
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
+    public CorruptedBloodOnHit? CorruptedBlood { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
@@ -156,6 +172,10 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>The action casts, but its contact is secondary damage rather than attack or spell damage.</summary>
+    public bool Secondary { get; init; }
+    /// <summary>The skill's native cooldown in seconds (GrantedEffectsPerLevel Cooldown) for non-kit monsters; 0 when none.</summary>
+    public double CooldownSeconds { get; init; }
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
     /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
     public bool DualWielding { get; init; }
@@ -309,6 +329,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
+    /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it.</summary>
+    public bool NonBlocking { get; init; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
@@ -324,6 +346,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
+    /// <summary>When a non-kit monster's cooldown-gated attack (e.g. BatScreech, MotherOfFlamesMagmaOrb) is ready again.</summary>
+    public double CooldownReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
@@ -473,6 +497,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterPoisons Poisons = new();
     // The player's Contagion on it (MonsterContagion.cs), in the area's frame.
     public readonly MonsterContagion Contagion = new();
+    public MonsterContagion? Bane;
     // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), in the area's frame.
     public readonly MonsterEssenceDrain EssenceDrain = new();
     // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), in the area's frame.
@@ -482,6 +507,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double OverpoweredUntil;
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
+    // The ailments of kinds the rules define (RuleAilments); kept on the corpse.
+    public readonly RuleAilments RuleAilments = new();
     // All outgoing attacks share this defender's sequence, in the area's frame. A new spawn starts fresh.
     public readonly GameServer.Core.World.EvasionEntropy AttackEvasion = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
@@ -503,6 +530,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // row → buff instance), and the increased damage taken they give (every type; fire, cold and lightning) that its
     // hits read.
     public double TauntedUntil = double.NegativeInfinity, TauntShownUntil;
+    public (Player Owner, TotemState.Totem Source, double Until)? DecoyTaunt;
     public ushort TauntBuff;
     // Intimidated and unnerved by his hits (Game.HitDebuffsOnHitLocked) until when, shown the same way as the taunt.
     public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
@@ -512,6 +540,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // damage reduction (Game.CrushReduction).
     public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
     public ushort CrushBuff;
+    // Covered in Ash by his hits (Wildfire Phloem, etc.) until when: 20% less movement speed and 20% increased fire
+    // damage taken, shown with BuffDefinitions 807 (cover_in_ash).
+    public double CoveredInAshUntil = double.NegativeInfinity, CoveredInAshShownUntil;
+    public ushort CoveredInAshBuff;
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
@@ -553,6 +585,43 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Whose Flesh and Stone (Blood Stance) it is in, and the aura's radius: a hit's falloff with the distance.</summary>
     public Player? FleshFrom;
     public int FleshRadius;
+    // Values and timed marks each player keeps on it, by (the player's Id, a key the rules name): a party shares its
+    // monsters, so each source sets and clears only its own entries and never another participant's.
+    readonly Dictionary<(uint Source, string Stat), int> sourceValues = [];
+    readonly Dictionary<(uint Source, string Key), double> sourceMarks = [];
+    /// <summary>Whether any source keeps a value on it.</summary>
+    public bool HasSourceValues => sourceValues.Count > 0;
+    /// <summary>Every source's value of <paramref name="stat"/> on it.</summary>
+    public IEnumerable<(uint Source, int Value)> SourceValues(string stat)
+    {
+        foreach (var ((source, key), value) in sourceValues) if (key == stat) yield return (source, value);
+    }
+    /// <summary>Sets <paramref name="source"/>'s value of <paramref name="stat"/> on it; 0 removes the entry.</summary>
+    public void SetSourceValue(uint source, string stat, int value)
+    {
+        if (value == 0) { if (sourceValues.Count > 0) sourceValues.Remove((source, stat)); }
+        else sourceValues[(source, stat)] = value;
+    }
+    /// <summary>Marks <paramref name="key"/> as <paramref name="source"/>'s until <paramref name="until"/> (the later
+    /// of this and an earlier mark).</summary>
+    public void MarkSource(uint source, string key, double until)
+    {
+        if (until > sourceMarks.GetValueOrDefault((source, key), double.NegativeInfinity)) sourceMarks[(source, key)] = until;
+    }
+    /// <summary>Whether <paramref name="source"/>'s mark of <paramref name="key"/> runs at <paramref name="now"/>.</summary>
+    public bool SourceMarked(uint source, string key, double now) =>
+        sourceMarks.TryGetValue((source, key), out double until) && until > now;
+    /// <summary>Every source's mark of <paramref name="key"/> on it, expired ones included.</summary>
+    public IEnumerable<(uint Source, double Until)> SourceMarks(string key)
+    {
+        foreach (var ((source, k), until) in sourceMarks) if (k == key) yield return (source, until);
+    }
+    /// <summary>Removes every value and mark <paramref name="source"/> keeps on it (the source left the instance).</summary>
+    public void ForgetSource(uint source)
+    {
+        foreach (var key in sourceValues.Keys.Where(k => k.Source == source).ToList()) sourceValues.Remove(key);
+        foreach (var key in sourceMarks.Keys.Where(k => k.Source == source).ToList()) sourceMarks.Remove(key);
+    }
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;
@@ -582,6 +651,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
     // removed. Owned by the area's frame.
     public bool CorpseConsumed;
+    // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
+    public bool CreatedAsCorpse;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
     // Kept on this exact monster instance until the kill publication consumes it.
     public UnhingedHitKillReceipt? UnhingedHitKill;
@@ -689,6 +760,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
     public string? RingArt { get; init; }
     /// <summary>The current gem's neutral righteous_fire_spell_damage_+%_final value, refreshed from its own stats.</summary>
     public int SpellDamageMore { get; set; }
+    /// <summary>The retained skill's two conditional support values and its pending changes in added damage factor.</summary>
+    public (int Lifetap, int PerInspiration) ConditionalSupportMore { get; set; }
+    public List<(double At, double Extra)>? SupportDamageChanges { get; set; }
     public int EnergyShieldBurnPctPerMinute { get; init; }
     public int EnergyShieldDamagePctPerMinute { get; init; }
     /// <summary>The exact physical gem source that activated this fire, or null for legacy state.</summary>
@@ -706,9 +780,11 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
 public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort Skill)
 {
     public double NextVolley;
-    public int ManaPerMinute;
+    public int CostPerMinute;
+    public bool PaysLife, OutOfLife;
+    public double LifeCostCarry;
     public bool Ended;
-    public readonly Queue<(uint Id, double Landed, double Gone)> Blades = new();
+    public readonly List<(uint Id, (int X, int Y) At, double Landed, double Gone)> Blades = [];
 }
 
 // The last instance list shown (0xae); 0xaf picks a row of it.
@@ -772,6 +848,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public RecentEvents RecentEvents => recentEvents ??= new() { Changed = () => MarkStatsDirty(StatInput.RecentEvents) };
     RecentEvents? recentEvents;
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // The player's ailments of kinds the rules define (RuleAilments), cleared with the elemental ones.
+    public readonly RuleAilments RuleAilments = new();
     // Incoming bleeding and poison from monster contacts, reflected outgoing ailments and traps. This
     // is the sole state/damage owner and is advanced by the player recovery writer.
     public readonly IncomingDamagingAilments IncomingAilments = new();
@@ -788,6 +866,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public int IncomingHitEpoch;
     /// <summary>The last incoming bleed/poison state actually presented through the player send gate.</summary>
     public IncomingDamagingAilments.State? PresentedIncomingAilments;
+    public int PresentedIncomingAilmentEpoch;
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
@@ -817,8 +896,10 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             RecentEnemyHits.Clear();
             RecentEvents.Clear();
             ElementalAilments.Clear();
+            RuleAilments.Clear();
             IncomingAilments.Clear();
             PresentedIncomingAilments = null;
+            PresentedIncomingAilmentEpoch = IncomingHitEpoch;
         }
     }
     public int ProjectileEpoch;
@@ -1101,6 +1182,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
     public BladefallTrarthusState? BladefallTrarthus;
+    public readonly List<BladefallTrarthusState> LingeringBladeSources = [];
     /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
     public string? ModelHands;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
@@ -1108,6 +1190,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     Flasks.Effects? flaskEffects;
     /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>
     public UtilityFlasks.Effects UtilityFlaskEffects { get; } = new();
+    /// <summary>The tinctures active/lingering on the flask belt, with shared Mana Burn / Weeping Wounds and cooldown.</summary>
+    public Tinctures.Effects TinctureEffects { get; } = new();
     /// <summary>Life, mana and hybrid flasks' "during effect" mods while their recovery runs.</summary>
     public UtilityFlasks.RecoveryDuringEffects RecoveryFlaskStats { get; } = new();
     /// <summary>Ignited corpses consumed since the flask-charge loop last paid them (Cinderswallow Urn's recharge).</summary>
@@ -1145,6 +1229,16 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public volatile bool Phasing;
     /// <summary>The next buff instance (S→C 0x1c1): the area's, shared by every entity in it (AreaBuffs.Next).</summary>
     public ushort NextBuff { get => Area.Buffs.Next; set => Area.Buffs.Next = value; }
+    /// <summary>The Elemental Overload indicator buff's instance (0: none sent yet). One instance, bound to the skill
+    /// that last crit; the client draws the diamond under that skill's icon and expires the buff after its window.</summary>
+    public ushort ElementalOverloadBuff;
+
+    /// <summary>When the Elemental Overload indicator's window ends (last crit + 8 s); the player tick removes the buff
+    /// then, as the client does not expire this invisible buff itself.</summary>
+    public double ElementalOverloadBuffUntil;
+    /// <summary>The lowest of the buff instances NextBuff never hands out: the rules keep these for buffs that always
+    /// use the same instance on their object (MonsterElementalAilments.Instance is the top three).</summary>
+    public const ushort FixedBuffInstances = ushort.MaxValue - 7;
     public uint PlayerMaxLife => Pools.Life;
     /// <summary>The shared Life reservation owner's latest usable cap. Full maximum Life is unchanged.</summary>
     public int PlayerLifeCap { get; set; } = int.MaxValue;
@@ -1273,6 +1367,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public bool TutorialGettingUp;
     public TaskCompletionSource? TutorialDialogueSkipped;
     public string? NpcFinishFlag;
+    public int? NpcFinishLeagueFlag;
     // The dialogue row whose script acts when its talk ends (DoNPCChat, FinishNPCChat, SendOpenScreen, AreaTransitionTo:
     // Game.EndTalkScript), or null.
     public NpcCatalog.Talk? NpcTalkScript;
@@ -1282,6 +1377,11 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // quest that forms one (Quests.FormsRule); in the area's frame' lock.
     public Dictionary<string, (int X, int Y)> LaterFormPoints => Instance?.World.LaterFormPoints ?? ownLaterFormPoints;
     readonly Dictionary<string, (int X, int Y)> ownLaterFormPoints = new(StringComparer.Ordinal);
+    // The area transitions created on this instance's client (ids), and those a script showed before their quest flag
+    // (Game.TransitionShown).
+    public HashSet<uint> ShownTransitions = [];
+    public HashSet<uint> ScriptShownTransitions = [];
+    public LabyrinthDay.Entry? LabyrinthEntry;
     public int? NpcRewardOffer;
     public Dictionary<uint, Item> NpcRewardItems = [];
     // NPCs created on this connection by object id (town NPCs, /npc).

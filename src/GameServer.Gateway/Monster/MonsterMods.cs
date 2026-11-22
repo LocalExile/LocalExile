@@ -90,27 +90,34 @@ public sealed class MonsterModEffects
         * More(_moreLife)));
 
     // The more life and more damage stats modules handed over, in the order they were handed over.
-    static volatile uint[] _moreLife = [], _moreDamage = [];
+    static volatile uint[] _moreLife = [], _moreDamage = [], _moreTaken = [];
     static readonly object MoreLock = new();
 
     /// <summary>A hand-over for modules: each stat in <paramref name="life"/> (<paramref name="damage"/>) that a monster
     /// has multiplies its <see cref="MaxLife"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
     /// framework names none; with none handed over, or none on the monster, the factor is exactly 1. Disposing the result
     /// (the module's lifetime) takes back the stats it added.</summary>
-    public static IDisposable HandOverMore(IReadOnlyCollection<uint> life, IReadOnlyCollection<uint> damage)
+    public static IDisposable HandOverMore(IReadOnlyCollection<uint> life, IReadOnlyCollection<uint> damage) =>
+        HandOverMore(life, damage, []);
+
+    /// <summary><see cref="HandOverMore(IReadOnlyCollection{uint}, IReadOnlyCollection{uint})"/> with the stats in
+    /// <paramref name="taken"/> as a more or less factor on the damage the monster takes (<see cref="DamageTaken"/>).</summary>
+    public static IDisposable HandOverMore(IReadOnlyCollection<uint> life, IReadOnlyCollection<uint> damage, IReadOnlyCollection<uint> taken)
     {
-        uint[] addedLife, addedDamage;
+        uint[] addedLife, addedDamage, addedTaken;
         lock (MoreLock)
         {
             addedLife = [.. life.Distinct().Except(_moreLife)];
             addedDamage = [.. damage.Distinct().Except(_moreDamage)];
+            addedTaken = [.. taken.Distinct().Except(_moreTaken)];
             _moreLife = [.. _moreLife, .. addedLife];
             _moreDamage = [.. _moreDamage, .. addedDamage];
+            _moreTaken = [.. _moreTaken, .. addedTaken];
         }
-        return new MoreHandOver(addedLife, addedDamage);
+        return new MoreHandOver(addedLife, addedDamage, addedTaken);
     }
 
-    sealed class MoreHandOver(uint[] life, uint[] damage) : IDisposable
+    sealed class MoreHandOver(uint[] life, uint[] damage, uint[] taken) : IDisposable
     {
         int _disposed;
 
@@ -121,6 +128,7 @@ public sealed class MonsterModEffects
             {
                 _moreLife = [.. _moreLife.Except(life)];
                 _moreDamage = [.. _moreDamage.Except(damage)];
+                _moreTaken = [.. _moreTaken.Except(taken)];
             }
         }
     }
@@ -132,31 +140,50 @@ public sealed class MonsterModEffects
         return factor;
     }
 
-    /// <summary>The monster's hit before the player's defences: the base physical damage raised by damage_+% and
-    /// physical_damage_+% (increased, the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
-    /// and lowered by monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the
-    /// rarity's hit always was (Hillock at level 1: 6.6–12.3 → 7–12); then the "gain as extra" stats add their types
-    /// (fire, cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
-    public DamagePacket Hit(DamagePacket physical)
+    /// <summary>The monster's hit before the player's defences: each base damage component raised by damage_+% (and
+    /// physical_damage_+% on physical), by the rarity's monster_rarity_damage_+%_final (more) and lowered by
+    /// monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the rarity's hit always
+    /// was (Hillock at level 1: 6.6–12.3 → 7–12); then physical conversion / "gain as extra" stats add their types (fire,
+    /// cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
+    public DamagePacket Hit(DamagePacket baseHit)
     {
-        double factor = (1 + (this[Stat.DamagePlusPct] + this[Stat.PhysicalDamagePlusPct]) / 100.0)
-            * (1 + this[Stat.MonsterRarityDamagePlusPctFinal] / 100.0)
+        double more = (1 + this[Stat.MonsterRarityDamagePlusPctFinal] / 100.0)
             * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0) * More(_moreDamage)
             * (1 - this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
         var conversion = new DamageConversion()
+            .Add(DamageType.Physical, DamageType.Fire, this[Stat.BasePhysicalDamagePctToConvertToFire])
+            .Add(DamageType.Physical, DamageType.Cold, this[Stat.BasePhysicalDamagePctToConvertToCold])
+            .Add(DamageType.Physical, DamageType.Lightning, this[Stat.BasePhysicalDamagePctToConvertToLightning])
             .Add(DamageType.Physical, DamageType.Chaos, this[Stat.BasePhysicalDamagePctToConvertToChaos])
             .AddGain(DamageType.Physical, DamageType.Fire, this[Stat.PhysicalDamagePctToAddAsFire])
             .AddGain(DamageType.Physical, DamageType.Cold, this[Stat.PhysicalDamagePctToAddAsCold])
             .AddGain(DamageType.Physical, DamageType.Lightning, this[Stat.PhysicalDamagePctToAddAsLightning]);
-        var physicalRange = physical[DamageType.Physical];
-        var hit = DamagePacket.Of(DamageType.Physical, Math.Max(1, Math.Round(physicalRange.Min * factor)),
-            Math.Max(1, Math.Round(physicalRange.Max * factor))).Convert(conversion).Round();
+        var scaled = DamagePacket.Empty;
+        foreach (var (type, range) in baseHit.Components)
+        {
+            if (range.Max <= 0) continue;
+            double factor = (1 + (this[Stat.DamagePlusPct] + (type == DamageType.Physical ? this[Stat.PhysicalDamagePlusPct] : 0)) / 100.0) * more;
+            scaled = scaled.Add(type, new(Math.Max(1, Math.Round(range.Min * factor)), Math.Max(1, Math.Round(range.Max * factor))));
+        }
+        var hit = scaled.Convert(conversion).Round();
         int chaos = this[Stat.NonChaosDamageToAddAsChaosDamagePct];
         if (chaos <= 0) return hit;
         double minChaos = 0, maxChaos = 0;
         foreach (var (type, range) in hit.Components)
             if (type != DamageType.Chaos) { minChaos += range.Min * chaos / 100.0; maxChaos += range.Max * chaos / 100.0; }
         return hit.Add(DamageType.Chaos, new GameServer.Core.World.DamageRange(minChaos, maxChaos).Round());
+    }
+
+    /// <summary>Typed damage over time uses global damage modifiers; hit conversion and gain-as-extra do not apply.</summary>
+    public double OverTime(double perSecond, DamageType type, int extraIncreased = 0)
+    {
+        string name = type.ToString().ToLowerInvariant();
+        return Math.Max(0, perSecond) * Math.Max(0, 1 + ((double)this[Stat.DamagePlusPct] + this[Stat.Of(name + "_damage_+%")]
+            + this[Stat.DamageOverTimePlusPct] + extraIncreased) / 100d)
+            * Math.Max(0, 1 + ((double)this[Stat.Of("damage_over_time_multiplier")] + this[Stat.Of("non_ailment_" + name + "_damage_over_time_multiplier")]) / 100d)
+            * Math.Max(0, 1 + this[Stat.MonsterRarityDamagePlusPctFinal] / 100d)
+            * Math.Max(0, 1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100d) * More(_moreDamage)
+            * Math.Max(0, 1 - this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100d);
     }
 
     /// <summary>A hit with the "gain as extra" stats of <paramref name="extra"/> added and its damage_+% (an encounter's
@@ -176,8 +203,21 @@ public sealed class MonsterModEffects
     /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity's more speed
     /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final). Every attack-speed mod of the pool gives cast speed
     /// alike, so a casting monster's skill uses the same time.</summary>
-    public double AttackSeconds(double baseSeconds) => baseSeconds
-        / Math.Max(0.1, 1 + this[Stat.AttackSpeedPlusPct] / 100.0)
+    public double AttackSeconds(double baseSeconds, bool spell = false) => baseSeconds
+        / Math.Max(0.1, 1 + this[spell ? Stat.BaseCastSpeedPlusPct : Stat.AttackSpeedPlusPct] / 100.0)
+        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
+
+    /// <summary>The attack time with a skill's own increased and more/less attack speed modifiers.</summary>
+    public double AttackSeconds(double baseSeconds, int skillIncreasedPct, int skillMorePct) => baseSeconds
+        / Math.Max(0.1, 1 + (this[Stat.AttackSpeedPlusPct] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + skillMorePct / 100.0)
+        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
+
+    /// <summary>The cast time with monster cast-speed mods and the skill's own base_cast_speed_+% /
+    /// active_skill_cast_speed_+%_final modifiers (e.g. Flame Mother -66%, Inua Totem -33%).</summary>
+    public double CastSeconds(double baseSeconds, int skillIncreasedPct = 0, int skillMorePct = 0) => baseSeconds
+        / Math.Max(0.1, 1 + (this[Stat.BaseCastSpeedPlusPct] + this[Stat.AttackAndCastSpeedPlusPct] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + skillMorePct / 100.0)
         / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
 
     /// <summary>An attack time of <see cref="AttackSeconds"/> with <paramref name="extraPct"/> more increased attack speed (a
@@ -225,10 +265,11 @@ public sealed class MonsterModEffects
 
     /// <summary>The factor on damage the monster takes: base_damage_taken_+% with <paramref name="increasedPct"/> (its
     /// shock, Glacial Wave's chill and the player's debuffs on it, which add to it) added (increased/reduced), and for
-    /// spells the rare mod's rare_monster_mod_spell_damage_taken_+%_final (less).</summary>
+    /// spells the rare mod's rare_monster_mod_spell_damage_taken_+%_final (less), and the handed-over more or less damage
+    /// taken stats (<see cref="HandOverMore(IReadOnlyCollection{uint}, IReadOnlyCollection{uint}, IReadOnlyCollection{uint})"/>).</summary>
     public double DamageTaken(bool spell, double increasedPct = 0) => Math.Max(0, 1 + (this[Stat.BaseDamageTakenPlusPct] + increasedPct) / 100.0)
         * (spell ? Math.Max(0, 1 + this[Stat.RareMonsterModSpellDamageTakenPlusPctFinal] / 100.0) : 1)
-        * Math.Max(0, 1 + this[Stat.MapMonsterDamageTakenPlusPctFinalFromAtlasKeystone] / 100.0);
+        * Math.Max(0, 1 + this[Stat.MapMonsterDamageTakenPlusPctFinalFromAtlasKeystone] / 100.0) * More(_moreTaken);
 
     /// <summary>The chance to block an attack (monster_base_block_%), capped at Monster.ot's maximum_block_%.</summary>
     public int BlockChance => Math.Clamp(this[Stat.MonsterBaseBlockPct], 0, MaxBlock);
@@ -293,7 +334,11 @@ public sealed class MonsterModCatalog
     {
         Stat.MaximumLifePlusPct, Stat.DamagePlusPct, Stat.PhysicalDamagePlusPct,
         Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning,
-        Stat.BasePhysicalDamagePctToConvertToChaos,
+        Stat.BasePhysicalDamagePctToConvertToFire, Stat.BasePhysicalDamagePctToConvertToCold,
+        Stat.BasePhysicalDamagePctToConvertToLightning, Stat.BasePhysicalDamagePctToConvertToChaos,
+        Stat.DamagePlusPctWhenOnLowLife, Stat.AttackSpeedPlusPctWhenOnLowLife, Stat.CastSpeedPlusPctWhenOnLowLife,
+        Stat.MovementVelocityPlusPctWhenOnLowLife, Stat.MonsterEnragesOnLowLifeText,
+        Stat.DealChaosDamagePerSecondFor10SecondsOnHit,
         Stat.NonChaosDamageToAddAsChaosDamagePct, Stat.AttackSpeedPlusPct, Stat.BaseCastSpeedPlusPct, Stat.BaseMovementVelocityPlusPct,
         Stat.BaseFireDamageResistancePct, Stat.BaseColdDamageResistancePct, Stat.BaseLightningDamageResistancePct,
         Stat.BaseChaosDamageResistancePct, Stat.BaseResistAllElementsPct, Stat.BaseAdditionalPhysicalDamageReductionPct,

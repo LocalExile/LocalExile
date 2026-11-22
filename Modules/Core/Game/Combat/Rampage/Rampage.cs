@@ -104,7 +104,7 @@ public static partial class Game
         if (crossed.Length == 0) return;
         int Get(uint key) => PlayerStat(player, key);
         int heal = Get(Stat.RecoverPctMaximumLifeOnRampageThreshold);
-        if (heal > 0 && player.PlayerLife > 0)
+        if (heal > 0 && player.PlayerLife > 0 && !LifeRecovery.NonLeechBlocked(Get))
             player.PlayerLife = (uint)Math.Min(player.PlayerMaxLife,
                 (long)player.PlayerLife + (long)player.PlayerMaxLife * heal / 100);
         double now = AreaTime(player);

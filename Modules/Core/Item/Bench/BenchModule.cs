@@ -146,6 +146,11 @@ static class BenchFeature
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.CraftingBench),
             items.NextRevision(PlayerInventories.CraftingBench), [result.Changed.Id], [result.Changed]), $"bench recipe {request.Recipe}: crafted item {result.Changed.Id}");
         await RefreshBenchBalance(player);
+        if (HideoutCatalog.ByArea(player.Layout.Hash) is not null)
+        {
+            if (!player.Character.LeagueQuestFlags.Contains(Quests.League.CraftedItemAtBench))
+                await SetLeagueQuestFlags(player, [Quests.League.CraftedItemAtBench]);
+        }
     }
 
 }

@@ -19,7 +19,13 @@ public sealed class MonsterIgnites
     /// aggravates the bleeds already on its target; <paramref name="Aggravated"/>: its own bleed is aggravated too.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
         double Seconds, int CriticalChance = 0, int Stacks = 1, int Aggravate = 0, int CriticalAggravate = 0,
-        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0, bool AllDamage = false)
+        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0, bool AllDamage = false,
+        // Elemental Overload: "Ailments never count as being from Critical Strikes" — a critical strike rolls the hit's
+        // chance and deals the non-critical damage, as a non-critical hit does.
+        bool NeverFromCrit = false,
+        // Perfect Agony: "Non-Critical Strikes cannot inflict Ailments". With Elemental Overload (NeverFromCrit) every
+        // hit counts as non-critical for ailments, so the two together stop hits applying ailments at all.
+        bool OnlyFromCrit = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
@@ -40,15 +46,21 @@ public sealed class MonsterIgnites
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault(Stat.Of($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage")) / 60.0 * faster;
-            // Shaper of Flames: "Hits always Ignite" (always_ignite).
+            // Shaper of Flames: "Hits always Ignite" (always_ignite). Weapon tincture ignite stats apply to weapon hands only.
+            bool tinctureWeapon = hand is "main_hand" or "off_hand" && get(Stat.TinctureApplied) != 0;
             long chance = (long)get(Stat.BaseChanceToIgnitePct) + get(Stat.ChanceToFreezeShockIgnitePct)
+                + (tinctureWeapon ? get(Stat.ChanceToIgnitePctWithTincturedWeapons) : 0)
                 + (get(Stat.AlwaysIgnite) != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
-                * Math.Max(0, 1 + ((double)get(Stat.IgniteDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
+                * Math.Max(0, 1 + ((double)get(Stat.IgniteDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)
+                    + (tinctureWeapon ? get(Stat.ElementalAilmentDurationPlusPctWithTincturedWeapons) : 0)) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                FireExposure: get(Stat.IgnitesApplyFireResistancePlus), AllDamage: get(Stat.AllDamageCanIgnite) != 0);
+                FireExposure: get(Stat.IgnitesApplyFireResistancePlus),
+                AllDamage: get(Stat.AllDamageCanIgnite) != 0 || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0,
+                NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
+                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
         }
     }
 
@@ -88,6 +100,23 @@ public sealed class MonsterIgnites
         for (int i = 0; i < active.Count; i++) active[i] = active[i] with { Aggravated = true };
     }
 
+    /// <summary>Refreshes every live ignite's remaining duration to its full duration from <paramref name="now"/>
+    /// (Wildfire Phloem). Returns true when at least one ignite was refreshed.</summary>
+    public bool Refresh(double now)
+    {
+        bool refreshed = false;
+        for (int i = 0; i < active.Count; i++)
+        {
+            var ig = active[i];
+            if (ig.Until <= now) continue;
+            double duration = Math.Max(0, ig.Until - ig.From);
+            if (duration <= 0) continue;
+            active[i] = ig with { From = now, Until = now + duration };
+            refreshed = true;
+        }
+        return refreshed;
+    }
+
     // The damage per second of the live instances: the Stacks strongest, plus aggravatedExtra × the strongest aggravated
     // one (an aggravated bleed's "as though moving" part, which does not stack with the moving bonus).
     double Dealing(List<Ignite> live, double aggravatedExtra) =>
@@ -109,6 +138,9 @@ public sealed class MonsterIgnites
         expiryRate = rate;
     }
     public double RemainingBase(double now) => Math.Max(0, Until - now) * expiryRate;
+
+    /// <summary>Discards uncommitted damage without removing or extending the timed instances.</summary>
+    public void DiscardDamageCarry() { carry = 0; accrued = 0; }
 
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
     /// <summary>The row of the buff that shows the set (its source: BuffSource), null while none (Game.ShowDot).</summary>
@@ -183,6 +215,8 @@ public sealed class MonsterIgnites
         int damageTakenPct, out double perSecond)
     {
         perSecond = 0;
+        if (settings.NeverFromCrit) critical = false;
+        if (settings.OnlyFromCrit && !critical) return false;
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);

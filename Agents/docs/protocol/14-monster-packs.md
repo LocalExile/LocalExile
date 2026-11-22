@@ -37,11 +37,12 @@ This is a local seed derivation; the official server population RNG and placemen
 
 ## 2. Spawning
 
-For `MonsterVarieties` with main-hand class `Bow`, `Weapon1_ItemVisualIdentityKeys` contains the arrow visual;
-`Weapon2_ItemVisualIdentityKeys` contains the held bow, despite the column names. Brittle Archer uses
-`SkeletonArrow1` / `Bow4`, Kraityn's Scout `DefaultArrow` / `Bow3`. They are held as a player's bow is
-([13](13-items.md) "Bow model records"): the arrow in slot 0, the bow in slot 1 and the quiver (`Back`) in slot 7;
-a null off-hand class must not discard the bow.
+For `MonsterVarieties` with main-hand class `Bow`, the model uses the same three-slot bow layout as a player
+([13](13-items.md) "Bow model records", `BowSetup`): slot 0 (right hand) takes `Weapon1_ItemVisualIdentityKeys`
+(the arrow visual: `SkeletonArrow1` for Brittle Archer, `DefaultArrow` for Kraityn's Scout) with the `Bow` class and
+stance; slot 1 (left hand) takes `Weapon2_ItemVisualIdentityKeys` (the held bow: `Bow4` / `Bow3`) with type `0x68` and
+stance `0xff`; and slot 7 (the back) takes `Back_ItemVisualIdentityKey` (`SkeletonQuiver1` / `Quiver6`) with type
+`0x68` and stance `0xff`. A null off-hand class must not discard slot 1 or slot 7.
 
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2bb with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
@@ -196,9 +197,8 @@ So:
    `a2b-Killed{Str,Int,Dex}Bandit` flags set) is Ralakesh's avatar, Greust when all three died or no bandit quest was
    done. The client's own lines say so: Eramir's `EramirRalakeshQuestOak`/`…Alira`/`…Kraityn`/`…Greust` and Helena's
    `HelenaOn…Quest` ("He truly believed that if he stood against Oak…").
-   Nothing on the server sets the `a2b-Killed…Bandit` flags yet but `/quest_flag` (the campaign's quest engine sets
-   them on the bandit lords' kills; their help-or-kill dialogue is not offered), and an instance's boss follows the first
-   character to enter it: others who join that instance meet the same boss.
+   The campaign's quest engine sets the kill flags. An instance's boss follows the first character to enter it, and
+   other players who join the instance meet the same boss.
    **Not placed** (the check below lists them with the reason): Marceus the Defaced (The Marketplace) is a tile's
    statue spawner (`Spawner_StoneStatueLargeMaleBoss`) that wakes as the player comes near, and tile spawners are not
    among the generated quest objects (`AreaObjects.QuestTypes`); The Solaris Temple Level 2's three Banners have their
@@ -329,6 +329,10 @@ monster at its base × (1 + value / 100), `0x141e827a0`: a Quick magic Hungry Co
 cells/s, a normal one every 0.125–0.133 s; the server walks it at the same speed), `actor_scale_+%` and
 `life_regeneration_rate_per_minute_%`.
 
+**A change while it lives.** S→C 0x2bc to component 2 with the same ObjectMagicProperties data as the create (and its
+trailing `u8`) redraws a living monster's name plate: a monster a Tormented Spirit touched showed "Rogue's Touch" under
+its name (live 2026-11-18). Its stats still come only from the server (0x1b3).
+
 **Effects** (`MonsterModEffects`, summed per stat over all its mods):
 
 | Stats | Effect |
@@ -422,3 +426,25 @@ The first byte is stored at component +0xf0; the essence references occupy +0xc8
 The object's four Transitionable states start at 1 and release at 4; its interaction distance override is 20.
 Its `targetable` shared state is inverted: 0 enables targeting, 1 disables it.
 Transition 4 removes collision and hides its marker; use component indices 4 and 6 for transition and shared-state updates.
+Essence-list changes recreate the same object id; the verified `0x74` currency target is also used for monoliths.
+Vaal Orbs replaced Remnants in 3.27; the legacy `CurrencyCorruptMonolith` table row is not a current gameplay input.
+The historical `deal_chaos_damage_per_second_for_10_seconds_on_hit` id has an **8-second** duration in the pinned
+client's `stat_descriptions` block. Its Decay icon is BuffDefinitions row 766 (`IsRecovery=false`, `__col44=false`):
+no inline values or `u82`, despite its granted per-minute chaos-damage stat.
+
+`EssenceDaemonSummonMovingKaruiSpirit` resolves `alternate_minion=185` to `EssenceKaruiSpiritMovingAxe`;
+its cast/cooldown are 1/6 seconds and it summons one spirit.
+One is the cast batch; [Contempt's encounter](https://www.poewiki.net/wiki/Essence_of_Contempt) has three chasing spirits.
+Both it and `EssenceDaemonSummonSpectralSkull` carry implicit `minion_dies_when_parent_dies`,
+`minion_dies_when_parent_deleted` and `summoned_monsters_no_drops_or_experience`.
+`EssenceMovingAncestor.ot` makes the Karui spirit untargetable, damage/stun immune and unknockable.
+Its Heavy Strike has +50% damage and +80% **increased** attack speed, not a more-speed modifier.
+The server-only `.ais` files are absent; daemon activation, summon scatter and `DiesAfterTime` duration remain unverified.
+
+`essence_delirium_spawn_monster_on_death_variation=10` selects row 9 of `SummonedSpecificMonstersOnDeath`:
+`EssenceInsectWildExplosiveColossal`, one insect (`__col4`).
+Its `InsectSuicideExplosionHuge` action casts for 3 seconds and deals the stat set's level-scaled secondary fire damage.
+On 3.29.3d, `SuicideExplosion` factory `0x1419b53d0` constructs `0x141a46170`; its execute function `0x141a46250`
+computes `floor(15 * radius_percentage / 100)` at `0x141a462cc`–`0x141a462e5`.
+The percentage getter `0x14193efd0` reads stat `0x1591` plus 100; the skill's +100% final radius therefore gives 30 cells.
+These code addresses also hold for 3.29.3c; the disassembly used the allowed d executable, SHA-256 `e9ba3d31…f41f53d`.

@@ -47,6 +47,91 @@ public static partial class Game
     sealed class AuraReconcileCache { public AuraReconcileInputs? Inputs; }
     static readonly Store<Player, AuraReconcileCache> AuraReconcileCaches = new();
 
+    static (int ArtVariation, bool HideVisual, ushort? SourceVisual, ushort? BuffVisual) ReservationCosmeticVisuals(
+        Player player, ushort skillId, string effectId, bool hasSource)
+    {
+        uint gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId).Gem;
+        return ReservationCosmeticVisualsForGem(player, gem, effectId, hasSource);
+    }
+
+    static (int ArtVariation, bool HideVisual, ushort? SourceVisual, ushort? BuffVisual) ReservationCosmeticVisualsForGem(
+        Player player, uint gem, string effectId, bool hasSource)
+    {
+        if (gem == 0) return default;
+        int variation = SkillArtVariation(player, gem);
+        bool hide = SkillCosmeticStat(player, gem, Stat.SkillHideUserBuffEffects) != 0;
+        if (variation == 0 && !hide) return default;
+        if (effectId == "TempestShield")
+            return (variation, hide, null, null);
+        ushort? sourceVisual = null;
+        ushort? buffVisual = null;
+        if (hasSource)
+        {
+            sourceVisual = hide ? (ushort)0
+                : variation < 0 ? Art.BuffVisual("global_auras", variation)
+                : effectId switch
+                {
+                    "Anger" => Art.BuffVisual("anger", variation),
+                    "Hatred" => Art.BuffVisual("hatred", variation),
+                    "Wrath" => Art.BuffVisual("wrath", variation),
+                    "Haste" => Art.BuffVisual("haste", variation),
+                    _ => null,
+                };
+        }
+        else
+        {
+            string? key = effectId switch
+            {
+                "HeraldOfAsh" => "herald_of_ash_buff",
+                "HeraldOfIce" => "herald_of_ice_buff",
+                "HeraldOfThunder" => "herald_of_thunder_buff",
+                "HeraldOfPurity" => "herald_of_light_buff",
+                "HeraldOfAgony" => "herald_of_agony_buff",
+                "ArcticArmour" => "arctic_armour_buff",
+                _ => null,
+            };
+            if (key is not null)
+            {
+                buffVisual = hide
+                    ? (effectId == "ArcticArmour" ? Art.BuffVisual(key, 3) : Art.BuffVisual(key, -1))
+                    : variation != 0 ? Art.BuffVisual(key, variation) : null;
+            }
+        }
+        return (variation, hide, sourceVisual, buffVisual);
+    }
+
+    // Re-emits active reservation buffs whose gem's skill cosmetic just changed so Tempest Shield, auras, heralds and
+    // Arctic Armour take the new art immediately without needing a manual re-toggle.
+    public static async Task RefreshReservationCosmetics(Player player, uint? gem = null)
+    {
+        bool changed = false;
+        {
+            if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Auras.Count == 0) return;
+            var gems = GemSkillEffects(player).ToDictionary(g => g.Id, g => g.Gem);
+            foreach (var aura in player.Auras.Values.ToArray())
+            {
+                if (IsTemporaryAura(player, aura) || !gems.TryGetValue(aura.SkillId, out uint auraGem) || auraGem == 0
+                    || (gem is uint target && auraGem != target)) continue;
+                var (artVariation, hideVisual, sourceVisual, buffVisual) =
+                    ReservationCosmeticVisualsForGem(player, auraGem, aura.EffectId, aura.SourceBuff is not null);
+                if (aura.ArtVariation == artVariation && aura.HideVisual == hideVisual
+                    && aura.SourceVisual == sourceVisual && aura.BuffVisual == buffVisual) continue;
+                player.Auras[aura.SkillId] = aura with
+                {
+                    Buff = player.NextBuff++,
+                    SourceBuff = aura.SourceBuff is not null ? player.NextBuff++ : null,
+                    ArtVariation = artVariation,
+                    HideVisual = hideVisual,
+                    SourceVisual = sourceVisual,
+                    BuffVisual = buffVisual,
+                };
+                changed = true;
+            }
+            if (changed) player.AuraStatsDirty = true;
+        }
+        if (changed) await SendOwnAuraChanges(player);
+    }
+
     // Check the current caster and this instance's link group before native use/cooldown publication.
     // Keep accepted Warcry/RF behavior and each caller's original cancellation/ownership predicate.
     public static bool OwnAuraAcknowledgementAllowed(Player player, int effect, ushort skillId, Func<bool> nativeUse)
@@ -221,6 +306,13 @@ public static partial class Game
         var changedAuras = new List<AuraCatalog.Aura>();
         foreach (var aura in player.Auras.Values.ToArray())
         {
+            if (IsTemporaryAura(player, aura)) continue;
+            if (IsBlessing(SupportedSkill(player, aura.SkillId)))
+            {
+                CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
+                player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura);
+                changed = true; continue;
+            }
             var reservation = SupportedReservationCost(player, aura.SkillId);
             if (reservation is null)
             {
@@ -292,6 +384,7 @@ public static partial class Game
 
     public static void ReconcileOwnAuras(Player player, bool validateSkills = false)
     {
+        ExpireTemporaryAuras(player);
         // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
         // Cache only the lifecycle decision after comparing its complete effective inputs. A full
         // replay bypasses it; module reload discards these connection-weak entries automatically.
@@ -362,7 +455,7 @@ public static partial class Game
         // The player's own aura buffs are its auras now (both buffs of each, Generosity's too: its received one only has
         // its icon suppressed); the Buffs component writes what changed.
         player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id && b.Tag == 0 && AuraCatalog.IsAuraRow(b.Row),
-            player.Auras.Values.SelectMany(aura => AuraBuffs(player.Id, aura)));
+            player.Auras.Values.SelectMany(aura => AuraBuffs(player.Id, aura, TemporaryAuraSecondsLeft(player, aura))));
         PresentAvianPhaseLocked(player);
         PresentCrabLocked(player);
         PresentSelfVulnerabilityLocked(player);

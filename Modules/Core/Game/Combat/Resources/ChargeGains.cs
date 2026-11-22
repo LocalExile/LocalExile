@@ -8,20 +8,27 @@ public abstract record ChargeEvent
     /// <summary>The player hit a monster (one per monster hit). <paramref name="Skill"/>: the stats of the skill used
     /// (its "on hit" chances, e.g. Flicker Strike's 15%); <paramref name="SkillEffect"/>: its GrantedEffects Id;
     /// <paramref name="Killed"/>: the hit killed it; <paramref name="Primary"/>: the use's first target (a skill's
-    /// once-per-use grant). <paramref name="Melee"/> null: the weapon decides.</summary>
+    /// once-per-use grant). <paramref name="Melee"/> null: the weapon decides. The target's state at the hit:
+    /// <paramref name="Frozen"/>, <paramref name="Bleeding"/>, <paramref name="Marked"/> (by this player's own Mark);
+    /// the player's own: <paramref name="SelfBleeding"/>, <paramref name="SelfPoisoned"/>.</summary>
     public sealed record Hit(bool Critical, bool Spell, bool? Melee, MonsterRarity Rarity, string? SkillEffect = null,
-        Func<uint, int>? Skill = null, bool Killed = false, bool Primary = true) : ChargeEvent;
+        Func<uint, int>? Skill = null, bool Killed = false, bool Primary = true, bool Frozen = false,
+        bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false) : ChargeEvent;
 
     /// <summary>The player killed a hostile monster; <paramref name="Frozen"/>: it was frozen when it died, shattered
-    /// included (MonsterElementalAilments.FrozenAtDeath).</summary>
-    public sealed record Kill(MonsterRarity Rarity, bool Frozen = false) : ChargeEvent;
+    /// included (MonsterElementalAilments.FrozenAtDeath); <paramref name="Poisons"/>: the poisons on it when it died.</summary>
+    public sealed record Kill(MonsterRarity Rarity, bool Frozen = false, int Poisons = 0) : ChargeEvent;
 
     /// <summary>A monster's hit reached the player: it landed or was blocked, not evaded (blocking keeps the defender's
-    /// when-hit effects, wiki Blocking).</summary>
-    public sealed record WhenHit : ChargeEvent;
+    /// when-hit effects, wiki Blocking). <paramref name="Critical"/>: the monster's hit was a critical strike.</summary>
+    public sealed record WhenHit(bool Critical = false) : ChargeEvent;
 
-    /// <summary>The player's hit stunned a monster (<see cref="HitReaction"/>).</summary>
-    public sealed record Stun : ChargeEvent;
+    /// <summary>The player's hit stunned a monster (<see cref="HitReaction"/>): <paramref name="Melee"/> a melee hit,
+    /// <paramref name="Skill"/> the stunning skill's own stats (its supports' included).</summary>
+    public sealed record Stun(bool Melee = false, Func<uint, int>? Skill = null) : ChargeEvent;
+
+    /// <summary>The player used a skill (after its cost): a Vaal skill, a curse spell or a trap throw.</summary>
+    public sealed record SkillUse(bool Vaal, bool Curse, bool Trap) : ChargeEvent;
 
     /// <summary>The player blocked a hit (an attack, or a spell with <paramref name="Spell"/>).</summary>
     public sealed record Block(bool Spell) : ChargeEvent;
@@ -42,15 +49,22 @@ public abstract record ChargeEvent
 /// (Metadata/StatDescriptions), each its own roll; "Gain a … Charge …" flags count as 100%. A chance is rolled as
 /// <c>rng.Next(100) &lt; chance</c>; 100 and above always gain without a roll.
 /// Skill rules: the Frenzy gem gives a Frenzy Charge when it hits (ActiveSkills <c>frenzy</c>: "gives the character a
-/// frenzy charge if it hits"), once per use; Power Siphon a Power Charge when its hit kills (ActiveSkills <c>power_siphon</c>; the
-/// "or soon after the hit" part is not modelled). Gains that need mechanics the server does not have (freeze,
-/// bleed, poison, curses, traps, mines, Vaal souls, support gems) are not here; 11-skills.md §15 lists them.
+/// frenzy charge if it hits"), once per use. Power Siphon's 3.29 stats grant its Power Charge on hitting a rare or unique
+/// enemy (the rule above); its ActiveSkills text still names a kill, which no stat carries. Gains that need mechanics the
+/// server does not have (freeze, ignite or taunt as one attack's own result, mines, totems) are not here; 11-skills.md §15
+/// lists them. A hit and a stun count the used skill's own stats with its supports' (Power Charge on Critical, Endurance
+/// Charge on Melee Stun).
 /// </summary>
 public static class ChargeGains
 {
-    /// <summary>One stat that grants charges: the stat, the charge type (null: a random one of the three), and when it
-    /// applies.</summary>
-    public sealed record Rule(uint Stat, ChargeType? Type, Func<ChargeEvent, WeaponProfile, bool> When, bool Flag = false);
+    /// <summary>What a rule does when it rolls: gain one charge, gain up to the maximum, or lose every charge of the type
+    /// (above the minimum).</summary>
+    public enum Outcome { Gain, ToMaximum, LoseAll, LoseOne }
+
+    /// <summary>One stat that grants (or takes) charges: the stat, the charge type (null: a random one of the three),
+    /// when it applies, and what it does.</summary>
+    public sealed record Rule(uint Stat, ChargeType? Type, Func<ChargeEvent, WeaponProfile, bool> When, bool Flag = false,
+        Outcome Does = Outcome.Gain);
 
     static bool Melee(ChargeEvent.Hit h, WeaponProfile w) => h.Melee ?? (!h.Spell && !w.Bow && !w.Wand);
     static bool RareOrUnique(MonsterRarity r) => r is MonsterRarity.Rare or MonsterRarity.Unique;
@@ -102,10 +116,58 @@ public static class ChargeGains
         new(Stat.ChanceToGainPowerChargeWhenBlockPct, ChargeType.Power, (e, _) => e is ChargeEvent.Block),
         new(Stat.PowerChargeOnSpellBlockPctChance, ChargeType.Power, (e, _) => e is ChargeEvent.Block { Spell: true }),
         new(Stat.GainRandomChargeOnBlock, null, (e, _) => e is ChargeEvent.Block, Flag: true),
+        // More on hit, by the target's or the player's state
+        new(Stat.AddEnduranceChargeOnSkillHitPct, ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit),
+        new(Stat.GainFrenzyChargeOnHittingUniqueEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Rarity: MonsterRarity.Unique }),
+        new(Stat.GainPowerChargeOnHitPctChanceAgainstFrozenEnemy, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { Frozen: true }),
+        new(Stat.ChanceToGainEnduranceChargeOnHitPctVsBleedingEnemy, ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit { Bleeding: true }),
+        new(Stat.GainFrenzyChargeOnHittingMarkedEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Marked: true }),
+        new(Stat.GainPowerChargeOnHitWhileBleeding, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfBleeding: true }, Flag: true),
+        new(Stat.AddPowerChargeOnHitWhilePoisonedPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfPoisoned: true }),
+        // One skill's own (the enchantments): Holy Sweep on hit, Ice Spear on critical strike, Power Siphon's
+        // additional charge on kill and Frenzy's additional charge.
+        new(Stat.SweepAddEnduranceChargeOnHitPct, ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit { SkillEffect: "Sweep" }),
+        new(Stat.IceSpearPctChanceToGainPowerChargeOnCriticalStrike, ChargeType.Power,
+            (e, _) => e is ChargeEvent.Hit { Critical: true, SkillEffect: "IceSpear" }),
+        new(Stat.PowerSiphonPctChanceToGainPowerChargeOnKill, ChargeType.Power,
+            (e, _) => e is ChargeEvent.Hit { Killed: true, SkillEffect: "PowerSiphon" }),
+        new(Stat.FrenzyPctChanceToGainAdditionalFrenzyCharge, ChargeType.Frenzy,
+            (e, _) => e is ChargeEvent.Hit { Primary: true, SkillEffect: "Frenzy" }),
+        // "Lose all Power Charges on Critical Strike" (Romira's Banquet)
+        new(Stat.UniqueLoseAllPowerChargesOnCrit, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { Critical: true }, Flag: true,
+            Does: Outcome.LoseAll),
+        // On kill, by the poisons on the enemy (Maligaro's Cruelty)
+        new(Stat.GainFrenzyChargeOnKillVsEnemiesWith5PlusPoisonsPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Poisons: >= 5 }),
+        new(Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Poisons: < 5 }),
+        // On stun: any hit, or a melee one; Endurance Charge on Melee Stun's flag is the support's own (Stun.Skill)
+        new(Stat.ChanceToGainPowerChargeOnStunPct, ChargeType.Power, (e, _) => e is ChargeEvent.Stun),
+        new(Stat.ChanceToGainFrenzyChargeOnStunPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Stun),
+        new(Stat.ChanceToGainPowerChargeOnMeleeStunPct, ChargeType.Power, (e, _) => e is ChargeEvent.Stun { Melee: true }),
+        new(Stat.GainEnduranceChargeOnMeleeStunPct, ChargeType.Endurance, (e, _) => e is ChargeEvent.Stun { Melee: true }),
+        new(Stat.GainEnduranceChargeOnMeleeStun, ChargeType.Endurance, (e, _) => e is ChargeEvent.Stun { Melee: true }, Flag: true),
+        // When hit: Ambu's Charge on a critical strike taken, Daresso's Defiance and the power one's losses
+        new(Stat.GainMaximumEnduranceChargesWhenCritChancePct, ChargeType.Endurance, (e, _) => e is ChargeEvent.WhenHit { Critical: true },
+            Does: Outcome.ToMaximum),
+        new(Stat.UniqueLoseAllEnduranceChargesWhenHit, ChargeType.Endurance, (e, _) => e is ChargeEvent.WhenHit, Flag: true,
+            Does: Outcome.LoseAll),
+        new(Stat.UniqueLoseAPowerChargeWhenHit, ChargeType.Power, (e, _) => e is ChargeEvent.WhenHit, Flag: true, Does: Outcome.LoseOne),
+        // "Lose all Power Charges when you Block" (Willclash)
+        new(Stat.LoseAllPowerChargesOnBlock, ChargeType.Power, (e, _) => e is ChargeEvent.Block, Flag: true, Does: Outcome.LoseAll),
+        // On using a skill: a Vaal skill (Yaomac's Accord), a curse (Anathema), a trap (Jaws of Agony)
+        new(Stat.GainFrenzyPowerEnduranceChargesOnVaalSkillUse, ChargeType.Endurance, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }, Flag: true),
+        new(Stat.GainFrenzyPowerEnduranceChargesOnVaalSkillUse, ChargeType.Frenzy, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }, Flag: true),
+        new(Stat.GainFrenzyPowerEnduranceChargesOnVaalSkillUse, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }, Flag: true),
+        new(Stat.GainPowerChargeOnVaalSkillUsePct, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }),
+        new(Stat.GainPowerChargeOnCurseCastPct, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Curse: true }),
+        new(Stat.GainPowerChargeWhenThrowingTrapPct, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Trap: true }),
     ];
 
-    /// <summary>One gain: a charge type, how many, and the stat or rule that granted it (for the log).</summary>
-    public readonly record struct Gain(ChargeType Type, int Count, string Source);
+    /// <summary>One gain: a charge type, how many (negative: a loss; <see cref="All"/>: every charge above the
+    /// minimum), and the stat or rule that granted it (for the log). <paramref name="ToMaximum"/>: up to the maximum.</summary>
+    public readonly record struct Gain(ChargeType Type, int Count, string Source, bool ToMaximum = false)
+    {
+        public const int All = -int.MaxValue;
+    }
 
     /// <summary>Whether a chance (percent) succeeds: never at 0 or below, always at 100 or above, otherwise one
     /// <c>rng.Next(100)</c>.</summary>
@@ -130,7 +192,7 @@ public static class ChargeGains
                 if (spend.Count > 0) gains.Add(new(spend.Type, -spend.Count, spend.Why));
                 return gains;
         }
-        var skill = (e as ChargeEvent.Hit)?.Skill;
+        var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Stun s => s.Skill, _ => null };
         foreach (var rule in Rules)
         {
             if (!rule.When(e, weapon)) continue;
@@ -138,13 +200,19 @@ public static class ChargeGains
             int chance = rule.Flag ? (value != 0 ? 100 : 0) : value;
             if (!Rolls(chance, rng)) continue;
             var type = rule.Type ?? Charges.Types[rng.Next(Charges.Types.Length)];
-            gains.Add(new(type, 1, Stats.Name(rule.Stat)));
+            string label = Stats.Name(rule.Stat);
+            gains.Add(rule.Does switch
+            {
+                Outcome.LoseAll => new(type, Gain.All, label),
+                Outcome.LoseOne => new(type, -1, label),
+                Outcome.ToMaximum => new(type, 1, label, ToMaximum: true),
+                _ => new(type, 1, label),
+            });
         }
         if (e is ChargeEvent.Hit hit)
         {
             // Once per use: an area hit on several monsters gives one charge (its first target).
             if (hit.SkillEffect == "Frenzy" && hit.Primary) gains.Add(new(ChargeType.Frenzy, 1, "Frenzy hit"));
-            if (hit.SkillEffect == "PowerSiphon" && hit.Killed) gains.Add(new(ChargeType.Power, 1, "Power Siphon kill"));
         }
         return gains;
     }
@@ -160,7 +228,7 @@ public static class ChargeGains
     /// charges.</summary>
     public sealed record Periodic(uint Stat, ChargeType? Type, PeriodicCondition Condition, Func<int, (double Period, int Count)> Rate);
 
-    public enum PeriodicCondition { Always, HitRecently, Stationary, Moving, NoMineDetonatedRecently }
+    public enum PeriodicCondition { Always, HitRecently, Stationary, Moving, NoMineDetonatedRecently, NotLostRecently }
 
     /// <summary>
     /// The "gain a … Charge every …" stats the server can time (game clock, alive, outside towns): each second, every
@@ -182,6 +250,9 @@ public static class ChargeGains
         new(Stat.GainAEnduranceChargeEveryXSecondsWhileStationary, ChargeType.Endurance, PeriodicCondition.Stationary, v => (v, 1)),
         new(Stat.GainRandomChargePerSecondWhileStationary, null, PeriodicCondition.Stationary, v => (1, v)),
         new(Stat.GainAFrenzyChargeEveryXSecondsWhileMoving, ChargeType.Frenzy, PeriodicCondition.Moving, v => (v, 1)),
+        // "Gain a Power Charge every Second if you haven't lost Power Charges Recently" (Willclash).
+        new(Stat.GainPowerChargePerSecondIfHaveNotLostPowerChargeRecently, ChargeType.Power,
+            PeriodicCondition.NotLostRecently, v => (1, v)),
         new(Stat.LosePowerChargeEachSecondIfNotDetonatedMinesRecently, ChargeType.Power,
             PeriodicCondition.NoMineDetonatedRecently, _ => (1, -1)),
     ];
@@ -200,12 +271,13 @@ public static class ChargeGains
         private readonly double[] elapsed = new double[Periodics.Count];
 
         /// <summary>Advances every timer by <paramref name="seconds"/> of game time and returns the charges that came due.
-        /// A timer whose stat is absent or whose condition does not hold is reset.</summary>
+        /// A timer whose stat is absent or whose condition does not hold is reset. <paramref name="lostRecently"/>: whether
+        /// a charge of the type was lost in the last 4 seconds (null: never).</summary>
         public List<Gain> Advance(double seconds, Func<uint, int> get, bool hitRecently, bool moving, Random rng) =>
             Advance(seconds, get, hitRecently, moving, rng, mineDetonatedRecently: false);
 
         public List<Gain> Advance(double seconds, Func<uint, int> get, bool hitRecently, bool moving, Random rng,
-            bool mineDetonatedRecently)
+            bool mineDetonatedRecently, Func<ChargeType, bool>? lostRecently = null)
         {
             var gains = new List<Gain>();
             for (int i = 0; i < Periodics.Count; i++)
@@ -219,6 +291,7 @@ public static class ChargeGains
                     PeriodicCondition.Stationary => !moving,
                     PeriodicCondition.Moving => moving,
                     PeriodicCondition.NoMineDetonatedRecently => !mineDetonatedRecently,
+                    PeriodicCondition.NotLostRecently => p.Type is { } lost && lostRecently?.Invoke(lost) != true,
                     _ => true,
                 };
                 var (period, count) = value != 0 ? p.Rate(value) : (0, 0);

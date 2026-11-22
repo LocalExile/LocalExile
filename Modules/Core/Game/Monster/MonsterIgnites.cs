@@ -49,6 +49,7 @@ public static partial class Game
     {
         if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
                 aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+        InflictedLocked(player, m, AilmentType.Ignite, now + ignite.RemainingSeconds);
         ShowDotBuffLocked(player, id, m.Ignites, IgnitedBuffRow, now);
         return [];
     }
@@ -82,7 +83,14 @@ public static partial class Game
     // ignite_art_variation …, or gloves that restyle ailments), kept per connection. The buff names its BuffVisuals row,
     // as every buff whose art follows a variation does (11-skills.md §12); 0 keeps the buff's own art.
     static readonly (string Buff, uint Stat)[] AilmentArtStats =
-        [("ignite", Stat.VirtualIgniteVisualOverride), ("poison", Stat.VirtualPoisonArtVariation), ("bleed", Stat.VirtualBleedArtVariation)];
+    [
+        ("ignite", Stat.VirtualIgniteVisualOverride),
+        ("poison", Stat.VirtualPoisonArtVariation),
+        ("bleed", Stat.VirtualBleedArtVariation),
+        ("shock", Stat.VirtualShockArtVariation),
+        ("chill", Stat.VirtualChillArtVariation),
+        ("freeze", Stat.VirtualFreezeArtVariation),
+    ];
 
     static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<string, int>> AilmentArt = new();
 
@@ -200,12 +208,13 @@ public static partial class Game
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
     /// main-hand rows from the weapon's raw packet and the character's conversion.</summary>
     public static MonsterIgnites.Settings DefaultAttackIgnite(Player player, IReadOnlyDictionary<uint, int> playerStats,
-        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
+        int? accuracy = null)
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats))), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get), playerStats, null, spell: false, "main_hand");
     }
@@ -229,6 +238,7 @@ public static partial class Game
                 UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         player.Area.ActiveIgniteMonsters.Add(id);
         player.Area.RecentlyIgnitedMonsters.Add(id);
+        InflictedLocked(player, target, AilmentType.Ignite, now + settings.Seconds);
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {
@@ -339,7 +349,11 @@ public static partial class Game
                 SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
                 EndDot(player, id, ref m.Poisons.Buff, m.Poisons.BuffSource);
             }
-            Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
+            if (life == 0 && DotDeathKind(m, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind),
+                    $"0x01b1 monster 0x{id:x} ({m.Label}) {died}");
+            else
+                Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
             if (life == 0) await DotKilled(player, id, m);
         }
     }

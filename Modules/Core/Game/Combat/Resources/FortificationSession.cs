@@ -7,6 +7,7 @@ public sealed class FortificationSession
 {
     public const uint OnMeleeHit = Stat.FortifyOnHit;
     public const uint ChanceOnMeleeHit = Stat.ChanceToFortifyOnMeleeHitPlusPct;
+    public const uint DirectMeleeHitDurationMilliseconds = Stat.GainFortifyOnMeleeHitMs;
     public const uint ChanceOnStun = Stat.ChanceToFortifyOnMeleeStunPct;
     public const uint CannotGain = Stat.CannotGainFortificationFromHits;
     public const uint Current = Stat.CurrentFortification, Uncapped = Stat.UncappedCurrentFortification;
@@ -90,12 +91,14 @@ public sealed class FortificationSession
     {
         Observe(now, get);
         if (get(CannotGain) != 0) return false;
-        bool always = get(OnMeleeHit) != 0;
+        double directDuration = get(DirectMeleeHitDurationMilliseconds) / 1000.0;
+        bool always = get(OnMeleeHit) != 0 || directDuration > 0;
         int chance = Math.Clamp(get(ChanceOnMeleeHit), 0, 100);
         if (!always && (chance == 0 || random.Next(100) >= chance)) return false;
         int count = FortificationGainModel.Calculate(rawDamage, maximumLife, rarity, Value.Maximum,
             FortificationGainModel.Modifiers.From(get));
-        if (!State.TryGrantFromHit(now, count, get(FortificationState.DurationStat))) return false;
+        if (!State.TryGrantFromHit(now, count, get(FortificationState.DurationStat),
+            directDuration > 0 ? directDuration : FortificationState.BaseDurationSeconds)) return false;
         Bump();
         Read(now);
         return true;

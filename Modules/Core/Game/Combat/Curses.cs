@@ -38,14 +38,16 @@ public static partial class Game
     static int CurseLimit(Player player, IReadOnlyDictionary<uint, int> playerStats)
     {
         int Get(uint n) => GolemStat(playerStats, n);
-        return Get(Stat.HasCurseLimitEqualToMaximumPowerCharges) != 0 ? Get(Stat.MaxPowerCharges)
+        // Anathema: the maximum Power Charges (Character.ot's 3 with the mods), not the raw +N stat.
+        return Get(Stat.HasCurseLimitEqualToMaximumPowerCharges) != 0 ? ChargeMaxima.Of(ChargeType.Power, Get)
             : Math.Max(0, 1 + Get(Stat.NumberOfAdditionalCursesAllowed));
     }
 
     public static int CurseRadius(Player player, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
-        var own = (captured ?? SupportedSkill(player, skill)).Stats; var playerStats = sources ?? CharacterPlayerStats(player);
-        int Get(uint n) => GolemStat(playerStats, n) + GolemStat(own, n);
+        var gem = captured ?? SupportedSkill(player, skill);
+        var area = SkillAreaStats(player, gem.Stats, gem.Effect, sources ?? CharacterPlayerStats(player));
+        int Get(uint n) => GolemStat(area, n);
         // Hexes retain their own base radius when Blasphemy converts them to auras.
         return SkillArea.Radius(22,
             n => Get(n) + (n == SkillArea.BaseIncreased ? Get(Stat.CurseAreaOfEffectPlusPct) : 0), spell: true);
@@ -53,6 +55,10 @@ public static partial class Game
 
     public static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
+        => ApplyCurseLocked(player, monster, skill, now, aura, captured, sources, 0, 1);
+
+    static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
+        SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier)
     {
         var gem = captured ?? SupportedSkill(player, skill); string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || ExternalTemporalChains(player, effect)
@@ -66,9 +72,12 @@ public static partial class Game
         double factor = Math.Max(0, 1 + (Get(Stat.CurseEffectPlusPct) + Get(Stat.Of(definition.Mark ? "mark_effect_+%" : "hex_effect_+%"))
             + (definition.Mark ? Get(Stat.MarkSkillsCurseEffectPlusPct) : 0)
             + Get(Stat.Of(ReservationNames.GetValueOrDefault(effect, effect.ToLowerInvariant()) + "_curse_effect_+%"))
-            + monster.Mods.Effects[Stat.CurseEffectOnSelfPlusPct]) / 100.0)
+            + monster.Mods.Effects[Stat.CurseEffectOnSelfPlusPct] + addedEffect) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportBlasphemyCurseEffectPlusPctFinal) / 100.0)
-            * Math.Max(0, 1 + Own(Stat.SupportHextouchCurseEffectPlusPctFinal) / 100.0);
+            * Math.Max(0, 1 + Own(Stat.SupportHextouchCurseEffectPlusPctFinal) / 100.0)
+            * Math.Max(0, 1 + monster.Mods.Effects[Stat.CurseEffectOnSelfPlusPctFinal] / 100.0)
+            * Math.Max(0, 1 + monster.Mods.Effects[Stat.MapMonstersCurseEffectOnSelfPlusPctFinal] / 100.0)
+            * effectMultiplier;
         var stats = gem.Stats.Where(p => CurseRecipientStats.Contains(p.Key))
             .ToDictionary(p => p.Key, p => (int)Math.Truncate(p.Value * factor));
         double seconds = definition.Mark ? double.PositiveInfinity : SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
@@ -202,6 +211,7 @@ public static partial class Game
             {
                 SettleBleeding(m, now);
                 m.Ignites.SetExpiryRate(now, rate); m.Poisons.SetExpiryRate(now, rate); m.Ailments.SetExpiryRate(now, rate);
+                m.RuleAilments.SetExpiryRate(now, rate);
                 m.SpiderWebs.SetExpiryRate(now, rate);
                 m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                 m.Ruptures.SetExpiryRate(now, rate);

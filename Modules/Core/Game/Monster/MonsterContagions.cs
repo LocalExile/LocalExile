@@ -18,8 +18,8 @@ static partial class Game
     /// <summary>Whether the debuff icon is shown on affected monsters (false: the damage and spread only).</summary>
     const bool ContagionBuffShown = false;
 
-    // The "more" support stats that scale Contagion's damage: an area spell's chaos damage over time.
-    static readonly uint[] ContagionSupportMore =
+    // More multipliers for an area spell's chaos damage over time.
+    static readonly uint[] ChaosAreaDotSupportMore =
     [
         Stat.SupportAreaConcentrateAreaDamagePlusPctFinal, Stat.SupportControlledDestructionSpellDamagePlusPctFinal,
         Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,
@@ -47,7 +47,7 @@ static partial class Game
         if (!(perSecond > 0) || DamageStats.Prohibited(DamageType.Chaos, Get)) return null;
         double increased = (double)Get(Stat.DamagePlusPct) + Get(Stat.SpellDamagePlusPct) + Get(Stat.AreaDamagePlusPct) + Get(Stat.ChaosDamagePlusPct)
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct);
-        double more = ContagionSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
+        double more = ChaosAreaDotSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         double multiplier = 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100.0;
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
@@ -209,24 +209,34 @@ static partial class Game
     internal static async Task TickContagions(Player player)
     {
         if (!MonsterContagion.AnyApplied) return;
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner, string Effect)>();
         using (ProjectileMutation(player))
         {
             if (player.Closed || player.LeavingArea) return;
             double now = ProjectileWorldTime(player);
             foreach (var (id, m) in player.Area.Monsters)
             {
-                if (m.Contagion.Idle) continue;
+                Tick(id, m, m.Contagion, spreads: true);
+                if (m.Bane is { } bane)
+                {
+                    Tick(id, m, bane, spreads: false);
+                    if (bane.Idle) m.Bane = null;
+                }
+            }
+
+            void Tick(uint id, SpawnedMonster m, MonsterContagion dot, bool spreads)
+            {
+                if (dot.Idle) return;
                 int damage = 0;
-                if (m.Dead || m.Life == 0) m.Contagion.Clear();
-                else damage = m.Contagion.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
+                if (m.Dead || m.Life == 0) dot.Clear();
+                else damage = dot.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
                 if (damage > 0)
                 {
                     uint lifeBefore = m.Life;
                     double fraction = Math.Min(1.0, (double)lifeBefore / damage);
                     // The kill and its owner-only gains (Rampage, Vaal soul, the kill itself) go to the owner of the
                     // application whose damage landed it, never to this connection for running the world.
-                    var owner = DotOwner(player, m.Contagion.WinnerAt(fraction)?.Caster);
+                    var owner = DotOwner(player, dot.WinnerAt(fraction)?.Caster);
                     (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
@@ -236,28 +246,33 @@ static partial class Game
                         if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
                         // Its own damage killed it partway through the tick: what affected it then spreads, with the
                         // time it had left then (also when this tick ended it).
-                        m.Contagion.Died(fraction);
+                        dot.Died(fraction);
                     }
-                    hits.Add((id, m, m.Life, damage, owner));
+                    hits.Add((id, m, m.Life, damage, owner, spreads ? "Contagion" : "Bane"));
                     if (stageStarts) CommitBossStage(player, id, m, now);
                 }
-                if (m.Dead || m.Life == 0 || m.Contagion.Active is null)
+                if (!spreads) return;
+                if (m.Dead || m.Life == 0 || dot.Active is null)
                 {
-                    EndDot(player, id, ref m.Contagion.Buff, m.Contagion.BuffSource);
+                    EndDot(player, id, ref dot.Buff, dot.BuffSource);
                 }
-                else if (ContagionBuffShown && m.Contagion.Buff is null)
+                else if (ContagionBuffShown && dot.Buff is null)
                 {
                     // One buff for the debuff's life: shown once with its remaining time, replaced only when it ends.
-                    ShowDot(player, id, ref m.Contagion.Buff, ref m.Contagion.BuffSource, new(ContagionBuffRow, player.Id,
-                        m.Contagion.Active.SkillId, U68: Buff.Seconds(m.Contagion.Until - now)));
+                    ShowDot(player, id, ref dot.Buff, ref dot.BuffSource, new(ContagionBuffRow, player.Id,
+                        dot.Active.SkillId, U68: Buff.Seconds(dot.Until - now)));
                 }
             }
         }
-        foreach (var (id, m, life, damage, owner) in hits)
+        foreach (var (id, m, life, damage, owner, effect) in hits)
         {
             if (life == 0)
                 SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-            Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of contagion" : null);
+            if (life == 0 && DotDeathKind(m, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind),
+                    $"0x01b1 monster 0x{id:x} ({m.Label}) died of {effect}");
+            else
+                Note(life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of {effect}" : null);
             // The owner's kill (on its own frame when it is another player); with the owner gone, the death without any
             // player's on-kill effects.
             if (life == 0 && owner is not null) await DotKilled(player, id, m);

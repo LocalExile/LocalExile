@@ -108,6 +108,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Stand, then act: an in-place action or a summon (a shot, a cast) is ordered only once the actor's walk has ended,
   for every hostile monster, minion and Rampage weapon chase; in reach it gets no new walk (`StandsToAct`). Before, a
   Brittle Poacher shot while it walked and teleported back at each order. Checked live 2026-11-16.
+  live 2026-10-29: Spitters came in close).
+  A straight projectile shooter or non-lobbed ranged spellcaster inside range approaches instead when the sight grid
+  blocks its shot.
+  Ordinary monster spells use level-scaled `GrantedEffectStatSets` elemental/chaos base damage, native cast-speed
+  modifiers and cooldowns, and on-screen reach capped by `spell_maximum_action_distance_+%`.
+  `MinimumAttackDistance` is not read yet.
   A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
@@ -160,6 +166,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Elder's super siphon (9061), the Uber Elder pairing's shared phases (each boss runs its own), Sirus' death storms and
   the apparitions/clones (separate monsters and encounters) and his meteor's per-effect ground layers. Code:
   `Modules/Core/Game/Monster/AtlasBosses.cs`, `AtlasBossFight.cs`, `ShaperFight.cs`, `ElderFight.cs`, `SirusFight.cs`.
+  The client's side of Sirus (his action classes and the rows that pick his art) is in
+  [game/sirus-client](../docs/game/sirus-client.md).
 - Dominus (Upper Sceptre of God): both forms fight to the end without a client crash (live 2026-11-05).
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
@@ -180,18 +188,31 @@ Part of [Status](../Status.md); what to build next in this area is in
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
   Docs: [league encounters](../docs/game/league-encounters.md).
+- Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
+
 - Native variety weapons reach ordinary monster inventories; explicit equipment overrides remain authoritative.
   Native appearance references resolve; rendered model parity remains unverified.
 
-- Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
+- Native ranged actions receive final projectile counts, including `MonsterProjectileSpell` and `rolling_magma`
+  server-published projectiles; other than simulated mortars and spell projectiles, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
 - Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
   (`WorldAreas` `Bosses_MonsterVarietiesKeys`, bar or not) or one with a bar of its own that no encounter controller
   drives acts with every granted effect the client can play as a hit — 463 varieties, 2307 actions — each with the
-  damage, cast time and reach its own row gives it. A skill with a cooldown takes the turn the moment it is ready and
-  in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
+  damage, cast time and reach its own row gives it.
+  A skill with a cooldown takes the turn the moment it is ready and in reach; between those, the skill used longest ago
+  does, and kit fallbacks chase with a zero-cooldown melee attack rather than re-casting an on-cooldown ranged special.
+  Lockstep arrived swings consume kit cooldowns without switching skills mid-walk-up, dual-wielding monsters read
+  off-hand weapon stats, Avarius/Innocence start in `Transitionable` state 1, Amarissa/Ambrosia start targetable in
+  state 2, Fairgraves throws Spectral Throw and summons ghostflame Raging Spirits, Merveil casts Ice Spear and summons
+  statues/daughters/spawn, and Piety's lightning beam sweeps 900°. The beam lands hits in both network modes.
+  At level 39, the beam applies three stacks of Corrupted Blood per unblocked contact and the reverse cleave adds one.
+  Each stack deals 2,800 base physical damage per minute. The ten strongest stacks deal damage and a new application
+  refreshes the timer. The five-second duration follows the other three-stack monster beam since Piety's rows omit it.
+  In a shared instance the same sweep reached a Predictive and a Lockstep player. Both reached ten stacks, and clearing
+  or escaping the effect on one player left the other player's stacks independent.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
   Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
@@ -325,7 +346,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Not working yet
 
 - Area monsters: pack counts, magic/rare chances and rare mod counts are our own numbers;
-  Act 1 Twilight Strand caps new populations at a provisional 45 including Hillock and the tutorial zombie.
+  Act 1 Twilight Strand caps new populations at a provisional 45 including Hillock and the tutorial zombie, with
+  scattered packs kept Normal rarity only (Hillock is the sole non-normal monster).
   The reference capture misses its opening, so this is calibration rather than a verified official total;
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;

@@ -148,7 +148,7 @@ public static partial class Game
                     if (value.Current > 0)
                         player.Area.Buffs.Set(player.Id, new(1943, player.Id,
                             Visual: BuffArtVisual(player, "fortify_buff", Stat.VirtualFortifyArtVariation),
-                            U68: Buff.Seconds((value.NextExpiry!.Value - now) * session.State.ExpiryRate),
+                            U68: Buff.Seconds((value.LatestExpiry!.Value - now) * session.State.ExpiryRate),
                             Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
                     else player.Area.Buffs.Clear(player.Id, 1943, player.Id);
                     // Fortification changes on every melee hit; rebuilding the whole skill list here held the

@@ -18,7 +18,8 @@ public static partial class Game
             int threshold = Get(Stat.KillEnemyOnHitIfUnder20PctLife) > 0 ? 20
                 : Get(Stat.KillEnemyOnHitIfUnder15PctLife) > 0 ? 15
                 : Get(Stat.KillEnemyOnHitIfUnder10PctLife) > 0 || critical && Get(Stat.CritsHaveCullingStrike) > 0
-                    || spell && Get(Stat.SpellsHaveCullingStrike) > 0 ? 10 : 0;
+                    || spell && Get(Stat.SpellsHaveCullingStrike) > 0
+                    || !spell && Get(Stat.CullingStrikeWithTincturedWeapons) > 0 && Get(Stat.TinctureApplied) > 0 ? 10 : 0;
             // "Kill Normal or Magic Enemies that have X% Life or lower when Hit by Supported Skills" (Cull the Weak).
             int normalMagic = Math.Clamp(Get(Stat.KillNormalOrMagicEnemyOnHitIfUnderXPctLife), 0, 100);
             bool cannotKill = Get(Stat.HitsCannotKillEnemies) != 0;
@@ -71,8 +72,8 @@ public static partial class Game
             || hit.Life * 100L > m.MaxLife * (long)threshold || m.Mods.Effects[Stat.ImmuneToCullingStrike] != 0) return hit;
         m.Life = hit.Life;
         hit = TakeOwnerDamageLocked(player, m, (int)hit.Life, rampageSource, playerStats);
-        bool cannotRecoverLife = cullStats is not null && Stat.CannotRecoverLife is var ck
-            && cullStats.GetValueOrDefault(ck) != 0;
+        bool cannotRecoverLife = cullStats is not null && LifeRecovery.NonLeechBlocked(
+            key => cullStats.GetValueOrDefault(key));
         if (!cannotRecoverLife && hit.Life == 0 && cull.RecoverLifePct > 0 && player.PlayerLife > 0)
         {
             // Instant recovery, sent with the next vitals update like instant leech.
@@ -114,7 +115,18 @@ public static partial class Game
     // the DoT's fractional carry and is never cleared, so it is not a burning signal.
     static bool BurningTarget(Player player, SpawnedMonster m)
     {
-        if (m.Ignites.Burning || m.HeraldBurns.Burning) return true;
+        if (m.Ignites.Burning || m.HeraldBurns.Burning
+            || InfernalLegionFields.TryGetValue(player, out var field) && field.Burning.Contains(m)) return true;
+        foreach (var other in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
+            if (other.PlayerLife > 0 && other.Instance == player.Instance
+                && InfernalLegionFields.TryGetValue(other, out var otherField) && otherField.Burning.Contains(m)) return true;
+        if (player.Placed.Grounds.Count > 0)
+        {
+            double now = AreaTime(player);
+            var at = m.Walk.Position(now);
+            foreach (var ground in player.Placed.Grounds)
+                if (now < ground.Until && Dist(at, ground.At) <= ground.Radius) return true;
+        }
         return player.RighteousFire is { } rf && player.Area.Monsters.Any(pair =>
             pair.Value == m && rf.Auras.ContainsKey(pair.Key));
     }

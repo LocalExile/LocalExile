@@ -113,6 +113,111 @@ public sealed class TriggeredSummonTests
             Assert.Equal(3, f.Player.Summons.Fighters.Count); Assert.Equal(action, f.Player.ActionCount);
         }
     }
+
+    [Fact]
+    public async Task Desecrate_creates_corpses_with_nonzero_wire_life_then_zeroes_them()
+    {
+        using var f = new Fixture();
+        ushort source = f.Equip(("Desecrate", 20)).First();
+        var wire = new ConnectionCiphers(new byte[64], false);
+        f.Player.Connection.LockstepClient = false;
+        f.Player.Connection.Session = new("test", f.Stream, wire);
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (player, bytes) => { if (ReferenceEquals(player.Connection.Session.Ciphers, wire)) packets.Add(bytes.ToArray()); };
+        try
+        {
+            Assert.True(await Game.Desecrate(f.Player, source, (100, 100), () => true, triggered: true));
+            Assert.Equal(5, f.Player.Summons.Corpses.Count);
+            foreach (uint id in f.Player.Summons.Corpses)
+            {
+                var corpse = f.Player.Area.Monsters[id];
+                var origin = f.Player.Instance.World.MonsterOrigins[id];
+                Assert.True(corpse.Dead);
+                Assert.Equal(0u, corpse.Life);
+                Assert.Equal(1u, origin.Object.Life);
+                byte[] expected =
+                [
+                    .. InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob()),
+                    .. InstanceProtocol.EnterWakeZone(id),
+                    .. InstanceProtocol.LifeUpdate(id, 0),
+                ];
+                Assert.Contains(packets, p => p.SequenceEqual(expected));
+            }
+
+            // Guard in SpawnMonster: an owned spawn with damagedLife: 0 still puts life 1 in 0x02bb and zeroes it after.
+            var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            uint guarded = await Game.SpawnMonster(f.Player, zombie, 1, MonsterRarity.Normal,
+                100, 100, damagedLife: 0, mods: MonsterModSet.None, unrisen: false,
+                owned: (_, m) => { m.Dead = true; m.Life = 0; m.NoRewards = true; });
+            Assert.NotEqual(0u, guarded);
+            var guardedOrigin = f.Player.Instance.World.MonsterOrigins[guarded];
+            Assert.Equal(1u, guardedOrigin.Object.Life);
+            byte[] guardedExpected =
+            [
+                .. InstanceEntities.CreateObject(guarded, guardedOrigin.Type, guardedOrigin.Object.Blob()),
+                .. InstanceProtocol.EnterWakeZone(guarded),
+                .. InstanceProtocol.LifeUpdate(guarded, 0),
+            ];
+            Assert.Contains(packets, p => p.SequenceEqual(guardedExpected));
+
+            // A lockstep party member first sees these actors after the caster has already created the corpses.
+            using var joining = Game.InstallJoining();
+            var peer = new Player(f.Player.Layout, 1, 2)
+            {
+                Instance = f.Player.Instance, PlayerLife = 100,
+                Connection = { PlayerSent = true, LockstepClient = true, Session = new("peer", f.Stream, wire) },
+            };
+            await Program.BeginWorldFrames(peer, .033);
+            packets.Clear();
+            peer.Area.Defer(_ => Program.Joining?.Invoke(peer));
+            peer.Area.Step(1, .033);
+            await Program.EndWorldFrame(peer, (.033, .066), peer.Area.Delta.Take());
+            foreach (uint id in f.Player.Summons.Corpses)
+            {
+                var origin = peer.Instance.World.MonsterOrigins[id];
+                var create = InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob(), headerU32: uint.MaxValue);
+                Assert.Contains(packets, p => p.SequenceEqual(create));
+                Assert.DoesNotContain(packets, p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0)));
+            }
+            Assert.DoesNotContain(packets, p => p.Length >= 6 && p[0] == 2 && p[1] == 0xbb
+                && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(2)) == guarded);
+            packets.Clear();
+            peer.Area.Step(2, .066);
+            await Program.EndWorldFrame(peer, (.066, .099), peer.Area.Delta.Take());
+            foreach (uint id in f.Player.Summons.Corpses)
+            {
+                int wake = packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.EnterWakeZone(id)));
+                Assert.True(wake >= 0 && packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0))) > wake);
+            }
+
+            // Consumed or expired corpses are not replicated to a subsequent joining party member.
+            uint consumed = f.Player.Summons.Corpses.Peek();
+            uint expired = f.Player.Summons.Corpses.Skip(1).First();
+            peer.Area.Monsters[consumed].CorpseConsumed = true;
+            peer.Area.Monsters.Remove(expired);
+            peer.Instance.World.MonsterOrigins.TryRemove(expired, out _);
+            var latePeer = new Player(f.Player.Layout, 1, 3)
+            {
+                Instance = f.Player.Instance, PlayerLife = 100,
+                Connection = { PlayerSent = true, LockstepClient = true, Session = new("late-peer", f.Stream, wire) },
+            };
+            await Program.BeginWorldFrames(latePeer, .099);
+            packets.Clear();
+            latePeer.Area.Defer(_ => Program.Joining?.Invoke(latePeer));
+            latePeer.Area.Step(3, .099);
+            await Program.EndWorldFrame(latePeer, (.099, .132), latePeer.Area.Delta.Take());
+            foreach (uint removed in new[] { consumed, expired })
+            {
+                Assert.DoesNotContain(packets, p => p.Length >= 6 && p[0] == 2 && p[1] == 0xbb
+                    && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(2)) == removed);
+            }
+        }
+        finally
+        {
+            Program.Outgoing = outgoing;
+        }
+    }
     internal sealed class Fixture : IDisposable
     {
         readonly string save = Path.Combine(Path.GetTempPath(), $"animated-admission-{Guid.NewGuid():N}.db");

@@ -30,11 +30,11 @@ public static partial class Game
             var at = (aim.X + (int)(Math.Cos(angle) * 6), aim.Y + (int)(Math.Sin(angle) * 6));
             if (!player.Layout.WalkableFor(at.Item1, at.Item2, 0)) at = aim;
             await SpawnMonster(player, pool[AreaRng(player).Next(pool.Length)], level, MonsterRarity.Normal,
-                at.Item1, at.Item2, damagedLife: 0, mods: MonsterModSet.None, unrisen: false,
+                at.Item1, at.Item2, damagedLife: 1, mods: MonsterModSet.None, unrisen: false, ownedInitialDeath: true,
                 ownedCurrent: () => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && player.PlayerLife > 0,
                 owned: (id, corpse) =>
                 {
-                    corpse.Dead = true; corpse.Life = 0; corpse.NoRewards = true;
+                    corpse.CreatedAsCorpse = corpse.Dead = true; corpse.Life = 0; corpse.NoRewards = true;
                     player.Summons.Corpses.Enqueue(id);
                     while (player.Summons.Corpses.Count > maximum)
                     {
