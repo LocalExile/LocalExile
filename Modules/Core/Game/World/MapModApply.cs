@@ -51,6 +51,7 @@ public static partial class Game
         if (mods.Get("map_monsters_movement_speed_cannot_be_reduced_below_base") != 0)
             extra["movement_speed_cannot_be_reduced_below_base"] = 1;
         Gain("map_monsters_additional_physical_damage_reduction", "base_additional_physical_damage_reduction_%");
+        Gain("map_monsters_base_block_%", "monster_base_block_%");
         Gain("map_monsters_additional_elemental_resistance", "base_resist_all_elements_%");
         Gain("map_monsters_additional_chaos_resistance", "base_chaos_damage_resistance_%");
         if (mods.Get("map_monsters_are_hexproof") != 0)
