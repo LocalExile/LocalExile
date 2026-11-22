@@ -25,7 +25,11 @@ public sealed class MapRecoveryRateTests
         var area = new MapDevice.MapArea(conn.Layout.Hash, "MapWorldsStrand", "Test map", 16);
         var mods = new MapMods(new Dictionary<string, int> { [PanelStats.MapLifeAndEnergyShieldRecovery] = -60 });
         conn.Instance!.OpenedWith(new MapDevice.Run(conn.Character!, area, mods));
-        Assert.Equal((600d, ordinary.Mana, 360d, 3600d), Rates(conn));
+        var reduced = Rates(conn);
+        Assert.Equal(600, reduced.Life, 6);
+        Assert.Equal(ordinary.Mana, reduced.Mana, 6);
+        Assert.Equal(360, reduced.Shield, 6);
+        Assert.Equal(3600, reduced.Recharge, 6);
         var returned = new ClientState(conn.Layout, 2, 1)
             { Instance = new(), Character = conn.Character, Pools = conn.Pools, LeagueModule = conn.LeagueModule };
         foreach (var row in conn.PlayerStats) returned.PlayerStats[row.Key] = row.Value;
