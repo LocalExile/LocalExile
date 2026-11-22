@@ -86,7 +86,7 @@ public static partial class Game
         (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get, DamageConversion conversion)
     {
         int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
-        var consumed = new List<(uint Id, string Label, (int X, int Y) At)>();
+        var consumed = new List<(uint Id, string Label, (int X, int Y) At, bool Remove)>();
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit, int Damage)>();
         using (ProjectileMutation(conn))
         {
@@ -101,7 +101,7 @@ public static partial class Game
                 conn.Monsters.Remove(id);
                 var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);
                 var centre = corpse.Walk.Position(now);
-                consumed.Add((id, corpse.Label, centre));
+                consumed.Add((id, corpse.Label, centre, !corpse.CreatedAsCorpse));
                 foreach (var (targetId, m) in conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
@@ -117,7 +117,7 @@ public static partial class Game
             }
         }
         var art = new List<uint>();
-        foreach (var (id, label, centre) in consumed)
+        foreach (var (id, label, centre, remove) in consumed)
         {
             uint effect;
             lock (conn.Monsters) effect = conn.TakeObjectId();
@@ -125,7 +125,7 @@ public static partial class Game
             await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
             await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
-            await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
+            if (remove) await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>

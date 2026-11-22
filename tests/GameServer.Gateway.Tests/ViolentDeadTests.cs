@@ -14,7 +14,8 @@ public sealed class ViolentDeadTests
         var (radius, effects) = ThresholdJewels.Read(jewel, catalog.Mods);
         Assert.Equal(1200, radius);
         Assert.Equal(2, effects.Count);
-        Assert.All(effects, effect => Assert.Equal(50, effect.Required));
+        Assert.All(effects, effect => Assert.Equal(ThresholdJewels.Attributes.Intelligence, effect.Attributes));
+        int required = effects.Max(effect => effect.Required);
 
         var tree = Game.PassivesFor(conn);
         uint intelligence = Program.Stats.Key("base_intelligence")!.Value;
@@ -22,7 +23,7 @@ public sealed class ViolentDeadTests
             .Where(n => n is { IsAscendancy: false, IsStart: false, IsJewelSocket: false, IsMastery: false,
                 IsProxy: false, IsExpansion: false })
             .Sum(n => n!.Stats.Where(s => s.Key == intelligence).Sum(s => s.Value));
-        int slot = Enumerable.Range(0, 57).First(i => tree.JewelNodeForSlot(i) is ushort node && IntelligenceAround(node) >= 50);
+        int slot = Enumerable.Range(0, 57).First(i => tree.JewelNodeForSlot(i) is ushort node && IntelligenceAround(node) >= required);
         ushort socket = tree.JewelNodeForSlot(slot)!.Value;
         var definition = Game.SummonData.Find("RaiseZombie")!;
         var variety = Game.Monsters.Find(definition.Variety)!;

@@ -55,6 +55,22 @@ public static partial class Game
         return more;
     }
 
+    static void MinionTauntOnHitLocked(ClientState conn, GolemState.Golem fighter, GolemState.Ability ability,
+        IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster target, double now)
+    {
+        int chance = GolemStat(own, "minion_chance_to_taunt_on_hit_%");
+        if (ability.Effect == 136) chance += GolemStat(ability.Stats, "chance_to_taunt_on_hit_%");
+        if (chance <= 0 || target.Effects["cannot_be_taunted"] != 0
+            || conn.Summons.Definitions.GetValueOrDefault(fighter.Id) is { Targetable: false }
+            || conn.Minions.Random.Next(100) >= chance) return;
+
+        // A permanent minion can taunt many different monsters over its lifetime.
+        if (fighter.Taunts.Count >= 32)
+            foreach (var expired in fighter.Taunts.Where(t => t.Value <= now || !conn.Monsters.ContainsKey(t.Key)).ToArray())
+                fighter.Taunts.Remove(expired.Key);
+        fighter.Taunts[id] = now + FlaskGrounds.TauntSeconds / target.RecipientDebuffRate;
+    }
+
     internal static void FeedingFrenzyOnHitLocked(ClientState conn, GolemState.Golem fighter, double now)
     {
         int chance = GolemStat(fighter.Own, "minion_grant_puppet_master_buff_to_parent_on_hit_%");

@@ -10,9 +10,10 @@ using GameServer.Core;
 /// </summary>
 public sealed partial class PlayerInventories
 {
-    public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Gloves = 8,
-        Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14, Offhand2 = 15, CraftingBench = 16,
-        PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43, ExpandedInventory = 84, Cursor = InstanceInventories.CursorRow;
+    public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
+        Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
+        Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
+        ExpandedInventory = 84, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -488,7 +489,7 @@ public sealed partial class PlayerInventories
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
         MapDevice => global::MapDevice.AcceptsClass(itemClass),
-        Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical",
+        Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" or "Tincture",
         _ => true,
     };
 
@@ -496,7 +497,8 @@ public sealed partial class PlayerInventories
     /// Why an item of this class can't go into a hand row next to what the other hand of the same weapon set holds, or
     /// null: a bow goes with an empty off hand or a quiver, another two-handed weapon only with an empty off hand; a quiver
     /// goes with an empty main hand or a bow, never with a one-handed weapon; a shield or a one-handed weapon in the off hand
-    /// not with a two-handed weapon (a bow included). Call under the lock.
+    /// not with a two-handed weapon (a bow included); a wand only dual-wields with another wand, not a melee weapon. Call
+    /// under the lock.
     /// </summary>
     string? HandConflict(byte row, string itemClass, Func<Item, Shape?> shapeOf)
     {
@@ -508,10 +510,43 @@ public sealed partial class PlayerInventories
         {
             if (itemClass == "Bow") return otherClass is null or "Quiver" ? null : "a bow goes only with an empty off hand or a quiver";
             if (TwoHand.Contains(itemClass)) return otherClass is null ? null : "a two-handed weapon needs an empty off hand";
-            return otherClass == "Quiver" ? "a quiver goes only with a bow (or an empty main hand)" : null;
+            if (otherClass == "Quiver") return "a quiver goes only with a bow (or an empty main hand)";
+            if (otherClass is not null && OneHand.Contains(otherClass) && (itemClass == "Wand") != (otherClass == "Wand"))
+                return "a wand cannot be dual-wielded with a melee weapon";
+            return null;
         }
         if (itemClass == "Quiver") return otherClass is null or "Bow" ? null : "a quiver goes only with a bow or an empty main hand";
-        return otherClass is not null && TwoHand.Contains(otherClass) ? $"the main hand holds a two-handed weapon ({otherClass})" : null;
+        if (otherClass is not null && TwoHand.Contains(otherClass)) return $"the main hand holds a two-handed weapon ({otherClass})";
+        if (otherClass is not null && OneHand.Contains(itemClass) && OneHand.Contains(otherClass) && (itemClass == "Wand") != (otherClass == "Wand"))
+            return "a wand cannot be dual-wielded with a melee weapon";
+        return null;
+    }
+
+    /// <summary>
+    /// Finds the first empty compatible slot among <paramref name="candidateRows"/> for an item of <paramref name="shape"/>:
+    /// a single-item row must be empty, accept its class (<see cref="Accepts"/>) and have no <see cref="HandConflict"/>; a
+    /// grid row (such as <see cref="Flask"/>) must accept its class and have a free cell (<see cref="FreeCell"/>). Returns
+    /// null when no candidate row can take it without displacing anything.
+    /// </summary>
+    public (byte Row, (byte X, byte Y) Cell)? FindEmptySlot(IEnumerable<byte> candidateRows, Shape shape, Func<Item, Shape?> shapeOf)
+    {
+        lock (_lock)
+        {
+            foreach (byte row in candidateRows)
+            {
+                if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) continue;
+                if (!Accepts(row, shape.Class)) continue;
+                if (InstanceInventories.PlayerDefaults[row].SingleItem)
+                {
+                    if (ItemsIn(row).Count != 0) continue;
+                    if (HandConflict(row, shape.Class, shapeOf) is not null) continue;
+                    return (row, (0, 0));
+                }
+                if (FreeCellCore(row, shape.Width, shape.Height, shapeOf) is { } cell)
+                    return (row, cell);
+            }
+            return null;
+        }
     }
 
     /// <summary>Inventories.dat column 7 by row: the slot the player's model shows an equipped item in (17 = none).</summary>

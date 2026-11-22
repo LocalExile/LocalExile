@@ -441,9 +441,12 @@ public static partial class Game
             conn.MinionOrigins[golem.Id] = origin with { Object = SyncLifeMaximum(origin.Object, m, maximum) };
         golem.ShieldPool.SetMaximum(NativeEnergyShield(pools.MaximumEnergyShield));
         PublishEnergyShieldLocked(conn, golem);
-        golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player, now, ownerResistances);
-        golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
+        if (!golem.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal))
+        {
+            golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player, now, ownerResistances);
+            golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
+        }
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
             [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out origin))

@@ -12,7 +12,8 @@ public static class AuraCatalog
         WornGrantedSkills.Grant? WornGrant = null, IReadOnlyList<(uint Key, int Value)>? SkillStats = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
         bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false,
-        int LifeFlat = 0, int LifePercent = 0)
+        int LifeFlat = 0, int LifePercent = 0,
+        int ArtVariation = 0, bool HideVisual = false, ushort? SourceVisual = null, ushort? BuffVisual = null)
     {
         public object? StanceOwner { get; init; }
     }
@@ -24,19 +25,19 @@ public static class AuraCatalog
         // Both source and received buffs instantiate these native behaviours, which read two words unchecked.
         uint[]? behaviourData = aura.EffectId switch
         {
-            "TempestShield" => [0u, 0u],
+            "TempestShield" => [(uint)Math.Max(0, aura.ArtVariation), aura.HideVisual ? 1u : 0u],
             "TemporalRift" => [42u, 100u],
             _ => null,
         };
         if (aura.SourceBuff is ushort source)
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
-                player, aura.SkillId, auraSource: true, displayState: 0, list: behaviourData);
+                player, aura.SkillId, auraSource: true, displayState: 0, visual: aura.SourceVisual, list: behaviourData);
         // An enemy hex aura has a source on its caster, never a received self curse.
         if (!CurseCatalog.Hex(aura.EffectId))
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
                 player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
-                displayState: receivedDisplayState,
-                // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
+                displayState: receivedDisplayState, visual: aura.BuffVisual,
+                // TempestShieldBuff's native behaviour reads the art variation and hide-user-buff flag
                 // from the first two list entries without checking its length (0x1417a9410).
                 list: behaviourData);
     }

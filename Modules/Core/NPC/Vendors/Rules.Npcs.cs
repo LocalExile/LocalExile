@@ -45,7 +45,7 @@ static partial class VendorsRules
         if (takenFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, takenFlags);
         // The claim saved the league flag already; this applies it in memory and sends it.
         if (data.TakenLeagueFlag is int league) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [league]);
-        conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.TalkingTo = 0;
+        conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.NpcFinishLeagueFlag = null; conn.TalkingTo = 0;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 quest reward claimed: dialogue ended");
     }
 
@@ -80,7 +80,7 @@ static partial class VendorsRules
         conn.NpcRewardOffer = null; conn.NpcRewardItems.Clear();
         if (claimed.GrantedFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, claimed.GrantedFlags);
         if (claimed.LeagueFlagSet && data.TakenLeagueFlag is int league) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [league]);
-        conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.TalkingTo = 0;
+        conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.NpcFinishLeagueFlag = null; conn.TalkingTo = 0;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 quest rewards claimed (take all): dialogue ended");
     }
 }
