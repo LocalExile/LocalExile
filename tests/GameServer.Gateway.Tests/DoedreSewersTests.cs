@@ -29,27 +29,26 @@ public sealed class DoedreSewersTests
     {
         using var runtime = new Runtime();
         using var wire = new Wire();
-        var c = new ClientState(new(1, "2_8_2_2", 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
+        var c = new Player(new(1, "2_8_2_2", 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
         {
-            Character = "DoedreAnimKindRegression",
+            Character = { Name = "DoedreAnimKindRegression" },
             Instance = new(),
-            PlayerSent = true,
+            Connection = { LockstepClient = false, PlayerSent = true, Session = new("doedre-anim-kind", wire.Stream, wire.Ciphers) },
             PlayerLife = 10000,
             Pools = new(60, 10000, 200, 1, 0),
-            Wire = ("doedre-anim-kind", wire.Stream, wire.Ciphers),
         };
         runtime.Player = c;
         c.Walk.Teleport(1000, 1000, 0);
         var boss = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find(DoedreSewers.Boss));
-        await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, boss, 58, MonsterRarity.Unique, 1010, 1010);
+        await Game.SpawnMonster(c, boss, 58, MonsterRarity.Unique, 1010, 1010);
 
         var sent = new List<byte[]>();
         var previousOutgoing = Program.Outgoing;
         try
         {
-            Program.Outgoing = (cipher, bytes) =>
+            Program.Outgoing = (player, bytes) =>
             {
-                if (ReferenceEquals(cipher, wire.Ciphers)) sent.Add(bytes.ToArray());
+                if (ReferenceEquals(player, c)) sent.Add(bytes.ToArray());
             };
             await DoedreSewers.Tick(c);
         }
@@ -76,7 +75,7 @@ public sealed class DoedreSewersTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
-        public ClientState? Player;
+        public Player? Player;
         public Runtime() { Saves.Open(saves); Game.CombatLifetime = lifetime; Program.SetGameLogic(new GameServer.Modules.Game.GameLogic()); }
         public void Dispose()
         {

@@ -14,9 +14,15 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class ClusterJewels
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        AllThemes = LoadAllThemes();
+    }
+
     public const string PassivesMod = "JewelExpansionPassiveNodes";
-    public const string ThemeStat = "local_jewel_expansion_passive_node_index";
-    public const string CountStat = "local_jewel_expansion_passive_node_count";
+    public const uint ThemeStat = Stat.LocalJewelExpansionPassiveNodeIndex;
+    public const uint CountStat = Stat.LocalJewelExpansionPassiveNodeCount;
 
     /// <summary>What a cluster jewel's small passives are: a <c>PassiveTreeExpansionSkills</c> row.</summary>
     /// <param name="Size">0 small, 1 medium, 2 large: the jewels the theme is for.</param>
@@ -63,9 +69,11 @@ public static class ClusterJewels
     }
 
     /// <summary>Every theme, by its row.</summary>
-    public static IReadOnlyList<Theme> Themes => AllThemes.Value;
+    public static IReadOnlyList<Theme> Themes => AllThemes;
 
-    static readonly Lazy<IReadOnlyList<Theme>> AllThemes = new(() =>
+    static IReadOnlyList<Theme> AllThemes = default!;
+
+    static IReadOnlyList<Theme> LoadAllThemes()
     {
         if (ClientTables.TableOrNull("PassiveTreeExpansionSkills") is not { } table
             || ClientTables.TableOrNull("PassiveSkills") is not { } passives || ClientTables.TableOrNull("Tags") is not { } tags) return [];
@@ -82,7 +90,7 @@ public static class ClusterJewels
                 passive.Text("Id") ?? "", passive.Text("Name") ?? "", stats));
         }
         return themes;
-    });
+    }
 
     /// <summary>The cluster jewel bases by their BaseItemTypes row, for the item catalog as it loads.</summary>
     internal static Dictionary<int, Base> Load(ModCatalog mods)

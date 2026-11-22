@@ -10,6 +10,12 @@ using GameServer.Core;
 /// </summary>
 public sealed class QuestStates
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Default = Load();
+    }
+
     public sealed record State(int Order, IReadOnlyList<string> Present, IReadOnlyList<string> Missing, string Text, string Message)
     {
         /// <summary>League quest flags required for this state (<c>QuestStates.__col13</c>, 1-based).</summary>
@@ -64,7 +70,7 @@ public sealed class QuestStates
             && (s.Present.Order().SequenceEqual(shown.Present.Order()) && s.LeaguePresent.Order().SequenceEqual(shown.LeaguePresent.Order())
                 || s.Text == shown.Text && shown.Present.All(s.Present.Contains) && shown.LeaguePresent.All(s.LeaguePresent.Contains)));
 
-    public static readonly Lazy<QuestStates> Default = new(() => Load());
+    public static QuestStates Default = default!;
 
     public static QuestStates Load(string folder = "data")
     {

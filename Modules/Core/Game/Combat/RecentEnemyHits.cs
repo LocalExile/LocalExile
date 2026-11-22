@@ -5,43 +5,54 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Read sources, count and clock together. Development input cannot replace either authoritative output.
-    public static (int Count, int Chance) RecentEnemyHitStatsLocked(ClientState conn, IReadOnlyDictionary<uint, int> sources)
+    public static (int Count, int Chance) RecentEnemyHitStatsLocked(Player player, IReadOnlyDictionary<uint, int> sources)
     {
-        int count = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
-        int Get(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
+        int count = player.RecentEnemyHits.Count(AreaTime(player));
+        int Get(uint key) => sources.GetValueOrDefault(key);
         return (count, RecentEnemyHits.Chance(count, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance)));
     }
 
-    public static void AddRecentEnemyHitStatsLocked(ClientState conn, Dictionary<uint, int> stats)
+    public static void AddRecentEnemyHitStatsLocked(Player player, StatMap stats)
     {
-        var value = RecentEnemyHitStatsLocked(conn, stats);
-        if (Stats.Key(RecentEnemyHits.Counter) is uint counter) stats[counter] = value.Count;
-        if (Stats.Key(RecentEnemyHits.VirtualChance) is uint chance) stats[chance] = value.Chance;
+        int perHit = stats.GetValueOrDefault(RecentEnemyHits.PerHit);
+        int generic = stats.GetValueOrDefault(RecentEnemyHits.GenericChance);
+        if (perHit == 0 && generic == 0)
+        {
+            if (stats.GetValueOrDefault(RecentEnemyHits.Counter) != 0) stats[RecentEnemyHits.Counter] = 0;
+            if (stats.GetValueOrDefault(RecentEnemyHits.VirtualChance) != 0) stats[RecentEnemyHits.VirtualChance] = 0;
+            return;
+        }
+        var value = RecentEnemyHitStatsLocked(player, stats);
+        if (player.RecentEnemyHits.NextChangeIn(AreaTime(player)) is double left) StatsChangeIn(left);
+        if (RecentEnemyHits.Counter is var counter) stats[counter] = value.Count;
+        if (RecentEnemyHits.VirtualChance is var chance) stats[chance] = value.Chance;
     }
 
-    public static RecentEnemyHits.Decision IncomingArmourLocked(ClientState conn, bool relevant, int priorContacts,
+    public static RecentEnemyHits.Decision IncomingArmourLocked(Player player, bool relevant, int priorContacts,
         IReadOnlyDictionary<uint, int> stats)
     {
         // The caller captures membership before ALL stat readers, which may prune a later clock boundary.
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         int chance = RecentEnemyHits.Chance(priorContacts, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance));
-        return RecentEnemyHits.Resolve(conn.Pools.Armour, chance, relevant, conn.IncomingHitRandom);
+        return RecentEnemyHits.Resolve(player.Pools.Armour, chance, relevant, player.IncomingHitRandom);
     }
 
-    // Use the existing player tick for idle expiry. Sample inside the shared send gate, including when
+    // A stat presentation (the RecentHits step times the expiry). Sample inside the shared send gate, including when
     // a queued refresh crosses a contact, death, modifier change or exact expiry boundary.
-    public static Task SendRecentEnemyHits(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+    public static Task SendRecentEnemyHits(Player player) =>
+        Send(player, [], null, atGate: () =>
         {
-            lock (conn.Monsters)
-            {
-                if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
-                var value = RecentEnemyHitStatsLocked(conn, CharacterPlayerStats(conn));
-                if (conn.PresentedRecentEnemyHits == value) return null;
-                var stats = new Dictionary<uint, int>();
-                if (Stats.Key(RecentEnemyHits.Counter) is uint counter) stats[counter] = value.Count;
-                if (Stats.Key(RecentEnemyHits.VirtualChance) is uint chance) stats[chance] = value.Chance;
-                return PlayerStatsUpdateAtGate(conn, stats.Select(kv => (kv.Key, kv.Value)).ToList());
-            }
+            if (player.Closed || player.LeavingArea || player.Paused) return null;
+            var sources = PlayerStatValues(player);
+            if (sources.GetValueOrDefault(RecentEnemyHits.PerHit) == 0
+                && sources.GetValueOrDefault(RecentEnemyHits.GenericChance) == 0
+                && player.PresentedRecentEnemyHits == (0, 0))
+                return null;
+            var value = RecentEnemyHitStatsLocked(player, sources);
+            if (player.PresentedRecentEnemyHits == value) return null;
+            var stats = new Dictionary<uint, int>();
+            if (RecentEnemyHits.Counter is var counter) stats[counter] = value.Count;
+            if (RecentEnemyHits.VirtualChance is var chance) stats[chance] = value.Chance;
+            return PlayerStatsUpdateAtGate(player, stats.Select(kv => (kv.Key, kv.Value)).ToList());
         });
 }

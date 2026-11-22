@@ -12,7 +12,7 @@ public sealed class RollingMagmaCatalogTests
         int effect = skills.EffectRow("RollingMagma");
         Assert.True(effect >= 0 && skills.IsProjectile(effect));
         Assert.Equal("Metadata/Projectiles/MagmaOrbShort", skills.ProjectileFor(effect)?.Id);
-        int Chains(int level) => skills.EffectStats(effect, level).FirstOrDefault(s => s.Item1 == stats.Key("number_of_chains")).Item2;
+        int Chains(int level) => skills.EffectStats(effect, level).FirstOrDefault(s => s.Item1 == Stat.NumberOfChains).Item2;
         Assert.Equal(2, Chains(1));
         Assert.Equal(3, Chains(20));
     }

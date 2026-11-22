@@ -10,7 +10,7 @@ public class NpcTests
         // Positioned as a monster's (team 0), Animated 00, InteractionAction 00, NPC 01 FF (0x141e7b6e0: has dialogue, no
         // component to check), MinimapIcon 00, tasks.
         byte[] blob = new NpcObject(236, 190, NpcObject.BaseComponents).Blob();
-        Assert.Equal("0000" + "EC000000" + "BE000000" + "00000000" + "0000" + "00020001" + "00" + "00" + "01FF" + "00" + "00",
+        Assert.Equal("0000" + "EC000000" + "BE000000" + "00000000" + "0000" + "0000" + "00" + "00" + "01FF" + "00" + "00",
             Convert.ToHexString(blob));
     }
 

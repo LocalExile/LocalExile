@@ -14,7 +14,7 @@ is where the pieces live and the checklists for adding a quest and an act.
 | Quest items, static rewards, the quest log | Gateway `Quest/QuestItems.cs`, `QuestStaticRewards.cs`, `QuestStates.cs`, `Item/ItemCatalog.cs` (`BaseType.Quest`) | the `.it` Quest component's grant, extra, remove and use flags; QuestStaticRewards' points and stats; QuestStates, CharacterStartQuestState presets, SessionQuestFlags |
 | Quest objects and their placements | Gateway `Quest/QuestObjectTypes.cs`, Core `Protocol/Instance/QuestObject.cs` | a type's components from `data/object-types.json` (and Chests.dat rows), the generic blob, where an area places a type |
 | The oracle | Gateway `Quest/QuestSimulator.cs` | an act's events through the same tables and data; a step the game would refuse throws |
-| Per-connection state | Gateway `Connection/ClientState.cs` (`QuestChests`, `QuestObjects`, `QuestNear`, `QuestNpcs` …), `Quest/QuestNpc.cs`, `Saves/CharacterSaves.cs` (`QuestRefundsCredited`), `Saves/InstanceStore.cs` (instance states) | kept across a module reload |
+| Per-connection state | Gateway `Player/Player.cs` (`QuestChests`, `QuestObjects`, `QuestNear`, `QuestNpcs` …), `Quest/QuestNpc.cs`, `Saves/CharacterSaves.cs` (`QuestRefundsCredited`), `Saves/InstanceStore.cs` (instance states) | kept across a module reload |
 | The engine's hooks | Game module `Modules/Core/Game/World/Quest/` (`QuestEngine.cs`, `QuestNpcs.cs`, `NpcScripts.cs`), `World/Quests.cs` (flag commits, shown exits) | area entry, kills, chests, quest objects, NPCs, dialogue scripts, sights, thresholds, quest items, static rewards |
 | The acts' tables | QuestObjects module `Modules/Core/World/QuestObjects/Acts/Act<n>.cs` | one class per act deriving `Quests.Act`, with the act's Id constants |
 | Code-driven quests | QuestObjects module (a1q4's Glyph Wall, the opening tutorial), Gateway `Quest/GlyphQuest.cs` | what the data cannot say |
@@ -151,7 +151,7 @@ Quarry's membrane and Kitava's horns, and chests no room or tile places (The Dre
 `On.ScatteredChest` spreads them over the walk map, the same cells for the same seed). An area the Gateway does not
 generate has only the room lines.
 A boss that forms later (`On.Forms`) stands at
-its own numbered boss point (`AreaPopulation.LaterFormPoints`, kept in `ClientState.LaterFormPoints` when the area is
+its own numbered boss point (`AreaPopulation.LaterFormPoints`, kept in `Player.LaterFormPoints` when the area is
 populated), else where the last of the others died.
 
 ## 7. Quest passive skill points and respec points
@@ -197,7 +197,7 @@ sets `<quest>-HaveRewardBook` (`grant_flag`), using it sets `<quest>-UsedRewardB
 Other permanent stats: QSR 4–6 (`a2q1/a2q2/a2q3-QuestRewardTaken`: 8% movement speed, +15% to all elemental
 resistances, +40 life; stat sources like a passive's, Game `WithQuestStats`), QSR 38 (`a5q6-CompletedBoss`) and 39
 (`EndGameAvailable`, which every character is given for the Atlas but counts only once earned:
-`ClientState.UnearnedQuestFlags`): Kitava's −30% each, mirrored by Game `ResistancePenalty`. Until earned,
+`Player.UnearnedQuestFlags`): Kitava's −30% each, mirrored by Game `ResistancePenalty`. Until earned,
 `EndGameAvailable` is not among the character's flags and the client gets it only in a hideout or a map area
 (`Quests.EndgameOnly`, Game `PlayerQuestFlags`), so the Epilogue's gates (Karui Shores, Lilly's voyage, Lani's Kitava
 reward, Sin's portal home) stay shut until Kitava while the map device and the maps work. Passive and ascendancy

@@ -11,13 +11,15 @@ namespace GameServer.Gateway.Tests;
 // calcRadius / crit / projectile inputs).
 public sealed class SurvivorsSupportMatrixTests
 {
-    static ClientState Connection(string name) =>
+    static Player PlayerOf(string name) =>
         new(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = name, Experience = CharacterStats.ExperienceFor(100) },
+            PlayerLife = 1000,
+            PlayerMana = 1000,
+            Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
 
     static SurvivorsRun RunFor(int skill, int? support = null)
@@ -53,13 +55,13 @@ public sealed class SurvivorsSupportMatrixTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SurvivorsMatrix");
+        var player = PlayerOf("SurvivorsMatrix");
         try
         {
-            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
-            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
-            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
-            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(player);
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(player);
+            SurvivorsSkills.StateOf(player).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(player).SurvivorsSupports = supports;
             Assert.True(supports.Count > 8, $"only {supports.Count} supports");
             var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
             int pairs = 0, unimplemented = 0;
@@ -75,13 +77,13 @@ public sealed class SurvivorsSupportMatrixTests
                 // Rank 1 and the max rank 8: the support's per-level stats scale with the gem level it supports.
                 foreach (int rank in new[] { 1, 8 })
                 {
-                    var bare = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(skillIndex), skill, rank, skillIndex, roster);
+                    var bare = SurvivorsSkills.SurvivorsComputeCast(player, RunFor(skillIndex), skill, rank, skillIndex, roster);
                     Assert.True(bare is not null, $"{skill.Name} rank {rank}: no cast");
                     int known = 0;
                     for (int supportIndex = 0; supportIndex < supports.Count; supportIndex++)
                     {
-                        bool legal = SurvivorsSkills.SurvivorsCanSupport(conn, skillIndex, supportIndex);
-                        var with = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(skillIndex, supportIndex), skill, rank, skillIndex, roster);
+                        bool legal = SurvivorsSkills.SurvivorsCanSupport(player, skillIndex, supportIndex);
+                        var with = SurvivorsSkills.SurvivorsComputeCast(player, RunFor(skillIndex, supportIndex), skill, rank, skillIndex, roster);
                         var name = supports[supportIndex].Support;
                         if (!legal)
                         {
@@ -142,7 +144,7 @@ public sealed class SurvivorsSupportMatrixTests
 
             // Every herald's pulse has its own hit effect: the five gems map to the game's .ao for that hit.
             var heraldEffects = catalog.Where(s => s.Kind == SurvivorsSkillKind.Herald)
-                .Select(s => (s.Name, Impact: SurvivorsSkills.SurvivorsHeraldImpactFor(conn, s))).ToList();
+                .Select(s => (s.Name, Impact: SurvivorsSkills.SurvivorsHeraldImpactFor(player, s))).ToList();
             Assert.Equal(5, heraldEffects.Count);
             Assert.All(heraldEffects, herald => Assert.NotNull(herald.Impact));
             Assert.Equal(["HeraldOfAgony", "HeraldOfAsh", "HeraldOfIce", "HeraldOfPurity", "HeraldOfThunder"],
@@ -159,15 +161,15 @@ public sealed class SurvivorsSupportMatrixTests
             int fasterCast = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.FasterCasting);
             int area = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.Area);
             Assert.True(tornado >= 0 && knives >= 0 && fire >= 0 && fasterCast >= 0 && area >= 0);
-            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, tornado, fire));
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, tornado, fasterCast));
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, tornado, area));
-            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, knives, fasterCast));
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, knives, area));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(player, tornado, fire));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, tornado, fasterCast));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, tornado, area));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(player, knives, fasterCast));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, knives, area));
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
@@ -179,10 +181,10 @@ public sealed class SurvivorsSupportMatrixTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SurvivorsRank");
+        var player = PlayerOf("SurvivorsRank");
         try
         {
-            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(player);
             int index = catalog.ToList().FindIndex(s => s.Name == "Fireball");
             Assert.True(index >= 0);
             var skill = catalog[index];
@@ -190,8 +192,8 @@ public sealed class SurvivorsSupportMatrixTests
             var run = new SurvivorsRun();
             run.Learn(index);
 
-            var rank1 = SurvivorsSkills.SurvivorsComputeCast(conn, run, skill, 1, index, roster);
-            var rank8 = SurvivorsSkills.SurvivorsComputeCast(conn, run, skill, 8, index, roster);
+            var rank1 = SurvivorsSkills.SurvivorsComputeCast(player, run, skill, 1, index, roster);
+            var rank8 = SurvivorsSkills.SurvivorsComputeCast(player, run, skill, 8, index, roster);
             Assert.NotNull(rank1);
             Assert.NotNull(rank8);
             // The reference's Owned::damage_mult: 1 + 0.30 × (rank − 1), so rank 8 is 3.1× rank 1.
@@ -203,7 +205,7 @@ public sealed class SurvivorsSupportMatrixTests
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
@@ -215,15 +217,15 @@ public sealed class SurvivorsSupportMatrixTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SurvivorsLinks");
+        var player = PlayerOf("SurvivorsLinks");
         try
         {
-            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
-            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
-            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
-            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(player);
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(player);
+            SurvivorsSkills.StateOf(player).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(player).SurvivorsSupports = supports;
             // The run is a caster's mode: a melee attack gem (Elemental Hit, Cyclone) is never offered, and one gem one card.
-            Assert.DoesNotContain(catalog, skill => Game.SkillsFor(conn).IsMelee(skill.Effect));
+            Assert.DoesNotContain(catalog, skill => Game.SkillsFor(player).IsMelee(skill.Effect));
             Assert.Equal(catalog.Count, catalog.Select(skill => skill.Name.ToLowerInvariant()).Distinct().Count());
             // The links-first offer needs five supports a skill can actually take; a herald is a buff and takes none.
             var thin = new List<string>();
@@ -231,14 +233,14 @@ public sealed class SurvivorsSupportMatrixTests
             {
                 if (catalog[index].Kind == SurvivorsSkillKind.Herald) continue;
                 int compatible = Enumerable.Range(0, supports.Count)
-                    .Count(support => SurvivorsSkills.SurvivorsCanSupport(conn, index, support));
+                    .Count(support => SurvivorsSkills.SurvivorsCanSupport(player, index, support));
                 if (compatible < SurvivorsRules.MaxSupportsPerSkill) thin.Add($"{catalog[index].Name} ({compatible})");
             }
             Assert.Empty(thin);
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
@@ -250,10 +252,10 @@ public sealed class SurvivorsSupportMatrixTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SurvivorsArea");
+        var player = PlayerOf("SurvivorsArea");
         try
         {
-            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(player);
             var areaSkills = catalog.Where(s => s.Kind == SurvivorsSkillKind.Area).ToList();
             Assert.True(areaSkills.Count >= 5, $"only {areaSkills.Count} area skill(s) in the catalogue");
             // Melee area skills (Cyclone, Ground Slam, Cleave) are attacks, not casters: the run never offers them.
@@ -264,23 +266,23 @@ public sealed class SurvivorsSupportMatrixTests
             var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
             var run = new SurvivorsRun();
             run.Learn(index);
-            var cast = SurvivorsSkills.SurvivorsComputeCast(conn, run, skill, 1, index, roster);
+            var cast = SurvivorsSkills.SurvivorsComputeCast(player, run, skill, 1, index, roster);
             Assert.NotNull(cast);
             Assert.True(cast!.Herald);
             Assert.True(cast.HeraldDamage > 0);
             Assert.True(cast.HeraldRadius > 0);
             Assert.Equal(CastAnimationKind.Area, SurvivorsSkills.SurvivorsCastKind(skill));
             // The real gem takes supports: the run's offer pairs it with the area support.
-            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
-            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
-            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(player);
+            SurvivorsSkills.StateOf(player).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(player).SurvivorsSupports = supports;
             int areaSupport = supports.ToList().FindIndex(s => s.Support == SurvivorsSupport.Area);
             Assert.True(areaSupport >= 0);
-            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, index, areaSupport));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(player, index, areaSupport));
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
@@ -292,13 +294,13 @@ public sealed class SurvivorsSupportMatrixTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SurvivorsHeraldSupports");
+        var player = PlayerOf("SurvivorsHeraldSupports");
         try
         {
-            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
-            var supports = SurvivorsSkills.SurvivorsSupportsFor(conn);
-            SurvivorsSkills.StateOf(conn).SurvivorsCatalog = catalog;
-            SurvivorsSkills.StateOf(conn).SurvivorsSupports = supports;
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(player);
+            var supports = SurvivorsSkills.SurvivorsSupportsFor(player);
+            SurvivorsSkills.StateOf(player).SurvivorsCatalog = catalog;
+            SurvivorsSkills.StateOf(player).SurvivorsSupports = supports;
             int heraldIndex = catalog.ToList().FindIndex(s => s.Name == "Herald of Ash");
             Assert.True(heraldIndex >= 0);
             var herald = catalog[heraldIndex];
@@ -309,17 +311,17 @@ public sealed class SurvivorsSupportMatrixTests
             int rarity = Find("Item Rarity Support");
             Assert.True(area >= 0 && concentrated >= 0 && fire >= 0 && projectiles >= 0 && minions >= 0
                 && brutality >= 0 && voidManip >= 0);
-            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, area));
-            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, concentrated));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, area));
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, concentrated));
             // The real gem is a buff: no hit, no flight, no minion, no drops.
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, fire));
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, projectiles));
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, minions));
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, rarity));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, fire));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, projectiles));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, minions));
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, rarity));
             var roster = new SurvivorsSkills.SurvivorsRoster([], [], 1, 20, 40);
-            var bare = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(heraldIndex), herald, 1, heraldIndex, roster);
-            var withArea = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(heraldIndex, area), herald, 1, heraldIndex, roster);
-            var withConcentrated = SurvivorsSkills.SurvivorsComputeCast(conn, RunFor(heraldIndex, concentrated), herald, 1, heraldIndex, roster);
+            var bare = SurvivorsSkills.SurvivorsComputeCast(player, RunFor(heraldIndex), herald, 1, heraldIndex, roster);
+            var withArea = SurvivorsSkills.SurvivorsComputeCast(player, RunFor(heraldIndex, area), herald, 1, heraldIndex, roster);
+            var withConcentrated = SurvivorsSkills.SurvivorsComputeCast(player, RunFor(heraldIndex, concentrated), herald, 1, heraldIndex, roster);
             Assert.NotNull(bare);
             Assert.NotNull(withArea);
             Assert.NotNull(withConcentrated);
@@ -327,14 +329,14 @@ public sealed class SurvivorsSupportMatrixTests
             Assert.True(withConcentrated!.HeraldDamage > bare.HeraldDamage || withConcentrated.HeraldRadius < bare.HeraldRadius);            int purity = catalog.ToList().FindIndex(s => s.Name == "Herald of Purity");
             int agony = catalog.ToList().FindIndex(s => s.Name == "Herald of Agony");
             Assert.True(purity >= 0 && agony >= 0);
-            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, purity, brutality)); // physical Herald
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, brutality)); // fire Herald
-            Assert.True(SurvivorsSkills.SurvivorsCanSupport(conn, agony, voidManip)); // chaos Herald
-            Assert.False(SurvivorsSkills.SurvivorsCanSupport(conn, heraldIndex, voidManip)); // fire Herald
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(player, purity, brutality)); // physical Herald
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, brutality)); // fire Herald
+            Assert.True(SurvivorsSkills.SurvivorsCanSupport(player, agony, voidManip)); // chaos Herald
+            Assert.False(SurvivorsSkills.SurvivorsCanSupport(player, heraldIndex, voidManip)); // fire Herald
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
@@ -346,10 +348,10 @@ public sealed class SurvivorsSupportMatrixTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SurvivorsCatalogue");
+        var player = PlayerOf("SurvivorsCatalogue");
         try
         {
-            var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
+            var catalog = SurvivorsSkills.SurvivorsCatalogFor(player);
             // A ground-targeted area spell lands on the monster it was aimed at; a nova stays on the player.
             Assert.False(catalog.Single(s => s.Name == "Firestorm").SelfTargeted);
             var iceNova = catalog.Single(s => s.Name == "Ice Nova");
@@ -365,7 +367,7 @@ public sealed class SurvivorsSupportMatrixTests
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }

@@ -13,7 +13,7 @@ public sealed class HolySweepHammersTests
         int effect = skills.EffectRow(effectId);
         Assert.True(effect >= 0);
         var own = skills.EffectStats(effect, level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        return HolySweepHammers.For(name => stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0);
+        return HolySweepHammers.For(name => own.GetValueOrDefault(name));
     }
 
     static readonly (uint Id, (int X, int Y) At, int Size)[] Drowned =

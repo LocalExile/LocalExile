@@ -13,29 +13,30 @@ public static partial class Game
         public double Ready, Contact = double.NaN;
     }
     static readonly RuleTable<SpawnedMonster, EssenceSummonCycle> EssenceSummonCycles = new();
-    static readonly Lazy<ushort?> EssenceKaruiModHash = new(() => Items.Mods.ById(EssenceKaruiSummonMod)?.Hash);
+    static ushort? EssenceKaruiModHash;
+    internal static void LoadEssenceSummonsData() => EssenceKaruiModHash = Items.Mods.ById(EssenceKaruiSummonMod)?.Hash;
     // EssenceMovingAncestor.ot: these are untargetable, damage-immune spirits, not ordinary killable guards.
-    static readonly MonsterModSet EssenceKaruiDefences = new([], [], new MonsterModEffects(new Dictionary<string, int>
+    static readonly MonsterModSet EssenceKaruiDefences = new([], [], new MonsterModEffects(new Dictionary<uint, int>
     {
-        ["base_cannot_be_damaged"] = 1, ["base_cannot_be_stunned"] = 1, ["cannot_be_knocked_back"] = 1,
-        ["immune_to_curses"] = 1, ["immune_to_auras_from_other_entities"] = 1,
+        [Stat.BaseCannotBeDamaged] = 1, [Stat.BaseCannotBeStunned] = 1, [Stat.CannotBeKnockedBack] = 1,
+        [Stat.ImmuneToCurses] = 1, [Stat.ImmuneToAurasFromOtherEntities] = 1,
     }));
     public static MonsterModSet? EssenceSummonModifiers(MonsterCatalog.Variety variety) =>
         variety.Id == EssenceKaruiSpirit ? EssenceKaruiDefences : null;
-    public static bool EssenceSummonCanSpawnLocked(ClientState conn, uint parent, MonsterCatalog.Variety variety) =>
-        variety.Id != EssenceKaruiSpirit || conn.Monsters.Values.Count(m => m.SummonerId == parent
+    public static bool EssenceSummonCanSpawnLocked(Player player, uint parent, MonsterCatalog.Variety variety) =>
+        variety.Id != EssenceKaruiSpirit || player.Area.Monsters.Values.Count(m => m.SummonerId == parent
             && m.Variety?.Id == EssenceKaruiSpirit && !m.Dead && m.Life > 0) < EssenceKaruiLimit;
     public sealed record EssenceSummonCast(uint Parent, SpawnedMonster Monster, SkillCatalog.MonsterSummonInfo Summon);
 
     // The daemon's skill supplies its cast time, count, cooldown and parent flags. Server-only .ais is unavailable;
     // our activation policy is one cast when an awake carrier aggroes, then its cooldown, with no catch-up burst.
-    public static IReadOnlyList<EssenceSummonCast> EssenceSummonsDueLocked(ClientState conn, double now)
+    public static IReadOnlyList<EssenceSummonCast> EssenceSummonsDueLocked(Player player, double now)
     {
         List<EssenceSummonCast> due = [];
-        if (conn.Closed || conn.LeavingArea || conn.Paused || !IsMonsterRunner(conn)
-            || EssenceKaruiModHash.Value is not ushort mod) return due;
-        var catalog = SkillsFor(conn);
-        foreach (var (id, source) in conn.Monsters)
+        if (player.Closed || player.LeavingArea || player.Paused || !IsMonsterRunner(player)
+            || EssenceKaruiModHash is not ushort mod) return due;
+        var catalog = SkillsFor(player);
+        foreach (var (id, source) in player.Area.Monsters)
         {
             if (!source.Hostile || source.Dead || source.Life == 0 || source.WorldHidden
                 || source.Mods.Mods.Count == 0 || !source.Mods.Mods.Any(m => m.Hash == mod)) continue;
@@ -49,7 +50,7 @@ public static partial class Game
                 if (now < cycle.Contact) continue;
                 cycle.Contact = double.NaN;
                 if (Monsters.Find(summon.Variety.ToString()) is not { } variety
-                    || !EssenceSummonCanSpawnLocked(conn, id, variety)) continue;
+                    || !EssenceSummonCanSpawnLocked(player, id, variety)) continue;
                 due.Add(new(id, source, summon));
                 continue;
             }
@@ -60,22 +61,15 @@ public static partial class Game
         return due;
     }
 
-    public static async Task TickEssenceSummons(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now)
+    public static async Task TickEssenceSummons(Player player, double now)
     {
-        IReadOnlyList<EssenceSummonCast> due;
-        int ended;
-        lock (conn.Monsters)
-        {
-            ended = TickMonsterSummonParentsLocked(conn, now);
-            due = EssenceSummonsDueLocked(conn, now);
-        }
-        if (ended > 0) await SendRemainingMonsters(remote, stream, ciphers, conn);
+        int ended = TickMonsterSummonParentsLocked(player, now);
+        IReadOnlyList<EssenceSummonCast> due = EssenceSummonsDueLocked(player, now);
+        if (ended > 0) await SendRemainingMonsters(player);
         foreach (var cast in due)
         {
-            lock (conn.Monsters)
-                if (!IsMonsterRunner(conn) || !MonsterSummonerCurrentLocked(conn, cast.Parent, cast.Monster)) continue;
-            await MonsterSummon(remote, stream, ciphers, conn, cast.Parent, cast.Monster, cast.Summon);
+            if (!IsMonsterRunner(player) || !MonsterSummonerCurrentLocked(player, cast.Parent, cast.Monster)) continue;
+            await MonsterSummon(player, cast.Parent, cast.Monster, cast.Summon);
         }
     }
 }

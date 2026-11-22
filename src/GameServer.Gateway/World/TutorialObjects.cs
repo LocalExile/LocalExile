@@ -37,11 +37,11 @@ public static class TutorialObjects
           ChestOpened: false, SkillClaimed: false, SupportClaimed: false };
 
     /// <summary>The exile's voice line ends when its window closes: the running scene goes on to the bite now.</summary>
-    public static void SkipDialogue(ClientState conn)
+    public static void SkipDialogue(Player player)
     {
         bool exile;
-        lock (conn.Npcs) exile = conn.Npcs.GetValueOrDefault(conn.TalkingTo)?.Npc.Id == Exile;
-        if (exile && conn.TutorialSceneRunning) conn.TutorialDialogueSkipped?.TrySetResult();
+        lock (player.Npcs) exile = player.Npcs.GetValueOrDefault(player.TalkingTo)?.Npc.Id == Exile;
+        if (exile && player.TutorialSceneRunning) player.TutorialDialogueSkipped?.TrySetResult();
     }
 
     public sealed record RoomPlacement(int X,int Y,int Width,int Height,int Code)
@@ -142,5 +142,5 @@ public static class TutorialObjects
         return w.U8(0).U8(0).ToArray(); // Animated, tasks; BaseEvents consumes no bytes.
     }
     static void Positioned(BlobWriter w,int x,int y,float rotation) =>
-        w.I32(x).I32(y).F32(rotation).U16(0).U8(0).U8(2).U8(0).U8(1);
+        w.Positioned(x, y, rotation);
 }

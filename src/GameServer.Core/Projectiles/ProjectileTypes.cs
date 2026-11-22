@@ -336,6 +336,9 @@ public sealed record ProjectileEvent(ProjectileEventKind Kind, ProjectileEntity 
 public interface IProjectileWorld
 {
     IReadOnlyList<ProjectileActor> Actors(long from, long until);
+    /// <summary>Actors that may come within <paramref name="radius"/> of <paramref name="centre"/> at <paramref name="at"/>.
+    /// A host with a spatial grid overrides this so area explosions avoid scanning every actor in the instance.</summary>
+    IReadOnlyList<ProjectileActor> ActorsNear(ProjectileVector centre, double radius, long at) => Actors(at, at);
     TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to);
     /// <summary>The terrain contact of one flight segment of <paramref name="projectile"/>. A host that models flight
     /// height (a shot aimed at higher ground) overrides it; area placement and target selection keep the plain trace.</summary>

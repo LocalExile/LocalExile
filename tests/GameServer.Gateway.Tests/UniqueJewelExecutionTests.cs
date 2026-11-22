@@ -35,22 +35,22 @@ public class UniqueJewelExecutionTests
         Saves.Open(path);
         try
         {
-            var conn = new ClientState(new(1, "escape", 100, 100, 100, 100, null, []), 1, 1)
-                { Character = $"Escape{Guid.NewGuid():N}" };
-            var tree = Game.PassivesFor(conn);
+            var player = new Player(new(1, "escape", 100, 100, 100, 100, null, []), 1, 1)
+                { Character = { Name = $"Escape{Guid.NewGuid():N}" } };
+            var tree = Game.PassivesFor(player);
             var socket = tree.JewelNodeForSlot(2)!.Value;
-            var inventory = Game.ItemsOf(conn);
+            var inventory = Game.ItemsOf(player);
             Assert.NotEmpty(ImpossibleEscapeCatalogue.All);
             foreach (var target in ImpossibleEscapeCatalogue.All)
             {
                 var jewel = Assert.IsType<Item>(ImpossibleEscapeCatalogue.Create(Program.Items, target.Name));
                 inventory.Put(PlayerInventories.PassiveJewels, new(2, 2, 0, jewel));
-                var available = Game.AllocationBypassNodes(conn, [socket]);
+                var available = Game.AllocationBypassNodes(player, [socket]);
                 Assert.NotEmpty(available);
                 Assert.DoesNotContain(target.GraphId, available.Keys);
                 Assert.All(available, pair => Assert.Contains(socket, pair.Value));
-                Assert.Empty(Game.AllocationBypassNodes(conn, [socket], skipItemId: 2));
-                Assert.Empty(Game.AllocationBypassNodes(conn, [target.GraphId]));
+                Assert.Empty(Game.AllocationBypassNodes(player, [socket], skipItemId: 2));
+                Assert.Empty(Game.AllocationBypassNodes(player, [target.GraphId]));
                 if (target.Name == "Supreme Ego") Assert.Contains((ushort)9015, available.Keys);
                 inventory.Remove(PlayerInventories.PassiveJewels, 2);
             }

@@ -11,7 +11,7 @@ public sealed class LeadershipConsumersTests
     {
         // The level 1 Spirit of Akoya's Leadership: 300 Rage per minute (5 per second), from the skill's
         // ancestral_buff_base_rage_regeneration_per_minute value, mapped by RageStats.Inputs.
-        var inputs = RageStats.Inputs(name => name == "base_rage_regeneration_per_minute" ? 300 : 0);
+        var inputs = RageStats.Inputs(name => name == Stat.BaseRageRegenerationPerMinute ? 300 : 0);
         Assert.Equal(300, inputs.RegenerationPerMinute);
         var state = new RageState();
         Assert.Equal(0, state.Read(0, inputs).Current);
@@ -65,42 +65,43 @@ public sealed class LeadershipConsumersTests
         int plain = skills.EffectRow("Fireball");
         Assert.True(skills.IsTravel(travel));
         Assert.False(skills.IsTravel(plain));
-        var speed = Program.Stats.Key("travel_skill_cooldown_speed_+%")!.Value;
-        var player = new Dictionary<uint, int> { [speed] = 100 };
+        var speed = Stat.TravelSkillCooldownSpeedPlusPct;
+        var playerStats = new Dictionary<uint, int> { [speed] = 100 };
         var own = new Dictionary<uint, int>();
-        Assert.Equal(100, Game.TravelSkillCooldownSpeed(skills, travel, player, own));
-        Assert.Equal(150, Game.TravelSkillCooldownSpeed(skills, travel, player, new Dictionary<uint, int> { [speed] = 50 }));
-        Assert.Equal(0, Game.TravelSkillCooldownSpeed(skills, plain, player, own));
+        Assert.Equal(100, Game.TravelSkillCooldownSpeed(skills, travel, playerStats, own));
+        Assert.Equal(150, Game.TravelSkillCooldownSpeed(skills, travel, playerStats, new Dictionary<uint, int> { [speed] = 50 }));
+        Assert.Equal(0, Game.TravelSkillCooldownSpeed(skills, plain, playerStats, own));
         Assert.Equal(0, Game.TravelSkillCooldownSpeed(skills, travel,
             new Dictionary<uint, int>(), new Dictionary<uint, int>()));
 
         // Rakiata's Leadership: the level 1 spirit's 10 is "action speed cannot be modified below 110% of base value".
-        var conn = new ClientState(new(1, "leadership", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "leadership", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "LeadershipConsumers", PlayerLife = 1000,
+            Character = { Name = "LeadershipConsumers" },
+            PlayerLife = 1000
         };
-        static int Get(string name, int value) => name == "action_speed_-%" ? value : 0;
-        Assert.Equal(0.5, Game.PlayerActionFactorFrom(conn, name => Get(name, 50)), 6);
-        int SpeedFloor(string name) => name switch
+        static int Get(uint name, int value) => name == Stat.ActionSpeedMinusPct ? value : 0;
+        Assert.Equal(0.5, Game.PlayerActionFactorFrom(player, name => Get(name, 50)), 6);
+        int SpeedFloor(uint name) => name switch
         {
-            "action_speed_-%" => 50,
-            "action_speed_+%_minimum_value_from_rakiatas_leadership" => 10,
+            Stat.ActionSpeedMinusPct => 50,
+            Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership => 10,
             _ => 0,
         };
-        Assert.Equal(1.1, Game.PlayerActionFactorFrom(conn, SpeedFloor), 6);
+        Assert.Equal(1.1, Game.PlayerActionFactorFrom(player, SpeedFloor), 6);
         // A frozen (0) action speed stays frozen: the floor only lifts a lowered positive factor.
-        int Frozen(string name) => name switch
+        int Frozen(uint name) => name switch
         {
-            "action_speed_-%" => 100,
-            "action_speed_+%_minimum_value_from_rakiatas_leadership" => 10,
+            Stat.ActionSpeedMinusPct => 100,
+            Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership => 10,
             _ => 0,
         };
-        Assert.Equal(0, Game.PlayerActionFactorFrom(conn, Frozen), 6);
+        Assert.Equal(0, Game.PlayerActionFactorFrom(player, Frozen), 6);
         // The Leadership itself carries the stat; the server's action-factor path reads it even though the raw source
         // cache does not (the buff is added by CharacterPlayerStats).
-        uint floorKey = Program.Stats.Key("action_speed_+%_minimum_value_from_rakiatas_leadership")!.Value;
-        Assert.Equal(1, Game.PlayerActionFactor(conn), 6);
-        Assert.True(conn.SpiritChieftains.TryTrigger(0, new SingleUseCooldown(80000, 0), 2274, [(floorKey, 10)], 12));
-        Assert.Equal(1.1, Game.PlayerActionFactor(conn), 6);
+        uint floorKey = Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership;
+        Assert.Equal(1, Game.PlayerActionFactor(player), 6);
+        Assert.True(player.SpiritChieftains.TryTrigger(0, new SingleUseCooldown(80000, 0), 2274, [(floorKey, 10)], 12));
+        Assert.Equal(1.1, Game.PlayerActionFactor(player), 6);
     }
 }

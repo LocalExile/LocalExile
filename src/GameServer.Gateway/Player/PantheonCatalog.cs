@@ -6,10 +6,16 @@ using GameServer.Core;
 /// minor, the quest flag that unlocks the god, the god's power and three upgrades as stats) and PantheonSouls (the
 /// upgrades' quest flags: a captured soul handed to Sin sets <c>&lt;God&gt;Upgrade&lt;N&gt;</c>). Rows 4, 5, 7 and 12 are disabled
 /// placeholders (QuestFlag NEVER_SET). The data the Pantheon module (Modules/Core/Player/Pantheon) chooses and applies the
-/// gods by; the choice itself is the character's (ClientState and the save: PantheonMajor, PantheonMinor).
+/// gods by; the choice itself is the character's (Player and the save: PantheonMajor, PantheonMinor).
 /// </summary>
 public sealed class PantheonCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Default = Load();
+    }
+
     /// <summary>A panel row: its Id (TheBrineKing …), whether it is a major god, the flag that unlocks it, the god's name
     /// (GodName1), its power (Effect1: Stats keys = row + 1, values) and its upgrades (Effect2–4, each with the PantheonSouls
     /// flag that unlocks it, in the souls' order).</summary>
@@ -24,7 +30,7 @@ public sealed class PantheonCatalog
 
     PantheonCatalog(IReadOnlyList<God> gods) => Gods = gods;
 
-    public static readonly Lazy<PantheonCatalog> Default = new(() => Load());
+    public static PantheonCatalog Default = default!;
 
     public God? ByWire(byte wire) => wire >= 1 && wire <= Gods.Count ? Gods[wire - 1] : null;
     public God? ById(string? id) => id is null ? null : Gods.FirstOrDefault(g => g.Id == id);
@@ -46,12 +52,12 @@ public sealed class PantheonCatalog
     /// unlocked (<paramref name="has"/>: the flags the client has), its upgrades only once the character earned
     /// EndGameAvailable. Every character is given that flag at login for the Atlas (Quests.EveryCharacter; until earned
     /// only in a hideout and the maps, Quests.EndgameOnly): it counts once a quest set it
-    /// (<see cref="ClientState.EarnedQuestFlag"/>, as Kitava's Act 10 resistance penalty).</summary>
-    public List<(uint Key, int Value)> ChosenStats(ClientState conn, Func<string, bool> has)
+    /// (<see cref="Player.EarnedQuestFlag"/>, as Kitava's Act 10 resistance penalty).</summary>
+    public List<(uint Key, int Value)> ChosenStats(Player player, Func<string, bool> has)
     {
-        bool endgame = conn.EarnedQuestFlag(Quests.EndGameAvailable);
+        bool endgame = player.Character.EarnedQuestFlag(Quests.EndGameAvailable);
         string? major, minor;
-        lock (conn.Monsters) (major, minor) = (conn.PantheonMajor, conn.PantheonMinor);
+        (major, minor) = (player.Character.PantheonMajor, player.Character.PantheonMinor);
         return [.. new[] { ById(major), ById(minor) }.OfType<God>().Where(g => Unlocked(g, has)).SelectMany(g => Stats(g, has, endgame))];
     }
 

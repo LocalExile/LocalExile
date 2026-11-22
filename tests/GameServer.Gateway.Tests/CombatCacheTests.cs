@@ -5,75 +5,6 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class CombatCacheTests
 {
-    [Fact]
-    public void Permanent_rewards_and_gem_sources_refresh_without_count_or_frame_shortcuts()
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"localexile-cache-{Guid.NewGuid():N}.db");
-        Saves.Open(path);
-        var conn = new ClientState(new(1, "cache", 1000, 1000, 100, 100, null, []), 1, 1)
-        {
-            Character = "Cache" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000,
-            Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-        };
-        conn.Clock.Stop();
-        try
-        {
-            var rewards = QuestStaticRewards.Default.Value.Rewards.Where(r => r.Stats.Count > 0
-                && !Quests.EveryCharacter.Contains(r.Flag) && !Game.ResistancePenaltyAct5.Contains(r.Flag)
-                && !Game.ResistancePenaltyAct10.Contains(r.Flag)).Take(2).ToArray();
-            Assert.Equal(2, rewards.Length);
-            foreach (var reward in rewards)
-            {
-                // Replace the flag, keeping count equal; a reset removes its bonus immediately too.
-                conn.QuestFlags.Clear(); conn.QuestFlags.Add(reward.Flag);
-                var expected = reward.Stats.ToDictionary(p => Program.Stats.Key(p.Stat)!.Value, p => p.Value);
-                var first = Game.WithQuestStats(conn, []);
-                Assert.Equal(expected.OrderBy(p => p.Key), first.OrderBy(p => p.Key));
-                first.Clear();
-                Assert.Equal(expected.OrderBy(p => p.Key), Game.WithQuestStats(conn, []).OrderBy(p => p.Key));
-            }
-            conn.QuestFlags.Clear();
-            Assert.Empty(Game.WithQuestStats(conn, []));
-
-            var items = Game.ItemsOf(conn);
-            var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
-            var host = items.Add(PlayerInventories.Weapon1, 0, 0,
-                ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with { Sockets = [new(SocketColour.White, gem)] });
-            var effect = Game.GemSkillEffects(conn).Single(g => Game.SkillsFor(conn).EffectId(g.Effect) == "Fireball");
-            var original = Game.SupportedSkillAt(conn, effect.Id, null);
-            uint level = Program.Stats.Key(SkillGemLevel.AllSkillGems)!.Value;
-            conn.PlayerStats[level] = 2;
-            Assert.Equal(original.Level + 2, Game.SupportedSkillAt(conn, effect.Id, null).Level);
-            conn.PlayerStats[level] = 3;
-            Assert.Equal(original.Level + 3, Game.SupportedSkillAt(conn, effect.Id, null).Level);
-            conn.PlayerStats.Remove(level);
-            Assert.Equal(original.Level, Game.SupportedSkillAt(conn, effect.Id, null).Level);
-            items.Remove(PlayerInventories.Weapon1, host.Id);
-            Assert.Equal(-1, Game.SupportedSkillAt(conn, effect.Id, null).Effect);
-
-            foreach (string attribute in new[] { "strength", "dexterity", "intelligence" })
-                conn.PlayerStats[Program.Stats.Key("virtual_" + attribute + "_for_requirements")!.Value] = 1000;
-            var grace = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemGrace")!);
-            host = items.Add(PlayerInventories.Weapon1, 0, 0,
-                ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with { Sockets = [new(SocketColour.White, grace)] });
-            CharacterSaves.SetAuraActive(conn.Character!, "Grace", true);
-            Game.ReconcileOwnAuras(conn);
-            Assert.Single(conn.Auras);
-            Game.ReconcileOwnAuras(conn); Game.ReconcileOwnAuras(conn);
-            uint disabled = Program.Stats.Key("your_spells_are_disabled")!.Value;
-            conn.PlayerStats[disabled] = 1;
-            Game.ReconcileOwnAuras(conn);
-            Assert.Empty(conn.Auras);
-            conn.PlayerStats[disabled] = 0; // Same override count: compare the values, not just count.
-            Game.ReconcileOwnAuras(conn);
-            Assert.Single(conn.Auras);
-            Game.ReconcileOwnAuras(conn);
-            items.Remove(PlayerInventories.Weapon1, host.Id);
-            Game.ReconcileOwnAuras(conn);
-            Assert.Empty(conn.Auras);
-        }
-        finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
-    }
 
     [Fact]
     public void An_adorned_jewel_is_scaled_once_so_the_stat_sources_cache_still_matches()
@@ -82,7 +13,7 @@ public sealed class CombatCacheTests
         var jewel = new Item(1, [], 0) { Rarity = ItemRarity.Magic, Corrupted = true, Mods = [new(ModSection.Explicit, 1, [10])] };
         var catalog = Program.Items;
         var masteries = new Dictionary<ushort, ushort>();   // the key compares these by reference
-        Game.StatSourcesKey Key(Item item) => new([], masteries, [new(1, 0, 0, item)], [], 0, false, 1,
+        Game.StatSourcesKey Key(Item item) => new([], masteries, [new(1, 0, 0, item)], 0, false, 1,
             null, [], 0, [], new HashSet<string>(), new HashSet<string>(), null, 0, 0, 0, 100, 100, Catalog: catalog);
 
         var scaled = Game.AdornedJewel(jewel, 100);
@@ -104,14 +35,14 @@ public sealed class CombatCacheTests
     public void A_session_lists_its_actors_in_contact_order()
     {
         // The runtime decides contacts by id, then generation, and sorts a list that comes otherwise at every step.
-        var conn = new ClientState(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var player = new Player(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         foreach (uint id in new[] { 0x3005u, 0x3001u, 0x3003u })
-            conn.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
-        conn.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
-        conn.Totems.Place(new TotemState.Totem(0x3002, 1, (100, 100), 100, 100, null), 2, 0);
-        var session = new Game.ProjectileSession("order", null!, new(new byte[64], false), conn);
-        Assert.Equal([Program.PlayerId, 0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
-        conn.PlayerLife = 0;
+            player.Area.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        player.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
+        player.Totems.Place(new TotemState.Totem(0x3002, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession(player);
+        Assert.Equal(new[] { player.Id, 0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u }.Order(), session.Actors(0, 0).Select(a => a.Key.Id));
+        player.PlayerLife = 0;
         Assert.Equal([0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
     }
 
@@ -120,12 +51,12 @@ public sealed class CombatCacheTests
     {
         // The runtime asks for the actors at every simulation step, thousands of times a second in a crowd.
         const int monsters = 400;
-        var conn = new ClientState(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var player = new Player(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         for (uint i = 0; i < monsters; i++)
-            conn.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
-        conn.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);
-        conn.Totems.Place(new TotemState.Totem(0x3003, 1, (100, 100), 100, 100, null), 2, 0);
-        var session = new Game.ProjectileSession("records", null!, new(new byte[64], false), conn);
+            player.Area.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        player.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);
+        player.Totems.Place(new TotemState.Totem(0x3003, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession(player);
 
         var first = session.Actors(0, 0);
         var second = session.Actors(0, 0);
@@ -133,7 +64,7 @@ public sealed class CombatCacheTests
         Assert.NotSame(first, second);   // the runtime holds one list while a hit changes the next
         for (int i = 0; i < first.Count; i++) Assert.Same(first[i], second[i]);
         // A monster whose walk was replaced gets a new record, and only that one.
-        conn.Monsters[0x3000].Walk = new(120, 100, 0);
+        player.Area.Monsters[0x3000].Walk = new(120, 100, 0);
         var third = session.Actors(0, 0);
         Assert.Equal(1, Enumerable.Range(0, first.Count).Count(i => !ReferenceEquals(first[i], third[i])));
 

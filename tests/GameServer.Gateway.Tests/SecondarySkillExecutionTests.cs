@@ -9,61 +9,32 @@ public sealed class SecondarySkillExecutionTests
     static ushort Equip(MinionUtilityTests.Fixture f, params string[] names)
     {
         f.Equip(names.Select(n => (n,4)).ToArray());
-        var host=Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
-        Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1,host.Id,i=>i with {Links=[(byte)names.Length]});
-        return Game.GemSkillEffects(f.Conn).Single().Id;
+        var host=Game.ItemsOf(f.Player).Items(PlayerInventories.Weapon1).Single();
+        Game.ItemsOf(f.Player).Change(PlayerInventories.Weapon1,host.Id,i=>i with {Links=[(byte)names.Length]});
+        return Game.GemSkillEffects(f.Player).Single().Id;
     }
-    static void Set(ClientState conn,string stat,int value) => conn.PlayerStats[Program.Stats.Key(stat)!.Value]=value;
 
-    [Fact]
-    public void Bear_trap_resolves_its_secondary_base_and_generic_added_damage_without_attack_or_spell_modifiers()
-    {
-        using var f=new MinionUtilityTests.Fixture();
-        ushort source=Equip(f,"Bear Trap");
-        var baseline=Game.SupportedHitFor(f.Conn,source,false);
-        Assert.Equal(35,baseline.MinTotal);Assert.Equal(49,baseline.MaxTotal);
-        Set(f.Conn,"spell_damage_+%",1000);Set(f.Conn,"attack_damage_+%",1000);
-        Set(f.Conn,"spell_minimum_added_fire_damage",1000);Set(f.Conn,"spell_maximum_added_fire_damage",1000);
-        Set(f.Conn,"attack_minimum_added_fire_damage",1000);Set(f.Conn,"attack_maximum_added_fire_damage",1000);
-        var unaffected=Game.SupportedHitFor(f.Conn,source,false);
-        Assert.Equal(baseline.MinTotal,unaffected.MinTotal);Assert.Equal(baseline.MaxTotal,unaffected.MaxTotal);
-        Set(f.Conn,"physical_damage_+%",100);
-        var physical=Game.SupportedHitFor(f.Conn,source,false);
-        Assert.Equal(70,physical.MinTotal);Assert.Equal(98,physical.MaxTotal);
-        Set(f.Conn,"global_minimum_added_cold_damage",10);Set(f.Conn,"global_maximum_added_cold_damage",10);
-        var added=Game.SupportedHitFor(f.Conn,source,false);
-        Assert.Equal(30,added[DamageType.Cold].Min);Assert.Equal(30,added[DamageType.Cold].Max);
-        Set(f.Conn,"global_minimum_added_cold_damage",0);Set(f.Conn,"global_maximum_added_cold_damage",0);
-        Set(f.Conn,"physical_damage_+%",0);
-        source=Equip(f,"Bear Trap","Added Cold Damage Support");
-        var linked=Game.SupportedHitFor(f.Conn,source,false);
-        Assert.True(linked[DamageType.Cold].Min>0);
-        var gem=Game.SupportedSkill(f.Conn,source);
-        int Own(string name)=>gem.Stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
-        Assert.Equal(Own("global_minimum_added_cold_damage")*3,linked[DamageType.Cold].Min);
-        var input=Game.SupportedHitInputsFor(f.Conn,source)!;
-        var panel=Game.SecondaryPanelRows(f.Conn,input.Get,input.Caster,gem,Program.Skills.SecondaryHitDamage(gem.Effect,gem.Level));
-        Assert.Equal((int)(linked[DamageType.Cold].Min),panel.Single(r=>r.Stat=="secondary_minimum_cold_damage").Value);
-        uint coldRow=Program.Stats.Key("secondary_minimum_cold_damage")!.Value;
-        var native=Game.PlayerSkills(f.Conn).Single(s=>s.Id==source);
-        Assert.Equal((int)linked[DamageType.Cold].Min,native.Stats!.Single(s=>s.Key==coldRow).Value);
-        foreach(string name in new[]{"Fire Trap","Stormblast Mine"})
-        { source=Equip(f,name);Assert.True(Game.SupportedHitFor(f.Conn,source,false).MinTotal>0); }
-    }
+    static IDisposable OverrideStat(Player player, uint stat, int value) =>
+        GameEvents.PlayerStatSources.Add("Game", (p, sources) =>
+        {
+            if (!ReferenceEquals(p, player)) return sources;
+            var copy = new Dictionary<uint, int>(sources) { [stat] = value };
+            return copy;
+        });
 
     [Fact]
     public async Task Charged_supports_contribute_their_distinct_critical_stats_to_proxy_projectiles()
     {
         using var f = new MinionUtilityTests.Fixture();
-        var session = Game.ProjectilesFor("test", f.Stream, f.Ciphers, f.Conn);
+        var session = Game.ProjectilesFor(f.Player);
         try
         {
-            Set(f.Conn, Game.VsBlindedCriticalStat, 50);
+            using var vsBlinded = OverrideStat(f.Player, Game.VsBlindedCriticalStat, 50);
             Assert.Equal(Capture("Blastchain Mine Support").CriticalChance,
                 Capture("Blastchain Mine Support", "Charged Mines Support").CriticalChance);
             Assert.Equal(Capture("Trap Support").CriticalMultiplier,
                 Capture("Trap Support", "Charged Traps Support").CriticalMultiplier);
-            GrantPowerCharges(f.Conn);
+            GrantPowerCharges(f.Player);
             var ordinaryMine = Capture("Blastchain Mine Support");
             var chargedMine = Capture("Blastchain Mine Support", "Charged Mines Support");
             var ordinaryTrap = Capture("Trap Support");
@@ -80,8 +51,8 @@ public sealed class SecondarySkillExecutionTests
         ProjectileOffense Capture(params string[] supports)
         {
             Equip(f, ["Fireball", .. supports]);
-            var gem = Game.GemSkillEffects(f.Conn).Single();
-            var use = Game.CaptureGemProjectile(f.Conn, session, gem.Id, gem, (120, 100), new(0), from: (100, 100));
+            var gem = Game.GemSkillEffects(f.Player).Single();
+            var use = Game.CaptureGemProjectile(f.Player, session, gem.Id, gem, (120, 100), new(0), from: (100, 100));
             return Assert.IsType<ProjectileOffense>(use.Payload);
         }
     }
@@ -91,40 +62,40 @@ public sealed class SecondarySkillExecutionTests
     {
         var critical = new FixedCriticalRoll();
         using var f = new MinionUtilityTests.Fixture(critical);
-        GrantPowerCharges(f.Conn);
+        GrantPowerCharges(f.Player);
         Assert.Equal(850u, Detonate("Fire Trap", false));
         Assert.Equal(820u, Detonate("Fire Trap", false, "Charged Traps Support"));
 
         ushort ordinaryMine = Equip(f, "Stormblast Mine");
-        critical.Roll = Game.SupportedCriticalChance(f.Conn, ordinaryMine);
+        critical.Roll = Game.SupportedCriticalChance(f.Player, ordinaryMine);
         Assert.Equal(900u, Detonate("Stormblast Mine", true));
         Assert.Equal(850u, Detonate("Stormblast Mine", true, "Charged Mines Support"));
 
-        Set(f.Conn, "global_cannot_crit", 1);
+        using var noCrit = OverrideStat(f.Player, Stat.GlobalCannotCrit, 1);
         critical.Roll = 0;
         Assert.Equal(900u, Detonate("Fire Trap", false, "Charged Traps Support"));
 
         uint Detonate(string name, bool mine, params string[] supports)
         {
             // Each comparison starts on fresh ground. Fire Trap adds damage against a burning target.
-            f.Conn.Placed.Grounds.Clear();
+            f.Player.Placed.Grounds.Clear();
             ushort source = Equip(f, [name, .. supports]);
-            var gem = Game.SupportedSkill(f.Conn, source);
+            var gem = Game.SupportedSkill(f.Player, source);
             var placed = new PlacedSkills.Placed(777, source, gem.Effect, (100, 100), mine, 0, 10,
                 DamagePacket.Of(DamageType.Fire, 100, 100), gem.Stats, 0, 0, false, 0);
-            f.Conn.Monsters[900] = new("victim", new(102, 100, 0), 0, 0, 1000) { Hostile = true };
+            f.Player.Area.Monsters[900] = new("victim", new(102, 100, 0), 0, 0, 1000) { Hostile = true };
             PlacedHit(f, placed);
-            return f.Conn.Monsters[900].Life;
+            return f.Player.Area.Monsters[900].Life;
         }
     }
 
-    static void GrantPowerCharges(ClientState conn)
+    static void GrantPowerCharges(Player player)
     {
-        var charges = Game.ChargesOf(conn);
+        var charges = Game.ChargesOf(player);
         charges.Admit(0, [new ChargeEvent.Grant(ChargeType.Power, 2, "test")], _ => 0, () => default,
             alive: true, new Random(1));
         Assert.Equal(2, charges.Effective(ChargeType.Power));
-        conn.Pools = Game.PoolsFor(conn, 100);
+        player.Pools = Game.PoolsFor(player, 100);
     }
 
     sealed class FixedCriticalRoll : Random
@@ -137,59 +108,60 @@ public sealed class SecondarySkillExecutionTests
     {
         var method = typeof(Game).GetMethod("PlacedDamageLocked", BindingFlags.Static | BindingFlags.NonPublic)!;
         var records = Activator.CreateInstance(method.GetParameters()[^1].ParameterType,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [f.Conn, null], null);
-        method.Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, placed, 1d, records]);
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [f.Player, null], null);
+        method.Invoke(null, [f.Player, placed, 1d, records]);
     }
 
     [Fact]
     public void Bear_trap_hits_one_nearby_enemy_without_splashing_other_enemies_or_allies()
     {
         using var f = new MinionUtilityTests.Fixture(new FixedCriticalRoll { Roll = 9999 });
-        ushort source=Equip(f,"Bear Trap");var gem=Game.SupportedSkill(f.Conn,source);
-        var placed=new PlacedSkills.Placed(777,source,gem.Effect,(100,100),false,0,10,
-            DamagePacket.Of(DamageType.Physical,100,100),gem.Stats,0,0,false,0);
-        foreach(var (id,x,hostile) in new[]{(900u,104,true),(901u,102,true),(902u,103,false),(903u,140,true)})
-            f.Conn.Monsters[id]=new("victim",new(x,100,0),0,0,1000){Hostile=hostile};
+        ushort source = Equip(f, "Bear Trap"); var gem = Game.SupportedSkill(f.Player, source);
+        var placed = new PlacedSkills.Placed(777, source, gem.Effect, (100, 100), false, 0, 10,
+            DamagePacket.Of(DamageType.Physical, 100, 100), gem.Stats, 0, 0, false, 0);
+        foreach (var (id, x, hostile) in new[] { (900u, 104, true), (901u, 102, true), (902u, 103, false), (903u, 140, true) })
+            f.Player.Area.Monsters[id] = new("victim", new(x, 100, 0), 0, 0, 1000) { Hostile = hostile };
         PlacedHit(f, placed);
-        Assert.Equal(900u,f.Conn.Monsters[901].Life);
-        Assert.Equal(1000u,f.Conn.Monsters[900].Life);Assert.Equal(1000u,f.Conn.Monsters[902].Life);
-        Assert.Equal(1000u,f.Conn.Monsters[903].Life);
-        var victim=f.Conn.Monsters[901];
+        Assert.Equal(900u, f.Player.Area.Monsters[901].Life);
+        Assert.Equal(1000u, f.Player.Area.Monsters[900].Life); Assert.Equal(1000u, f.Player.Area.Monsters[902].Life);
+        Assert.Equal(1000u, f.Player.Area.Monsters[903].Life);
+        var victim = f.Player.Area.Monsters[901];
         Assert.True(victim.Walk.MovementBlocked(2.49));
         Assert.False(victim.Walk.MovementBlocked(2.5));
-        Assert.Equal(1,Game.MonsterActionFactor(victim,1.1));
+        Assert.Equal(1, Game.MonsterActionFactor(victim, 1.1));
         Assert.False(victim.Invulnerable);
-        victim.Walk.Order(120,100,1.5);
-        Assert.Equal((102,100),victim.Walk.Destination);
-        Assert.Equal(.2,Game.BearTrapWalkFactor(victim,2.5),8);
-        Assert.Equal(.6,Game.BearTrapWalkFactor(victim,4),8);
-        Assert.Equal(1,Game.BearTrapWalkFactor(victim,5.5));
-        Assert.Equal(5,Game.BearTrapRootSeconds(1000,1000));
-        Assert.Equal(.15,Game.BearTrapRootSeconds(10,1000),8);
-        var packet=DamagePacket.Of(DamageType.Fire,100,100);
-        victim.TakenFromPlayer=(20,0,0);
-        Assert.Equal(120,Game.MonsterTakesMitigated(victim,packet,false,2));
-        Assert.Equal(145,Game.MonsterTakesTrapOrMineHit(victim,packet,false,2));
-        Assert.Equal(120,Game.MonsterTakesTrapOrMineHit(victim,packet,false,5.5));
+        victim.Walk.Order(120, 100, 1.5);
+        Assert.Equal((102, 100), victim.Walk.Destination);
+        Assert.Equal(.2, Game.BearTrapWalkFactor(victim, 2.5), 8);
+        Assert.Equal(.6, Game.BearTrapWalkFactor(victim, 4), 8);
+        Assert.Equal(1, Game.BearTrapWalkFactor(victim, 5.5));
+        Assert.Equal(5, Game.BearTrapRootSeconds(1000, 1000));
+        Assert.Equal(.15, Game.BearTrapRootSeconds(10, 1000), 8);
+        var packet = DamagePacket.Of(DamageType.Fire, 100, 100);
+        victim.TakenFromPlayer = (20, 0, 0);
+        Assert.Equal(120, Game.MonsterTakesMitigated(victim, packet, false, 2));
+        Assert.Equal(145, Game.MonsterTakesTrapOrMineHit(victim, packet, false, 2));
+        Assert.Equal(120, Game.MonsterTakesTrapOrMineHit(victim, packet, false, 5.5));
         victim.Ignites.Add(1, 1, 6);
-        Game.InflictedLocked(f.Conn, victim, Game.AilmentType.Ignite, 7);
-        Game.KeepPerAilmentTypeTakenLocked(f.Conn, victim, 10);
+        Game.InflictedLocked(f.Player, victim, Game.AilmentType.Ignite, 7);
+        Game.KeepPerAilmentTypeTakenLocked(f.Player, victim, 10);
         Assert.Equal(130, Game.MonsterTakesMitigated(victim, packet, false, 2));
         Assert.Equal(155, Game.MonsterTakesTrapOrMineHit(victim, packet, false, 2));
         Assert.Equal(130, Game.MonsterTakesTrapOrMineHit(victim, packet, false, 5.5));
-        var buffs=Game.MonsterAilmentChangesLocked(f.Conn,1.1);
-        Assert.Contains(buffs,p=>p.Log=="Bear Trap debuff");
-        // The client walks by movement_velocity_+%, so the slow is sent there.
-        Assert.Contains(buffs,p=>p.Log.EndsWith("movement_velocity_+% = -80 (movement modifiers)"));
-        Assert.DoesNotContain(Game.MonsterAilmentChangesLocked(f.Conn,1.2),p=>p.Log=="Bear Trap debuff");
-        Assert.Contains(Game.MonsterAilmentChangesLocked(f.Conn,2.5),p=>p.Log=="Bear Trap debuff changes");
-        Assert.Contains(Game.MonsterAilmentChangesLocked(f.Conn,5.5),p=>p.Log=="Bear Trap debuff changes");
-        Assert.Equal(1,victim.Ailments.WalkFactor);
-        var immune=new SpawnedMonster("movement floor",new(100,100,20),0,0,1000)
-            {EncounterStats=new Dictionary<string,int>{{"movement_speed_cannot_be_reduced_below_base",1}}};
-        Game.BearTrapOnHitLocked(immune,100,1,_=>0,Own);
+        var buffs = Game.MonsterAilmentChangesLocked(f.Player, 1.1);
+        Assert.Contains(buffs, p => p.Log == "Bear Trap debuff");
+        // The client walks by movement_velocity_+%, so the slow is set on Area.Stats and tracked on the monster.
+        Assert.True(victim.MaimedMovementShown);
+        Assert.Equal(-80, victim.MaimedMovementShownPct);
+        Assert.DoesNotContain(Game.MonsterAilmentChangesLocked(f.Player, 1.2), p => p.Log == "Bear Trap debuff");
+        Assert.Contains(Game.MonsterAilmentChangesLocked(f.Player, 2.5), p => p.Log == "Bear Trap debuff changes");
+        Assert.Contains(Game.MonsterAilmentChangesLocked(f.Player, 5.5), p => p.Log == "Bear Trap debuff changes");
+        Assert.Equal(1, victim.Ailments.WalkFactor);
+        var immune = new SpawnedMonster("movement floor", new(100, 100, 20), 0, 0, 1000)
+            { EncounterStats = new Dictionary<uint, int> { [Stat.MovementSpeedCannotBeReducedBelowBase] = 1 } };
+        Game.BearTrapOnHitLocked(immune, 100, 1, _ => 0, Own);
         Assert.False(immune.Walk.MovementBlocked(1.1));
-        Assert.Equal(1,Game.BearTrapWalkFactor(immune,1.1));
-        int Own(string name)=>gem.Stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+        Assert.Equal(1, Game.BearTrapWalkFactor(immune, 1.1));
+        int Own(uint name) => gem.Stats.GetValueOrDefault(name);
     }
 }

@@ -60,10 +60,10 @@ public class FlaskOrbTests
             Assert.True(FlaskEnchantments.BlocksGain(local, active: true));
             Assert.False(FlaskEnchantments.BlocksGain(local, active: false));
             var charges = FlaskCharges.Of(utility.Charges, local);
-            Assert.Equal(utility.MaxCharges + local.GetValueOrDefault("local_extra_max_charges"), charges.MaxCharges);
-            Assert.Equal((int)Math.Floor(utility.ChargesPerUse * (100 + local.GetValueOrDefault("local_charges_used_+%")) / 100d), charges.ChargesPerUse);
-            Assert.Equal(1 + local.GetValueOrDefault("local_flask_effect_+%") / 100d,
-                FlaskEffectScaling.Multiplier(_ => 0, localIncrease: local.GetValueOrDefault("local_flask_effect_+%")));
+            Assert.Equal(utility.MaxCharges + local.GetValueOrDefault(Stat.LocalExtraMaxCharges), charges.MaxCharges);
+            Assert.Equal((int)Math.Floor(utility.ChargesPerUse * (100 + local.GetValueOrDefault(Stat.LocalChargesUsedPlusPct)) / 100d), charges.ChargesPerUse);
+            Assert.Equal(1 + local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct) / 100d,
+                FlaskEffectScaling.Multiplier(_ => 0, localIncrease: local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct)));
         }
         var found = new HashSet<FlaskEnchantments.Trigger>();
         foreach (var mod in catalog.Mods.All.Where(m => m.GenerationType == 22 && m.WeightFor(type.Tags) > 0))

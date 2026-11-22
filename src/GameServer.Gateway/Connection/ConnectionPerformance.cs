@@ -339,7 +339,7 @@ public sealed class ConnectionPerformance
     readonly Dictionary<ushort, (long Count, long Ticks, long Bytes)> sends = [];
     readonly Dictionary<string, (long Count, long Ticks)> emptySends = [];
 
-    /// <summary>A sync send whose builder published nothing (it took the gate and the Monsters lock to find that out).
+    /// <summary>A sync send whose builder published nothing (it took the gate and the area's frame to find that out).
     /// Temporary lag instrumentation.</summary>
     public void EmptySend(string caller, long ticks)
     {
