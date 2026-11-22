@@ -212,7 +212,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (including Fire Trap proxy stats, detonation aim, burning-enemy bonus, throw clamping, and lockstep timing).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
-- Predator targeting and Feeding Frenzy buffs; aggressive/defensive ranges remain open.
+- Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
