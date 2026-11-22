@@ -297,13 +297,17 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         }
         if (mapTier > 0)
         {
-            if (MapExtra("drop_scarab_chance_pct", quantity, rng) && Scarab(rng, monsterLevel, mods) is { } scarab)
+            if (MapExtra("drop_scarab_chance_pct", quantity * ScarabQuantityFactor(mods), rng)
+                && Scarab(rng, monsterLevel, mods) is { } scarab)
                 drops.Add(scarab with { Item = scarab.Item with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) } });
             if (MapExtra("drop_card_chance_pct", quantity, rng) && Card(rng, monsterLevel) is { } card)
                 drops.Add(card);
         }
         return drops;
     }
+
+    public static double ScarabQuantityFactor(MapMods? mods) =>
+        Math.Max(0, 1 + (mods?.Get("map_+%_increased_scarab_drops") ?? 0) / 100d);
 
     /// <summary>Our own base chance (percent per kill, scaled by item quantity) until the game's is known; the map
     /// device's own card/scarab stats stay separate.</summary>

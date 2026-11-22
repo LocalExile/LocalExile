@@ -107,7 +107,8 @@ public static partial class Game
             yield return extraCard;
         double scarab = MapDropFactor(mods, "map_scarab_drop_chance_+%_final_from_uber_mod",
             "map_unscaled_scarab_drop_chance_+%_final_from_uber_mod", "map_scarab_drop_chance_+%_final_from_faridun_wish");
-        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel, mods) is { } extraScarab)
+        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", (scarab - 1) * ItemDrops.ScarabQuantityFactor(mods), rng)
+            && drops.Scarab(rng, monsterLevel, mods) is { } extraScarab)
             yield return extraScarab;
         double currency = MapDropFactor(mods, "map_currency_drop_chance_+%_final_from_uber_mod");
         if (currency > 1)
