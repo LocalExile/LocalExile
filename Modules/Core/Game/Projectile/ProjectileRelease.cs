@@ -379,6 +379,7 @@ public static partial class Game
             SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             WeaponAttack = weaponAttack,
+            WeaponClass = spell ? null : (handWeapon ?? WeaponFor(conn)).ItemClass ?? "",
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(conn, player, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(player, own),
             // Child stages and release specialization can introduce areas after this root is resolved.

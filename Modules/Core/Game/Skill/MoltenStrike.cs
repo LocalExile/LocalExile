@@ -385,7 +385,8 @@ public static partial class Game
                 LeechOnHitLocked(conn, m, taken, damage, leech);
                 damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, criticalMultiplierBase,
                     critical ? criticalImpale : impale, more).Damage;
-                var stun = OwnerStun(conn, m, damage, mitigated, melee: true, spell: false, critical, player, skillStats);
+                var stun = OwnerStun(conn, m, damage, mitigated, melee: true, spell: false, critical, player, skillStats,
+                    (swingWeapon ?? WeaponFor(conn)).ItemClass ?? "");
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, melee: true, player);
                 uint lifeBefore = m.Life;

@@ -567,7 +567,7 @@ public static partial class Game
                 var fortificationDamage = RawFortificationDamage(ownRolled, critical, criticalMultiplier);
                 bool fortifiedThisHit = !fortified && (fortified = FortificationOnHitLocked(conn, m, fortificationDamage,
                     weapon.Melee, player, ownPenetration));
-                stun = OwnerStun(conn, m, damage, mitigated, weapon.Melee, spell: false, critical, player, ownPenetration)
+                stun = OwnerStun(conn, m, damage, mitigated, weapon.Melee, spell: false, critical, player, ownPenetration, weapon.ItemClass ?? "")
                     with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 uint lifeBefore = m.Life;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, weapon.Melee, player);
@@ -2501,6 +2501,7 @@ public static partial class Game
         bool weaponAttack = false;
         TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<string, int>? weaponLocal = null;
+        string? sweepWeaponClass = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
@@ -2552,6 +2553,7 @@ public static partial class Game
                         // hit to the main hand's (SupportedSwingHit), each from its own captured inputs.
                         var swingWeapon = shield ?? OffHandSwing(conn, hand);
                         var sourceWeapon = shield ?? HandWeapon(conn, hand);
+                        sweepWeaponClass = sourceWeapon.ItemClass ?? "";
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
                         weaponLocal = local;
                         weaponAttack = !spell && shield is null && sourceWeapon.ItemClass is not null && SkillsFor(conn).IsAttack(gem.Effect);
@@ -2680,7 +2682,8 @@ public static partial class Game
                     LeechOnHitLocked(conn, m, taken, damage, leech!);
                     damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, sweepMultiplier,
                         critical ? criticalImpale : impale, more).Damage;
-                    stun = OwnerStun(conn, m, damage, mitigated, !spell && SkillsFor(conn).IsMelee(gem.Effect), spell, critical, player, skillStats);
+                    stun = OwnerStun(conn, m, damage, mitigated, !spell && SkillsFor(conn).IsMelee(gem.Effect),
+                        spell, critical, player, skillStats, sweepWeaponClass);
                     // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
                     // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                     var rampagePlayer = freshPlayer ? player : null;

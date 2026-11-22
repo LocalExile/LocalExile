@@ -87,7 +87,7 @@ public static partial class Game
     /// inherently freeze, and only the main hand's local reduction, until those sources are in play. Call under the
     /// Monsters lock.</summary>
     public static StunHit OwnerStun(ClientState conn, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
-        bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own)
+        bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own, string? weaponClass = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0) : 0;
         var taken = MonsterTakenComponents(m, mitigated, spell);
@@ -103,6 +103,9 @@ public static partial class Game
             + (fullLife ? Get("stun_duration_+%_vs_enemies_that_are_on_full_life") : 0);
         int thresholdReduction = Get("base_stun_threshold_reduction_+%") + local
             + (tinctureWeapon ? Get("stun_threshold_reduction_+%_with_tinctured_weapons") : 0);
+        int maceReduction = !spell ? Get("while_using_mace_stun_threshold_reduction_+%") : 0;
+        if (maceReduction != 0 && WeaponTypeDamage.FamilyOf(weaponClass ?? WeaponFor(conn).ItemClass) == "mace")
+            thresholdReduction = ActorScale.Saturate((long)thresholdReduction + maceReduction);
         bool guaranteed = stunning > 0 && fullLife && (Get("always_stun_enemies_that_are_on_full_life") > 0
             || tinctureWeapon && Get("always_stun_enemies_that_are_on_full_life_with_tinctured_weapons") > 0);
         return new(stunning, thresholdReduction, duration, melee, conn, Guaranteed: guaranteed,

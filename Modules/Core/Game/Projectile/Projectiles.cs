@@ -597,7 +597,8 @@ public static partial class Game
             if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
-                OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
+                OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats,
+                    shot.WeaponClass ?? ""));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;
         }
