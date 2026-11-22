@@ -91,8 +91,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             {
                 var target = destinations[contact];
                 direction = (target - use.Origin).Unit;
+                var flight = projectileUse.Profile;
+                if (use.StopAtProjectileTargets)
+                    flight = flight with { Range = Math.Max(.001, (target - use.Origin).Length) };
                 projectileUse = projectileUse with { Aim = target, ProjectileTargets = null,
-                    Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - use.Origin).Length) } };
+                    Profile = flight };
             }
             if (use.ProjectileSpeeds is { } projectileSpeeds)
                 projectileUse = projectileUse with { ProjectileSpeeds = null,

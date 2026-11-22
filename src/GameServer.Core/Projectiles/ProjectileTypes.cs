@@ -283,9 +283,10 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public object? Payload { get; init; }
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }
-    /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
-    /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
+    /// <summary>Optional aim cells for individual projectiles. Each cell sets the heading and terrain height of its flight.</summary>
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
+    /// <summary>Scattered landings end at their target cell. A piercing flight aimed through that cell keeps its range.</summary>
+    public bool StopAtProjectileTargets { get; init; } = true;
     /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
     /// <see cref="ProjectileProfile.Speed"/>.</summary>
     public IReadOnlyList<double>? ProjectileSpeeds { get; init; }

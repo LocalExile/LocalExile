@@ -552,20 +552,17 @@ static partial class SurvivorsSkills
         var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
         var runtime = ProjectilesFor(remote, stream, ciphers, conn);
         long now = ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds);
-        void Fire(ProjectileProfile flight, (int X, int Y) aim)
+        void Fire((int X, int Y) aim, ProjectileVector[]? targets = null)
         {
+            var flight = targets is null ? profile : profile with { Count = targets.Length };
             var use = new ProjectileUse(flight, owner, owner, 1, ProjectileSession.Vector(origin), ProjectileSession.Vector(aim))
-            { Payload = shot, ReturnAnchor = owner };
+            { Payload = shot, ReturnAnchor = owner, ProjectileTargets = targets, StopAtProjectileTargets = false };
             runtime.Schedule(now, () => ownership.Current, () => use);
         }
         if (profile.Pulse is { ShareIntervalAcrossUse: true } && aims.Count > 1)
-        {
-            double Bearing((int X, int Y) aim) => Math.Atan2(aim.Y - origin.Y, aim.X - origin.X);
-            double first = Bearing(aims[0]);
-            var volley = new ProjectileNativeVolley { Angles = aims.Select(aim => Bearing(aim) - first).ToArray() };
-            Fire(profile with { Count = aims.Count, NativeVolley = volley }, aims[0]);
-        }
-        else foreach (var aim in aims) Fire(profile, aim);
+            Fire(aims[0], [.. aims.Select(ProjectileSession.Vector)]);
+        else
+            foreach (var aim in aims) Fire(aim);
         await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, aims, cast.Interval);
         return cast.Interval;
     }
