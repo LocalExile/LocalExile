@@ -15,7 +15,9 @@ public sealed class HarvestModule : IModule
 
     sealed class State { public uint Station; }
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
-    readonly ConditionalWeakTable<IItemCrafting, HarvestCrafting> _recipes = new();
+    readonly ConditionalWeakTable<ItemCatalog, HarvestCrafting> _recipes = new();
+
+    sealed record SlotOutcome(uint RemovedId, InventoryItem? Changed, IReadOnlyList<ItemMoves.Price> Payments);
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -58,29 +60,99 @@ public sealed class HarvestModule : IModule
         });
         GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await Craft(module, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes), LeagueFor(conn).HardMode);
+            await Craft(module, conn, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes), LeagueFor(conn).HardMode);
             return true;
         });
     }
 
     /// <summary>C→S 0x274: execute the HarvestCraftOptions recipe whose HASH16 the native panel sent, on the item in the slot.
-    /// The item and all lifeforce costs commit together; a refusal spends nothing.</summary>
-    async Task Craft(IModuleContext module, IPlayer player, ushort recipe, bool hardMode)
+    /// The item (replacement or consumption, e.g. DivinationCardGamble rolling 0) and all lifeforce costs commit together;
+    /// a refusal spends nothing.</summary>
+    async Task Craft(IModuleContext module, ClientState conn, IPlayer player, ushort recipe, bool hardMode)
     {
         var world = WorldOf(player);
         if (world.OpenWindowOwner != Window || !_states.TryGetValue(player, out var state) || state.Station == 0) return;
-        // world.Crafting is one instance per game mode, so the cached recipes keep the mode they were made for.
-        var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items, hardMode: hardMode));
+        // ItemsFor(conn) is one catalog instance per game mode, so the cached recipes keep the mode they were made for.
+        var catalog = ItemsFor(conn);
+        var rolls = RollsFor(conn);
+        var harvest = _recipes.GetValue(catalog, c => new HarvestCrafting(c, rolls, hardMode: hardMode));
         string name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
-        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, Random.Shared), $"Harvest recipe {name}");
-        if (crafted is null)
+
+        var items = ItemsOf(conn);
+        var stash = PersonalStashOf(conn);
+        var result = ExecuteSlotCraft(items, stash, Slot, item => harvest.ApplyHarvest(recipe, item, Random.Shared));
+        if (result is null)
         {
             module.Log($"{player.Character} recipe {name} refused (item, recipe or lifeforce)");
             await player.Send(InstanceHarvest.CraftResult((ushort)world.ItemIdIn(Slot)), "0x0276 Harvest item event (refused)");
             await player.Tell("Harvest craft refused: incompatible item or insufficient lifeforce.");
             return;
         }
-        // The slot item's 0x276 event clears the panel's pending state and refreshes the item for another craft.
-        await player.Send(InstanceHarvest.CraftResult((ushort)crafted.Id), $"0x0276 Harvest item event {crafted.Id} ({name})");
+
+        uint inventory = PlayerInventories.InventoryId(Slot);
+        if (result.Changed is { } crafted)
+        {
+            // Clear and refill the slot in separate changes: the native panel watching the slot sees the item replaced.
+            await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
+                InstanceItems.InventoryChange(inventory, items.NextRevision(Slot), [crafted.Id], []),
+                $"Harvest recipe {name}: remove crafted item {crafted.Id} from the slot");
+            await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
+                InstanceItems.InventoryChange(inventory, items.NextRevision(Slot), [], [crafted]),
+                $"Harvest recipe {name}: crafted item {crafted.Id}");
+        }
+        else
+        {
+            await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
+                InstanceItems.InventoryChange(inventory, items.NextRevision(Slot), [result.RemovedId], []),
+                $"Harvest recipe {name}: consumed item {result.RemovedId} from the slot");
+        }
+
+        foreach (var payment in result.Payments)
+        {
+            if (payment.Inventory is { } paid)
+                await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
+                    InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                        items.NextRevision(PlayerInventories.MainInventory), [.. paid.Removed, .. paid.Changed.Select(c => c.Id)], paid.Changed),
+                    $"Harvest recipe {name}: paid from inventory");
+            await SendStashPayment(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, stash, payment.Stash);
+        }
+
+        // The slot item's 0x276 event (3.29.3c 0x1404915b0) clears the panel's pending state and refreshes the UI
+        // (itemId == 0 clears pending state cleanly when the craft destroyed the item).
+        ushort eventItem = result.Changed is { } kept ? (ushort)kept.Id : (ushort)0;
+        await player.Send(InstanceHarvest.CraftResult(eventItem), $"0x0276 Harvest item event {eventItem} ({name})");
+    }
+
+    static SlotOutcome? ExecuteSlotCraft(PlayerInventories items, AccountStash stash, byte row,
+        Func<Item, HarvestCrafting.HarvestOutcome?> craftIt) => Saves.Atomically<SlotOutcome?>(() =>
+    {
+        var targets = items.Items(row);
+        if (targets.Count != 1 || craftIt(targets[0].Item) is not { } outcome) return null;
+        foreach (var (currency, amount) in outcome.Costs)
+            if (amount < 0 || (long)items.Count(PlayerInventories.MainInventory, currency) + stash.CountOf(currency) < amount)
+                return null;
+        var payments = new List<ItemMoves.Price>(outcome.Costs.Count);
+        foreach (var (currency, amount) in outcome.Costs)
+            if (amount > 0) payments.Add(Pay(items, stash, currency, amount)
+                ?? throw new InvalidOperationException("Harvest payment changed after validation"));
+        if (outcome.Item is { } nextItem)
+        {
+            var changed = items.Change(row, targets[0].Id, _ => nextItem)
+                ?? throw new InvalidOperationException("Harvest item disappeared after payment");
+            return new(targets[0].Id, changed, payments);
+        }
+        if (items.Remove(row, targets[0].Id) is null)
+            throw new InvalidOperationException("Harvest item disappeared after payment");
+        return new(targets[0].Id, null, payments);
+    });
+
+    static ItemMoves.Price? Pay(PlayerInventories items, AccountStash stash, uint currency, int amount)
+    {
+        int inInventory = items.Count(PlayerInventories.MainInventory, currency), inStash = stash.CountOf(currency);
+        if ((long)inInventory + inStash < amount) return null;
+        int fromInventory = Math.Min(amount, inInventory);
+        var paid = fromInventory > 0 ? items.Pay(PlayerInventories.MainInventory, currency, fromInventory) : null;
+        var fromStash = amount > fromInventory ? stash.Pay(currency, amount - fromInventory) : null;
+        return new ItemMoves.Price(paid, fromStash);
     }
 }
