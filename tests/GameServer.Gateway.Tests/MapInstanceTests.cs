@@ -129,27 +129,29 @@ public sealed class MapInstanceTests
             Assert.Equal((uint)restored.Mods.Effects.MaxLife(baseLife), restored.MaxLife);
             Assert.Equal(boss.Life, restored.Life);
 
-            var harvestMods = new MapMods(new Dictionary<string, int>
+            var valdoMods = new MapMods(new Dictionary<string, int>
             {
                 ["map_contains_X_harvest_bear_bosses"] = 2,
                 ["map_contains_X_harvest_cat_bosses"] = 1,
                 ["map_contains_X_harvest_bird_bosses"] = 1,
+                ["map_contains_evil_einhar"] = 2,
             });
             var empty = new PackCatalog.AreaPacks(map.Id, level, [], new Dictionary<string, PackCatalog.Pack>(), []);
             var field = new AreaLayout(map.Hash16, map.Id, 240, 240, 20, 20, (_, _) => true, []);
             var mapConn = new ClientState(field, 1, 71) { Instance = instance };
-            var population = MapHarvestBosses.Apply(mapConn, empty, harvestMods);
+            var population = MapValdoUniques.Apply(mapConn, empty, valdoMods);
             var uniques = AreaPopulation.Plan(population, 240, 240, field.Walkable!, (20, 20), [], [], 71, _ => true, []);
-            Assert.Equal(4, uniques.Count);
-            Assert.Equal(4, uniques.Select(m => (m.X, m.Y)).Distinct().Count());
+            Assert.Equal(5, uniques.Count);
+            Assert.Equal(5, uniques.Select(m => (m.X, m.Y)).Distinct().Count());
             Assert.All(uniques, m =>
             {
                 Assert.Equal(MonsterRarity.Unique, m.Rarity);
-                Assert.True(Game.IsMapBoss(mapConn, Game.Monsters.Find(m.Variety.ToString())!, m.Rarity));
+                var unique = Game.Monsters.Find(m.Variety.ToString())!;
+                Assert.Equal(unique.Id != "Metadata/Monsters/Masters/EinharSupporter", Game.IsMapBoss(mapConn, unique, m.Rarity));
             });
-            Assert.Equal(new[] { "Elida Blisterclaw", "Melur Thornmaul", "Melur Thornmaul", "Orvi Acidbeak" },
+            Assert.Equal(new[] { "Einhar, Exilehunter", "Elida Blisterclaw", "Melur Thornmaul", "Melur Thornmaul", "Orvi Acidbeak" },
                 uniques.Select(m => Game.Monsters.Find(m.Variety.ToString())!.Name).Order(StringComparer.Ordinal));
-            Assert.Same(empty, MapHarvestBosses.Apply(mapConn, empty, MapMods.None));
+            Assert.Same(empty, MapValdoUniques.Apply(mapConn, empty, MapMods.None));
 
             var visitor = Game.Monsters.Find(Game.Packs.BossesFor("MapWorldsCourtyard")[0].ToString())!;
             var other = conn.Monsters[await Game.SpawnMonster(remote, stream, ciphers, conn, visitor, level, MonsterRarity.Unique, 40, 40, bulk: true)];

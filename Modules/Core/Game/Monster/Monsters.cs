@@ -256,7 +256,7 @@ public static partial class Game
     internal static bool IsMapBoss(ClientState conn, MonsterCatalog.Variety variety, MonsterRarity rarity) =>
         rarity == MonsterRarity.Unique && MapDevices.Value.IsMapArea(conn.Layout.Hash)
         && (variety.BossHealthBar || Packs.BossesFor(conn.Layout.Id, mapsOnly: true).Contains(variety.Row)
-            || MapScarabBosses.IsBoss(variety) || MapBeyond.IsBoss(variety) || MapHarvestBosses.IsBoss(variety.Row));
+            || MapScarabBosses.IsBoss(variety) || MapBeyond.IsBoss(variety) || MapValdoUniques.IsHarvestBoss(variety.Row));
 
     internal static MonsterAttack WithMonsterMods(MonsterAttack attack, MonsterModEffects effects) => attack with
     {
@@ -679,7 +679,7 @@ public static partial class Game
             area = area with { Scattered = VaalInhabitants.GetValue(Packs,
                 catalog => catalog.Inhabitants(checked((int)Stats.Key(VaalInhabitantStat)!.Value - 1))) };
         var additionalPacks = MapScarabPacks.Requests(mapMods);
-        if (mapMods is not null) area = MapHarvestBosses.Apply(conn, area, mapMods);
+        if (mapMods is not null) area = MapValdoUniques.Apply(conn, area, mapMods);
         if (area.Scattered.Count == 0 && area.Bosses.Count == 0 && directPoints.Count == 0
             && additionalPacks.Count == 0 && area.AdditionalUniques.Count == 0) return;
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the

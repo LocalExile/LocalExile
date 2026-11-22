@@ -97,7 +97,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates
   the level and applies the mods with them, the tier's more monster life and damage included;
   a Valdo map's Wild, Vivid or Primal Harvest modifier adds its named unique to the map and applies map boss stats.
-  Atlas completion still follows the original area bosses (Gateway verified).
+  The Exilehunter modifier adds one hostile Einhar, Exilehunter. Atlas completion still follows the original area bosses
+  (Gateway verified).
   `An Audience With The King` uses its native recipe to open the Crux of Nothingness by itself,
   rejecting extra inputs before consumption (verified in the 3.29.3d client with both inputs preserved); in the map, a
   portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
