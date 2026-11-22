@@ -21,14 +21,33 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
         lock (_instances) return _instances.GetValueOrDefault((id, created, soloOwner?.ToUpperInvariant()));
     }
 
+    /// <summary>Gets or creates the instance state before a connection opens (during a transfer's "Entering" wait),
+    /// without claiming a connection slot: a newly created state starts with <see cref="InstanceState.EmptySince"/> set
+    /// so it still expires after <c>lifetime</c> if the client never connects.</summary>
+    public InstanceState Prepare(ulong id, long created, string? soloOwner = null)
+    {
+        lock (_instances)
+        {
+            var now = clock.GetUtcNow();
+            PruneLocked(now);
+            var instanceKey = (id, created, soloOwner?.ToUpperInvariant());
+            if (!_instances.TryGetValue(instanceKey, out var state))
+            {
+                var presence = _instances.Where(e => e.Key.Id == id && e.Key.Created == created)
+                    .Select(e => e.Value.Presence).FirstOrDefault();
+                _instances[instanceKey] = state = new InstanceState(presence) { EmptySince = now };
+            }
+            return state;
+        }
+    }
+
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
     public InstanceState Enter(ulong id, long created, string? soloOwner = null)
     {
         lock (_instances)
         {
             var now = clock.GetUtcNow();
-            foreach (var (key, _) in _instances.Where(e => e.Value.EmptySince is { } t && now - t >= lifetime).ToList())
-                _instances.Remove(key);
+            PruneLocked(now);
             // SSF towns may share their social instance, but never their dropped items or other mutable world state.
             var instanceKey = (id, created, soloOwner?.ToUpperInvariant());
             if (!_instances.TryGetValue(instanceKey, out var state))
@@ -43,6 +62,12 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
             state.EmptySince = null;
             return state;
         }
+    }
+
+    void PruneLocked(DateTimeOffset now)
+    {
+        foreach (var (key, _) in _instances.Where(e => e.Value.EmptySince is { } t && now - t >= lifetime).ToList())
+            _instances.Remove(key);
     }
 
     /// <summary>A connection left the instance; the lifetime starts when the last one leaves.</summary>
@@ -103,6 +128,38 @@ public sealed partial class InstanceState
     public void DropTerrainPluginStates()
     {
         lock (_areaStatsGate) _terrainPluginStates = [];
+        ClearPreparedLayout();
+    }
+
+    readonly Lock _preparedLayoutGate = new();
+    (uint AuthSeed, byte AreaLevel, uint Seed, AreaLayout Layout)? _preparedLayout;
+
+    /// <summary>The playable seed and layout prepared for this instance (during a transfer's "Entering" pause, or on its
+    /// first connection), reused on connect and re-entries while the layout has walkability so level generation does not
+    /// run during the client's loading screen.</summary>
+    public (uint Seed, AreaLayout Layout) PreparedLayout(uint authSeed, byte areaLevel, Func<(uint Seed, AreaLayout Layout)> build)
+    {
+        lock (_preparedLayoutGate)
+        {
+            if (_preparedLayout is { } kept && kept.AuthSeed == authSeed && kept.AreaLevel == areaLevel
+                && kept.Layout.Walkable is not null)
+                return (kept.Seed, kept.Layout);
+            var built = build();
+            _preparedLayout = (authSeed, areaLevel, built.Seed, built.Layout);
+            return built;
+        }
+    }
+
+    /// <summary>Updates the cached prepared layout after an AreaHeader override (level or extra terrain data).</summary>
+    public void UpdatePreparedLayout(uint authSeed, byte areaLevel, uint seed, AreaLayout layout)
+    {
+        lock (_preparedLayoutGate) _preparedLayout = (authSeed, areaLevel, seed, layout);
+    }
+
+    /// <summary>Clears any cached prepared layout so the next lookup rebuilds it.</summary>
+    public void ClearPreparedLayout()
+    {
+        lock (_preparedLayoutGate) _preparedLayout = null;
     }
 
     /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>

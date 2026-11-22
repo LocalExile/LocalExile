@@ -75,10 +75,11 @@ public static partial class Game
             // Kinetic Blast burst's backlog of contacts (and the kills and loot they enqueue) run inside the input
             // handler: 0x0025 took 100-200 ms and the input queue reached 7 s (2026-11-05). Handlers that need a
             // current simulation use ProjectileMutation, which advances under the same locks.
-            // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so move it now.
+            // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so prepare the destination area and move
+            // it off the inbox loop so 0x1b ticks keep getting answered while "Entering <area>" is displayed.
             if (id == InstanceTransfer.LeaveAreaAckId)
             {
-                if (conn.PendingTransfer is { } leaving) await Transfer(remote, stream, ciphers, conn, leaving);
+                if (conn.PendingTransfer is { } leaving) _ = RunTransfer(remote, stream, ciphers, conn, leaving);
                 continue;
             }
             // Native TakeHit blocks predicted action starts too. Buffered normal actions must not restart the server's

@@ -179,7 +179,8 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 uint ticket = NewTicket(link.Session, info.Character, inst);
                 return new ControlResponse
                 {
-                    Ok = true, Area = inst.AreaHash, Instance = inst.Id, Seed = inst.Seed, IsTown = inst.IsTown, Ticket = ticket,
+                    Ok = true, Area = inst.AreaHash, Instance = inst.Id, Created = inst.Created.ToUnixTimeMilliseconds(),
+                    Seed = inst.Seed, IsTown = inst.IsTown, Ticket = ticket,
                 };
             }
             case "set_level":

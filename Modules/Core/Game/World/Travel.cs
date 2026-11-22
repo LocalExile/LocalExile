@@ -426,7 +426,24 @@ public static partial class Game
                 still: () => !conn.Closed);
         await Send(remote, stream, ciphers, InstanceTransfer.ChangeArea(t.Area), $"0x02b4 change area to 0x{t.Area:x4} ({why})");
         // If the client never acknowledges, move it anyway after a moment.
-        _ = Task.Delay(2000).ContinueWith(async _ => { if (conn.PendingTransfer is { } p) await Transfer(remote, stream, ciphers, conn, p); });
+        _ = Task.Delay(2000).ContinueWith(_ => { if (conn.PendingTransfer is { } p) _ = RunTransfer(remote, stream, ciphers, conn, p); });
+    }
+
+    static async Task RunTransfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t)
+    {
+        try { await Transfer(remote, stream, ciphers, conn, t); }
+        catch (Exception ex) when (conn.Closed && ex is IOException or ObjectDisposedException) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[gateway] {remote} transfer error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
+        }
+    }
+
+    static async Task SendCancelChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (conn.Closed || stream is null) return;
+        try { await Send(remote, stream, ciphers, InstanceTransfer.CancelChangeArea(), "0x02b5 cancel change area"); }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
     // The capture tour's next step (CaptureTour), after an area load (0x7d) or when /tour starts: at the tour's current
@@ -474,7 +491,8 @@ public static partial class Game
                 return;
             }
     }
-    // Auth moves the player and issues the destination ticket; 0x27 sends the client there (it reconnects to this Gateway).
+    // Auth moves the player and issues the destination ticket; the Gateway pre-generates the destination area while the
+    // client displays "Entering <area>" (0x2b4), then 0x27 hides the banner, opens the loading screen and connects there.
     public static async Task Transfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PendingTransfer t, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
@@ -483,10 +501,16 @@ public static partial class Game
             if (!ReferenceEquals(conn.PendingTransfer, t)) return; // the acknowledgement and fallback timer can race
             conn.PendingTransfer = null;
         }
+        if (conn.Closed)
+        {
+            t.Done?.Invoke(new() { Ok = false, Error = "connection closed" });
+            return;
+        }
         if (!RetireVitalsForTransfer(conn))
         {
             t.Done?.Invoke(new() { Ok = false, Error = "connection replaced" });
             conn.ResumeAfterFailedTransfer();
+            await SendCancelChangeArea(remote, stream, ciphers, conn);
             Console.WriteLine($"[gateway] {remote} transfer refused: saved life and mana belong to a newer connection");
             return;
         }
@@ -505,8 +529,21 @@ public static partial class Game
         {
             ResumeVitalsAfterFailedTransfer(conn);
             conn.ResumeAfterFailedTransfer();
+            await SendCancelChangeArea(remote, stream, ciphers, conn);
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
             foreach (var resolved in GameEvents.TransferResolved.For(conn)) await resolved(conn, t, r);
+            return;
+        }
+        if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
+        // Generate the destination seed and layout before 0x27 opens the client's loading screen, so the new connection
+        // can send 0x11 and 0x1d immediately when the client connects.
+        var prepared = await Task.Run(() => PrepareTransferArea(
+            r.Instance, r.Created, conn.Ssf ? conn.CharacterId?.ToString("N") : null,
+            r.Ticket, r.Area, r.Seed, CharacterName(conn), conn.League, conn.LeagueForm));
+        if (conn.Closed)
+        {
+            MapDevice.TicketArrivals.TryRemove(r.Ticket, out _);
+            await call(new ControlRequest { Op = "leave", Ticket = r.Ticket });
             return;
         }
         lock (conn.Monsters) conn.TransferAccepted = true;
@@ -529,10 +566,9 @@ public static partial class Game
             AreaLayouts.CameFrom[r.Ticket] = KitavaActTen.ArrivalSource(conn.Layout.Id, t.Area) ?? conn.Layout.Hash;
             if (t.ArrivalEntrance is int entrance) AreaLayouts.ArrivalEntrances[r.Ticket] = entrance;
         }
-        if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
         string host = GatewayEndpoint.Host;
         ushort port = GatewayEndpoint.Port;
         await Send(remote, stream, ciphers, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),
-            $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {r.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
+            $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {prepared.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
     }
 }
