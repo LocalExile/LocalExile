@@ -271,12 +271,20 @@ public static partial class Game
     public static MonsterHit? HitUnlessBlockedLocked(ClientState conn, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(conn, m, damage);
 
-    /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no
-    /// extra damage from critical strikes (of Toughness).</summary>
+    /// <summary>The critical strike multiplier against this monster after any reduction to the bonus above 100%.</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
-        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
-        CriticalHitMultiplier((long)multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"],
-            noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own));
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
+    {
+        if (noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own))
+            return 100;
+        long ordinary = (long)multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"];
+        if (ordinary > 100)
+        {
+            int reduction = Math.Clamp(m.Effects["base_self_critical_strike_multiplier_-%"], 0, 100);
+            ordinary = 100 + (ordinary - 100) * (100 - reduction) / 100;
+        }
+        return CriticalHitMultiplier(ordinary, noExtra: false);
+    }
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,

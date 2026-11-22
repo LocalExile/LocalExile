@@ -59,6 +59,7 @@ public static partial class Game
         Gain("map_monsters_chance_to_blind_on_hit_%", "global_chance_to_blind_on_hit_%");
         Gain("map_monsters_critical_strike_chance_+%", "critical_strike_chance_+%");
         Gain("map_monsters_critical_strike_multiplier_+", "base_critical_strike_multiplier_+");
+        Gain("map_monsters_base_self_critical_strike_multiplier_-%", "base_self_critical_strike_multiplier_-%");
         Gain("map_monsters_penetrate_elemental_resistances_%", "reduce_enemy_elemental_resistance_%");
         Gain("map_monsters_base_bleed_duration_+%", "base_bleed_duration_+%");
         // The extracted map rows use the real monster stats rather than a synthetic "global" flag:
