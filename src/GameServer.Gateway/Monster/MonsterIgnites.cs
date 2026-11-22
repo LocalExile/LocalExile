@@ -72,11 +72,15 @@ public sealed class MonsterIgnites
     public static double SelfDuration(Func<string, int> target) =>
         Math.Max(0, 1 - target("base_self_ignite_duration_-%") / 100.0);
 
-    /// <summary>Sadism's "Supported Skills have 70% less Duration" on their damaging ailments
-    /// (support_faster_ailments_ailment_duration_+%_final). Its "deal damage faster" stat alone shortens the duration
-    /// proportionally and raises the damage per second, so without this the ailment's total damage would not fall.</summary>
+    /// <summary>Sadism and Swift Affliction shorten damaging ailments multiplicatively.</summary>
     public static double DurationMultiplier(Func<string, int> get) =>
-        Math.Max(0, 1 + get("support_faster_ailments_ailment_duration_+%_final") / 100.0);
+        DurationMultiplier(get, includesSkillDuration: false);
+
+    /// <summary>A duration derived from the modified skill duration already carries Swift Affliction.</summary>
+    public static double DurationMultiplier(Func<string, int> get, bool includesSkillDuration) =>
+        Math.Max(0, 1 + get("support_faster_ailments_ailment_duration_+%_final") / 100.0)
+        * (includesSkillDuration ? 1 : Math.Max(0, 1
+            + get("support_swift_affliction_skill_effect_and_damaging_ailment_duration_+%_final") / 100.0));
 
     // Spread: its proliferation radius in cells (0: it does not spread). Proliferated: the copy another monster's
     // spreading ignite puts on this one, set again every AI tick (<see cref="Proliferated"/>).

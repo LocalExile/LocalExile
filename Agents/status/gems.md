@@ -83,8 +83,9 @@ Nothing yet.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
-  extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
-  Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
+  extra freeze chance counts an enemy chilled by an earlier hit. Swift Affliction and Sadism shorten damaging ailments;
+  Puncture inherits Swift Affliction's penalty from its skill duration once. Vicious Projectiles' less attack speed and
+  Greater Chain's more chains apply. Greater Fork can add a third projectile at the
   fork; Rupture raises bleeding damage taken, dynamically speeds bleed expiry and shows its independent native buff stacks to each player; Close Combat speeds travel skills
   and is consumed by a paid travel use; Block Chance Reduction lowers the monster's block roll and applies Overpowered;
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
