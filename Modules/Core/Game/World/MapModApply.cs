@@ -45,6 +45,7 @@ public static partial class Game
         Gain("map_monsters_%_physical_damage_to_add_as_fire", "physical_damage_%_to_add_as_fire");
         Gain("map_monsters_%_physical_damage_to_add_as_cold", "physical_damage_%_to_add_as_cold");
         Gain("map_monsters_%_physical_damage_to_add_as_lightning", "physical_damage_%_to_add_as_lightning");
+        Gain("map_monsters_%_physical_damage_to_add_as_chaos", "physical_damage_%_to_add_as_chaos");
         Gain("map_monsters_attack_speed_+%", "attack_speed_+%");
         Gain("map_monsters_cast_speed_+%", "base_cast_speed_+%");
         Gain("map_monsters_movement_speed_+%", "base_movement_velocity_+%");

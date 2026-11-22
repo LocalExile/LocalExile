@@ -133,7 +133,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// physical_damage_+% on physical), by the rarity's monster_rarity_damage_+%_final (more) and lowered by
     /// monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the rarity's hit always
     /// was (Hillock at level 1: 6.6–12.3 → 7–12); then physical conversion / "gain as extra" stats add their types (fire,
-    /// cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
+    /// cold, lightning or chaos from physical, plus any gain as chaos from the non-chaos part), rounded.</summary>
     public DamagePacket Hit(DamagePacket baseHit)
     {
         double more = (1 + this["monster_rarity_damage_+%_final"] / 100.0)
@@ -146,7 +146,8 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
             .Add(DamageType.Physical, DamageType.Chaos, this["base_physical_damage_%_to_convert_to_chaos"])
             .AddGain(DamageType.Physical, DamageType.Fire, this["physical_damage_%_to_add_as_fire"])
             .AddGain(DamageType.Physical, DamageType.Cold, this["physical_damage_%_to_add_as_cold"])
-            .AddGain(DamageType.Physical, DamageType.Lightning, this["physical_damage_%_to_add_as_lightning"]);
+            .AddGain(DamageType.Physical, DamageType.Lightning, this["physical_damage_%_to_add_as_lightning"])
+            .AddGain(DamageType.Physical, DamageType.Chaos, this["physical_damage_%_to_add_as_chaos"]);
         var scaled = DamagePacket.Empty;
         foreach (var (type, range) in baseHit.Components)
         {
@@ -183,7 +184,8 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         var gains = new DamageConversion()
             .AddGain(DamageType.Physical, DamageType.Fire, extra.GetValueOrDefault("physical_damage_%_to_add_as_fire"))
             .AddGain(DamageType.Physical, DamageType.Cold, extra.GetValueOrDefault("physical_damage_%_to_add_as_cold"))
-            .AddGain(DamageType.Physical, DamageType.Lightning, extra.GetValueOrDefault("physical_damage_%_to_add_as_lightning"));
+            .AddGain(DamageType.Physical, DamageType.Lightning, extra.GetValueOrDefault("physical_damage_%_to_add_as_lightning"))
+            .AddGain(DamageType.Physical, DamageType.Chaos, extra.GetValueOrDefault("physical_damage_%_to_add_as_chaos"));
         var added = hit.Convert(gains);
         if (extra.GetValueOrDefault("damage_+%") is int increased and not 0) added = added.Scale(Math.Max(0, 1 + increased / 100.0));
         return added.Round();
@@ -307,6 +309,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     {
         "maximum_life_+%", "damage_+%", "physical_damage_+%",
         "physical_damage_%_to_add_as_fire", "physical_damage_%_to_add_as_cold", "physical_damage_%_to_add_as_lightning",
+        "physical_damage_%_to_add_as_chaos",
         "base_physical_damage_%_to_convert_to_fire", "base_physical_damage_%_to_convert_to_cold",
         "base_physical_damage_%_to_convert_to_lightning", "base_physical_damage_%_to_convert_to_chaos",
         "damage_+%_when_on_low_life", "attack_speed_+%_when_on_low_life", "cast_speed_+%_when_on_low_life",
