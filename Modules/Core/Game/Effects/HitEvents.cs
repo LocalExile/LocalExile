@@ -21,6 +21,10 @@ public static partial class Game
         return false;
     }
 
+    /// <summary>Whether a rule or a subscriber listens for this player's hits: what a hit site asks before it works
+    /// out something only the hit event needs.</summary>
+    public static bool HitListened(ClientState conn) => GameEvents.Combat.Any || EffectRules.Listens(conn, EffectRules.What.Hit);
+
     // Per hit, inside the Monsters lock: nothing is built unless a rule or a subscriber listens.
     public static void HitLandedLocked(ClientState conn, SpawnedMonster m, bool critical, bool spell,
         IReadOnlyDictionary<uint, int>? skill, string who)

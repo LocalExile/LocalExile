@@ -577,8 +577,9 @@ public static partial class Game
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == PlayerId)
                 MirageOnArrowHit(shot);
             // Who made the hit (HitLanded): a totem's or a placed skill's projectile is not the character's own hit.
-            string who = shot.FromTotem ? CombatActors.Totem
-                : shot.FromTrapOrMine ? shot.FromMine ? CombatActors.Mine : CombatActors.Trap : CombatActors.Self;
+            // Trap or mine is read from the skill, and only while someone listens for hits.
+            string who = shot.FromTotem ? CombatActors.Totem : !shot.FromTrapOrMine ? CombatActors.Self
+                : HitListened(Conn) && PlacedKind(SupportedSkill(Conn, shot.SourceSkill)).Mine ? CombatActors.Mine : CombatActors.Trap;
             if (!immune)
                 AilmentsOnHitLocked(Conn, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
