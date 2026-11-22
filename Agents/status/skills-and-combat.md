@@ -108,7 +108,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
-  so the client spends Life only. Docs: [25](../docs/protocol/25-gem-supports.md).
+  so the client spends Life only. Focused Channelling scales paid ticks with elapsed game time, and Bloodthirst's Low Life
+  weapon damage goes through added damage scaling and conversion (Gateway tests). Docs: [25](../docs/protocol/25-gem-supports.md).
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
   Docs: [20](../docs/protocol/20-damage.md).

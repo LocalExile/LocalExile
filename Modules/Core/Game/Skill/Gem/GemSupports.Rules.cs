@@ -328,11 +328,14 @@ public static partial class Game
     static bool HasModStat(ClientState conn, Item item, string stat) =>
         item.Mods.Any(m => ItemsFor(conn).Mods.ByHash(m.Hash)?.Stats.Any(s => s.Id == stat) == true);
 
-    public static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
+    public static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId) =>
+        SupportedStats(conn, SupportedSkill(conn, skillId));
+
+    static Dictionary<uint, int> SupportedStats(ClientState conn, SupportedGem skill, double channelCostMore = 1)
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        var skill = SupportedSkill(conn, skillId);
-        return MergeSkillStats(player, WithBlessingCost(conn, skill), SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
+        return MergeSkillStats(player, WithBlessingCost(conn, skill), SkillsFor(conn).IsChannelled(skill.Effect),
+            SkillCostMore(conn, skill.Stats), channelCostMore);
     }
 
     static double SkillCostMore(ClientState conn, IReadOnlyDictionary<uint, int> own)
@@ -351,7 +354,7 @@ public static partial class Game
     }
 
     public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        bool? channelled = null, double costMore = 1)
+        bool? channelled = null, double costMore = 1, double channelCostMore = 1)
     {
         var result = new Dictionary<uint, int>(player);
         foreach (var (key, value) in own)
@@ -366,12 +369,12 @@ public static partial class Game
         }
         if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
             result[mana] = ManaRecoveryRules.Cost(baseCost,
-                name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0, channelled, costMore);
+                name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0, channelled, costMore * channelCostMore);
         if (Stats.Key("life_cost") is uint life && own.TryGetValue(life, out int nativeLife))
         {
             int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
             result[life] = (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m,
-                100m + Read("base_cost_+%") + Read("base_life_cost_+%") + Read("life_cost_+%")) / 100m), 0, int.MaxValue);
+                100m + Read("base_cost_+%") + Read("base_life_cost_+%") + Read("life_cost_+%")) * (decimal)channelCostMore / 100m), 0, int.MaxValue);
         }
         // An Energy Shield cost: the skill's own (CostTypes 2) plus "Skills gain a Base Energy Shield Cost equal to X% of
         // Base Mana Cost" (Replica Covenant), taken from the supported base mana cost, then the increased cost of skills.
@@ -383,7 +386,8 @@ public static partial class Game
             if (gain > 0 && Stats.Key("mana_cost") is uint manaKey && own.TryGetValue(manaKey, out int baseMana))
                 baseEs += (long)Math.Floor(Math.Max(0, baseMana) * gain / 100.0);
             if (baseEs > 0)
-                result[esKey] = (int)Math.Clamp(decimal.Floor(baseEs * Math.Max(0m, 100m + Read("base_cost_+%")) / 100m), 0, int.MaxValue);
+                result[esKey] = (int)Math.Clamp(decimal.Floor(baseEs * Math.Max(0m, 100m + Read("base_cost_+%"))
+                    * (decimal)channelCostMore / 100m), 0, int.MaxValue);
         }
         return result;
     }

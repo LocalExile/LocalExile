@@ -288,6 +288,8 @@ In the 3.29.3c release, `0x142706610` reads the count (`0x2d5`, or bow alias `0x
 `support_barrage_attack_time_+%_per_projectile_fired` (`0x2a28`), multiplying final speed by
 `100 / (100 + count * penalty)` at `0x142708769..0x1427087fd` before rounding to an integer percent.
 This does not establish individual release times: Barrage still needs its sequential release, cancellation and hit admission.
+Focused Channelling's paid ticks use the channel's elapsed game time. Its cost grows at 20% per completed second, capped
+at 100% more, before payment and resource conversion. Each new channel starts at the base cost.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
 needs warcry exertion.

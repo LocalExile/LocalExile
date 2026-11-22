@@ -414,8 +414,8 @@ public static partial class Game
     // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called under Monsters.
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
     // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
-    static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
-        out uint es, out uint fromEs, out Dictionary<uint, int> player, int costPercent = 100)
+    static bool SkillCostLocked(ClientState conn, SupportedGem supported, out uint cost, out int life,
+        out uint es, out uint fromEs, out Dictionary<uint, int> player, int costPercent = 100, double channelSeconds = 0)
     {
         cost = 0;
         life = 0;
@@ -424,9 +424,13 @@ public static partial class Game
         player = [];
         if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
             return false;
-        player = SupportedStats(conn, skillId);
-        cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        var own = supported.Stats;
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        double channelCostMore = channelSeconds >= 1 && SkillsFor(conn).IsChannelled(supported.Effect)
+            ? 1 + Math.Clamp(Math.Floor(channelSeconds) * Own("support_focus_channel_cost_+%_final_per_second_channelling_up_to_100%"), 0, 100) / 100d
+            : 1;
+        player = SupportedStats(conn, supported, channelCostMore);
+        cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
         int nativeLife = Math.Max(0, player.GetValueOrDefault(Stats.Key("life_cost") ?? 0));
         if (nativeLife > 0 && BloodCharges.Uses(Own))
             nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
@@ -450,7 +454,7 @@ public static partial class Game
                 var costStats = player;
                 lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stats.Key("mana_cost") ?? 0),
                     name => Stats.Key(name) is uint key ? costStats.GetValueOrDefault(key) : 0,
-                    SkillsFor(conn).IsChannelled(SupportedSkill(conn, skillId).Effect), SkillCostMore(conn, own), applyManaEfficiency: false);
+                    SkillsFor(conn).IsChannelled(supported.Effect), SkillCostMore(conn, own) * channelCostMore, applyManaEfficiency: false);
             }
             life = PetrifiedBlood.LifeCost(conn, lifeBasis);
         }
@@ -474,8 +478,7 @@ public static partial class Game
     // bypass charge, or moves the player (TryBeginCooldownUseCore), so a refused payment leaves them as they were.
     public static bool CanPaySkillCost(ClientState conn, ushort skillId)
     {
-        var own = SupportedSkill(conn, skillId).Stats;
-        lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _, out _, out _);
+        lock (conn.Monsters) return SkillCostLocked(conn, SupportedSkill(conn, skillId), out _, out _, out _, out _, out _);
     }
 
     // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
@@ -487,14 +490,17 @@ public static partial class Game
     public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(conn, skillId, out cost, out lifeCost, 100);
 
-    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent)
+    internal static bool PayChannelTick(ClientState conn, ushort skillId, double elapsed, out uint mana, out uint life) =>
+        PayMana(conn, skillId, out mana, out life, 100, elapsed);
+
+    static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost, int costPercent, double channelSeconds = 0)
     {
-        var supported = SupportedSkill(conn, skillId);
-        var own = supported.Stats;
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            if (!SkillCostLocked(conn, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var player, costPercent))
+            var supported = SupportedSkill(conn, skillId);
+            if (!SkillCostLocked(conn, supported, out uint manaCost, out int life, out uint es, out uint fromEs, out var player,
+                costPercent, channelSeconds))
             {
                 cost = 0;
                 return false;
@@ -515,7 +521,7 @@ public static partial class Game
                 lifeCost = (uint)life;
             }
             ManaSpentLocked(conn, cost, player);
-            ApplyPaidSupportCostsLocked(conn, skillId, own, cost, life);
+            ApplyPaidSupportCostsLocked(conn, skillId, supported.Stats, cost, life);
             ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
