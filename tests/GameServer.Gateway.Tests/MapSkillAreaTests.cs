@@ -10,13 +10,15 @@ public sealed class MapSkillAreaTests
         ushort curse = Assert.Single(fixture.Equip(("Flammability", 1)));
         conn.PlayerStats[Program.Stats.Key("skill_area_of_effect_+%")!.Value] = 50;
         conn.PlayerStats[Program.Stats.Key("skill_area_of_effect_+%_final")!.Value] = 20;
-        int Radius() => Game.CurseRadius(conn, curse, aura: false);
-        Assert.Equal(29, Radius());
+        int Radius(ClientState player) => Game.CurseRadius(player, curse, aura: false);
+        Assert.Equal(29, Radius(conn));
         var area = new MapDevice.MapArea(conn.Layout.Hash, "MapWorldsStrand", "Test map", 17);
         var mods = new MapMods(new Dictionary<string, int> { [SkillArea.MapAreaFinal] = -30 });
         conn.Instance!.OpenedWith(new MapDevice.Run(conn.Character!, area, mods));
-        Assert.Equal(24, Radius());
-        conn.Instance = new();
-        Assert.Equal(29, Radius());
+        Assert.Equal(24, Radius(conn));
+        var returned = new ClientState(conn.Layout, 2, 1)
+            { Instance = new(), Character = conn.Character, Pools = conn.Pools, LeagueModule = conn.LeagueModule };
+        foreach (var row in conn.PlayerStats) returned.PlayerStats[row.Key] = row.Value;
+        Assert.Equal(29, Radius(returned));
     }
 }
