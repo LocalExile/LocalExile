@@ -534,10 +534,12 @@ public static class PanelStats
 
     static int RecoveryValue(double rate) => (int)Math.Clamp(Math.Round(rate), int.MinValue, int.MaxValue);
 
+    public const string MapNoRegeneration = "map_players_no_regeneration_including_es";
+
     /// <summary>Ordinary Life regeneration increases and recovery increases are distinct multiplicative buckets.
     /// Shared with the expiry-aware Fortification recovery writer so its added source follows the same rules.</summary>
     public static double LifeRegenerationMultiplier(Func<string, int> get) =>
-        get("no_life_regeneration") != 0 || get("cannot_recover_life") != 0 ? 0 :
+        get(MapNoRegeneration) != 0 || get("no_life_regeneration") != 0 || get("cannot_recover_life") != 0 ? 0 :
         Math.Max(0, 1 + get("life_regeneration_rate_+%") / 100.0)
         * Math.Max(0, 1 + get("life_recovery_rate_+%") / 100.0);
 
@@ -569,7 +571,7 @@ public static class PanelStats
     /// mana and flat <c>base_mana_regeneration_rate_per_minute</c> (Clarity), raised by regeneration then recovery increases.
     /// </summary>
     public static double ManaPerMinute(Func<string, int> get, uint maxMana) =>
-        get("no_mana_regeneration") != 0 || get("cannot_leech_or_regenerate_mana") != 0 ? 0 :
+        get(MapNoRegeneration) != 0 || get("no_mana_regeneration") != 0 || get("cannot_leech_or_regenerate_mana") != 0 ? 0 :
         (maxMana * (BaseManaRegenPctPerMinute + (double)get("mana_regeneration_rate_per_minute_%")) / 100.0
             + get("base_mana_regeneration_rate_per_minute"))
         * Math.Max(0, 1 + get("mana_regeneration_rate_+%") / 100.0)

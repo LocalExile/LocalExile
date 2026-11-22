@@ -267,6 +267,9 @@ public static partial class Game
             // after values were copied and fault a background recovery/condition-refresh task.
             var devSet = rawOverrides.Keys.ToHashSet();
             foreach (var (k, v) in BaseStats(conn)) built.TryAdd(k, v);
+            if (MapModsOf(conn)?.Get(PanelStats.MapNoRegeneration) is > 0
+                && Stats.Key(PanelStats.MapNoRegeneration) is uint noRegen)
+                built[noRegen] = 1;
             EnsureFortificationPools(conn);
             // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
             // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances

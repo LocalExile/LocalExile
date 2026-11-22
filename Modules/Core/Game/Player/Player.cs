@@ -1310,6 +1310,7 @@ public static partial class Game
                     double antiquarianLife = conn.Antiquarian.TakeRecovery(now);
                     if (convertLifeRegen) conn.EnergyShield.Gain(antiquarianLife);
                     double enduringCryLife = conn.EnduringCryRecovery.Take(now);
+                    if (RecoveryStat(PanelStats.MapNoRegeneration) != 0) enduringCryLife = 0;
                     double unhingedHitLife = conn.Unhinged.HitRecovery.Take(now);
                     if (convertLifeRegen) conn.EnergyShield.Gain(enduringCryLife);
                     double preventedLife = PreventedDamageOf(conn).Take(recoveryFrom, now, preventedPerSecond);
