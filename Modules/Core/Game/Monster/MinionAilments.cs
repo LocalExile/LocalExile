@@ -8,23 +8,25 @@ public static partial class Game
         MonsterPoisons.Settings Poison, int PoisonChance);
     static readonly RuleTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
 
-    static void MinionExposureOnHitLocked(GolemState.Golem fighter, SpawnedMonster target,
-        DamagePacket mitigated, bool spell, double now)
+    static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
+        DamagePacket mitigated, double now, Random random)
     {
-        int chance = GolemStat(fighter.Own, "minions_inflict_exposure_on_hit_%_chance");
-        if (chance <= 0 || target.Effects["immune_to_exposure"] != 0) return;
-        var taken = MonsterTakenComponents(target, mitigated, spell, now);
+        int chance = GolemStat(skillStats, "minions_inflict_exposure_on_hit_%_chance");
+        if (chance <= 0) return;
+        var effects = target.Effects;
+        if (effects["immune_to_exposure"] != 0) return;
         int element = -1;
         double highest = 0;
         for (int i = 0; i < ExposureTypes.Length; i++)
         {
-            double amount = taken[ExposureTypes[i]].Max;
+            var type = ExposureTypes[i];
+            double amount = mitigated[type].Min * (100 + ElementalHitTakenPercent(effects, target, type, now));
             if (amount <= highest) continue;
             element = i;
             highest = amount;
         }
-        if (element >= 0 && RandomRolls.Chance(chance, 100, Random.Shared))
-            Expose(target, element, -10, now);
+        if (element >= 0 && RandomRolls.Chance(chance, 100, random))
+            Expose(target, element, DefaultExposure, now);
     }
 
     static void MinionAilmentsLocked(ClientState conn, GolemState.Golem fighter, GolemState.Ability ability,

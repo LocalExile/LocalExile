@@ -24,9 +24,18 @@ public sealed class ElementalArmyExposureTests
         Assert.Equal(0, Game.MonsterExposure(target, DamageType.Cold, 5));
 
         target.Exposures.Clear();
+        target.CoveredInAshUntil = 4;
+        HitWith(DamagePacket.Of(DamageType.Fire, 100, 100).Add(DamagePacket.Of(DamageType.Cold, 110, 110)));
+        Assert.Equal(-10, Game.MonsterExposure(target, DamageType.Fire, 1));
+        Assert.Equal(0, Game.MonsterExposure(target, DamageType.Cold, 1));
+
+        target.Exposures.Clear();
         HitWith(DamagePacket.Of(DamageType.Physical, 100, 100));
         Assert.Empty(target.Exposures);
-        fighter.Own.Remove(Program.Stats.Key("minions_inflict_exposure_on_hit_%_chance")!.Value);
+        Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [1, 1] });
+        id = await Game.SummonFighter("test", f.Stream, f.Ciphers, f.Conn, source,
+            Game.SummonData.Find("SummonSkeletons")!, (100, 100));
+        fighter = f.Conn.Summons.Fighters[id];
         HitWith(elemental);
         Assert.Empty(target.Exposures);
 
@@ -37,5 +46,25 @@ public sealed class ElementalArmyExposureTests
             fighter.Abilities = [ability];
             Assert.True(Game.GolemHitLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, ability, 900, target, 1));
         }
+    }
+
+    [Fact]
+    public async Task Item_granted_beast_applies_exposure_from_the_support_in_its_armour()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Elemental Army Support", 20), ("Added Cold Damage Support", 20));
+        var items = Game.ItemsOf(f.Conn);
+        var weapon = items.Items(PlayerInventories.Weapon1).Single();
+        var armour = new UniqueCatalog(Program.Items).Create("Yriel's Fostering (Ursa)", new Random(17))!;
+        items.Remove(PlayerInventories.Weapon1, weapon.Id);
+        items.Add(PlayerInventories.BodyArmour, 0, 0, armour with { Sockets = weapon.Item.Sockets, Links = [1, 1] });
+        var source = Game.GemSkillEffects(f.Conn).Single();
+        Game.QueueBeastCompanionLocked(f.Conn, Game.SupportedSkill(f.Conn, source.Id), source.Id, null);
+        await Game.TickBeastCompanions("test", f.Stream, f.Ciphers, f.Conn, 1, Game.CombatLifetime);
+        var beast = Assert.IsType<BeastCompanions.ActiveBeast>(f.Conn.Beasts.Active);
+        var target = f.Conn.Monsters[900] = new("target", new(105, 100, 0), 100, 3, 100000) { Hostile = true };
+        Assert.NotNull(Game.MinionHitTargetLocked(f.Conn, beast.Id, beast.Monster, 900, target, 1,
+            new Random(1), checkReach: false, accuracy: 1000000));
+        Assert.Equal(-10, Game.MonsterExposure(target, DamageType.Cold, 1));
     }
 }
