@@ -98,9 +98,12 @@ public static partial class Game
         // Sample before the caller applies this hit: a damaging hit can leave its previously full-life target injured.
         bool fullLife = m.Life > 0 && m.Life == m.MaxLife;
         bool tinctureWeapon = !spell && Get("tincture_applied") != 0;
+        int twoHandDuration = melee && !spell ? Get("two_handed_melee_stun_duration_+%") : 0;
         int duration = Get("base_stun_duration_+%")
             + (tinctureWeapon ? Get("stun_duration_+%_with_tinctured_weapons") : 0)
             + (fullLife ? Get("stun_duration_+%_vs_enemies_that_are_on_full_life") : 0);
+        if (twoHandDuration != 0 && WeaponProfileFor(conn, activeSet: true).TwoHandMelee)
+            duration = ActorScale.Saturate((long)duration + twoHandDuration);
         int thresholdReduction = Get("base_stun_threshold_reduction_+%") + local
             + (tinctureWeapon ? Get("stun_threshold_reduction_+%_with_tinctured_weapons") : 0);
         bool guaranteed = stunning > 0 && fullLife && (Get("always_stun_enemies_that_are_on_full_life") > 0
