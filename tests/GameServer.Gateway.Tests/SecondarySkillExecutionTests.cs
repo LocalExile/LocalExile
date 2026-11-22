@@ -52,18 +52,105 @@ public sealed class SecondarySkillExecutionTests
     }
 
     [Fact]
+    public async Task Charged_supports_contribute_their_distinct_critical_stats_to_proxy_projectiles()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var session = Game.ProjectilesFor("test", f.Stream, f.Ciphers, f.Conn);
+        try
+        {
+            Set(f.Conn, Game.VsBlindedCriticalStat, 50);
+            Assert.Equal(Capture("Blastchain Mine Support").CriticalChance,
+                Capture("Blastchain Mine Support", "Charged Mines Support").CriticalChance);
+            Assert.Equal(Capture("Trap Support").CriticalMultiplier,
+                Capture("Trap Support", "Charged Traps Support").CriticalMultiplier);
+            GrantPowerCharges(f.Conn);
+            var ordinaryMine = Capture("Blastchain Mine Support");
+            var chargedMine = Capture("Blastchain Mine Support", "Charged Mines Support");
+            var ordinaryTrap = Capture("Trap Support");
+            var chargedTrap = Capture("Trap Support", "Charged Traps Support");
+            int baseChance = Program.Skills.SpellCritChance(chargedMine.Effect, chargedMine.Level)!.Value;
+            Assert.Equal(ordinaryMine.CriticalChance + baseChance * 40 / 100, chargedMine.CriticalChance);
+            Assert.Equal(ordinaryMine.VsBlindedCriticalChance + baseChance * 40 / 100, chargedMine.VsBlindedCriticalChance);
+            Assert.Equal(ordinaryMine.CriticalMultiplier, chargedMine.CriticalMultiplier);
+            Assert.Equal(ordinaryTrap.CriticalChance, chargedTrap.CriticalChance);
+            Assert.Equal(ordinaryTrap.CriticalMultiplier + 30, chargedTrap.CriticalMultiplier);
+        }
+        finally { session.Invalidate(); await session.OutputCompleted; }
+
+        ProjectileOffense Capture(params string[] supports)
+        {
+            Equip(f, ["Fireball", .. supports]);
+            var gem = Game.GemSkillEffects(f.Conn).Single();
+            var use = Game.CaptureGemProjectile(f.Conn, session, gem.Id, gem, (120, 100), new(0), from: (100, 100));
+            return Assert.IsType<ProjectileOffense>(use.Payload);
+        }
+    }
+
+    [Fact]
+    public void Direct_placed_hits_roll_critical_chance_and_apply_the_trap_multiplier()
+    {
+        var critical = new FixedCriticalRoll();
+        using var f = new MinionUtilityTests.Fixture(critical);
+        GrantPowerCharges(f.Conn);
+        Assert.Equal(850u, Detonate("Fire Trap", false));
+        Assert.Equal(820u, Detonate("Fire Trap", false, "Charged Traps Support"));
+
+        ushort ordinaryMine = Equip(f, "Stormblast Mine");
+        critical.Roll = Game.SupportedCriticalChance(f.Conn, ordinaryMine);
+        Assert.Equal(900u, Detonate("Stormblast Mine", true));
+        Assert.Equal(850u, Detonate("Stormblast Mine", true, "Charged Mines Support"));
+
+        Set(f.Conn, "global_cannot_crit", 1);
+        critical.Roll = 0;
+        Assert.Equal(900u, Detonate("Fire Trap", false, "Charged Traps Support"));
+
+        uint Detonate(string name, bool mine, params string[] supports)
+        {
+            // Each comparison starts on fresh ground. Fire Trap adds damage against a burning target.
+            f.Conn.Placed.Grounds.Clear();
+            ushort source = Equip(f, [name, .. supports]);
+            var gem = Game.SupportedSkill(f.Conn, source);
+            var placed = new PlacedSkills.Placed(777, source, gem.Effect, (100, 100), mine, 0, 10,
+                DamagePacket.Of(DamageType.Fire, 100, 100), gem.Stats, 0, 0, false, 0);
+            f.Conn.Monsters[900] = new("victim", new(102, 100, 0), 0, 0, 1000) { Hostile = true };
+            PlacedHit(f, placed);
+            return f.Conn.Monsters[900].Life;
+        }
+    }
+
+    static void GrantPowerCharges(ClientState conn)
+    {
+        var charges = Game.ChargesOf(conn);
+        charges.Admit(0, [new ChargeEvent.Grant(ChargeType.Power, 2, "test")], _ => 0, () => default,
+            alive: true, new Random(1));
+        Assert.Equal(2, charges.Effective(ChargeType.Power));
+        conn.Pools = Game.PoolsFor(conn, 100);
+    }
+
+    sealed class FixedCriticalRoll : Random
+    {
+        public int Roll { get; set; }
+        public override int Next(int maxValue) => Roll;
+    }
+
+    static void PlacedHit(MinionUtilityTests.Fixture f, PlacedSkills.Placed placed)
+    {
+        var method = typeof(Game).GetMethod("PlacedDamageLocked", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var records = Activator.CreateInstance(method.GetParameters()[^1].ParameterType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [f.Conn, null], null);
+        method.Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, placed, 1d, records]);
+    }
+
+    [Fact]
     public void Bear_trap_hits_one_nearby_enemy_without_splashing_other_enemies_or_allies()
     {
-        using var f=new MinionUtilityTests.Fixture();
+        using var f = new MinionUtilityTests.Fixture(new FixedCriticalRoll { Roll = 9999 });
         ushort source=Equip(f,"Bear Trap");var gem=Game.SupportedSkill(f.Conn,source);
         var placed=new PlacedSkills.Placed(777,source,gem.Effect,(100,100),false,0,10,
             DamagePacket.Of(DamageType.Physical,100,100),gem.Stats,0,0,false,0);
         foreach(var (id,x,hostile) in new[]{(900u,104,true),(901u,102,true),(902u,103,false),(903u,140,true)})
             f.Conn.Monsters[id]=new("victim",new(x,100,0),0,0,1000){Hostile=hostile};
-        var method=typeof(Game).GetMethod("PlacedDamageLocked",BindingFlags.Static|BindingFlags.NonPublic)!;
-        var records=Activator.CreateInstance(method.GetParameters()[^1].ParameterType,
-            BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,[f.Conn,null],null);
-        method.Invoke(null,["test",f.Stream,f.Ciphers,f.Conn,placed,1d,records]);
+        PlacedHit(f, placed);
         Assert.Equal(900u,f.Conn.Monsters[901].Life);
         Assert.Equal(1000u,f.Conn.Monsters[900].Life);Assert.Equal(1000u,f.Conn.Monsters[902].Life);
         Assert.Equal(1000u,f.Conn.Monsters[903].Life);
