@@ -185,6 +185,7 @@ public static partial class Game
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
         if (g.Definition.Kind == "AnimatedGuardian") RecordAnimatedGuardianDeath(conn);
         g.ShieldPool.Empty();
+        ExpireMinionChargesLocked(conn, g, double.PositiveInfinity);
         PublishEnergyShieldLocked(conn, g);
         foreach (var hazard in g.Hazards) if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true));
         foreach (ushort buff in new[] { g.Monster.Ignites.Buff, g.Monster.Bleeds.Buff, g.Monster.Poisons.Buff }
