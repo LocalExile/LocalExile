@@ -178,6 +178,8 @@ static partial class SurvivorsRunRules
             try
             {
                 var (remote, stream, ciphers) = conn.Wire;
+                await Send(remote, stream, ciphers, InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Generic),
+                    "0x0163 hide mission timer Generic (survivors run ended)");
                 if (wasPaused)
                     await Send(remote, stream, ciphers, InstancePause.State(false),
                         "0x01d3 resumed (the survivors run ended)");

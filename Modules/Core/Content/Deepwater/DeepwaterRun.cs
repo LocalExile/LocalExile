@@ -136,9 +136,11 @@ internal sealed class DeepwaterRun
         public bool Started, Held, Out;
     }
 
-    /// <summary>The collapse: per lantern its shrink, the HUD's collapse state (0x2c9 mode 3) and the swarm's next pack.</summary>
+    /// <summary>The collapse: per lantern its shrink, the HUD's collapse state (0x2c9 mode 3), the collapse timer
+    /// deadline (instance seconds, S->C 0x163 Deepwater) and the swarm's next pack.</summary>
     public readonly Dictionary<uint, Shrink> Shrinks = [];
     public byte CollapseState { get; set; }
+    public double CollapseEndAt { get; set; }
     public double NextSwarm { get; set; }
     public int SwarmPacks { get; set; }
 
