@@ -43,7 +43,7 @@ public static partial class Game
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
         }
         GolemDotsLocked(conn, g, oldLastStep, now);
-        if (m.Dead || m.Life == 0) return;
+        if (m.Dead || m.Life == 0 || MinionInstabilityLocked(conn, g, now)) return;
         g.ShieldPool.Advance(oldLastStep, now, name => m.Mods.Effects[name], alive: true);
         PublishEnergyShieldLocked(conn, g);
         GolemHazardsLocked(remote, stream, ciphers, conn, g, now);

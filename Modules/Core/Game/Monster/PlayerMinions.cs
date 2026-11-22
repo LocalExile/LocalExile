@@ -74,6 +74,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             MinionUtilityTick(conn, now);
+            InfernalLegionTickLocked(conn, now);
             TickEssenceAurasLocked(conn, now);
         }
         await GolemsTick(remote, stream, ciphers, conn, now);

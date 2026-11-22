@@ -116,7 +116,11 @@ public static partial class Game
     // the DoT's fractional carry and is never cleared, so it is not a burning signal.
     static bool BurningTarget(ClientState conn, SpawnedMonster m)
     {
-        if (m.Ignites.Burning || m.HeraldBurns.Burning) return true;
+        if (m.Ignites.Burning || m.HeraldBurns.Burning
+            || InfernalLegionFields.TryGetValue(conn, out var field) && field.Burning.Contains(m)) return true;
+        foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
+            if (peer.Current && peer.Owner is { PlayerLife: > 0 } owner && owner.Instance == conn.Instance
+                && InfernalLegionFields.TryGetValue(owner, out var other) && other.Burning.Contains(m)) return true;
         if (conn.Placed.Grounds.Count > 0)
         {
             double now = AreaTime(conn);
