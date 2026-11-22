@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static bool IsVaalMinion(string? effect) => effect is "VaalSummonSkeletons" or "VaalAbsolution" or "VaalDomination";
+    static bool IsVaalMinion(string? effect) => effect is "VaalSummonSkeletons" or "VaalAbsolution" or "VaalDomination" or "VaalAnimateWeapon";
     static Dictionary<uint, int> MergeSummonStats(IReadOnlyDictionary<uint,int> source, IReadOnlyDictionary<uint,int> retained)
     {
         var result = new Dictionary<uint,int>(source);
@@ -88,6 +88,8 @@ public static partial class Game
                 }
             return true;
         }
+        if (SkillsFor(conn).EffectId(gem.Effect) == "VaalAnimateWeapon")
+            return await ReleaseVaalWeapons(remote, stream, ciphers, conn, source, gem, aim, duration, Live);
         var plan=VaalAscension(conn,gem,target);
         if (plan.Limit<=0) return false;
         if (plan.Refresh is { } refreshed)

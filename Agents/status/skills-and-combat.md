@@ -161,9 +161,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   same-time terrain impacts, range limits and expiry can hit. Players and spell totems release them from a cell
   ahead of the caster. Traps and mines release them at their own cell. Orbiting follows the player action's
   outward spiral. Both orbs use the aimed ground height when checking for a blocking rise.
-  Server-drawn projectiles stop in the last open cell before a wall or a blocking rise. A straight flight's
-  final glide targets that cell. A spiral's last waypoint can fall short of its stop. If a projectile hits before
-  its first output, its retained impact or stuck arrow is created directly at the stop.
+  Server-drawn projectiles stop in the last open cell before a wall or a blocking rise.
+  A straight flight's final glide targets that cell.
+  A spiral's last waypoint can fall short of its stop.
+  If a projectile hits before its first output, its retained impact or stuck arrow is created directly at the stop.
   When several flights reach a wall at the same simulation instant, each resolves its own crossing at the surface,
   including a diagonal path blocked only by the cell beside a corner.
   The orbs' on-screen flight, wall impacts and expiry still need verification in both clients.
@@ -259,6 +260,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
+- Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
