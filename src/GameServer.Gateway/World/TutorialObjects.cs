@@ -8,7 +8,14 @@ public static class TutorialObjects
 {
     public const string Strand = "1_1_1", Exile = "Metadata/NPC/Act1/WoundedExile",
         Zombie = "Metadata/Monsters/Zombies/ZombieBite", Spawner = "Metadata/Monsters/Zombies/BiteZombieSpawner",
-        Chest = "Metadata/Chests/TutorialSupportGemChest";
+        Chest = "Metadata/Chests/TutorialSupportGemChest",
+        Blocker1 = "Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_1",
+        Blocker2 = "Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_2",
+        Blocker3 = "Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_3",
+        Doorman = "Metadata/NPC/Act1/Doorman",
+        SkillGemTutorialFlag = "CompletedSkillGemTutorial",
+        SupportGemTutorialFlag = "CompletedSupportGemTutorial";
+    public static bool IsTutorialWall(string type) => type is Blocker1 or Blocker2;
     public sealed record Placement(string Type, string Model, int X, int Y, float Rotation);
 
     // TalkToWoundedExile(8.2,22.8) supplies the two voice lengths, not two stages of one scene.

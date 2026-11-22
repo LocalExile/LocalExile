@@ -115,6 +115,7 @@ public static class BanditChoices
         conn.InNpcTalk = true;
         conn.NpcTalkScript = talk;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         var (remote, stream, ciphers) = conn.Wire;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id, (byte)talk.Index), $"0x0084 {bandit.Name}'s rivals");
         return true;
@@ -130,6 +131,7 @@ public static class BanditChoices
         conn.InNpcTalk = false;
         conn.NpcTalkScript = null;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         var (remote, stream, ciphers) = conn.Wire;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), $"0x0084 close {bandit.Name}'s dialogue");
         if (allowed)
@@ -221,6 +223,7 @@ public static class BanditChoices
             if (set is not null) await PublishQuestFlags(remote, stream, ciphers, conn, set);
             conn.InNpcTalk = true;
             conn.NpcFinishFlag = null;
+            conn.NpcFinishLeagueFlag = null;
             conn.NpcTalkScript = null;
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(id, (byte)talk.Index), $"0x0084 {bandit.Name} accepts the amulets");
         }

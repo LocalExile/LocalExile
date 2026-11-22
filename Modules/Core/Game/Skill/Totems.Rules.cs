@@ -117,12 +117,11 @@ public static partial class Game
     /// <summary>Whether a dedicated totem skill has something this module runs behind it: an aura
     /// (<see cref="TotemAuras"/>), Devouring Totem's corpse meal, or a nova spell that hits around the totem
     /// (Shockwave Totem: ActiveSkillType Nova). Read from the skill data, not the player's hit, so Ancestral Bond's
-    /// "deal no damage yourself" does not refuse it. Not run yet, so still refused before cost: Decoy Totem's taunt (the
-    /// monster AI has no totem target), the ancestral melee totems (their reach, owner buffs and parent range) and
-    /// Searing Bond's burning beam.</summary>
+    /// "deal no damage yourself" does not refuse it. This also admits Decoy Totem's taunt. Ancestral melee totems and
+    /// Searing Bond are still refused before cost.</summary>
     static bool TotemDoesSomething(ClientState conn, int effect) =>
         TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
-        || SkillsFor(conn).EffectId(effect) == "DevouringTotem"
+        || SkillsFor(conn).EffectId(effect) is "DevouringTotem" or "DecoyTotem"
         || TotemNova(conn, effect);
 
     static bool TotemNova(ClientState conn, int effect) => SkillsFor(conn).HasType(effect, "Nova")
@@ -140,16 +139,21 @@ public static partial class Game
     // that keeps the skill's own cooldown ticket and the Vaal/channel admission but not the token; what still stops a
     // stray placement is everything below. A live round should measure casts attempted against totems actually placed
     // (Agents/docs/protocol/11-skills.md §10g).
-    static async Task PlaceTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
+    static double TotemPlacementSeconds(ClientState conn, ushort skillId, int effect)
     {
-        double factor, speed;
+        double factor;
         lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
-        speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
+        double speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
         // 3.28 changed ranged totem placement from 0.35 to 0.5 seconds (PoEDB version notes).
         double basis = BallistaEffect(conn, effect) ? .5 : SpellTotemEffect(conn, effect) || NativeProjectileTotem(conn, effect) ? .6
             : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
-        double seconds = basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
+        return basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
+    }
+
+    static async Task PlaceTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
+    {
+        double seconds = TotemPlacementSeconds(conn, skillId, effect);
         var lifetime = CombatLifetime;
         var source = SupportedSkill(conn, skillId);
         bool SourceCurrent() => SupportedSkill(conn, skillId) is var live && live.Host == source.Host
@@ -197,6 +201,7 @@ public static partial class Game
         byte level = (byte)Math.Clamp(Get("totem_support_gem_level") is > 0 and var supportLevel
             ? supportLevel : SkillsFor(conn).PlayerLevelReq(effect, gemLevel), 1, 100);
         int baseLife = Monsters.BaseLife(variety, level) ?? 1;
+        bool decoy = SkillsFor(conn).EffectId(effect) == "DecoyTotem";
         uint life = (uint)Math.Clamp((long)baseLife * (100 + Get("totem_life_+%")) / 100, 1, int.MaxValue);
         double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
         TotemState.Aura? aura = null;
@@ -253,7 +258,8 @@ public static partial class Game
             var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, strike, grantedId, devour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
-                SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
+                SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem,
+                DecoyRadius = decoy && grantedId != 0 ? TotemTargetRange(conn, skillId) : 0, BodySize = Math.Max(0, bodySize) };
             int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed")
                 + (GolemStat(playerStats, "keystone_ancestral_bond") != 0 ? 1 : 0), 0, int.MaxValue);
             placed.Ballista = ballista;
@@ -263,6 +269,13 @@ public static partial class Game
             if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
             // A totem blocks paths on the client as any body does.
             if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
+            if (NativeProjectileTotem(conn, effect) && seconds > 0)
+            {
+                int groundRadius = SkillRadius(conn, 16, own, spell: true, effect);
+                conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, place.X, place.Y, groundRadius,
+                    AreaTime(conn) + seconds, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, place, groundRadius),
+                    ConsecratedEnemyDamageTakenNow(conn)) { SourceAlive = placed.Alive, GrantsCurseImmunity = Get("consecrated_ground_immune_to_curses") != 0 });
+            }
             TotemRecords(conn, bytes);
             Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
                 + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
@@ -438,6 +451,7 @@ public static partial class Game
         TotemState.Totem totem, double now, WorldRecordBuilder bytes)
     {
         if (conn.PlayerLife == 0) return;
+        if (totem.DecoyRadius > 0) { DecoyTotemUseLocked(conn, totem, now, bytes); return; }
         if (totem.Devour is { } devour) { TotemDevourLocked(conn, totem, devour, now, bytes); return; }
         if (totem.Strike is not { } strike || now < strike.NextCast) return;
         double range = TotemTargetRange(conn, totem.SkillId);
@@ -493,7 +507,7 @@ public static partial class Game
         if (totem.GrantedId != 0)
             bytes.Presentation(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, at.X, at.Y,
                 totem.GrantedId, ++totem.Sequence, 0x0408));
-        bytes.Remove(corpseId);
+        if (!corpse.CreatedAsCorpse) bytes.Remove(corpseId);
         bytes.Presentation(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
         bytes.Presentation(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool));
         devour.NextUse = now + (TotemCastSeconds(conn, totem.SkillId) ?? 1);

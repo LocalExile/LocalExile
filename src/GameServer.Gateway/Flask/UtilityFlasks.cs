@@ -95,6 +95,7 @@ public static class UtilityFlasks
         ("local_flask_dispels_burning_and_ignite_immunity_during_effect", "base_immune_to_ignite", 1, true),
         ("local_flask_immune_to_poison_during_flask_effect", "immune_to_poison", 1, true),
         ("local_flask_immune_to_bleeding_and_corrupted_blood_during_flask_effect", "immune_to_bleeding", 1, true),
+        ("local_flask_immune_to_bleeding_and_corrupted_blood_during_flask_effect", "immune_to_corrupted_blood", 1, true),
         // Dying Sun: "(10-20)% increased Area of Effect during Effect", "Skills fire 2 additional Projectiles during
         // Effect". Both scale with increased flask effect, rounded down (2 x 1.5 = 3 projectiles).
         ("local_flask_area_of_effect_+%_during_flask_effect", "base_skill_area_of_effect_+%", 1, false),
@@ -182,6 +183,7 @@ public static class UtilityFlasks
         "physical_damage_reduction_rating_+%", "evasion_rating_+%", "base_item_found_rarity_+%", "phase_through_objects",
         "base_skill_area_of_effect_+%", "number_of_additional_projectiles",
         "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%",
+        "immune_to_corrupted_blood",
         "base_item_found_quantity_+%",   // ItemQuantityFactor
         FlaskGrounds.VsConsecratedCriticalStat, FlaskGrounds.EnemyDamageTakenStat,   // Bottled Faith
         "recover_%_maximum_life_on_kill", "recover_%_maximum_mana_on_kill", "recover_energy_shield_%_on_kill",

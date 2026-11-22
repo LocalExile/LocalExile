@@ -41,7 +41,9 @@ public static partial class Game
 {
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): its "on kill" recovery, at once. The
     // amounts follow the last player stat snapshot (ConfigureLeech), so a pack's deaths do not each rebuild the stats.
-    public static void RecoverOnKill(ClientState conn, SpawnedMonster m)
+    public static void RecoverOnKill(ClientState conn, SpawnedMonster m) => RecoverOnKill(conn, m, null);
+
+    static void RecoverOnKill(ClientState conn, SpawnedMonster m, TinctureKillBonus? tincture)
     {
         lock (conn.Monsters)
         {
@@ -52,8 +54,8 @@ public static partial class Game
             double now = ProjectileWorldTime(conn);
             var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
                 m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
-            k = k with { Life = k.Life + (session.RecoversLife ? m.Curses["life_granted_when_killed"] : 0),
-                Mana = k.Mana + m.Curses["mana_granted_when_killed"] };
+            k = k with { Life = k.Life + (session.RecoversLife ? m.Curses["life_granted_when_killed"] + (tincture?.Life ?? 0) : 0),
+                Mana = k.Mana + m.Curses["mana_granted_when_killed"] + (tincture?.Mana ?? 0) };
             static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
             uint life = conn.PlayerLife, mana = conn.PlayerMana;
             conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,

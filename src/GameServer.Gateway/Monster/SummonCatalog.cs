@@ -23,6 +23,7 @@ public sealed class SummonCatalog(string folder = "data")
             new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", "base_number_of_raging_spirits_allowed", "active_raging_spirit_count", Follows: false, Targetable: false),
             new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", "base_number_of_reapers_allowed", "active_reaper_count", true),
             new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", "base_number_of_relics_allowed", "number_of_active_relics", true, Targetable: false),
+            new("VaalAnimateWeapon", "VaalAnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", "base_number_of_animated_weapons_allowed", "number_of_active_vaal_animated_weapons"),
             new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", "base_number_of_animated_weapons_allowed", "active_animated_weapon_count"),
             new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", "", "active_animated_guardian_count", true),
             new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),

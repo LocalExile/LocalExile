@@ -105,11 +105,11 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     public int ClusterIndex(int cell) =>
         _jewelSockets.Value.ClusterIndexes.TryGetValue(cell, out int index) ? index : 0;
 
-    /// <summary>The first id of a tree socket's cluster jewel block: the six tree sockets take 12 ids each from 135 in
-    /// ClusterIndex order (measured: cell 20, ClusterIndex 5, uses 195..206). Null for an expansion cell, whose block is
-    /// not known, so its ids are the ones outside these blocks.</summary>
+    /// <summary>The first id of a tree socket's cluster jewel block: the six tree sockets take 39 ids each in
+    /// ClusterIndex order (0, 39, 78, 117, 156, 195; measured: cell 20, ClusterIndex 5, uses 195..206). Null for an
+    /// expansion cell, whose block comes from <c>ClusterJewelLayout</c>.</summary>
     public int? ClusterBlockBase(int cell) =>
-        IsLargeJewelSlot(cell) ? 135 + 12 * ClusterIndex(cell) : null;
+        IsLargeJewelSlot(cell) ? 39 * ClusterIndex(cell) : null;
 
     /// <summary>The client's socket node ids of a tree socket's cluster jewel block, for the first `count` sockets: the
     /// large template's SocketIndices (4, 8, 6) moved by the cell's StartIndices for that size (cell 20: 206 and 198).

@@ -19,7 +19,8 @@ public static partial class Game
             int threshold = Get("kill_enemy_on_hit_if_under_20%_life") > 0 ? 20
                 : Get("kill_enemy_on_hit_if_under_15%_life") > 0 ? 15
                 : Get("kill_enemy_on_hit_if_under_10%_life") > 0 || critical && Get("crits_have_culling_strike") > 0
-                    || spell && Get("spells_have_culling_strike") > 0 ? 10 : 0;
+                    || spell && Get("spells_have_culling_strike") > 0
+                    || !spell && Get("culling_strike_with_tinctured_weapons") > 0 && Get("tincture_applied") > 0 ? 10 : 0;
             // "Kill Normal or Magic Enemies that have X% Life or lower when Hit by Supported Skills" (Cull the Weak).
             int normalMagic = Math.Clamp(Get("kill_normal_or_magic_enemy_on_hit_if_under_x%_life"), 0, 100);
             bool cannotKill = Get("hits_cannot_kill_enemies") != 0;
@@ -115,7 +116,18 @@ public static partial class Game
     // the DoT's fractional carry and is never cleared, so it is not a burning signal.
     static bool BurningTarget(ClientState conn, SpawnedMonster m)
     {
-        if (m.Ignites.Burning || m.HeraldBurns.Burning) return true;
+        if (m.Ignites.Burning || m.HeraldBurns.Burning
+            || InfernalLegionFields.TryGetValue(conn, out var field) && field.Burning.Contains(m)) return true;
+        foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
+            if (peer.Current && peer.Owner is { PlayerLife: > 0 } owner && owner.Instance == conn.Instance
+                && InfernalLegionFields.TryGetValue(owner, out var other) && other.Burning.Contains(m)) return true;
+        if (conn.Placed.Grounds.Count > 0)
+        {
+            double now = AreaTime(conn);
+            var at = m.Walk.Position(now);
+            foreach (var ground in conn.Placed.Grounds)
+                if (now < ground.Until && Dist(at, ground.At) <= ground.Radius) return true;
+        }
         return conn.RighteousFire is { } rf && conn.Monsters.Any(pair =>
             pair.Value == m && rf.Auras.ContainsKey(pair.Key));
     }

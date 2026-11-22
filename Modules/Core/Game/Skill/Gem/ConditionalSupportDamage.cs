@@ -56,16 +56,13 @@ public static partial class Game
             ChargesOf(conn).Effective(ChargeType.Power), ArcaneSurgeActive(conn, now), RecentlyIgnitedCount(conn, now),
             ChargesOf(conn).Effective(ChargeType.Endurance));
         var packet = more == 1 ? rolled : rolled.Scale(more);
-        // Immolate: added Fire Damage against Burning Enemies (the stat description's own wording).
-        if (target.Ignites.Burning)
+        // Immolate and Fire Trap: added Fire Damage against Burning Enemies (ignite, burning ground, RF, Herald burn).
+        int min = Get("global_minimum_added_fire_damage_vs_burning_enemies");
+        int max = Get("global_maximum_added_fire_damage_vs_burning_enemies");
+        if ((min > 0 || max > 0) && BurningTarget(conn, target))
         {
-            int min = Get("global_minimum_added_fire_damage_vs_burning_enemies");
-            int max = Get("global_maximum_added_fire_damage_vs_burning_enemies");
-            if (min > 0 || max > 0)
-            {
-                double roll = min + Random.Shared.NextDouble() * (Math.Max(min, max) - min);
-                packet = packet.Add(DamageType.Fire, new(roll, roll));
-            }
+            double roll = min + Random.Shared.NextDouble() * (Math.Max(min, max) - min);
+            packet = packet.Add(DamageType.Fire, new(roll, roll));
         }
         // Bloodthirst: "gain X% of Maximum Life as added Physical Damage with Weapons while on Low Life".
         if (conn.PlayerLife < conn.PlayerMaxLife * 0.35)
