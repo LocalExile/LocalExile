@@ -95,6 +95,12 @@ public static class InstanceProtocol
 
     public const ushort TickId = 0x1b, PongId = 0x1c, AreaGeneratedId = 0x7d;
 
+    /// <summary>C→S 0x7d (10 bytes, class 0x1435ca2c0, sent by tick 0x14214f1d0 when generation finishes): u32 BE
+    /// tile hash (<c>0x142054070</c>) and u32 BE doodad hash (<c>0x142048e20</c>) from world <c>+0x114</c>. Live
+    /// capture (1_1_town seed 1): <c>007D 43E6886D 8EA8DD43</c> (TileHash 1139181677, DoodadHash 2393431363).</summary>
+    public static (uint TileHash, uint DoodadHash) ReadAreaGenerated(ReadOnlySpan<byte> m) =>
+        (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
+
     /// <summary>
     /// S→C 0x1c (class 0x1435e77a0, read 0x141fa7150; dispatcher case 5 → 0x14215c280): acknowledges the client's 0x1b
     /// ticks. Fields: u16 server delay (ms, subtracted from the measured round trip), u16 index into the client's queue

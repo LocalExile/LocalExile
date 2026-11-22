@@ -841,6 +841,11 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
     public bool PlayerSent;
+    /// <summary>True when C→S 0x7d's tile hash differed from the server's generated <see cref="ServerLevels.Level.TileHash"/>.</summary>
+    public bool LevelDesynced { get; set; }
+    /// <summary>The tile and doodad hashes reported by the client in C→S 0x7d.</summary>
+    public uint ClientTileHash { get; set; }
+    public uint ClientDoodadHash { get; set; }
     // Server frames ended so far (0x2b7).
     public long ServerFrame;
     public byte[] Carry = [];

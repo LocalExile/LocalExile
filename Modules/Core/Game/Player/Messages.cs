@@ -810,7 +810,17 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {remote} <= 0x0080 add friend \"{InstanceSocial.ReadFriendAdd(bytes).Name}\" (not handled yet)");
             else if (id == InstanceProtocol.AreaGeneratedId)
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x007d area generated: {Convert.ToHexString(bytes)}");
+                var (clientTileHash, clientDoodadHash) = InstanceProtocol.ReadAreaGenerated(bytes);
+                conn.ClientTileHash = clientTileHash;
+                conn.ClientDoodadHash = clientDoodadHash;
+                Console.WriteLine($"[gateway] {remote} <= 0x007d area generated: tileHash=0x{clientTileHash:x8} ({clientTileHash}) doodadHash=0x{clientDoodadHash:x8} ({clientDoodadHash})");
+                uint serverTileHash = conn.Layout.Level?.TileHash ?? 0;
+                bool tileHashMismatch = serverTileHash != 0 && clientTileHash != 0 && clientTileHash != serverTileHash;
+                if (tileHashMismatch)
+                {
+                    conn.LevelDesynced = true;
+                    Console.WriteLine($"[gateway] {remote} level desync in {conn.Layout.Id} seed {conn.Seed}: client tileHash={clientTileHash} (0x{clientTileHash:x8}) != server tileHash={serverTileHash} (0x{serverTileHash:x8}) (doodadHash={clientDoodadHash})");
+                }
                 if (!conn.PlayerSent)
                 {
                     // First visit with scripts/walkmaps running: the map is written while the client generates the area.
@@ -888,6 +898,8 @@ public static partial class Game
                     // All stationary objects must exist before validating the arrival cell.
                     await PushOutOfCollision(remote, stream, ciphers, conn, tell: true);
                     await conn.Commands!.Reply($"Area generated at Seed: {conn.Seed}");
+                    if (tileHashMismatch && conn.Commands is { } desyncCommands)
+                        await desyncCommands.Reply($"Warning: client terrain hash differs from server generation (client {clientTileHash}, server {serverTileHash}); area layout may be desynchronised.");
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
