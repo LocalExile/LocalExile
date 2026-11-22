@@ -12,6 +12,26 @@ namespace GameServer.Gateway.Tests;
 public sealed class EssenceCorruptionTests
 {
     [Fact]
+    public void Released_essences_report_their_pending_skills_without_misreporting_implemented_behaviours()
+    {
+        int[] Carriers(string mod) => [.. MapEssenceCatalog.All.Where(e => e.MonsterMods.Contains(Program.Items.Mods.ById(mod)!.Row)).Select(e => e.Row)];
+        foreach (string id in new[] { "EssenceDaemonMeteorFirestorm", "EssenceHorrorCharges1" })
+        {
+            var carriers = Carriers(id);
+            Assert.NotEmpty(carriers);
+            Assert.Contains(id, MapEssenceCatalog.PendingEffects(carriers));
+        }
+        foreach (string id in new[] { Game.EnvyLifeDegenMod, Game.EssenceKaruiSummonMod, Game.EssenceInsectDeathMod, "EssenceEnrageOnLowLife", "DecayOnHitEssenceMonster1" })
+        {
+            var carriers = Carriers(id);
+            Assert.NotEmpty(carriers);
+            Assert.DoesNotContain(id, MapEssenceCatalog.PendingEffects(carriers));
+        }
+        var rage = Carriers("EssenceDaemonMeteorFirestorm");
+        Assert.Equal(MapEssenceCatalog.PendingEffects(rage), MapEssenceCatalog.PendingEffects(rage.Concat(rage)));
+    }
+
+    [Fact]
     public void Corruption_uses_real_essence_groups_tier_caps_and_Stability_outcomes()
     {
         ChaosBypassEffects();
@@ -176,6 +196,76 @@ public sealed class EssenceCorruptionTests
         {
             PlayerInventories.Forget(owner.Conn.Character!);
             PlayerInventories.Forget(peer.Conn.Character!);
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [GameFilesFact]
+    public async Task Releasing_a_monolith_breaks_its_mini_crystals_and_spawns_the_pack_as_magic()
+    {
+        TestEnvironment.OpenOwnSaves("essence-minis");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        var instance = new InstanceState();
+        var world = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
+        var mods = new MapMods(new Dictionary<string, int> { ["map_extra_monoliths"] = 3 });
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
+        uint seed = ServerLevels.PlayableSeed(world.Id, 0x505, 70, stats);
+        ServerLevels.For(world.Id, seed, 70);
+        var layout = AreaLayouts.For(world.Hash16, seed);
+        instance.OpenedWith(new("MiniOwner", new(layout.Hash, world.Id, "Strand", 3) { Level = 70 }, mods));
+        await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+        try
+        {
+            var creates = new List<byte[]>();
+            var outgoing = Program.Outgoing;
+            Program.Outgoing = (cipher, packet) =>
+            {
+                if (ReferenceEquals(cipher, owner.Conn.Wire.Ciphers)) creates.Add(packet.ToArray());
+                outgoing?.Invoke(cipher, packet);
+            };
+            try { await MapEssences.Enter(owner.Conn); }
+            finally { Program.Outgoing = outgoing; }
+            MapEssences.Monolith[] Read() => JsonSerializer.Deserialize<MapEssences.Monolith[]>(instance.ContentState["Essence/monoliths"])!;
+            var target = Read()[0];
+            Assert.NotEmpty(target.Minis);
+            // Each mini crystal went out as a MiniMonolith object (is_mini_monolith set in its blob).
+            foreach (var mini in target.Minis)
+            {
+                var prefix = new LoginWriter().U16(0x2bb).U32(mini.Id).ToArray();
+                Assert.Contains(creates, p => p.AsSpan().IndexOf(prefix) >= 0);
+            }
+            owner.Conn.Walk.Teleport(target.X + 8, target.Y, 0);
+            for (ushort click = 0; click < 3; click++) await MapEssences.Use(owner.Conn, new(target.Id, 0, click, 0), 0);
+            var released = Read()[0];
+            Assert.Equal(4, released.Stage);
+            Assert.Equal(MonsterRarity.Rare, owner.Conn.Monsters[released.Monster].Rarity);
+            // The pack released as ordinary magic monsters, one per crystal. Essence modifiers can only appear on rare or
+            // unique monsters (the wiki), so a pack magic monster carries none.
+            Assert.All(released.Minis, mini =>
+            {
+                Assert.Equal(2, mini.Stage);
+                Assert.NotEqual(0u, mini.Monster);
+                Assert.Equal(MonsterRarity.Magic, owner.Conn.Monsters[mini.Monster].Rarity);
+            });
+            // Essences drop only from the rare, not from a pack magic monster.
+            var rareRewards = new DropRoll(owner.Conn, Game.ModMonster(owner.Conn.Monsters[released.Monster], (released.X, released.Y)));
+            MapEssences.Drops(rareRewards);
+            Assert.Equal(released.Essences.Select(row => MapEssenceCatalog.Find(row)!.Item), rareRewards.Items);
+            var first = released.Minis[0];
+            var miniRewards = new DropRoll(owner.Conn, Game.ModMonster(owner.Conn.Monsters[first.Monster], (first.X, first.Y)));
+            MapEssences.Drops(miniRewards);
+            Assert.Empty(miniRewards.Items);
+        }
+        finally
+        {
+            PlayerInventories.Forget(owner.Conn.Character!);
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);

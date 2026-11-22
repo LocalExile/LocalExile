@@ -1,6 +1,10 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 
+// Essence of Contempt: the chasing Karui spirits its EssenceDaemonSummonMovingKaruiSpirit1 monster mod brings (the mod
+// appears from tier 5 up). This is the only essence summon this file implements — the EssenceSummon* names below are the
+// summon path's hand-overs, called for every monster summon and answering only for this variety, not a general essence
+// summon engine. Another essence's summon gets its own file, as its other spells do.
 public static partial class Game
 {
     public const string EssenceKaruiSummonMod = "EssenceDaemonSummonMovingKaruiSpirit1";

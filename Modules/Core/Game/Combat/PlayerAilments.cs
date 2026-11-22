@@ -88,7 +88,7 @@ public static partial class Game
             conn.IncomingAilments.Clear();
             ClearPlayerDecay(conn);
             ClearCorruptedBlood(conn);
-            ClearEssenceAuraExposure(conn);
+            ClearEnvyAuraExposure(conn);
             return 0;
         }
         double previousAction = conn.ElementalAilments.ActionFactor(from);
@@ -99,8 +99,8 @@ public static partial class Game
         double dotStart = Math.Max(Math.Max(conn.IncomingAilments.LatestStart, conn.ElementalAilments.LatestIgniteStart), PlayerDecayStarted(conn));
         var immunities = PlayerImmunities(conn, stats);
         if (Blood.TryGetValue(conn, out var blood)) dotStart = Math.Max(dotStart, blood.Started);
-        int auraDamage = AdvanceEssenceAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
-        dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(conn));
+        int auraDamage = AdvanceEnvyAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
+        dotStart = Math.Max(dotStart, PlayerEnvyAuraStarted(conn));
         double letheFactor = Get("keystone_lethe_shade") != 0 && until - dotStart < 1 ? .5 : 1;
         int damage = 0, lifeDamage = auraDamage;
         if (conn.ElementalAilments.HasEffects)
@@ -135,7 +135,7 @@ public static partial class Game
             conn.InvalidateIncomingHits();
             ClearPlayerDecay(conn);
             ClearCorruptedBlood(conn);
-            ClearEssenceAuraExposure(conn);
+            ClearEnvyAuraExposure(conn);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(conn);
         }

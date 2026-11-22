@@ -236,6 +236,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double SummonReadyAt;
     /// <summary>When a non-kit monster's cooldown-gated attack (e.g. BatScreech, MotherOfFlamesMagmaOrb) is ready again.</summary>
     public double CooldownReadyAt;
+    /// <summary>A summoner's own alive cap when it differs from <see cref="Game.MaxSummoned"/> (an essence rare keeps the
+    /// tier-scaled count of its summon spell); 0 uses the default.</summary>
+    public int SummonCap;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>

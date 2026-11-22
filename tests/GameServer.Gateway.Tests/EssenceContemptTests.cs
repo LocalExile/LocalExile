@@ -3,12 +3,12 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class EssenceSummonTests : IDisposable
+public sealed class EssenceContemptTests : IDisposable
 {
     readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
     readonly GameServer.Modding.IModuleLifetime? previousLifetime = Game.CombatLifetime;
     readonly ModuleLifetime lifetime = new("Game");
-    public EssenceSummonTests()
+    public EssenceContemptTests()
     {
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
@@ -241,8 +241,8 @@ public sealed class EssenceSummonTests : IDisposable
         Game.CompleteEssenceDeathSpawnLocked(peer, pending, true);
         Assert.Empty(Game.ClaimEssenceDeathSpawnsLocked(peer));
         Assert.False(Game.QueueEssenceDeathSpawnLocked(peer, 42, source));
-        Assert.Null(Game.EssenceDeathDefinitionFor(0));
-        Assert.Null(Game.EssenceDeathDefinitionFor(999));
+        Assert.Null(Game.EssenceDeathDefinitionFor(0, Game.EssenceExplosiveInsect));
+        Assert.Null(Game.EssenceDeathDefinitionFor(999, Game.EssenceExplosiveInsect));
 
         var insect = new SpawnedMonster("insect", new(300, 300, 30), 105, 6, 100)
         { Variety = Game.Monsters.Find(Game.EssenceExplosiveInsect), Level = 70, ActionGeneration = 17 };

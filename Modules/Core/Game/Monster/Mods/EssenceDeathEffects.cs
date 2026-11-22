@@ -12,7 +12,13 @@ public static partial class Game
     const string EssenceInsectEffect = "InsectSuicideExplosionHuge";
     // SuicideExplosion::execute (3.29.3d, 141a462cc): floor(15 * radius_percentage / 100).
     const int EssenceInsectBaseRadius = 15;
-    public sealed record EssenceDeathDefinition(int Variety, int Count);
+    public sealed record EssenceDeathDefinition(int Variety, int Count)
+    {
+        /// <summary>A staged death spawn: the stat and variation the spawned monster carries so its own death brings the
+        /// next stage (Anguish's rubble fractures 1st → 2nd → 3rd). Null for a one-stage spawn.</summary>
+        public string? NextStat { get; init; }
+        public int NextVariation { get; init; }
+    }
     public sealed class EssenceDeathSpawn(InstanceState instance, uint parent, byte level, (int X, int Y) at,
         EssenceDeathDefinition definition)
     {
@@ -28,20 +34,36 @@ public static partial class Game
     static readonly RuleTable<InstanceState, EssenceDeathQueue> EssenceDeathQueues = new();
     static readonly RuleTable<SpawnedMonster, EssenceDeathSpawn> EssenceDeathReceipts = new();
 
-    public static EssenceDeathDefinition? EssenceDeathDefinitionFor(int variation)
+    /// <summary>The essence on-death stats and the variety each accepts. Anguish's rubble stages chain through
+    /// NextStat/NextVariation; the insect is one stage.</summary>
+    static readonly (string Stat, string Variety)[] EssenceDeathSources =
+    [
+        (EssenceInsectDeathStat, EssenceExplosiveInsect),
+        (MapEssences.AnguishDeathStat, MapEssences.AnguishRubbleFirst), (MapEssences.AnguishDeathStat, MapEssences.AnguishRubbleSecond), (MapEssences.AnguishDeathStat, MapEssences.AnguishRubbleThird),
+    ];
+
+    public static EssenceDeathDefinition? EssenceDeathDefinitionFor(int variation, string accept)
     {
         if (variation <= 0 || ClientTables.Table("SummonedSpecificMonstersOnDeath").Row(variation - 1) is not { } row
-            || row.IntOrNull("MonsterVarietiesKey") is not int variety || Monsters.Find(variety.ToString())?.Id != EssenceExplosiveInsect)
+            || row.IntOrNull("MonsterVarietiesKey") is not int variety || Monsters.Find(variety.ToString())?.Id != accept)
             return null;
-        return new(variety, Math.Max(1, row.Int("__col4")));
+        var definition = new EssenceDeathDefinition(variety, Math.Max(1, row.Int("__col4")));
+        return accept == MapEssences.AnguishRubbleFirst ? definition with { NextStat = MapEssences.AnguishDeathStat, NextVariation = 7 }
+            : accept == MapEssences.AnguishRubbleSecond ? definition with { NextStat = MapEssences.AnguishDeathStat, NextVariation = 8 }
+            : definition;
     }
 
     public static bool QueueEssenceDeathSpawnLocked(ClientState conn, uint id, SpawnedMonster source)
     {
         if (!CurrentGameWork || !source.Hostile || !source.Dead && source.Life > 0 || conn.Instance is not { } instance
             || !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), source)
-            || EssenceDeathReceipts.TryGetValue(source, out _) || source.Effects[EssenceInsectDeathStat] is not (> 0 and var variation)
-            || EssenceDeathDefinitionFor(variation) is not { } definition) return false;
+            || EssenceDeathReceipts.TryGetValue(source, out _)) return false;
+        // The on-death summon is one family of stats: Delirium's insects and Anguish's fracturing rubble differ only in
+        // which stat carries the variation and which variety it selects.
+        EssenceDeathDefinition? definition = null;
+        foreach (var (stat, accept) in EssenceDeathSources)
+            if (source.Effects[stat] is > 0 and var v && EssenceDeathDefinitionFor(v, accept) is { } d) { definition = d; break; }
+        if (definition is null) return false;
         var spawn = new EssenceDeathSpawn(instance, id, source.Level, source.Walk.Position(AreaTime(conn)), definition);
         EssenceDeathReceipts.Add(source, spawn);
         EssenceDeathQueues.GetOrCreateValue(instance).Pending.Add(spawn);
@@ -96,6 +118,8 @@ public static partial class Game
                         {
                             child.SummonerId = spawn.Parent; // not linked to the already-dead parent's Life
                             child.Aggro = true;
+                            if (spawn.Definition.NextStat is { } next && spawn.Definition.NextVariation > 0)
+                                child.EncounterStats = new Dictionary<string, int> { [next] = spawn.Definition.NextVariation };
                             CompleteEssenceDeathSpawnLocked(conn, spawn, true);
                         });
                     if (created == 0) break;

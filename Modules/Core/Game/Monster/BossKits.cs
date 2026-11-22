@@ -48,17 +48,22 @@ public static class BossKits
     /// second object the server does not create (Dominus' ChillingBond crashed the client at 0x1401297ca, live
     /// 2026-11-05); a movement skill is the walk, not a swing (MavenNucleus.CombatEffect).
     /// </summary>
-    public static IReadOnlyList<int> Effects(SkillCatalog catalog, MonsterCatalog.Variety variety)
+    /// <param name="forSummon">A summoned monster's own kit. Two of the boss guards above do not apply to it: a spell whose
+    /// Id merely contains "Daemon" is the summon's whole purpose (Torment's orb casts EssenceDaemonBallLightning), and a
+    /// Movement skill that is also an Attack is how it reaches the player (Doubt's spider casts MonsterFlickerStrike, which
+    /// the wiki names alongside Viper Strike). The structural tests — on-death, and attack/spell/projectile — still apply.</param>
+    public static IReadOnlyList<int> Effects(SkillCatalog catalog, MonsterCatalog.Variety variety, bool forSummon = false)
     {
         if (variety.GrantedEffects is not { Count: > 0 } effects) return [];
         List<int> usable = [];
         foreach (int effect in effects)
         {
             if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) continue;
-            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect)) continue;
+            if (effect < 0 || catalog.CastsOnDeath(effect)) continue;
+            if (catalog.IsMovement(effect) && !(forSummon && catalog.IsAttack(effect))) continue;
             string? id = catalog.EffectId(effect);
             if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
-                || id.Contains("Daemon", StringComparison.Ordinal)
+                || (!forSummon && id.Contains("Daemon", StringComparison.Ordinal))
                 || id.Contains("MemoryGame", StringComparison.Ordinal)
                 || id.Contains("Bond", StringComparison.Ordinal)
                 || id.Contains("Mark", StringComparison.Ordinal)
@@ -223,7 +228,7 @@ public static class BossKits
         {
             Spell = spell,
             DualWielding = dualWielding,
-            CorruptedBlood = CorruptedBloodOnHit.From(Raw),
+            CorruptedBlood = CorruptedBloodFor(Raw),
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
@@ -234,7 +239,7 @@ public static class BossKits
 
     /// <summary>The attack this boss acts with now: a ready skill of its kit that reaches the player, else a non-cooldown
     /// chase attack (preferring melee walk-up so an out-of-reach boss closes in instead of re-casting an on-cooldown
-    /// ranged special). Null only when it has no attack at all.
+    /// ranged special). Null when it has no attack at all, or when every skill it has is a special still on cooldown.
     /// <para>A skill with a cooldown the tables give it is the boss's special: ready, it takes the turn, which is what
     /// the cooldown is for. Between specials (and for the skills without one, the default swing included) the skill used
     /// longest ago takes it, so the whole list is played rather than one move repeated; on a tie the default swing does,
@@ -263,14 +268,16 @@ public static class BossKits
             bestTier = special ? 1 : 0;
             bestUsed = used;
         }
-        return best?.Attack ?? Fallback(monster);
+        return best?.Attack ?? Fallback(monster, now);
     }
 
     // When no kit skill is both in reach and off cooldown, never return the last-used special in monster.Attack (which
     // would be an InPlace ranged skill on cooldown and immediately re-fire, bypassing its cooldown). Prefer a
     // zero-cooldown pathing melee swing so the boss walks into melee reach, then any zero-cooldown skill, then any
-    // pathing melee skill, then the first allowed entry.
-    static MonsterAttack? Fallback(SpawnedMonster monster)
+    // pathing melee skill, then the first allowed entry. An unready cooldown special is no candidate at any tier: a
+    // spell-only caster (an essence's Energy Locus) idles between its spell's cooldowns instead of firing it every
+    // attack cycle, so a kit of nothing but unready specials returns null.
+    static MonsterAttack? Fallback(SpawnedMonster monster, double now)
     {
         MonsterAttack? anyNoCooldown = null, anyMelee = null, anyAllowed = null;
         for (int i = 0; i < monster.Kit.Count; i++)
@@ -278,6 +285,7 @@ public static class BossKits
             var entry = monster.Kit[i];
             if (!Arakaali.Allowed(monster, entry.Effect)) continue;
             bool noCooldown = entry.CooldownSeconds <= 0;
+            if (!noCooldown && monster.KitReadyAt.GetValueOrDefault(entry.Effect) > now) continue;
             bool melee = !entry.Attack.InPlace;
             if (melee && noCooldown) return entry.Attack;
             anyNoCooldown ??= noCooldown ? entry.Attack : null;
@@ -299,5 +307,43 @@ public static class BossKits
                 monster.KitReadyAt[entry.Effect] = now + entry.CooldownSeconds;
                 return;
             }
+    }
+
+    /// <summary>A monster's own kit with a caller's extra specials appended (SpawnMonster's <c>extraKit</c>: an essence
+    /// rare's spells, a summon's usable effects). An effect the kit already plays is not a second copy, and every appended
+    /// entry takes the next free kit id (0x4000 + its index) — the id <see cref="SkillsOf"/> sends the actor and the one
+    /// <see cref="Consume"/> matches its cooldown by. A kit boss already holds its whole kit, so a second copy of it
+    /// appends nothing.</summary>
+    public static IReadOnlyList<MonsterKitSkill> WithExtra(IReadOnlyList<MonsterKitSkill> kit,
+        IReadOnlyList<MonsterKitSkill>? extra)
+    {
+        if (extra is not { Count: > 0 }) return kit;
+        List<MonsterKitSkill> appended = [];
+        foreach (var entry in extra)
+        {
+            if (kit.Any(e => e.Effect == entry.Effect) || appended.Any(e => e.Effect == entry.Effect)) continue;
+            appended.Add(entry with { Attack = entry.Attack with { SkillId = (ushort)(0x4000 + kit.Count + appended.Count) } });
+        }
+        return appended.Count > 0 ? [.. kit, .. appended] : kit;
+    }
+
+    /// <summary>The kit a summoned monster fights with: its whole usable effect list, not only its cooldown spells. A
+    /// totem casts its Arc (no cooldown) as well as its shocked ground, a spider its Viper Strike, a summoned daemon its
+    /// nova / ball lightning / storm cascade. <see cref="Effects"/> drops movement / on-death / daemon-link skills, and an
+    /// effect that hits for nothing, summons nothing and fires nothing is no action. A cooldown spell stays a special (the
+    /// summon idles between casts); a zero-cooldown one is rotated at its cast time, so a spell-only summon does not spam
+    /// it every tick. Empty for a variety with no usable effect.</summary>
+    public static IReadOnlyList<MonsterKitSkill> SummonKit(ClientState conn, MonsterCatalog.Variety variety, byte level)
+    {
+        var catalog = SkillsFor(conn);
+        List<MonsterKitSkill> kit = [];
+        foreach (int effect in Effects(catalog, variety, forSummon: true))
+        {
+            int effectLevel = catalog.MaxLevelAt(effect, level);
+            var attack = AttackFor(conn, variety, level, effect, (ushort)(0x4000 + kit.Count));
+            if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
+            kit.Add(new(effect, attack, catalog.CooldownMs(effect, effectLevel) / 1000d));
+        }
+        return kit;
     }
 }

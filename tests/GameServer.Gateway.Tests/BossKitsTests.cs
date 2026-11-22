@@ -158,6 +158,24 @@ public sealed class BossKitsTests
     }
 
     [Fact]
+    public void A_blood_skill_with_no_stack_count_applies_one_stack()
+    {
+        InGame(conn =>
+        {
+            var daemon = Assert.IsType<MonsterCatalog.Variety>(
+                Game.Monsters.Find("Metadata/Monsters/Daemon/EssenceBloodProjectileDaemon"));
+            var catalog = Game.SkillsFor(conn);
+            // Greed's blood daemons' nova: two seconds at 130% of the average hit per minute, and no stack count in its
+            // rows. The blood-projectile / bonespire family omits the count, so it applies one stack rather than nothing.
+            var nova = BossKits.AttackFor(conn, daemon, 70, catalog.EffectRow("EssenceBloodProjectileNova"), 0x4000);
+            Assert.Equal(new CorruptedBloodOnHit(1, 2, 0, 130), nova.CorruptedBlood);
+            Assert.Null(Game.CorruptedBloodFor(_ => 0));
+            // A duration with no damage source is not a Corrupted Blood skill.
+            Assert.Null(Game.CorruptedBloodFor(n => n == "corrupted_blood_on_hit_duration" ? 2000 : 0));
+        });
+    }
+
+    [Fact]
     public void A_kit_plays_a_ready_special_first_and_rotates_the_rest()
     {
         // A swing with no cooldown, a second one without a cooldown, and a special that reaches further and is ready
