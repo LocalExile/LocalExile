@@ -141,6 +141,14 @@ public static partial class Game
             bool refresh = now >= state.RefreshFightersAt;
             if (refresh) state.RefreshFightersAt = now + .5;
             var player = refresh && state.Fighters.Count > 0 ? CharacterPlayerStats(conn) : null;
+            if (player is not null && ReservationAura(conn, "HeraldOfPurity") is { } purity
+                && state.Fighters.Values.Any(f => f.Definition.Kind == "Purity" && GolemStat(f.Own, CongregationMinionLimit) > 0))
+            {
+                int limit = PuritySentinelLimit(SupportedSkill(conn, purity.SkillId).Stats, player);
+                foreach (var surplus in state.Fighters.Values.Where(f => f.Definition.Kind == "Purity")
+                    .OrderByDescending(f => f.SummonedAt).Skip(limit).ToArray())
+                    RemoveReservationFighterLocked(conn, surplus, now);
+            }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (!conn.Auras.TryGetValue(fighter.Source, out var aura)) continue;

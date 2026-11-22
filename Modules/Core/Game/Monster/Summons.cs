@@ -59,10 +59,14 @@ public static partial class Game
         return exact.Name is not null ? exact.Id : candidates.FirstOrDefault().Id;
     }
 
-    public static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
+    const string CongregationMinionLimit = "support_undead_army_minion_maximum_count_+%_final";
+
+    public static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem) =>
+        definition.LimitStat.Length == 0 ? 1 : SummonLimit(definition, gem, CharacterPlayerStats(conn));
+
+    static int SummonLimit(SummonCatalog.Definition definition, SupportedGem gem, IReadOnlyDictionary<uint, int> player)
     {
         if (definition.LimitStat.Length == 0) return 1;
-        var player = CharacterPlayerStats(conn);
         string final = definition.LimitStat.Replace("base_", "", StringComparison.Ordinal);
         long value = (long)GolemStat(gem.Stats, definition.LimitStat) + GolemStat(player, definition.LimitStat)
             + GolemStat(player, final);
@@ -72,8 +76,7 @@ public static partial class Game
 
     static int SupportedSummonLimit(long count, IReadOnlyDictionary<uint, int> own, int ceiling = 200)
     {
-        const string stat = "support_undead_army_minion_maximum_count_+%_final";
-        long percent = 100L + Math.Max(0, GolemStat(own, stat));
+        long percent = 100L + Math.Max(0, GolemStat(own, CongregationMinionLimit));
         return (int)Math.Min(ceiling, Math.Clamp(count, 0, ceiling) * percent / 100);
     }
 
@@ -382,6 +385,7 @@ public static partial class Game
             }
             var player = now >= state.RefreshAt && state.Fighters.Count > 0 ? CharacterPlayerStats(conn) : null;
             if (player is not null) state.RefreshAt = now + .5;
+            HashSet<(ushort Source, SummonCatalog.Definition Definition, int Limit)>? reduced = null;
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (conn.PlayerLife == 0 || fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])
@@ -398,12 +402,21 @@ public static partial class Game
                     || SkillsFor(conn).EffectId(gem.Effect) != fighter.Definition.Id || !gem.RequirementsMet)
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
                 gem = gem with { Stats = MergeSummonStats(gem.Stats, fighter.RetainedSkillStats) };
+                var definition = state.Definitions[fighter.Id];
+                bool wasSupported = GolemStat(fighter.Own, CongregationMinionLimit) > 0;
+                if (wasSupported || GolemStat(gem.Stats, CongregationMinionLimit) > 0)
+                {
+                    int limit = SummonLimit(definition, gem, player);
+                    if (wasSupported && limit < fighter.Limit)
+                        (reduced ??= []).Add((fighter.Source, definition, limit));
+                    fighter.Limit = limit;
+                }
                 int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
                 if (actorLevel <= 0 && (fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || fighter.Definition.Kind == "VaalDomination"))
                     actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
                 if (actorLevel > 0 && actorLevel != fighter.Monster.Level)
                 {
-                    rescaled.Add((fighter, state.Definitions[fighter.Id],
+                    rescaled.Add((fighter, definition,
                         fighter.Equipment.Count > 0 ? fighter.Equipment : null, fighter.Monster.Variety!.Id,
                         fighter.Monster.Walk.Position(now)));
                     continue;
@@ -412,6 +425,15 @@ public static partial class Game
                 RefreshGolemLocked(conn, fighter, player);
                 GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
             }
+            if (reduced is not null)
+                foreach (var (source, definition, limit) in reduced)
+                    foreach (var surplus in state.Fighters.Values.Where(f => f.Source == source
+                        && !f.Monster.Dead && state.Definitions[f.Id] == definition)
+                        .OrderByDescending(f => f.SummonedAt).Skip(limit).ToArray())
+                    {
+                        RemoveSummonLocked(conn, surplus, now);
+                        changed = true;
+                    }
         }
         foreach (var (old, definition, equipment, variety, aim) in rescaled)
             if (await SummonFighter(remote, stream, ciphers, conn, old.Source, definition, aim,

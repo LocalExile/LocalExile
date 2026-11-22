@@ -71,13 +71,15 @@ public sealed partial class ReservationCurseSummonTests
             for (int i = 0; i < 6; i++) Game.ReservationKill(new(conn, victim, "test", (100, 100)));
             await Game.ReservationSkillsTick("test", wire.Stream, wire.Ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
             Assert.Equal(5, conn.Reservations.Fighters.Values.Count(f => f.Definition.Kind == "Purity"));
-            await Game.DisableReservations("test", wire.Stream, wire.Ciphers, conn, "HeraldOfPurity");
 
             items.Change(PlayerInventories.BodyArmour, worn.Id, item => item with { Links = [1, 1, 1, 1, 1] });
             Assert.Equal(skill, Source("SummonSkeletons"));
             Assert.Equal(5, Published(skill, "number_of_skeletons_allowed"));
-            Assert.NotEqual(0u, await Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, skill, definition, (100, 100)));
+            await Game.SummonsTick("test", wire.Stream, wire.Ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
             Assert.Equal(5, conn.Summons.Fighters.Count);
+            await Game.ReservationSkillsTick("test", wire.Stream, wire.Ciphers, conn, conn.Clock.Elapsed.TotalSeconds + .5);
+            Assert.Equal(4, conn.Reservations.Fighters.Values.Count(f => f.Definition.Kind == "Purity"));
+            await Game.DisableReservations("test", wire.Stream, wire.Ciphers, conn, "HeraldOfPurity");
         }
         finally
         {
