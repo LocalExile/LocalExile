@@ -28,7 +28,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([status](../status/monsters.md#partly-working)); integrated native evidence is scoped in
   [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
   Check template and variety life regeneration on the client, including the Sanguine Wave and Mammothcage.
-  Capture the life, physical damage, speed and enemy-slow totems' caster and recipient effects on both graphical clients.
+  Capture the life, physical damage, resistance, speed and enemy-slow totems' caster and recipient effects on both graphical clients.
   Check which enemy slow supplies the visible buff when multiple emitters overlap.
   Compare overlapping speed sources with different attack and movement grants, including allies-only sources.
   Verify the official sampling cadence and the timing of a walk, attack or cast already in progress at the boundary.

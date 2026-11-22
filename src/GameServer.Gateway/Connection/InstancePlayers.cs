@@ -137,6 +137,7 @@ public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life
     public IReadOnlyList<(uint Key, int Value)>? OriginStats { get; init; }
     public bool CreatedAsCorpse { get; init; }
     public (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) LifeAura { get; init; }
+    public (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) ElementalResistanceAura { get; init; }
     public (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) PhysicalDamageAura { get; init; }
     public (ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) EnemySlow { get; init; }
     public ((ushort EmitterBuff, ushort ReceiverBuff, uint Source, int Rate) Buff, int Cast, int Movement) SpeedAura { get; init; }

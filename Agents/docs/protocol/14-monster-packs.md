@@ -437,10 +437,14 @@ Its roll is −25 on stat 179 (`base_movement_velocity_+%`). BuffDefinitions row
 recipient effects in BuffVisuals row 142. The Gateway applies the strongest reduction once and uses the lower object ID
 when two rolls match. The original client's visuals, overlap priority and update interval still need a capture.
 
-**Open:** other variety modifiers and their aura recipients are incomplete; monsters have no base
-resistance or armour yet (open PRs #225 / #226 add base resistance), the player no penetration, so the mods'
-resistances cannot be penetrated; no monster energy shield; the unsupported mods' systems;
-whether the real server sends the rarity's own mods, and in which list. The monster's attack stats on the client
+The map Grinning Totem carries `MonsterTotemAuraResists1`. BuffTemplates row 358 targets self and allies within
+60 cells. Its +35 roll supplies stat 142 (`base_resist_all_elements_%`). BuffDefinitions row 91 points to
+BuffVisuals row 95, which has separate caster and recipient effects. The Fickle Totem uses the same buff
+with a +30 roll and a 140-cell radius. The Gateway adds the grant to the recipient's resistances before
+the cap. Hit penetration applies after the cap.
+
+**Open:** other variety modifiers and their aura recipients, monster armour and energy shield, the unsupported
+mods' systems, and whether the real server sends the rarity's own mods and in which list. The monster's attack stats on the client
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.
 

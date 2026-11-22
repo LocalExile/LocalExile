@@ -413,6 +413,7 @@ public static partial class Game
         var changed = new List<(uint, uint)>();
         var auras = GatherMonsterAuras(monsters, now);
         var recovery = auras?.GetValueOrDefault(RecoveryAura);
+        var resistance = auras?.GetValueOrDefault(ResistanceAura);
         var physical = auras?.GetValueOrDefault(PhysicalAura);
         var attackSpeed = auras?.GetValueOrDefault(AttackSpeedAura);
         var castSpeed = auras?.GetValueOrDefault(CastSpeedAura);
@@ -421,6 +422,7 @@ public static partial class Game
         foreach (var (id, m) in monsters)
         {
             ApplyMonsterAura(id, m, recovery, now, RecoveryAura, ref m.LifeAura);
+            ApplyMonsterAura(id, m, resistance, now, ResistanceAura, ref m.ElementalResistanceAura);
             if (ApplyMonsterAura(id, m, physical, now, PhysicalAura, ref m.PhysicalDamageAura))
                 BossKits.RefreshPhysicalAura(m);
             var slow = !m.Hostile && !m.WorldHidden && !m.Dead && m.Life > 0 && enemySources is { Count: > 0 }

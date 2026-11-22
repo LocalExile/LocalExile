@@ -295,6 +295,7 @@ public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int ag
     public int TemplateLifeRegeneration { get; private init; }
     // Current species aura on the shared actor. Extra is the portion outside its rolled modifier set.
     public (bool Emits, uint Source, int Rate, int Extra) LifeAura;
+    public (bool Emits, uint Source, int Rate, int Extra) ElementalResistanceAura;
     public (bool Emits, uint Source, int Rate, int Extra) PhysicalDamageAura;
     public MonsterSpeedAura SpeedAura;
     public bool EmitsEnemySlow;

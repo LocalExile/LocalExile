@@ -615,12 +615,11 @@ public static partial class Game
                 EntranceGrace = waitingForBanditChoice || !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             };
+            var resistance = OwnAura(AuraRolls(mods.Mods), ResistanceAura);
+            if (resistance.Included != 0)
+                spawned.ElementalResistanceAura = InitialAura(id, spawned, ResistanceAura, friendly ? 0 : resistance.Self, resistance.Included);
             if (authored.Physical.Included != 0)
-            {
-                int extra = selfDamageAura - authored.Physical.Included;
-                spawned.PhysicalDamageAura = (!friendly, selfDamageAura == 0 ? 0 : id, selfDamageAura, extra);
-                spawned.SetGrantedStat(PhysicalAuraStat, extra);
-            }
+                spawned.PhysicalDamageAura = InitialAura(id, spawned, PhysicalAura, selfDamageAura, authored.Physical.Included);
             if (authored.SpeedIncluded != default || selfSpeeds != default)
                 InitializeSpeedAura(id, spawned, selfSpeeds, authored.SpeedIncluded);
             MonsterEmerge.AddLocked(conn, id, spawned, emerge, waits);

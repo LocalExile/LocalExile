@@ -25,13 +25,14 @@ public static partial class Game
     const ushort LifeAuraBuff = 90, PhysicalAuraBuff = 88, SpeedAuraBuff = 89, EnemySlowBuff = 136;
     sealed record AuraEffect(ushort Buff, string Stat);
     static readonly AuraEffect RecoveryAura = new(LifeAuraBuff, LifeAuraStat);
+    static readonly AuraEffect ResistanceAura = new(91, "base_resist_all_elements_%");
     static readonly AuraEffect PhysicalAura = new(PhysicalAuraBuff, PhysicalAuraStat);
 
     static readonly AuraEffect AttackSpeedAura = new(SpeedAuraBuff, AttackSpeedStat);
     static readonly AuraEffect CastSpeedAura = new(SpeedAuraBuff, CastSpeedStat);
     static readonly AuraEffect MoveSpeedAura = new(SpeedAuraBuff, MoveSpeedStat);
     static readonly AuraEffect EnemySlowAura = new(EnemySlowBuff, MoveSpeedStat);
-    static readonly AuraEffect[] GrantedAuraStats = [RecoveryAura, PhysicalAura, AttackSpeedAura, CastSpeedAura, MoveSpeedAura];
+    static readonly AuraEffect[] GrantedAuraStats = [RecoveryAura, ResistanceAura, PhysicalAura, AttackSpeedAura, CastSpeedAura, MoveSpeedAura];
 
     sealed record AuraMod(MonsterAuraTemplate Template, (AuraEffect Effect, int Index)[] Stats);
     readonly record struct AuraRoll(MonsterAuraTemplate Template, AuraEffect Effect, int Value);
@@ -83,25 +84,25 @@ public static partial class Game
     {
         var rolls = AuraRolls(mods);
         if (rolls.Length == 0) return (effects, default, default, default);
-        var physical = Own(PhysicalAura);
-        var attack = Own(AttackSpeedAura);
-        var cast = Own(CastSpeedAura);
-        var move = Own(MoveSpeedAura);
+        var physical = OwnAura(rolls, PhysicalAura);
+        var attack = OwnAura(rolls, AttackSpeedAura);
+        var cast = OwnAura(rolls, CastSpeedAura);
+        var move = OwnAura(rolls, MoveSpeedAura);
         var included = new AuraSpeeds(attack.Included, cast.Included, move.Included);
         return (included.AddTo(effects.Plus(PhysicalAuraStat, -physical.Included), -1), physical,
             new(attack.Self, cast.Self, move.Self), included);
+    }
 
-        (int Self, int Included) Own(AuraEffect effect)
-        {
-            int self = 0, included = 0;
-            foreach (var roll in rolls)
-                if (roll.Effect == effect)
-                {
-                    included += roll.Value;
-                    if (roll.Template.Self) self = Math.Max(self, roll.Value);
-                }
-            return (self, included);
-        }
+    static (int Self, int Included) OwnAura(AuraRoll[] rolls, AuraEffect effect)
+    {
+        int self = 0, included = 0;
+        foreach (var roll in rolls)
+            if (roll.Effect == effect)
+            {
+                included += roll.Value;
+                if (roll.Template.Self) self = Math.Max(self, roll.Value);
+            }
+        return (self, included);
     }
 
     static Dictionary<AuraEffect, AuraFields>? GatherMonsterAuras(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double now)
@@ -169,17 +170,17 @@ public static partial class Game
 
     static void InitializeSpeedAura(uint id, SpawnedMonster monster, AuraSpeeds self, AuraSpeeds included)
     {
-        monster.SpeedAura.Attack = Initial(AttackSpeedStat, self.Attack, included.Attack);
-        monster.SpeedAura.Cast = Initial(CastSpeedStat, self.Cast, included.Cast);
-        monster.SpeedAura.Movement = Initial(MoveSpeedStat, self.Movement, included.Movement);
+        monster.SpeedAura.Attack = InitialAura(id, monster, AttackSpeedAura, self.Attack, included.Attack);
+        monster.SpeedAura.Cast = InitialAura(id, monster, CastSpeedAura, self.Cast, included.Cast);
+        monster.SpeedAura.Movement = InitialAura(id, monster, MoveSpeedAura, self.Movement, included.Movement);
         monster.SpeedAura.Capture(skills: true);
+    }
 
-        AuraState Initial(string stat, int granted, int rolled)
-        {
-            int extra = granted - rolled;
-            if (extra != 0) monster.SetGrantedStat(stat, extra);
-            return (monster.Hostile && rolled != 0, granted == 0 ? 0 : id, granted, extra);
-        }
+    static AuraState InitialAura(uint id, SpawnedMonster monster, AuraEffect effect, int granted, int rolled)
+    {
+        int extra = granted - rolled;
+        if (extra != 0) monster.SetGrantedStat(effect.Stat, extra);
+        return (monster.Hostile && rolled != 0, granted == 0 ? 0 : id, granted, extra);
     }
 
     static void ApplySpeedAura(uint id, SpawnedMonster monster, AuraFields? attack, AuraFields? cast, AuraFields? movement, double now, (uint Source, int Rate) enemy)
@@ -249,6 +250,7 @@ public static partial class Game
     {
         bool dead = monster.Dead || monster.Life == 0;
         return AuraChanged(dead ? default : monster.LifeAura, view.LifeAura)
+            || AuraChanged(dead ? default : monster.ElementalResistanceAura, view.ElementalResistanceAura)
             || AuraChanged(dead ? default : monster.PhysicalDamageAura, view.PhysicalDamageAura)
             || AuraChanged(EnemySlowOn(monster), view.EnemySlow)
             || AuraChanged(dead ? default : monster.SpeedAura.Attack, view.SpeedAura.Buff)
@@ -262,6 +264,7 @@ public static partial class Game
         return view with
         {
             LifeAura = Present(RecoveryAura, dead ? default : monster.LifeAura, view.LifeAura),
+            ElementalResistanceAura = Present(ResistanceAura, dead ? default : monster.ElementalResistanceAura, view.ElementalResistanceAura),
             PhysicalDamageAura = Present(PhysicalAura, dead ? default : monster.PhysicalDamageAura, view.PhysicalDamageAura),
             EnemySlow = Present(EnemySlowAura, EnemySlowOn(monster), view.EnemySlow),
             SpeedAura = PresentSpeed(),
