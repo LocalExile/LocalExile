@@ -289,6 +289,33 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     readonly record struct ActorMotion(ProjectileActor Actor, ProjectileVector From, ProjectileVector To);
 
+    Contact? TerrainImpact(ProjectileEntity p, double duration, ProjectileVector to, bool pulseDue)
+    {
+        if (p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) return null;
+        // Another flight can resolve first at the same rounded time. Recheck from the incident side
+        // so a wall changed by that contact is seen and a thin barrier already crossed is still found.
+        if (p.TerrainApproach is { } approach && approach.At == Now
+            && world.TraceFlight(p, approach.From, p.Position) is { } crossed)
+            return new(Now, p, null, ProjectileEndReason.Terrain, crossed,
+                Point: approach.From + (p.Position - approach.From) * Math.Clamp(crossed.Fraction, 0, 1));
+
+        p.TerrainApproach = null;
+        // At a due pulse the sweep has zero length. From an exact cell edge the incident cell may still be open.
+        // Trace in the travel direction to distinguish touching the next cell from reaching it later.
+        var terrainTo = pulseDue ? p.Position + p.Direction * Math.Min(1, p.Remaining) : to;
+        if (world.TraceFlight(p, p.Position, terrainTo) is not { } wall || (pulseDue && wall.Fraction > 0)) return null;
+        double fraction = Math.Clamp(wall.Fraction, 0, 1);
+        long at = Now + (long)Math.Ceiling(duration * fraction);
+        var travel = to - p.Position;
+        if (at > Now)
+        {
+            // At high speed several cells can fit in one quantum. Cells behind the last open cell are already past.
+            double before = wall.LastOpenCell.HasValue ? wall.IncidentFraction : (at - Now - 1) / duration;
+            p.TerrainApproach = (at, p.Position + travel * before);
+        }
+        return new(at, p, null, ProjectileEndReason.Terrain, wall, Point: p.Position + travel * fraction);
+    }
+
     Contact? NextContact(ProjectileEntity p, long horizon, ContactSearch search, bool pulseDue)
     {
         if (p.Profile.LandingDelay.HasValue)
@@ -296,22 +323,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (p.WaitUntil > Now)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Lifetime, default) : null;
         long end = Math.Min(horizon, p.ExpiresAt);
-        long rangeEnd = Now + (long)Math.Ceiling(Math.Max(0, p.Remaining) / p.Speed * QuantaPerSecond);
+        // A range-limited sweep can stop partway through its last quantum. Date its wall impact at the flight speed.
+        double rangeTime = Math.Max(0, p.Remaining) / p.Speed * QuantaPerSecond;
+        long rangeEnd = Now + (long)Math.Ceiling(rangeTime);
         end = Math.Min(end, rangeEnd);
         ProjectileVector to = p.Position + p.Direction * Math.Min(p.Remaining, p.Speed * (end - Now) / QuantaPerSecond);
         Contact? best = end == p.ExpiresAt ? new(end, p, null, ProjectileEndReason.Lifetime, default)
             : end == rangeEnd ? new(end, p, null, p.Profile.Lobbed ? ProjectileEndReason.Landing
                 : p.Phase == 0 ? ProjectileEndReason.Distance : ProjectileEndReason.Returned, default) : null;
-        // At a due pulse the sweep has zero length. From an exact cell edge the incident cell may still be open.
-        // Trace in the travel direction to distinguish touching the next cell from reaching it later.
-        var terrainTo = pulseDue ? p.Position + p.Direction * Math.Min(1, p.Remaining) : to;
-        if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && world.TraceFlight(p, p.Position, terrainTo) is { } wall
-            && (!pulseDue || wall.Fraction <= 0))
-        {
-            double fraction = Math.Clamp(wall.Fraction, 0, 1);
-            best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
-                ProjectileEndReason.Terrain, wall, Point: p.Position + (to - p.Position) * fraction);
-        }
+        if (TerrainImpact(p, Math.Min(end - Now, rangeTime), to, pulseDue) is { } terrain) best = terrain;
         if (Interactions.Count > 0)
             foreach (var interaction in Interactions.OrderBy(w => w.Id))
             {
@@ -422,6 +442,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         var p = c.Projectile;
         p.ContactEpoch = -1;
+        p.TerrainApproach = null;
         if (c.Point is { } point)
         {
             // Contact time is quantized upward, but geometry must stay on the surface. Otherwise
@@ -696,6 +717,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     void Redirect(ProjectileEntity p, ProjectileVector origin)
     {
+        p.TerrainApproach = null;
         p.SetForkSegment(origin);
         Publish(ProjectileEventKind.Redirect, p);
     }

@@ -36,7 +36,8 @@ public static class ProjectileGeometry
     /// <summary>Supercover grid traversal. Cells are centered on integer coordinates.</summary>
     public static TerrainContact? TraceGrid(ProjectileVector from, ProjectileVector to, Func<int, int, bool> blocked)
     {
-        var (x, y) = from.Cell;
+        var start = from.Cell;
+        var (x, y) = start;
         var delta = to - from;
         int sx = Math.Sign(delta.X), sy = Math.Sign(delta.Y);
         if (blocked(x, y)) return new(0, delta.Unit * -1);
@@ -44,15 +45,18 @@ public static class ProjectileGeometry
         double ty = sy == 0 ? double.PositiveInfinity : (y + .5 * sy - from.Y) / delta.Y;
         double stepX = sx == 0 ? double.PositiveInfinity : 1 / Math.Abs(delta.X);
         double stepY = sy == 0 ? double.PositiveInfinity : 1 / Math.Abs(delta.Y);
-        while (Math.Min(tx, ty) <= 1)
+        double entry = 0, crossing;
+        while ((crossing = Math.Min(tx, ty)) <= 1)
         {
             bool cx = tx <= ty + 1e-12, cy = ty <= tx + 1e-12;
             if ((cx && blocked(x + sx, y)) || (cy && blocked(x, y + sy))
                 || (cx && cy && blocked(x + sx, y + sy)))
-                return new TerrainContact(Math.Max(0, Math.Min(tx, ty)), new ProjectileVector(cx ? -sx : 0, cy ? -sy : 0).Unit)
-                    { LastOpenCell = (x, y) };
-            if (cx) { x += sx; tx += stepX; }
-            if (cy) { y += sy; ty += stepY; }
+                return new TerrainContact(Math.Max(0, crossing), new ProjectileVector(cx ? -sx : 0, cy ? -sy : 0).Unit)
+                    { LastOpenCell = (x, y), IncidentFraction = (x, y) == start ? 0 : (entry + crossing) * .5 };
+            entry = crossing;
+            // A face at the exact endpoint is part of the sweep even if adding grid steps would round past 1.
+            if (cx) { x += sx; tx = x + .5 * sx == to.X ? 1 : tx + stepX; }
+            if (cy) { y += sy; ty = y + .5 * sy == to.Y ? 1 : ty + stepY; }
         }
         return null;
     }

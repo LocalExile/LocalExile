@@ -26,6 +26,8 @@ public readonly record struct TerrainContact(double Fraction, ProjectileVector N
 {
     /// <summary>The last open cell before a grid crossing. A trace starting inside a blocker has none.</summary>
     public (int X, int Y)? LastOpenCell { get; init; }
+    // A point on the original ray inside that cell, for rechecking the crossing after another contact.
+    internal double IncidentFraction { get; init; }
 }
 public enum ProjectileHitResult { Miss, Blocked, Hit }
 public enum ProjectileHitScope { Emission, Projectile }
@@ -401,6 +403,7 @@ public sealed class ProjectileEntity
     internal long ContactEpoch = -1, ContactAt, ContactEnd;
     internal int ContactIndex = -1;
     internal ProjectileVector ContactFrom, ContactTo;
+    internal (long At, ProjectileVector From)? TerrainApproach;
 
     // A terminal-area preview and the accepted hit share one roll. Misses and splits leave it unspent.
     internal bool PierceTarget(bool consume)
