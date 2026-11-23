@@ -189,7 +189,7 @@ public static partial class Game
             {
                 CommitExperienceLevel(player, level);
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
-                player.EnergyShield.SetMaximum(player.Pools.EnergyShield, true);
+                RefillPlayerEnergyShield(player);
                 TrimLeechLocked(player);
                 session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Build));
                 session.Enqueue(() => SendPlayerMana(player, "projectile kill level"));

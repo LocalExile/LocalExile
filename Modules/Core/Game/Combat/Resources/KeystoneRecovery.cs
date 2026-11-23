@@ -17,7 +17,8 @@ public static partial class Game
             stats[Stat.NoEnergyShieldRechargeOrRegeneration] = 1;
     }
 
-    static double LifeRegenerationKeystoneFactor(Func<uint, int> get) => get(Stat.KeystoneEternalYouth) != 0 ? .5 : 1;
+    static double LifeRegenerationKeystoneFactor(Func<uint, int> get) =>
+        get(Stat.KeystoneEternalYouth) != 0 && !PanelStats.ZealotsOath(get) ? .5 : 1;
 
     static void InitializePlayerEnergyShield(Player player)
     {
@@ -27,11 +28,15 @@ public static partial class Game
         KeystoneRecovery.Remove(player);
     }
 
+    public static void RefillPlayerEnergyShield(Player player) =>
+        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: PlayerStat(player, Stat.KeystoneSoulTether) == 0);
+
     internal static void RecordRechargeLifeDamage(Player player, long lifeDamage, double at, IReadOnlyDictionary<uint, int> stats)
     {
         if (lifeDamage <= 0 || stats.GetValueOrDefault(Stat.KeystoneEternalYouth) == 0) return;
         var state = KeystoneRecovery.GetOrCreateValue(player);
-        if (stats.GetValueOrDefault(Stat.KeystoneWickedWard) != 0 && at < state.LifeRechargeBeganAt + 4) return;
+        if (stats.GetValueOrDefault(Stat.KeystoneWickedWard) != 0
+            && at >= state.LifeRechargeBeganAt && at < state.LifeRechargeBeganAt + 4) return;
         state.LifeInterruptedAt = Math.Max(at, state.LifeInterruptedAt);
         state.LifeRechargeBeganAt = double.NegativeInfinity;
     }

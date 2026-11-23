@@ -292,7 +292,7 @@ public static partial class Game
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
         return ReadStatSnapshotTailInputs(player, stats, mainLocal, offLocal,
-            lifeRegenerationToEnergyShield * LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name)),
+            lifeRegenerationToEnergyShield,
             player.Walk.Moving(AreaTime(player)));
     }
 

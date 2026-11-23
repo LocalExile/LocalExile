@@ -973,7 +973,7 @@ public static partial class Game
     static void StartResourceRecovery(Player player, PlayerUpdatesState updates)
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(player);
-        double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
+        double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0, lifeRegenFactor = 1;
         bool zealotsOath = false, convertLifeRegen = false, vaalPact = false;
         double? periodicRegenStart = null;
         double periodicRegenPerSecond = 0;
@@ -1031,10 +1031,11 @@ public static partial class Game
                     player.PetrifiedBlood.RefreshThreshold(LowLifeThresholdPct(recoveryStats));
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))));
+                    lifeRegenFactor = LifeRegenerationKeystoneFactor(RecoveryStat);
                     int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds);
                     periodicRegenStart = periodic > 0 && player.PlayerLife > 0 ? periodicRegenStart ?? now : null;
                     periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000
-                        * PanelStats.LifeRegenerationMultiplier(RecoveryStat) * LifeRegenerationKeystoneFactor(RecoveryStat);
+                        * PanelStats.LifeRegenerationMultiplier(RecoveryStat) * lifeRegenFactor;
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     vaalPact = RecoveryStat(Stat.KeystoneVaalPact) != 0;
@@ -1118,10 +1119,9 @@ public static partial class Game
                     double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
-                    double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
-                        + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife)
-                        + recoupLife + lifeRecharge;
-                    if (!zealotsOath) nonFlaskLife += unhingedHitLife;
+                    double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
+                        + (fortificationLife + antiquarianLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
+                        + leeched.Life + recoupLife + lifeRecharge;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
@@ -1175,7 +1175,7 @@ public static partial class Game
                         // rate only while Life is more than a short prediction margin below it; inside the margin, the
                         // server's own updates finish the recovery, so the client cannot predict across the boundary.
                         uint lowLife = (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(recoveryStats) / 100);
-                        uint margin = PetrifiedBlood.RecoveryMargin(lifeRate);
+                        uint margin = PetrifiedBlood.RecoveryMargin(zealotsOath ? 0 : lifeRate);
                         bool recoveryBlocked = player.PetrifiedBlood.Active && lifeAfter > 0
                             && (long)lifeAfter + margin >= lowLife;
                         if (recoveryBlocked != player.PetrifiedBlood.SentRecoveryBlocked)

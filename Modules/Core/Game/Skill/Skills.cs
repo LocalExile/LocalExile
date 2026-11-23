@@ -1303,7 +1303,7 @@ public static partial class Game
         // A lethal hit while SendCharacterStats awaited must not turn a Hardcore death into a level-up heal.
         if (player.Character.Hardcore && (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded)) return;
         (player.PlayerLife, player.PlayerMana) = (LifeCap(player), (uint)mana);
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, true);
+        RefillPlayerEnergyShield(player);
         Note($"0x01b1 player life {player.PlayerLife}");
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);

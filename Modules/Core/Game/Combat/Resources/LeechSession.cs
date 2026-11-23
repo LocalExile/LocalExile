@@ -35,10 +35,10 @@ public sealed class LeechSession
     int Count => Life.Count + Mana.Count + EnergyShield.Count;
 
     // Reports a start or stop, and a granted or removed instance, against the state before a change.
-    void Report(double now, (bool, bool, bool) before, int count)
+    void Report(double now, (bool, bool, bool) before, int count, bool displayChanged = false)
     {
         if (Active(now) != before) Changed?.Invoke();
-        if (Count != count) DisplayChanged?.Invoke();
+        if (displayChanged || Count != count) DisplayChanged?.Invoke();
     }
 
     /// <summary>When the next instance ends; null without one.</summary>
@@ -80,6 +80,7 @@ public sealed class LeechSession
             ? converted != 0 : get(Stat.KeystoneGhostReaver) != 0 || get(Stat.LeechEnergyShieldInsteadOfLife) != 0;
         bool redirect = get(Stat.KeystoneSoulTether) != 0;
         if (redirect && !immortalAmbition) routedAt = now;
+        if (!redirect) pendingShieldRecovery = 0;
         immortalAmbition = redirect;
         keepLife = immortalAmbition || (replacement(Stat.VirtualLifeLeechDoesNotStopAtFullLife) is int lifeOverleech
             ? lifeOverleech != 0 : get(Stat.LifeLeechDoesNotStopAtFullLife) != 0
@@ -126,8 +127,9 @@ public sealed class LeechSession
     {
         var before = Active(now);
         int count = Count;
+        bool routeChanged = immortalAmbition && (fullLife != lifeFull || fullShield != shieldFull) && Life.Count > 0;
         var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack, melee);
-        Report(now, before, count);
+        Report(now, before, count, routeChanged);
         return instant;
     }
 
@@ -159,8 +161,9 @@ public sealed class LeechSession
     {
         var before = Active(now);
         int count = Count;
+        bool routeChanged = immortalAmbition && (fullLife != life || fullShield != shield) && Life.Count > 0;
         ClearFullCore(now, life, mana, shield);
-        Report(now, before, count);
+        Report(now, before, count, routeChanged);
     }
 
     void ClearFullCore(double now, bool life, bool mana, bool shield)
@@ -234,7 +237,8 @@ public sealed class LeechSession
     public (bool Life, bool Mana, bool EnergyShield) Active(double now)
     {
         SettleRedirectedLife(now);
-        return (Life.Active(now), Mana.Active(now), EnergyShield.Active(now));
+        bool life = Life.Active(now);
+        return (life, Mana.Active(now), EnergyShield.Active(now) || immortalAmbition && fullLife && !fullShield && life);
     }
 
     public void Clear(double now)

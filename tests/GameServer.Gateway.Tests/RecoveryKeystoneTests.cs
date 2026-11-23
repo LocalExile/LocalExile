@@ -9,12 +9,17 @@ public sealed class RecoveryKeystoneTests
     {
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
-        bool allocated = false;
+        bool allocated = false, zealotsOath = false, wickedWard = false;
+        int mapRecoveryPct = 0, mapNoRegen = 0;
         using var source = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
         {
             if (!ReferenceEquals(owner, player)) return stats;
             stats[Stat.BaseLifeRegenerationRatePerMinute] = 600;
             if (allocated) stats[Stat.KeystoneEternalYouth] = 1;
+            if (zealotsOath) stats[Stat.KeystoneZealotsOath] = 1;
+            if (wickedWard) stats[Stat.KeystoneWickedWard] = 1;
+            if (mapRecoveryPct != 0) stats[Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal] = mapRecoveryPct;
+            if (mapNoRegen != 0) stats[Stat.MapPlayersNoRegenerationIncludingEs] = mapNoRegen;
             return stats;
         });
         Game.CachedPlayerStats(player, out double unmodified);
@@ -28,6 +33,14 @@ public sealed class RecoveryKeystoneTests
         Assert.Equal(100, leech.Resources[0].MaximumPerSecond, 6);
         Assert.Equal(120, leech.Resources[1].MaximumPerSecond, 6);
 
+        // Zealot's Oath converts Life Regeneration to Energy Shield without Eternal Youth halving it.
+        zealotsOath = true;
+        var oathValues = Game.CachedPlayerStats(player, out double oathRegen);
+        Assert.Equal(10, oathRegen, 6);
+        Assert.Equal(600, oathValues.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+        Assert.Equal(0, oathValues.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
+        zealotsOath = false;
+
         player.EnergyShield.SetMaximum(300, refill: true);
         Assert.Equal(0, Game.DamagePlayerHitTyped(player, 60, 0, 0, 1, values, DamagePacket.Of(DamageType.Physical, 60, 60)));
         double rate = player.PlayerMaxLife / 3d;
@@ -35,6 +48,30 @@ public sealed class RecoveryKeystoneTests
         Assert.Equal(60, Game.DamagePlayerHitTyped(player, 0, 0, 60, 2, values, DamagePacket.Of(DamageType.Chaos, 60, 60)));
         Assert.Equal(0, Game.AdvanceKeystoneRecovery(player, 2, 4, true, Get), 6);
         Assert.Equal(rate, Game.AdvanceKeystoneRecovery(player, 4, 5, true, Get), 6);
+
+        // Wicked Ward scales Eternal Youth Life Recharge by 0.6x and protects it from interruption for 4s after start (t=4..8).
+        wickedWard = true;
+        var wickedValues = Game.CachedPlayerStats(player, out _);
+        int GetWicked(uint key) => wickedValues.GetValueOrDefault(key);
+        Assert.Equal(rate * 0.6, Game.AdvanceKeystoneRecovery(player, 5, 6, true, GetWicked), 6);
+        Assert.Equal(60, Game.DamagePlayerHitTyped(player, 0, 0, 60, 6, wickedValues, DamagePacket.Of(DamageType.Chaos, 60, 60)));
+        Assert.Equal(rate * 0.6, Game.AdvanceKeystoneRecovery(player, 6, 7, true, GetWicked), 6);
+        Assert.Equal(60, Game.DamagePlayerHitTyped(player, 0, 0, 60, 8, wickedValues, DamagePacket.Of(DamageType.Chaos, 60, 60)));
+        Assert.Equal(0, Game.AdvanceKeystoneRecovery(player, 8, 9, true, GetWicked), 6);
+        wickedWard = false;
+
+        // Map less recovery rate scales Eternal Youth Life Recharge once; map no-regeneration does not block recharge.
+        mapRecoveryPct = -40;
+        mapNoRegen = 1;
+        var mapValues = Game.CachedPlayerStats(player, out double mapRegen);
+        int GetMap(uint key) => mapValues.GetValueOrDefault(key);
+        Assert.Equal(0, mapRegen, 6);
+        Assert.Equal(rate * 0.6, Game.AdvanceKeystoneRecovery(player, 10, 11, true, GetMap), 6);
+        // Without Eternal Youth, ES Recharge applies Wicked Ward (0.6x) and map less recovery rate (0.6x) once each.
+        allocated = false;
+        wickedWard = true;
+        var esValues = Game.CachedPlayerStats(player, out _);
+        Assert.Equal(300 * 20.0 * 0.6 * 0.6, EnergyShield.RechargePerMinute(300, key => esValues.GetValueOrDefault(key)), 6);
     }
 
     [Fact]
@@ -42,10 +79,11 @@ public sealed class RecoveryKeystoneTests
     {
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
+        bool soulTether = true;
         using var source = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
         {
             if (!ReferenceEquals(owner, player)) return stats;
-            stats[Stat.KeystoneSoulTether] = 1;
+            if (soulTether) stats[Stat.KeystoneSoulTether] = 1;
             stats[Stat.BaseEnergyShieldRegenerationRatePerMinute] = 6000;
             return stats;
         });
@@ -62,8 +100,13 @@ public sealed class RecoveryKeystoneTests
         player.EnergyShield.Advance(0, 1, Get, true);
         Assert.Equal(135u, player.EnergyShield.Current);
         Assert.False(player.EnergyShield.Recharging);
+        // Level-up / refill does not snap Energy Shield to full under Immortal Ambition.
+        Game.RefillPlayerEnergyShield(player);
+        Assert.Equal(135u, player.EnergyShield.Current);
 
         var leech = new LeechSession();
+        int displayChanges = 0;
+        leech.DisplayChanged = () => displayChanges++;
         leech.Configure(0, LeechLimits.Resolve(Get, 1000, 400, 300), Get);
         leech.Hit(0, (100, 0, 30), lifeFull: true, manaFull: true, shieldFull: false);
         leech.Hit(0, (100, 0, 30), lifeFull: true, manaFull: true, shieldFull: false);
@@ -74,5 +117,28 @@ public sealed class RecoveryKeystoneTests
         var injured = leech.TakeRecovery(2);
         Assert.Equal(40, injured.Life, 6);
         Assert.Equal(12, injured.EnergyShield, 6);
+
+        // Transitioning to Full Life with Life-only leech activates IsEsLeeching and fires DisplayChanged;
+        // unequipping Soul Tether clears pendingShieldRecovery.
+        leech.Clear(2);
+        leech.Hit(2, (100, 0, 0), lifeFull: false, manaFull: true, shieldFull: false);
+        Assert.True(leech.Active(2).Life);
+        Assert.False(leech.Active(2).EnergyShield);
+        int beforeFull = displayChanges;
+        leech.ClearFull(2.5, life: true, mana: true, shield: false);
+        Assert.True(displayChanges > beforeFull);
+        Assert.True(leech.Active(2.5).EnergyShield);
+        int beforeFullShield = displayChanges;
+        leech.ClearFull(2.6, life: true, mana: true, shield: true);
+        Assert.True(displayChanges > beforeFullShield);
+        Assert.False(leech.Active(2.6).EnergyShield);
+
+        leech.ClearFull(2.7, life: true, mana: true, shield: false);
+        Assert.True(leech.Active(3.2).EnergyShield);
+        soulTether = false;
+        var plainValues = Game.CachedPlayerStats(player, out _);
+        int GetPlain(uint key) => plainValues.GetValueOrDefault(key);
+        leech.Configure(3.2, LeechLimits.Resolve(GetPlain, 1000, 400, 300), GetPlain);
+        Assert.Equal(0, leech.TakeRecovery(3.2).EnergyShield, 6);
     }
 }
