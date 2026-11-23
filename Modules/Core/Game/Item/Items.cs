@@ -1183,7 +1183,7 @@ public static partial class Game
     // Auto-loots multiple gold piles in one send gate and one stash Persist() instead of N sequential SQLite writes.
     static async Task PickUpGoldBatch(Player player, List<(uint Id, WorldItemObject Gold)> piles, (int X, int Y) pathFrom)
     {
-        if (player.Connection.LockstepClient)
+        if (player.Connection.LockstepClient || InAreaFrame(player))
         {
             var ready = new List<(uint Id, WorldItemObject Gold, WorldObject Target)>(piles.Count);
             bool inFrame = InAreaFrame(player);
@@ -1270,7 +1270,7 @@ public static partial class Game
         // ignored, and left a pile on the ground that was already taken.
         byte[]? update = null;
         string log = $"gold 0x{id:x} {how} (+{ground.Item.StackSize})";
-        if (player.Connection.LockstepClient)
+        if (player.Connection.LockstepClient || InAreaFrame(player))
         {
             // Only a pile whose create was admitted (SeenGround is set at that gate): asking for the removal of one not yet
             // sent marked its id as published, and its create, still to come in the kill's output, then failed and closed

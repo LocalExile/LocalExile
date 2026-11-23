@@ -10,7 +10,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     readonly ProjectileHitLedger ledger = new();
     readonly Dictionary<long, ProjectileEntity> pendingAreas = [];
     readonly HashSet<long> pendingEmissions = [];
-    long sequence, commandSequence;
+    readonly HashSet<long> activeGroups = [];
+    long sequence, commandSequence, terrainEpoch;
     public long Now { get; private set; }
     public IReadOnlyCollection<ProjectileEntity> Projectiles => projectiles.Values;
     public static long Time(double seconds) => checked((long)Math.Round(seconds * QuantaPerSecond));
@@ -152,6 +153,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     public void AdvanceTo(long until)
     {
         if (until < Now) throw new ArgumentOutOfRangeException(nameof(until));
+        terrainEpoch++;
         var search = Interlocked.Exchange(ref spareSearch, null) ?? new ContactSearch();
         try
         {
@@ -160,6 +162,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 while (scheduled.TryPeek(out _, out var due) && due.At <= Now)
                 {
                     contactEpoch++;
+                    terrainEpoch++;
                     scheduled.Dequeue()();
                 }
                 if (projectiles.Count == 0)
@@ -204,8 +207,24 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             spareSearch = search;
         }
         // Detached delayed areas still need the triggering flight's phase-specific admission history.
-        ledger.RetainGroups(projectiles.Values.Concat(pendingAreas.Values)
-            .SelectMany(p => new[] { p.Id, p.EmissionId, p.ChildEmission }).Concat(pendingEmissions).ToHashSet());
+        if (ledger.Count > 0)
+        {
+            activeGroups.Clear();
+            foreach (var p in projectiles.Values)
+            {
+                activeGroups.Add(p.Id);
+                activeGroups.Add(p.EmissionId);
+                activeGroups.Add(p.ChildEmission);
+            }
+            foreach (var p in pendingAreas.Values)
+            {
+                activeGroups.Add(p.Id);
+                activeGroups.Add(p.EmissionId);
+                activeGroups.Add(p.ChildEmission);
+            }
+            foreach (var id in pendingEmissions) activeGroups.Add(id);
+            ledger.RetainGroups(activeGroups);
+        }
     }
 
     readonly record struct Contact(long At, ProjectileEntity Projectile, ProjectileActor? Target,
@@ -234,7 +253,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         Contact? best = end == p.ExpiresAt ? new(end, p, null, ProjectileEndReason.Lifetime, default)
             : end == rangeEnd ? new(end, p, null, p.Profile.Lobbed ? ProjectileEndReason.Landing
                 : p.Phase == 0 ? ProjectileEndReason.Distance : ProjectileEndReason.Returned, default) : null;
-        if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && world.TraceFlight(p, p.Position, to) is { } wall)
+        if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceFlightCached(p, p.Position, to) is { } wall)
         {
             double fraction = Math.Clamp(wall.Fraction, 0, 1);
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
@@ -591,12 +610,37 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         world.Publish(new(ProjectileEventKind.End, p, Now, p.Position, reason) { HitTarget = hitTarget });
     }
 
+    TerrainContact? TraceFlightCached(ProjectileEntity p, ProjectileVector from, ProjectileVector to)
+    {
+        if (p.TerrainEpoch == terrainEpoch && p.TerrainPhase == p.Phase && p.TerrainDirection == p.Direction)
+        {
+            var offset = from - p.TerrainOrigin;
+            double cross = offset.X * p.Direction.Y - offset.Y * p.Direction.X;
+            if (Math.Abs(cross) <= 1e-9)
+            {
+                double s0 = offset.Dot(p.Direction);
+                double s1 = (to - p.TerrainOrigin).Dot(p.Direction);
+                if (s0 >= -1e-9 && s1 <= p.TerrainClearLength + 1e-9) return null;
+            }
+        }
+        var hit = world.TraceFlight(p, from, to);
+        if (hit is null)
+        {
+            p.TerrainEpoch = terrainEpoch;
+            p.TerrainPhase = p.Phase;
+            p.TerrainOrigin = from;
+            p.TerrainDirection = p.Direction;
+            p.TerrainClearLength = (to - from).Dot(p.Direction);
+        }
+        return hit;
+    }
+
     ProjectileActor? ReturnAnchor(ProjectileEntity p, ProjectileEndReason reason) =>
         p.Phase == 0 && p.Profile.Returns && !p.Profile.CannotReturn
         && Now < p.ExpiresAt
         && (reason != ProjectileEndReason.Distance || p.Profile.ReturnOnDistance)
         && reason is ProjectileEndReason.Enemy or ProjectileEndReason.Distance or ProjectileEndReason.Lifetime or ProjectileEndReason.Terrain
-        && p.Use.ReturnAnchor is { } key ? world.Actors(Now, Now).FirstOrDefault(a => a.Key == key) : null;
+        && p.Use.ReturnAnchor is { } key ? world.Actor(key, Now) : null;
 
     static bool AllowsEndArea(ProjectileEntity p, ProjectileEndReason reason) =>
         AllowsTerminalArea(p) && (p.Profile.EndAreaReasons is null || p.Profile.EndAreaReasons.Contains(reason));
@@ -611,6 +655,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     public void Discard(Func<ProjectileUse, bool> matches)
     {
         contactEpoch++;
+        terrainEpoch++;
         foreach (var p in projectiles.Values.Where(p => matches(p.Use)).ToArray())
             End(p, ProjectileEndReason.Teardown, allowReturn: false);
         foreach (var pair in pendingAreas.Where(pair => matches(pair.Value.Use)).ToArray())
@@ -620,6 +665,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     public void Clear()
     {
         contactEpoch++;
+        terrainEpoch++;
         foreach (var p in projectiles.Values.ToArray()) End(p, ProjectileEndReason.Teardown, allowReturn: false);
         scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
     }

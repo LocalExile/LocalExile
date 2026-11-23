@@ -329,4 +329,60 @@ public class WorldOutputTests : IDisposable
         var established = output.ExistingObject(41);
         Assert.Throws<InvalidOperationException>(() => established.Retire());
     }
+
+    [Fact]
+    public async Task Predictive_create_flight_and_same_frame_removal_defer_after_birth_and_removal_to_next_frame()
+    {
+        var player = new Player(new(1, "predictive-flight", 300, 300, 100, 100, null, []), 1, 1);
+        player.Connection.LockstepClient = false;
+        player.Connection.WorldOutput.Begin(1);
+        const uint id = 102;
+        var create = InstanceEntities.CreateObject(id, 0x1234, [0, 0]);
+        var move = InstanceProtocol.Teleport(id, 20, 30);
+        var stop = InstanceProtocol.Teleport(id, 25, 30);
+        var removal = InstanceProtocol.RemoveObject(id);
+        var createFlight = typeof(Game.ProjectileSession).GetMethod("CreateFlightNow",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var send = typeof(Game.ProjectileSession).GetMethod("SendWorldRecordsNow",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var previous = GameArea.Own(player.Area);
+        var session = new Game.ProjectileSession(player);
+        try
+        {
+            var createdTask = (Task)createFlight.Invoke(session, [id, (Func<byte[]?>)(() => create), (Func<byte[][]?>)(() => [move]), null])!;
+            Assert.True(createdTask.IsCompleted);
+            await createdTask;
+            // Shared AreaDelta creates are tracked in Delta while undrained and do not masquerade as directly
+            // written creates in WorldOutput.HasDirect (which JoinArea relies on to skip already-sent monsters).
+            Assert.True(player.Connection.WorldOutput.Has(id));
+            Assert.False(player.Connection.WorldOutput.HasDirect(id));
+            Assert.True(player.Area.Delta.HasCreateFor(id, player));
+            player.Connection.WorldOutput.ExistingObject(103);
+            Assert.True(player.Connection.WorldOutput.HasDirect(103));
+            var removedTask = (Task)send.Invoke(session, [id, (Func<byte[][]?>)(() => [stop, removal]), null, false, true, false])!;
+            Assert.True(removedTask.IsCompleted);
+            await removedTask;
+
+            // Frame N: only Create leaves; same-frame AfterBirth moves and Remove wait for Frame N+1.
+            var frame1 = player.Area.Delta.Take();
+            Assert.False(player.Area.Delta.HasCreateFor(id, player));
+            var created = Assert.Single(frame1);
+            Assert.Equal(AreaDelta.Kind.Create, created.Kind);
+            Assert.Equal(id, created.Entity);
+
+            // Frame N+1: moves precede removal cleanly instead of arriving after a same-frame Remove.
+            var frame2 = player.Area.Delta.Take();
+            Assert.Equal(3, frame2.Count);
+            Assert.Equal(AreaDelta.Kind.World, frame2[0].Kind);
+            Assert.Equal(AreaDelta.Kind.World, frame2[1].Kind);
+            Assert.Equal(AreaDelta.Kind.Remove, frame2[2].Kind);
+            Assert.Equal(id, frame2[2].Entity);
+        }
+        finally
+        {
+            GameArea.Own(previous);
+            session.Invalidate();
+            await session.OutputCompleted;
+        }
+    }
 }

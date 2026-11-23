@@ -501,19 +501,30 @@ public sealed class AreaFrames
                     long t2 = Stopwatch.GetTimestamp();
                     // A member's first frame: the game puts what its client is missing in the area's frame, and its player
                     // for the others (Program.Joining).
-                    foreach (var m in Snapshot())
-                        if (m.Framed && double.IsNaN(m.LastEnded) && boundary >= m.First + frame - 1e-9 && Program.Joining is { } joining)
-                            OnFrame(() => joining(m.Player));
-                    // The frame's changes, made once, go to every member with its end.
-                    if (Area is { } components) OnFrame(() => { components.Buffs.Publish(); components.Stats.Publish(); components.Life.Publish(); });
-                    var delta = Area?.Delta.Take() ?? [];
-                    foreach (var m in Snapshot())
-                    {
-                        if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
-                        if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
+                    var snap = Snapshot();
+                    bool anyDue = false;
+                    foreach (var m in snap)
+                        if (m.Framed && boundary >= m.First + frame - 1e-9)
                         {
-                            m.LastEnded = boundary;
-                            if (!ended.Contains(m)) ended.Add(m);
+                            anyDue = true;
+                            if (double.IsNaN(m.LastEnded) && Program.Joining is { } joining)
+                                OnFrame(() => joining(m.Player));
+                        }
+                    // The frame's changes, made once, go to every member with its end. Never drain Area.Delta when no
+                    // member is due to receive this frame (e.g. catch-up frames while a slow entry's First is ahead of
+                    // boundary), or creates queued into Area.Delta during those frames are lost before the first frame.
+                    if (anyDue)
+                    {
+                        if (Area is { } components) OnFrame(() => { components.Buffs.Publish(); components.Stats.Publish(); components.Life.Publish(); });
+                        var delta = Area?.Delta.Take() ?? [];
+                        foreach (var m in snap)
+                        {
+                            if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
+                            if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
+                            {
+                                m.LastEnded = boundary;
+                                if (!ended.Contains(m)) ended.Add(m);
+                            }
                         }
                     }
                     long t3 = Stopwatch.GetTimestamp();
