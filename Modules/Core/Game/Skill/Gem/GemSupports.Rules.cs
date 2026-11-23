@@ -370,9 +370,30 @@ public static partial class Game
         var skill = SupportedSkill(player, skillId);
         var skills = SkillsFor(player);
         MergeSkillStatsInto(playerStats.GetValueOrDefault, (key, value) => playerStats[key] = value,
-            WithBlessingCost(player, skill), skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
+            WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill)),
+            skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
             CostEfficiencyFor(skills, skill.Effect));
         return playerStats;
+    }
+
+    // Frostmage is a variant of Archmage. Support resolution keeps only one member of that family.
+    static int ManaCostPool(Player player, SupportedGem skill)
+    {
+        if (skill.Stats.GetValueOrDefault(Stat.FrostmageCostEqualsPctReservedMana) > 0) return ReservedMana(player);
+        return skill.Stats.GetValueOrDefault(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 ? UnreservedMana(player) : -1;
+    }
+
+    static IReadOnlyDictionary<uint, int> WithManaPoolCost(Player player, SupportedGem skill,
+        IReadOnlyDictionary<uint, int> own, int pool)
+    {
+        if (pool < 0) return own;
+        int percent = Math.Max(own.GetValueOrDefault(Stat.ManaweaveCostEqualsPctUnreservedMana),
+            own.GetValueOrDefault(Stat.FrostmageCostEqualsPctReservedMana));
+        uint native = ManaCost(Stats, SkillsFor(player), skill.Effect, skill.Level, skill.Quality);
+        decimal factor = skill.Supports.Aggregate(1m, (value, support) => value * support.CostMultiplier / 100m);
+        // The added base cost and the gem's own base are charged by the same support multipliers, with one floor.
+        int cost = (int)Math.Clamp(decimal.Floor((native + pool * (decimal)percent / 100m) * factor), 0, int.MaxValue);
+        return new Dictionary<uint, int>(own) { [Stat.BaseManaCost] = cost, [Stat.ManaCost] = cost };
     }
 
     [Flags]
@@ -713,8 +734,23 @@ public static partial class Game
         var gem = capturedGem ?? SupportedSkill(player, skillId);
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var skills = SkillsFor(player);
-        var stats = MergeSkillStats(caster, gem.Stats, skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats),
-            CostEfficiencyFor(skills, gem.Effect));
+        int manaPool = ManaCostPool(player, gem);
+        var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
+            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), CostEfficiencyFor(skills, gem.Effect));
+        if (manaPool >= 0)
+        {
+            AddManaPoolDamage(Stat.ArchmageGainLightningDamagePctOfMaxUnreservedMana,
+                Stat.SpellMinimumAddedLightningDamage, Stat.SpellMaximumAddedLightningDamage);
+            AddManaPoolDamage(Stat.FrostmageGainColdDamagePctOfMaxReservedMana,
+                Stat.SpellMinimumAddedColdDamage, Stat.SpellMaximumAddedColdDamage);
+        }
+        void AddManaPoolDamage(uint percent, uint min, uint max)
+        {
+            int added = (int)Math.Clamp((long)manaPool * gem.Stats.GetValueOrDefault(percent) / 100, 0, int.MaxValue);
+            if (added == 0) return;
+            stats[min] = ActorScale.Add(min, stats.GetValueOrDefault(min), added);
+            stats[max] = ActorScale.Add(max, stats.GetValueOrDefault(max), added);
+        }
         if (skills.IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), vaalDamage);
         if (charges is not null)

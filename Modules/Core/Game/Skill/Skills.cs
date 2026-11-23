@@ -439,7 +439,7 @@ public static partial class Game
         {
             var supported = SupportedSkill(player, id);
             int level = supported.Level;
-            var own = WithBlessingCost(player, supported);
+            var own = WithManaPoolCost(player, supported, WithBlessingCost(player, supported), ManaCostPool(player, supported));
             UnleashSeals(player, id, supported, ProjectileWorldTime(player));
             var skills = SkillsFor(player);
             var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own),

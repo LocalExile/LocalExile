@@ -431,8 +431,12 @@ public static partial class Game
                 lifeBasis = (int)Math.Min(cost, int.MaxValue);
                 if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
                     && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                {
+                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0)
+                        unsplitBase = Read(Stat.BaseManaCost);
                     lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
                         applyManaEfficiency: false);
+                }
             }
             petrifiedLife = PetrifiedBlood.LifeCost(player, lifeBasis);
         }
