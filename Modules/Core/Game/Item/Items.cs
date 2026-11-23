@@ -1172,6 +1172,37 @@ public static partial class Game
         return at;
     }
 
+    // Currency auto-loot (Game settings' currencyAutoLootRadius, 0 = off): stackable currency, divination cards and
+    // scarabs within the radius go into the inventory like a clicked stack (TakeGroundStack: only a stack that fits whole,
+    // only the player's own or shared drops). Gear, flasks and gems are never taken. On a lockstep client only items whose
+    // create the world output already holds, as for gold (PickUpGold).
+    public sealed class AutoLootSettings
+    {
+        public double CurrencyAutoLootRadius { get; set; }
+    }
+    public static double CurrencyAutoLootRadius;
+
+    public static bool IsAutoLootCurrency(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash) is { } t
+        && (t.Class is "StackableCurrency" or "DivinationCard" || t.Class == "MapFragment" && t.Id.Contains("/Scarabs/"));
+
+    internal static async Task PickUpNearbyCurrency(Player player)
+    {
+        double radius = CurrencyAutoLootRadius;
+        if (radius <= 0 || !CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0
+            || HardcoreProgressBlocked(player) || !GameEvents.AllowsLoot(player)) return;
+        var at = player.Walk.Position(AreaTime(player));
+        foreach (var (id, ground) in player.Instance.Ground.Within(at.X, at.Y, radius, IsAutoLootCurrency).ToList())
+        {
+            if (player.Connection.LockstepClient && !InAreaFrame(player) && !player.Connection.WorldOutput.Has(id)) continue;
+            var (by, shared) = player.Instance.Ground.Origin(id);
+            if (!shared && !ReferenceEquals(by, player)) continue;
+            if (TakeGroundStack(player, id, ground) is not { } pickup) continue;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} currency auto-loot 0x{id:x} {Items.ByHash(ground.Item.TypeHash)?.Name} x{ground.Item.StackSize}");
+            await SendPickup(player, id, pickup);
+            if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
+        }
+    }
+
     // Auto-loots multiple gold piles in one send gate and one stash Persist() instead of N sequential SQLite writes.
     static async Task PickUpGoldBatch(Player player, List<(uint Id, WorldItemObject Gold)> piles, (int X, int Y) pathFrom)
     {

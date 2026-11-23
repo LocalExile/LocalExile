@@ -86,6 +86,36 @@ public sealed class GroundStackPickupTests
             line => line.Contains($"02BD{id:X8}FFFFFFFF", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Currency_cards_and_scarabs_in_range_are_auto_looted_but_not_gear_flasks_or_far_items_and_off_takes_nothing()
+    {
+        using var f = new Fixture();
+        using var wire = new PartyFollowerTests.Wire();
+        var player = f.Player;
+        player.Connection.Session = new("currency-autoloot", wire.Stream, wire.Ciphers);
+        var at = player.Walk.Position(Game.AreaTime(player));
+        uint Drop(Func<ItemCatalog.BaseType, bool> pick, int dx) => player.Instance.Ground.Add(
+            new WorldItemObject(at.X + dx, at.Y, ItemCatalog.Create(Program.Items.All.First(pick))), player, shared: false);
+        uint chaos = Drop(t => t.Id == "Metadata/Items/Currency/CurrencyRerollRare", 3);
+        uint card = Drop(t => t.Class == "DivinationCard", 4);
+        uint scarab = Drop(t => t.Class == "MapFragment" && t.Id.Contains("/Scarabs/"), 5);
+        uint flask = Drop(t => t.Class == "LifeFlask", 3);
+        uint ring = Drop(t => t.Class == "Ring", 3);
+        uint far = Drop(t => t.Id == "Metadata/Items/Currency/CurrencyRerollRare", 60);
+        double previous = Game.CurrencyAutoLootRadius;
+        try
+        {
+            Game.CurrencyAutoLootRadius = 0;
+            await Game.PickUpNearbyCurrency(player);
+            Assert.NotNull(player.Instance.Ground.Get(chaos));
+            Game.CurrencyAutoLootRadius = 20;
+            await Game.PickUpNearbyCurrency(player);
+            Assert.All([chaos, card, scarab], id => Assert.Null(player.Instance.Ground.Get(id)));
+            Assert.All([flask, ring, far], id => Assert.NotNull(player.Instance.Ground.Get(id)));
+        }
+        finally { Game.CurrencyAutoLootRadius = previous; }
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly GameServer.Modding.IModuleLifetime? previousRules = Game.CombatLifetime;

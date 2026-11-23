@@ -28,6 +28,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Special defence overrides and ES-to-Life conversion. Docs: [13](../docs/protocol/13-items.md) §2,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
+- Currency auto-loot: with the Game module's `currencyAutoLootRadius` above 0 (Waypoint: Modules → Core game rules), stackable currency, divination cards and scarabs within that many cells go into the inventory like a clicked stack (`TakeGroundStack`: whole stacks that fit, own or shared drops); gear, flasks and gems never. Off by default. Verified live (3.29.3c).
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
 - Loot: currency (34 enabled core orbs from world.db of 36 rows, the 12 beyond the original 24 with estimated weights; Engineer's and Harbinger's Orbs disabled as no longer usable in the client), gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).

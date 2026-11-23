@@ -113,6 +113,7 @@ public static partial class Game
         // The way walked since the last check counts (PickUpNearbyGold), not only where the player stands.
         var presenting = PresentingOf.GetOrCreateValue(player);
         presenting.GoldCheckedAt = await PickUpNearbyGold(player, presenting.GoldCheckedAt);
+        await PickUpNearbyCurrency(player);
         if (HardcoreProgressBlocked(player)) return;
         var at = player.Walk.Position(AreaTime(player));
         // Quests that start when the player comes near a monster (a1q1: Hillock, "Kill Hillock").

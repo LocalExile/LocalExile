@@ -7,6 +7,16 @@
       "label": "Legacy hideout source",
       "description": "For an account without a shared hideout, copy this character's selected hideout and layout once. Leave empty to use the first character with a selected hideout.",
       "applies": "restart"
+    },
+    "currencyAutoLootRadius": {
+      "type": "number",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "label": "Currency auto-loot radius",
+      "description": "Cells within which currency, divination cards and scarabs are picked up by themselves, like gold. 0 turns it off.",
+      "applies": "restart"
     }
   }
 }

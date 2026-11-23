@@ -199,6 +199,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(Rules.AlternateAilmentFlaskFlags));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
+        Rules.CurrencyAutoLootRadius = Math.Clamp(module.Settings<Rules.AutoLootSettings>().CurrencyAutoLootRadius, 0, 100);
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.
         Program.Skills.WarmMonsterMeleeClocks();
         WarmCatalogues();
