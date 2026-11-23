@@ -260,8 +260,7 @@ public static partial class Game
     static readonly Dictionary<string, string> QuestFlagAchievementItems = new(StringComparer.Ordinal)
     {
         ["a5q6-CompletedBoss"] = "CompleteAct5",
-        ["a8q1-KilledBoss"] = "KillLunarisSolaris",
-        ["a10q2-KilledBoss"] = "CompleteAct10",
+        ["a8q23-KilledBosses"] = "KillLunarisSolaris",
         [Quests.EndGameAvailable] = "CompleteAct10",
         ["ScionUnlocked"] = "UnlockScion",
         ["a2b-IntAlly"] = "SideWithAlira",
@@ -269,6 +268,8 @@ public static partial class Game
         ["a2b-StrAlly"] = "SideWithOak",
     };
 
+    // PlayerInventories.SwapWeaponSets physically swaps (Weapon1, Weapon2) and (Offhand1, Offhand2),
+    // so Weapon1 and Offhand1 always hold the active weapon set while Weapon2/Offhand2 hold the inactive set.
     static readonly byte[] EquipmentAchievementSlots =
     [
         PlayerInventories.BodyArmour, PlayerInventories.Weapon1, PlayerInventories.Offhand1,
@@ -283,8 +284,10 @@ public static partial class Game
         PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Belt,
     ];
 
+    // Always bind the account-wide Standard stash to Program.Items so a Ruthless character running first
+    // never caches Standard's AccountStash with HardModeItems.
     static AccountStash? AccountAchievementStore(Player player) =>
-        player.Character.Account is { Length: > 0 } account && ItemsFor(player) is { } catalog
+        player.Character.Account is { Length: > 0 } account && Program.Items is { } catalog
             ? AccountStash.For(account, catalog) : null;
 
     static void ParseCompletedInto(string? raw, HashSet<string> target)
@@ -614,7 +617,7 @@ public static partial class Game
         foreach (byte slot in EquipmentAchievementSlots)
         {
             var worn = items.Items(slot);
-            if (worn.Count == 0) continue;
+            if (worn.Count == 0 || IsInactive(player, worn[0].Id)) continue;
             var item = worn[0].Item;
             if (item.Rarity == ItemRarity.Unique)
             {
@@ -645,7 +648,8 @@ public static partial class Game
         foreach (byte slot in RequiredRareSlots)
         {
             var worn = items.Items(slot);
-            if (worn.Count == 0 || worn[0].Item.Rarity is not (ItemRarity.Rare or ItemRarity.Unique))
+            if (worn.Count == 0 || IsInactive(player, worn[0].Id)
+                || worn[0].Item.Rarity is not (ItemRarity.Rare or ItemRarity.Unique))
             {
                 allRareOrUnique = false;
                 break;
@@ -659,7 +663,8 @@ public static partial class Game
             if (!twoHandNoOffhand)
             {
                 var offhand = items.Items(PlayerInventories.Offhand1);
-                if (offhand.Count == 0 || offhand[0].Item.Rarity is not (ItemRarity.Rare or ItemRarity.Unique))
+                if (offhand.Count == 0 || IsInactive(player, offhand[0].Id)
+                    || offhand[0].Item.Rarity is not (ItemRarity.Rare or ItemRarity.Unique))
                     allRareOrUnique = false;
             }
         }

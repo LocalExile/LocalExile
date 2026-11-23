@@ -20,6 +20,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   augments, modifier conversions, body-armour/weapon quality enchants, essence/set exchanges (with stack and basetype
   cost scaling), divination-card rerolls and gambles, influence rerolls/reforges, corrupted-map rerolls, Ruthless
   support-gem swaps and Facetor's Lens (`StoredExperience`, applicable to skill gems).
+  Essence, set (oils, fossils, catalysts, fragments) and divination-card exchanges currently roll uniformly over the
+  eligible target pool rather than using retail drop weights.
   Refusals spend nothing; the exact Wild/Vivid/Primal/Sacred/Rancour cost is split across the main inventory and
   personal stash and commits with the item atomically (new non-item recipe families not yet tried in the client).
   Reforges need an identified rare, augments a non-influenced item.

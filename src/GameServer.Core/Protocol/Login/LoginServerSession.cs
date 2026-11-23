@@ -267,8 +267,9 @@ public sealed class LoginServerSession(AccountService accounts)
             if (c.HardcoreDeath?.PermanentlyDead == true) continue;
             if (Leagues.FindLoaded(c.League) is not { Parent: { Length: > 0 } parentName } source) continue;
             if (string.Equals(parentName, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!seen.Add(source.Name)) continue;
             if (Leagues.FindLoaded(parentName) is not { } parent) continue;
+            if (!SupportsManualProgressMigration(source, parent)) continue;
+            if (!seen.Add(source.Name)) continue;
             pairs.Add((source, parent));
         }
         if (pairs.Count == 0) return [];
@@ -280,6 +281,16 @@ public sealed class LoginServerSession(AccountService accounts)
             entries[i * 2 + 1] = pairs[i].Parent.Entry();
         }
         return entries;
+    }
+
+    static bool SupportsManualProgressMigration(League source, League parent)
+    {
+        if (source.Ended) return true;
+        // Plain Hardcore -> Softcore moves characters on death, never via manual "Migrate All".
+        if (source.Hardcore && !parent.Hardcore && !source.Ssf) return false;
+        return source.Ssf
+            || !string.IsNullOrEmpty(source.Form)
+            || string.Equals(source.DataSet, "HardMode", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

@@ -99,7 +99,9 @@ public sealed class HarvestModule : IModule, IDisposable
         {
             module.Log($"{modPlayer.Character} recipe {name} refused (item, recipe or lifeforce)");
             await modPlayer.Send(InstanceHarvest.CraftResult((ushort)world.ItemIdIn(Slot)), "0x0276 Harvest item event (refused)");
-            await modPlayer.Tell("Harvest craft refused: incompatible item or insufficient lifeforce.");
+            string hint = harvest.RefusalHint(recipe, items.Items(Slot) is [var slotItem] ? slotItem.Item : null)
+                ?? "Harvest craft refused: incompatible item or insufficient lifeforce.";
+            await modPlayer.Tell(hint);
             return;
         }
 

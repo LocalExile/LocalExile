@@ -58,7 +58,7 @@ public static partial class Game
             ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
         var packets = new List<(byte[] Packet, string? Log)>();
-        if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)
+        if (CommitQuestFlags(player, QuestFlagsOnKill(player, variety.Id)) is { } quest)
         {
             if (player.Connection.PlayerSent) state.OutputQueue.Add(new([], "0x02bc player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
             foreach (var (id, transition) in player.Layout.AreaTransitions)

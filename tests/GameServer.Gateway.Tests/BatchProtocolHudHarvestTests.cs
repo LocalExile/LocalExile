@@ -71,7 +71,7 @@ public sealed class BatchProtocolHudHarvestTests
         byte[] modFrame = [0xf7, 0xe0, 0x00, 0x00, 0x00, 0x05, 0xde, 0xad, 0xbe, 0xef, 0x42];
         AssertSplitAndEveryCut(modFrame, InstanceProtocol.ModEnvelopeId);
 
-        byte[] oversizeMod = [0xf7, 0xe0, 0x00, 0x10, 0x00, 0x01, 0x00];
+        byte[] oversizeMod = [0xf7, 0xe0, 0x00, 0x01, 0x00, 0x01, 0x00];
         var oversize = InstanceProtocol.SplitClientMessages(oversizeMod, out byte[] overPartial, out byte[] overUnknown);
         Assert.Empty(oversize);
         Assert.Empty(overPartial);
@@ -117,10 +117,11 @@ public sealed class BatchProtocolHudHarvestTests
         var standard = new League("Standard", "Standard", false, false);
         var voidLeague = new League(HardcoreDeathRules.VoidLeague, HardcoreDeathRules.VoidLeague, false, false) { Creatable = false };
         var hardcore = new League("Hardcore", "Standard", true, false) { Parent = "Standard" };
+        var ruthless = new League("Ruthless", "Standard", false, false, Form: "ruthless") { Parent = "Standard", DataSet = "HardMode" };
         var ssfStandard = new League("SSF Standard", "Standard", false, true) { Parent = "Standard" };
         var endedTemp = new League("EndedTemp", "Standard", false, false) { Parent = "Standard", Ended = true };
         var voidEvent = new League("VoidEvent", "Standard", false, false) { Parent = HardcoreDeathRules.VoidLeague };
-        var leagues = new LeagueCatalog([standard, voidLeague, hardcore, ssfStandard, endedTemp, voidEvent]);
+        var leagues = new LeagueCatalog([standard, voidLeague, hardcore, ruthless, ssfStandard, endedTemp, voidEvent]);
 
         var accounts = new AccountService(new JsonAccountStore());
         var acc = accounts.Register("migrator", "pw1234").Value!;
@@ -129,9 +130,11 @@ public sealed class BatchProtocolHudHarvestTests
 
         accounts.CreateCharacter(acc.Id, "StdOnly", CharacterClass.Witch, inLeague: "Standard");
         accounts.CreateCharacter(acc.Id, "VoidOnly", CharacterClass.Ranger, inLeague: "VoidEvent");
+        accounts.CreateCharacter(acc.Id, "HcOnly", CharacterClass.Duelist, inLeague: "Hardcore");
         var loginReq = new AccountLogin(2, "migrator", new byte[32], AccountService.ClientPasswordDigest("pw1234"), new byte[32], false, false, 0x40, 0);
         var session = new LoginServerSession(accounts) { Leagues = leagues, Keyring = keyring };
         session.Handle(loginReq);
+        // Plain Hardcore -> Standard moves on death, never as a manual "Migrate All" pair.
         var emptyProgress = Assert.IsType<LeaguesWithProgress>(Assert.Single(session.Handle(new EmptyMessage(0x19))));
         Assert.Empty(emptyProgress.Leagues);
 
@@ -141,10 +144,11 @@ public sealed class BatchProtocolHudHarvestTests
 
         accounts.CreateCharacter(acc.Id, "SsfChar", CharacterClass.Shadow, inLeague: "SSF Standard");
         accounts.CreateCharacter(acc.Id, "SsfCharTwo", CharacterClass.Templar, inLeague: "SSF Standard");
+        accounts.CreateCharacter(acc.Id, "RuthlessChar", CharacterClass.Scion, inLeague: "Ruthless");
         accounts.CreateCharacter(acc.Id, "EndedChar", CharacterClass.Marauder, inLeague: "EndedTemp");
         var progress = Assert.IsType<LeaguesWithProgress>(Assert.Single(session.Handle(new EmptyMessage(0x19))));
         Assert.Equal(0, progress.Leagues.Count % 2);
-        Assert.Equal(["EndedTemp", "Standard", "SSF Standard", "Standard"], progress.Leagues.Select(l => l.Name).ToArray());
+        Assert.Equal(["EndedTemp", "Standard", "Ruthless", "Standard", "SSF Standard", "Standard"], progress.Leagues.Select(l => l.Name).ToArray());
 
         // 5. Achievements (0x124-0x127), Timers (0x162/0x163), Bandit Vote (0xbe), and PvP Queue Bar (0x118/0x119) wire contracts.
         Assert.Equal([0x01, 0x24, 0x00, 0x16], InstanceAchievements.AchievementComplete(22));
@@ -258,6 +262,15 @@ public sealed class BatchProtocolHudHarvestTests
             Assert.Equal([InstanceAchievements.AchievementItemFailedId, InstanceAchievements.AchievementProgressId],
                 achOutbox.Select(p => BinaryPrimitives.ReadUInt16BigEndian(p)).ToArray());
 
+            // Quest flag mappings: a8q23-KilledBosses (not a8q1-KilledBoss) awards KillLunarisSolaris;
+            // a10q2-KilledBoss does NOT award CompleteAct10 (EndGameAvailable does).
+            await Game.CheckQuestFlagAchievements(player, ["a8q1-KilledBoss", "a10q2-KilledBoss"]);
+            Assert.DoesNotContain("KillLunarisSolaris", Game.CompletedAchievementItems(player));
+            Assert.DoesNotContain("CompleteAct10", Game.CompletedAchievementItems(player));
+            await Game.CheckQuestFlagAchievements(player, ["a8q23-KilledBosses", Quests.EndGameAvailable]);
+            Assert.Contains("KillLunarisSolaris", Game.CompletedAchievementItems(player));
+            Assert.Contains("CompleteAct10", Game.CompletedAchievementItems(player));
+
             // 2. Multi-player Party Bandit Votes (S->C 0xbe / C->S 0xbd): WaitingToEnterArea, partial answer, OnAreaGenerated, OnPlayerLeaving, mixed vs unanimous resolution.
             using var questReg = Quests.Register("bandit-party-test", QuestObjectsModule.Acts());
             var oak = BanditChoices.Oak;
@@ -338,6 +351,11 @@ public sealed class BatchProtocolHudHarvestTests
                 byte[] afterAlice = aliceLog.Last(p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceNpcs.VoteDisplayId);
                 Assert.Equal((byte)1, afterAlice[3]); // answered == true for Alice
 
+                // Area-transfer socket close (LeavingArea == true + "disconnected") must NOT evict Carol's WaitingToEnterArea slot.
+                carolTown.LeavingArea = true;
+                await BanditChoices.OnPlayerLeaving(carolTown, "disconnected");
+                Assert.False(mixedInstance.HasState("QuestObjects.BanditFight"));
+
                 // Carol arrives in the bandit area -> transitions to WaitingForVote.
                 var carolInOak = MakeVoter(carolName, oakLayout, mixedInstance, carolLog);
                 activeCarol = carolInOak;
@@ -355,6 +373,31 @@ public sealed class BatchProtocolHudHarvestTests
                 Assert.DoesNotContain(oak.Ally, CharacterSaves.Load(bob.Character.Name!)?.QuestFlags ?? []);
                 Assert.Equal(InstanceNpcs.CloseVote(), aliceLog.Last(p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceNpcs.VoteDisplayId));
                 Assert.Contains(bobLog, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceEntities.ComponentUpdateId);
+
+                // Mixed-vote kill credit guard: allied Alice never receives oak.Killed or Oak's amulet when Bob kills Oak.
+                Assert.Empty(BanditChoices.FilterKillFlags(alice, [oak.Killed]));
+                Assert.Equal([oak.Killed], BanditChoices.FilterKillFlags(bob, [oak.Killed]));
+                Assert.Empty(BanditChoices.FilterKillDrops(alice, oak.Variety, [BanditChoices.AmuletId(oak)]));
+                Assert.Equal([BanditChoices.AmuletId(oak)], BanditChoices.FilterKillDrops(bob, oak.Variety, [BanditChoices.AmuletId(oak)]));
+            }
+
+            // Party leave/kick resolves an open vote blocked on a WaitingToEnterArea member without deadlock.
+            var kickInstance = new InstanceState();
+            var kickTownInstance = new InstanceState();
+            List<byte[]> k1Log = [], k2Log = [];
+            var k1 = MakeVoter("KickHost" + Guid.NewGuid().ToString("N")[..6], oakLayout, kickInstance, k1Log);
+            var k2Town = MakeVoter("KickAway" + Guid.NewGuid().ToString("N")[..6], townLayout, kickTownInstance, k2Log);
+            SpawnOak(kickInstance, k1, 7003);
+            Player[] kickParty = [k1, k2Town];
+            using (BanditChoices.RegisterPartyMembers(_ => kickParty))
+            {
+                Assert.True(await BanditChoices.OpenVote(k1, 7003, speaker, voteTalk));
+                await BanditChoices.VoteAnswer(k1, help: true);
+                Assert.DoesNotContain(oak.Ally, CharacterSaves.Load(k1.Character.Name!)?.QuestFlags ?? []);
+                kickParty = [k1];
+                await BanditChoices.OnPartyChanged(k2Town);
+                Assert.Contains(oak.Ally, CharacterSaves.Load(k1.Character.Name!)?.QuestFlags ?? []);
+                Assert.Equal(InstanceNpcs.CloseVote(), k1Log.Last(p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceNpcs.VoteDisplayId));
             }
 
             // Unanimous Help vote leaves BanditFight unset and grants both voters Oak's Ally flag.
@@ -440,17 +483,49 @@ public sealed class BatchProtocolHudHarvestTests
             var insanity = ItemCatalog.Create(catalog.Find("Essence of Insanity")!);
             Assert.NotNull(harvest.ApplyHarvest(essenceRecipe.Hash, insanity, rng)?.Item);
 
-            // ExchangeSet: Timeless Emblem 100x basetype cost scaling + stack scaling (2 * 100 = 200x), Tainted Oil/Catalyst refused.
+            // ExchangeSet: Timeless Emblem 100x basetype cost scaling, Timeless Splinter stack scaling (25x), Tainted Oil/Catalyst refused,
+            // and RerollFossils refuses stacks > 10 (set minimum MaxStack) without destroying fossils.
             var timelessRecipe = RecipeById(harvest, "RerollTimelessSplinters");
-            var karuiEmblem = ItemCatalog.Create(catalog.Find("Timeless Karui Emblem")!) with { StackSize = 2 };
+            var karuiEmblem = ItemCatalog.Create(catalog.Find("Timeless Karui Emblem")!);
             var swappedEmblem = harvest.ApplyHarvest(timelessRecipe.Hash, karuiEmblem, rng);
             Assert.NotNull(swappedEmblem?.Item);
             Assert.NotEqual(karuiEmblem.TypeHash, swappedEmblem!.Item!.TypeHash);
-            Assert.Equal(timelessRecipe.Costs[0].Amount * 200, swappedEmblem.Costs[0].Amount);
+            Assert.Equal((ushort)1, swappedEmblem.Item.StackSize);
+            Assert.Equal(timelessRecipe.Costs[0].Amount * 100, swappedEmblem.Costs[0].Amount);
+            Assert.Null(harvest.ApplyHarvest(timelessRecipe.Hash, karuiEmblem with { StackSize = 2 }, rng));
+            var karuiSplinter = ItemCatalog.Create(catalog.Find("Timeless Karui Splinter")!) with { StackSize = 25 };
+            var swappedSplinter = harvest.ApplyHarvest(timelessRecipe.Hash, karuiSplinter, rng);
+            Assert.NotNull(swappedSplinter?.Item);
+            Assert.NotEqual(karuiSplinter.TypeHash, swappedSplinter!.Item!.TypeHash);
+            Assert.Equal((ushort)25, swappedSplinter.Item.StackSize);
+            Assert.Equal(timelessRecipe.Costs[0].Amount * 25, swappedSplinter.Costs[0].Amount);
             Assert.Null(harvest.ApplyHarvest(RecipeById(harvest, "RerollOils").Hash, ItemCatalog.Create(catalog.Find("Tainted Oil")!), rng));
             Assert.NotNull(harvest.ApplyHarvest(RecipeById(harvest, "RerollOils").Hash, ItemCatalog.Create(catalog.Find("Clear Oil")!), rng)?.Item);
             Assert.Null(harvest.ApplyHarvest(RecipeById(harvest, "RerollCatalysts").Hash, ItemCatalog.Create(catalog.Find("Tainted Catalyst")!), rng));
             Assert.NotNull(harvest.ApplyHarvest(RecipeById(harvest, "RerollCatalysts").Hash, ItemCatalog.Create(catalog.Find("Turbulent Catalyst")!), rng)?.Item);
+            var fossilRecipe = RecipeById(harvest, "RerollFossils");
+            var dense20 = ItemCatalog.Create(catalog.Find("Dense Fossil")!) with { StackSize = 20 };
+            Assert.Null(harvest.ApplyHarvest(fossilRecipe.Hash, dense20, rng));
+            Assert.Contains("10", harvest.RefusalHint(fossilRecipe.Hash, dense20) ?? "");
+            var dense10 = dense20 with { StackSize = 10 };
+            var swappedFossil = harvest.ApplyHarvest(fossilRecipe.Hash, dense10, rng);
+            Assert.NotNull(swappedFossil?.Item);
+            Assert.Equal((ushort)10, swappedFossil!.Item!.StackSize);
+            Assert.Equal(fossilRecipe.Costs[0].Amount * 10, swappedFossil.Costs[0].Amount);
+
+            // ApplyItemCraft guards: NoInfluence rejects Eldritch-implicit items; non-equipment/jewel domains (Flasks, Maps) rejected.
+            var augmentFire = harvest.All.First(r => r.Operation == HarvestCrafting.Operation.AugmentTag && r.NoInfluence);
+            var reforgeFire = harvest.All.First(r => r.Operation == HarvestCrafting.Operation.ReforgeTag && r.Tag == "fire");
+            var exarchMod = catalog.Mods.All.First(m => m.GenerationType == ItemRolls.ExarchImplicit);
+            var eldritchPlate = rolls.Roll(plate, ItemRarity.Rare, rng) with
+            {
+                Mods = [.. plate.Mods, exarchMod.Roll(ModSection.Implicit, rng)],
+            };
+            Assert.True(rolls.HasEldritchImplicit(eldritchPlate));
+            Assert.Null(harvest.ApplyHarvest(augmentFire.Hash, eldritchPlate, rng));
+            var rareFlask = rolls.Roll(ItemCatalog.Create(catalog.Find("Small Life Flask")!) with { ItemLevel = 70 }, ItemRarity.Magic, rng) with { Rarity = ItemRarity.Rare };
+            Assert.Null(harvest.ApplyHarvest(reforgeFire.Hash, rareFlask, rng));
+            Assert.Null(harvest.ApplyHarvest(augmentFire.Hash, rareFlask, rng));
 
             // Divination card reroll & gamble (1/1 refused, destructive 0-card outcome distinguished from refusal).
             var humility = ItemCatalog.Create(catalog.Find("Humility")!) with { StackSize = 1 };
@@ -484,12 +559,18 @@ public sealed class BatchProtocolHudHarvestTests
             Assert.Contains(forgedInf!.Item!.Mods, m => m.Section == ModSection.Explicit
                 && catalog.Mods.ByHash(m.Hash) is { } mod && mod.WeightFor(ringType.Tags) == 0);
 
-            // Corrupted map reroll.
+            // Corrupted map reroll (refuses uncorrupted, Vestigial, Tier 17, and The Shaper's Realm; ApplyItemCraft refuses maps).
             var mapType = catalog.Find("MapKeyTier5") ?? catalog.Find("Map (Tier 5)")!;
             var uncorruptedMap = rolls.Roll(ItemCatalog.Create(mapType) with { ItemLevel = 72 }, ItemRarity.Rare, rng);
             var corruptedMap = uncorruptedMap with { Corrupted = true };
             var mapRecipe = RecipeById(harvest, "RerollCorruptedMap");
+            Assert.Null(harvest.ApplyHarvest(reforgeFire.Hash, uncorruptedMap, rng));
             Assert.Null(harvest.ApplyHarvest(mapRecipe.Hash, uncorruptedMap, rng));
+            Assert.Null(harvest.ApplyHarvest(mapRecipe.Hash, corruptedMap with { Vestigial = true }, rng));
+            if (catalog.Find("Metadata/Items/Maps/MapWorldsSanctuary") is { } t17Type)
+                Assert.Null(harvest.ApplyHarvest(mapRecipe.Hash, rolls.Roll(ItemCatalog.Create(t17Type) with { ItemLevel = 84 }, ItemRarity.Rare, rng) with { Corrupted = true }, rng));
+            if (catalog.Find("Metadata/Items/Maps/MapWorldsShapersRealm") is { } shaperMapType)
+                Assert.Null(harvest.ApplyHarvest(mapRecipe.Hash, ItemCatalog.Create(shaperMapType) with { ItemLevel = 84, Rarity = ItemRarity.Rare, Corrupted = true, Identified = true }, rng));
             var rerolledMap = harvest.ApplyHarvest(mapRecipe.Hash, corruptedMap, rng);
             Assert.NotNull(rerolledMap?.Item);
             Assert.True(rerolledMap!.Item!.Corrupted);

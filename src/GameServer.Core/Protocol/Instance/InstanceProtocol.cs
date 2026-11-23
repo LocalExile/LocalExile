@@ -622,8 +622,11 @@ public static class InstanceProtocol
     /// retail messages in the same TCP read continue decoding and split envelopes reassemble across reads.</summary>
     public const ushort ModEnvelopeId = 0xF7E0;
 
-    /// <summary>Maximum payload length accepted in a <see cref="ModEnvelopeId"/> frame (1 MiB).</summary>
-    public const int ModEnvelopeMaxPayload = 1 << 20;
+    /// <summary>Maximum payload length accepted in a <see cref="ModEnvelopeId"/> frame (64 KiB).</summary>
+    public const int ModEnvelopeMaxPayload = 64 * 1024;
+
+    /// <summary>Upper bound on unframed trailing bytes retained across TCP reads per connection.</summary>
+    public const int MaxClientCarryBytes = ModEnvelopeMaxPayload + 64;
 
     static WireMeasure TryClientMessageLength(ushort id, ReadOnlySpan<byte> data, out int length)
     {

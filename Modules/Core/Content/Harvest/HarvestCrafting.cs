@@ -210,14 +210,38 @@ public sealed class HarvestCrafting
         };
     }
 
+    /// <summary>Returns a player-facing refusal hint when a recipe was rejected for a specific stack-size limit
+    /// (such as swapping a fossil stack larger than the smallest MaxStack in the set), or null otherwise.</summary>
+    public string? RefusalHint(ushort hash, Item? item)
+    {
+        if (item is null || item.Corrupted || item.Mirrored || item.StackSize < 1) return null;
+        if (ByHash(hash) is not { Supported: true } recipe || !recipe.InMode(_hardMode)) return null;
+        int? maxAllowed = recipe.Operation switch
+        {
+            Operation.ExchangeEssence when _data.EssenceTiers.TryGetValue(item.TypeHash, out var tier) && tier.Count >= 2 =>
+                MinMaxStack(tier),
+            Operation.ExchangeSet => ExchangeSetFor(recipe, item.TypeHash) is { } set ? MinMaxStack(set) : null,
+            _ => null,
+        };
+        return maxAllowed is int limit && item.StackSize > limit
+            ? $"Split this stack to {limit} or fewer before changing its type."
+            : null;
+    }
+
+    static bool IsHarvestItemCraftBase(ItemCatalog.BaseType type) =>
+        type.ModDomain is 1 or 10 or 13 or 21 && !string.Equals(type.Class, "HiddenItem", StringComparison.OrdinalIgnoreCase);
+
     Item? ApplyItemCraft(Recipe recipe, Item item, Random rng)
     {
         if (item.Corrupted || item.Mirrored || !item.Identified || item.Rarity == ItemRarity.Unique ||
             HasSocketedGems(item) || !_items.Modifiable(item) || _items.HasExplicitStat(item, Metamods))
             return null;
-        // "Reforge a Rare item": the item in the slot must already be rare. Augments are "from a non-Influenced item".
+        if (_catalog.ByHash(item.TypeHash) is not { } type || !IsHarvestItemCraftBase(type))
+            return null;
+        // "Reforge a Rare item": the item in the slot must already be rare. Augments are "from a non-Influenced item"
+        // (excluding both classic Atlas influences and Searing Exarch / Eater of Worlds Eldritch implicits).
         if (recipe.Operation is Operation.ReforgeTag or Operation.ReforgeAffinity && item.Rarity != ItemRarity.Rare ||
-            recipe.NoInfluence && item.Influences != ItemInfluence.None) return null;
+            recipe.NoInfluence && (item.Influences != ItemInfluence.None || _rolls.HasEldritchImplicit(item))) return null;
         Item? result = recipe.Operation switch
         {
             Operation.ReforgeTag => _items.RollRequiredTag(item, ItemRarity.Rare, rng, recipe.Tag!),
@@ -257,38 +281,58 @@ public sealed class HarvestCrafting
     }
 
     // 3.29.3c 0x141d5ce00: any Essence row whose EssenceType is not NotEssence, swapped to another of the same tier.
+    // Note: essence, set (oils/fossils/catalysts/fragments) and divination-card exchanges currently roll uniformly over
+    // the eligible target pool rather than using retail server-only drop weights.
     Item? ApplyEssenceExchange(Item item, Random rng)
     {
         if (item.Corrupted || item.Mirrored || item.StackSize < 1 ||
             !_data.EssenceTiers.TryGetValue(item.TypeHash, out var tier) || tier.Count < 2)
             return null;
+        if (item.StackSize > MinMaxStack(tier)) return null;
         var target = PickOther(tier, item.TypeHash, rng);
         if (target is null) return null;
         return ItemCatalog.Create(target, random: rng) with
         {
-            StackSize = (ushort)Math.Min(item.StackSize, Math.Max((ushort)1, target.MaxStack)),
+            StackSize = item.StackSize,
         };
     }
 
-    // 3.29.3c 0x141d5ca00: exchange an item for a different item in the same set (clamping stack size to target MaxStack).
+    // 3.29.3c 0x141d5ca00: exchange an item for a different item in the same set.
+    // Stacks larger than the smallest MaxStack in the set (e.g. >10 for delvefossils, where rare fossils cap at 10)
+    // are refused before lifeforce is charged so items are never silently truncated or overcharged.
     Item? ApplySetExchange(Recipe recipe, Item item, Random rng)
     {
         if (item.Corrupted || item.Mirrored || item.StackSize < 1) return null;
+        var set = ExchangeSetFor(recipe, item.TypeHash);
+        if (set is null || item.StackSize > MinMaxStack(set)) return null;
+        var target = PickOther(set, item.TypeHash, rng);
+        if (target is null) return null;
+        return ItemCatalog.Create(target, random: rng) with
+        {
+            StackSize = item.StackSize,
+        };
+    }
+
+    static IReadOnlyList<ItemCatalog.BaseType>? ExchangeSetFor(Recipe recipe, uint typeHash)
+    {
         foreach (var set in recipe.ExchangeSets)
         {
             if (set.Count < 2) continue;
-            bool match = false;
             foreach (var entry in set)
-                if (entry.Hash == item.TypeHash) { match = true; break; }
-            if (!match) continue;
-            var target = PickOther(set, item.TypeHash, rng);
-            if (target is null) return null;
-            return ItemCatalog.Create(target, random: rng) with
-            {
-                StackSize = (ushort)Math.Min(item.StackSize, Math.Max((ushort)1, target.MaxStack)),
-            };
+                if (entry.Hash == typeHash) return set;
         }
         return null;
+    }
+
+    static int MinMaxStack(IReadOnlyList<ItemCatalog.BaseType> pool)
+    {
+        int min = int.MaxValue;
+        foreach (var entry in pool)
+        {
+            int cap = Math.Max(1, (int)entry.MaxStack);
+            if (cap < min) min = cap;
+        }
+        return min == int.MaxValue ? 1 : min;
     }
 
     // 3.29.3c 0x141d5d810: single Divination Card swapped to a different drop-enabled Divination Card.
@@ -373,7 +417,7 @@ public sealed class HarvestCrafting
     {
         var catalog = _catalog;
         var rolls = _rolls;
-        if (!item.Corrupted || item.Mirrored || !item.Identified || item.Rarity != ItemRarity.Rare ||
+        if (!item.Corrupted || item.Mirrored || item.Vestigial || !item.Identified || item.Rarity != ItemRarity.Rare ||
             !item.Components.Contains("Mods") ||
             !_data.MapsByHash.TryGetValue(item.TypeHash, out var info) ||
             catalog.ByHash(item.TypeHash) is not { Supported: true } sourceType)
@@ -796,7 +840,7 @@ public sealed class HarvestCrafting
             {
                 if (row.IntOrNull("BaseItemTypesKey") is not int baseRow ||
                     row.IntOrNull("Regular_WorldAreasKey") is null ||
-                    row.IntOrNull("Tier") is not int tier || tier <= 0 ||
+                    row.IntOrNull("Tier") is not int tier || tier < 1 || tier > 16 ||
                     catalog.Row(baseRow) is not { Supported: true } type) continue;
                 byHash.TryAdd(type.Hash, (tier, false));
                 if (!legacyByTier.TryGetValue(tier, out var list)) legacyByTier[tier] = list = [];

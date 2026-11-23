@@ -397,8 +397,14 @@ public partial class Program
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
-        byte[] all = [.. player.Connection.Session.Carry, .. data];
-        var messages = InstanceProtocol.SplitClientMessages(all, out player.Connection.Session.Carry, out byte[] unknown);
+        var session = player.Connection.Session;
+        byte[] all = session.Carry.Length == 0 ? data : [.. session.Carry, .. data];
+        var messages = InstanceProtocol.SplitClientMessages(all, out session.Carry, out byte[] unknown);
+        if (session.Carry.Length > InstanceProtocol.MaxClientCarryBytes)
+        {
+            unknown = unknown.Length == 0 ? session.Carry : [.. unknown, .. session.Carry];
+            session.Carry = [];
+        }
         (ushort[] Predictive, ushort[] Lockstep)? mixed = null;
         foreach (var (id, bytes) in messages)
         {

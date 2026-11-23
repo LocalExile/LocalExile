@@ -188,7 +188,7 @@ public static class BanditChoices
         var waitingOutside = WaitingPartyMembers(player, instance, inAreaNames, bandit);
         bool callerEligible = eligibleHumans.FirstOrDefault(e => ReferenceEquals(e.Player, player)).Eligible;
 
-        VoteBroadcast broadcast;
+        VoteBroadcast? broadcast = null;
         lock (VoteGate)
         {
             if (ActiveVotes.TryGetValue(instance, out var existing) && !existing.Resolved)
@@ -219,12 +219,16 @@ public static class BanditChoices
                 }
                 foreach (var member in waitingOutside)
                     session.Participants.Add(new(CharacterName(member), member, InstanceNpcs.VoteStateWaitingToEnterArea, eligible: true));
-                ActiveVotes.AddOrUpdate(instance, session);
-                broadcast = SnapshotBroadcastLocked(session, instance, include: player);
+                if (session.Participants.Count > 0)
+                {
+                    ActiveVotes.AddOrUpdate(instance, session);
+                    broadcast = SnapshotBroadcastLocked(session, instance, include: player);
+                }
             }
         }
 
-        await BroadcastVote(broadcast);
+        if (broadcast is not null)
+            await BroadcastVote(broadcast);
         return true;
     }
 
@@ -346,9 +350,12 @@ public static class BanditChoices
         if (player.Instance is { } instance && HasActiveVote(instance))
             await RemoveFromSession(instance, player, name, leavingInstance: true);
 
-        // A disconnect from another area releases any WaitingToEnterArea slot in an open bandit vote.
-        // An area transition ("left the area") is not dropped here because the player may be entering the bandit area.
-        if (string.Equals(why, "disconnected", StringComparison.OrdinalIgnoreCase))
+        // A true disconnect from another area releases any WaitingToEnterArea slot in an open bandit vote.
+        // An area transition closes the old socket with "disconnected" too, so never drop WaitingToEnterArea slots
+        // while the player is transferring between areas.
+        bool midTransfer = player.LeavingArea || player.PendingTransfer is not null
+            || player.TransferAccepted || player.TransferredTo is not null;
+        if (string.Equals(why, "disconnected", StringComparison.OrdinalIgnoreCase) && !midTransfer)
         {
             InstanceState[] otherInstances;
             lock (VoteGate)
@@ -358,6 +365,85 @@ public static class BanditChoices
             foreach (var otherInstance in otherInstances)
                 await RemoveFromSession(otherInstance, player, name, leavingInstance: false);
         }
+    }
+
+    /// <summary>Prunes stale <see cref="InstanceNpcs.VoteStateWaitingToEnterArea"/> slots across active votes when a
+    /// human leaves or is kicked from a party, broadcasting or resolving immediately so votes never deadlock.</summary>
+    public static async Task OnPartyChanged(Player member)
+    {
+        if (member.Controlled) return;
+        InstanceState[] instances;
+        lock (VoteGate)
+            instances = [.. ActiveVotes.Where(e => !e.Value.Resolved).Select(e => e.Key)];
+        foreach (var instance in instances)
+            await PruneSessionAfterPartyChange(instance);
+    }
+
+    static async Task PruneSessionAfterPartyChange(InstanceState instance)
+    {
+        VoteBroadcast? broadcast = null;
+        (Bandit Bandit, uint LeaderId, bool IsSolo, VoteParticipant[] Participants, Player[] Recipients)? resolve = null;
+        Player[]? cancelRecipients = null;
+        Bandit? bandit = null;
+
+        lock (VoteGate)
+        {
+            if (!ActiveVotes.TryGetValue(instance, out var session) || session.Resolved) return;
+            bandit = session.Bandit;
+            int before = session.Participants.Count;
+            PruneWaitingOutsideLocked(session, instance);
+            if (session.Participants.Count == before) return;
+
+            var remainingRecipients = CollectRecipientsLocked(session, instance);
+            if (remainingRecipients.Length == 0 || !session.Participants.Any(p => p.Eligible))
+            {
+                session.Resolved = true;
+                ActiveVotes.Remove(instance);
+                cancelRecipients = remainingRecipients;
+            }
+            else if (AllEligibleVotedLocked(session))
+            {
+                session.Resolved = true;
+                ActiveVotes.Remove(instance);
+                resolve = (session.Bandit, session.LeaderId, session.IsSolo, [.. session.Participants], remainingRecipients);
+            }
+            else
+            {
+                broadcast = SnapshotBroadcastLocked(session, instance);
+            }
+        }
+
+        if (cancelRecipients is not null && bandit is not null) await CloseVoteForAll(cancelRecipients, bandit);
+        else if (resolve is { } r) await ResolveVote(instance, null, r.Bandit, r.LeaderId, r.IsSolo, r.Participants, r.Recipients);
+        else if (broadcast is not null) await BroadcastVote(broadcast);
+    }
+
+    /// <summary>Filters kill-granted quest flags so a player who allied with a bandit (e.g., in a mixed party vote)
+    /// does not also receive that bandit's conflicting <c>Killed</c> flag if another party member kills the bandit.</summary>
+    public static IReadOnlyList<string> FilterKillFlags(Player player, IReadOnlyList<string> flags)
+    {
+        if (flags.Count == 0 || In(player) is not { } bandit || !player.Character.HasQuestFlag(bandit.Ally))
+            return flags;
+        bool hasConflict = false;
+        for (int i = 0; i < flags.Count; i++)
+            if (flags[i] == bandit.Killed) { hasConflict = true; break; }
+        if (!hasConflict) return flags;
+        return [.. flags.Where(f => f != bandit.Killed)];
+    }
+
+    /// <summary>Filters kill-granted quest drops so a player who allied with a bandit does not receive that allied
+    /// bandit's own amulet when another party member kills the bandit in a mixed-vote fight.</summary>
+    public static IReadOnlyList<string> FilterKillDrops(Player player, string varietyId, IReadOnlyList<string> drops)
+    {
+        if (drops.Count == 0 || In(player) is not { } bandit || varietyId != bandit.Variety
+            || !player.Character.HasQuestFlag(bandit.Ally))
+            return drops;
+        string amulet = AmuletId(bandit);
+        bool hasConflict = false;
+        for (int i = 0; i < drops.Count; i++)
+            if (drops[i] == amulet) { hasConflict = true; break; }
+        if (!hasConflict) return drops;
+        return [.. drops.Where(d => d != amulet)];
     }
 
     static async Task RemoveFromSession(InstanceState instance, Player leaving, string name, bool leavingInstance)
@@ -420,106 +506,131 @@ public static class BanditChoices
     static async Task ResolveVote(InstanceState instance, Player? trigger, Bandit bandit, uint leaderId, bool isSolo,
         VoteParticipant[] participants, Player[] recipients)
     {
-        List<(Player Voter, QuestFlagCommit? Clear, QuestFlagCommit? Set)> commits = [];
-        int dialogueComponent = -1;
-
-        var leader = instance.World.Area.Monsters.GetValueOrDefault(leaderId);
-        bool validLeader = isSolo && trigger is not null
-            ? NearbyLeader(trigger, bandit, leaderId) is not null && !Finished(trigger.Character.HasQuestFlag)
-            : leader is { Hostile: true, Dead: false, Life: > 0, Aggro: false } && leader.Variety?.Id == bandit.Variety
-                && Npcs.Find(bandit.Variety) is not null && !instance.HasState(Fight);
-
-        if (validLeader)
+        List<(Player Voter, byte State)> candidates = [];
+        foreach (var p in participants)
         {
-            List<(Player Voter, byte State)> resolved = [];
-            foreach (var p in participants)
+            if (!p.Eligible || p.State is not (InstanceNpcs.VoteStateHelpBandit or InstanceNpcs.VoteStateKillBandit))
+                continue;
+            if (p.Player is not { Closed: false, LeavingArea: false } voter || !ReferenceEquals(voter.Instance, instance))
+                continue;
+            candidates.Add((voter, p.State));
+        }
+
+        // Acquire every voter's QuestGate in deterministic CharacterName order across commit and publish to avoid
+        // deadlocks and prevent concurrent quest updates from interleaving between commit and publish.
+        List<SemaphoreSlim> gates = [];
+        foreach (var (voter, _) in candidates.OrderBy(c => CharacterName(c.Voter), StringComparer.Ordinal).ThenBy(c => c.Voter.Id))
+            if (!gates.Any(g => ReferenceEquals(g, voter.Character.QuestGate)))
+                gates.Add(voter.Character.QuestGate);
+
+        int acquired = 0;
+        try
+        {
+            foreach (var gate in gates)
             {
-                if (!p.Eligible || p.State is not (InstanceNpcs.VoteStateHelpBandit or InstanceNpcs.VoteStateKillBandit))
-                    continue;
-                if (p.Player is not { Closed: false, LeavingArea: false } voter || !ReferenceEquals(voter.Instance, instance))
-                    continue;
-                if (HardcoreProgressBlocked(voter) || Finished(voter.Character.HasQuestFlag) || voter.Character.HasQuestFlag(bandit.Killed))
-                    continue;
-                resolved.Add((voter, p.State));
+                await gate.WaitAsync();
+                acquired++;
             }
 
-            if (resolved.Count > 0)
-            {
-                bool anyKill = resolved.Any(r => r.State == InstanceNpcs.VoteStateKillBandit);
-                string[] previous = [.. All.Where(b => b != bandit).SelectMany(b => new[] { b.Ally, b.Started })];
-                string[] chosen = [bandit.Ally, bandit.Started];
+            List<(Player Voter, QuestFlagCommit? Clear, QuestFlagCommit? Set)> commits = [];
+            int dialogueComponent = -1;
 
-                Saves.Atomically(() =>
+            var leader = instance.World.Area.Monsters.GetValueOrDefault(leaderId);
+            bool validLeader = isSolo && trigger is not null
+                ? NearbyLeader(trigger, bandit, leaderId) is not null && !Finished(trigger.Character.HasQuestFlag)
+                : leader is { Hostile: true, Dead: false, Life: > 0, Aggro: false } && leader.Variety?.Id == bandit.Variety
+                    && Npcs.Find(bandit.Variety) is not null && !instance.HasState(Fight);
+
+            if (validLeader)
+            {
+                List<(Player Voter, byte State)> resolved = [];
+                foreach (var (voter, state) in candidates)
                 {
-                    foreach (var (voter, state) in resolved)
+                    if (voter.Closed || voter.LeavingArea || !ReferenceEquals(voter.Instance, instance))
+                        continue;
+                    if (HardcoreProgressBlocked(voter) || Finished(voter.Character.HasQuestFlag) || voter.Character.HasQuestFlag(bandit.Killed))
+                        continue;
+                    resolved.Add((voter, state));
+                }
+
+                if (resolved.Count > 0)
+                {
+                    bool anyKill = resolved.Any(r => r.State == InstanceNpcs.VoteStateKillBandit);
+                    string[] previous = [.. All.Where(b => b != bandit).SelectMany(b => new[] { b.Ally, b.Started })];
+                    string[] chosen = [bandit.Ally, bandit.Started];
+
+                    Saves.Atomically(() =>
                     {
-                        if (state == InstanceNpcs.VoteStateHelpBandit)
+                        foreach (var (voter, state) in resolved)
                         {
-                            var clear = CommitQuestFlags(voter, previous, on: false);
-                            var set = CommitQuestFlags(voter, chosen);
-                            commits.Add((voter, clear, set));
+                            if (state == InstanceNpcs.VoteStateHelpBandit)
+                            {
+                                var clear = CommitQuestFlags(voter, previous, on: false);
+                                var set = CommitQuestFlags(voter, chosen);
+                                commits.Add((voter, clear, set));
+                            }
+                            else
+                            {
+                                var clear = CommitQuestFlags(voter, chosen, on: false);
+                                commits.Add((voter, clear, null));
+                            }
                         }
-                        else
+                    });
+
+                    if (anyKill)
+                    {
+                        instance.SetState(Fight);
+                        leader!.EntranceGrace = false;
+                        foreach (var recipient in recipients)
+                            recipient.Npcs.Remove(leaderId);
+                        if (instance.World.MonsterOrigins.TryGetValue(leaderId, out var origin))
                         {
-                            var clear = CommitQuestFlags(voter, chosen, on: false);
-                            commits.Add((voter, clear, null));
+                            dialogueComponent = origin.Object.Components.ToList().IndexOf("NPC");
+                            instance.World.MonsterOrigins[leaderId] = origin with { Object = origin.Object with { HasDialogue = false } };
                         }
                     }
-                });
+                }
+            }
 
-                if (anyKill)
+            await CloseVoteForAll(recipients, bandit);
+
+            if (dialogueComponent >= 0)
+            {
+                var areaSender = recipients.FirstOrDefault(r => !r.Closed && !r.LeavingArea && r.Area.Owned && r.Connection.WorldOutput.Started);
+                if (areaSender is not null)
                 {
-                    instance.SetState(Fight);
-                    leader!.EntranceGrace = false;
+                    await SendWorldRecord(areaSender, leaderId,
+                        InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
+                        $"0x02bc {bandit.Name} stops talking and fights");
+                }
+                else
+                {
                     foreach (var recipient in recipients)
-                        recipient.Npcs.Remove(leaderId);
-                    if (instance.World.MonsterOrigins.TryGetValue(leaderId, out var origin))
                     {
-                        dialogueComponent = origin.Object.Components.ToList().IndexOf("NPC");
-                        instance.World.MonsterOrigins[leaderId] = origin with { Object = origin.Object with { HasDialogue = false } };
+                        if (recipient.Closed || recipient.LeavingArea) continue;
+                        if (recipient.Connection.Connected)
+                            await SendWorldRecord(recipient, leaderId,
+                                InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
+                                $"0x02bc {bandit.Name} stops talking and fights");
+                        else
+                            await SendTo(recipient, InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
+                                $"0x02bc {bandit.Name} stops talking and fights");
                     }
                 }
             }
-        }
 
-        await CloseVoteForAll(recipients, bandit);
-
-        if (dialogueComponent >= 0)
-        {
-            var areaSender = recipients.FirstOrDefault(r => !r.Closed && !r.LeavingArea && r.Area.Owned && r.Connection.WorldOutput.Started);
-            if (areaSender is not null)
+            foreach (var (voter, clear, set) in commits)
             {
-                await SendWorldRecord(areaSender, leaderId,
-                    InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
-                    $"0x02bc {bandit.Name} stops talking and fights");
-            }
-            else
-            {
-                foreach (var recipient in recipients)
-                {
-                    if (recipient.Closed || recipient.LeavingArea) continue;
-                    if (recipient.Connection.Connected)
-                        await SendWorldRecord(recipient, leaderId,
-                            InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
-                            $"0x02bc {bandit.Name} stops talking and fights");
-                    else
-                        await SendTo(recipient, InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
-                            $"0x02bc {bandit.Name} stops talking and fights");
-                }
-            }
-        }
-
-        foreach (var (voter, clear, set) in commits)
-        {
-            if (voter.Closed || voter.LeavingArea || (clear is null && set is null)) continue;
-            if (!voter.Connection.Connected) continue;
-            await voter.Character.QuestGate.WaitAsync();
-            try
-            {
+                if (voter.Closed || voter.LeavingArea || (clear is null && set is null)) continue;
+                if (!voter.Connection.Connected) continue;
                 if (clear is not null) await PublishQuestFlags(voter, clear, on: false);
                 if (set is not null) await PublishQuestFlags(voter, set);
             }
-            finally { voter.Character.QuestGate.Release(); }
+        }
+        finally
+        {
+            for (int i = acquired - 1; i >= 0; i--)
+                gates[i].Release();
         }
     }
 

@@ -189,6 +189,6 @@ Unknown message layouts still require primary evidence; their lengths are not gu
 | C→S `0x0279` | `0x141fa3d30` → `0x141fab790` | `u8 count`, `count * u8` (`3 + count` bytes) |
 | C→S `0x027f` | `0x141fa3fc0` → `0x141fab790` | `u8 wing`, `u8 count`, `count * u8` (`4 + count` bytes) |
 | C→S `0x02a5` | `0x141fa5c10` | `u32 BE netId`, `u8 count`, `count * (u8 + u32 BE + u32 BE)` (`7 + count * 9` bytes) |
-| C→S `0xF7E0` (custom mod envelope) | non-retail | `u32 BE payloadLen` (≤ 1 MiB), `payloadLen` bytes (`6 + payloadLen` bytes) |
+| C→S `0xF7E0` (custom mod envelope) | non-retail | `u32 BE payloadLen` (≤ 64 KiB), `payloadLen` bytes (`6 + payloadLen` bytes) |
 
 Env: `Game_GATEWAY_PORT` (6112), `Game_INSTANCE_SECRET` (data/instance-secret.bin), `Game_GATEWAY_ENTER`.
