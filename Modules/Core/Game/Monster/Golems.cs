@@ -352,6 +352,7 @@ public static partial class Game
             if (replacingOld is not null && replacement is null) return 0;
         }
         if (supported.Effect != definition.Effect || !supported.RequirementsMet
+            || !CanHaveMinion(playerStats, OwnedMinionFamily.Golem)
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);

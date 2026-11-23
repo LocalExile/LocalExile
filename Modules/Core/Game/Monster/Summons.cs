@@ -215,7 +215,8 @@ public static partial class Game
             if (replacingOld is not null && replacement is null) return 0;
         }
         if (!gem.RequirementsMet || gemSource is null || replacingOld is null && fresh is null
-            || SkillsFor(player).EffectId(gem.Effect) != definition.Id) return 0;
+            || SkillsFor(player).EffectId(gem.Effect) != definition.Id
+            || !CanHaveMinion(playerStats, SummonFamily(definition.Family))) return 0;
         if (definition.Family == "Phantasm") gem = PhantasmGem(player, gem);
         inheritedMods ??= replacingOld?.InheritedMods;
         if (replacingOld is not null) rarity = replacingOld.Monster.Rarity;
