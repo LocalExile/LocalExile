@@ -55,7 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Monster kills (ordinary, projectile and minion) use the map's Atlas drop-chance, no-map-drop and tier-upgrade rolls when selecting map-key loot.
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
-  maps use their tier as the area level (tier + 67).
+  maps use their tier as the area level (tier + 67). Layouts marked for a specific item require their designated map key or named map, and special map keys are refused on ordinary layouts.
   Atlas progress (2026-11-01): killing the map's final WorldAreas boss completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
   presets, before 0x21, so login does not announce every saved map. A completion re-sends that 0x1a3 right after the
@@ -324,7 +324,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
-    Sulphite scarabs guarantee three shared, single-use map deposits with Niko; native area-level rewards scale with
+    Sulphite scarabs guarantee three shared, single-use map deposits with Niko. Natural encounters roll the area's
+    composed Delve chance using the map's seed. Native area-level rewards scale with
     map quantity and the owner's legacy scarab bonus, cap at equipment capacity, and survive reentry/module reload.
     Fumes adds mine guards and a native enrage visual with +50% item quantity on affected monsters; its radius,
     guard placement and exact official combat tuning remain server approximations.
