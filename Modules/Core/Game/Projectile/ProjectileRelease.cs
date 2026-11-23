@@ -388,6 +388,7 @@ public static partial class Game
             SupportedCriticalMultiplier(player, skillId), gem.Name)
         {
             WeaponAttack = weaponAttack,
+            ProjectileAttack = !spell && SkillsFor(player).IsProjectile(gem.Effect),
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(player, playerStats, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(playerStats, own),
             // Child stages and release specialization can introduce areas after this root is resolved.
@@ -410,7 +411,7 @@ public static partial class Game
             ImpaleSettings = ImpaleStats.From(playerStats, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(playerStats, Stats, !spell, own, local, critical: true),
             AccuracyProfile = spell ? null : SupportedAccuracy(player, skillId, swingHand), CriticalRoll = criticalRoll,
-            Leech = HitLeechSources(playerStats, !spell, own, local), WeaponLocal = local,
+            Leech = HitLeechSources(playerStats, !spell, own, weaponAttack ? local : null), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get(Stat.ImpaleOnHitPctChance),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = WithOverheat(player, skillId, NotedIgnite(player, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), playerStats, own, spell, hand))),
@@ -487,21 +488,18 @@ public static partial class Game
         if (totem is not null || reoccurrenceMore != 1)
         {
             double totemMore = reoccurrenceMore * (totem is null ? 1 : Math.Max(0, 1 + Get(Stat.SupportTotemDamagePlusPctFinal) / 100d));
-            shot = shot with { Hit = shot.Hit.Scale(totemMore), AreaHit = shot.AreaHit?.Scale(totemMore),
-                HitProfileMore = shot.HitProfileMore * totemMore, AilmentProfileMore = totemMore,
-                Ignite = shot.Ignite with { Min = shot.Ignite.Min * totemMore, Max = shot.Ignite.Max * totemMore,
-                    CriticalMin = shot.Ignite.CriticalMin * totemMore, CriticalMax = shot.Ignite.CriticalMax * totemMore },
-                Poison = shot.Poison with { Min = shot.Poison.Min * totemMore, Max = shot.Poison.Max * totemMore,
-                    CriticalMin = shot.Poison.CriticalMin * totemMore, CriticalMax = shot.Poison.CriticalMax * totemMore },
-                Bleed = shot.Bleed with { Min = shot.Bleed.Min * totemMore, Max = shot.Bleed.Max * totemMore,
-                    CriticalMin = shot.Bleed.CriticalMin * totemMore, CriticalMax = shot.Bleed.CriticalMax * totemMore },
+            shot = shot.ScaleDamage(totemMore) with
+            {
                 // Pending casts still require their source; released projectiles live with the area session.
-                Leech = totem is null ? shot.Leech : new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
+                Leech = totem is null ? shot.Leech : new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
+            };
         }
         uint emitter = totem?.Id ?? player.Id;
         var use = new ProjectileUse(profile, new(emitter, player.ProjectileEpoch), new(emitter, player.ProjectileEpoch), 1, origin, target)
             { Payload = shot, ReturnAnchor = new(emitter, player.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own);
+        if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
+            use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }
 }

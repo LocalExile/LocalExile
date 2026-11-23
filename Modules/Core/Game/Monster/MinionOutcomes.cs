@@ -8,10 +8,11 @@ public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, StunHit? stun = null)
+        double now, string by, StunHit? stun = null, SpawnedMonster? source = null, IReadOnlyDictionary<uint, int>? skill = null)
     {
         OwnedKillLocked(monster, hit.Life);
         CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+        if (hit.Life == 0 && source is not null) ResolveCursedMinionKillLocked(player, id, monster, source, skill, now);
     }
 
     static void CommitAcceptedHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
@@ -29,6 +30,7 @@ public static partial class Game
 
     public static void CommitAcceptedKillLocked(Player player, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
+        RememberCursedCorpse(player, victimId, monster);
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
         var state = player.Minions;
@@ -43,13 +45,17 @@ public static partial class Game
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
         {
+            WitchbaneOnKill(player, monster, now);
             QueueMadnessExplosionLocked(player, victimId, monster);
             player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+            SpiritChargeOnKill(player, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
                 Frozen: monster.Ailments.FrozenAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
+            var explosionEquipment = CaptureKillEquipment(player, monster, at, now);
+            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
         var packets = new List<(byte[] Packet, string? Log)>();
         if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)
@@ -290,6 +296,7 @@ public static partial class Game
                 state.FlaskRewards.RemoveAt(0);
                 var playerStats = CharacterPlayerStats(player);
                 int Get(uint key) => playerStats.GetValueOrDefault(key);
+                int areaIncrease = MapFlaskChargeGain(player);
                 var changed = new List<InventoryItem>();
                 foreach (var flask in items.Items(PlayerInventories.Flask))
                 {
@@ -298,7 +305,8 @@ public static partial class Game
                     var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods); var charges = FlaskCharges.Of(basis, local);
                     if (flask.Item.Charges >= charges.MaxCharges) continue;
                     double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods);
-                    int whole = player.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get));
+                    int whole = player.FlaskChargeCarry.Take(flask.Id,
+                        gain * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
                     if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, item => Flasks.Gain(item, charges, whole)) is { } done) changed.Add(done);
                 }
                 return ([.. changed.Select(i => i.Id)], changed);

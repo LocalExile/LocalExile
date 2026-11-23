@@ -208,8 +208,8 @@ public static partial class Game
 
     static void RetireReplacementLocked(Player player, SummonReplacementAdmission admission, double now)
     {
-        if (admission.Family == SummonReplacementFamily.Golem) RemoveGolemLocked(player, admission.Old, now);
-        else RemoveSummonLocked(player, admission.Old, now);
+        if (admission.Family == SummonReplacementFamily.Golem) RemoveGolemLocked(player, admission.Old, now, reconcileBlessing: false);
+        else RemoveSummonLocked(player, admission.Old, now, reconcileBlessing: false);
     }
 
     static double SavedPositiveDelay(double seconds) =>
@@ -306,7 +306,8 @@ public static partial class Game
             SavedLifeFraction(golem.Monster),
             golem.Monster.Dead ? SavedPositiveDelay(golem.ReviveAt - now) : 0,
             GolemSummonedSecondsRemaining(golem, now), CaptureResources(golem, now),
-            Host: place.ItemId == 0 ? null : place.ItemId, Socket: place.ItemId == 0 ? null : place.Socket);
+            Host: gem.WornGrant?.Host ?? (place.ItemId == 0 ? null : place.ItemId),
+            Socket: gem.WornGrant?.Socket ?? (place.ItemId == 0 ? null : place.Socket));
     }
 
     internal static ushort RestoredGolemSource(Player player, GolemState.Saved saved) =>
@@ -361,10 +362,12 @@ public static partial class Game
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
             ? Math.Clamp(summonedSecondsRemaining, 0, 8) : arrival ? 0 : 8;
         double summonedAt = replacement?.SummonedAt ?? preparedNow - (8 - remaining);
+        double freshMeat = !arrival && replacement is null ? FreshMeatSeconds(supported.Stats, double.PositiveInfinity) : 0;
         var probe = new GolemState.Golem(0, null!, definition, source, gemSource)
         {
             GemLevel = supported.Level, Quality = supported.Quality, Own = new(supported.Stats), Player = new(playerStats),
             Limit = limit, SummonedAt = summonedAt, Utility = MinionOfferingStats(player, preparedNow),
+            FreshMeatUntil = replacingOld?.FreshMeatUntil ?? (freshMeat > 0 ? preparedNow + freshMeat : 0),
         };
         var mods = GolemModifiers(player, probe, playerStats, preparedNow);
         var pools = GolemPools.Calculate(Monsters, variety, level, probe, playerStats, mods.Effects);
@@ -407,8 +410,9 @@ public static partial class Game
                     TransferIncomingReplacementStateLocked(replacement.Old, probe, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
                 else if (player.Golems.Replacement(definition.Kind, limit) is { } old)
-                    RemoveGolemLocked(player, old, committed);
+                    RemoveGolemLocked(player, old, committed, reconcileBlessing: false);
                 probe.SummonedAt = replacement?.SummonedAt ?? committed - (8 - remaining);
+                if (freshMeat > 0) probe.FreshMeatUntil = committed + freshMeat;
                 probe.LastStep = replacement?.LastStep ?? committed;
                 probe.ShieldPool.SetMaximum(maximumEnergyShield,
                     refill: committedResources is null && resources is null && !legacyArrival);
@@ -434,6 +438,7 @@ public static partial class Game
                 player.Golems.RefreshAt = 0;
                 if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(player, probe, committed);
                 if (pools.Fatal) GolemDieLocked(player, probe, committed, emitLife: false);
+                else ReconcileGuardianBlessingLocked(player);
             });
         if (id == 0) return 0;
         if (!arrival && definition.Kind == "Flame" && definition.Special && !pools.Fatal)
@@ -444,7 +449,7 @@ public static partial class Game
         return id;
     }
 
-    static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now)
+    static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
     {
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
         player.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
@@ -460,6 +465,7 @@ public static partial class Game
                 Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
         }
         player.Golems.RefreshAt = 0;
+        if (reconcileBlessing) ReconcileGuardianBlessingLocked(player);
     }
 
     public static async Task GolemsTick(Player player, double now)
