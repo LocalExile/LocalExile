@@ -14,7 +14,7 @@ public class TownPortalExpiryTests
         Assert.False(AreaInstances.Gone(new() { Ok = false, Instances = [] }, 42));
         Assert.False(AreaInstances.Gone(new() { Ok = true }, 42));
 
-        var conn = SpellTotemExecutionTests.Connection("TownPortalArrival");
+        var conn = SpellTotemExecutionTests.PlayerOf("TownPortalArrival");
         var town = AreaLayouts.For(AreaTransitionCatalog.HashOf("1_2_town")!.Value, 1);
         conn.Use(town);
         var portal = PortalsFeature.TownPortalPosition(conn);

@@ -14,9 +14,9 @@ public sealed class SkillReviewRegressionTests
             ("support_cast_on_crit_spell_damage_+%_final", -19, 1d),
             ("support_cast_while_channelling_triggered_skill_damage_+%_final", -20, .8) })
         {
-            var rows = AilmentPanelStats.Compute(new("spell", true), raw, new(), name => name == stat ? percent : 0);
-            Assert.Contains(rows, p => p.Value > 0 && p.Stat.Contains("ignite"));
-            Assert.Contains(rows, p => p.Value > 0 && p.Stat.Contains("poison"));
+            var rows = AilmentPanelStats.Compute(new("spell", true), raw, new(), name => name == Stat.Of(stat) ? percent : 0);
+            Assert.Contains(rows, p => p.Value > 0 && Program.Stats.Name(p.Stat).Contains("ignite"));
+            Assert.Contains(rows, p => p.Value > 0 && Program.Stats.Name(p.Stat).Contains("poison"));
             foreach (var row in rows) Assert.Equal((int)Math.Round(baseline[row.Stat] * multiplier), row.Value);
         }
     }

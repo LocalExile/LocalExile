@@ -61,36 +61,38 @@ internal static class DeepwaterExtraction
     const string LootSpiralMarker = "Metadata/Terrain/Leagues/Deepwater/Objects/LootSpiralMarker";
     const string Sulphur = "Metadata/Items/Currency/CurrencyDeepwater";
 
-    static readonly Lazy<Dictionary<string, StateMachineData?>> States = new(() =>
+    static Dictionary<string, StateMachineData?> States = [];
+
+    public static void LoadGameData()
     {
         var shared = ObjectTypes.SharedStates();
         string[] types = [DeepwaterConstants.ExtractionObject, CollectionChest];
-        return ObjectTypes.All().Where(t => types.Contains(t.Type)).ToDictionary(t => t.Type, t => ObjectTypes.StateMachine(t.Row, shared));
-    });
+        States = ObjectTypes.All().Where(t => types.Contains(t.Type)).ToDictionary(t => t.Type, t => ObjectTypes.StateMachine(t.Row, shared));
+    }
 
     static QuestObjectTypes.Info? Info(string type) =>
-        QuestObjectTypes.Find(type) is { } info && QuestObject.CanSerialize(info.Components, States.Value.GetValueOrDefault(type) is not null) ? info : null;
+        QuestObjectTypes.Find(type) is { } info && QuestObject.CanSerialize(info.Components, States.GetValueOrDefault(type) is not null) ? info : null;
 
     // ---- the plan ----
 
     /// <summary>The run's start devices: the Bathysphere on the ground at cell 0's <c>bathysphere</c> point (H), and a
     /// Chart's backup capsule beside it, or a Voyage's entry capsule beside it and a capsule at every other cell's
     /// <c>bathysphere</c> point (G: both places; the wiki only says the entry capsule can only call the Bathysphere).</summary>
-    public static void Plan(ClientState conn, DeepwaterRun run, (int X, int Y) start, Action<string> log)
+    public static void Plan(Player player, DeepwaterRun run, (int X, int Y) start, Action<string> log)
     {
-        var devices = new List<Device> { new() { Kind = Kind.Bathysphere, Id = conn.TakeObjectId(), X = start.X, Y = start.Y, Landed = 2 } };
+        var devices = new List<Device> { new() { Kind = Kind.Bathysphere, Id = player.TakeObjectId(), X = start.X, Y = start.Y, Landed = 2 } };
         if (!run.Voyage)
         {
-            var at = conn.Layout.Near((start.X + BackupBeside, start.Y));
-            devices.Add(new() { Kind = Kind.Backup, Id = conn.TakeObjectId(), X = at.X, Y = at.Y });
+            var at = player.Layout.Near((start.X + BackupBeside, start.Y));
+            devices.Add(new() { Kind = Kind.Backup, Id = player.TakeObjectId(), X = at.X, Y = at.Y });
         }
         else
         {
-            var at = conn.Layout.Near((start.X + BackupBeside, start.Y));
-            devices.Add(new() { Kind = Kind.Capsule, Entry = true, Id = conn.TakeObjectId(), X = at.X, Y = at.Y });
+            var at = player.Layout.Near((start.X + BackupBeside, start.Y));
+            devices.Add(new() { Kind = Kind.Capsule, Entry = true, Id = player.TakeObjectId(), X = at.X, Y = at.Y });
             foreach (var cell in run.Board.Cells.Skip(1))
                 if (cell.Point("bathysphere") is { } p)
-                    devices.Add(new() { Kind = Kind.Capsule, Id = conn.TakeObjectId(), X = p.X, Y = p.Y });
+                    devices.Add(new() { Kind = Kind.Capsule, Id = player.TakeObjectId(), X = p.X, Y = p.Y });
         }
         lock (run.Gate) run.Devices.AddRange(devices);
         log($"Allflame extraction: Bathysphere at ({start.X}, {start.Y}), " + (run.Voyage
@@ -100,7 +102,7 @@ internal static class DeepwaterExtraction
     // ---- the objects ----
 
     /// <summary>Creates a device; <paramref name="stage"/> is a descending Bathysphere's current drop stage.</summary>
-    static async Task Create(ClientState conn, Device device, uint? stage)
+    static async Task Create(Player player, Device device, uint? stage)
     {
         if (Info(device.Type) is not { } info) return;
         var obj = new QuestObject(device.X, device.Y, info.Components, 0, null, null,
@@ -108,15 +110,15 @@ internal static class DeepwaterExtraction
         if (device.Kind == Kind.Bathysphere)
             obj = obj with
             {
-                StateMachine = States.Value.GetValueOrDefault(device.Type)?.Set("landed", device.Landed),
+                StateMachine = States.GetValueOrDefault(device.Type)?.Set("landed", device.Landed),
                 // A re-entry during the descent picks it up at the current stage.
                 Tasks = device.Landed == 0 && !device.Retired && stage is { } s ? [(DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, s))] : [],
             };
-        var player = PlayerOf(conn);
-        if (!await global::Game.SendWorldCreate(player, device.Id, InstanceEntities.CreateObject(device.Id, InstanceEntities.ObjectTypeHash(device.Type), obj.Blob()),
+        var modPlayer = PlayerOf(player);
+        if (!await global::Game.SendWorldCreate(modPlayer, device.Id, InstanceEntities.CreateObject(device.Id, InstanceEntities.ObjectTypeHash(device.Type), obj.Blob()),
             $"0x02bb Allflame {device.Name} 0x{device.Id:x} at ({device.X}, {device.Y}){(device.Kind == Kind.Bathysphere ? $" landed {device.Landed}" : device.Sent || device.Called ? " (gone)" : "")}"))
             return;
-        await global::Game.SendWorldRecord(player, device.Id, InstanceProtocol.EnterWakeZone(device.Id));
+        await global::Game.SendWorldRecord(modPlayer, device.Id, InstanceProtocol.EnterWakeZone(device.Id));
     }
 
     static byte[] DropTask(uint stages, uint stage)
@@ -132,87 +134,86 @@ internal static class DeepwaterExtraction
     static uint DropStage(double descentStart, double now) =>
         (uint)Math.Clamp(Math.Floor((now - descentStart) / (Descent / DropStages)), 0, DropStages - 1);
 
-    static async Task SendDropStage(ClientState conn, Device device, uint stage) =>
-        await global::Game.SendWorldRecord(PlayerOf(conn), device.Id, InstanceEntities.UpdateTask(device.Id, DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, stage)),
+    static async Task SendDropStage(Player player, Device device, uint stage) =>
+        await global::Game.SendWorldRecord(PlayerOf(player), device.Id, InstanceEntities.UpdateTask(device.Id, DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, stage)),
             $"0x02c3 Allflame Bathysphere 0x{device.Id:x} drop stage {stage}/{DropStages}");
 
     /// <summary>Creates the run's Bathyspheres and capsules on this connection as they are now, and the deck's
     /// CollectionChest once someone rode up.</summary>
-    public static async Task Show(ClientState conn, DeepwaterRun run)
+    public static async Task Show(Player player, DeepwaterRun run)
     {
         Device[] devices;
         uint? stage;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(player);
         lock (run.Gate)
         {
             devices = [.. run.Devices];
             stage = run.Phase == DeepwaterRun.RunPhase.Descending && run.LandAt > 0 ? DropStage(run.DescentStart, now) : null;
         }
-        foreach (var device in devices) await Create(conn, device, stage);
-        if (run.DeckChest != 0) await ShowDeckChest(conn, run);
+        foreach (var device in devices) await Create(player, device, stage);
+        if (run.DeckChest != 0) await ShowDeckChest(player, run);
     }
 
-    static async Task Transition(ClientState conn, Device device)
+    static async Task Transition(Player player, Device device)
     {
         if (Info(device.Type) is not { } info || QuestObject.TransitionableIndex(info.Components) is not (int t and >= 0)) return;
-        await global::Game.SendWorldRecord(PlayerOf(conn), device.Id, InstanceEntities.TransitionableUpdate(device.Id, (byte)t, (byte)info.States),
+        await global::Game.SendWorldRecord(PlayerOf(player), device.Id, InstanceEntities.TransitionableUpdate(device.Id, (byte)t, (byte)info.States),
             $"0x02bc Allflame {device.Kind} 0x{device.Id:x} takes off (Transitionable → {info.States})");
     }
 
-    static async Task SendLanded(ClientState conn, Device device)
+    static async Task SendLanded(Player player, Device device)
     {
-        if (Info(device.Type) is not { } info || States.Value.GetValueOrDefault(device.Type) is not { } states) return;
+        if (Info(device.Type) is not { } info || States.GetValueOrDefault(device.Type) is not { } states) return;
         int index = info.Components.ToList().IndexOf("StateMachine");
         if (index < 0) return;
-        await global::Game.SendWorldRecord(PlayerOf(conn), device.Id, InstanceEntities.StateMachineUpdate(device.Id, (byte)index, states.Set("landed", device.Landed)),
+        await global::Game.SendWorldRecord(PlayerOf(player), device.Id, InstanceEntities.StateMachineUpdate(device.Id, (byte)index, states.Set("landed", device.Landed)),
             $"0x02bc Allflame Bathysphere 0x{device.Id:x} landed = {device.Landed}");
     }
 
     /// <summary>The run's flags on an entry: the Bathysphere's gate (3562) while it can be used, the Voyage's defence
     /// (3572) while a called Bathysphere is coming or waiting; the deck's 3625 only after a ride up; the CollectionChest's
     /// 3547 while the collection (114) holds items, as it is a session flag the save drops (L: gone after an area change).</summary>
-    public static async Task SyncFlags(ClientState conn, DeepwaterRun run)
+    public static async Task SyncFlags(Player player, DeepwaterRun run)
     {
         bool extract = run.Phase == DeepwaterRun.RunPhase.Extractable || run.Phase == DeepwaterRun.RunPhase.Collapsing && !run.Voyage;
         bool defend = run.Phase is DeepwaterRun.RunPhase.Descending or DeepwaterRun.RunPhase.Extractable;
         var on = new List<string>();
         var off = new List<string>();
-        void Want(string flag, bool want) { if (conn.HasQuestFlag(flag) != want) (want ? on : off).Add(flag); }
+        void Want(string flag, bool want) { if (player.Character.HasQuestFlag(flag) != want) (want ? on : off).Add(flag); }
         Want(DeepwaterConstants.CanExtract, extract);
         Want(DeepwaterConstants.VoyageDefend, defend);
         if (run.Phase != DeepwaterRun.RunPhase.Ended) Want(DeepwaterConstants.InPseudoHub, false);
-        Want(DeepwaterConstants.StoredItems, ItemsOf(conn).Items(CollectionRow).Count > 0);
-        var (remote, stream, ciphers) = conn.Wire;
-        if (on.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, on);
-        if (off.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, off, on: false);
+        Want(DeepwaterConstants.StoredItems, ItemsOf(player).Items(CollectionRow).Count > 0);
+        if (on.Count > 0) await SetQuestFlags(player, on);
+        if (off.Count > 0) await SetQuestFlags(player, off, on: false);
     }
 
     // ---- use ----
 
     /// <summary>C→S 0x24 on a Bathysphere, capsule or the deck's CollectionChest of the run; false when the object is not
     /// one of these.</summary>
-    public static async Task<bool> Use(IModuleContext module, ClientState conn, DeepwaterRun run, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(IModuleContext module, Player player, DeepwaterRun run, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        var world = WorldOf(conn);
-        var player = PlayerOf(conn);
+        var world = WorldOf(player);
+        var modPlayer = PlayerOf(player);
         if (run.DeckChest != 0 && use.TargetId == run.DeckChest)
         {
-            if (DeckChestAt(conn) is { } chest && await world.WalkUpTo(chest.X, chest.Y, (Info(CollectionChest)?.Size ?? 1) + 2, requestedAt))
+            if (DeckChestAt(player) is { } chest && await world.WalkUpTo(chest.X, chest.Y, (Info(CollectionChest)?.Size ?? 1) + 2, requestedAt))
             {
-                conn.ModuleWindow = CollectionWindow;
-                await player.Send(InstanceWaypoints.OpenUi(CollectionUi, run.DeckChest), $"0x007b open CollectionInventory (kind 0x{CollectionUi:x2}, inventory 114) at the CollectionChest 0x{run.DeckChest:x} (G)");
+                player.ModuleWindow = CollectionWindow;
+                await modPlayer.Send(InstanceWaypoints.OpenUi(CollectionUi, run.DeckChest), $"0x007b open CollectionInventory (kind 0x{CollectionUi:x2}, inventory 114) at the CollectionChest 0x{run.DeckChest:x} (G)");
             }
             return true;
         }
         Device? device;
         lock (run.Gate) device = run.Devices.FirstOrDefault(d => d.Id == use.TargetId);
         if (device is null) return false;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(player);
         string? why = null;
         if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
-        else if (conn.PlayerLife == 0) why = "dead";
+        else if (player.PlayerLife == 0) why = "dead";
         else if (device.Retired) why = "a Voyage leaves by the called Bathysphere";
-        else if (device.Kind == Kind.Bathysphere && (!conn.HasQuestFlag(DeepwaterConstants.CanExtract) || device.Landed == 0))
+        else if (device.Kind == Kind.Bathysphere && (!player.Character.HasQuestFlag(DeepwaterConstants.CanExtract) || device.Landed == 0))
             why = device.Landed == 0 ? "still descending" : "not DeepwaterCanExtract";
         // A Voyage leaves only by the Bathysphere it called (the wiki: calling "moves the Bathysphere there"); the start
         // one at cell 0 stays as scenery (G: the client may still show it as usable).
@@ -221,24 +222,24 @@ internal static class DeepwaterExtraction
         else if (device.Kind != Kind.Bathysphere && !run.InLight((device.X, device.Y), now)) why = "not within Lanternlight";
         if (why is not null)
         {
-            module.Log($"{player.Character} <= 0x0024 Allflame {device.Name} 0x{device.Id:x} refused: {why}");
-            await DeepwaterLoot.EndAction(conn);
+            module.Log($"{modPlayer.Character} <= 0x0024 Allflame {device.Name} 0x{device.Id:x} refused: {why}");
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
         int reach = (Info(device.Type)?.Size ?? 1) + 2;
         if (!await world.WalkUpTo(device.X, device.Y, reach, requestedAt)) return true;
-        double arrivedAt = conn.Clock.Elapsed.TotalSeconds;
-        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || run.Phase == DeepwaterRun.RunPhase.Ended
+        double arrivedAt = AreaTime(player);
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || run.Phase == DeepwaterRun.RunPhase.Ended
             || (device.Kind != Kind.Bathysphere && (device.Sent || device.Called || !run.InLight((device.X, device.Y), arrivedAt))))
         {
-            await DeepwaterLoot.EndAction(conn);
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
         switch (device.Kind)
         {
             case Kind.Bathysphere:
-                module.Log($"{player.Character} <= 0x0024 Allflame Bathysphere 0x{device.Id:x}: ride up");
-                await End(module, conn, run, backup: false);
+                module.Log($"{modPlayer.Character} <= 0x0024 Allflame Bathysphere 0x{device.Id:x}: ride up");
+                await End(module, player, run, backup: false);
                 break;
             case Kind.Backup:
                 lock (run.Gate)
@@ -246,14 +247,14 @@ internal static class DeepwaterExtraction
                     if (device.Called) return true;
                     device.Called = true;
                 }
-                module.Log($"{player.Character} <= 0x0024 Allflame backup capsule 0x{device.Id:x}: an early exit, a failure");
-                foreach (var member in DeepwaterLoot.Members(conn)) await Transition(member, device);
-                await End(module, conn, run, backup: true);
+                module.Log($"{modPlayer.Character} <= 0x0024 Allflame backup capsule 0x{device.Id:x}: an early exit, a failure");
+                foreach (var member in DeepwaterLoot.Members(player)) await Transition(member, device);
+                await End(module, player, run, backup: true);
                 break;
             default:
-                lock (run.Gate) run.OpenCapsule[player.Character] = device.Id;
-                conn.ModuleWindow = CapsuleWindow;
-                await player.Send(InstanceWaypoints.OpenUi(CapsuleUi, device.Id),
+                lock (run.Gate) run.OpenCapsule[modPlayer.Character] = device.Id;
+                player.ModuleWindow = CapsuleWindow;
+                await modPlayer.Send(InstanceWaypoints.OpenUi(CapsuleUi, device.Id),
                     $"0x007b open ExtractionInventory (kind 0x{CapsuleUi:x2}, inventory 113) for {device.Name} 0x{device.Id:x} (G: the u32 is the capsule)");
                 break;
         }
@@ -262,33 +263,33 @@ internal static class DeepwaterExtraction
 
     /// <summary>Why the held item may not go into inventory 113: only a Dredge item (the client's own gate, the item's
     /// contraband flag) through an open capsule window of a running run.</summary>
-    public static string? CapsuleRefusal(ClientState conn, DeepwaterRun? run, byte row, Item item)
+    public static string? CapsuleRefusal(Player player, DeepwaterRun? run, byte row, Item item)
     {
         if (row != CapsuleRow) return null;
         if (run is null || run.Phase == DeepwaterRun.RunPhase.Ended) return "no Allflame run here";
-        if (!DredgeItem(conn, item)) return "only Dredge items go into a capsule";
-        lock (run.Gate) return run.OpenCapsule.ContainsKey(CharacterName(conn)) && conn.ModuleWindow == CapsuleWindow ? null : "no capsule window is open";
+        if (!DredgeItem(player, item)) return "only Dredge items go into a capsule";
+        lock (run.Gate) return run.OpenCapsule.ContainsKey(CharacterName(player)) && player.ModuleWindow == CapsuleWindow ? null : "no capsule window is open";
     }
 
     /// <summary>The held item carries the Dredge flag (includes stacks split via 0x7c).</summary>
-    static bool DredgeItem(ClientState conn, Item item) =>
-        DeepwaterDredge.Dredged(item) && ItemsOf(conn).Items(PlayerInventories.Cursor).Any(i => ReferenceEquals(i.Item, item) || i.Item == item);
+    static bool DredgeItem(Player player, Item item) =>
+        DeepwaterDredge.Dredged(item) && ItemsOf(player).Items(PlayerInventories.Cursor).Any(i => ReferenceEquals(i.Item, item) || i.Item == item);
 
     /// <summary>Why a Dredge item may not go into this row: the client keeps a contraband item out of every inventory but
     /// the main and expanded ones (InventoryIdKey 0) and the capsule's (0x41) (0x141d65f80); the server mirrors it (G: the
     /// exact rows, by Inventories row), also for an item picked up but not marked yet.</summary>
-    public static string? DredgeRefusal(ClientState conn, byte row, Item item) =>
+    public static string? DredgeRefusal(Player player, byte row, Item item) =>
         row is PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory or CapsuleRow
-            || !DeepwaterDredge.Dredged(item) && !DeepwaterDredge.Unmarked(conn, item)
+            || !DeepwaterDredge.Dredged(item) && !DeepwaterDredge.Unmarked(player, item)
             ? null : "a Dredge item goes only into the main inventory or a capsule";
 
     /// <summary>C→S 0x0112, Ctrl + click with the capsule window open: an item from the main (or expanded) inventory into
     /// the first free cell of 113, or one from 113 to the first free cell of the main inventory. The client waits for
     /// nothing but the two 0xbf (B2 of the step's research), so a refusal is only logged.</summary>
-    public static async Task QuickMove(IModuleContext module, ClientState conn, DeepwaterRun run, InstanceItems.LeagueWindowMove move)
+    public static async Task QuickMove(IModuleContext module, Player player, DeepwaterRun run, InstanceItems.LeagueWindowMove move)
     {
-        var player = PlayerOf(conn);
-        var items = ItemsOf(conn);
+        var modPlayer = PlayerOf(player);
+        var items = ItemsOf(player);
         byte from = move.Into ? move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory : CapsuleRow;
         byte to = move.Into ? CapsuleRow : PlayerInventories.MainInventory;
         string what = $"0x0112 Ctrl + click item {move.ItemId} {(move.Into ? "into" : "out of")} the capsule";
@@ -296,19 +297,19 @@ internal static class DeepwaterExtraction
         string? why = null;
         if (it is null) why = $"not in row {from}";
         else if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
-        else if (OpenCapsuleOf(conn, run) is null || conn.ModuleWindow != CapsuleWindow) why = "no capsule window is open";
+        else if (OpenCapsuleOf(player, run) is null || player.ModuleWindow != CapsuleWindow) why = "no capsule window is open";
         else if (move.Into && !DeepwaterDredge.Dredged(it.Item)) why = "only Dredge items go into a capsule";
-        if (why is null && await Move(conn, it!, from, to) is { } placed)
-            module.Log($"{player.Character} <= {what}: row {from} → row {to} at ({placed.X}, {placed.Y})");
+        if (why is null && await Move(player, it!, from, to) is { } placed)
+            module.Log($"{modPlayer.Character} <= {what}: row {from} → row {to} at ({placed.X}, {placed.Y})");
         else
-            module.Log($"{player.Character} <= {what}: refused ({why ?? $"no room in row {to}, or it moved"})");
+            module.Log($"{modPlayer.Character} <= {what}: refused ({why ?? $"no room in row {to}, or it moved"})");
     }
 
     /// <summary>Moves an item to the first free cell of <paramref name="to"/> and sends the two 0xbf (remove, add); null
     /// when it does not fit or is no longer in <paramref name="from"/>.</summary>
-    static async Task<InventoryItem?> Move(ClientState conn, InventoryItem it, byte from, byte to)
+    static async Task<InventoryItem?> Move(Player player, InventoryItem it, byte from, byte to)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var shape = ShapeOf(it.Item) ?? new(1, 1, "");
         if (items.FreeCell(to, shape.Width, shape.Height, ShapeOf) is not { } cell) return null;
         InventoryItem? placed = null;
@@ -317,10 +318,10 @@ internal static class DeepwaterExtraction
             if (items.Remove(from, it.Id) is { } taken) placed = items.Put(to, taken with { X = cell.X, Y = cell.Y });
         });
         if (placed is null) return null;
-        var player = PlayerOf(conn);
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from), [placed.Id], []),
+        var modPlayer = PlayerOf(player);
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from), [placed.Id], []),
             $"0x00bf inventory {PlayerInventories.InventoryId(from)}: remove item {placed.Id}");
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [placed]),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [placed]),
             $"0x00bf inventory {PlayerInventories.InventoryId(to)}: add item {placed.Id} at ({placed.X}, {placed.Y})");
         return placed;
     }
@@ -331,53 +332,50 @@ internal static class DeepwaterExtraction
     /// fits, out of the collection into the main inventory, the client waiting for the 0xbf pairs as for 0x0112. Then the
     /// CollectionChest's flag 3547 and model follow the count (G: the real server's order and a full inventory's answer
     /// are unknown; what does not fit stays).</summary>
-    public static async Task TakeFromCollection(IModuleContext module, ClientState conn, uint? itemId, bool requireWindow = true)
+    public static async Task TakeFromCollection(IModuleContext module, Player player, uint? itemId, bool requireWindow = true)
     {
-        var player = PlayerOf(conn);
-        var items = ItemsOf(conn);
+        var modPlayer = PlayerOf(player);
+        var items = ItemsOf(player);
         string what = itemId is { } one ? $"0x0113 Ctrl + click item {one} out of the collection" : "ruleset DeepwaterHubRules TakeAllLoot";
-        if (requireWindow && conn.ModuleWindow != CollectionWindow)
+        if (requireWindow && player.ModuleWindow != CollectionWindow)
         {
-            module.Log($"{player.Character} <= {what}: refused (no Loot window is open)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (no Loot window is open)");
             return;
         }
         var wanted = items.Items(CollectionRow).Where(i => itemId is null || i.Id == itemId).ToList();
         int taken = 0;
         foreach (var it in wanted)
-            if (await Move(conn, it, CollectionRow, PlayerInventories.MainInventory) is not null) taken++;
-        module.Log($"{player.Character} <= {what}: {taken} of {wanted.Count} taken to the main inventory");
+            if (await Move(player, it, CollectionRow, PlayerInventories.MainInventory) is not null) taken++;
+        module.Log($"{modPlayer.Character} <= {what}: {taken} of {wanted.Count} taken to the main inventory");
         if (taken == 0) return;
         if (items.Items(CollectionRow).Count == 0)
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.StoredItems], on: false);
-        }
-        await SendCount(conn);
+            await SetQuestFlags(player, [DeepwaterConstants.StoredItems], on: false);
+        await SendCount(player);
     }
 
     // ---- the capsule's buttons ----
 
-    static Device? OpenCapsuleOf(ClientState conn, DeepwaterRun run)
+    static Device? OpenCapsuleOf(Player player, DeepwaterRun run)
     {
         lock (run.Gate)
-            return run.OpenCapsule.TryGetValue(CharacterName(conn), out uint id) ? run.Devices.FirstOrDefault(d => d.Id == id && d.Kind == Kind.Capsule) : null;
+            return run.OpenCapsule.TryGetValue(CharacterName(player), out uint id) ? run.Devices.FirstOrDefault(d => d.Id == id && d.Kind == Kind.Capsule) : null;
     }
 
     /// <summary>Ruleset op 2, Send to Surface: the capsule's items (113) go to the character's collection (114, saved with
     /// the character), the capsule takes off, QuestFlags 3547 is set, the window closes (mode 7) and the deck's count
     /// follows (mode 4). Needs IsMapOwner, a filled 113, an unsent capsule other than the entry one and another unsent one
     /// left, the entry one counting (G: "the final Capsule" of ClientStrings 8441). Returns the ids moved.</summary>
-    public static async Task<IReadOnlyList<uint>> SendToSurface(IModuleContext module, ClientState conn, DeepwaterRun run)
+    public static async Task<IReadOnlyList<uint>> SendToSurface(IModuleContext module, Player player, DeepwaterRun run)
     {
-        var player = PlayerOf(conn);
-        var items = ItemsOf(conn);
-        var capsule = OpenCapsuleOf(conn, run);
+        var modPlayer = PlayerOf(player);
+        var items = ItemsOf(player);
+        var capsule = OpenCapsuleOf(player, run);
         string? why = null;
         if (capsule is null) why = "no capsule window open";
         // G: the client still enables the button there; the real server's answer is unknown.
         else if (capsule.Entry) why = "the entry capsule can only call the Bathysphere";
         else if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
-        else if (!conn.HasQuestFlag(DeepwaterConstants.MapOwner)) why = "not IsMapOwner";
+        else if (!player.Character.HasQuestFlag(DeepwaterConstants.MapOwner)) why = "not IsMapOwner";
         else if (items.Items(CapsuleRow).Count == 0) why = "the capsule is empty";
         // All or nothing: a capsule that took off with items left behind would leave them to a failure (G: the real
         // server's answer to a full collection is unknown; ClientStrings has no line for it that is known).
@@ -391,13 +389,13 @@ internal static class DeepwaterExtraction
             }
         if (why is not null)
         {
-            module.Log($"{player.Character} <= 0x02ca DeepwaterRules SendItemsToSurface refused: {why}");
+            module.Log($"{modPlayer.Character} <= 0x02ca DeepwaterRules SendItemsToSurface refused: {why}");
             // The client closed its window after sending op 2; the server's window state follows. G: the entry capsule's
             // refusal gets a chat line (the real server's answer is unknown), as its items stay in 113 out of sight and
             // block Call Bathysphere until taken out.
-            if (capsule is not null) await CloseWindow(conn, run);
+            if (capsule is not null) await CloseWindow(player, run);
             if (capsule is { Entry: true })
-                await player.Send(InstanceChat.ChatLine("This capsule can only call the Bathysphere. Take the items out of it first."),
+                await modPlayer.Send(InstanceChat.ChatLine("This capsule can only call the Bathysphere. Take the items out of it first."),
                     "0x0017 chat line: the entry capsule cannot send to the surface (G)");
             return [];
         }
@@ -421,22 +419,21 @@ internal static class DeepwaterExtraction
             }
         });
         if (removed.Count > 0)
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CapsuleRow), items.NextRevision(CapsuleRow), removed, []),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CapsuleRow), items.NextRevision(CapsuleRow), removed, []),
                 $"0x00bf inventory 113: {removed.Count} items sent to the surface");
         if (moved.Count > 0)
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CollectionRow), items.NextRevision(CollectionRow), [], moved),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CollectionRow), items.NextRevision(CollectionRow), [], moved),
                 $"0x00bf inventory 114: {moved.Count} items arrive");
-        DeepwaterDredge.Untrack(conn, removed);
-        var (remote, stream, ciphers) = conn.Wire;
-        await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.StoredItems]);
-        await CloseWindow(conn, run);
-        await SendCount(conn);
-        AfterWindow(module, conn, "the capsule's take-off", async () =>
+        DeepwaterDredge.Untrack(player, removed);
+        await SetQuestFlags(player, [DeepwaterConstants.StoredItems]);
+        await CloseWindow(player, run);
+        await SendCount(player);
+        AfterWindow(module, player, "the capsule's take-off", async () =>
         {
-            foreach (var member in DeepwaterLoot.Members(conn)) await Transition(member, capsule!);
+            foreach (var member in DeepwaterLoot.Members(player)) await Transition(member, capsule!);
         });
         int stayed = items.Items(CapsuleRow).Count;
-        module.Log($"{player.Character} <= 0x02ca DeepwaterRules SendItemsToSurface: capsule 0x{capsule!.Id:x} sent {moved.Count} items to inventory 114"
+        module.Log($"{modPlayer.Character} <= 0x02ca DeepwaterRules SendItemsToSurface: capsule 0x{capsule!.Id:x} sent {moved.Count} items to inventory 114"
             + (stayed > 0 ? $" ({stayed} did not fit and stay)" : ""));
         return removed;
     }
@@ -464,16 +461,16 @@ internal static class DeepwaterExtraction
     /// <summary>Ruleset op 3, Call Bathysphere (also the HUD's leave button): at an open, unsent capsule of a Voyage (the
     /// entry one too) with an empty 113. The capsule takes off, a Bathysphere descends there (<c>landed</c> 0, task 0x2387) for 30 s, the
     /// lanterns of the other cells collapse and the swarm starts; then it lands (<c>landed</c> 1) and can be used.</summary>
-    public static async Task CallBathysphere(IModuleContext module, ClientState conn, DeepwaterRun run)
+    public static async Task CallBathysphere(IModuleContext module, Player player, DeepwaterRun run)
     {
-        var player = PlayerOf(conn);
-        var capsule = OpenCapsuleOf(conn, run);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        var modPlayer = PlayerOf(player);
+        var capsule = OpenCapsuleOf(player, run);
+        double now = AreaTime(player);
         string? why = null;
         Device? bathysphere = null, start = null;
         if (!run.Voyage) why = "a Chart leaves by its Bathysphere or the backup capsule (G)";
         else if (capsule is null) why = "no capsule window open";
-        else if (ItemsOf(conn).Items(CapsuleRow).Count > 0) why = "the capsule holds items";
+        else if (ItemsOf(player).Items(CapsuleRow).Count > 0) why = "the capsule holds items";
         else
             lock (run.Gate)
             {
@@ -486,7 +483,7 @@ internal static class DeepwaterExtraction
                     run.LandAt = now + Descent;
                     run.DescentStart = now;
                     run.DropStage = 0;
-                    bathysphere = new Device { Kind = Kind.Bathysphere, Id = conn.TakeObjectId(), X = capsule.X, Y = capsule.Y, Landed = 0 };
+                    bathysphere = new Device { Kind = Kind.Bathysphere, Id = player.TakeObjectId(), X = capsule.X, Y = capsule.Y, Landed = 0 };
                     run.Devices.Add(bathysphere);
                     start = run.Devices.FirstOrDefault(d => d.Kind == Kind.Bathysphere && d.Landed == 2);
                     if (start is not null) (start.Retired, start.Landed) = (true, 0);
@@ -494,24 +491,23 @@ internal static class DeepwaterExtraction
             }
         if (why is not null || bathysphere is null)
         {
-            module.Log($"{player.Character} <= 0x02ca DeepwaterRules RequestExtraction refused: {why}");
+            module.Log($"{modPlayer.Character} <= 0x02ca DeepwaterRules RequestExtraction refused: {why}");
             return;
         }
-        module.Log($"{player.Character} <= 0x02ca DeepwaterRules RequestExtraction: {capsule!.Name} 0x{capsule.Id:x} calls the Bathysphere 0x{bathysphere.Id:x}, {Descent:0} s");
-        await CloseWindow(conn, run);
-        AfterWindow(module, conn, "the Bathysphere call", async () =>
+        module.Log($"{modPlayer.Character} <= 0x02ca DeepwaterRules RequestExtraction: {capsule!.Name} 0x{capsule.Id:x} calls the Bathysphere 0x{bathysphere.Id:x}, {Descent:0} s");
+        await CloseWindow(player, run);
+        AfterWindow(module, player, "the Bathysphere call", async () =>
         {
-            foreach (var member in DeepwaterLoot.Members(conn))
+            foreach (var member in DeepwaterLoot.Members(player))
             {
                 await Transition(member, capsule);
                 await Create(member, bathysphere, 0);
                 if (start is not null) await SendLanded(member, start);
-                var (remote, stream, ciphers) = member.Wire;
-                await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.VoyageDefend]);
+                await SetQuestFlags(member, [DeepwaterConstants.VoyageDefend]);
             }
             // The light at the capsule holds (G: the lanterns of its cell and any lighting it); the others collapse.
             var cell = run.Board.CellAt((capsule.X, capsule.Y));
-            await DeepwaterCollapse.Start(module, conn, run, l =>
+            await DeepwaterCollapse.Start(module, player, run, l =>
             {
                 long dx = l.X - capsule.X, dy = l.Y - capsule.Y;
                 return !(cell is not null && cell.Contains((l.X, l.Y)) || dx * dx + dy * dy <= (long)DeepwaterConstants.BaseLanternRadius * DeepwaterConstants.BaseLanternRadius);
@@ -525,49 +521,49 @@ internal static class DeepwaterExtraction
     /// them from the handler hung the connection). A caller who leaves before the pause ends skips the body for everyone:
     /// leaving fails the run for all its players (GameEvents.PlayerLeaving, <see cref="Fail"/>), and the per-tick work
     /// stops at the ended run, so nothing is left half done.</summary>
-    static void AfterWindow(IModuleContext module, ClientState conn, string what, Func<Task> body)
+    static void AfterWindow(IModuleContext module, Player player, string what, Func<Task> body)
     {
-        var instance = conn.Instance;
+        var instance = player.Instance;
         _ = Task.Run(async () =>
         {
             try
             {
-                await global::Program.WhilePaused(conn);
-                if (!conn.Closed && !conn.LeavingArea && conn.Instance == instance) await body();
+                await global::Program.WhilePaused(player);
+                if (!player.Closed && !player.LeavingArea && player.Instance == instance) await body();
             }
-            catch (Exception ex) { module.Log($"{CharacterName(conn)}: {what} failed: {ex.Message}"); }
+            catch (Exception ex) { module.Log($"{CharacterName(player)}: {what} failed: {ex.Message}"); }
         });
     }
 
-    static async Task CloseWindow(ClientState conn, DeepwaterRun run)
+    static async Task CloseWindow(Player player, DeepwaterRun run)
     {
-        lock (run.Gate) run.OpenCapsule.Remove(CharacterName(conn));
-        if (conn.ModuleWindow == CapsuleWindow) conn.ModuleWindow = null;
+        lock (run.Gate) run.OpenCapsule.Remove(CharacterName(player));
+        if (player.ModuleWindow == CapsuleWindow) player.ModuleWindow = null;
         if (DeepwaterRuleset.CloseCapsule() is { } close)
-            await PlayerOf(conn).Send(close, "0x02c9 ruleset DeepwaterRules mode 7: close the capsule window");
+            await PlayerOf(player).Send(close, "0x02c9 ruleset DeepwaterRules mode 7: close the capsule window");
     }
 
-    static async Task SendCount(ClientState conn)
+    static async Task SendCount(Player player)
     {
-        int count = ItemsOf(conn).Items(CollectionRow).Count;
+        int count = ItemsOf(player).Items(CollectionRow).Count;
         if (DeepwaterRuleset.CollectionCount((uint)count) is { } message)
-            await PlayerOf(conn).Send(message, $"0x02c9 ruleset DeepwaterRules mode 4: collection {count} items");
+            await PlayerOf(player).Send(message, $"0x02c9 ruleset DeepwaterRules mode 4: collection {count} items");
     }
 
     // ---- per tick ----
 
     /// <summary>One tick: a dead player ends the run (a failure); a called Bathysphere goes down a stage at a time and
     /// lands after its descent.</summary>
-    public static async Task Tick(IModuleContext module, ClientState conn, DeepwaterRun run, Func<ClientState, string, Task> failed)
+    public static async Task Tick(IModuleContext module, Player player, DeepwaterRun run, Func<Player, string, Task> failed)
     {
-        if (run.Phase == DeepwaterRun.RunPhase.Ended || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
-        if (conn.PlayerLife == 0)
+        if (run.Phase == DeepwaterRun.RunPhase.Ended || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        if (player.PlayerLife == 0)
         {
-            await failed(conn, "died");
+            await failed(player, "died");
             return;
         }
         if (run.Phase != DeepwaterRun.RunPhase.Descending) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(player);
         Device? landed = null, lower = null;
         uint stage = 0;
         lock (run.Gate)
@@ -589,18 +585,17 @@ internal static class DeepwaterExtraction
             }
         if (lower is not null)
         {
-            foreach (var member in DeepwaterLoot.Members(conn)) await SendDropStage(member, lower, stage);
+            foreach (var member in DeepwaterLoot.Members(player)) await SendDropStage(member, lower, stage);
             return;
         }
         if (landed is null) return;
-        module.Log($"{CharacterName(conn)}: Allflame Bathysphere 0x{landed.Id:x} landed at ({landed.X}, {landed.Y})");
+        module.Log($"{CharacterName(player)}: Allflame Bathysphere 0x{landed.Id:x} landed at ({landed.X}, {landed.Y})");
         // M: whether Targetable re-reads its required quest flag on a flag change is untraced, so the flag goes first and
         // landed = 1 (which refreshes it) last. The stage past the last plays land_01 and ends the task.
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
-            var (remote, stream, ciphers) = member.Wire;
             // With the tracker's "extract" (QuestFlags 3573) in a Voyage from the deck (G: the trigger).
-            await SetQuestFlags(remote, stream, ciphers, member, run is { Voyage: true, Plan: not null }
+            await SetQuestFlags(member, run is { Voyage: true, Plan: not null }
                 ? [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageReturn] : [DeepwaterConstants.CanExtract]);
             await SendDropStage(member, landed, DropStages);
             await SendLanded(member, landed);
@@ -615,7 +610,7 @@ internal static class DeepwaterExtraction
     /// lanterns all placed or a Voyage's called Bathysphere, and a quarter of the possible Sulphur (G); the backup capsule
     /// is a failure. Without a deck point the players travel to The Sovereign and the Sulphur goes to the inventory.
     /// Returns the members who rode up.</summary>
-    public static async Task<IReadOnlyList<ClientState>> End(IModuleContext module, ClientState conn, DeepwaterRun run, bool backup)
+    public static async Task<IReadOnlyList<Player>> End(IModuleContext module, Player player, DeepwaterRun run, bool backup)
     {
         int sulphur, cap;
         bool success;
@@ -631,40 +626,36 @@ internal static class DeepwaterExtraction
             run.Outcome = success ? "success" : backup ? "failure: the backup capsule" : !done ? "failure: not finished" : $"failure: {sulphur}/{cap} Sulphur";
             run.OpenCapsule.Clear();
         }
-        var members = DeepwaterLoot.Members(conn).ToList();
-        module.Log($"{CharacterName(conn)}: Allflame {(run.Voyage ? "Voyage" : "Chart")} ends by the {(backup ? "backup capsule" : "Bathysphere")}: {run.Outcome}, {sulphur} Sulphur, {members.Count} players ride up");
+        var members = DeepwaterLoot.Members(player).ToList();
+        module.Log($"{CharacterName(player)}: Allflame {(run.Voyage ? "Voyage" : "Chart")} ends by the {(backup ? "backup capsule" : "Bathysphere")}: {run.Outcome}, {sulphur} Sulphur, {members.Count} players ride up");
         var deck = run.Board.DeckDefault;
-        if (deck is not null && run.DeckChest == 0 && DeckChestAt(conn) is not null) run.DeckChest = conn.TakeObjectId();
+        if (deck is not null && run.DeckChest == 0 && DeckChestAt(player) is not null) run.DeckChest = player.TakeObjectId();
         for (int i = 0; i < members.Count; i++)
         {
             var member = members[i];
-            var (remote, stream, ciphers) = member.Wire;
             await Leftovers(module, member);
             await DeepwaterDredge.Clear(module, member);
-            await SetQuestFlags(remote, stream, ciphers, member,
+            await SetQuestFlags(member,
                 [DeepwaterConstants.CanExtract, DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner, DeepwaterConstants.VoyageDefend,
-                    .. DeepwaterConstants.TutorialRunFlags.Where(member.HasQuestFlag)], on: false);
+                    .. DeepwaterConstants.TutorialRunFlags.Where(member.Character.HasQuestFlag)], on: false);
             if (deck is not { } at)
             {
                 module.Log($"{CharacterName(member)}: the deck has no default point; travelling to The Sovereign");
-                if (member == conn) await Receive(conn, sulphur);
+                if (member == player) await Receive(player, sulphur);
                 await WorldOf(member).TravelTo(DeepwaterModule.HubId, "Allflame extraction (no deck)");
                 continue;
             }
-            await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.InPseudoHub]);
+            await SetQuestFlags(member, [DeepwaterConstants.InPseudoHub]);
             var to = member.Layout.Near((at.X + 4 * i, at.Y));
-            lock (member.Monsters)
-            {
-                Interlocked.Increment(ref member.ActionCount);
-                member.Walk.Teleport(to.X, to.Y, member.Clock.Elapsed.TotalSeconds);
-            }
-            await global::Game.SendWorldRecord(PlayerOf(member), PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y),
+            Interlocked.Increment(ref member.ActionCount);
+            member.Walk.Teleport(to.X, to.Y, AreaTime(member));
+            await global::Game.SendWorldRecord(member, member.Id, InstanceProtocol.Teleport(member.Id, to.X, to.Y),
                 $"player rides the Bathysphere up to the deck ({to.X}, {to.Y})");
             await SendEnd(member, success);
             if (run.DeckChest != 0) await ShowDeckChest(member, run);
             await SendCount(member);
         }
-        if (deck is not null && sulphur > 0 && members.Contains(conn)) await DropSulphur(module, conn, sulphur);
+        if (deck is not null && sulphur > 0 && members.Contains(player)) await DropSulphur(module, player, sulphur);
         if (run.OnEnd is { } ended) await ended(members, success);
         return members;
     }
@@ -672,14 +663,14 @@ internal static class DeepwaterExtraction
     /// <summary>At a ride up, what is still in the capsule grid (113) goes up with the player, unmarked: into the
     /// collection (114), or the main inventory when that is full; what fits nowhere stays in 113 (G: the wiki does not
     /// say; left there it would be a plain item in a grid the client keeps for contraband).</summary>
-    static async Task Leftovers(IModuleContext module, ClientState conn)
+    static async Task Leftovers(IModuleContext module, Player player)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var left = items.Items(CapsuleRow).ToList();
         if (left.Count == 0) return;
         int collected = 0, carried = 0;
         var moved = new List<uint>(left.Count);
-        bool expanded = ExpandedInventoryGranted(conn);
+        bool expanded = ExpandedInventoryGranted(player);
         foreach (var it in left)
         {
             var plain = it with { Item = it.Item with { HeaderFlags = (ushort)(it.Item.HeaderFlags & ~DeepwaterDredge.DredgeFlags) } };
@@ -702,36 +693,33 @@ internal static class DeepwaterExtraction
             });
             if (placed is null) continue;
             moved.Add(it.Id);
-            if (conn.Closed || conn.LeavingArea) continue;
-            await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CapsuleRow), items.NextRevision(CapsuleRow), [it.Id], []),
+            if (player.Closed || player.LeavingArea) continue;
+            await PlayerOf(player).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CapsuleRow), items.NextRevision(CapsuleRow), [it.Id], []),
                 $"0x00bf inventory 113: remove item {it.Id} (ride up)");
-            await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
+            await PlayerOf(player).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row)}: add item {placed.Id} from the capsule (ride up)");
         }
-        DeepwaterDredge.Untrack(conn, moved);
+        DeepwaterDredge.Untrack(player, moved);
         if (collected > 0)
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.StoredItems]);
-        }
-        module.Log($"{CharacterName(conn)}: ride up with {left.Count} items in the capsule: {collected} to the collection, {carried} to the inventory (G)");
+            await SetQuestFlags(player, [DeepwaterConstants.StoredItems]);
+        module.Log($"{CharacterName(player)}: ride up with {left.Count} items in the capsule: {collected} to the collection, {carried} to the inventory (G)");
     }
 
-    static async Task SendEnd(ClientState conn, bool success)
+    static async Task SendEnd(Player player, bool success)
     {
-        var player = PlayerOf(conn);
-        await player.Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Deepwater),
+        var modPlayer = PlayerOf(player);
+        await modPlayer.Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Deepwater),
             "0x0163 hide mission timer Deepwater (the run is over)");
-        if (DeepwaterRuleset.Collapse(3) is { } hide) await player.Send(hide, "0x02c9 ruleset DeepwaterRules mode 3: 3 (the run is over)");
+        if (DeepwaterRuleset.Collapse(3) is { } hide) await modPlayer.Send(hide, "0x02c9 ruleset DeepwaterRules mode 3: 3 (the run is over)");
         if ((success ? DeepwaterRuleset.Success() : DeepwaterRuleset.Failure()) is { } line)
-            await player.Send(line, $"0x02c9 ruleset DeepwaterRules mode {(success ? 5 : 6)}: {(success ? "success" : "failure")}");
+            await modPlayer.Send(line, $"0x02c9 ruleset DeepwaterRules mode {(success ? 5 : 6)}: {(success ? "success" : "failure")}");
     }
 
     /// <summary>A failed run (a death, drowning, leaving another way): the run ends for everyone in it, its Sulphur is
     /// lost, the capsule's leftovers (113) and the Dredge are removed (G: for every player in it) and the fail line plays
     /// for those still here. The flags are
     /// put right at the next entry (StartRun). Returns the players it ended for.</summary>
-    public static async Task<IReadOnlyList<ClientState>> Fail(IModuleContext module, ClientState conn, DeepwaterRun run, string reason)
+    public static async Task<IReadOnlyList<Player>> Fail(IModuleContext module, Player player, DeepwaterRun run, string reason)
     {
         lock (run.Gate)
         {
@@ -743,8 +731,8 @@ internal static class DeepwaterExtraction
             run.Failed = true;
             run.OpenCapsule.Clear();
         }
-        var members = DeepwaterLoot.Members(conn).Append(conn).Distinct().ToList();
-        module.Log($"{CharacterName(conn)}: Allflame {(run.Voyage ? "Voyage" : "Chart")} {run.Outcome}");
+        var members = DeepwaterLoot.Members(player).Append(player).Distinct().ToList();
+        module.Log($"{CharacterName(player)}: Allflame {(run.Voyage ? "Voyage" : "Chart")} {run.Outcome}");
         foreach (var member in members)
         {
             bool live = !member.Closed && !member.LeavingArea;
@@ -758,9 +746,8 @@ internal static class DeepwaterExtraction
                 await PlayerOf(member).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CapsuleRow), items.NextRevision(CapsuleRow), removed, []),
                     $"0x00bf inventory 113: {removed.Count} items lost");
             if (member.ModuleWindow == CapsuleWindow) member.ModuleWindow = null;
-            var (remote, stream, ciphers) = member.Wire;
-            await SetQuestFlags(remote, stream, ciphers, member,
-                [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageDefend, .. DeepwaterConstants.TutorialRunFlags.Where(member.HasQuestFlag)], on: false);
+            await SetQuestFlags(member,
+                [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageDefend, .. DeepwaterConstants.TutorialRunFlags.Where(member.Character.HasQuestFlag)], on: false);
             await SendEnd(member, success: false);
         }
         if (run.OnEnd is { } ended) await ended(members, false);
@@ -769,46 +756,45 @@ internal static class DeepwaterExtraction
 
     // ---- the haul ----
 
-    static (int X, int Y)? DeckChestAt(ClientState conn) =>
-        conn.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == CollectionChest) is { } o ? (o.X, o.Y) : null;
+    static (int X, int Y)? DeckChestAt(Player player) =>
+        player.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == CollectionChest) is { } o ? (o.X, o.Y) : null;
 
-    static async Task ShowDeckChest(ClientState conn, DeepwaterRun run)
+    static async Task ShowDeckChest(Player player, DeepwaterRun run)
     {
-        if (DeckChestAt(conn) is not { } at || Info(CollectionChest) is not { } info) return;
-        var o = conn.Layout.Level!.RoomObjects.First(r => r.Type == CollectionChest);
-        var blob = new QuestObject(at.X, at.Y, info.Components, o.Rotation, null, null) { StateMachine = States.Value.GetValueOrDefault(CollectionChest) }.Blob();
-        var player = PlayerOf(conn);
-        if (await global::Game.SendWorldCreate(player, run.DeckChest, InstanceEntities.CreateObject(run.DeckChest, InstanceEntities.ObjectTypeHash(CollectionChest), blob),
+        if (DeckChestAt(player) is not { } at || Info(CollectionChest) is not { } info) return;
+        var o = player.Layout.Level!.RoomObjects.First(r => r.Type == CollectionChest);
+        var blob = new QuestObject(at.X, at.Y, info.Components, o.Rotation, null, null) { StateMachine = States.GetValueOrDefault(CollectionChest) }.Blob();
+        var modPlayer = PlayerOf(player);
+        if (await global::Game.SendWorldCreate(modPlayer, run.DeckChest, InstanceEntities.CreateObject(run.DeckChest, InstanceEntities.ObjectTypeHash(CollectionChest), blob),
             $"0x02bb Allflame CollectionChest 0x{run.DeckChest:x} at ({at.X}, {at.Y})"))
-            await global::Game.SendWorldRecord(player, run.DeckChest, InstanceProtocol.EnterWakeZone(run.DeckChest));
+            await global::Game.SendWorldRecord(modPlayer, run.DeckChest, InstanceProtocol.EnterWakeZone(run.DeckChest));
     }
 
-    static async Task DropSulphur(IModuleContext module, ClientState conn, int amount)
+    static async Task DropSulphur(IModuleContext module, Player player, int amount)
     {
-        if (ItemsFor(conn).Find(Sulphur) is not { Supported: true } type)
+        if (ItemsFor(player).Find(Sulphur) is not { Supported: true } type)
         {
-            module.Log($"{CharacterName(conn)}: {Sulphur} is not an item the server writes; {amount} Sulphur not given");
+            module.Log($"{CharacterName(player)}: {Sulphur} is not an item the server writes; {amount} Sulphur not given");
             return;
         }
-        var marker = conn.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == LootSpiralMarker);
-        var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        var at = conn.Layout.Near(marker is not null ? (marker.X, marker.Y) : (player.X + 3, player.Y));
-        var (remote, stream, ciphers) = conn.Wire;
+        var marker = player.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == LootSpiralMarker);
+        var pos = player.Walk.Position(AreaTime(player));
+        var at = player.Layout.Near(marker is not null ? (marker.X, marker.Y) : (pos.X + 3, pos.Y));
         int max = Math.Max(1, (int)(ShapeOf(ItemCatalog.Create(type))?.MaxStack ?? ushort.MaxValue));
         for (int left = amount, i = 0; left > 0; i++)
         {
             int stack = Math.Min(Math.Min(left, max), ushort.MaxValue);
             left -= stack;
             var ground = new WorldItemObject(at.X + i, at.Y, ItemCatalog.Create(type) with { StackSize = (ushort)stack });
-            uint id = conn.Instance.Ground.Add(ground, conn);
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground,
+            uint id = player.Instance.Ground.Add(ground, player);
+            await SendGroundItem(player, id, ground,
                 $"Allflame haul: {stack} Dead Man's Sulphur at ({ground.GridX}, {ground.GridY}){(marker is null ? " (beside the player, no LootSpiralMarker)" : "")}", justDropped: true);
         }
     }
 
-    static async Task Receive(ClientState conn, int amount)
+    static async Task Receive(Player player, int amount)
     {
-        if (amount <= 0 || ItemsFor(conn).Find(Sulphur) is not { Supported: true } type) return;
-        await WorldOf(conn).ReceiveCurrency(type.Hash, amount, _ => true, "Allflame haul");
+        if (amount <= 0 || ItemsFor(player).Find(Sulphur) is not { Supported: true } type) return;
+        await WorldOf(player).ReceiveCurrency(type.Hash, amount, _ => true, "Allflame haul");
     }
 }

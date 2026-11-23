@@ -124,31 +124,31 @@ public sealed class HarvestCrafting
     }
 
     readonly IItemCrafting _items;
-    readonly Lazy<ItemCatalog> _catalog;
-    readonly Lazy<ItemRolls> _rolls;
+    readonly ItemCatalog _catalog;
+    readonly ItemRolls _rolls;
     readonly bool _hardMode;
-    readonly Lazy<TableData> _data;
+    readonly TableData _data;
 
     public HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data", bool hardMode = false)
     {
         _items = new ModuleItemCrafting(catalog, rolls);
-        _catalog = new Lazy<ItemCatalog>(() => catalog);
-        _rolls = new Lazy<ItemRolls>(() => rolls);
+        _catalog = catalog;
+        _rolls = rolls;
         _hardMode = hardMode;
-        _data = new Lazy<TableData>(() => Load(_items, () => _catalog.Value));
+        _data = Load(_items, _catalog);
     }
 
     public HarvestCrafting(IItemCrafting items, string folder = "data", bool hardMode = false)
     {
         _items = items;
-        _catalog = new Lazy<ItemCatalog>(() => new ItemCatalog(folder, hardMode));
-        _rolls = new Lazy<ItemRolls>(() => new ItemRolls(_catalog.Value, folder));
+        _catalog = new ItemCatalog(folder, hardMode);
+        _rolls = new ItemRolls(_catalog, folder);
         _hardMode = hardMode;
-        _data = new Lazy<TableData>(() => Load(_items, () => _catalog.Value));
+        _data = Load(_items, _catalog);
     }
 
-    public IReadOnlyList<Recipe> All => _data.Value.All;
-    public Recipe? ByHash(ushort hash) => _data.Value.ByHash.GetValueOrDefault(hash);
+    public IReadOnlyList<Recipe> All => _data.All;
+    public Recipe? ByHash(ushort hash) => _data.ByHash.GetValueOrDefault(hash);
 
     /// <summary>Computes the effective lifeforce/Sacred/Rancour cost for applying <paramref name="recipe"/> to
     /// <paramref name="item"/>, applying <c>IsProportionalToStackSize</c> and <c>HarvestCraftCostScalingByBasetype</c>
@@ -156,7 +156,7 @@ public sealed class HarvestCrafting
     public IReadOnlyList<(uint Currency, int Amount)>? ScaledCosts(Recipe recipe, Item item)
     {
         long mult = recipe.ProportionalToStackSize ? Math.Max(1, (int)item.StackSize) : 1;
-        if (_data.Value.CostScaling.TryGetValue((recipe.Row, item.TypeHash), out int scale) && scale > 0)
+        if (_data.CostScaling.TryGetValue((recipe.Row, item.TypeHash), out int scale) && scale > 0)
             mult *= scale;
         if (mult == 1) return recipe.Costs;
         var scaled = new (uint Currency, int Amount)[recipe.Costs.Count];
@@ -243,7 +243,7 @@ public sealed class HarvestCrafting
     {
         if (item.Corrupted || item.Mirrored || item.Vestigial || !item.Identified || !item.Components.Contains("Mods") ||
             recipe.EnchantModId is null) return null;
-        var catalog = _catalog.Value;
+        var catalog = _catalog;
         if (catalog.ByHash(item.TypeHash) is not { Supported: true, Unmodifiable: false } type ||
             !recipe.AllowedClasses.Contains(type.Class) ||
             catalog.Mods.ById(recipe.EnchantModId) is not { } enchantMod)
@@ -260,7 +260,7 @@ public sealed class HarvestCrafting
     Item? ApplyEssenceExchange(Item item, Random rng)
     {
         if (item.Corrupted || item.Mirrored || item.StackSize < 1 ||
-            !_data.Value.EssenceTiers.TryGetValue(item.TypeHash, out var tier) || tier.Count < 2)
+            !_data.EssenceTiers.TryGetValue(item.TypeHash, out var tier) || tier.Count < 2)
             return null;
         var target = PickOther(tier, item.TypeHash, rng);
         if (target is null) return null;
@@ -295,9 +295,9 @@ public sealed class HarvestCrafting
     Item? ApplyRerollDivinationCard(Item item, Random rng)
     {
         if (item.Corrupted || item.Mirrored || item.StackSize != 1 ||
-            _catalog.Value.ByHash(item.TypeHash) is not { Class: "DivinationCard" })
+            _catalog.ByHash(item.TypeHash) is not { Class: "DivinationCard" })
             return null;
-        var pool = _data.Value.DivinationCards;
+        var pool = _data.DivinationCards;
         if (pool.Count < 2) return null;
         var target = PickOther(pool, item.TypeHash, rng);
         return target is null ? null : ItemCatalog.Create(target, random: rng) with { StackSize = 1 };
@@ -308,7 +308,7 @@ public sealed class HarvestCrafting
     HarvestOutcome? ApplyDivinationCardGamble(Item item, Random rng, IReadOnlyList<(uint Currency, int Amount)> costs)
     {
         if (item.Corrupted || item.Mirrored ||
-            _catalog.Value.ByHash(item.TypeHash) is not { Class: "DivinationCard" } type ||
+            _catalog.ByHash(item.TypeHash) is not { Class: "DivinationCard" } type ||
             type.MaxStack <= 1)
             return null;
         int maxInput = type.MaxStack / 2;
@@ -323,8 +323,8 @@ public sealed class HarvestCrafting
     // with a different influence set and reforges modifiers for its rarity.
     Item? ApplyRerollInfluenceType(Recipe recipe, Item item, Random rng)
     {
-        var catalog = _catalog.Value;
-        var rolls = _rolls.Value;
+        var catalog = _catalog;
+        var rolls = _rolls;
         if (item.Corrupted || item.Mirrored || !item.Identified || item.Rarity == ItemRarity.Unique ||
             item.Synthesised || item.FracturedCount > 0 || HasSocketedGems(item) ||
             (item.Influences & ~AllClassicInfluences) != ItemInfluence.None ||
@@ -346,8 +346,8 @@ public sealed class HarvestCrafting
     // Reforges as Rare guaranteeing at least one influence-only affix matching the item's influence(s).
     Item? ApplyReforgeInfluence(Item item, Random rng)
     {
-        var catalog = _catalog.Value;
-        var rolls = _rolls.Value;
+        var catalog = _catalog;
+        var rolls = _rolls;
         if (item.Corrupted || item.Mirrored || !item.Identified || item.Rarity != ItemRarity.Rare ||
             item.ItemLevel < 68 || (item.Influences & AllClassicInfluences) == ItemInfluence.None ||
             HasSocketedGems(item) || !_items.Modifiable(item) || _items.HasExplicitStat(item, Metamods) ||
@@ -371,11 +371,11 @@ public sealed class HarvestCrafting
     // 3.29.3c 0x141d5f880: Rare Corrupted Identified map -> freshly rolled Rare Corrupted map of the same tier.
     Item? ApplyRerollCorruptedMap(Item item, Random rng)
     {
-        var catalog = _catalog.Value;
-        var rolls = _rolls.Value;
+        var catalog = _catalog;
+        var rolls = _rolls;
         if (!item.Corrupted || item.Mirrored || !item.Identified || item.Rarity != ItemRarity.Rare ||
             !item.Components.Contains("Mods") ||
-            !_data.Value.MapsByHash.TryGetValue(item.TypeHash, out var info) ||
+            !_data.MapsByHash.TryGetValue(item.TypeHash, out var info) ||
             catalog.ByHash(item.TypeHash) is not { Supported: true } sourceType)
             return null;
         ItemCatalog.BaseType targetType;
@@ -383,7 +383,7 @@ public sealed class HarvestCrafting
             targetType = sourceType;
         else
         {
-            if (!_data.Value.LegacyMapsByTier.TryGetValue(info.Tier, out var sameTier) || sameTier.Count == 0)
+            if (!_data.LegacyMapsByTier.TryGetValue(info.Tier, out var sameTier) || sameTier.Count == 0)
                 return null;
             targetType = PickOther(sameTier, item.TypeHash, rng) ?? sameTier[0];
         }
@@ -397,7 +397,7 @@ public sealed class HarvestCrafting
     // (Red/Green/Blue; White refused), preserving gem level, XP (clamped to target max level) and quality.
     Item? ApplyReforgeGem(Recipe recipe, Item item, Random rng)
     {
-        var catalog = _catalog.Value;
+        var catalog = _catalog;
         if ((!recipe.AllowCorruptedInput && item.Corrupted) || item.Mirrored || item.GemVariant != 0 ||
             catalog.ByHash(item.TypeHash) is not { } sourceType ||
             catalog.Gem(sourceType) is not { } sourceGem ||
@@ -405,7 +405,7 @@ public sealed class HarvestCrafting
             sourceGem.Colour is < 1 or > 3 ||
             sourceGem.IsVaalOrAwakened || sourceGem.IsAwakened || sourceGem.IsExceptional)
             return null;
-        if (!_data.Value.GemsByKindAndColour.TryGetValue((recipe.UseSupportGems, sourceGem.Colour), out var pool) ||
+        if (!_data.GemsByKindAndColour.TryGetValue((recipe.UseSupportGems, sourceGem.Colour), out var pool) ||
             pool.Count < 2)
             return null;
         var targetType = PickOther(pool, item.TypeHash, rng);
@@ -424,11 +424,11 @@ public sealed class HarvestCrafting
     // 3.29.3c 0x141d5d890: sacrifice a (corrupted) gem to store percent (50%) of its accumulated XP in a Facetor's Lens.
     Item? ApplySacrificeGemForLens(Recipe recipe, Item item)
     {
-        var catalog = _catalog.Value;
+        var catalog = _catalog;
         if (item.Mirrored || (recipe.CorruptedOnly && !item.Corrupted) ||
             catalog.ByHash(item.TypeHash) is not { } sourceType ||
             catalog.Gem(sourceType) is not { } gem ||
-            _data.Value.FacetorsLens is not { Supported: true } lensType)
+            _data.FacetorsLens is not { Supported: true } lensType)
             return null;
         long totalXp = item.GemExperience == -1
             ? (gem.Thresholds.Count > 0 ? gem.Thresholds[^1] : 0)
@@ -502,11 +502,10 @@ public sealed class HarvestCrafting
         return choices[^1].Item;
     }
 
-    static TableData Load(IItemCrafting crafting, Func<ItemCatalog> catalogFactory)
+    static TableData Load(IItemCrafting crafting, ItemCatalog catalog)
     {
         if (!ClientTables.Has("HarvestCraftOptions")) return TableData.Empty;
         var rows = ClientTables.Table("HarvestCraftOptions").ToList();
-        var catalog = catalogFactory();
 
         var lifeforce = new[]
         {

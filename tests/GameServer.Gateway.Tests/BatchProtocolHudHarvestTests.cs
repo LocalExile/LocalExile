@@ -210,45 +210,51 @@ public sealed class BatchProtocolHudHarvestTests
         {
             // 1. Permanent Achievements: bit packing, persistence, idempotency, SC/HC gating, multi-item parent completion, 0x127 fail, 0x126 sync.
             var achOutbox = new List<byte[]>();
-            var conn = new ClientState(fixture.Conn.Layout, 1, 1)
+            var player = new Player(fixture.Player.Layout, 1, 1)
             {
-                Account = "ach-acct-" + Guid.NewGuid().ToString("N"),
-                Character = "AchChar" + Guid.NewGuid().ToString("N")[..8],
+                Character =
+                {
+                    Account = "ach-acct-" + Guid.NewGuid().ToString("N"),
+                    Name = "AchChar" + Guid.NewGuid().ToString("N")[..8],
+                },
                 Instance = new(),
                 PlayerLife = 1000,
-                PlayerSent = true,
-                LeagueModule = fixture.Conn.LeagueModule,
-                Outbox = (bytes, _) => { achOutbox.Add([.. bytes]); return Task.CompletedTask; },
+                Connection =
+                {
+                    PlayerSent = true,
+                    Outbox = (bytes, _) => { achOutbox.Add([.. bytes]); return Task.CompletedTask; },
+                },
+                LeagueModule = fixture.Player.LeagueModule,
             };
-            conn.Clock.Start();
+            player.Clock.Start();
 
-            Assert.True(await Game.AwardAchievementItem(conn, "KillBrutus"));
-            Assert.False(await Game.AwardAchievementItem(conn, "KillBrutus")); // idempotent
+            Assert.True(await Game.AwardAchievementItem(player, "KillBrutus"));
+            Assert.False(await Game.AwardAchievementItem(player, "KillBrutus")); // idempotent
             Assert.Equal([InstanceAchievements.AchievementItemCompleteId, InstanceAchievements.AchievementProgressId, InstanceAchievements.AchievementCompleteId],
                 achOutbox.Select(p => BinaryPrimitives.ReadUInt16BigEndian(p)).ToArray());
             Assert.Equal((ushort)989, BinaryPrimitives.ReadUInt16BigEndian(achOutbox[0].AsSpan(2, 2)));
             Assert.Equal((ushort)22, BinaryPrimitives.ReadUInt16BigEndian(achOutbox[2].AsSpan(2, 2)));
-            byte[] packed = Game.BuildAchievementProgressBitset(conn);
+            byte[] packed = Game.BuildAchievementProgressBitset(player);
             Assert.Equal(26, packed.Length);
             Assert.NotEqual(0, packed[6 >> 3] & (1 << (6 & 7))); // KillBrutus bitOffset = 6
 
             // SC/HC gating on softcore connection: Level60HC refused, Level60 awarded.
-            Assert.False(await Game.AwardAchievementItem(conn, "Level60HC"));
-            Assert.True(await Game.AwardAchievementItem(conn, "Level60"));
+            Assert.False(await Game.AwardAchievementItem(player, "Level60HC"));
+            Assert.True(await Game.AwardAchievementItem(player, "Level60"));
 
             // Multi-item achievement SideWithBandits (parent row 56): only completes when all 3 items are done.
             achOutbox.Clear();
-            Assert.True(await Game.AwardAchievementItem(conn, "SideWithAlira"));
+            Assert.True(await Game.AwardAchievementItem(player, "SideWithAlira"));
             Assert.DoesNotContain(achOutbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceAchievements.AchievementCompleteId);
-            Assert.True(await Game.AwardAchievementItem(conn, "SideWithKraityn"));
+            Assert.True(await Game.AwardAchievementItem(player, "SideWithKraityn"));
             Assert.DoesNotContain(achOutbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceAchievements.AchievementCompleteId);
-            Assert.True(await Game.AwardAchievementItem(conn, "SideWithOak"));
+            Assert.True(await Game.AwardAchievementItem(player, "SideWithOak"));
             Assert.Contains(achOutbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceAchievements.AchievementCompleteId
                 && BinaryPrimitives.ReadUInt16BigEndian(p.AsSpan(2, 2)) == 56);
 
             achOutbox.Clear();
-            await Game.FailAchievementItem(conn, "KillBrutus");
-            await Game.SendAchievementProgress(conn);
+            await Game.FailAchievementItem(player, "KillBrutus");
+            await Game.SendAchievementProgress(player);
             Assert.Equal([InstanceAchievements.AchievementItemFailedId, InstanceAchievements.AchievementProgressId],
                 achOutbox.Select(p => BinaryPrimitives.ReadUInt16BigEndian(p)).ToArray());
 
@@ -260,23 +266,26 @@ public sealed class BatchProtocolHudHarvestTests
             var voteLeague = new LeagueRuntime(new League("bandit-party-test", "Standard", false, false),
                 new HashSet<string>(["bandit-party-test", "Game"]));
 
-            ClientState MakeVoter(string name, AreaLayout layout, InstanceState inst, List<byte[]> log)
+            Player MakeVoter(string name, AreaLayout layout, InstanceState inst, List<byte[]> log)
             {
-                var c = new ClientState(layout, 1, 1)
+                var c = new Player(layout, 1, 1)
                 {
-                    Character = name,
+                    Character = { Name = name },
                     Instance = inst,
                     PlayerLife = 1000,
-                    PlayerSent = true,
+                    Connection =
+                    {
+                        PlayerSent = true,
+                        Outbox = (bytes, _) => { log.Add([.. bytes]); return Task.CompletedTask; },
+                    },
                     LeagueModule = voteLeague,
-                    Outbox = (bytes, _) => { log.Add([.. bytes]); return Task.CompletedTask; },
                 };
                 c.Clock.Start();
-                inst.PublishPlayer(new(c.PeerId, 0, null!, 50, 50, 1000, c));
+                inst.AddPlayer(c);
                 return c;
             }
 
-            void SpawnOak(InstanceState inst, ClientState host, uint leaderId)
+            void SpawnOak(InstanceState inst, Player host, uint leaderId)
             {
                 var variety = Game.Monsters.Find(oak.Variety)!;
                 var monster = new SpawnedMonster(oak.Name, host.NewMonsterWalk(leaderId, 52, 50, 0, 0, unique: true), 20, 8, 500)
@@ -288,12 +297,12 @@ public sealed class BatchProtocolHudHarvestTests
                     Variety = variety,
                     Level = 20,
                 };
-                inst.World.Monsters[leaderId] = monster;
+                inst.World.Area.Monsters[leaderId] = monster;
                 inst.World.MonsterOrigins[leaderId] = new(0, new MonsterObject(52, 50, 500, ["Positioned", "NPC", "Life"]) { HasDialogue = true }, 0, 20, MonsterRarity.Unique);
             }
 
-            var oakNpc = Game.Npcs.Value.Find(oak.Variety)!;
-            var voteTalk = Game.Npcs.Value.TalksOf(oakNpc).First(t => t.Script.Contains("BanditCallVote", StringComparison.Ordinal));
+            var oakNpc = Game.Npcs.Find(oak.Variety)!;
+            var voteTalk = Game.Npcs.TalksOf(oakNpc).First(t => t.Script.Contains("BanditCallVote", StringComparison.Ordinal));
             var speaker = new SpawnedNpc(oakNpc, 52, 50);
 
             // Mixed vote: Alice Help + Bob Kill + Carol enters then leaves -> triggers BanditFight and closes dialogue.
@@ -304,7 +313,7 @@ public sealed class BatchProtocolHudHarvestTests
             var bob = MakeVoter("VoteBob" + Guid.NewGuid().ToString("N")[..6], oakLayout, mixedInstance, bobLog);
             string carolName = "VoteCarol" + Guid.NewGuid().ToString("N")[..6];
             var carolTown = MakeVoter(carolName, townLayout, townInstance, carolLog);
-            ClientState activeCarol = carolTown;
+            Player activeCarol = carolTown;
             SpawnOak(mixedInstance, alice, 7001);
 
             using (BanditChoices.RegisterPartyMembers(_ => [alice, bob, activeCarol]))
@@ -319,8 +328,8 @@ public sealed class BatchProtocolHudHarvestTests
                 Assert.Equal((byte)3, openReader.U8());
                 var initialStates = new Dictionary<string, byte>();
                 for (int i = 0; i < 3; i++) initialStates[openReader.WStr()] = openReader.U8();
-                Assert.Equal(InstanceNpcs.VoteStateWaitingForVote, initialStates[alice.Character!]);
-                Assert.Equal(InstanceNpcs.VoteStateWaitingForVote, initialStates[bob.Character!]);
+                Assert.Equal(InstanceNpcs.VoteStateWaitingForVote, initialStates[alice.Character.Name!]);
+                Assert.Equal(InstanceNpcs.VoteStateWaitingForVote, initialStates[bob.Character.Name!]);
                 Assert.Equal(InstanceNpcs.VoteStateWaitingToEnterArea, initialStates[carolName]);
 
                 // Alice votes Help -> still waiting for Bob and Carol.
@@ -342,8 +351,8 @@ public sealed class BatchProtocolHudHarvestTests
                 Assert.False(mixedInstance.HasState("QuestObjects.BanditFight"));
                 await BanditChoices.OnPlayerLeaving(carolInOak, "left the area");
                 Assert.True(mixedInstance.HasState("QuestObjects.BanditFight"));
-                Assert.Contains(oak.Ally, CharacterSaves.Load(alice.Character!)?.QuestFlags ?? []);
-                Assert.DoesNotContain(oak.Ally, CharacterSaves.Load(bob.Character!)?.QuestFlags ?? []);
+                Assert.Contains(oak.Ally, CharacterSaves.Load(alice.Character.Name!)?.QuestFlags ?? []);
+                Assert.DoesNotContain(oak.Ally, CharacterSaves.Load(bob.Character.Name!)?.QuestFlags ?? []);
                 Assert.Equal(InstanceNpcs.CloseVote(), aliceLog.Last(p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceNpcs.VoteDisplayId));
                 Assert.Contains(bobLog, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceEntities.ComponentUpdateId);
             }
@@ -360,8 +369,8 @@ public sealed class BatchProtocolHudHarvestTests
                 await BanditChoices.VoteAnswer(h1, help: true);
                 await BanditChoices.VoteAnswer(h2, help: true);
                 Assert.False(helpInstance.HasState("QuestObjects.BanditFight"));
-                Assert.Contains(oak.Ally, CharacterSaves.Load(h1.Character!)?.QuestFlags ?? []);
-                Assert.Contains(oak.Ally, CharacterSaves.Load(h2.Character!)?.QuestFlags ?? []);
+                Assert.Contains(oak.Ally, CharacterSaves.Load(h1.Character.Name!)?.QuestFlags ?? []);
+                Assert.Contains(oak.Ally, CharacterSaves.Load(h2.Character.Name!)?.QuestFlags ?? []);
             }
 
             // 3. PvP Queue Bar (S->C 0x118/0x119, C->S 0x11a/0x18d): Enqueue, Leave(withdraw), unqueued Leave, and Leaving cleanup.
@@ -399,7 +408,7 @@ public sealed class BatchProtocolHudHarvestTests
 
             // 4. Harvest Horticrafting Station (all 74/74 HarvestCraftOptions rows supported) & Facetor's Lens end-to-end.
             var catalog = Program.Items;
-            var rolls = Game.RollsFor(conn);
+            var rolls = Game.RollsFor(player);
             var harvest = new HarvestCrafting(catalog, rolls, hardMode: false);
             var ruthlessHarvest = new HarvestCrafting(catalog, rolls, hardMode: true);
             Assert.Equal(74, harvest.All.Count);

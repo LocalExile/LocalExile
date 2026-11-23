@@ -13,11 +13,23 @@ using GameServer.Core;
 /// bonuses and no requirements. Ordinary and ascendancy nodes both count. Only skills with an executor act: granted
 /// self auras (Program.GrantedSkillsOf), Summon Elemental Relic (Program.RelicTriggerOf), the Spirit chieftains
 /// (Program.TriggeredGrantsLocked) and the footstep skill <c>RepeatingShockwave</c> (Abberath's Fury, Polytheist's Devout
-/// of Abberath at level 20: a spell triggered by each of the player's footsteps while running, Program.RunFootstepSkills).
-/// Game data: the PassiveSkills client table, loaded on first use.
+/// of Abberath at level 20: a spell triggered by each of the player's footsteps while running, Program.WakeFootsteps).
+/// Game data: the PassiveSkills client table, read when the catalog is made.
 /// </summary>
-public sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", bool ruthless = false)
+public sealed class PassiveGrantedSkills
 {
+    readonly SkillCatalog skills;
+    readonly string folder;
+    readonly bool ruthless;
+
+    public PassiveGrantedSkills(SkillCatalog skills, string folder = "data", bool ruthless = false)
+    {
+        this.skills = skills;
+        this.folder = folder;
+        this.ruthless = ruthless;
+        _grants = Load(skills, folder, ruthless);
+    }
+
     /// <summary>One granted skill: the node, its GrantedEffectsPerLevel row, the row's GrantedEffects row (and Id) and
     /// level.</summary>
     public readonly record struct Grant(ushort Node, int EffectsPerLevelRow, int Effect, string EffectId, int Level)
@@ -30,11 +42,11 @@ public sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "d
     /// <summary>Synthetic hosts: item ids count up from 1 and never reach this range.</summary>
     public const uint HostBase = 0xFFFF0000;
 
-    readonly Lazy<Dictionary<ushort, Grant>> _grants = new(() => Load(skills, folder, ruthless));
+    readonly Dictionary<ushort, Grant> _grants;
 
     /// <summary>The skills these nodes grant, in node order, each node once.</summary>
     public IReadOnlyList<Grant> For(IEnumerable<ushort> nodes) =>
-        [.. nodes.Distinct().Where(_grants.Value.ContainsKey).Select(n => _grants.Value[n])];
+        [.. nodes.Distinct().Where(_grants.ContainsKey).Select(n => _grants[n])];
 
     static Dictionary<ushort, Grant> Load(SkillCatalog skills, string folder, bool ruthless)
     {
@@ -54,7 +66,7 @@ public sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "d
         return grants;
     }
 
-    /// <summary>A skill each footstep triggers (its trigger has a runtime: Program.RunFootstepSkills).</summary>
+    /// <summary>A skill each footstep triggers (its trigger has a runtime: Program.WakeFootsteps).</summary>
     public static bool IsFootstepSkill(string effectId) => effectId == "RepeatingShockwave";
 
     // The Templar's run animations (Art/Models/CHARACTERS/Templar/rig.amd, all 18 run_* clips): an 800 ms loop with

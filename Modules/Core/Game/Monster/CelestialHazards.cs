@@ -5,11 +5,11 @@ using static Program;
 using static ArenaHazards;
 
 /// <summary>The bridge's celestial attacks, with server-owned visible footprints and contacts on the same clock.</summary>
-internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, ClientState owner, Func<bool> current)
+internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Player owner, Func<bool> current)
 {
     const string Art = "Metadata/Effects/Spells/monsters_effects/Solaris_and_Lunaris/";
-    readonly HashSet<ClientState> players = [];
-    readonly Dictionary<ClientState, Exposure> exposures = [];
+    readonly HashSet<Player> players = [];
+    readonly Dictionary<Player, Exposure> exposures = [];
     readonly Dictionary<uint, Visual> visuals = [];
     readonly List<Patch> patches = [];
     readonly List<Impact> impacts = [];
@@ -32,26 +32,25 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         internal double NextPatch;
     }
     bool Current => !stopped && CurrentGameWork && current() && !caster.Dead && caster.Life > 0;
-    IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
-    internal async Task Bind(ClientState p)
+    IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
+    internal async Task Bind(Player p)
     {
         players.Add(p);
         foreach (var v in visuals.Values.ToArray()) await Show(p, v);
     }
-    async Task Show(ClientState p, Visual v)
+    async Task Show(Player p, Visual v)
     {
-        lock (p.Monsters) if (p.SceneViews.Contains(v.Id)) return;
-        var w = p.Wire;
+        if (Scenes(p).Contains(v.Id)) return;
         if (await SendWorldCreate(p, v.Id, () => InstanceEntities.CreateObject(v.Id,
             InstanceEntities.ObjectTypeHash(v.Link is null ? EffectObject.TypePath : BeamEffectObject.TypePath),
-            v.Link?.Blob() ?? v.Object.Blob()), "[Celestial] arena effect", wake: true, transport: w))
+            v.Link?.Blob() ?? v.Object.Blob()), "[Celestial] arena effect", wake: true))
         {
-            lock (p.Monsters) p.SceneViews.Add(v.Id);
-            if (v.Clip is { } clip) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, v.Id,
+            Scenes(p).Add(v.Id);
+            if (v.Clip is { } clip) await SendWorldRecord(p, v.Id,
                 InstanceProtocol.AnimationUpdate(v.Id, 0, clip, v.Speed), "[Celestial] effect animation");
         }
     }
-    async Task<uint> Effect(ClientState c, (int X, int Y) at, string art, double until, float rotation = 0, float scale = 1,
+    async Task<uint> Effect(Player c, (int X, int Y) at, string art, double until, float rotation = 0, float scale = 1,
         ushort? clip = null, float speed = 1)
     {
         uint id = c.Instance.World.TakeObjectId();
@@ -66,11 +65,11 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         if (!visuals.Remove(id)) return;
         foreach (var p in Present.ToArray())
         {
-            bool shown; lock (p.Monsters) shown = p.SceneViews.Remove(id);
-            if (shown) { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, "[Celestial] arena effect ends"); }
+            bool shown; shown = Scenes(p).Remove(id);
+            if (shown) { await SendWorldRemoval(p, id, "[Celestial] arena effect ends"); }
         }
     }
-    async Task LinkBeam(ClientState c, (int X, int Y) from, (int X, int Y) to, uint end, double until)
+    async Task LinkBeam(Player c, (int X, int Y) from, (int X, int Y) to, uint end, double until)
     {
         uint id = c.Instance.World.TakeObjectId();
         var link = new BeamEffectObject(from.X, from.Y, casterId, to.X * BeamEffectObject.WorldPerCell,
@@ -91,11 +90,11 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         return ((int)Math.Round(origin.X + Math.Cos(facing + angle) * radius),
             (int)Math.Round(origin.Y + Math.Sin(facing + angle) * radius));
     }
-    internal async Task Step(ClientState c, double now)
+    internal async Task Step(Player c, double now)
     {
         if (c.Paused || stopped) return;
         if (!Current) { await Clear(); return; }
-        if (!Present.Any(p => p.PlayerLife > 0 && p.MonsterViews.ContainsKey(casterId) && !p.AsleepMonsters.Contains(casterId))) return;
+        if (!Present.Any(p => p.PlayerLife > 0 && MonsterShown(p, casterId) && !MonsterAsleep(p, casterId))) return;
         foreach (var p in Present.ToArray()) await Bind(p);
         foreach (var v in visuals.Values.Where(v => now >= v.Until).OrderBy(v => v.Link is null).ToArray()) await Drop(v.Id);
         patches.RemoveAll(p => now >= p.Until);
@@ -116,14 +115,14 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
             if (visuals.TryGetValue(sweep.Visual, out var v))
             {
                 visuals[sweep.Visual] = v with { Object = v.Object with { GridX = at.Item1, GridY = at.Item2 } };
-                foreach (var p in Present.ToArray())
-                { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, v.Id,
+                if (Present.FirstOrDefault() is { } sweeper)
+                { await SendWorldRecord(sweeper, v.Id,
                     InstanceProtocol.MoveTo(v.Id, at.Item1, at.Item2, 30, InstanceProtocol.FollowTerrain), "[Celestial] solar beam sweeps"); }
             }
             if (now <= sweep.Starts + 2.25 && now >= sweep.NextPatch)
             {
                 sweep.NextPatch = now + .25;
-                double until = now + Stat(c, 6464, caster.Level, "base_skill_effect_duration") / 1000d;
+                double until = now + Stat(c, 6464, caster.Level, Stat.BaseSkillEffectDuration) / 1000d;
                 patches.Add(new(at, 10.8, 6464, until));
                 await Effect(c, at, "Solaris_e/solarbeam_groundfire_01.ao", until, clip: 2);
             }
@@ -132,7 +131,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         foreach (var meteor in meteors.Where(m => now >= m.At).ToArray())
         {
             meteors.Remove(meteor);
-            double delay = Stat(c, 6472, caster.Level, "fire_storm_fireball_delay_ms") / 1000d;
+            double delay = Stat(c, 6472, caster.Level, Stat.FireStormFireballDelayMs) / 1000d;
             // Meteor_v01_01.amd contacts at 999/4966 ms; fit that contact to the native skill's 300 ms delay.
             float speed = (float)(.999 / Math.Max(.01, delay));
             await Effect(c, meteor.Position, "Lunaris_e/meteor_fall_01.ao", now + 4.966 / speed, clip: 0, speed: speed);
@@ -143,7 +142,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
             impacts.Remove(hit);
             if (hit.Effect == 6473)
             {
-                double until = hit.At + Stat(c, 6473, caster.Level, "base_skill_effect_duration") / 1000d;
+                double until = hit.At + Stat(c, 6473, caster.Level, Stat.BaseSkillEffectDuration) / 1000d;
                 if (now >= until) continue;
                 patches.Add(new(hit.To, 12, hit.Effect, until));
                 await Effect(c, hit.To, "Lunaris_e/ground_darkness_01.ao", until, clip: 2);
@@ -154,7 +153,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
                 await Hit(p, casterId, caster, attack,
                     at => hit.Cone ? ConeContains(at, hit.From, hit.To, hit.Inner, hit.Outer) : Distance(at, hit.To) <= hit.Outer,
                     () => Current, Math.Max(0, 1 + Stat(c, hit.Effect, caster.Level,
-                        "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d));
+                        Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d));
         }
         if (now >= nextGround)
         {
@@ -182,8 +181,8 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         double seconds = cat.CastTimeMs(effectId) / 1000d;
         double release = now + seconds * .299 / .966;
         nextCast = now + Math.Max(seconds, cat.CooldownMs(effectId, cat.MaxLevelAt(effectId, caster.Level)) / 1000d);
-        foreach (var p in Present.ToArray())
-        { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, casterId,
+        if (Present.FirstOrDefault() is { } sender)
+        { await SendWorldRecord(sender, casterId,
             InstanceProtocol.AnimationUpdate(casterId, 0, solar ? effectId == 6477 ? (ushort)5 : (ushort)4 : (ushort)3,
                 effectId == 6477 ? 1 : (float)(.966 / Math.Max(.01, seconds))), "[Celestial] cast"); }
         if (effectId == 6464)
@@ -196,7 +195,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         }
         else if (effectId == 6477)
         {
-            double charge = Stat(c, effectId, caster.Level, "base_skill_effect_duration") / 1000d;
+            double charge = Stat(c, effectId, caster.Level, Stat.BaseSkillEffectDuration) / 1000d;
             await Effect(c, origin, "Solaris_e/Sunflare_decal.ao", now + .5 + charge, (float)facing, 1.4f, clip: 0);
             flares.Add(new(now + charge, origin, aim, (float)facing));
         }
@@ -209,10 +208,10 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         }
         else
         {
-            int count = Stat(c, effectId, caster.Level, "trigger_cascade_number_of_spikes");
-            double interval = Stat(c, effectId, caster.Level, "trigger_cascade_ms_between_spikes") / 1000d;
-            int a = Stat(c, effectId, caster.Level, "trigger_cascade_A"), b = Stat(c, effectId, caster.Level, "trigger_cascade_B"),
-                degrees = Stat(c, effectId, caster.Level, "trigger_cascade_angle");
+            int count = Stat(c, effectId, caster.Level, Stat.TriggerCascadeNumberOfSpikes);
+            double interval = Stat(c, effectId, caster.Level, Stat.TriggerCascadeMsBetweenSpikes) / 1000d;
+            int a = Stat(c, effectId, caster.Level, global::Stat.TriggerCascadeA), b = Stat(c, effectId, caster.Level, global::Stat.TriggerCascadeB),
+                degrees = Stat(c, effectId, caster.Level, Stat.TriggerCascadeAngle);
             for (int i = 0; i < count; i++) meteors.Add(new(release + i * interval, CascadePoint(aim, facing, i, a, b, degrees)));
         }
     }
@@ -227,8 +226,8 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         foreach (var p in Present.ToArray())
             foreach (uint id in visuals.Values.OrderBy(v => v.Link is null).Select(v => v.Id).ToArray())
             {
-                lock (p.Monsters) p.SceneViews.Remove(id);
-                var w = p.Wire; _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(id), null);
+                Scenes(p).Remove(id);
+                _ = Send(p, InstanceProtocol.RemoveObject(id), null);
             }
         visuals.Clear();
     }

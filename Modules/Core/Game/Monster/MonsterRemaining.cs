@@ -7,9 +7,9 @@ public static partial class Game
     // The overlay counts enemies still in the area, including those waiting to emerge, never friendly summons.
     public static bool MonsterLiving(SpawnedMonster m) => m.Hostile && !m.Dead && m.Life > 0;
 
-    public static int LivingMonstersLocked(ClientState conn) =>
-        conn.Monsters.Values.Count(MonsterLiving) + conn.DormantMonsters.Values.Count(MonsterLiving)
-        + HeldBackLocked(conn).Count;
+    public static int LivingMonstersLocked(Player player) =>
+        player.Area.Monsters.Values.Count(MonsterLiving) + player.Area.DormantMonsters.Values.Count(MonsterLiving)
+        + HeldBackLocked(player).Count;
 
     sealed class RemainingDelivery
     {
@@ -17,67 +17,58 @@ public static partial class Game
         public int Holds;
     }
     static readonly RuleTable<object, RemainingDelivery> RemainingDeliveries = new();
-    static RemainingDelivery RemainingOf(ClientState conn) =>
-        RemainingDeliveries.GetValue((object?)conn.Instance ?? conn, _ => new());
+    static RemainingDelivery RemainingOf(Player player) =>
+        RemainingDeliveries.GetValue((object?)player.Instance ?? player, _ => new());
 
     // Population is shared by the instance. A second entrant cannot force a partial count while it is being built.
-    public static IDisposable HoldMonstersRemaining(ClientState conn)
+    public static IDisposable HoldMonstersRemaining(Player player)
     {
-        var delivery = RemainingOf(conn);
-        lock (conn.Monsters) delivery.Holds++;
-        return new RemainingHold(conn, delivery);
+        var delivery = RemainingOf(player);
+        delivery.Holds++;
+        return new RemainingHold(delivery);
     }
 
-    sealed class RemainingHold(ClientState conn, RemainingDelivery delivery) : IDisposable
+    sealed class RemainingHold(RemainingDelivery delivery) : IDisposable
     {
         bool disposed;
         public void Dispose()
         {
-            lock (conn.Monsters)
-                if (!disposed) { disposed = true; delivery.Holds--; }
+            if (!disposed) { disposed = true; delivery.Holds--; }
         }
     }
 
-    public static async Task SendRemainingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, bool force = false)
+    public static async Task SendRemainingMonsters(Player player, bool force = false)
     {
-        var delivery = RemainingOf(conn);
+        var delivery = RemainingOf(player);
         // Concurrent deaths and arrivals share this gate, so an older snapshot cannot overwrite a newer count.
-        List<ClientState>? cleared = null;
+        List<Player>? cleared = null;
         await delivery.Gate.WaitAsync();
         try
         {
             int living;
-            ClientState[] recipients;
-            lock (conn.Monsters)
-            {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent || delivery.Holds > 0) return;
-                living = Math.Min(byte.MaxValue, LivingMonstersLocked(conn));
-                recipients = [conn, .. (conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
-                    .Select(p => p.Owner).OfType<ClientState>().Where(p => !ReferenceEquals(p, conn))];
-            }
+            Player[] recipients;
+            if (!CurrentGameWork || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || delivery.Holds > 0) return;
+            living = Math.Min(byte.MaxValue, LivingMonstersLocked(player));
+            recipients = [player, .. (player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
+                .Where(p => !ReferenceEquals(p, player))];
             foreach (var recipient in recipients)
             {
-                bool own = ReferenceEquals(recipient, conn);
-                int previousLiving;
-                lock (conn.Monsters)
-                {
-                    if (!CurrentGameWork || recipient.Closed || recipient.LeavingArea || !recipient.PlayerSent
-                        || !ReferenceEquals(recipient.Instance, conn.Instance)
-                        || (!(force && own) && recipient.SentMonstersRemaining == living)) continue;
-                    previousLiving = recipient.SentMonstersRemaining;
-                }
+                bool own = ReferenceEquals(recipient, player);
+                if (!CurrentGameWork || recipient.Closed || recipient.LeavingArea || !recipient.Connection.PlayerSent
+                    || !ReferenceEquals(recipient.Instance, player.Instance)
+                    || (!(force && own) && recipient.SentMonstersRemaining == living)) continue;
+                int previousLiving = recipient.SentMonstersRemaining;
                 // Encryption mutates the bytes. Construct plaintext independently for every recipient.
                 byte[] bytes = InstanceProtocol.MonstersRemaining(living);
                 if (own)
-                    await Send(remote, stream, ciphers, bytes, $"0x01a0 monsters remaining {living}");
-                else if (recipient.Outbox is { } outbox)
+                    await Send(player, bytes, $"0x01a0 monsters remaining {living}");
+                else if (recipient.Connection.Outbox is { } outbox)
                 {
                     try { await outbox(bytes, null); }
                     catch (Exception ex) when (ex is IOException or ObjectDisposedException) { continue; }
                 }
                 else continue;
-                lock (conn.Monsters) recipient.SentMonstersRemaining = living;
+                recipient.SentMonstersRemaining = living;
                 if (previousLiving > 0 && living == 0) (cleared ??= []).Add(recipient);
             }
         }

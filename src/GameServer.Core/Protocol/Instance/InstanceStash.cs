@@ -301,8 +301,7 @@ public sealed record StashObject(int GridX, int GridY, float Rotation = 0)
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                              // object flags, base data entry count
-        // As an NPC's: x, y, rotation, u16 team 0, flags0, flags1 0x02 + two u8 (shown).
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);
+        w.Positioned(GridX, GridY, Rotation);                                       // Positioned
         w.U8(0);                                                                    // Animated: the type's model
         w.U8(0);                                                                    // MinimapIcon flags
         w.U8(0);                                                                    // InteractionAction flags

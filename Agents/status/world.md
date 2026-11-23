@@ -115,6 +115,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
   before payment because the Conqueror apparition skills are not implemented.
 
+- Lockstep is the default way of playing (no server setting; the log notes it to a predictive client). Each
+  area takes its mode from its first mode-only C→S message (`ClientPackets`), and one with messages of both modes
+  tells the player in chat to report it ([07](../docs/protocol/07-latency-visibility-movement.md) §6); before that input every client but a server-controlled one is
+  served in lockstep. The
 - Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats (the Ambush scarabs
   add to it), the type a Strongboxes row by weight and the area and atlas stats (live: The Crossroads, The Riverways,
   a Geode map, Acts 8-10). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods, or are
@@ -181,7 +185,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
   Predictive Leap Slam acknowledges without the old source-cell echo; the Delve follow-up live check is pending.
-  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
+  Code: `LivingCollision.cs`, `Player.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
   ids; every client is shown them, any player's hits hurt the same ones and each monster targets the nearest player.
@@ -316,8 +320,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   What an instance opened stays open; an opened trial Locked Door (bars) is removed, a room's gate stays open.
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
-  over a stretched Emerge animation (0x1d1), hit a player on their tile for LbRetractableTrap's share of life and energy
-  shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
+  over a stretched Emerge animation (0x1d1), hit a player or monster on their tile for LbRetractableTrap's share of life
+  and energy shield, bleed and pin them for a second and wall their tile while they show, with the Hull's ring as the
+  client closes it; matched by eye against the original game. The trial's static objects (levers, switches, the
+  plaque, the turrets, the rails) close their Hull and its ring on the server, as the client stamps them. Objects whose
+  type does not block (the trial's return portal, waypoints, area transitions) are no longer sent as client bodies, which
+  made a player walking over them drift (`BlobWriter.Positioned`, [04](../docs/protocol/04-player-entity.md)).
   The Imperial Gardens' 14 dart turrets fire together every 1.5 s, four poison darts each a quarter turn apart, through
   the projectile world, stopping at walls and at the turrets' Hull; a dart hits for LbArrowTrap's share and adds a 2 s
   poison stack reckoned from the hit's life share, less armour, and slows movement by 60% for 2 s. Being checked live.

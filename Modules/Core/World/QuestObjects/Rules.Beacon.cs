@@ -9,7 +9,7 @@ static partial class QuestobjectsRules
     // BeaconPayload attaches the PedestalBuffZone art. MiscAnimated stores its radius in world units.
     static double BeaconEscortRadius => (global::Game.Art.ArtRadius(BeaconCircle) ?? 250) * 23d / 250;
     static string BeaconCartFlag(GlyphQuest.Placement at) => Quests.InstanceFlag($"BeaconCart:{at.X}:{at.Y}");
-    static readonly ConditionalWeakTable<ClientState, BeaconView> BeaconViews = new();
+    static readonly ConditionalWeakTable<Player, BeaconView> BeaconViews = new();
     static readonly ConditionalWeakTable<InstanceState, BeaconRun> BeaconRuns = new();
 
     internal sealed class BeaconCart(GlyphQuest.Placement start, RailEscort walk)
@@ -56,7 +56,7 @@ static partial class QuestobjectsRules
     {
         public readonly SemaphoreSlim Gate = new(1);
         public readonly List<BeaconCart> Carts = [];
-        public readonly List<WeakReference<ClientState>> Players = [];
+        public readonly List<WeakReference<Player>> Players = [];
         public List<GlyphQuest.Placement> Controllers = [], Spawners = [];
         public double LastAt;
         public bool Loaded;
@@ -69,66 +69,64 @@ static partial class QuestobjectsRules
         public bool Loaded;
     }
 
-    internal static bool CanUseBeacon(ClientState conn, string type) => conn.Layout.Id != Act6Areas.Beacon || type switch
+    internal static bool CanUseBeacon(Player player, string type) => player.Layout.Id != Act6Areas.Beacon || type switch
     {
-        Act6Objects.BeaconLever => BeaconRuns.TryGetValue(conn.Instance, out var run) && run.Carts.Count == 2 && run.Carts.All(c => c.Walk.Complete),
-        Act6Objects.BeaconStatue => conn.Instance.HasState(Act6Objects.BeaconIgnited),
+        Act6Objects.BeaconLever => BeaconRuns.TryGetValue(player.Instance, out var run) && run.Carts.Count == 2 && run.Carts.All(c => c.Walk.Complete),
+        Act6Objects.BeaconStatue => player.Instance.HasState(Act6Objects.BeaconIgnited),
         _ => true,
     };
 
-    internal static async Task TickBeacon(ClientState conn)
+    internal static async Task TickBeacon(Player player)
     {
-        if (conn.Layout.Id != Act6Areas.Beacon || !conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
-        var run = BeaconRuns.GetValue(conn.Instance, _ => new());
+        if (player.Layout.Id != Act6Areas.Beacon || !player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
+        var run = BeaconRuns.GetValue(player.Instance, _ => new());
         await run.Gate.WaitAsync();
         try
         {
-            var view = BeaconViews.GetValue(conn, _ => new());
-            if (!view.Loaded) await CreateBeacon(conn, run, view);
+            var view = BeaconViews.GetValue(player, _ => new());
+            if (!view.Loaded) await CreateBeacon(player, run, view);
             if (run.Carts.Count != 2) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(player);
             double seconds = Math.Max(0, now - run.LastAt);
             run.LastAt = now;
             var players = run.Players.Select(w => w.TryGetTarget(out var c) ? c : null)
-                .Where(c => c is { Closed: false, LeavingArea: false }).Cast<ClientState>().ToArray();
+                .Where(c => c is { Closed: false, LeavingArea: false }).Cast<Player>().ToArray();
             var escorts = players.Where(c => c.PlayerLife > 0 && !c.Paused).Select(c => c.Walk.Position(now)).ToArray();
             foreach (var cart in run.Carts)
             {
                 cart.Update(seconds, escorts);
                 if (cart.Walk.Complete)
                 {
-                    conn.Instance.Transition(Act6Objects.BeaconPayload, cart.Start.X, cart.Start.Y);
-                    conn.Instance.SetState(BeaconCartFlag(cart.Start));
+                    player.Instance.Transition(Act6Objects.BeaconPayload, cart.Start.X, cart.Start.Y);
+                    player.Instance.SetState(BeaconCartFlag(cart.Start));
                 }
-                if (cart.Moving) await SpawnBeaconGuards(conn, run, cart.Walk.Position);
+                if (cart.Moving) await SpawnBeaconGuards(player, run, cart.Walk.Position);
             }
             bool refueled = run.Carts.All(c => c.Walk.Complete);
-            foreach (var player in players)
+            foreach (var peer in players)
             {
-                if (refueled && !ClientHasQuestFlag(player, BeaconRefueled))
+                if (refueled && !ClientHasQuestFlag(peer, BeaconRefueled))
                 {
-                    var (remote, stream, ciphers) = player.Wire;
-                    await SetQuestFlags(remote, stream, ciphers, player, [BeaconRefueled]);
+                    await SetQuestFlags(peer, [BeaconRefueled]);
                 }
-                await ShowBeacon(player, run, BeaconViews.GetValue(player, _ => new()));
+                await ShowBeacon(peer, run, BeaconViews.GetValue(peer, _ => new()));
             }
         }
         finally { run.Gate.Release(); }
     }
 
-    static async Task CreateBeacon(ClientState conn, BeaconRun run, BeaconView view)
+    static async Task CreateBeacon(Player player, BeaconRun run, BeaconView view)
     {
-        var placed = new QuestObjectTypes.AreaPlacements(Act6Areas.Beacon, conn.Seed, []);
-        var (remote, stream, ciphers) = conn.Wire;
+        var placed = new QuestObjectTypes.AreaPlacements(Act6Areas.Beacon, player.Seed, []);
         // Rebind the old quest rules and add missing objects when this module is hot-reloaded in an occupied area.
-        foreach (var rule in QuestsOf(conn).Objects(Act6Areas.Beacon))
+        foreach (var rule in QuestsOf(player).Objects(Act6Areas.Beacon))
         {
             bool found = false;
-            lock (conn.QuestObjects)
-                foreach (var (id, o) in conn.QuestObjects.Where(p => p.Value.Rule.ObjectType == rule.ObjectType).ToArray())
-                { conn.QuestObjects[id] = (rule, o.At, o.Info); found = true; }
+            lock (player.QuestObjects)
+                foreach (var (id, o) in player.QuestObjects.Where(p => p.Value.Rule.ObjectType == rule.ObjectType).ToArray())
+                { player.QuestObjects[id] = (rule, o.At, o.Info); found = true; }
             if (!found)
-                foreach (var at in placed.Of(rule.ObjectType)) await CreateQuestObject(remote, stream, ciphers, conn, rule, at);
+                foreach (var at in placed.Of(rule.ObjectType)) await CreateQuestObject(player, rule, at);
         }
         var starts = placed.Of(Act6Objects.BeaconPayload);
         if (!run.Loaded)
@@ -148,12 +146,12 @@ static partial class QuestobjectsRules
                 points = points.Take(end + 1).ToList();
                 var walk = new RailEscort(points, BeaconSpeed);
                 (int X, int Y)? old = null;
-                lock (conn.QuestObjects)
+                lock (player.QuestObjects)
                 {
-                    var payloads = conn.QuestObjects.Where(p => p.Value.Rule.ObjectType == Act6Objects.BeaconPayload).OrderBy(p => p.Key).ToArray();
+                    var payloads = player.QuestObjects.Where(p => p.Value.Rule.ObjectType == Act6Objects.BeaconPayload).OrderBy(p => p.Key).ToArray();
                     if (i < payloads.Length) old = (payloads[i].Value.At.X, payloads[i].Value.At.Y);
                 }
-                if (conn.Instance.Transitioned(start.Type, start.X, start.Y) || ClientHasQuestFlag(conn, BeaconRefueled) || ClientHasQuestFlag(conn, BeaconDelivered))
+                if (player.Instance.Transitioned(start.Type, start.X, start.Y) || ClientHasQuestFlag(player, BeaconRefueled) || ClientHasQuestFlag(player, BeaconDelivered))
                     walk.Advance(double.MaxValue, true);
                 else if (old is { } at) walk.Restore(at);
                 run.Carts.Add(new(start, walk));
@@ -161,58 +159,57 @@ static partial class QuestobjectsRules
             run.Controllers = placed.Of("Metadata/QuestObjects/Act6/BeaconPayload_SpawnController");
             foreach (string suffix in new[] { "GhostPirateSpawner", "GhostPirateSpawnerMagic", "GhostPirateSpawnerRare", "GhostTotemSpawner" })
                 run.Spawners.AddRange(placed.Of("Metadata/QuestObjects/Act6/BeaconPayload_" + suffix));
-            run.LastAt = conn.Clock.Elapsed.TotalSeconds;
+            run.LastAt = AreaTime(player);
             run.Loaded = true;
             Console.WriteLine($"[gateway] Beacon: {run.Carts.Count}/2 fuel carts, {run.Controllers.Count} encounter triggers");
         }
         foreach (var cart in run.Carts)
         {
             uint id;
-            lock (conn.QuestObjects)
-                id = conn.QuestObjects.Where(p => p.Value.Rule.ObjectType == Act6Objects.BeaconPayload).OrderBy(p => p.Key).Skip(view.Carts.Count).Select(p => p.Key).FirstOrDefault();
+            lock (player.QuestObjects)
+                id = player.QuestObjects.Where(p => p.Value.Rule.ObjectType == Act6Objects.BeaconPayload).OrderBy(p => p.Key).Skip(view.Carts.Count).Select(p => p.Key).FirstOrDefault();
             if (id == 0)
             {
                 var at = cart.Walk.Position;
                 var info = QuestObjectTypes.Find(Act6Objects.BeaconPayload) ?? throw new InvalidOperationException("BeaconPayload metadata missing");
                 var position = cart.Start with { X = (int)Math.Round(at.X), Y = (int)Math.Round(at.Y) };
-                lock (conn.QuestObjects)
+                lock (player.QuestObjects)
                 {
-                    id = conn.TakeObjectId();
-                    conn.QuestObjects[id] = (new Quests.ObjectRule(Act6Areas.Beacon, Act6Objects.BeaconPayload, BeaconCartFlag(cart.Start)), position, info);
+                    id = player.TakeObjectId();
+                    player.QuestObjects[id] = (new Quests.ObjectRule(Act6Areas.Beacon, Act6Objects.BeaconPayload, BeaconCartFlag(cart.Start)), position, info);
                 }
-                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
+                await global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
                     new QuestObject(position.X, position.Y, info.Components, position.Rotation, position.Z,
-                        TransitionState: (byte)(cart.Walk.Complete ? 2 : 1), Team: 4).Blob()), $"[Beacon] fuel cart at ({position.X}, {position.Y})");
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                        TransitionState: (byte)(cart.Walk.Complete ? 2 : 1), Team: 4).Blob()),
+                            $"[Beacon] fuel cart at ({position.X}, {position.Y})", wake: true, awaitBirth: false);
             }
-            lock (conn.QuestObjects)
-                if (conn.QuestObjects.TryGetValue(id, out var shown))
-                    conn.QuestObjects[id] = (shown.Rule with { TransitionedBy = BeaconCartFlag(cart.Start) }, shown.At, shown.Info);
+            lock (player.QuestObjects)
+                if (player.QuestObjects.TryGetValue(id, out var shown))
+                    player.QuestObjects[id] = (shown.Rule with { TransitionedBy = BeaconCartFlag(cart.Start) }, shown.At, shown.Info);
             view.Carts.Add(id);
         }
-        if (ClientHasQuestFlag(conn, BeaconDelivered)) conn.Instance.SetState(Act6Objects.BeaconIgnited);
-        if (!run.Players.Any(w => w.TryGetTarget(out var player) && !player.Closed && !player.LeavingArea))
+        if (ClientHasQuestFlag(player, BeaconDelivered)) player.Instance.SetState(Act6Objects.BeaconIgnited);
+        if (!run.Players.Any(w => w.TryGetTarget(out var peer) && !peer.Closed && !peer.LeavingArea))
         {
-            run.LastAt = conn.Clock.Elapsed.TotalSeconds;
+            run.LastAt = AreaTime(player);
             foreach (var cart in run.Carts) cart.Update(0, []);
         }
-        run.Players.RemoveAll(w => !w.TryGetTarget(out var player) || player.Closed || player.LeavingArea);
-        run.Players.Add(new(conn));
+        run.Players.RemoveAll(w => !w.TryGetTarget(out var peer) || peer.Closed || peer.LeavingArea);
+        run.Players.Add(new(player));
         view.Loaded = true;
     }
 
-    static async Task ShowBeacon(ClientState conn, BeaconRun run, BeaconView view)
+    static async Task ShowBeacon(Player player, BeaconRun run, BeaconView view)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         int delivered = run.Carts.Count(c => c.Walk.Complete);
-        bool flag = ClientHasQuestFlag(conn, BeaconDelivered), lit = flag || conn.Instance.HasState(Act6Objects.BeaconIgnited);
+        bool flag = ClientHasQuestFlag(player, BeaconDelivered), lit = flag || player.Instance.HasState(Act6Objects.BeaconIgnited);
         for (int i = 0; i < view.Carts.Count; i++)
         {
             var cart = run.Carts[i]; uint id = view.Carts[i];
             var at = cart.Walk.Position;
             var cell = ((int)Math.Round(at.X), (int)Math.Round(at.Y));
-            lock (conn.QuestObjects)
-                if (conn.QuestObjects.TryGetValue(id, out var o)) conn.QuestObjects[id] = (o.Rule, o.At with { X = cell.Item1, Y = cell.Item2 }, o.Info);
+            lock (player.QuestObjects)
+                if (player.QuestObjects.TryGetValue(id, out var o)) player.QuestObjects[id] = (o.Rule, o.At with { X = cell.Item1, Y = cell.Item2 }, o.Info);
             var movement = (cart.CommandTarget, cart.Moving);
             if (!view.ShownMoves.TryGetValue(id, out var shown) || shown != movement)
             {
@@ -220,14 +217,14 @@ static partial class QuestobjectsRules
                 var target = cart.CommandTarget;
                 float seconds = cart.Moving ? (float)Math.Max(0.05, cart.CommandSeconds) : 0.05f;
                 var move = InstanceProtocol.MoveTo(id, target.Item1, target.Item2, seconds, InstanceProtocol.FollowTerrain);
-                await Send(remote, stream, ciphers, cart.Moving
+                await Send(player, cart.Moving
                     ? [.. InstanceProtocol.Orientation(id, (float)Math.Atan2(target.Item1 - at.X, at.Y - target.Item2)), .. move] : move,
                     $"[Beacon] cart {i + 1} {(cart.Moving ? "moving" : "stopped")} at {cell}, target {target}");
             }
-            await BeaconState(conn, view, id, (byte)(cart.Walk.Complete ? 2 : 1));
+            await BeaconState(player, view, id, (byte)(cart.Walk.Complete ? 2 : 1));
         }
         (uint Id, string Type)[] objects;
-        lock (conn.QuestObjects) objects = [.. conn.QuestObjects.Select(p => (p.Key, p.Value.Rule.ObjectType))];
+        lock (player.QuestObjects) objects = [.. player.QuestObjects.Select(p => (p.Key, p.Value.Rule.ObjectType))];
         foreach (var (id, type) in objects)
         {
             byte state = type switch
@@ -238,27 +235,26 @@ static partial class QuestobjectsRules
                 Act6Objects.BeaconShip => (byte)(flag ? 2 : 1),
                 _ => 0,
             };
-            if (state > 0) await BeaconState(conn, view, id, state);
+            if (state > 0) await BeaconState(player, view, id, state);
         }
     }
 
-    static async Task BeaconState(ClientState conn, BeaconView view, uint id, byte state)
+    static async Task BeaconState(Player player, BeaconView view, uint id, byte state)
     {
         if (view.ShownStates.TryGetValue(id, out var previous) && previous == state) return;
         int component;
-        lock (conn.QuestObjects) component = conn.QuestObjects.TryGetValue(id, out var o) ? QuestObject.TransitionableIndex(o.Info.Components) : -1;
+        lock (player.QuestObjects) component = player.QuestObjects.TryGetValue(id, out var o) ? QuestObject.TransitionableIndex(o.Info.Components) : -1;
         if (component < 0) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Beacon] 0x{id:x} state {state}");
+        await global::Game.SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Beacon] 0x{id:x} state {state}");
         view.ShownStates[id] = state;
     }
 
-    static async Task SpawnBeaconGuards(ClientState conn, BeaconRun run, (double X, double Y) at)
+    static async Task SpawnBeaconGuards(Player player, BeaconRun run, (double X, double Y) at)
     {
         if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
         foreach (var trigger in run.Controllers.Where(p => Math.Pow(p.X - at.X, 2) + Math.Pow(p.Y - at.Y, 2) <= 14 * 14))
         {
-            if (!conn.Instance.Transition(trigger.Type, trigger.X, trigger.Y)) continue;
+            if (!player.Instance.Transition(trigger.Type, trigger.X, trigger.Y)) continue;
             foreach (var spawn in run.Spawners.Where(p => ReferenceEquals(run.Controllers.MinBy(t => Math.Pow(t.X - p.X, 2) + Math.Pow(t.Y - p.Y, 2)), trigger)))
             {
                 bool totem = spawn.Type.EndsWith("GhostTotemSpawner", StringComparison.Ordinal);
@@ -266,9 +262,8 @@ static partial class QuestobjectsRules
                 if (Monsters.Find(monster) is not { Supported: true } variety) continue;
                 var rarity = spawn.Type.EndsWith("Rare", StringComparison.Ordinal) ? MonsterRarity.Rare
                     : spawn.Type.EndsWith("Magic", StringComparison.Ordinal) ? MonsterRarity.Magic : MonsterRarity.Normal;
-                var pos = conn.Layout.Near((spawn.X, spawn.Y));
-                var (remote, stream, ciphers) = conn.Wire;
-                await SpawnMonster(remote, stream, ciphers, conn, variety, 49, rarity, pos.X, pos.Y);
+                var pos = player.Layout.Near((spawn.X, spawn.Y));
+                await SpawnMonster(player, variety, 49, rarity, pos.X, pos.Y);
             }
             Console.WriteLine($"[gateway] Beacon encounter at ({trigger.X}, {trigger.Y})");
         }

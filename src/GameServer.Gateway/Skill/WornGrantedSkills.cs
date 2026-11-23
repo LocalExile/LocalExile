@@ -22,7 +22,7 @@ public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool
     readonly record struct Template(int ModRow, string ModId, int EffectsPerLevelRow, int Effect,
         string EffectId, int Level, bool ManuallyCast, bool Support);
 
-    readonly Lazy<Dictionary<ushort, Template[]>> _byHash = new(() => Load(skills, mods, ruthless, folder));
+    readonly Dictionary<ushort, Template[]> _byHash = Load(skills, mods, ruthless, folder);
 
     /// <summary>
     /// Every active and support grant on these equipped hosts, in equipment then mod order. The caller decides which
@@ -36,7 +36,7 @@ public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool
             int sourceSlot = 0;
             for (int modIndex = 0; modIndex < item.Item.Mods.Count; modIndex++)
             {
-                if (!_byHash.Value.TryGetValue(item.Item.Mods[modIndex].Hash, out var templates)) continue;
+                if (!_byHash.TryGetValue(item.Item.Mods[modIndex].Hash, out var templates)) continue;
                 foreach (var template in templates)
                 {
                     // One synthetic socket per host/GEPL occurrence. It is unaffected by another host, active gem

@@ -10,11 +10,19 @@ using GameServer.Core;
 /// raises both skills its one gem grants (its Vaal skill and its base skill) and a transfigured Raise Zombie keeps
 /// its gem's family. Supports carry family tags too (Scornful Herald, Frigid Bond, the Vaal supports); the stats
 /// raise skill gems only, so EffectiveGemLevel excludes supports when the bonus is applied.
-/// Reads the client tables (client.db, loaded on first use); without them no stat has members.
+/// Reads the client tables (client.db, in memory); without them no stat has members.
 /// </summary>
-public sealed class SkillGemFamilies(string folder = "data")
+public sealed class SkillGemFamilies
 {
-    readonly Lazy<Dictionary<int, HashSet<int>>> _members = new(() => Load(folder));
+    readonly string folder;
+
+    public SkillGemFamilies(string folder = "data")
+    {
+        this.folder = folder;
+        _members = Load(folder);
+    }
+
+    readonly Dictionary<int, HashSet<int>> _members;
 
     // A family keyed by no stat row: the gems carrying the GemTags "exceptional" tag (Empower, Enlighten, ...).
     const int ExceptionalFamily = -1;
@@ -22,7 +30,7 @@ public sealed class SkillGemFamilies(string folder = "data")
     /// <summary>Whether the Stats.dat row raises this gem's level: the gem's SkillGems row (the base item type's row)
     /// is in the stat's family. Unknown stats and rows are in no family.</summary>
     public bool Raises(int statRow, int gemRow) =>
-        gemRow >= 0 && _members.Value.TryGetValue(statRow, out var rows) && rows.Contains(gemRow);
+        gemRow >= 0 && _members.TryGetValue(statRow, out var rows) && rows.Contains(gemRow);
 
     /// <summary>Whether the gem (its base item type's row) carries the Exceptional tag.</summary>
     public bool IsExceptional(int gemRow) => Raises(ExceptionalFamily, gemRow);

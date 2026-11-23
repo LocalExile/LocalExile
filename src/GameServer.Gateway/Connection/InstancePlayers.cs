@@ -1,34 +1,26 @@
 using GameServer.Core.Protocol.Instance;
 
-/// <summary>Immutable published poses; observers never lock another connection's simulation.</summary>
-public sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, int Y, uint Life,
-    ClientState? Owner = null)
-{
-    // Only session liveness is read through the owner; all replicated values remain immutable snapshots.
-    public bool Current => Owner is null || !Owner.Closed && !Owner.LeavingArea && Owner.PlayerSent;
-    /// <summary>Where the player is walking to (its walk's last cell; its own cell when standing). Observers start a Move
-    /// action toward it, which their client paths and animates, instead of gliding the body from pose to pose.</summary>
-    public (int X, int Y)? Destination { get; init; }
-    public IReadOnlyList<SharedAura> Auras { get; init; } = [];
-}
-
+/// <summary>An aura a player shares with the allies in its radius, at the caster's effect.</summary>
 public sealed record SharedAura(AuraCatalog.Aura Aura, int Radius, int Effect);
 
-/// <summary>Player presence shared by one Auth instance, independently of its characters' private world state.</summary>
+/// <summary>The players of one Auth instance: the area's, and in an SSF town the other solo worlds' sharing it (chat,
+/// party and friends see them; their world state stays apart). A player is in it from entering until leaving.</summary>
 public sealed class InstancePresence
 {
-    readonly System.Collections.Concurrent.ConcurrentDictionary<uint, InstancePlayer> _players = new();
-    public void PublishPlayer(InstancePlayer player) => _players[player.Id] = player;
+    readonly System.Collections.Concurrent.ConcurrentDictionary<uint, Player> _players = new();
+    public void AddPlayer(Player player) => _players[player.Id] = player;
     public void RemovePlayer(uint id) => _players.TryRemove(id, out _);
-    public InstancePlayer[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id)];
-    public InstancePlayer? Player(uint id) => _players.TryGetValue(id, out var p) && p.Current ? p : null;
+    /// <summary>The players in game here now, but <paramref name="id"/>.</summary>
+    public Player[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id && InGame(p))];
+    public Player? Player(uint id) => _players.TryGetValue(id, out var p) && InGame(p) ? p : null;
+    static bool InGame(Player p) => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent;
 }
 
 /// <summary>The instance's events (InstanceWorld): what a module can add to the shared instance.</summary>
 public static class InstanceEvents
 {
     /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
-    public static readonly GameEvent<Func<ClientState, PendingTransfer, ulong>> TransferInstance = new();
+    public static readonly GameEvent<Func<Player, PendingTransfer, ulong>> TransferInstance = new();
 
     /// <summary>The area stats a new instance is played with (0x1d's first stat list, 1-based Stats ids): the client's
     /// level generator reads them, so the Gateway generates the level with the same list. Asked once per instance, by
@@ -141,20 +133,20 @@ public partial class Program
 {
     /// <summary>The connections in game now (entered an area, not yet gone), for what plays beside them without one of its
     /// own: server-driven players (the PlayerBots module) look up the towns players are in.</summary>
-    public static readonly System.Collections.Concurrent.ConcurrentDictionary<ClientState, byte> InGame = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<Player, byte> InGame = new();
 
     /// <summary>Sets the player's party size; a change tells the client the players in the area (S→C 0x231: the party
     /// panel's bonus icons, which compute their percentages from the client's own constants, Game.PartyBonus) and the
     /// player the bonus in chat.</summary>
-    public static async Task SetPartySize(ClientState conn, int size)
+    public static async Task SetPartySize(Player player, int size)
     {
         size = Math.Max(1, size);
-        if (conn.PartySize == size) return;
-        conn.PartySize = size;
+        if (player.PartySize == size) return;
+        player.PartySize = size;
         int more = size - 1;
         string text = more == 0 ? "Party bonus: none"
             : $"Party bonus ({size} players): monster life +{50 * more}% normal, +{60 * more}% magic, +{80 * more}% rare, +{100 * more}% unique; currency items +{23 * more}%";
-        if (conn.Outbox is { } outbox)
+        if (player.Connection.Outbox is { } outbox)
         {
             await outbox(GameServer.Core.Protocol.Instance.InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
             // The value the client scales by its constants: 100 per extra player (Game.PartyBonus).
@@ -164,63 +156,37 @@ public partial class Program
     }
 }
 
-public sealed partial class InstanceState
+public sealed partial class InstanceState : IHasComponents
 {
+    /// <summary>What modules keep on this area (their stores).</summary>
+    public Components Components { get; } = new();
+
     public InstanceState() : this(null) { }
     public InstanceState(InstancePresence? presence) => Presence = presence ?? new();
 
     public InstancePresence Presence { get; }
-    public void PublishPlayer(InstancePlayer player) => Presence.PublishPlayer(player);
+    public void AddPlayer(Player player) => Presence.AddPlayer(player);
     public void RemovePlayer(uint id) => Presence.RemovePlayer(id);
-    public InstancePlayer[] PlayersExcept(uint id) => Presence.PlayersExcept(id);
-    public InstancePlayer? Player(uint id) => Presence.Player(id);
+    public Player[] PlayersExcept(uint id) => Presence.PlayersExcept(id);
+    public Player? Player(uint id) => Presence.Player(id);
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     static int _nextPeerId = 0x20000000;
     // Settable when the state is built, so a test of a rule seeded by it does not depend on how many states came before.
-    public uint PeerId { get; init; } = unchecked((uint)Interlocked.Increment(ref _nextPeerId));
+    public uint Id { get; init; } = unchecked((uint)Interlocked.Increment(ref _nextPeerId));
     public PlayerObject? PeerTemplate;
+    /// <summary>The auras this player shares with its allies, set when its stats change (RefreshPeerScale).</summary>
+    public IReadOnlyList<SharedAura> SharedAuras = [];
     public uint PeerType;
-    public readonly Dictionary<uint, InstancePlayer> SeenPlayers = [];
-    /// <summary>The instance's ground items this client has (SharedGround.cs).</summary>
-    public readonly HashSet<uint> SeenGround = [];
-    /// <summary>The instance's monsters as this client was last shown them (SharedMonsters.cs SyncInstanceMonsters).</summary>
-    public readonly Dictionary<uint, MonsterView> MonsterViews = [];
-    /// <summary>Instance scene snapshots already created on this connection, guarded by Monsters.</summary>
-    public readonly HashSet<uint> SceneViews = [];
-    /// <summary>The instance's monsters out of this client's wake zone (it was sent 0x1aa for them: Resync.KeepWakeZone).
-    /// A monster is asleep (SpawnedMonster.Asleep: no AI, its walk stopped) only when it is out of every client's.</summary>
-    public readonly HashSet<uint> AsleepMonsters = [];
-    /// <summary>The instance's bosses whose life bar this client was shown (a boss's bar is each client's own).</summary>
-    public readonly HashSet<uint> BossBarsSeen = [];
-    /// <summary>This client's living monsters in its wake zone as of its last frame, sorted (SharedMonsters.cs).</summary>
-    public volatile uint[] AwakeMonsters = [];
-    /// <summary>The shared monsters this connection runs now (their AI, so their actions), sorted (SharedMonsters.cs).</summary>
-    public volatile uint[] RunMonsters = [];
-    /// <summary>Another player's projectile objects shown on this client, by (their PeerId, their object id), under ids of
-    /// this client's own (SharedMonsters.cs MirrorProjectiles).</summary>
-    public readonly System.Collections.Concurrent.ConcurrentDictionary<(uint Peer, uint Id), uint> MirroredObjects = new();
-    public int NextMirroredObject = 0x0c000000; // below 0x40000000 too, as SharedMonsterIds
-    /// <summary>This connection's projectile objects the other clients were sent.</summary>
-    public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, byte> MirroredProjectiles = new();
     /// <summary>This player's minions as created (SharedMonsters.cs), and as of its last frame, for the other clients.</summary>
     public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SharedMonsterOrigin> MinionOrigins = new();
-    public volatile SharedMonster[] PublishedMinions = [];
-    /// <summary>The last action of this player that the other clients were sent was a skill (not a walk): its end goes too.</summary>
-    public bool PeerActing;
     /// <summary>Where Auth sent this connection's player (area, instance), from the transfer until the next connection:
     /// a party member who follows at once joins them there (Social's PartyInstance).</summary>
     public (ushort Area, ulong Instance)? TransferredTo;
-    /// <summary>The buffs (object, instance) this client's additions of went to the others: only their removals follow.</summary>
-    public readonly System.Collections.Concurrent.ConcurrentDictionary<(uint Id, ushort Instance), byte> MirroredBuffs = new();
-    /// <summary>The other players' minions this client was shown, by (their PeerId, their id).</summary>
-    public readonly Dictionary<(uint Peer, uint Id), SharedMonster> SeenMinions = [];
     /// <summary>This player's shares of the instance host's kills, for its own loop to apply (SharedKills.cs).</summary>
-    public readonly System.Collections.Concurrent.ConcurrentQueue<Func<string, System.Net.Sockets.NetworkStream, GameServer.Core.Protocol.Login.ConnectionCiphers, Task>> KillShares = new();
-    /// <summary>Sends to this connection's client, for another connection (Program.Social).</summary>
-    public Func<byte[], string?, Task>? Outbox;
+    public readonly System.Collections.Concurrent.ConcurrentQueue<Func<Player, Task>> KillShares = new();
     /// <summary>The party this player is in, counting the player (1: none): Social's parties and PlayerBots' (SetPartySize).
     /// Each member beyond the first gives Game.PartyBonus.</summary>
     public int PartySize = 1;

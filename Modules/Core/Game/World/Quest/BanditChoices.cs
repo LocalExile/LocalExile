@@ -25,10 +25,10 @@ public static class BanditChoices
     const int ChoiceRange = 16;
     const string AfterFight = "AfterBanditFight";
 
-    sealed class VoteParticipant(string characterName, ClientState? conn, byte state, bool eligible)
+    sealed class VoteParticipant(string characterName, Player? player, byte state, bool eligible)
     {
         public string CharacterName { get; } = characterName;
-        public ClientState? Conn { get; set; } = conn;
+        public Player? Player { get; set; } = player;
         public byte State { get; set; } = state;
         public bool Eligible { get; set; } = eligible;
     }
@@ -40,26 +40,27 @@ public static class BanditChoices
         public bool IsSolo { get; set; } = isSolo;
         public volatile bool Resolved;
         public List<VoteParticipant> Participants { get; } = [];
-        public List<ClientState> Observers { get; } = [];
+        public List<Player> Observers { get; } = [];
     }
 
-    sealed record VoteBroadcast(Bandit Bandit, bool IsSolo, VoteParticipant[] Participants, ClientState[] Recipients);
+    sealed record VoteBroadcast(Bandit Bandit, bool IsSolo, VoteParticipant[] Participants, Player[] Recipients);
 
-    sealed class PartyMembersRegistration(Func<ClientState, IReadOnlyList<ClientState>> provider) : IDisposable
+    sealed class PartyMembersRegistration(Func<Player, IReadOnlyList<Player>> provider) : IDisposable
     {
         public void Dispose() => Interlocked.CompareExchange(ref partyMembersProvider, null, provider);
     }
 
-    // VoteGate guards ActiveVotes and every PartyVote's fields; never nest it with Monsters or QuestGate.
+    // VoteGate guards ActiveVotes and every PartyVote's fields; never nest it with QuestGate.
     static readonly object VoteGate = new();
     static readonly RuleTable<InstanceState, PartyVote> ActiveVotes = new();
-    static volatile Func<ClientState, IReadOnlyList<ClientState>>? partyMembersProvider;
+    static volatile Func<Player, IReadOnlyList<Player>>? partyMembersProvider;
+
     public static readonly IReadOnlyList<Bandit> All = [Kraityn, Alira, Oak];
 
     /// <summary>Registers a provider returning human party members for a player (including members outside the bandit
     /// area, who appear as <see cref="InstanceNpcs.VoteStateWaitingToEnterArea"/> until they enter). Dispose the
     /// returned handle when the registering module unloads.</summary>
-    public static IDisposable RegisterPartyMembers(Func<ClientState, IReadOnlyList<ClientState>> provider)
+    public static IDisposable RegisterPartyMembers(Func<Player, IReadOnlyList<Player>> provider)
     {
         partyMembersProvider = provider;
         return new PartyMembersRegistration(provider);
@@ -67,7 +68,7 @@ public static class BanditChoices
 
     public static string AmuletId(Bandit bandit) => AmuletPath + bandit.Amulet;
 
-    public static Bandit? In(ClientState conn) => conn.Layout.Id switch
+    public static Bandit? In(Player player) => player.Layout.Id switch
     {
         "1_2_4" => Kraityn,
         "1_2_9" => Alira,
@@ -77,30 +78,30 @@ public static class BanditChoices
 
     static bool Finished(Func<string, bool> has) => has(Delivered) || has(EramirReward) || All.Any(b => has(b.Reward));
 
-    static bool Available(ClientState conn, Bandit bandit) =>
-        QuestsOf(conn).OnMonsterKilled(bandit.Area, bandit.Variety).Contains(bandit.Killed);
+    static bool Available(Player player, Bandit bandit) =>
+        QuestsOf(player).OnMonsterKilled(bandit.Area, bandit.Variety).Contains(bandit.Killed);
 
-    static bool CanHoldFor(ClientState conn, Bandit bandit) =>
-        Available(conn, bandit) && !conn.HasQuestFlag(bandit.Killed)
-        && (conn.HasQuestFlag(bandit.Reward) || !Finished(conn.HasQuestFlag));
+    static bool CanHoldFor(Player player, Bandit bandit) =>
+        Available(player, bandit) && !player.Character.HasQuestFlag(bandit.Killed)
+        && (player.Character.HasQuestFlag(bandit.Reward) || !Finished(player.Character.HasQuestFlag));
 
-    static bool CanVote(ClientState conn, Bandit bandit) =>
-        !conn.Controlled && !conn.Closed && !HardcoreProgressBlocked(conn)
-        && Available(conn, bandit) && !conn.HasQuestFlag(bandit.Killed) && !Finished(conn.HasQuestFlag);
+    static bool CanVote(Player player, Bandit bandit) =>
+        !player.Controlled && !player.Closed && !HardcoreProgressBlocked(player)
+        && Available(player, bandit) && !player.Character.HasQuestFlag(bandit.Killed) && !Finished(player.Character.HasQuestFlag);
 
     static bool HasActiveVote(InstanceState? instance) =>
         instance is not null && ActiveVotes.TryGetValue(instance, out var session) && !session.Resolved;
 
-    public static bool Held(ClientState conn, Bandit bandit)
+    public static bool Held(Player player, Bandit bandit)
     {
-        if (Npcs.Value.Find(bandit.Variety) is null) return false;
-        var instance = conn.Instance;
+        if (Npcs.Find(bandit.Variety) is null) return false;
+        var instance = player.Instance;
         if (instance?.HasState(Fight) == true) return false;
         if (HasActiveVote(instance)) return true;
-        if (CanHoldFor(conn, bandit)) return true;
+        if (CanHoldFor(player, bandit)) return true;
         if (instance is null) return false;
-        foreach (var peer in instance.Presence.PlayersExcept(conn.PeerId))
-            if (peer.Owner is { Controlled: false, Closed: false, LeavingArea: false } other
+        foreach (var other in instance.Presence.PlayersExcept(player.Id))
+            if (other is { Controlled: false, Closed: false, LeavingArea: false }
                 && ReferenceEquals(other.Instance, instance) && CanHoldFor(other, bandit))
                 return true;
         return false;
@@ -108,114 +109,103 @@ public static class BanditChoices
 
     // This session flag is needed by NPCTalk's hand-in rows. Project it only in the allied
     // leader's area so it does not suppress either rival's first conversation.
-    public static void AddDialogueFlags(ClientState conn, HashSet<string> flags)
+    public static void AddDialogueFlags(Player player, HashSet<string> flags)
     {
-        if (In(conn) is { } bandit && flags.Contains(bandit.Ally)) flags.Add(AfterFight);
+        if (In(player) is { } bandit && flags.Contains(bandit.Ally)) flags.Add(AfterFight);
     }
 
-    static SpawnedMonster? Leader(ClientState conn, Bandit bandit, uint id)
+    static SpawnedMonster? Leader(Player player, Bandit bandit, uint id)
     {
-        var leader = conn.Monsters.GetValueOrDefault(id);
+        var leader = player.Area.Monsters.GetValueOrDefault(id);
         return leader is { Hostile: true, Dead: false, Life: > 0, Aggro: false } && leader.Variety?.Id == bandit.Variety
-            && Npcs.Value.Find(bandit.Variety) is not null && conn.Instance?.HasState(Fight) != true
-            && CanHoldFor(conn, bandit) ? leader : null;
+            && Npcs.Find(bandit.Variety) is not null && player.Instance?.HasState(Fight) != true
+            && CanHoldFor(player, bandit) ? leader : null;
     }
 
-    static SpawnedMonster? NearbyLeader(ClientState conn, Bandit bandit, uint id)
+    static SpawnedMonster? NearbyLeader(Player player, Bandit bandit, uint id)
     {
-        if (conn.Closed || conn.LeavingArea || conn.PendingTransfer is not null || conn.PlayerLife == 0 || HardcoreProgressBlocked(conn))
+        if (player.Closed || player.LeavingArea || player.PendingTransfer is not null || player.PlayerLife == 0 || HardcoreProgressBlocked(player))
             return null;
-        double now = ProjectileWorldTime(conn);
-        var leader = Leader(conn, bandit, id);
-        return leader is not null && Dist(conn.Walk.Position(now), leader.Walk.Position(now)) <= ChoiceRange + leader.Walk.Size
+        double now = ProjectileWorldTime(player);
+        var leader = Leader(player, bandit, id);
+        return leader is not null && Dist(player.Walk.Position(now), leader.Walk.Position(now)) <= ChoiceRange + leader.Walk.Size
             ? leader : null;
     }
 
-    public static SpawnedNpc? Speaker(ClientState conn, uint id)
+    public static SpawnedNpc? Speaker(Player player, uint id)
     {
-        if (In(conn) is not { } bandit || Npcs.Value.Find(bandit.Variety) is not { } npc) return null;
-        if (conn.Instance is not { } instance || !instance.World.MonsterOrigins.TryGetValue(id, out var origin) || !origin.Object.HasDialogue) return null;
-        lock (conn.Monsters)
-        {
-            if (Leader(conn, bandit, id) is not { } leader) return null;
-            var (x, y) = leader.Walk.Position(ProjectileWorldTime(conn));
-            lock (conn.Npcs)
-            {
-                if (!conn.Npcs.TryGetValue(id, out var speaker)) conn.Npcs[id] = speaker = new(npc, x, y);
-                return speaker;
-            }
-        }
+        if (In(player) is not { } bandit || Npcs.Find(bandit.Variety) is not { } npc) return null;
+        if (player.Instance is not { } instance || !instance.World.MonsterOrigins.TryGetValue(id, out var origin) || !origin.Object.HasDialogue) return null;
+        if (Leader(player, bandit, id) is not { } leader) return null;
+        var (x, y) = leader.Walk.Position(ProjectileWorldTime(player));
+        if (!player.Npcs.TryGetValue(id, out var speaker)) player.Npcs[id] = speaker = new(npc, x, y);
+        return speaker;
     }
 
     static bool CallsVote(NpcCatalog.Talk talk) => talk.Script.Contains("BanditCallVote", StringComparison.Ordinal);
 
     // Intercept these rows before the generic NPCTalk engine applies their flags. The amulets and reward
     // must be handled by one inventory transaction, and the vote's temporary flags must not enter the save.
-    public static async Task<bool> ChooseDialogue(ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    public static async Task<bool> ChooseDialogue(Player player, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
     {
-        if (In(conn) is not { } bandit || npc.Npc.Id != bandit.Variety || !(CallsVote(talk) || talk.Index == bandit.HandInIndex))
+        if (In(player) is not { } bandit || npc.Npc.Id != bandit.Variety || !(CallsVote(talk) || talk.Index == bandit.HandInIndex))
             return false;
-        bool allowed;
-        lock (conn.Monsters)
-            allowed = NearbyLeader(conn, bandit, id) is not null && !Finished(conn.HasQuestFlag);
-        if (!allowed || !talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return true;
+        bool allowed = NearbyLeader(player, bandit, id) is not null && !Finished(player.Character.HasQuestFlag);
+        if (!allowed || !talk.Available(Quests.Names(PlayerQuestFlags(player)))) return true;
         if (talk.Index == bandit.HandInIndex)
         {
-            if (HasActiveVote(conn.Instance)) return true;
-            await HandIn(conn, id, bandit, talk);
+            if (HasActiveVote(player.Instance)) return true;
+            await HandIn(player, id, bandit, talk);
             return true;
         }
 
         if (talk.TextAudio.Count == 0)
-            return await OpenVote(conn, id, npc, talk);
+            return await OpenVote(player, id, npc, talk);
 
-        conn.InNpcTalk = true;
-        conn.NpcTalkScript = talk;
-        conn.NpcFinishFlag = null;
-        conn.NpcFinishLeagueFlag = null;
-        await SendTo(conn, InstanceNpcs.Talk(id, (byte)talk.Index), $"0x0084 {bandit.Name}'s rivals");
+        player.InNpcTalk = true;
+        player.NpcTalkScript = talk;
+        player.NpcFinishFlag = null;
+        player.NpcFinishLeagueFlag = null;
+        await SendTo(player, InstanceNpcs.Talk(id, (byte)talk.Index), $"0x0084 {bandit.Name}'s rivals");
         return true;
     }
 
-    public static async Task<bool> OpenVote(ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    public static async Task<bool> OpenVote(Player player, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
     {
-        if (In(conn) is not { } bandit || npc.Npc.Id != bandit.Variety || !CallsVote(talk)) return false;
-        bool allowed;
-        lock (conn.Monsters)
-            allowed = NearbyLeader(conn, bandit, id) is not null && !Finished(conn.HasQuestFlag);
-        conn.TalkingTo = 0;
-        conn.InNpcTalk = false;
-        conn.NpcTalkScript = null;
-        conn.NpcFinishFlag = null;
-        conn.NpcFinishLeagueFlag = null;
-        await SendTo(conn, InstanceNpcs.Talk(0), $"0x0084 close {bandit.Name}'s dialogue");
-        if (!allowed || conn.Instance is not { } instance) return true;
+        if (In(player) is not { } bandit || npc.Npc.Id != bandit.Variety || !CallsVote(talk)) return false;
+        bool allowed = NearbyLeader(player, bandit, id) is not null && !Finished(player.Character.HasQuestFlag);
+        player.TalkingTo = 0;
+        player.InNpcTalk = false;
+        player.NpcTalkScript = null;
+        player.NpcFinishFlag = null;
+        player.NpcFinishLeagueFlag = null;
+        await SendTo(player, InstanceNpcs.Talk(0), $"0x0084 close {bandit.Name}'s dialogue");
+        if (!allowed || player.Instance is not { } instance) return true;
 
-        // Gather eligibility outside VoteGate so VoteGate and Monsters are never nested.
-        var humans = InstanceHumans(instance, include: conn);
-        var eligibleHumans = humans.Select(h => (Conn: h, Eligible: CanVote(h, bandit))).ToList();
+        var humans = InstanceHumans(instance, include: player);
+        var eligibleHumans = humans.Select(h => (Player: h, Eligible: CanVote(h, bandit))).ToList();
         var inAreaNames = new HashSet<string>(humans.Select(CharacterName), StringComparer.OrdinalIgnoreCase);
-        var waitingOutside = WaitingPartyMembers(conn, instance, inAreaNames, bandit);
-        bool callerEligible = eligibleHumans.FirstOrDefault(e => ReferenceEquals(e.Conn, conn)).Eligible;
+        var waitingOutside = WaitingPartyMembers(player, instance, inAreaNames, bandit);
+        bool callerEligible = eligibleHumans.FirstOrDefault(e => ReferenceEquals(e.Player, player)).Eligible;
 
         VoteBroadcast broadcast;
         lock (VoteGate)
         {
             if (ActiveVotes.TryGetValue(instance, out var existing) && !existing.Resolved)
             {
-                EnsureObserverLocked(existing, conn);
-                if (FindParticipantLocked(existing, conn) is { } existingParticipant)
+                EnsureObserverLocked(existing, player);
+                if (FindParticipantLocked(existing, player) is { } existingParticipant)
                 {
-                    existingParticipant.Conn = conn;
+                    existingParticipant.Player = player;
                     if (existingParticipant.State == InstanceNpcs.VoteStateWaitingToEnterArea && callerEligible)
                         existingParticipant.State = InstanceNpcs.VoteStateWaitingForVote;
                 }
                 else if (callerEligible)
                 {
-                    existing.Participants.Add(new(CharacterName(conn), conn, InstanceNpcs.VoteStateWaitingForVote, eligible: true));
+                    existing.Participants.Add(new(CharacterName(player), player, InstanceNpcs.VoteStateWaitingForVote, eligible: true));
                     if (existing.Participants.Count > 1) existing.IsSolo = false;
                 }
-                broadcast = SnapshotBroadcastLocked(existing, instance, include: conn);
+                broadcast = SnapshotBroadcastLocked(existing, instance, include: player);
             }
             else
             {
@@ -230,7 +220,7 @@ public static class BanditChoices
                 foreach (var member in waitingOutside)
                     session.Participants.Add(new(CharacterName(member), member, InstanceNpcs.VoteStateWaitingToEnterArea, eligible: true));
                 ActiveVotes.AddOrUpdate(instance, session);
-                broadcast = SnapshotBroadcastLocked(session, instance, include: conn);
+                broadcast = SnapshotBroadcastLocked(session, instance, include: player);
             }
         }
 
@@ -238,21 +228,21 @@ public static class BanditChoices
         return true;
     }
 
-    public static async Task VoteAnswer(ClientState conn, bool help)
+    public static async Task VoteAnswer(Player player, bool help)
     {
-        if (conn.Controlled || In(conn) is not { } bandit || conn.Instance is not { } instance)
+        if (player.Controlled || In(player) is not { } bandit || player.Instance is not { } instance)
             return;
 
         VoteBroadcast? broadcast = null;
-        (Bandit Bandit, uint LeaderId, bool IsSolo, VoteParticipant[] Participants, ClientState[] Recipients)? resolve = null;
+        (Bandit Bandit, uint LeaderId, bool IsSolo, VoteParticipant[] Participants, Player[] Recipients)? resolve = null;
 
         lock (VoteGate)
         {
             if (!ActiveVotes.TryGetValue(instance, out var session) || session.Resolved) return;
-            var participant = FindParticipantLocked(session, conn);
+            var participant = FindParticipantLocked(session, player);
             if (participant is null || !participant.Eligible || participant.State != InstanceNpcs.VoteStateWaitingForVote)
                 return;
-            participant.Conn = conn;
+            participant.Player = player;
             participant.State = help ? InstanceNpcs.VoteStateHelpBandit : InstanceNpcs.VoteStateKillBandit;
             PruneWaitingOutsideLocked(session, instance);
 
@@ -261,11 +251,11 @@ public static class BanditChoices
                 session.Resolved = true;
                 ActiveVotes.Remove(instance);
                 resolve = (session.Bandit, session.LeaderId, session.IsSolo, [.. session.Participants],
-                    CollectRecipientsLocked(session, instance, include: conn));
+                    CollectRecipientsLocked(session, instance, include: player));
             }
             else
             {
-                broadcast = SnapshotBroadcastLocked(session, instance, include: conn);
+                broadcast = SnapshotBroadcastLocked(session, instance, include: player);
             }
         }
 
@@ -275,32 +265,31 @@ public static class BanditChoices
             return;
         }
         if (resolve is { } r)
-            await ResolveVote(instance, conn, r.Bandit, r.LeaderId, r.IsSolo, r.Participants, r.Recipients);
+            await ResolveVote(instance, player, r.Bandit, r.LeaderId, r.IsSolo, r.Participants, r.Recipients);
     }
 
     /// <summary>Updates an active instance Bandit vote when a player finishes entering the bandit area.</summary>
-    public static async Task OnAreaGenerated(ClientState conn)
+    public static async Task OnAreaGenerated(Player player)
     {
-        if (conn.Controlled || conn.Closed || conn.LeavingArea || conn.Instance is not { } instance
-            || In(conn) is not { } bandit || !HasActiveVote(instance))
+        if (player.Controlled || player.Closed || player.LeavingArea || player.Instance is not { } instance
+            || In(player) is not { } bandit || !HasActiveVote(instance))
             return;
 
-        // Precompute eligibility outside VoteGate so VoteGate and Monsters are never nested.
-        bool eligible = CanVote(conn, bandit);
+        bool eligible = CanVote(player, bandit);
 
         VoteBroadcast? broadcast = null;
-        (Bandit Bandit, uint LeaderId, bool IsSolo, VoteParticipant[] Participants, ClientState[] Recipients)? resolve = null;
-        ClientState[]? cancelRecipients = null;
+        (Bandit Bandit, uint LeaderId, bool IsSolo, VoteParticipant[] Participants, Player[] Recipients)? resolve = null;
+        Player[]? cancelRecipients = null;
 
         lock (VoteGate)
         {
             if (!ActiveVotes.TryGetValue(instance, out var session) || session.Resolved) return;
-            EnsureObserverLocked(session, conn);
-            string name = CharacterName(conn);
+            EnsureObserverLocked(session, player);
+            string name = CharacterName(player);
             var existing = FindParticipantLocked(session, name);
             if (existing is not null)
             {
-                existing.Conn = conn;
+                existing.Player = player;
                 if (existing.State == InstanceNpcs.VoteStateWaitingToEnterArea)
                 {
                     if (eligible)
@@ -316,10 +305,10 @@ public static class BanditChoices
             }
             else if (eligible)
             {
-                session.Participants.Add(new(name, conn, InstanceNpcs.VoteStateWaitingForVote, eligible: true));
+                session.Participants.Add(new(name, player, InstanceNpcs.VoteStateWaitingForVote, eligible: true));
             }
 
-            if (CollectRecipientsLocked(session, instance, include: conn).Length > 1 || session.Participants.Count > 1)
+            if (CollectRecipientsLocked(session, instance, include: player).Length > 1 || session.Participants.Count > 1)
                 session.IsSolo = false;
 
             PruneWaitingOutsideLocked(session, instance);
@@ -328,18 +317,18 @@ public static class BanditChoices
             {
                 session.Resolved = true;
                 ActiveVotes.Remove(instance);
-                cancelRecipients = CollectRecipientsLocked(session, instance, include: conn);
+                cancelRecipients = CollectRecipientsLocked(session, instance, include: player);
             }
             else if (AllEligibleVotedLocked(session))
             {
                 session.Resolved = true;
                 ActiveVotes.Remove(instance);
                 resolve = (session.Bandit, session.LeaderId, session.IsSolo, [.. session.Participants],
-                    CollectRecipientsLocked(session, instance, include: conn));
+                    CollectRecipientsLocked(session, instance, include: player));
             }
             else
             {
-                broadcast = SnapshotBroadcastLocked(session, instance, include: conn);
+                broadcast = SnapshotBroadcastLocked(session, instance, include: player);
             }
         }
 
@@ -349,13 +338,13 @@ public static class BanditChoices
     }
 
     /// <summary>Updates or resolves an active Bandit vote when a participant leaves the area or disconnects.</summary>
-    public static async Task OnPlayerLeaving(ClientState conn, string why = "left the area")
+    public static async Task OnPlayerLeaving(Player player, string why = "left the area")
     {
-        if (conn.Controlled) return;
-        string name = CharacterName(conn);
+        if (player.Controlled) return;
+        string name = CharacterName(player);
 
-        if (conn.Instance is { } instance && HasActiveVote(instance))
-            await RemoveFromSession(instance, conn, name, leavingInstance: true);
+        if (player.Instance is { } instance && HasActiveVote(instance))
+            await RemoveFromSession(instance, player, name, leavingInstance: true);
 
         // A disconnect from another area releases any WaitingToEnterArea slot in an open bandit vote.
         // An area transition ("left the area") is not dropped here because the player may be entering the bandit area.
@@ -364,18 +353,18 @@ public static class BanditChoices
             InstanceState[] otherInstances;
             lock (VoteGate)
                 otherInstances = [.. ActiveVotes
-                    .Where(e => !e.Value.Resolved && !ReferenceEquals(e.Key, conn.Instance))
+                    .Where(e => !e.Value.Resolved && !ReferenceEquals(e.Key, player.Instance))
                     .Select(e => e.Key)];
             foreach (var otherInstance in otherInstances)
-                await RemoveFromSession(otherInstance, conn, name, leavingInstance: false);
+                await RemoveFromSession(otherInstance, player, name, leavingInstance: false);
         }
     }
 
-    static async Task RemoveFromSession(InstanceState instance, ClientState leaving, string name, bool leavingInstance)
+    static async Task RemoveFromSession(InstanceState instance, Player leaving, string name, bool leavingInstance)
     {
         VoteBroadcast? broadcast = null;
-        (Bandit Bandit, uint LeaderId, bool IsSolo, VoteParticipant[] Participants, ClientState[] Recipients)? resolve = null;
-        ClientState[]? cancelRecipients = null;
+        (Bandit Bandit, uint LeaderId, bool IsSolo, VoteParticipant[] Participants, Player[] Recipients)? resolve = null;
+        Player[]? cancelRecipients = null;
         Bandit? bandit = null;
         bool closeLeaving = false;
 
@@ -388,14 +377,14 @@ public static class BanditChoices
             {
                 changed |= session.Observers.RemoveAll(o => ReferenceEquals(o, leaving)
                     || string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase)) > 0;
-                changed |= session.Participants.RemoveAll(p => ReferenceEquals(p.Conn, leaving)
+                changed |= session.Participants.RemoveAll(p => ReferenceEquals(p.Player, leaving)
                     || string.Equals(p.CharacterName, name, StringComparison.OrdinalIgnoreCase)) > 0;
                 closeLeaving = !leaving.Closed;
             }
             else
             {
                 changed |= session.Participants.RemoveAll(p => p.State == InstanceNpcs.VoteStateWaitingToEnterArea
-                    && (ReferenceEquals(p.Conn, leaving) || string.Equals(p.CharacterName, name, StringComparison.OrdinalIgnoreCase))) > 0;
+                    && (ReferenceEquals(p.Player, leaving) || string.Equals(p.CharacterName, name, StringComparison.OrdinalIgnoreCase))) > 0;
             }
 
             if (!changed) return;
@@ -428,69 +417,66 @@ public static class BanditChoices
         else if (broadcast is not null) await BroadcastVote(broadcast);
     }
 
-    static async Task ResolveVote(InstanceState instance, ClientState? trigger, Bandit bandit, uint leaderId, bool isSolo,
-        VoteParticipant[] participants, ClientState[] recipients)
+    static async Task ResolveVote(InstanceState instance, Player? trigger, Bandit bandit, uint leaderId, bool isSolo,
+        VoteParticipant[] participants, Player[] recipients)
     {
-        List<(ClientState Voter, QuestFlagCommit? Clear, QuestFlagCommit? Set)> commits = [];
+        List<(Player Voter, QuestFlagCommit? Clear, QuestFlagCommit? Set)> commits = [];
         int dialogueComponent = -1;
 
-        lock (instance.World.Monsters)
+        var leader = instance.World.Area.Monsters.GetValueOrDefault(leaderId);
+        bool validLeader = isSolo && trigger is not null
+            ? NearbyLeader(trigger, bandit, leaderId) is not null && !Finished(trigger.Character.HasQuestFlag)
+            : leader is { Hostile: true, Dead: false, Life: > 0, Aggro: false } && leader.Variety?.Id == bandit.Variety
+                && Npcs.Find(bandit.Variety) is not null && !instance.HasState(Fight);
+
+        if (validLeader)
         {
-            var leader = instance.World.Monsters.GetValueOrDefault(leaderId);
-            bool validLeader = isSolo && trigger is not null
-                ? NearbyLeader(trigger, bandit, leaderId) is not null && !Finished(trigger.HasQuestFlag)
-                : leader is { Hostile: true, Dead: false, Life: > 0, Aggro: false } && leader.Variety?.Id == bandit.Variety
-                    && Npcs.Value.Find(bandit.Variety) is not null && !instance.HasState(Fight);
-
-            if (validLeader)
+            List<(Player Voter, byte State)> resolved = [];
+            foreach (var p in participants)
             {
-                List<(ClientState Voter, byte State)> resolved = [];
-                foreach (var p in participants)
+                if (!p.Eligible || p.State is not (InstanceNpcs.VoteStateHelpBandit or InstanceNpcs.VoteStateKillBandit))
+                    continue;
+                if (p.Player is not { Closed: false, LeavingArea: false } voter || !ReferenceEquals(voter.Instance, instance))
+                    continue;
+                if (HardcoreProgressBlocked(voter) || Finished(voter.Character.HasQuestFlag) || voter.Character.HasQuestFlag(bandit.Killed))
+                    continue;
+                resolved.Add((voter, p.State));
+            }
+
+            if (resolved.Count > 0)
+            {
+                bool anyKill = resolved.Any(r => r.State == InstanceNpcs.VoteStateKillBandit);
+                string[] previous = [.. All.Where(b => b != bandit).SelectMany(b => new[] { b.Ally, b.Started })];
+                string[] chosen = [bandit.Ally, bandit.Started];
+
+                Saves.Atomically(() =>
                 {
-                    if (!p.Eligible || p.State is not (InstanceNpcs.VoteStateHelpBandit or InstanceNpcs.VoteStateKillBandit))
-                        continue;
-                    if (p.Conn is not { Closed: false, LeavingArea: false } voter || !ReferenceEquals(voter.Instance, instance))
-                        continue;
-                    if (HardcoreProgressBlocked(voter) || Finished(voter.HasQuestFlag) || voter.HasQuestFlag(bandit.Killed))
-                        continue;
-                    resolved.Add((voter, p.State));
-                }
+                    foreach (var (voter, state) in resolved)
+                    {
+                        if (state == InstanceNpcs.VoteStateHelpBandit)
+                        {
+                            var clear = CommitQuestFlags(voter, previous, on: false);
+                            var set = CommitQuestFlags(voter, chosen);
+                            commits.Add((voter, clear, set));
+                        }
+                        else
+                        {
+                            var clear = CommitQuestFlags(voter, chosen, on: false);
+                            commits.Add((voter, clear, null));
+                        }
+                    }
+                });
 
-                if (resolved.Count > 0)
+                if (anyKill)
                 {
-                    bool anyKill = resolved.Any(r => r.State == InstanceNpcs.VoteStateKillBandit);
-                    string[] previous = [.. All.Where(b => b != bandit).SelectMany(b => new[] { b.Ally, b.Started })];
-                    string[] chosen = [bandit.Ally, bandit.Started];
-
-                    Saves.Atomically(() =>
+                    instance.SetState(Fight);
+                    leader!.EntranceGrace = false;
+                    foreach (var recipient in recipients)
+                        recipient.Npcs.Remove(leaderId);
+                    if (instance.World.MonsterOrigins.TryGetValue(leaderId, out var origin))
                     {
-                        foreach (var (voter, state) in resolved)
-                        {
-                            if (state == InstanceNpcs.VoteStateHelpBandit)
-                            {
-                                var clear = CommitQuestFlags(voter, previous, on: false);
-                                var set = CommitQuestFlags(voter, chosen);
-                                commits.Add((voter, clear, set));
-                            }
-                            else
-                            {
-                                var clear = CommitQuestFlags(voter, chosen, on: false);
-                                commits.Add((voter, clear, null));
-                            }
-                        }
-                    });
-
-                    if (anyKill)
-                    {
-                        instance.SetState(Fight);
-                        leader!.EntranceGrace = false;
-                        foreach (var recipient in recipients)
-                            lock (recipient.Npcs) recipient.Npcs.Remove(leaderId);
-                        if (instance.World.MonsterOrigins.TryGetValue(leaderId, out var origin))
-                        {
-                            dialogueComponent = origin.Object.Components.ToList().IndexOf("NPC");
-                            instance.World.MonsterOrigins[leaderId] = origin with { Object = origin.Object with { HasDialogue = false } };
-                        }
+                        dialogueComponent = origin.Object.Components.ToList().IndexOf("NPC");
+                        instance.World.MonsterOrigins[leaderId] = origin with { Object = origin.Object with { HasDialogue = false } };
                     }
                 }
             }
@@ -500,23 +486,25 @@ public static class BanditChoices
 
         if (dialogueComponent >= 0)
         {
-            foreach (var recipient in recipients)
+            var areaSender = recipients.FirstOrDefault(r => !r.Closed && !r.LeavingArea && r.Area.Owned && r.Connection.WorldOutput.Started);
+            if (areaSender is not null)
             {
-                if (recipient.Closed || recipient.LeavingArea) continue;
-                var (remote, stream, ciphers) = recipient.Wire;
-                if (stream is not null)
+                await SendWorldRecord(areaSender, leaderId,
+                    InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
+                    $"0x02bc {bandit.Name} stops talking and fights");
+            }
+            else
+            {
+                foreach (var recipient in recipients)
                 {
-                    bool hasObject = ReferenceEquals(recipient, trigger)
-                        || recipient.MonsterViews.ContainsKey(leaderId) && !recipient.AsleepMonsters.Contains(leaderId);
-                    if (!hasObject) continue;
-                    await SendWorldRecord(remote, stream, ciphers, recipient, leaderId,
-                        InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
-                        $"0x02bc {bandit.Name} stops talking and fights");
-                }
-                else
-                {
-                    await SendTo(recipient, InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
-                        $"0x02bc {bandit.Name} stops talking and fights");
+                    if (recipient.Closed || recipient.LeavingArea) continue;
+                    if (recipient.Connection.Connected)
+                        await SendWorldRecord(recipient, leaderId,
+                            InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
+                            $"0x02bc {bandit.Name} stops talking and fights");
+                    else
+                        await SendTo(recipient, InstanceNpcs.DialogueAvailability(leaderId, (byte)dialogueComponent, false),
+                            $"0x02bc {bandit.Name} stops talking and fights");
                 }
             }
         }
@@ -524,15 +512,14 @@ public static class BanditChoices
         foreach (var (voter, clear, set) in commits)
         {
             if (voter.Closed || voter.LeavingArea || (clear is null && set is null)) continue;
-            var (remote, stream, ciphers) = voter.Wire;
-            if (stream is null) continue;
-            await voter.QuestGate.WaitAsync();
+            if (!voter.Connection.Connected) continue;
+            await voter.Character.QuestGate.WaitAsync();
             try
             {
-                if (clear is not null) await PublishQuestFlags(remote, stream, ciphers, voter, clear, on: false);
-                if (set is not null) await PublishQuestFlags(remote, stream, ciphers, voter, set);
+                if (clear is not null) await PublishQuestFlags(voter, clear, on: false);
+                if (set is not null) await PublishQuestFlags(voter, set);
             }
-            finally { voter.QuestGate.Release(); }
+            finally { voter.Character.QuestGate.Release(); }
         }
     }
 
@@ -553,7 +540,7 @@ public static class BanditChoices
         {
             if (recipient.Closed || recipient.LeavingArea) continue;
             string name = CharacterName(recipient);
-            var own = broadcast.Participants.FirstOrDefault(p => ReferenceEquals(p.Conn, recipient)
+            var own = broadcast.Participants.FirstOrDefault(p => ReferenceEquals(p.Player, recipient)
                 || string.Equals(p.CharacterName, name, StringComparison.OrdinalIgnoreCase));
             bool localVoter = own is { Eligible: true };
             bool answered = own is { Eligible: true, State: InstanceNpcs.VoteStateKillBandit or InstanceNpcs.VoteStateHelpBandit };
@@ -563,7 +550,7 @@ public static class BanditChoices
         }
     }
 
-    static async Task CloseVoteForAll(ClientState[] recipients, Bandit bandit)
+    static async Task CloseVoteForAll(Player[] recipients, Bandit bandit)
     {
         foreach (var recipient in recipients)
         {
@@ -573,35 +560,35 @@ public static class BanditChoices
     }
 
     static VoteBroadcast SnapshotBroadcastLocked(PartyVote session, InstanceState instance,
-        ClientState? include = null, ClientState? exclude = null) =>
+        Player? include = null, Player? exclude = null) =>
         new(session.Bandit, session.IsSolo,
-            [.. session.Participants.Select(p => new VoteParticipant(p.CharacterName, p.Conn, p.State, p.Eligible))],
+            [.. session.Participants.Select(p => new VoteParticipant(p.CharacterName, p.Player, p.State, p.Eligible))],
             CollectRecipientsLocked(session, instance, include, exclude));
 
     static bool AllEligibleVotedLocked(PartyVote session) =>
         !session.Participants.Any(p => p.Eligible
             && p.State is InstanceNpcs.VoteStateWaitingForVote or InstanceNpcs.VoteStateWaitingToEnterArea);
 
-    static VoteParticipant? FindParticipantLocked(PartyVote session, ClientState conn)
+    static VoteParticipant? FindParticipantLocked(PartyVote session, Player player)
     {
-        string name = CharacterName(conn);
-        return session.Participants.FirstOrDefault(p => ReferenceEquals(p.Conn, conn))
+        string name = CharacterName(player);
+        return session.Participants.FirstOrDefault(p => ReferenceEquals(p.Player, player))
             ?? FindParticipantLocked(session, name);
     }
 
     static VoteParticipant? FindParticipantLocked(PartyVote session, string characterName) =>
         session.Participants.FirstOrDefault(p => string.Equals(p.CharacterName, characterName, StringComparison.OrdinalIgnoreCase));
 
-    static void EnsureObserverLocked(PartyVote session, ClientState conn)
+    static void EnsureObserverLocked(PartyVote session, Player player)
     {
-        if (conn.Controlled || conn.Closed || conn.LeavingArea) return;
-        string name = CharacterName(conn);
+        if (player.Controlled || player.Closed || player.LeavingArea) return;
+        string name = CharacterName(player);
         session.Observers.RemoveAll(o => o.Closed || o.LeavingArea
             || string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase));
-        session.Observers.Add(conn);
+        session.Observers.Add(player);
     }
 
-    static void PruneWaitingOutsideLocked(PartyVote session, InstanceState instance, ClientState? exclude = null)
+    static void PruneWaitingOutsideLocked(PartyVote session, InstanceState instance, Player? exclude = null)
     {
         if (!session.Participants.Any(p => p.State == InstanceNpcs.VoteStateWaitingToEnterArea)) return;
         var anchor = CollectRecipientsLocked(session, instance, exclude: exclude).FirstOrDefault();
@@ -614,18 +601,18 @@ public static class BanditChoices
             ulong instanceNumber = anchor.InstanceNumber;
             session.Participants.RemoveAll(p => p.State == InstanceNpcs.VoteStateWaitingToEnterArea
                 && !liveParty.Contains(p.CharacterName)
-                && !(instanceNumber != 0 && p.Conn?.TransferredTo?.Instance == instanceNumber));
+                && !(instanceNumber != 0 && p.Player?.TransferredTo?.Instance == instanceNumber));
             return;
         }
         session.Participants.RemoveAll(p => p.State == InstanceNpcs.VoteStateWaitingToEnterArea
-            && (p.Conn is null || p.Conn.Closed || ReferenceEquals(p.Conn, exclude)));
+            && (p.Player is null || p.Player.Closed || ReferenceEquals(p.Player, exclude)));
     }
 
-    static List<ClientState> InstanceHumans(InstanceState instance, ClientState? include = null, ClientState? exclude = null)
+    static List<Player> InstanceHumans(InstanceState instance, Player? include = null, Player? exclude = null)
     {
-        List<ClientState> result = [];
+        List<Player> result = [];
         HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
-        void TryAdd(ClientState? candidate)
+        void TryAdd(Player? candidate)
         {
             if (candidate is not { Controlled: false, Closed: false, LeavingArea: false }
                 || ReferenceEquals(candidate, exclude) || !ReferenceEquals(candidate.Instance, instance))
@@ -634,36 +621,35 @@ public static class BanditChoices
         }
 
         TryAdd(include);
-        foreach (var peer in instance.Presence.PlayersExcept(include?.PeerId ?? 0)
-            .Where(p => p.Owner is not null)
-            .OrderBy(p => CharacterName(p.Owner!), StringComparer.OrdinalIgnoreCase)
+        foreach (var peer in instance.Presence.PlayersExcept(include?.Id ?? 0)
+            .OrderBy(CharacterName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(p => p.Id))
-            TryAdd(peer.Owner);
+            TryAdd(peer);
         return result;
     }
 
-    static ClientState[] CollectRecipientsLocked(PartyVote session, InstanceState instance,
-        ClientState? include = null, ClientState? exclude = null)
+    static Player[] CollectRecipientsLocked(PartyVote session, InstanceState instance,
+        Player? include = null, Player? exclude = null)
     {
         var list = InstanceHumans(instance, include, exclude);
         var names = new HashSet<string>(list.Select(CharacterName), StringComparer.OrdinalIgnoreCase);
-        void TryAdd(ClientState? candidate)
+        void TryAdd(Player? candidate)
         {
             if (candidate is not { Controlled: false, Closed: false, LeavingArea: false }
                 || ReferenceEquals(candidate, exclude) || !ReferenceEquals(candidate.Instance, instance))
                 return;
             if (names.Add(CharacterName(candidate))) list.Add(candidate);
         }
-        foreach (var participant in session.Participants) TryAdd(participant.Conn);
+        foreach (var participant in session.Participants) TryAdd(participant.Player);
         foreach (var observer in session.Observers) TryAdd(observer);
         return [.. list];
     }
 
-    static List<ClientState> WaitingPartyMembers(ClientState conn, InstanceState instance, HashSet<string> inAreaNames, Bandit bandit)
+    static List<Player> WaitingPartyMembers(Player player, InstanceState instance, HashSet<string> inAreaNames, Bandit bandit)
     {
         if (partyMembersProvider is not { } provider) return [];
-        List<ClientState> waiting = [];
-        foreach (var member in provider(conn)
+        List<Player> waiting = [];
+        foreach (var member in provider(player)
             .Where(m => !m.Controlled && !m.Closed && !ReferenceEquals(m.Instance, instance))
             .OrderBy(CharacterName, StringComparer.OrdinalIgnoreCase))
         {
@@ -673,66 +659,61 @@ public static class BanditChoices
         return waiting;
     }
 
-    static async Task SendTo(ClientState conn, byte[] bytes, string? log)
+    static async Task SendTo(Player player, byte[] bytes, string? log)
     {
-        if (conn.Closed) return;
+        if (player.Closed) return;
         try
         {
-            if (conn.Outbox is { } outbox) { await outbox(bytes, log); return; }
-            var (remote, stream, ciphers) = conn.Wire;
-            if (stream is not null) await Send(remote, stream, ciphers, bytes, log);
+            if (player.Connection.Outbox is { } outbox) { await outbox(bytes, log); return; }
+            if (player.Connection.Connected) await Send(player, bytes, log);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
     }
 
-    static async Task HandIn(ClientState conn, uint id, Bandit bandit, NpcCatalog.Talk talk)
+    static async Task HandIn(Player player, uint id, Bandit bandit, NpcCatalog.Talk talk)
     {
-        var (remote, stream, ciphers) = conn.Wire;
-        await conn.QuestGate.WaitAsync();
+        await player.Character.QuestGate.WaitAsync();
         try
         {
             QuestFlagCommit? set = null, clear = null;
             Claim? claimed;
             string reply;
-            lock (conn.Monsters)
+            if (NearbyLeader(player, bandit, id) is null) return;
+            (claimed, reply) = ClaimReward(player, bandit);
+            if (claimed is not null)
             {
-                if (NearbyLeader(conn, bandit, id) is null) return;
-                (claimed, reply) = ClaimReward(conn, bandit);
-                if (claimed is not null)
-                {
-                    set = CommitQuestFlags(conn, claimed.Flags);
-                    clear = CommitQuestFlags(conn, claimed.Consumed.Cleared, on: false);
-                }
+                set = CommitQuestFlags(player, claimed.Flags);
+                clear = CommitQuestFlags(player, claimed.Consumed.Cleared, on: false);
             }
             if (claimed is null)
             {
-                if (conn.Commands is { } chat) await chat.Reply(reply);
+                if (player.Commands is { } chat) await chat.Reply(reply);
                 return;
             }
-            var items = ItemsOf(conn);
+            var items = ItemsOf(player);
             foreach (var row in claimed.Consumed.Removed.GroupBy(r => r.Row))
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
                     [.. row.Select(r => r.Item.Id)], []), "0x00bf bandit quest turn-in");
-            if (clear is not null) await PublishQuestFlags(remote, stream, ciphers, conn, clear, on: false);
-            if (set is not null) await PublishQuestFlags(remote, stream, ciphers, conn, set);
-            conn.InNpcTalk = true;
-            conn.NpcFinishFlag = null;
-            conn.NpcFinishLeagueFlag = null;
-            conn.NpcTalkScript = null;
-            await Send(remote, stream, ciphers, InstanceNpcs.Talk(id, (byte)talk.Index), $"0x0084 {bandit.Name} accepts the amulets");
+            if (clear is not null) await PublishQuestFlags(player, clear, on: false);
+            if (set is not null) await PublishQuestFlags(player, set);
+            player.InNpcTalk = true;
+            player.NpcFinishFlag = null;
+            player.NpcFinishLeagueFlag = null;
+            player.NpcTalkScript = null;
+            await Send(player, InstanceNpcs.Talk(id, (byte)talk.Index), $"0x0084 {bandit.Name} accepts the amulets");
         }
-        finally { conn.QuestGate.Release(); }
+        finally { player.Character.QuestGate.Release(); }
     }
 
     internal sealed record Claim(QuestItems.Consumed Consumed, string[] Flags);
 
     // The amulets and the permanent reward are committed together. The Apex is the leader's own
     // "Get the Apex" row (NPCTalk, reward offer 17), as with Eramir, so a full inventory never blocks the hand-in.
-    internal static (Claim? Result, string Reply) ClaimReward(ClientState conn, Bandit bandit)
+    internal static (Claim? Result, string Reply) ClaimReward(Player player, Bandit bandit)
     {
-        var character = CharacterName(conn);
-        var items = ItemsOf(conn);
-        var catalog = ItemsFor(conn);
+        var character = CharacterName(player);
+        var items = ItemsOf(player);
+        var catalog = ItemsFor(player);
         string[] rivals = [.. All.Where(b => b != bandit).Select(AmuletId)];
         return Saves.Atomically<(Claim?, string)>(() =>
         {
@@ -747,7 +728,7 @@ public static class BanditChoices
             if (!rivals.All(id => carried.Any(it => it.Type!.Id == id)))
                 return (null, "You need to be carrying both rivals' amulets.");
             string[] rewardFlags = [bandit.Reward, Delivered];
-            var consumed = QuestItems.Consume(character, items, item => QuestFlagsOf(conn, item), rewardFlags);
+            var consumed = QuestItems.Consume(character, items, item => QuestFlagsOf(player, item), rewardFlags);
             if (consumed is null) return (null, "Take the amulets out of the trade window first.");
             return (new(consumed, rewardFlags), $"{bandit.Name} accepted both amulets.");
         });

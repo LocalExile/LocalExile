@@ -33,7 +33,7 @@ public sealed class RetailVisualProtocolReplicationTests
     public async Task Monster_poison_kill_sends_death_from_degen_life_update()
     {
         // A player's life update carries the kind only at life 0.
-        var player = new ClientState(new(1, "degen-death", 300, 300, 100, 100, null, []), 1, 1) { PlayerLife = 50 };
+        var player = new Player(new(1, "degen-death", 300, 300, 100, 100, null, []), 1, 1) { PlayerLife = 50 };
         Assert.Equal(InstanceProtocol.DeathKindNormal, Game.PlayerLifeUpdate(player, InstanceProtocol.DeathKindDegen)[^1]);
         player.PlayerLife = 0;
         Assert.Equal(InstanceProtocol.DeathKindDegen, Game.PlayerLifeUpdate(player, InstanceProtocol.DeathKindDegen)[^1]);
@@ -51,9 +51,12 @@ public sealed class RetailVisualProtocolReplicationTests
         var key = new byte[64];
         var serverCiphers = new ConnectionCiphers(key, isClient: false);
         var clientCiphers = new ConnectionCiphers(key, isClient: true);
-        var conn = new ClientState(new(1, "poison-death", 300, 300, 100, 100, null, []), 1, 1) { Instance = new() };
         var stream = server.GetStream();
-        conn.Wire = ("test", stream, serverCiphers);
+        var conn = new Player(new(1, "poison-death", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Instance = new(),
+            Connection = { LockstepClient = false, Session = new("test", stream, serverCiphers) },
+        };
         var received = new MemoryStream();
         var reader = Task.Run(async () =>
         {
@@ -76,11 +79,12 @@ public sealed class RetailVisualProtocolReplicationTests
                 Variety = variety,
                 Level = 1,
             };
-            conn.Monsters[monsterId] = monster;
+            conn.Area.Monsters[monsterId] = monster;
             // Apply poison starting at t = -1.0s so the current world time (~0s) immediately advances a full lethal second.
             Assert.True(monster.Poisons.Add(-1.0, 100, 5));
+            conn.Area.ActivePoisonMonsters.Add(monsterId);
 
-            await Game.TickPoisons("test", stream, serverCiphers, conn);
+            await Game.TickPoisons(conn);
             Assert.Equal(0u, monster.Life);
             Assert.True(monster.Dead);
 

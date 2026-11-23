@@ -15,16 +15,16 @@ public sealed class HeistModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.HideoutReady.Add(module.Manifest.Id, async conn =>
+        GameEvents.HideoutReady.Add(module.Manifest.Id, async player =>
         {
-            var player = PlayerOf(conn);
-            if (await WorldOf(player).SpawnHideoutStation(HideoutSlot.Small, LockerType, "heist-locker", "Heist Locker") is { } id)
-                _states.GetOrCreateValue(player).Locker = id;
+            var modPlayer = PlayerOf(player);
+            if (await WorldOf(modPlayer).SpawnHideoutStation(HideoutSlot.Small, LockerType, "heist-locker", "Heist Locker") is { } id)
+                _states.GetOrCreateValue(modPlayer).Locker = id;
         });
-        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Locker == 0 || use.TargetId != state.Locker) return false;
-            var world = WorldOf(conn);
+            if (!_states.TryGetValue(PlayerOf(player), out var state) || state.Locker == 0 || use.TargetId != state.Locker) return false;
+            var world = WorldOf(player);
             if (await world.WalkUpToStation(state.Locker, at))
                 await world.OpenWindow("heist", InstanceWaypoints.HeistLockerUi, "0x007b open native Heist Locker (HeistStashOpen)");
             return true;

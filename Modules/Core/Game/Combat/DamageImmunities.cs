@@ -9,26 +9,26 @@ using GameServer.Core.World;
 /// </summary>
 public static class DamageImmunities
 {
-    static readonly (string Stat, DamageType[] Types)[] Sources =
+    static readonly (uint Stat, DamageType[] Types)[] Sources =
     [
-        ("fire_damage_immunity", [DamageType.Fire]),
-        ("base_fire_immunity", [DamageType.Fire]),
-        ("cold_damage_immunity", [DamageType.Cold]),
-        ("base_cold_immunity", [DamageType.Cold]),
-        ("lightning_damage_immunity", [DamageType.Lightning]),
-        ("base_lightning_immunity", [DamageType.Lightning]),
-        ("chaos_damage_immunity", [DamageType.Chaos]),
-        ("chaos_immunity", [DamageType.Chaos]),
-        ("keystone_chaos_inoculation", [DamageType.Chaos]),
-        ("physical_immunity", [DamageType.Physical]),
-        ("elemental_damage_immunity", [DamageType.Fire, DamageType.Cold, DamageType.Lightning]),
+        (Stat.FireDamageImmunity, [DamageType.Fire]),
+        (Stat.BaseFireImmunity, [DamageType.Fire]),
+        (Stat.ColdDamageImmunity, [DamageType.Cold]),
+        (Stat.BaseColdImmunity, [DamageType.Cold]),
+        (Stat.LightningDamageImmunity, [DamageType.Lightning]),
+        (Stat.BaseLightningImmunity, [DamageType.Lightning]),
+        (Stat.ChaosDamageImmunity, [DamageType.Chaos]),
+        (Stat.ChaosImmunity, [DamageType.Chaos]),
+        (Stat.KeystoneChaosInoculation, [DamageType.Chaos]),
+        (Stat.PhysicalImmunity, [DamageType.Physical]),
+        (Stat.ElementalDamageImmunity, [DamageType.Fire, DamageType.Cold, DamageType.Lightning]),
     ];
 
     /// <summary>Every source stat and the damage types it immunises.</summary>
-    public static IEnumerable<(string Stat, DamageType[] Types)> All => Sources;
+    public static IEnumerable<(uint Stat, DamageType[] Types)> All => Sources;
 
     /// <summary>The immune damage types, from a stat lookup by Stats.dat Id (0 when absent).</summary>
-    public static HashSet<DamageType> From(Func<string, int> get)
+    public static HashSet<DamageType> From(Func<uint, int> get)
     {
         var immune = new HashSet<DamageType>();
         foreach (var (stat, types) in Sources)

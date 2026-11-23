@@ -33,7 +33,7 @@ public sealed class ShrineDefinition
     /// The player buff's stats by client stat name, when the registered gameplay is the authority rather than the row.
     /// Null keeps the row's <c>Player_ShrineBuffsKey</c> values (see <see cref="ShrineCatalog"/>).
     /// </summary>
-    public IReadOnlyList<(string Stat, int Value)>? PlayerStats { get; init; }
+    public IReadOnlyList<(uint Stat, int Value)>? PlayerStats { get; init; }
 
     /// <summary>The effects that run while the shrine is unclaimed: monster auras, guards, anything that ends on the
     /// click. Factories, because each shrine gets its own instances.</summary>

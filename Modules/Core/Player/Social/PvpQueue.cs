@@ -20,71 +20,71 @@ public static class PvpQueue
     }
 
     static readonly object Gate = Keep("Gate", () => new object());
-    static readonly Dictionary<ClientState, (string QueueName, byte OtherPlayers, bool IsChallenge, bool ShowWithdraw,
-        ulong NextMatchTimeUnix, ClientState? Opponent)> Entries =
-        Keep("Entries", () => new Dictionary<ClientState, (string, byte, bool, bool, ulong, ClientState?)>());
+    static readonly Dictionary<Player, (string QueueName, byte OtherPlayers, bool IsChallenge, bool ShowWithdraw,
+        ulong NextMatchTimeUnix, Player? Opponent)> Entries =
+        Keep("Entries", () => new Dictionary<Player, (string, byte, bool, bool, ulong, Player?)>());
 
-    /// <summary>Whether <paramref name="conn"/> currently has an active PvP queue or challenge entry.</summary>
-    public static bool IsQueued(ClientState conn)
+    /// <summary>Whether <paramref name="player"/> currently has an active PvP queue or challenge entry.</summary>
+    public static bool IsQueued(Player player)
     {
-        lock (Gate) return Entries.ContainsKey(conn);
+        lock (Gate) return Entries.ContainsKey(player);
     }
 
-    /// <summary>Current queue/challenge state for <paramref name="conn"/>, or null when not queued.</summary>
+    /// <summary>Current queue/challenge state for <paramref name="player"/>, or null when not queued.</summary>
     public static (string QueueName, byte OtherPlayers, bool IsChallenge, bool ShowWithdraw, ulong NextMatchTimeUnix,
-        ClientState? Opponent)? StatusOf(ClientState conn)
+        Player? Opponent)? StatusOf(Player player)
     {
-        lock (Gate) return Entries.TryGetValue(conn, out var entry) ? entry : null;
+        lock (Gate) return Entries.TryGetValue(player, out var entry) ? entry : null;
     }
 
-    /// <summary>Records a PvP queue or challenge entry for <paramref name="conn"/> and sends S→C 0x118.</summary>
-    public static async Task Enqueue(ClientState conn, string queueName, byte otherPlayers = 0, bool isChallenge = false,
-        bool showWithdraw = true, ulong nextMatchTimeUnix = 0, ClientState? opponent = null)
+    /// <summary>Records a PvP queue or challenge entry for <paramref name="player"/> and sends S→C 0x118.</summary>
+    public static async Task Enqueue(Player player, string queueName, byte otherPlayers = 0, bool isChallenge = false,
+        bool showWithdraw = true, ulong nextMatchTimeUnix = 0, Player? opponent = null)
     {
-        if (conn.Closed) return;
+        if (player.Closed) return;
         queueName ??= "";
-        if (ReferenceEquals(opponent, conn)) opponent = null;
+        if (ReferenceEquals(opponent, player)) opponent = null;
 
-        ClientState? replacedOpponent = null;
+        Player? replacedOpponent = null;
         bool replacedWasChallenge = false;
         lock (Gate)
         {
-            if (Entries.TryGetValue(conn, out var previous)
+            if (Entries.TryGetValue(player, out var previous)
                 && previous.Opponent is { } oldOpponent && !ReferenceEquals(oldOpponent, opponent))
             {
                 replacedOpponent = oldOpponent;
                 replacedWasChallenge = previous.IsChallenge;
-                if (Entries.TryGetValue(oldOpponent, out var oldReverse) && ReferenceEquals(oldReverse.Opponent, conn))
+                if (Entries.TryGetValue(oldOpponent, out var oldReverse) && ReferenceEquals(oldReverse.Opponent, player))
                     Entries.Remove(oldOpponent);
             }
-            Entries[conn] = (queueName, otherPlayers, isChallenge, showWithdraw, nextMatchTimeUnix, opponent);
+            Entries[player] = (queueName, otherPlayers, isChallenge, showWithdraw, nextMatchTimeUnix, opponent);
         }
 
         if (replacedOpponent is not null)
         {
-            string name = CharacterName(conn);
+            string name = CharacterName(player);
             string notice = replacedWasChallenge
                 ? $"{name} cancelled the PvP challenge."
                 : $"{name} left the PvP queue.";
             await NotifyCleared(replacedOpponent, notice);
         }
 
-        await SendTo(conn, InstancePvp.QueueStatus(otherPlayers, queueName, isChallenge, showWithdraw, nextMatchTimeUnix),
+        await SendTo(player, InstancePvp.QueueStatus(otherPlayers, queueName, isChallenge, showWithdraw, nextMatchTimeUnix),
             $"0x0118 pvp queue status \"{queueName}\" (challenge={isChallenge}, withdraw={showWithdraw})");
     }
 
     /// <summary>Handles C→S 0x11a (Leave Queue / decline) and C→S 0x18d (Withdraw): clears any tracked entry,
     /// always sends S→C 0x119 so stale HUD bars close cleanly, and notifies any linked opponent.</summary>
-    public static async Task Leave(ClientState conn, bool withdraw)
+    public static async Task Leave(Player player, bool withdraw)
     {
-        string name = CharacterName(conn);
-        List<(ClientState Peer, string Notice)> notify = [];
+        string name = CharacterName(player);
+        List<(Player Peer, string Notice)> notify = [];
 
         lock (Gate)
         {
-            if (Entries.Remove(conn, out var own) && own.Opponent is { } opponent && !ReferenceEquals(opponent, conn))
+            if (Entries.Remove(player, out var own) && own.Opponent is { } opponent && !ReferenceEquals(opponent, player))
             {
-                if (Entries.TryGetValue(opponent, out var reverse) && ReferenceEquals(reverse.Opponent, conn))
+                if (Entries.TryGetValue(opponent, out var reverse) && ReferenceEquals(reverse.Opponent, player))
                     Entries.Remove(opponent);
                 string notice = own.IsChallenge
                     ? withdraw ? $"{name} withdrew the PvP challenge." : $"{name} cancelled the PvP challenge."
@@ -92,7 +92,7 @@ public static class PvpQueue
                 notify.Add((opponent, notice));
             }
 
-            foreach (var (other, entry) in Entries.Where(e => ReferenceEquals(e.Value.Opponent, conn)).ToArray())
+            foreach (var (other, entry) in Entries.Where(e => ReferenceEquals(e.Value.Opponent, player)).ToArray())
             {
                 Entries.Remove(other);
                 if (notify.Any(n => ReferenceEquals(n.Peer, other))) continue;
@@ -103,23 +103,23 @@ public static class PvpQueue
             }
         }
 
-        await SendTo(conn, InstancePvp.QueueHide(), withdraw ? "0x0119 pvp queue withdrawn" : "0x0119 pvp queue left");
+        await SendTo(player, InstancePvp.QueueHide(), withdraw ? "0x0119 pvp queue withdrawn" : "0x0119 pvp queue left");
         foreach (var (peer, notice) in notify)
             await NotifyCleared(peer, notice);
     }
 
-    /// <summary>Cleans up PvP queue/challenge state when <paramref name="conn"/> leaves the area or disconnects,
+    /// <summary>Cleans up PvP queue/challenge state when <paramref name="player"/> leaves the area or disconnects,
     /// notifying any linked opponent.</summary>
-    public static async Task Leaving(ClientState conn)
+    public static async Task Leaving(Player player)
     {
-        string name = CharacterName(conn);
-        List<(ClientState Peer, string Notice)> notify = [];
+        string name = CharacterName(player);
+        List<(Player Peer, string Notice)> notify = [];
 
         lock (Gate)
         {
-            if (Entries.Remove(conn, out var own) && own.Opponent is { } opponent && !ReferenceEquals(opponent, conn))
+            if (Entries.Remove(player, out var own) && own.Opponent is { } opponent && !ReferenceEquals(opponent, player))
             {
-                if (Entries.TryGetValue(opponent, out var reverse) && ReferenceEquals(reverse.Opponent, conn))
+                if (Entries.TryGetValue(opponent, out var reverse) && ReferenceEquals(reverse.Opponent, player))
                     Entries.Remove(opponent);
                 string notice = own.IsChallenge
                     ? $"{name} cancelled the PvP challenge."
@@ -127,7 +127,7 @@ public static class PvpQueue
                 notify.Add((opponent, notice));
             }
 
-            foreach (var (other, entry) in Entries.Where(e => ReferenceEquals(e.Value.Opponent, conn)).ToArray())
+            foreach (var (other, entry) in Entries.Where(e => ReferenceEquals(e.Value.Opponent, player)).ToArray())
             {
                 Entries.Remove(other);
                 if (notify.Any(n => ReferenceEquals(n.Peer, other))) continue;
@@ -142,21 +142,20 @@ public static class PvpQueue
             await NotifyCleared(peer, notice);
     }
 
-    static async Task NotifyCleared(ClientState peer, string notice)
+    static async Task NotifyCleared(Player peer, string notice)
     {
         if (peer.Closed) return;
         await SendTo(peer, InstancePvp.QueueHide(), $"0x0119 pvp queue hidden ({notice})");
         await SendTo(peer, InstanceChat.ChatLine(notice), $"0x0017 chat line \"{notice}\"");
     }
 
-    static async Task SendTo(ClientState conn, byte[] bytes, string? log)
+    static async Task SendTo(Player player, byte[] bytes, string? log)
     {
-        if (conn.Closed) return;
+        if (player.Closed) return;
         try
         {
-            if (conn.Outbox is { } outbox) { await outbox(bytes, log); return; }
-            var (remote, stream, ciphers) = conn.Wire;
-            if (stream is not null) await Send(remote, stream, ciphers, bytes, log);
+            if (player.Connection.Outbox is { } outbox) { await outbox(bytes, log); return; }
+            if (player.Connection.Connected) await Send(player, bytes, log);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
     }
