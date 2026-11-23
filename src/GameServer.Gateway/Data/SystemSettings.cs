@@ -43,7 +43,13 @@ public sealed class SystemSettings
     public double Get(string key) =>
         Values.GetValueOrDefault(key, 0);
 
+    public double GetOrDefault(string key, double fallback) =>
+        Values.TryGetValue(key, out double value) ? value : fallback;
+
     public int GetInt(string key) => (int)Math.Round(Get(key), MidpointRounding.AwayFromZero);
+
+    public int GetIntOrDefault(string key, int fallback) =>
+        Values.TryGetValue(key, out double value) ? (int)Math.Round(value, MidpointRounding.AwayFromZero) : fallback;
 
     public int SocketMax(string itemClass) =>
         SocketKeys.TryGetValue(itemClass, out string? key)
@@ -89,6 +95,34 @@ public sealed class SystemSettings
     public int ImpossibleEscapeLimit => Math.Max(0, GetInt("impossible_escape_limit"));
     public int RadiusJewelDefaultLimit => Math.Max(0, GetInt("radius_jewel_default_limit"));
     public int GracePeriodSeconds => Math.Clamp(GetInt("grace_period_seconds"), 0, 3600);
+
+    // Campaign loot, drop scaling, and vendor pacing (retail 3.29 fallbacks when unseeded in tests).
+    public double DropNormalChancePct => Math.Clamp(GetOrDefault("drop_normal_chance_pct", 16.0), 0, 100);
+    public double DropWeightCurrency => Math.Clamp(GetOrDefault("drop_weight_currency", 40.0), 0, 1000);
+    public double DropWeightGems => Math.Clamp(GetOrDefault("drop_weight_gems", 4.0), 0, 1000);
+    public double DropWeightFlasks => Math.Clamp(GetOrDefault("drop_weight_flasks", 8.0), 0, 1000);
+    public double DropWeightEquipment => Math.Clamp(GetOrDefault("drop_weight_equipment", 48.0), 0, 1000);
+    public double DropNaturalQualityChancePct => Math.Clamp(GetOrDefault("drop_natural_quality_chance_pct", 10.0), 0, 100);
+    public double DropSocketLinkScale => Math.Clamp(GetOrDefault("drop_socket_link_scale", 1.0), 0, 100);
+    public double DropUniqueChanceMultiplier => Math.Clamp(GetOrDefault("drop_unique_chance_multiplier", 1.0), 0, 100);
+    public bool DropPenaltyEnabled => GetIntOrDefault("drop_penalty_enabled", 1) != 0;
+    public int DropPenaltyLevelOffset => Math.Clamp(GetIntOrDefault("drop_penalty_level_offset", 2), 0, 100);
+    public double DropPenaltyPerLevelPct => Math.Clamp(GetOrDefault("drop_penalty_per_level_pct", 2.5), 0, 100);
+    public int DropPenaltyCharacterLevelCap => Math.Clamp(GetIntOrDefault("drop_penalty_character_level_cap", 68), 1, 100);
+    public double DropCampaignCardChancePct => Math.Clamp(GetOrDefault("drop_campaign_card_chance_pct", 0.5), 0, 100);
+    public bool DropFirstKillBossBonus => GetIntOrDefault("drop_first_kill_boss_bonus", 1) != 0;
+    public int VendorRefreshLevels => Math.Clamp(GetIntOrDefault("vendor_refresh_levels", 1), 1, 100);
+
+    // Shared monster balance & campaign pacing flags (retail 3.29 defaults).
+    public bool MonsterSpeciesModsEnabled => GetIntOrDefault("monster_species_mods_enabled", 1) != 0;
+    public bool MonsterEsEnabled => GetIntOrDefault("monster_es_enabled", 1) != 0;
+    public bool MonsterArmourEnabled => GetIntOrDefault("monster_armour_enabled", 1) != 0;
+    public int MonsterBaseCritChancePermyriad => Math.Clamp(GetIntOrDefault("monster_base_crit_chance_permyriad", 500), 0, 10_000);
+    public bool MonsterAilmentThresholdScaling => GetIntOrDefault("monster_ailment_threshold_scaling", 1) != 0;
+    public double CampaignChestDensityMultiplier => Math.Clamp(GetOrDefault("campaign_chest_density_multiplier", 1.0), 0, 100);
+    public bool CampaignDoorsEnabled => GetIntOrDefault("campaign_doors_enabled", 1) != 0;
+    public double CampaignPackMagicChancePct => Math.Clamp(GetOrDefault("campaign_pack_magic_chance_pct", 12.0), 0, 100);
+    public double CampaignPackRareChancePct => Math.Clamp(GetOrDefault("campaign_pack_rare_chance_pct", 6.0), 0, 100);
 
     public void Replace(IReadOnlyDictionary<string, double> values) =>
         Volatile.Write(ref _values, new Dictionary<string, double>(values, StringComparer.OrdinalIgnoreCase));
@@ -194,6 +228,58 @@ public sealed class SystemSettings
         {
             if (value < 0 || value > 1000 || value != Math.Round(value))
                 error = $"{key} is an integer 0..1000";
+        }
+        else if (key.Equals("drop_normal_chance_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_natural_quality_chance_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_penalty_per_level_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_campaign_card_chance_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("campaign_pack_magic_chance_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("campaign_pack_rare_chance_pct", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!double.IsFinite(value) || value < 0 || value > 100)
+                error = $"{key} is a number 0..100";
+        }
+        else if (key.Equals("drop_weight_currency", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_weight_gems", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_weight_flasks", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_weight_equipment", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!double.IsFinite(value) || value < 0 || value > 1000)
+                error = $"{key} is a number 0..1000";
+        }
+        else if (key.Equals("drop_socket_link_scale", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_unique_chance_multiplier", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("campaign_chest_density_multiplier", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!double.IsFinite(value) || value < 0 || value > 100)
+                error = $"{key} is a number 0..100";
+        }
+        else if (key.Equals("drop_penalty_enabled", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_first_kill_boss_bonus", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("monster_species_mods_enabled", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("monster_es_enabled", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("monster_armour_enabled", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("monster_ailment_threshold_scaling", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("campaign_doors_enabled", StringComparison.OrdinalIgnoreCase))
+        {
+            if (value is not (0 or 1))
+                error = $"{key} is 0 or 1";
+        }
+        else if (key.Equals("drop_penalty_level_offset", StringComparison.OrdinalIgnoreCase))
+        {
+            if (value < 0 || value > 100 || value != Math.Round(value))
+                error = "drop_penalty_level_offset is an integer 0..100";
+        }
+        else if (key.Equals("drop_penalty_character_level_cap", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("vendor_refresh_levels", StringComparison.OrdinalIgnoreCase))
+        {
+            if (value < 1 || value > 100 || value != Math.Round(value))
+                error = $"{key} is an integer 1..100";
+        }
+        else if (key.Equals("monster_base_crit_chance_permyriad", StringComparison.OrdinalIgnoreCase))
+        {
+            if (value < 0 || value > 10_000 || value != Math.Round(value))
+                error = "monster_base_crit_chance_permyriad is an integer 0..10000";
         }
         return error is null;
     }
