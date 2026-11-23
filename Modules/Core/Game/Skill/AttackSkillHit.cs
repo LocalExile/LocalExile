@@ -12,7 +12,7 @@ public static class AttackSkillHit
         // modifiers are not implemented in combat and must not become panel-only effects here.
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon),
             name => name is var key ? character.GetValueOrDefault(key) : 0);
-        var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get, accuracy), effectiveness);
+        var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), effectiveness);
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);

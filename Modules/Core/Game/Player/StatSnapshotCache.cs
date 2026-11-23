@@ -202,7 +202,7 @@ public static partial class Game
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
             var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
             var ailmentRows = AilmentPanelStats.Compute(ailmentContext,
-                SupportedAttackDamage.Raw(WeaponFor(), Get, new(mainAccuracy)), attackConversion, Get);
+                SupportedAttackDamage.Raw(WeaponFor(), Get, new(mainAccuracy), melee: ailmentContext.Melee), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
             {
                 long localDifference = (long)offLocal.GetValueOrDefault(Stat.LocalAccuracyRating) - mainLocal.GetValueOrDefault(Stat.LocalAccuracyRating);
