@@ -41,5 +41,7 @@
     <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
     <!-- Sacred Grove Crop Rotation (HarvestCropRotationTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
+    <!-- Jun's mission: the roll, the plan and the creates (BetrayalTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Betrayal\Betrayal.csproj" />
   </ItemGroup>
 </Project>
