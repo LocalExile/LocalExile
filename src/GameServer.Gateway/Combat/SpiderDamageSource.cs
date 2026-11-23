@@ -6,4 +6,4 @@ public sealed record SpiderDamageSource(DamagePacket Raw, DamageConversion Conve
     IReadOnlyList<(uint Id, int Value)> Modifiers, IReadOnlySet<int> Types, double Effectiveness,
     bool WieldingWand = false, bool Context = false, bool Secondary = false, bool Volatile = true,
     IReadOnlyDictionary<uint, int>? Local = null, bool Bow = false, double IgniteFactor = 1, double PoisonFactor = 1,
-    int WeaponIncreased = 0);
+    int WeaponIncreased = 0, HitIncreases WeaponTypedIncreases = default);

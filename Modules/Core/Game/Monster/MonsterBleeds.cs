@@ -107,7 +107,7 @@ public static partial class Game
         var sourceWeapon = weapon ?? WeaponFor(player);
         return BleedSettings(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true),
-            conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon),
+            conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get),
             Get, additionalIncreased),
             "main_hand", Get, sourceWeapon.LocalSources, melee: true, bow: false);
     }

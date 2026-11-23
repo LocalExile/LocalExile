@@ -20,8 +20,7 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
         var conversion = new Dictionary<uint, int>(character);
         var own = skillConversion.ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var (key, value) in own) conversion.TryAdd(key, value);
-        var damageConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(conversion, catalog, attack: true), weapon);
-        if (weapon.WieldingWand) SupportedAttackDamage.AddWandGains(damageConversion, Get);
+        var damageConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(conversion, catalog, attack: true), weapon, Get);
         var hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, new(accuracy)),
             SupportedAttackDamage.HitModifiers(weapon, Get),
             damageConversion, spell: false, projectile: true, wieldingBow: weapon.Bow,

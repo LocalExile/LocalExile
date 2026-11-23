@@ -76,7 +76,7 @@ public static partial class Game
                 additionalBlindedIncreased);
         var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
         var conversion = SupportedAttackDamage.WithWeaponGains(
-            DamageStats.Conversion(character, Stats, attack: true), sourceWeapon);
+            DamageStats.Conversion(character, Stats, attack: true), sourceWeapon, Get);
         var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
             : AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get, additionalBlindedIncreased);
@@ -88,8 +88,10 @@ public static partial class Game
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             Spider = !HasSpiderDamage(Get) ? null : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
-                Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<uint, int>(sourceWeapon.LocalSources),
-                Bow: !wand),
+                WieldingWand: sourceWeapon.WieldingWand, Volatile: false,
+                Local: sourceWeapon.LocalSources is null ? null : new Dictionary<uint, int>(sourceWeapon.LocalSources),
+                Bow: !wand, WeaponIncreased: SupportedAttackDamage.WeaponIncrease(sourceWeapon, Get),
+                WeaponTypedIncreases: WeaponTypeDamage.Of(sourceWeapon, Get)),
             SkillStats = SkillsFor(player).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
             VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(player, character, release: true, hand: hand),
             VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true, hand: hand),

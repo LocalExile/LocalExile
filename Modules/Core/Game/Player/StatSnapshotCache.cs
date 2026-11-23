@@ -200,7 +200,7 @@ public static partial class Game
             if (Stat.SkillUsesMainHand is var usesMainHand) stats[usesMainHand] = 1;
             var mainWeapon = WeaponFor();
             var attackConversion = SupportedAttackDamage.WithWeaponGains(
-                DamageStats.Conversion(stats, Stats, attack: true), mainWeapon);
+                DamageStats.Conversion(stats, Stats, attack: true), mainWeapon, Get);
             var attack = AttackHitConverted(mainWeapon, stats, MeleeAttack(), attackConversion, new(mainAccuracy));
             foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
                 if (stat is var key) stats[key] = value;
@@ -215,7 +215,7 @@ public static partial class Game
                 int offAccuracy = PlayerAccuracyModifiers.Selected(pools, Profile(), _ => 0,
                     Get(PlayerAccuracyModifiers.BootsMore), localDifference, inputs.BlindLess);
                 var offConversion = SupportedAttackDamage.WithWeaponGains(
-                    DamageStats.Conversion(stats, Stats, attack: true), offWeapon);
+                    DamageStats.Conversion(stats, Stats, attack: true), offWeapon, Get);
                 ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
                     SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), offConversion, Get));
             }

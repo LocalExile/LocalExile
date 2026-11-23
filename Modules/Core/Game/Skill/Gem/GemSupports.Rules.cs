@@ -803,21 +803,18 @@ public static partial class Game
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get);
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)
-        {
-            SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon);
-            if (attackWeapon.WieldingWand) SupportedAttackDamage.AddWandGains(conversion, Get);
-        }
+            SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon, Get);
         return new(raw, hitStats, conversion, attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
         {
             FrozenStats = new Dictionary<uint, int>(stats),
-            WeaponIncreased = attackWeapon is not null ? SupportedAttackDamage.WeaponIncrease(attackWeapon, Get)
+            WeaponIncreased = attackWeapon is not null && !secondary ? SupportedAttackDamage.WeaponIncrease(attackWeapon, Get)
                 : !attack && !secondary && Get(Stat.SpellStaffDamagePlusPct) is int staff and not 0
                     && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
-            WeaponTypedIncreases = attackWeapon is null ? default : WeaponTypeDamage.Of(attackWeapon, Get),
-            Armed = attackWeapon is not null && WeaponAttributeDamage.Armed(attackWeapon),
+            WeaponTypedIncreases = attackWeapon is null || secondary ? default : WeaponTypeDamage.Of(attackWeapon, Get),
+            Armed = attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon),
         };
     }
 

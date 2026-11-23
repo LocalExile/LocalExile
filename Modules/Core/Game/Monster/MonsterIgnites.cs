@@ -142,8 +142,7 @@ public static partial class Game
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
-        int attackChance = spell ? 0 : get(Stat.AttackIgniteChancePct);
-        var settings = MonsterIgnites.Settings.From(rows, hand, get, additionalChance: attackChance);
+        var settings = MonsterIgnites.Settings.From(rows, hand, get);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
         int per = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         if (per > 0)
@@ -216,9 +215,9 @@ public static partial class Game
         var sourceWeapon = weapon ?? WeaponFor(player);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true),
-            conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon),
+            conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get),
             Get, additionalIncreased),
-            "main_hand", Get, additionalChance: Get(Stat.AttackIgniteChancePct)), playerStats, null, spell: false, "main_hand");
+            "main_hand", Get), playerStats, null, spell: false, "main_hand");
     }
 
     // Called under the combat lock at an accepted hit that dealt fire damage and left the monster alive: the hit's ignite

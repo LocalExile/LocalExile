@@ -179,6 +179,9 @@ public static class AilmentPanelStats
             * (ailment == "bleeding" && get(Stat.KeystoneCrimsonDance) != 0 ? .5 : 1);
         var typed = DamageTypes.ConversionOrder.Select(type => (History: DamageTypes.HistoryOf(type), Increased: get(Stat.Of(Slug(type) + "_damage_+%")))).ToArray();
         int elemental = get(Stat.ElementalDamagePlusPct);
+        int attackFire = attack ? get(Stat.FireDamageWithAttackSkillsPlusPct) : 0,
+            attackCold = attack ? get(Stat.ColdDamageWithAttackSkillsPlusPct) : 0,
+            attackLightning = attack ? get(Stat.LightningDamageWithAttackSkillsPlusPct) : 0;
         double min = 0, max = 0;
         foreach (var path in paths)
         {
@@ -201,6 +204,9 @@ public static class AilmentPanelStats
             if ((path.History & DamageTypeHistory.Elemental) != 0 && ailmentType != DamageType.Fire) increased += elemental;
             // A typed support counts the portion's visited types and the ailment's own (PoB's typeFlags).
             var types = path.History | DamageTypes.HistoryOf(ailmentType);
+            if (attackFire != 0 && (types & DamageTypeHistory.Fire) != 0) increased += attackFire;
+            if (attackCold != 0 && (types & DamageTypeHistory.Cold) != 0) increased += attackCold;
+            if (attackLightning != 0 && (types & DamageTypeHistory.Lightning) != 0) increased += attackLightning;
             double factor = Math.Max(0, 1 + increased / 100) * multiplier * more
                 .Where(m => m.Type == DamageTypeHistory.None || (types & m.Type) != 0)
                 .Aggregate(1.0, (v, m) => v * Math.Max(0, 1 + get(m.Stat) / 100.0));
