@@ -76,6 +76,52 @@ public sealed class HarvestModule : IModule, IDisposable
             await Craft(module, player, InstanceHarvest.ReadCraft(bytes), LeagueFor(player).HardMode);
             return true;
         });
+        GameEvents.Packet(InstanceHarvest.MoveItemId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            return await MoveItem(player, InstanceHarvest.ReadMoveItem(bytes));
+        });
+    }
+
+    /// <summary>C→S 0xf9: Ctrl + click an item between inventory/stash and HarvestCraftingItem (row 43).</summary>
+    async Task<bool> MoveItem(Player player, InstanceHarvest.MoveItem request)
+    {
+        if (WorldOf(player).OpenWindowOwner != Window) return false;
+        var items = ItemsOf(player);
+        if (request.IntoStation)
+        {
+            if (ItemMoves.MoveToSlot(items, Slot, request.ItemId, intoSlot: true, ShapeOf) is { } moved)
+            {
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.From),
+                    items.NextRevision(moved.From), [request.ItemId], []), $"0x00f9 Ctrl + click: item {request.ItemId} leaves row {moved.From}");
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.To),
+                    items.NextRevision(moved.To), [], [moved.Placed]), $"0x00f9 Ctrl + click: item {request.ItemId} into Horticrafting slot");
+                return true;
+            }
+            if (player.StashOpen)
+            {
+                var stash = PersonalStashOf(player);
+                if (request.Tab < stash.Count && ItemMoves.StashToSlot(stash, items, request.Tab, Slot, request.ItemId, ShapeOf) is { } fromStash)
+                {
+                    await SendTabChange(player, stash, request.Tab, [fromStash.Id], [],
+                        $"0x00f9 stash tab {request.Tab}: remove item {fromStash.Id} into Horticrafting slot");
+                    await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(Slot),
+                        items.NextRevision(Slot), [], [fromStash]), $"0x00f9 Ctrl + click: item {fromStash.Id} into Horticrafting slot");
+                    return true;
+                }
+            }
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f9 item {request.ItemId} into Horticrafting slot refused (missing or slot taken)");
+            return true;
+        }
+        if (ItemMoves.MoveToSlot(items, Slot, request.ItemId, intoSlot: false, ShapeOf) is { } takenOut)
+        {
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(takenOut.From),
+                items.NextRevision(takenOut.From), [request.ItemId], []), $"0x00f9 Ctrl + click: item {request.ItemId} leaves Horticrafting slot");
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(takenOut.To),
+                items.NextRevision(takenOut.To), [], [takenOut.Placed]), $"0x00f9 Ctrl + click: item {request.ItemId} into row {takenOut.To}");
+            return true;
+        }
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f9 item {request.ItemId} out of Horticrafting slot refused (missing or no room)");
+        return true;
     }
 
     /// <summary>C→S 0x274: execute the HarvestCraftOptions recipe whose HASH16 the native panel sent, on the item in the slot.

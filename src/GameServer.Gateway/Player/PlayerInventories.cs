@@ -143,9 +143,10 @@ public sealed partial class PlayerInventories
         return item;
     }
 
-    /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack) and
-    /// what a full stack becomes (null: it stays; 5 Scroll Fragments → a Scroll of Wisdom).</summary>
-    public readonly record struct Shape(byte Width, byte Height, string Class, ushort MaxStack = 1, Func<Item>? FullStack = null);
+    /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack),
+    /// what a full stack becomes (null: it stays; 5 Scroll Fragments → a Scroll of Wisdom) and whether it is a Delve Fossil.</summary>
+    public readonly record struct Shape(byte Width, byte Height, string Class, ushort MaxStack = 1, Func<Item>? FullStack = null,
+        bool IsFossil = false);
 
     /// <summary>A stack that reached its max becomes its full-stack item (one of it, same id and cell).</summary>
     public static InventoryItem Completed(InventoryItem it, Shape shape) =>
@@ -353,7 +354,8 @@ public sealed partial class PlayerInventories
             why = "";
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
-            var heldClass = shapeOf(held.Item)?.Class;
+            var heldShape = shapeOf(held.Item);
+            var heldClass = heldShape?.Class;
             var items = ItemsIn(row);
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) { why = "no such item"; return null; }
@@ -361,19 +363,43 @@ public sealed partial class PlayerInventories
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
             var sockets = item.Item.Sockets.ToList();
-            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
-                : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            var colour = sockets[socket].Colour;
+            if (colour == SocketColour.Abyss)
             {
-                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                if (heldClass != "AbyssJewel") { why = "an Abyss socket requires an Abyss jewel"; return null; }
+            }
+            else if (colour == SocketColour.Delve)
+            {
+                if (heldShape?.IsFossil != true) { why = "a Delve socket requires a Fossil"; return null; }
+                if (item.Item.StackSize > 1) { why = "split the resonator stack before socketing a Fossil"; return null; }
+                for (int i = 0; i < sockets.Count; i++)
+                    if (i != socket && sockets[i].Gem?.TypeHash == held.Item.TypeHash)
+                    { why = "cannot socket identical Fossils into the same Resonator"; return null; }
+                if (held.Item.StackSize > 1 && sockets[socket].Gem is not null)
+                { why = "cannot swap a stack of Fossils into an occupied socket"; return null; }
+            }
+            else if (heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            {
+                why = "the held item is not a gem";
                 return null;
             }
             var old = sockets[socket].Gem;
-            sockets[socket] = sockets[socket] with { Gem = held.Item };
+            bool splitStack = colour == SocketColour.Delve && held.Item.StackSize > 1;
+            sockets[socket] = sockets[socket] with { Gem = splitStack ? held.Item with { StackSize = 1 } : held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
             _gemSourceLifetimes.RetireSocket(item.Id, socket);
-            cursor.RemoveAt(0);
-            InventoryItem? now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
-            if (now is not null) cursor.Add(now);
+            InventoryItem? now;
+            if (splitStack)
+            {
+                now = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - 1) } };
+                cursor[0] = now;
+            }
+            else
+            {
+                cursor.RemoveAt(0);
+                now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
+                if (now is not null) cursor.Add(now);
+            }
             return (items[at], held, now);
         }
     }
@@ -448,7 +474,7 @@ public sealed partial class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.Keys.Order().SelectMany(r => (_items.TryGetValue(r, out var l) ? l : []).Select(i => (Row: r, Item: i)))
-                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
+                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour is not (SocketColour.Abyss or SocketColour.Delve) && g.Gem is not null)
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
     }
 
@@ -491,7 +517,7 @@ public sealed partial class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not (SocketColour.Abyss or SocketColour.Delve), Gem: { } gem } && change(items[at].Id, gem) is { } after)
                         {
                             after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));

@@ -15,7 +15,7 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
 {
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public IReadOnlyList<int>? States { get; init => field = Owned.List(value); } = Owned.List(States);
-    static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon"];
+    static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon", "ItemDisplayCase"];
 
     public static bool CanSerialize(IReadOnlyList<string> components) => components.All(Supported.Contains);
 

@@ -408,6 +408,8 @@ public static partial class Game
                 await echo();
                 Mark("echo");
                 if (!projectileRuntime && !acknowledged) continue;
+                if (!cast && HasOpenInteraction(player) && SkillsFor(player).ActionName(use.SkillId) == "Move")
+                    await CloseInteractionsIfMovingAway(player, (use.X, use.Y), at);
                 if (cooldownUse?.Current(player) == false) continue;
                 if (flickerTo is { } flickerDestination)
                 {
@@ -574,6 +576,7 @@ public static partial class Game
                 var command = InstanceItems.ReadCommand(bytes);
                 if (command.Id == InstanceItems.DestroyCursorItemCommand) await DestroyHeldItem(player);
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(player, "/hideout");
+                else if (command.Id == InstanceItems.SaveHideoutCommand) await SaveHideoutLayout(player);
                 else if (command.Id == InstanceItems.ForceResyncCommand) await SendResync(player, "the client asked");
                 else if (command.Id == InstanceItems.AfkCommand && player.Connection.LockstepClient) AnswerLockstepProbe(player, readAt);
                 else Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0016 command {command} (not handled)");
@@ -809,6 +812,32 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00ce stash {kind} tab {tab} colour 0x{colour:x8}: {(done ? "saved" : "refused")} ({Convert.ToHexString(bytes)})");
                 await SendTabListAgain(player, kind);
             }
+            else if (id == InstanceStash.PublicTabId)
+            {
+                var (kind, tab, isPublic) = InstanceStash.ReadPublicTab(bytes);
+                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
+                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).SetPublic(tab, isPublic);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cf stash {kind} tab {tab} public={(isPublic ? "on" : "off")}: {(done ? "saved" : "refused")}");
+                await SendTabListAgain(player, kind);
+            }
+            else if (id == InstanceItems.SetItemNoteId)
+            {
+                if (!player.StashOpen && !player.GuildStashOpen) continue;
+                var req = InstanceItems.ReadSetItemNote(bytes);
+                AccountStash? targetStash = null;
+                if (player.StashOpen && PersonalStashOf(player) is var personal && personal.TabOf(req.InventoryId) is int)
+                    targetStash = personal;
+                else if (player.GuildStashOpen && !player.Character.Ssf && GuildStashOf(player) is var guild && guild.TabOf(req.InventoryId) is int)
+                    targetStash = guild;
+                if (targetStash is not null && targetStash.TabOf(req.InventoryId) is int noteTab)
+                {
+                    var updated = targetStash.SetItemNote(noteTab, req.ItemId, req.Note);
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01a1 stash tab {noteTab} item {req.ItemId} note \"{req.Note}\": {(updated is not null ? "saved" : "refused")}");
+                    if (updated is not null)
+                        await SendTabChange(player, targetStash, noteTab, [updated.Id], [updated],
+                            $"0x00bf stash tab {noteTab}: item {updated.Id} note updated");
+                }
+            }
             else if (id == InstanceStash.MoveToTabId)
                 await MoveToStash(player, InstanceStash.ReadMoveToTab(bytes));
             else if (id == InstanceStash.MoveToAffinityTabId)
@@ -821,6 +850,23 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e3 take item {move.ItemId} from stash tab {move.Tab} " +
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
                 await TakeFromStash(player, move.Tab, move.ItemId, all: move.Bulk != 0);
+            }
+            else if (id == InstanceStash.TakeBlightOilId)
+            {
+                if (!player.StashOpen && !player.GuildStashOpen) continue;
+                var move = InstanceStash.ReadTakeBlightOil(bytes);
+                if (move.Kind == InstanceStash.Guild && (player.Character.Ssf || !player.GuildStashOpen)) continue;
+                if (move.Kind == InstanceStash.Personal && !player.StashOpen) continue;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f5 take blight oil {move.ItemId} from stash kind {move.Kind} tab {move.Tab} (panelState {move.UiPanelState})");
+                if (move.Tab <= int.MaxValue)
+                    await TakeFromStash(player, (int)move.Tab, move.ItemId, all: false, kind: move.Kind);
+            }
+            else if (id == InstanceHarvest.MoveItemId)
+            {
+                if (!player.StashOpen) continue;
+                var move = InstanceHarvest.ReadMoveItem(bytes);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f9 storage take-out item {move.ItemId} from tab {move.Tab} (flags 0x{move.Flags:x2}, into {move.IntoStation})");
+                await TakeFromStash(player, move.Tab, move.ItemId, all: false, kind: InstanceStash.Personal);
             }
             else if (id == InstanceStash.MoveTabId && bytes.Length >= InstanceStash.MoveTabLength)
             {

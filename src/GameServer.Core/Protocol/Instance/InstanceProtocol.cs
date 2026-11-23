@@ -651,6 +651,7 @@ public static class InstanceProtocol
             case InstanceNpcs.CtrlBuyId: return FromNullableLength(InstanceNpcs.CtrlBuyLength(data), out length);
             case InstanceStash.ReorderTabsId: return FromNullableLength(InstanceStash.ReorderTabsLength(data), out length);
             case InstanceStash.RenameTabId: return InstanceStash.MeasureRenameTabLength(data, out length);
+            case InstanceItems.SetItemNoteId: return InstanceItems.MeasureSetItemNoteLength(data, out length);
             case InstanceStash.MoveToAffinityTabId: return FromNullableLength(InstanceStash.MoveToAffinityTabLength(data), out length);
             case InstanceStash.SetAffinitiesId: return FromNullableLength(InstanceStash.SetAffinitiesLength(data), out length);
             case InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId:

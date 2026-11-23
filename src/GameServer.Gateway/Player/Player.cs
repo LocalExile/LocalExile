@@ -845,6 +845,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public HideoutScene? CurrentHideoutScene;
     /// <summary>The module whose native window is open (IPlayerWorld.OpenWindow).</summary>
     public string? ModuleWindow;
+    /// <summary>Where the player stood when <see cref="ModuleWindow"/> opened, for walk-away closing.</summary>
+    public (string Owner, int X, int Y)? ModuleWindowAnchor;
     public bool BossRecoveryHandled;
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
@@ -1396,7 +1398,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (int X, int Y) StashAt;
     public void MoveWaypoint(WaypointObject waypoint) => Layout = Layout with { Waypoint = waypoint };
     public (int X, int Y) CraftingBenchAt;
+    public bool StashOpen;
     public bool GuildStashOpen;
+    public int InteractionClosing;
     // Whether this connection opened the stash already (only the first open selects the account's last tab), and while
     // that first open runs (until StashForcedUntil, Clock seconds) the tab it selects: the panel's own request for the
     // tab it was on is then not the player's choice.

@@ -11,7 +11,7 @@ namespace GameServer.Core.Protocol.Instance;
 public static class InstanceStash
 {
     public const ushort TabListId = 0x136, TabLoadedId = 0xc8, RequestTabId = 0xc7, ReorderTabsId = 0xcc, MoveTabId = 0xd1,
-        RenameTabId = 0xcd, ColourTabId = 0xce;
+        RenameTabId = 0xcd, ColourTabId = 0xce, PublicTabId = 0xcf;
 
     /// <summary>S→C 0x7b kind that opens the personal stash (0x142169dd0 case 1 → listeners at instance +0x1178 →
     /// 0x140dcae70): u32 a = the Stash object, u32 b = an affinity (StashTabAffinityId row): the panel selects the first tab
@@ -45,8 +45,10 @@ public static class InstanceStash
         Bit0 = 0x01,
         /// <summary>A premium tab: the tab settings can rename and recolour it.</summary>
         Premium = 0x02,
-        /// <summary>→ panel tab +0x38 bit 6 (remove-only in the real game, not checked).</summary>
-        Bit3 = 0x08,
+        /// <summary>Public premium tab (0x14216e103 sets/clears bit 3; C→S 0xcf).</summary>
+        Public = 0x08,
+        /// <summary>Alias for <see cref="Public"/> (panel tab +0x38 bit 6).</summary>
+        Bit3 = Public,
         /// <summary>A u8 (+0x3c) follows the record.</summary>
         HasByte = 0x10,
         /// <summary>A u64 (+0x00) follows; such a tab is left out of the panel.</summary>
@@ -160,6 +162,13 @@ public static class InstanceStash
     public static (byte Kind, ushort Tab, uint Colour) ReadColourTab(ReadOnlySpan<byte> m) =>
         (m[2], (ushort)(m[3] << 8 | m[4]), System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[13..]));
 
+    /// <summary>C→S 0xcf (14 bytes, writer 0x141f9d290, sender 0x14216e070): toggle a premium tab's Public flag.
+    /// u8 kind, u16 BE tab, u64 (0), u8 isPublic (sets/clears <see cref="TabFlags.Public"/> bit 3).</summary>
+    public const int PublicTabLength = 14;
+
+    public static (byte Kind, ushort Tab, bool IsPublic) ReadPublicTab(ReadOnlySpan<byte> m) =>
+        (m[2], (ushort)(m[3] << 8 | m[4]), m[13] != 0);
+
     public static (byte Kind, List<(ushort Index, ushort Position)> Order) ReadReorderTabs(ReadOnlySpan<byte> m)
     {
         var order = new List<(ushort, ushort)>();
@@ -217,6 +226,20 @@ public static class InstanceStash
     }
 
     public const int TakeFromTabLength = 12;
+
+    /// <summary>C→S 0xf5 (12 bytes, writer 0x141f9a550, sender 0x1403136e1): take an oil/item out of a special stash tab
+    /// (Blight tab oil row). u32 BE item id (+2), u8 kind (+6), u32 BE tab (+7), u8 uiPanelState (+11, UI panel state
+    /// at 0x1403136d5/0x140313879, not a Ctrl+Right-Click bulk flag).</summary>
+    public const ushort TakeBlightOilId = 0xf5;
+    public const int TakeBlightOilLength = 12;
+
+    public readonly record struct TakeBlightOil(uint ItemId, byte Kind, uint Tab, byte UiPanelState);
+
+    public static TakeBlightOil ReadTakeBlightOil(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U8(), r.U32(), r.U8());
+    }
 
     public const ushort MoveToAffinityTabId = 0xe1, SetAffinitiesId = 0xd3;
 
