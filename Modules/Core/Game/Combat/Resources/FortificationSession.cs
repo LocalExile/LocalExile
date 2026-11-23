@@ -64,7 +64,8 @@ public sealed class FortificationSession
     {
         Read(now); // Settle the previous cap and recovery inputs before adopting new sources.
         int speed = get(FortificationState.AttackSpeedPerStack), regen = get(FortificationState.LifeRegenPerStack);
-        int added = get(FortificationState.MaximumStat);
+        // "+1 to maximum Fortification per 5" (the Crusader helmet suffix) counts whole fives.
+        int added = get(FortificationState.MaximumStat) + get(Stat.MaxFortificationPlus1Per5) / 5;
         if (speed != SpeedPerStack || regen != RegenPerStack || added != AddedMaximum) Bump();
         (SpeedPerStack, RegenPerStack, AddedMaximum) = (speed, regen, added);
         return Read(now);
