@@ -30,6 +30,7 @@ public static partial class Game
         double lifeMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionLifePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportMinionMaximumLifePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportMinionDamageMinionLifePlusPctFinal) / 100.0)
+            * Math.Max(0, 1 + Player(Stat.NecromancerDefensiveNotableMinionMaximumLifePlusPctFinal) / 100.0)
             * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "life") / 100.0) : 1);
         if (golem.Definition.Kind is "Flame" or "Ice" or "Lightning"
             && Player(Stat.ElementalGolemsMaximumLifeIsDoubled) > 0)

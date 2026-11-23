@@ -50,6 +50,9 @@ public static partial class Game
         var candidates = GemSkillEffects(player).Where(g => SkillsFor(player).EffectId(g.Effect) == effect).ToArray();
         if (host is uint item && socket is int index)
         {
+            if (index < 0)
+                return candidates.FirstOrDefault(g => SupportedSkill(player, g.Id).WornGrant is { } grant
+                    && grant.Host == item && grant.Socket == index).Id;
             var place = ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p => p.ItemId == item && p.Socket == index);
             if (place.Gem is null) return 0;
             object placeId = PlayerInventories.GemIdentity(place.Gem);
@@ -222,8 +225,12 @@ public static partial class Game
             inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
                 [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
+        double freshMeat = remaining is null && replacement is null && restoredVariety is null && resources is null && !legacyArrival
+            && GolemStat(gem.Stats, FreshMeatDurationPercent) > 0
+            ? FreshMeatSeconds(gem.Stats, SummonDuration(player, definition, gem)) : 0;
         var fighter = new GolemState.Golem(0, null!, native, source)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = new(gem.Stats), Player = new(playerStats), Limit = limit,
+            FreshMeatUntil = replacingOld?.FreshMeatUntil ?? (freshMeat > 0 ? AreaTime(player) + freshMeat : 0),
             InheritedMods = inheritedMods ?? MonsterModSet.None, RetainedSkillStats = retainedStats is null ? [] : new(retainedStats),
             SourceIdentity = gem.SourceGem is null ? null : PlayerInventories.GemIdentity(gem.SourceGem) };
         if (animated is not null)
@@ -292,6 +299,7 @@ public static partial class Game
                     TransferIncomingReplacementStateLocked(replacement.Old, fighter, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
                 fighter.SummonedAt = replacement?.SummonedAt ?? committed;
+                if (freshMeat > 0) fighter.FreshMeatUntil = committed + freshMeat;
                 fighter.LastStep = replacement?.LastStep ?? committed;
                 fighter.ShieldPool.SetMaximum(maximumEnergyShield,
                     refill: committedResources is null && resources is null && !legacyArrival);
@@ -406,7 +414,7 @@ public static partial class Game
                     continue;
                 }
                 fighter.Own = new(gem.Stats); fighter.GemLevel = gem.Level; fighter.Quality = gem.Quality;
-                RefreshGolemLocked(player, fighter, playerStats);
+                RefreshGolemLocked(player, fighter, playerStats, now);
                 GolemStepLocked(player, fighter, now);
             }
         }

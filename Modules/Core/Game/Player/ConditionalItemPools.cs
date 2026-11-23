@@ -64,7 +64,8 @@ public static partial class Game
             ["_while_not_ignited_frozen_shocked"] = !ailments.Ignite && !ailments.Freeze && ailments.Shock == 0,
             ["_while_ignited"] = ailments.Ignite, ["_while_you_are_ignited"] = ailments.Ignite,
             [BurningItemCondition] = alive && (ailments.Ignite
-                || player.RighteousFire is { } rf && RighteousFireOwnerCurrentLocked(player, rf)),
+                || player.RighteousFire is { } rf && RighteousFireOwnerCurrentLocked(player, rf)
+                || FlameTouchedActive(player)),
             ["_while_chilled"] = ailments.Chill > 0,
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_blinded"] = alive && player.ResourceEffectsState is ResourceEffectsState blindOwner

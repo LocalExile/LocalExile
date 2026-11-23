@@ -236,6 +236,7 @@ public static partial class Game
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
         ClearResonance(player);
+        player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
         ClearAntiquarianOnDeath(player);

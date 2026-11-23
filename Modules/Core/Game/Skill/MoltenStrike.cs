@@ -368,7 +368,8 @@ public static partial class Game
                     SupportedCriticalChanceVsGround(player, skillId, release: false, SwingWeaponCritical(player, hand)));
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
-                int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);
+                int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local);
+                int multiplier = CriticalMultiplierOn(m, sourceMultiplier);
                 var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
                 rolled = resonance.Packet;
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
@@ -378,8 +379,8 @@ public static partial class Game
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
-                LeechOnHitLocked(player, m, taken, damage, leech);
-                damage = WithImpaleHitLocked(player, m, damage, rolled, critical, criticalMultiplierBase,
+                LeechOnHitTargetLocked(player, m, taken, damage, leech, id);
+                damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
                     critical ? criticalImpale : impale, more).Damage;
                 var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
                     weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
@@ -387,7 +388,7 @@ public static partial class Game
                 var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);
                 uint lifeBefore = m.Life;
                 var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats,
-                    cull: Cull.Of(playerStats, skillStats, critical, spell: false));
+                    cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local));
                 if (applied is not { } hit) continue;
                 if (hit.Life < lifeBefore) RecordResonanceHitLocked(player, m, skillStats, rolled, now);
                 if (weapon.ItemClass is not null) player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, now);

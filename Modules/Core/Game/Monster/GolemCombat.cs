@@ -464,6 +464,7 @@ public static partial class Game
             + (area ? g.Monster.Mods.Effects[Stat.AreaDamagePlusPct] : 0);
         double more = MinionTacticsBaseDamage(player, g, now) * Math.Max(0, 1 + GolemStat(g.Own, Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDamagePlusPctFinal) / 100.0)
+            * MindlessAggressionDamage(g.Player)
             * Math.Max(0, 1 + GolemTether(g.Player, "damage") / 100.0);
         double increasedMultiplier = Math.Max(0, 1 + normalIncrease / 100.0);
         double factor = increasedMultiplier * more;
@@ -569,7 +570,7 @@ public static partial class Game
         var stun = new StunHit(HitReaction.StunningDamage(damage, physicalShare, melee),
             g.Monster.Mods.Effects[Stat.BaseStunThresholdReductionPlusPct], g.Monster.Mods.Effects[Stat.BaseStunDurationPlusPct],
             Melee: melee, BaseSeconds: GolemStat(a.Stats, Stat.SupportRuthlessBigHitStunBaseDurationOverrideMs) / 1000d);
-        CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun);
+        CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own);
         if (!target.Dead)
         {
             int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
@@ -589,7 +590,7 @@ public static partial class Game
     {
         long increased = (long)mods.Effects[Stat.CriticalStrikeChancePlusPct] + additionalIncrease
             + (ability.Attack.Spell ? mods.Effects[Stat.SpellCriticalStrikeChancePlusPct] : 0);
-        double chance = (double)ability.Crit * Math.Max(0, 100L + increased) / 100.0;
+        double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance]) * Math.Max(0, 100L + increased) / 100.0;
         return (int)Math.Clamp(chance, 0, 10_000);
     }
 
@@ -689,7 +690,8 @@ public static partial class Game
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;
                 if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: centre) is not { } hit) continue;
                 if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
-                CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage");
+                CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage",
+                    source: g.Monster, skill: g.Own);
             }
             if (now >= hazard.Until)
             {

@@ -6,7 +6,14 @@ public static partial class Game
 
     /// <summary>Fills the item-granted skills at startup (the world loader, before the Gateway listens); the Ruthless
     /// set is built with the HardMode data (LoadHardModeData).</summary>
-    public static void LoadWornGrantedSkillsData() => WornGrantedSkillCatalog = new(Skills, Items.Mods);
+    public static void LoadWornGrantedSkillsData() =>
+        WornGrantedSkillCatalog = new(Skills, Items.Mods, legacyGrantMods: LegacyWornGrantMods);
+
+    // Older and generated Lightpoacher items can carry only the display mod. Its companion owns the exact trigger level.
+    static readonly Dictionary<string, string> LegacyWornGrantMods = new()
+    {
+        ["LocalDisplayGrantLevelXSpiritBurstUnique__1"] = "SpiritBurstOnSkillUseUnique",
+    };
 
     static WornGrantedSkills WornGrantedSkillCatalog = default!;
     static WornGrantedSkills RuthlessWornGrantedSkillCatalog = default!;
@@ -32,19 +39,22 @@ public static partial class Game
         WornGrantsFor(player, equipment ?? ItemsOf(player).EquipmentSnapshot());
 
     /// <summary>
-    /// Item-granted active skills with an executor. Twister's exported manual flag is true even though its intrinsic
-    /// trigger owns admission; its Actor row is needed to receive the triggered action. Unsupported grants remain
+    /// Item-granted active skills with an executor. Twister and Spirit Burst have Actor rows for their
+    /// built-in triggers. Unsupported grants remain
     /// available from <see cref="AllWornGrantedSkillsOf"/> but are not presented as usable Actor skills.
     /// </summary>
     public static IReadOnlyList<WornGrantedSkills.Grant> WornGrantedSkillsOf(Player player,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && g.ManuallyCast
+        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId == SpiritBurstEffect)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || g.EffectId == SnipeEffect || AuraCatalog.Supported(g.EffectId)
+                || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
+                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
+                    or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry"
+                || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId))))];
     }
 
@@ -699,6 +709,8 @@ public static partial class Game
         var gem = capturedGem ?? SupportedSkill(player, skillId);
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
+        if (SkillsFor(player).IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
+            stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), vaalDamage);
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
@@ -738,7 +750,7 @@ public static partial class Game
         var raw = secondary ? SecondaryRawHit(player, gem, plan.SpellBaseWith(Get), Get)
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats)),
-                coefficients.Base, coefficients.Added)
+                coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
             && WeaponIn(player, ActiveMainHand(player))?.LocalDamage is { } mainHandDamage)
@@ -788,7 +800,10 @@ public static partial class Game
         // totem's or a trap's use of it, gain the bonus while its own eight-second crit window is open.
         if (HasElementalOverload(stats)) AddElementalOverload(player, SkillsFor(player).EffectId(gem.Effect), stats);
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get);
-        return new(raw, hitStats, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
+        var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
+        if (attackWeapon is not null && !secondary)
+            SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon);
+        return new(raw, hitStats, conversion, attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
@@ -870,6 +885,8 @@ public static partial class Game
             : gem.Stats.GetValueOrDefault(name);
         int Player(uint name) => release && IsCriticalProhibition(name) ? 0
             : playerStats.GetValueOrDefault(name);
+        if (SkillsFor(player).IsVaal(gem.Effect))
+            extraIncrease += (long)Own(Stat.VaalSkillCriticalStrikeChancePlusPct) + Player(Stat.VaalSkillCriticalStrikeChancePlusPct);
         if (Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge) is int minePerPower and not 0
             && PlacedKind(gem).Mine)
             extraIncrease += (long)minePerPower * Player(Stat.CurrentPowerCharges);

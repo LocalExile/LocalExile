@@ -35,9 +35,17 @@ public static class BossMods
     /// <summary>The action-speed floor a row states, as a signed percentage (the bosses' -50%) — how far slows may take it.</summary>
     const uint SlowFloorStat = Stat.HellscapeBootsActionSpeedPlusPctMinimumValue;
 
-    /// <summary>What a monster's own rows say about it: the mod ids, the repeat-stun immunity the mods' stats give, and the
-    /// floor they put under its action speed (0 when the rows state none).</summary>
-    public sealed record Row(HashSet<string> Mods, int StunImmunityMs, int SlowFloorPct = 0);
+    /// <summary>Nothing may shove the monster. <see cref="ImmuneToKnockback"/> is only one of the 8 Mods rows that
+    /// carry this stat: <c>MonsterCannotBeKnockedBack</c> alone is on 78 MonsterVarieties rows, 77 of them without
+    /// ImmuneToKnockback (Piety's Malachai ally, the Insect Spawner parasite boss, the Talisman Wolf King's wolf
+    /// form and Doedre's pillars among them), and <c>BetrayalUpgradeMonsterCannotBeStopped</c>,
+    /// <c>MetamorphosisKitava</c> and <c>StanceHarvestBossVinePhase</c> carry it too, so the stat is read like the
+    /// two below rather than the id alone.</summary>
+    const uint KnockbackImmuneStat = Stat.CannotBeKnockedBack;
+
+    /// <summary>What a monster's own rows say about it: the mod ids, whether the mods' stats say nothing may shove it,
+    /// the repeat-stun immunity they give, and the floor they put under its action speed (0 when the rows state none).</summary>
+    public sealed record Row(HashSet<string> Mods, int StunImmunityMs, int SlowFloorPct = 0, bool NoKnockback = false);
 
     static Dictionary<string, Row> Rows = default!;
 
@@ -45,9 +53,12 @@ public static class BossMods
     public static bool Has(MonsterCatalog.Variety? variety, string mod) =>
         variety is not null && Rows.GetValueOrDefault(variety.Id)?.Mods.Contains(mod) == true;
 
-    /// <summary>Whether nothing may shove the monster: the client's ImmuneToKnockback component or its mod.</summary>
+    /// <summary>Whether nothing may shove the monster: the client's ImmuneToKnockback component, the mod of that name
+    /// (the answer without the Stats table), or any mod on its own row whose stats carry
+    /// <c>cannot_be_knocked_back</c> under another id.</summary>
     public static bool KnockbackImmune(MonsterCatalog.Variety? variety) =>
-        variety?.ComponentsOrBase.Contains(ImmuneToKnockback) == true || Has(variety, ImmuneToKnockback);
+        variety?.ComponentsOrBase.Contains(ImmuneToKnockback) == true || Has(variety, ImmuneToKnockback)
+        || variety is not null && Rows.GetValueOrDefault(variety.Id) is { NoKnockback: true };
 
     /// <summary>How long after a stun ends the monster cannot be stunned again, when its row says (an act boss's 2000 ms);
     /// null when the row does not, and the caller falls back to the wiki's rule for uniques.</summary>
@@ -92,6 +103,7 @@ public static class BossMods
         // Per mod: the repeat-stun immunity and the action-speed floor its stats give, if it has those stats at all.
         var modStunMs = new Dictionary<string, int>();
         var modSlowFloor = new Dictionary<string, int>();
+        var modNoKnockback = new HashSet<string>();
         if (statNames is not null)
             foreach (var mod in mods)
             {
@@ -110,6 +122,9 @@ public static class BossMods
                         int pct = Math.Min(0, mod.IntOrNull($"Stat{slot}Min") ?? 0);
                         modSlowFloor[id] = Math.Min(pct, modSlowFloor.GetValueOrDefault(id));
                     }
+                    // A flag stat: the rows that carry it state 1 in both bounds.
+                    else if ((uint)key + 1 == KnockbackImmuneStat && (mod.IntOrNull($"Stat{slot}Max") ?? 0) > 0)
+                        modNoKnockback.Add(id);
                 }
             }
         var result = new Dictionary<string, Row>(StringComparer.Ordinal);
@@ -120,6 +135,7 @@ public static class BossMods
             var own = new HashSet<string>(StringComparer.Ordinal);
             int stunMs = 0;
             int slowFloor = 0;
+            bool noKnockback = false;
             foreach (string keys in (string[])["ModsKeys", "Special_ModsKeys"])
                 foreach (int row in variety.Ints(keys))
                 {
@@ -127,8 +143,9 @@ public static class BossMods
                     own.Add(modIds[row]);
                     stunMs = Math.Max(stunMs, modStunMs.GetValueOrDefault(modIds[row]));
                     slowFloor = Math.Min(slowFloor, modSlowFloor.GetValueOrDefault(modIds[row]));
+                    noKnockback |= modNoKnockback.Contains(modIds[row]);
                 }
-            if (own.Count > 0) result[id] = new Row(own, stunMs, slowFloor);
+            if (own.Count > 0) result[id] = new Row(own, stunMs, slowFloor, noKnockback);
         }
         return result;
     }

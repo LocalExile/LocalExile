@@ -326,7 +326,14 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly Dictionary<int, double> KitReadyAt = [];
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
-    public bool Hostile { get; init; } = true;
+    bool originallyHostile = true;
+    public bool OriginallyHostile => originallyHostile;
+    public bool Hostile { get => originallyHostile && !TemporarilyAllied; init => originallyHostile = value; }
+    /// <summary>The area's time when a temporary ally returns to its original allegiance.</summary>
+    public double TemporaryAllyUntil;
+    public bool TemporarilyAllied => TemporaryAllyUntil > 0 && !Dead && Life > 0;
+    public bool FightsForPlayers => AlliedFighter || TemporarilyAllied;
+
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
     /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it.</summary>
@@ -651,6 +658,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
     // removed. Owned by the area's frame.
     public bool CorpseConsumed;
+    public int HitFireExplosionPercent;
+    public bool CursedAtDeath;
+    public double NonAuraHexUntilAtDeath;
     // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
     public bool CreatedAsCorpse;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
@@ -1092,6 +1102,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
+    public double WitchbaneImmunityUntil;
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
     public readonly PetrifiedBloodState PetrifiedBlood = new();
@@ -1426,6 +1437,10 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public double NextChannelHitAt;
     /// <summary>When the channel last heard from the client (its start, or a C→S 0x197 update; Clock seconds).</summary>
     public double LastChannelUpdateAt;
+    /// <summary>Whether the next lockstep frame owes a moving channel a cursor update.</summary>
+    public bool LockstepChannelAimPending;
+    /// <summary>The cursor and frame time last applied to the current moving channel.</summary>
+    public ((int X, int Y) Aim, double At)? LastLockstepChannelAim;
     /// <summary>The instance this connection is in (its number), for a portal back to it.</summary>
     public ulong InstanceNumber { get; init; }
     /// <summary>Arrive at this cell instead of the spawn (back through a town portal).</summary>
