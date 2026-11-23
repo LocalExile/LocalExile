@@ -653,6 +653,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool CorpseConsumed;
     public int HitFireExplosionPercent;
     public bool CursedAtDeath;
+    public double NonAuraHexUntilAtDeath;
     // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
     public bool CreatedAsCorpse;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
@@ -1094,6 +1095,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
+    public double WitchbaneImmunityUntil;
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
     public readonly PetrifiedBloodState PetrifiedBlood = new();

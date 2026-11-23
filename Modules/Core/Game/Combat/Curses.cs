@@ -180,6 +180,21 @@ public static partial class Game
         return true;
     }
 
+    static bool WitchbaneImmunityActive(Player player, double now) =>
+        player.PlayerLife > 0 && player.WitchbaneImmunityUntil > now;
+
+    static void WitchbaneOnKill(Player player, SpawnedMonster target, double now)
+    {
+        double until = target.NonAuraHexUntilAtDeath;
+        if (until <= Math.Max(now, player.WitchbaneImmunityUntil) || player.PlayerLife == 0
+            || StatSourceValues(player).GetValueOrDefault(Stat.ImmuneToCursesOnKillingCursedEnemyForRemainingDurationOfCurse) == 0)
+            return;
+        player.WitchbaneImmunityUntil = until;
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        MarkPlayerStats(player, PlayerStatStep.SelfVulnerability);
+        player.AuraStatsDirty = true;
+    }
+
     // A curse aura of the player (Blasphemy): its gem and radius, the zone's (EnemyDebuffs.Rules' CurseZone).
     record struct CurseAura(AuraCatalog.Aura Aura, SupportedGem Gem, int Radius);
 

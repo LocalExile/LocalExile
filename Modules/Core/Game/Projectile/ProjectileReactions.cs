@@ -158,6 +158,7 @@ public static partial class Game
         ShareKill(player, id, monster, variety, position, partyShares);
         if (playerKill)
         {
+            WitchbaneOnKill(player, monster, now);
             // The kill's bookkeeping goes behind the presentation queued with it (EnqueueLater): queued in line, it ended
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));

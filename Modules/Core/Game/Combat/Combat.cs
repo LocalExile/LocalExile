@@ -3408,6 +3408,7 @@ public static partial class Game
         var monster = ModMonster(m, at);
         if (playerKill)
         {
+            WitchbaneOnKill(player, m, AreaTime(player));
             await GameEvents.RunMonsterKilled(new(player, monster));
             if (OnslaughtOnKill(player)) await SendKillOnslaught(player);
             ChargesOnKill(player, m);
