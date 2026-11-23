@@ -347,7 +347,15 @@ public static class BossKits
             if (reach <= 0 && !attack.Damage.IsZero && catalog.HasType(effect, "AreaSpell")) reach = 14;
             // A trap's skill without a radius hits whoever set it off (MonsterTraps).
             if (reach <= 0) return setOff ? attack with { AreaAtSelf = true } : null;
-            attack = attack with { AreaRadius = reach, AreaAtSelf = setOff || catalog.HasType(effect, "Nova"), Ground = ground };
+            bool selfArea = setOff || catalog.HasType(effect, "Nova")
+                || SkillCatalog.ActionTypeId(effect) is "RighteousFire" or "InvisibleFire";
+            attack = attack with
+            {
+                AreaRadius = reach,
+                AreaAtSelf = selfArea,
+                Range = selfArea && !setOff ? reach : attack.Range,
+                Ground = ground,
+            };
             if (catalog.SameActionEffects(effect).Any(e => Game.IsStormCall(catalog.EffectId(e))))
                 return Game.StormCallStrikeOf(catalog, effect, level) is { } strike ? attack with { Strike = strike } : null;
             return attack;

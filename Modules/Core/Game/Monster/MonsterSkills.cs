@@ -96,7 +96,9 @@ public static partial class MonsterSkills
             var raw = GolemData.Skill(skills, effect, level).Stats;
             int count = rally == ChargeType.Frenzy
                 ? Math.Max(1, raw.GetValueOrDefault(Stat.NumberOfFrenzyChargesToGain))
-                : 1;
+                : rally == ChargeType.Power
+                    ? Math.Max(1, raw.GetValueOrDefault(Stat.NumberOfPowerChargesToGain))
+                    : 1;
             return new(MonsterSkillShape.Self, 0, Math.Max(seconds ?? 8.0, 4.0), stats, Radius: 45,
                 RallyCharge: rally, RallyCount: count);
         }
@@ -341,7 +343,7 @@ public static partial class MonsterSkills
         int chargePct = use.Shape == MonsterSkillShape.Travel ? use.Stats.GetValueOrDefault(ChargeStat) : 0;
         bool isShieldCharge = use.Shape == MonsterSkillShape.Travel
             && (chargePct > 0 || use.Stats.GetValueOrDefault(Stat.ShieldChargeExtraDistance) > 0
-                || (a.Effect is int ce && SkillCatalog.ActionTypeId(ce) == "ShieldCharge"));
+                || (a.Effect is int ce && SkillCatalog.ActionTypeId(ce) is "ShieldCharge" or "NewShieldCharge" or "NewNewShieldCharge"));
         if (isShieldCharge)
         {
             await Charge(player, id, m, action, a, chargePct > 0 ? chargePct : 75);
@@ -355,24 +357,43 @@ public static partial class MonsterSkills
             if (MonsterSwingOrderLocked(player, m, a, action, false, seconds, AreaTime(player), seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             from = order.From;
-            target = use.Shape switch
+            bool isDash = use.Shape == MonsterSkillShape.Travel && a.Effect is int dashEffect && IsDash(dashEffect);
+            if (use.Shape == MonsterSkillShape.Travel)
             {
-                // A Dash goes its own distance toward the aim, as the player's does (Resync.DashLanding): Ainsley Varrich's
-                // ExileQuickDodge, landed short of the player, ran on 14 cells past that on the client and snapped back at
-                // his next order, or stood where the client's line stopped while the server had him at the end (sync trace
-                // 2026-11-17).
-                MonsterSkillShape.Travel when a.Effect is int effect && IsDash(effect) => Game.DashLanding(player.Layout, player.Barrier, from,
-                    order.Player, TravelPct(player, effect, m.Level), false, m.Variety?.ObjectSize ?? 1),
-                MonsterSkillShape.Travel => Landing(player, m, from, order.Player),
-                MonsterSkillShape.Self => from,
-                _ => order.Player,
-            };
+                if (isDash)
+                {
+                    target = Game.DashLanding(player.Layout, player.Barrier, from,
+                        order.Player, TravelPct(player, a.Effect!.Value, m.Level), false, m.Variety?.ObjectSize ?? 1);
+                }
+                else
+                {
+                    if (Landing(player, m, from, order.Player) is not { } land) return null;
+                    target = land;
+                }
+                // Refuse travels whose straight line crosses a solid wall, closed door, or (for ground-sliding
+                // movement attacks like Whirling Blades) unwalkable floor.
+                if (player.Layout.Sight is { } sight
+                    && GameServer.Core.World.ClientPathfinder.LineBelow(from, target, sight, 1))
+                    return null;
+                bool groundSlide = a.Effect is int slideEffect
+                    && SkillCatalog.ActionTypeId(slideEffect) is "BladeFlurry" or "WhirlingBlades"
+                        or "ShieldCharge" or "NewShieldCharge" or "NewNewShieldCharge";
+                foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
+                {
+                    if (player.Barrier.Contains(cell)) return null;
+                    if (groundSlide && cell != from && !m.Walk.Floor(cell.X, cell.Y)) return null;
+                }
+            }
+            else
+            {
+                target = use.Shape == MonsterSkillShape.Self ? from : order.Player;
+            }
             // The client's action carries its copy to the target once it starts, whatever the server does after: the
             // estimate goes there with the order, not at the contact a retarget or a death can skip.
             // A Dash's copy crosses its line over the action's time, not at once: Ainsley Varrich's 36 cells take the
             // 0.25 s action on the client (sync trace 2026-11-17: a slide over the action is 6 cells RMS off the drawn
             // position mid-Dash, the jump at the order 17).
-            if (use.Shape == MonsterSkillShape.Travel && a.Effect is int dash && IsDash(dash)) m.Walk.Slide(target.X, target.Y, seconds, startedAt);
+            if (isDash) m.Walk.Slide(target.X, target.Y, seconds, startedAt);
             else if (use.Shape == MonsterSkillShape.Travel) m.Walk.Teleport(target.X, target.Y, startedAt);
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, player.MonsterOrderFlags,
                 targetObjectId: use.Shape == MonsterSkillShape.Curse ? player.Id : null);
@@ -497,12 +518,13 @@ public static partial class MonsterSkills
             if (MonsterSwingOrderLocked(player, m, a, action, false, a.Seconds, AreaTime(player), seq) is not { } order) return null;
             (startedAt, seq) = (order.StartedAt, order.Sequence);
             from = order.From;
-            target = Landing(player, m, from, order.Player);
+            if (Landing(player, m, from, order.Player) is not { } chargeTarget) return null;
+            target = chargeTarget;
             // The client drops a charge whose straight line meets terrain: its monster stays where it stands, so there is
             // no charge to send (sync trace 2026-11-17: Jonah Unchained stood still on five lines past a pillar that the
             // server's run stopped at, 1 to 10 cells along).
             foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
-                if (cell != from && !m.Walk.Floor(cell.X, cell.Y)) return null;
+                if (player.Barrier.Contains(cell) || (cell != from && !m.Walk.Floor(cell.X, cell.Y))) return null;
             // A lockstep client starts the run later than the order (ten charges, sync trace 2026-11-17: it left its cell
             // and arrived 85 ms after the server's walk on average, 12-169 ms), so the walk and the impact wait for it.
             double runsFrom = startedAt + (player.Connection.LockstepClient ? ChargeStartDelay : 0);
@@ -537,18 +559,20 @@ public static partial class MonsterSkills
     }
 
     /// <summary>Where a travel lands: short of the player on the line from the monster, on a walkable cell outside
-    /// barriers; else the player's own.</summary>
-    static (int X, int Y) Landing(Player player, SpawnedMonster m, (int X, int Y) from, (int X, int Y) playerAt)
+    /// barriers; null when no valid cell exists (cancelling the travel).</summary>
+    static (int X, int Y)? Landing(Player player, SpawnedMonster m, (int X, int Y) from, (int X, int Y) playerAt)
     {
-        double dx = from.X - playerAt.X, dy = from.Y - playerAt.Y, d = Math.Sqrt(dx * dx + dy * dy);
-        if (d < 1) return playerAt;
         int size = Math.Max(0, LivingCollision.Size(m));
+        double dx = from.X - playerAt.X, dy = from.Y - playerAt.Y, d = Math.Sqrt(dx * dx + dy * dy);
+        if (d < 1)
+            return player.Layout.WalkableFor(playerAt.X, playerAt.Y, size) && !player.Barrier.Contains(playerAt)
+                ? playerAt : null;
         for (double back = LandShort; back >= 0; back--)
         {
             int x = playerAt.X + (int)Math.Round(dx / d * back), y = playerAt.Y + (int)Math.Round(dy / d * back);
             if (player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y))) return (x, y);
         }
-        return playerAt;
+        return null;
     }
 
     sealed class Buffs { public readonly List<(ushort Buff, IReadOnlyDictionary<uint, int> Stats, double Until)> Active = []; }
@@ -591,11 +615,11 @@ public static partial class MonsterSkills
     /// <summary>A curse on the player for its time: its look, and its stats on the player's sheet (Game.PlayerDebuffs). A
     /// curse of the same look replaces the one there.</summary>
     static Task Curse(Player player, uint caster, MonsterSkillUse use) =>
-        AddPlayerDebuff(player, use.BuffRow, caster, Player(use.Stats), use.Seconds);
+        AddPlayerDebuff(player, use.BuffRow, caster, CursePlayerStats(use.Stats), use.Seconds);
 
     /// <summary>A curse's stats as the player's: the reductions a curse names for its target are the player's own
     /// (physical_damage_taken_+%, the resistances); the curse's own mechanics without a player stat are left out.</summary>
-    static Dictionary<uint, int> Player(IReadOnlyDictionary<uint, int> stats)
+    public static Dictionary<uint, int> CursePlayerStats(IReadOnlyDictionary<uint, int> stats)
     {
         Dictionary<uint, int> player = [];
         foreach (var (name, value) in stats)

@@ -604,7 +604,17 @@ public static partial class Game
                 if (ElementalOverloadCritLocked(player, SkillCatalog.FirstSkillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, "elemental overload (default attack)");
                 if (life == 0) { m.Aggro = false; m.Dead = true; CleanupDeadMonsterLocked(player.Area, targetId, m); CollectVaalSoulAtDeathLocked(player, m); }
-                else { m.Aggro = true; m.ReturningHome = false; AlertPackLocked(player, m, m.Walk.Position(contactAt), contactAt); }
+                else if (m.Hostile)
+                {
+                    var pos = m.Walk.Position(contactAt);
+                    if (!(m.ReturningHome && m.SpawnAnchor != default && Dist(pos, m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange)))
+                    {
+                        bool wasAggro = m.Aggro;
+                        m.Aggro = true;
+                        m.ReturningHome = false;
+                        if (!wasAggro) AlertPackLocked(player, m, pos, contactAt);
+                    }
+                }
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
@@ -3173,11 +3183,15 @@ public static partial class Game
         }
         else if (m.Hostile)
         {
-            bool wasAggro = m.Aggro;
-            m.Aggro = true;
-            m.ReturningHome = false;
-            m.LastTarget = null;
-            if (!wasAggro) AlertPackLocked(player, m, m.Walk.Position(hitNow), hitNow);
+            var pos = m.Walk.Position(hitNow);
+            if (!(m.ReturningHome && m.SpawnAnchor != default && Dist(pos, m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange)))
+            {
+                bool wasAggro = m.Aggro;
+                m.Aggro = true;
+                m.ReturningHome = false;
+                m.LastTarget = null;
+                if (!wasAggro) AlertPackLocked(player, m, pos, hitNow);
+            }
         }
         TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         if (allyAt is null && damage > 0 && !player.Reservations.Secondary) ReservationHitLocked(player, m);
@@ -3651,7 +3665,7 @@ public static partial class Game
         }
         if (!MonsterGivesNoRewards(m))
             await GainKillCharges(player, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
-        if (!m.NoRewards) await DropLoot(player, m, at, firstBossKill);
+        await DropLoot(player, m, at, firstBossKill);
         await PublishUnhingedCorpseDestruction(player, id, m, destroyCorpse);
     }
 

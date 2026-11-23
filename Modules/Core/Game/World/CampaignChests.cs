@@ -512,8 +512,9 @@ public static class CampaignChests
         int level = Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
         int charLevel = player.Pools.Level;
         string areaId = player.Layout.Id;
-        int iir = IncreasedItemRarity(player);
-        double iiq = ItemQuantityFactor(player);
+        var mapMods = MapModsOf(player);
+        int areaIir = mapMods?.Rarity ?? 0;
+        double areaIiq = mapMods?.QuantityFactor ?? 1;
         var rng = AreaRng(player);
         var drops = DropsFor(player);
         var rolled = new List<ItemDrops.Drop>();
@@ -523,19 +524,19 @@ public static class CampaignChests
                 // 2–4 Rare-rarity rolls + gold (matching Large/Silver/Golden Chests).
                 rolled.AddRange(drops.Roll(level, MonsterRarity.Rare, rng, increasedRarity: 0, quantityMultiplier: 1,
                     rarityMultiplier: 1, mapTier: 0, mods: null, areaId: areaId, characterLevel: charLevel, areaLevel: level));
-                if (drops.Gold(level, MonsterRarity.Rare, rng, multiplier: 0.8, increasedRarity: iir, quantityFactor: iiq) is { } richGold) rolled.Add(richGold);
+                if (drops.Gold(level, MonsterRarity.Rare, rng, multiplier: 0.8, increasedRarity: areaIir, quantityFactor: areaIiq) is { } richGold) rolled.Add(richGold);
                 break;
             case ChestTier.Standard:
                 // 1–2 Magic-rarity rolls + moderate gold (Copper/Tribal/Sarcophagus/Boulder).
                 rolled.AddRange(drops.Roll(level, MonsterRarity.Magic, rng, increasedRarity: 0, quantityMultiplier: 1,
                     rarityMultiplier: 1, mapTier: 0, mods: null, areaId: areaId, characterLevel: charLevel, areaLevel: level));
-                if (rng.Next(100) < 60 && drops.Gold(level, MonsterRarity.Magic, rng, multiplier: 0.6, increasedRarity: iir, quantityFactor: iiq) is { } stdGold) rolled.Add(stdGold);
+                if (rng.Next(100) < 60 && drops.Gold(level, MonsterRarity.Magic, rng, multiplier: 0.6, increasedRarity: areaIir, quantityFactor: areaIiq) is { } stdGold) rolled.Add(stdGold);
                 break;
             default:
                 // Breakables (Barrels/Pots/Urns/Baskets/Crates/Cairns/Vases): Normal-rarity roll (~35% for 1 item) + small gold.
                 rolled.AddRange(drops.Roll(level, MonsterRarity.Normal, rng, increasedRarity: 0, quantityMultiplier: 1,
                     rarityMultiplier: 1, mapTier: 0, mods: null, areaId: areaId, characterLevel: charLevel, areaLevel: level));
-                if (rng.Next(100) < 25 && drops.Gold(level, MonsterRarity.Normal, rng, multiplier: 0.4, increasedRarity: iir, quantityFactor: iiq) is { } smallGold) rolled.Add(smallGold);
+                if (rng.Next(100) < 25 && drops.Gold(level, MonsterRarity.Normal, rng, multiplier: 0.4, increasedRarity: areaIir, quantityFactor: areaIiq) is { } smallGold) rolled.Add(smallGold);
                 break;
         }
         if (rolled.Count == 0) return;

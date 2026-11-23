@@ -31,7 +31,8 @@ public static class MonsterKits
         double AreaRadius,
         MonsterGroundSpec? Ground,
         MonsterSkillUse? CurseUse,
-        bool IsNovaProjectile);
+        bool IsNovaProjectile,
+        int ChancePct = 100);
 
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int VarietyRow, byte Level), CachedKit>> Cache = new();
 
@@ -77,12 +78,13 @@ public static class MonsterKits
     /// <summary>Builds a modded multi-skill kit for an ordinary hostile monster, or empty if the variety only has a
     /// single plain attack matching <paramref name="defaultEffect"/> (which stays on the fast single-attack path).</summary>
     public static (IReadOnlyList<MonsterKitSkill> Kit, IReadOnlyDictionary<uint, int> AuraStats, IReadOnlyList<ushort> AuraRows)
-        ForOrdinary(Player player, MonsterCatalog.Variety variety, byte level, int defaultEffect, MonsterModEffects mods, double mapBossDamage = 1.0)
+        ForOrdinary(Player player, MonsterCatalog.Variety variety, byte level, int defaultEffect, MonsterModEffects mods,
+            double mapBossDamage = 1.0, bool applyAuraStats = true)
     {
         var template = TemplateFor(player, variety, level);
         if (template.BaseKit.Count == 0 || (template.BaseKit.Count == 1 && template.BaseKit[0].Effect == defaultEffect))
             return ([], template.AuraStats, template.AuraRows);
-        var effectiveMods = template.AuraStats.Count > 0 ? mods.Combine(template.AuraStats) : mods;
+        var effectiveMods = applyAuraStats && template.AuraStats.Count > 0 ? mods.Combine(template.AuraStats) : mods;
         return (ApplyMods(template.BaseKit, effectiveMods, level, mapBossDamage), template.AuraStats, template.AuraRows);
     }
 
@@ -249,12 +251,22 @@ public static class MonsterKits
             if (shaped is null || !BossKits.Acts(shaped)) continue;
 
             // Cap unmodified ranged spell reach to on-screen distance (consistent with Monsters.MonsterSpellReach).
-            if (shaped.Spell && shaped.Ranged && shaped.Summon is null && shaped.Range > 45)
+            bool selfBurn = SkillCatalog.ActionTypeId(effect) is "RighteousFire" or "InvisibleFire";
+            if (selfBurn && shaped.AreaRadius > 0)
+                shaped = shaped with { AreaAtSelf = true, Range = shaped.AreaRadius, Ranged = false };
+            else if (shaped.Spell && shaped.Ranged && shaped.Summon is null && shaped.Range > 45)
                 shaped = shaped with { Range = Math.Min(shaped.Range, shaped.Projectile is not null ? 45 : 32) };
 
             if (shaped.IsDischarge)
             {
                 cd = Math.Max(cd, 4.0);
+                primaries.Add((2, new MonsterKitSkill(effect, shaped, cd)));
+            }
+            else if (selfBurn)
+            {
+                // Self-centered burning pulse (e.g. WickerManRighteousFire): only fires inside its own radius on a
+                // cooldown so Wicker Men close in and swing WickerManMoltenStrike rather than spamming AoE nukes.
+                cd = Math.Max(cd, 2.5);
                 primaries.Add((2, new MonsterKitSkill(effect, shaped, cd)));
             }
             else if (shaped.Summon is not null || shaped.Trap is not null)
@@ -265,7 +277,7 @@ public static class MonsterKits
             else if (shaped.Ranged || shaped.Spell || shaped.Projectile is not null || shaped.AreaRadius > 0)
             {
                 // Iconic zero-cooldown or short-cooldown caster/ranged primary skill (Spark, Arc, Flamebearer,
-                // Fireball, Split Arrow, Burning Arrow, Caustic Arrow, Delayed Blast, Shock Nova, Righteous Fire, etc.)!
+                // Fireball, Split Arrow, Burning Arrow, Caustic Arrow, Delayed Blast, Shock Nova, etc.)!
                 primaries.Add((0, new MonsterKitSkill(effect, shaped, Math.Max(0, cd))));
             }
             else
@@ -335,11 +347,12 @@ public static class MonsterKits
             var attack = BossKits.AttackFor(player, variety, level, effect, SkillCatalog.FirstSkillId) with { Effect = effect };
             var stats = GolemData.Skill(catalog, effect, level).Stats;
             int Get(uint key) => stats.GetValueOrDefault(key);
+            int chancePct = Math.Clamp(Math.Max(Get(Stat.CastOnDeathPct), Get(Stat.AttackOnDeathPct)), 1, 100);
 
             // Check for on-death curse (e.g. MonsterConductivityOnDeath)
             if (catalog.HasType(effect, "Hex") && MonsterSkills.UseOf(catalog, effect, level) is { } curseUse)
             {
-                (list ??= []).Add(new DeathSkillSpec(effect, attack, null, 28, null, curseUse, false));
+                (list ??= []).Add(new DeathSkillSpec(effect, attack, null, 28, null, curseUse, false, chancePct));
                 continue;
             }
 
@@ -364,7 +377,7 @@ public static class MonsterKits
                     attack = attack with { Damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(Math.Max(0.25, 1 + more / 100.0)) };
                 }
                 attack = attack with { Ranged = true, Projectile = proj, Range = Math.Max(attack.Range, 45) };
-                (list ??= []).Add(new DeathSkillSpec(effect, attack, proj, 0, null, null, isNova));
+                (list ??= []).Add(new DeathSkillSpec(effect, attack, proj, 0, null, null, isNova, chancePct));
                 continue;
             }
 
@@ -390,7 +403,7 @@ public static class MonsterKits
                 : BossKits.AreaRadius(catalog, effect, level) ?? (ground?.Radius ?? 16);
             if (attack.Damage.IsZero && ground is null) continue;
             attack = attack with { AreaRadius = radius, AreaAtSelf = true, Ground = ground, Secondary = id.Contains("Explode", StringComparison.Ordinal) };
-            (list ??= []).Add(new DeathSkillSpec(effect, attack, null, radius, ground, null, false));
+            (list ??= []).Add(new DeathSkillSpec(effect, attack, null, radius, ground, null, false, chancePct));
         }
         return list is { Count: > 0 } ? list : [];
     }
@@ -402,7 +415,7 @@ public static class MonsterKits
     {
         if (m.DeathSkillsTriggered) return;
         m.DeathSkillsTriggered = true;
-        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
+        if (!CurrentGameWork || player.Closed || player.LeavingArea
             || !m.Hostile || m.CreatedAsCorpse || m.CorpseConsumed || m.Variety is not { } variety)
             return;
         // Skip CastsOnDeath on monsters flagged NoRewards when they are retired/boss-phase escapes without a real death.
@@ -413,9 +426,17 @@ public static class MonsterKits
         var instance = player.Instance;
         bool Still() => CurrentGameWork && !player.Closed && !player.LeavingArea && ReferenceEquals(player.Instance, instance);
 
+        bool anyLivingPlayer = false;
+        foreach (var peer in player.Frames.Players())
+            if (!peer.Closed && !peer.LeavingArea && peer.PlayerLife > 0 && !InGracePeriod(peer))
+            { anyLivingPlayer = true; break; }
+
+        var rng = AreaRng(player);
         foreach (var spec in template.DeathSkills)
         {
             if (!Still()) return;
+            if (spec.Ground is null && !anyLivingPlayer) continue;
+            if (spec.ChancePct < 100 && rng.Next(100) >= spec.ChancePct) continue;
             var attack = spec.BaseAttack;
             if (!attack.Damage.IsZero)
                 attack = attack with { Damage = m.Effects.Hit(attack.Damage, m.Level) };
@@ -423,8 +444,15 @@ public static class MonsterKits
 
             if (spec.CurseUse is { } curse)
             {
-                if (Dist(at, player.Walk.Position(AreaTime(player))) <= spec.AreaRadius)
-                    await AddPlayerDebuff(player, curse.BuffRow, id, curse.Stats, curse.Seconds);
+                double curseRadius = spec.AreaRadius * m.Effects.AreaScaleFactor;
+                var curseStats = MonsterSkills.CursePlayerStats(curse.Stats);
+                double now = AreaTime(player);
+                foreach (var peer in player.Frames.Players())
+                {
+                    if (peer.Closed || peer.LeavingArea || peer.PlayerLife == 0 || InGracePeriod(peer)) continue;
+                    if (Dist(at, peer.Walk.Position(now)) <= curseRadius)
+                        await AddPlayerDebuff(peer, curse.BuffRow, id, curseStats, curse.Seconds);
+                }
                 continue;
             }
 

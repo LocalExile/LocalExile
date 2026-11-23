@@ -29,14 +29,48 @@ public static partial class Game
             player.Pools.Level, m.Level, partyShare);
     }
 
-    /// <summary>Call BEFORE committing kill quest flags: returns true if this kill will newly grant at least one
-    /// quest kill flag for <paramref name="player"/> (ensuring first-kill boss bonuses fire once per boss per
-    /// character and never on farm re-kills).</summary>
+    /// <summary>Call BEFORE committing kill quest flags or quest item drops: returns true if this kill advances a
+    /// first-time campaign kill objective for <paramref name="player"/> (<c>On.Killed</c>, <c>On.KilledAll</c> when
+    /// the last boss in the group falls, Act 10 Kitava's Heart before <see cref="Quests.EndGameAvailable"/> is earned,
+    /// or <c>On.Drops</c> for a needed quest item like Hailrake's Medicine Chest / Weaver's Maligaro's Spike).</summary>
     public static bool HasUnsetKillQuestFlag(Player player, string varietyId)
     {
         var flags = QuestFlagsOnKill(player, varietyId);
         for (int i = 0; i < flags.Count; i++)
             if (!player.Character.HasQuestFlag(flags[i])) return true;
+
+        // Multi-boss fights (Solaris & Lunaris, Gemling Legion, Vastiri Desert, etc.): grant on the final boss kill.
+        foreach (var rule in QuestsOf(player).KilledAllOf(player.Layout.Id, varietyId))
+        {
+            bool anyUnset = false;
+            foreach (string flag in rule.Flags)
+                if (!player.Character.HasQuestFlag(flag)) { anyUnset = true; break; }
+            if (!anyUnset) continue;
+            bool anyOtherAlive = false;
+            foreach (var other in player.Area.Monsters.Values)
+            {
+                if (!other.Dead && other.Life > 0 && other.Variety is { } v && rule.Varieties.Contains(v.Id))
+                { anyOtherAlive = true; break; }
+            }
+            if (!anyOtherAlive) return true;
+        }
+
+        // Act 10 Kitava (The Feeding Trough): EndGameAvailable is set by the encounter controller after KitavaFinalHeart dies.
+        if (player.Layout.Id == "2_10_6" && varietyId == "Metadata/Monsters/KitavaBoss/KitavaFinalHeart"
+            && !player.Character.EarnedQuestFlag(Quests.EndGameAvailable))
+            return true;
+
+        // Quest-item drop bosses (e.g. Hailrake -> Medicine Chest, The Weaver -> Maligaro's Spike).
+        foreach (string itemId in QuestDropsOnKill(player, varietyId))
+        {
+            if (ItemsFor(player).Find(itemId) is not { Supported: true } type || type.Id != itemId) continue;
+            bool carried = QuestItems.Carried(ItemsOf(player)).Any(c => c.Item.Item.TypeHash == type.Hash);
+            bool onGround = player.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
+                && QuestDropVisibleTo(player, e.Id));
+            if (QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround))
+                return true;
+        }
+
         return false;
     }
 
@@ -58,6 +92,7 @@ public static partial class Game
         "Metadata/Monsters/LunarisSolaris/Lunaris",
         "Metadata/Monsters/UnholyTrio/UnholyTrio",
         "Metadata/Monsters/KitavaBoss/KitavaFinal",
+        "Metadata/Monsters/KitavaBoss/KitavaFinalHeart",
     };
 
     /// <summary>Classifies a unique campaign boss for first-kill bonus loot (<see cref="ItemDrops.RollBossFirstKillBonus"/>).
@@ -124,11 +159,13 @@ public static partial class Game
             drops.AddRange(PartyCurrency(player, drops, rng));
             if (RollMapDropForKill(player, m.Level, m.Rarity, mapTier, rng, modded?.MapRelated ?? 1) is { } mapDrop)
                 drops.Add(mapDrop);
+            // GoldAmountCore already applies the monster rarity multiplier (e.g. 15x Unique), so pass player+area IIR/IIQ
+            // rather than monster/boss IIR/IIQ to avoid double-multiplying Act Boss gold stacks.
             if (DropsFor(player).Gold(
                 m.Level, m.Rarity, rng,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1),
-                increasedRarity: iir,
-                quantityFactor: iiq) is { } gold)
+                increasedRarity: IncreasedItemRarity(player),
+                quantityFactor: ItemQuantityFactor(player)) is { } gold)
                 drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng));
             drops.AddRange(Sirus.Rewards(player, m));

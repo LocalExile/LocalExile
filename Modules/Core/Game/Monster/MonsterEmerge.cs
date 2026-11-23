@@ -210,7 +210,11 @@ public sealed class MonsterEmerge
     /// Returns them with where they stand; the caller sends the rise. When none is left waiting the watch ends
     /// (<paramref name="watching"/> false). In the area's frame.</summary>
     public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(Player player,
-        (int X, int Y) playerAt, double now, out bool watching)
+        (int X, int Y) playerAt, double now, out bool watching) =>
+        RiseLocked(player, player, playerAt, now, out watching);
+
+    public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(Player player,
+        Player waker, (int X, int Y) playerAt, double now, out bool watching)
     {
         var g = player.Area.EmergeGround;
         var risen = new List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)>();
@@ -293,7 +297,7 @@ public sealed class MonsterEmerge
             {
                 risen.Add((lead.Id, lead.Monster, lead.At, SecondsOf(lead.Monster)));
                 if (!lead.Buried) (risenLurking ??= []).Add(lead.Id);
-                Game.AlertPackLocked(player, lead.Monster, lead.At, now);
+                Game.AlertPackLocked(waker, lead.Monster, lead.At, now);
             }
         }
         if (risenLurking is not null)
@@ -308,6 +312,8 @@ public sealed class MonsterEmerge
             m.Aggro = true;
             m.ReturningHome = false;
             m.LastTarget = null;
+            if (m.Target is null && waker.PlayerLife > 0 && !Game.InGracePeriod(waker))
+                m.Target = waker;
             // The clip-end callback completes Emerge in both modes (141e933b0 → 141e934b0 → 141e8f670).
             // No extra idle tail follows the clip; the next AI decision may run once it ends.
             m.BusyUntil = now + seconds;

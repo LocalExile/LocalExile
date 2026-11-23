@@ -524,7 +524,7 @@ public static partial class Game
         if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
         {
             var (ordinaryKit, ordinaryAuraStats, ordinaryAuraRows) = MonsterKits.ForOrdinary(player, variety, level, effect,
-                mods.Effects, mapBoss ? mapBossScaling.Damage : 1.0);
+                mods.Effects, mapBoss ? mapBossScaling.Damage : 1.0, applyAuraStats: freshMods && auras.Stats is null);
             if (ordinaryKit.Count > 0) kit = ordinaryKit;
             if (freshMods && auras.Stats is null && ordinaryAuraStats.Count > 0)
                 mods = mods with { Effects = mods.Effects.Combine(ordinaryAuraStats) };
@@ -945,6 +945,7 @@ public static partial class Game
 
     static bool CanLeashReturn(Player player, uint id, SpawnedMonster m) =>
         m.Hostile && !m.Fleeing && m.SpawnAnchor != default
+        && m.Rarity != MonsterRarity.Unique && !BossKits.IsCampaignBoss(m.Variety)
         && m.Variety is not { BossHealthBar: true }
         && m.Variety is not { MovementSpeed: 0 } and not { Immobile: true }
         && !m.Scripted && !m.Invulnerable && !m.StageRunning && m.LifePhases is null
@@ -972,8 +973,15 @@ public static partial class Game
                 int ty = from.Y + (int)Math.Round(Math.Sin(a) * dist);
                 if (!LockstepTakesMove(from, (tx, ty))) continue;
                 if (Dist((tx, ty), threat) <= currentDist + 2) continue;
-                if (player.Layout.WalkableFor(tx, ty, size) && !player.Barrier.Contains((tx, ty)))
-                    return (tx, ty);
+                if (!player.Layout.WalkableFor(tx, ty, size) || player.Barrier.Contains((tx, ty))) continue;
+                // Ensure the backoff line does not cut through walls or closed doors.
+                bool clear = true;
+                foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, (tx, ty)))
+                {
+                    if (cell != from && (!m.Walk.Floor(cell.X, cell.Y) || player.Barrier.Contains(cell)))
+                    { clear = false; break; }
+                }
+                if (clear) return (tx, ty);
             }
         }
         return null;
@@ -1042,10 +1050,29 @@ public static partial class Game
                     }
                     double homeDist = Dist((mx, my), m.SpawnAnchor);
                     double reaggroAnchorCap = 1.5 * Math.Max(40, m.AggroRange);
-                    if (d <= m.AggroRange && homeDist <= reaggroAnchorCap && !protectedEntry)
+                    Player? reaggroTarget = null;
+                    if (homeDist <= reaggroAnchorCap)
+                    {
+                        double bestDist = m.AggroRange;
+                        foreach (var peer in player.Frames.Players())
+                        {
+                            if (peer.Closed || peer.LeavingArea || peer.PlayerLife == 0 || InGracePeriod(peer)) continue;
+                            double pd = Dist((mx, my), peer.Walk.Position(now));
+                            if (pd <= bestDist) { bestDist = pd; reaggroTarget = peer; }
+                        }
+                    }
+                    if (reaggroTarget is not null)
                     {
                         m.ReturningHome = false;
-                        // Fall through to normal aggro/combat!
+                        m.Target = reaggroTarget;
+                        if (!ReferenceEquals(reaggroTarget, player))
+                        {
+                            m.Aggro = true;
+                            m.LastTarget = null;
+                            AlertPackLocked(reaggroTarget, m, (mx, my), now);
+                            continue;
+                        }
+                        // Fall through to normal aggro/combat on this player!
                     }
                     else if (homeDist <= 6 || (m.Walk.Reached && !m.Walk.ReachedGoal && m.LastTarget == m.SpawnAnchor))
                     {
