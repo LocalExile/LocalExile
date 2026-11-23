@@ -459,7 +459,7 @@ public static partial class Game
     }
 
     static Task RunOnAreaFrame(Player player, Func<Task> work) =>
-        player.Frames.Running && !player.Area.Owned ? player.Frames.Run(work) : work();
+        player.Area.Owned ? work() : player.Frames.Run(work);
 
     // The capture tour's next step (CaptureTour), after an area load (0x7d) or when /tour starts: at the tour's current
     // stop, wait for scripts/walkmaps to write it, then go to a new instance of the next (area, seed). A tour saved before
@@ -513,65 +513,86 @@ public static partial class Game
     {
         if (!ReferenceEquals(player.PendingTransfer, t)) return; // the acknowledgement and fallback timer can race
         player.PendingTransfer = null;
-        if (player.Closed)
+        string remote = player.Connection.Remote;
+        var call = control ?? (request => InstanceControl.CallAsync(request));
+
+        async Task TryLeaveTicket(uint ticket)
         {
-            t.Done?.Invoke(new() { Ok = false, Error = "connection closed" });
+            try { await call(new ControlRequest { Op = "leave", Ticket = ticket }).ConfigureAwait(false); }
+            catch (Exception ex) { Console.WriteLine($"[gateway] {remote} transfer cleanup leave failed for ticket 0x{ticket:x8}: {ex.Message}"); }
+        }
+
+        Task FailOnFrame(ControlResponse failure, bool restoreSession, bool resumeVitals) =>
+            RunOnAreaFrame(player, async () =>
+            {
+                t.Done?.Invoke(failure);
+                if (restoreSession && !player.Closed && !player.PendingCharacterSelectExit)
+                {
+                    if (resumeVitals) ResumeVitalsAfterFailedTransfer(player);
+                    player.ResumeAfterFailedTransfer();
+                    await SendCancelChangeArea(player);
+                }
+                foreach (var resolved in GameEvents.TransferResolved.For(player)) await resolved(player, t, failure);
+            });
+
+        if (player.Closed || player.PendingCharacterSelectExit)
+        {
+            var fail = new ControlResponse { Ok = false, Error = player.Closed ? "connection closed" : "exiting to character select" };
+            await FailOnFrame(fail, restoreSession: false, resumeVitals: false).ConfigureAwait(false);
             return;
         }
         if (!RetireVitalsForTransfer(player))
         {
-            t.Done?.Invoke(new() { Ok = false, Error = "connection replaced" });
-            player.ResumeAfterFailedTransfer();
-            await SendCancelChangeArea(player);
-            Console.WriteLine($"[gateway] {player.Connection.Remote} transfer refused: saved life and mana belong to a newer connection");
+            var fail = new ControlResponse { Ok = false, Error = "connection replaced" };
+            Console.WriteLine($"[gateway] {remote} transfer refused: saved life and mana belong to a newer connection");
+            await FailOnFrame(fail, restoreSession: true, resumeVitals: false).ConfigureAwait(false);
             return;
         }
-        var call = control ?? (request => InstanceControl.CallAsync(request));
         ulong join = t.Instance != 0 || t.New ? 0 : InstanceEvents.TransferInstance.For(player).Select(run => run(player, t)).FirstOrDefault(i => i != 0);
         uint sourceTicket = player.Ticket;
         string? soloOwner = player.Character.Ssf ? player.Character.Id?.ToString("N") : null;
         string characterName = CharacterName(player);
         string? league = player.Character.League;
         string? leagueForm = player.Character.LeagueForm;
-        string remote = player.Connection.Remote;
 
         // Run Auth's transfer request off the area frame so other players keep stepping and a disconnect that stops
         // AreaFrames.Drive() still releases any newly issued ticket.
-        var r = await call(new ControlRequest
+        ControlResponse r;
+        try
         {
-            Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,
-        }).ConfigureAwait(false);
-        // The party member's instance may be gone or closed to this player: the default choice then.
-        if (join != 0 && !r.Ok)
-            r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed }).ConfigureAwait(false);
-        else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
+            r = await call(new ControlRequest
+            {
+                Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,
+            }).ConfigureAwait(false);
+            // The party member's instance may be gone or closed to this player: the default choice then.
+            if (join != 0 && !r.Ok)
+                r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed }).ConfigureAwait(false);
+            else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[gateway] {remote} transfer control call failed: {ex.Message}");
+            var fail = new ControlResponse { Ok = false, Error = ex.Message };
+            await FailOnFrame(fail, restoreSession: true, resumeVitals: true).ConfigureAwait(false);
+            throw;
+        }
 
         if (!r.Ok)
         {
-            if (player.Closed)
-            {
-                t.Done?.Invoke(r);
-                return;
-            }
-            await RunOnAreaFrame(player, async () =>
-            {
-                t.Done?.Invoke(r);
-                if (player.Closed) return;
-                ResumeVitalsAfterFailedTransfer(player);
-                player.ResumeAfterFailedTransfer();
-                await SendCancelChangeArea(player);
-                Console.WriteLine($"[gateway] {player.Connection.Remote} transfer failed: {r.Error}");
-                foreach (var resolved in GameEvents.TransferResolved.For(player)) await resolved(player, t, r);
-            }).ConfigureAwait(false);
+            Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
+            await FailOnFrame(r, restoreSession: true, resumeVitals: true).ConfigureAwait(false);
             return;
         }
-        if (player.Closed)
+        if (player.Closed || player.PendingCharacterSelectExit)
         {
-            await call(new ControlRequest { Op = "leave", Ticket = r.Ticket }).ConfigureAwait(false);
+            await TryLeaveTicket(r.Ticket).ConfigureAwait(false);
+            var fail = new ControlResponse { Ok = false, Error = player.Closed ? "connection closed" : "exiting to character select" };
+            await FailOnFrame(fail, restoreSession: false, resumeVitals: false).ConfigureAwait(false);
             return;
         }
-        // Record the map/labyrinth instance id before PrepareTransferArea admits the map on the destination instance.
-        t.Done?.Invoke(r);
+        // Publish the destination instance immediately so following party members join the same instance while
+        // pre-generation runs, and record only TicketArrivals (not t.Done) before PrepareTransferArea.
+        player.TransferredTo = (r.Area, r.Instance);
         if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
         // Generate the destination seed and layout before 0x27 opens the client's loading screen, so the new connection
         // can send 0x11 and 0x1d immediately when the client connects.
@@ -582,36 +603,41 @@ public static partial class Game
                 r.Instance, r.Created, soloOwner, r.Ticket, r.Area, r.Seed,
                 characterName, league, leagueForm)).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
+            player.TransferredTo = null;
             MapDevice.TicketArrivals.TryRemove(r.Ticket, out _);
-            await call(new ControlRequest { Op = "leave", Ticket = r.Ticket }).ConfigureAwait(false);
-            if (!player.Closed)
-                await RunOnAreaFrame(player, async () =>
-                {
-                    if (player.Closed) return;
-                    ResumeVitalsAfterFailedTransfer(player);
-                    player.ResumeAfterFailedTransfer();
-                    await SendCancelChangeArea(player);
-                }).ConfigureAwait(false);
+            Program.Instances.ClearPreparedLayoutIfEmpty(r.Instance, r.Created, soloOwner);
+            await TryLeaveTicket(r.Ticket).ConfigureAwait(false);
+            var fail = new ControlResponse { Ok = false, Error = ex.Message };
+            await FailOnFrame(fail, restoreSession: true, resumeVitals: true).ConfigureAwait(false);
             throw;
         }
-        if (player.Closed)
+        if (player.Closed || player.PendingCharacterSelectExit)
         {
+            player.TransferredTo = null;
             MapDevice.TicketArrivals.TryRemove(r.Ticket, out _);
-            await call(new ControlRequest { Op = "leave", Ticket = r.Ticket }).ConfigureAwait(false);
+            Program.Instances.ClearPreparedLayoutIfEmpty(r.Instance, r.Created, soloOwner);
+            await TryLeaveTicket(r.Ticket).ConfigureAwait(false);
+            var fail = new ControlResponse { Ok = false, Error = player.Closed ? "connection closed" : "exiting to character select" };
+            await FailOnFrame(fail, restoreSession: false, resumeVitals: false).ConfigureAwait(false);
             return;
         }
         bool abandoned = false;
         await RunOnAreaFrame(player, async () =>
         {
-            if (player.Closed)
+            if (player.Closed || player.PendingCharacterSelectExit)
             {
                 abandoned = true;
+                player.TransferredTo = null;
+                var fail = new ControlResponse { Ok = false, Error = player.Closed ? "connection closed" : "exiting to character select" };
+                t.Done?.Invoke(fail);
+                foreach (var resolved in GameEvents.TransferResolved.For(player)) await resolved(player, t, fail);
                 return;
             }
             player.TransferAccepted = true;
             player.TransferredTo = (r.Area, r.Instance);
+            t.Done?.Invoke(r);
             foreach (var resolved in GameEvents.TransferResolved.For(player)) await resolved(player, t, r);
             CarryCharges(player, r.Ticket);
             CarryFortification(player, r.Ticket);
@@ -639,7 +665,8 @@ public static partial class Game
         if (abandoned)
         {
             MapDevice.TicketArrivals.TryRemove(r.Ticket, out _);
-            await call(new ControlRequest { Op = "leave", Ticket = r.Ticket }).ConfigureAwait(false);
+            Program.Instances.ClearPreparedLayoutIfEmpty(r.Instance, r.Created, soloOwner);
+            await TryLeaveTicket(r.Ticket).ConfigureAwait(false);
         }
     }
 }

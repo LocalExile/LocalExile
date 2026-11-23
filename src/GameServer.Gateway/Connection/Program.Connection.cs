@@ -82,7 +82,7 @@ public partial class Program
         {
             uint playable = AreaLayouts.PlayableSeed(areaHash, authSeed, areaLevel, areaStats, leagueCategory, pluginStates);
             return (playable, AreaLayouts.For(areaHash, playable));
-        });
+        }, knownSeed => AreaLayouts.For(areaHash, knownSeed), Instances.Now);
         return new(instance, map, areaLevel, areaStats, leagueCategory, pluginStates, seed, layout);
     }
 
@@ -201,7 +201,11 @@ public partial class Program
                 pinnedSession = (pinnedName, player.Character.Account, player.Character.League);
                 int level = Logic.PrepareCharacter(player, resolved.Level);
                 prepared = true;
+                byte requestAreaLevel = areaLevel;
+                var layoutBeforeHeader = player.Layout;
                 var moduleHeader = GameEvents.RunAreaHeader(player);
+                bool headerReplacedLayout = !ReferenceEquals(player.Layout, layoutBeforeHeader);
+                if (headerReplacedLayout) layout = player.Layout;
                 byte headerLevel = moduleHeader?.Level ?? areaLevel;
                 bool levelChanged = headerLevel > 0 && headerLevel != areaLevel;
                 areaLevel = headerLevel;
@@ -221,14 +225,19 @@ public partial class Program
                     pluginStates = [];
                     droppedPluginStates = true;
                 }
-                // Refresh player.Layout when AreaHeader dropped plugin states or changed the area level sent in 0x1d,
-                // so the server's layout matches what the client builds.
+                // Refresh player.Layout when AreaHeader dropped plugin states, changed the area level sent in 0x1d,
+                // or replaced player.Layout directly (e.g. DelveRoutes.MineHeader), keeping the original requestAreaLevel key
+                // so party joins and re-entries into Simulacrum/Delve still hit the cache instead of advancing the seed.
                 if (droppedPluginStates || levelChanged)
                 {
                     if (levelChanged) ServerLevels.PlayAtLevel(layout.Id, seed, areaLevel);
                     layout = AreaLayouts.For(areaHash, seed);
-                    instance.UpdatePreparedLayout(resolved.Seed, areaLevel, seed, layout);
+                    instance.UpdatePreparedLayout(resolved.Seed, requestAreaLevel, seed, layout, Instances.Now);
                     player.Use(layout);
+                }
+                else if (headerReplacedLayout)
+                {
+                    instance.UpdatePreparedLayout(resolved.Seed, requestAreaLevel, seed, layout, Instances.Now);
                 }
                 byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
                     : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
