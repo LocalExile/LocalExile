@@ -195,6 +195,60 @@ public static partial class Game
         return removeCorpse;
     }
 
+    // A curse explosion uses the killing minion's damage and area. Chain kills follow the same minion outcome path.
+    static void ResolveCursedMinionKillLocked(Player player, uint corpseId, SpawnedMonster corpse,
+        SpawnedMonster source, IReadOnlyDictionary<uint, int>? skill, double now)
+    {
+        if (!corpse.CursedAtDeath || !corpse.Hostile || player.Closed || player.LeavingArea || player.PlayerLife == 0
+            || HardcoreProgressBlocked(player)) return;
+        int chance = CharacterPlayerStats(player).GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct);
+        if (!GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+
+        double factor = MinionAreaDamageFactor(source, DamageType.Chaos, skill);
+        double radius = 22 * Math.Sqrt(Math.Max(0, 1 + source.Effects[Stat.BaseSkillAreaOfEffectPlusPct] / 100d));
+        var pending = new Queue<(uint Id, SpawnedMonster Monster)>();
+        pending.Enqueue((corpseId, corpse));
+        while (pending.TryDequeue(out var entry))
+        {
+            var (id, dead) = entry;
+            if (dead.CorpseConsumed || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), dead)) continue;
+            var at = dead.Walk.Position(now);
+            dead.CorpseConsumed = true;
+            player.Area.Monsters.Remove(id);
+            player.Minions.OutputQueue.Add(new([], "minion kill explosion removes corpse", WorldId: id, RemovesObject: true));
+            if (player.Connection.Connected && TakeExplosionArt(player, now))
+            {
+                uint effect = player.TakeObjectId();
+                var art = new EffectObject(at.X, at.Y, ChaosExplosionAo);
+                player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
+                    InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), "minion chaos kill explosion",
+                    WorldId: effect, CreatesObject: true));
+                SendAfter(player, ArtMs(ChaosExplosionAo) / 1000d, async () =>
+                {
+                    if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
+                });
+            }
+            if (factor <= 0) continue;
+            double raw = dead.MaxLife * .25 * factor;
+            var packet = DamagePacket.Of(DamageType.Chaos, raw, raw);
+            foreach (var (targetId, target) in player.Area.Monsters.ToArray())
+            {
+                if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable
+                    || Dist(target.Walk.Position(now), at) > radius) continue;
+                int damage = MonsterTakesRolled(target, packet, spell: false, now: now);
+                if (damage <= 0 || ApplyMonsterHitLocked(player, target, damage, allyAt: at) is not { } hit) continue;
+                if (hit.StageStarts)
+                {
+                    CommitBossStage(player, targetId, target, now);
+                    hit = hit with { StageStarts = false };
+                }
+                CommitMinionHitLocked(player, targetId, target, hit, damage, now, "minion chaos kill explosion");
+                if (hit.Life == 0 && target.CursedAtDeath && GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player)))
+                    pending.Enqueue((targetId, target));
+            }
+        }
+    }
+
     // A volley that kills a pack explodes every corpse at once; the previous 8 per 150 ms thinned the art out of
     // a normal chain and read as missing explosions. The queue no longer stalls per object, so the art can follow:
     // one fight peaked at 65 explosions in 150 ms and 86 art objects alive.

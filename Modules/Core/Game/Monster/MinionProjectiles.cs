@@ -107,7 +107,7 @@ public static partial class Game
             $"0x01af minion 0x{shot.MinionId:x} projectile hit on monster 0x{contact.Target.Id:x}",
             contact.Target.Id, target, WorldId: shot.MinionId));
         CommitMinionHitLocked(player, contact.Target.Id, target, hit, accepted.Damage, now,
-            $"minion 0x{shot.MinionId:x} ({shot.Monster.Label})");
+            $"minion 0x{shot.MinionId:x} ({shot.Monster.Label})", source: shot.Monster, skill: active.SkillStats);
         session.Enqueue(() => PublishMinionOutcomesFor(player,
             CombatLifetime));
         return ProjectileHitResult.Hit;
