@@ -36,7 +36,8 @@ public static class SupportedAttackDamage
     {
         var sources = ItemModStats.Local(item, mods);
         var other = Game.PlainItemSum(item, mods);
-        foreach (uint name in new[] { ColdPerDexterityMin, ColdPerDexterityMax, Stat.WeaponPhysicalDamagePctToAddAsEachElement })
+        foreach (uint name in new[] { ColdPerDexterityMin, ColdPerDexterityMax, Stat.WeaponPhysicalDamagePctToAddAsEachElement,
+            Stat.HitsHaveCriticalStrikeMultiplerPlusPerMonsterPower, Stat.HitsHaveLeechPctIsInstantPerMonsterPower })
             if (other.TryGetValue(name, out int value)) sources[name] = value;
         return sources.ToFrozenDictionary();
     }

@@ -11,6 +11,7 @@ public sealed class LeechSession
     bool convertLifeToEnergyShield;
     public bool ConvertsLifeToEnergyShield => convertLifeToEnergyShield;
     double lifeInstant, manaInstant, shieldInstant, convertedLifeInstant;
+    bool lifeInstantReplaced, manaInstantReplaced, shieldInstantReplaced;
     // Vaal Pact: "Life Leech from Melee Damage is Instant" — the life instant fraction a melee hit uses instead.
     double meleeLifeInstant;
     bool recoverLife = true, recoverEnergyShield = true;
@@ -85,15 +86,21 @@ public sealed class LeechSession
         equippedClaws = Math.Clamp(equippedClaws, 0, 2);
         double commonInstant = (double)get(Stat.LeechPctIsInstant)
             + (equippedClaws > 0 ? get(Stat.LeechPctIsInstantWhileWieldingClaw) : 0);
-        lifeInstant = Math.Clamp(replacement(Stat.VirtualLifeLeechPctIsInstant)
+        var lifeReplacement = replacement(Stat.VirtualLifeLeechPctIsInstant);
+        var manaReplacement = replacement(Stat.VirtualManaLeechPctIsInstant);
+        var shieldReplacement = replacement(Stat.VirtualEnergyShieldLeechPctIsInstant);
+        lifeInstantReplaced = lifeReplacement.HasValue;
+        manaInstantReplaced = manaReplacement.HasValue;
+        shieldInstantReplaced = shieldReplacement.HasValue;
+        lifeInstant = Math.Clamp(lifeReplacement
             ?? commonInstant + get(Stat.LifeLeechPctIsInstant)
                 + (double)equippedClaws * get(Stat.LifeLeechPctIsInstantPerEquippedClaw), 0, 100);
         // Vaal Pact: "Life Leech from Melee Damage is Instant". A melee hit's life leech is fully instant; a non-melee
         // hit keeps the ordinary fraction. Ghost Reaver's life-to-ES conversion keeps its own (no interaction).
         meleeLifeInstant = get(Stat.KeystoneVaalPact) != 0 || get(Stat.MeleeDamageLifeLeechIsInstant) != 0
             ? 100 : lifeInstant;
-        manaInstant = Math.Clamp(replacement(Stat.VirtualManaLeechPctIsInstant) ?? commonInstant, 0, 100);
-        shieldInstant = Math.Clamp(replacement(Stat.VirtualEnergyShieldLeechPctIsInstant) ?? commonInstant, 0, 100);
+        manaInstant = Math.Clamp(manaReplacement ?? commonInstant, 0, 100);
+        shieldInstant = Math.Clamp(shieldReplacement ?? commonInstant, 0, 100);
         // GGG 3.22.1d explicitly preserves Life-instant sources through Ghost Reaver. Keep that source scope:
         // native ES grants do not inherit a Life-only bonus.
         convertedLifeInstant = lifeInstant;
@@ -114,18 +121,23 @@ public sealed class LeechSession
 
     public (double Life, double Mana, double EnergyShield) Hit(double now,
         (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
-        bool attack = false, bool melee = false)
+        bool attack = false, bool melee = false) =>
+        HitWithWeapon(now, amounts, lifeFull, manaFull, shieldFull, attack, melee, false, 0);
+
+    internal (double Life, double Mana, double EnergyShield) HitWithWeapon(double now,
+        (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
+        bool attack, bool melee, bool weaponLifeInstant, double weaponInstantPercent)
     {
         var before = Active(now);
         int count = Count;
-        var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack, melee);
+        var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack, melee, weaponLifeInstant, weaponInstantPercent);
         Report(now, before, count);
         return instant;
     }
 
     (double Life, double Mana, double EnergyShield) HitCore(double now,
         (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
-        bool attack, bool melee)
+        bool attack, bool melee, bool weaponLifeInstant, double weaponInstantPercent)
     {
         if (limits is null) return default;
         ClearFullCore(now, lifeFull, manaFull, shieldFull);
@@ -139,12 +151,15 @@ public sealed class LeechSession
         // Life and ES source categories create independent ES instances under Ghost Reaver, each with its own cap
         // and duration. They share the ES recovery rate/cap, retaining the Life source's instant fraction.
         bool keepShield = keepEnergyShield || attack && keepAttackEnergyShield;
+        double LifeFraction(double baseline) => lifeInstantReplaced ? baseline
+            : weaponLifeInstant ? 100 : baseline + weaponInstantPercent;
         double convertedShield = convertLifeToEnergyShield && !limits.Resources[0].CannotLeech
-            ? Grant(2, amounts.Life, shieldFull, keepShield, convertedLifeInstant, recoverEnergyShield) : 0;
+            ? Grant(2, amounts.Life, shieldFull, keepShield, LifeFraction(convertedLifeInstant), recoverEnergyShield) : 0;
         return (convertLifeToEnergyShield ? 0 : Grant(0, amounts.Life, lifeFull, keepLife,
-                melee ? meleeLifeInstant : lifeInstant, recoverLife),
-            Grant(1, amounts.Mana, manaFull, false, manaInstant, true),
-            convertedShield + Grant(2, amounts.EnergyShield, shieldFull, keepShield, shieldInstant, recoverEnergyShield));
+                LifeFraction(melee ? meleeLifeInstant : lifeInstant), recoverLife),
+            Grant(1, amounts.Mana, manaFull, false, manaInstant + (manaInstantReplaced ? 0 : weaponInstantPercent), true),
+            convertedShield + Grant(2, amounts.EnergyShield, shieldFull, keepShield,
+                shieldInstant + (shieldInstantReplaced ? 0 : weaponInstantPercent), recoverEnergyShield));
     }
 
     public void ClearFull(double now, bool life, bool mana, bool shield)
