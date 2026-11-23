@@ -121,6 +121,19 @@ public static partial class Game
         return list;
     }
 
+    static ItemDrops.Drop? RollMapDropForKill(Player player, int level, MonsterRarity rarity, int tier, Random rng, double chanceFactor)
+    {
+        var mods = MapModsOf(player);
+        if (mods is not null) chanceFactor *= MapDropFactor(mods, Stat.MapMapItemDropChancePlusPct);
+        var drops = DropsFor(player);
+        int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
+        if (upgrade <= 0 || tier is <= 0 or >= 16)
+            return drops.Map(level, rarity, tier, rng, chanceFactor: chanceFactor);
+        return drops.Map(level, rarity, tier, rng,
+            acceptedTier => rng.NextDouble() < Math.Min(1000, upgrade) / 1000d ? acceptedTier + 1 : acceptedTier,
+            chanceFactor: chanceFactor);
+    }
+
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and
     /// scarab drop factors (its increased and more modifiers multiplied, 1 for none) on the base map chances
     /// (<c>drop_card_chance_pct</c>, <c>drop_scarab_chance_pct</c>, ItemDrops.Roll): a factor f adds the base chance
