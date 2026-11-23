@@ -73,13 +73,31 @@ public static partial class Game
             Stat.NumberOfArcherSkeletonsToSummon, Stat.NumberOfMageSkeletonsToSummon }.Sum(stat)) : 1;
 
     public static int SummonLimit(Player player, SummonCatalog.Definition definition, SupportedGem gem)
+        => definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem.Stats, CharacterPlayerStats(player));
+
+    static int SummonLimit(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> skillStats,
+        IReadOnlyDictionary<uint, int> playerStats)
     {
-        if (definition.LimitStat == 0) return 1;
-        var playerStats = CharacterPlayerStats(player);
         uint final = definition.FinalLimitStat;
-        int value = GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
+        long value = (long)GolemStat(skillStats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat)
+            + GolemStat(playerStats, final);
         // Clones have no ordinary cap; duration is their lifetime constraint.
-        return Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+        return (int)Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+    }
+
+    static void ApplySocketedGhastlyEyeSpectreLimit(IEnumerable<Item> active, ItemCatalog catalog, Dictionary<uint, int> sources)
+    {
+        long additional = 0;
+        foreach (var item in active)
+        {
+            int socketed = item.Sockets.Count(socket => socket is { Colour: SocketColour.Abyss, Gem: { } jewel }
+                && catalog.ByHash(jewel.TypeHash)?.Id == "Metadata/Items/Jewels/JewelAbyssSummoner");
+            if (socketed > 0)
+                additional += (long)socketed * GolemStat(PlainItemSum(item, catalog.Mods), Stat.AdditionalSpectresPerGhastlyEyeJewel);
+        }
+        if (additional != 0)
+            sources[Stat.BaseNumberOfSpectresAllowed] = ActorScale.Saturate(
+                (long)sources.GetValueOrDefault(Stat.BaseNumberOfSpectresAllowed) + additional);
     }
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
@@ -380,6 +398,21 @@ public static partial class Game
         && now < player.Summons.Until[spectre.Id]
         && GemSourceLifetimeCurrentLocked(player, spectre.Source, spectre.Definition.Effect, spectre.GemSource);
 
+    static bool RefreshSpectreLimitLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, double now)
+    {
+        var state = player.Summons;
+        var spectres = state.Fighters.Values.Where(g => g.Definition.Kind == "Spectre"
+            && (!g.Monster.Dead || double.IsFinite(g.ReviveAt)) && now < state.Until[g.Id]).ToArray();
+        if (spectres.Length == 0) return false;
+        foreach (var spectre in spectres)
+            spectre.Limit = SummonLimit(state.Definitions[spectre.Id], spectre.Own, playerStats);
+        int capacity = spectres.Max(g => g.Limit);
+        if (spectres.Length <= capacity) return false;
+        foreach (var excess in spectres.OrderBy(g => g.SummonedAt).Take(spectres.Length - capacity))
+            RemoveSummonLocked(player, excess, now);
+        return true;
+    }
+
     public static async Task SummonsTick(Player player, double now)
     {
         await HitSummonsTick(player, now);
@@ -421,7 +454,11 @@ public static partial class Game
                 state.HolyBuff = 0; state.HolyRegenerationPerMinute = 0; player.Minions.StatRevision++;
             }
             var playerStats = now >= state.RefreshAt && state.Fighters.Count > 0 ? CharacterPlayerStats(player) : null;
-            if (playerStats is not null) state.RefreshAt = now + .5;
+            if (playerStats is not null)
+            {
+                state.RefreshAt = now + .5;
+                changed |= RefreshSpectreLimitLocked(player, playerStats, now);
+            }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (player.PlayerLife == 0 || now >= state.Until[fighter.Id])
