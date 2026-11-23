@@ -173,7 +173,7 @@ public static partial class Game
     // Each hand's local speed is already in its own duration; both receive only the character's shared speed bucket.
     public static List<(uint, int)> WeaponStats(Player player, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
     {
-        var conversion = DamageStats.Conversion(stats, Stats, attack: true);
+        var conversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), weapon);
         var accuracy = OrdinaryAccuracy(player, stats, weapon.LocalSources);
         var mainHit = AttackHitConverted(weapon, stats, MeleeAttack(player), conversion, accuracy);
         double damageFactor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(stats, attack: true, own: null)
@@ -183,7 +183,8 @@ public static partial class Game
         AddHand(mainHit, "main_hand");
         if (OffhandWeaponFor(player) is { } off)
         {
-            var offHit = AttackHitConverted(off, stats, MeleeAttack(player), conversion, new(WeaponAccuracyFor(player, off, stats)));
+            var offConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), off);
+            var offHit = AttackHitConverted(off, stats, MeleeAttack(player), offConversion, new(WeaponAccuracyFor(player, off, stats)));
             list.AddRange(off.OffStats(stats, offHit));
             AddHand(offHit, "off_hand");
             // The hands alternate: the panel's per-use, per-second and attacks-per-second rows average both, each hand
@@ -331,7 +332,7 @@ public static partial class Game
         bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased = 0)
     {
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), name => RageStat(stats, name));
-        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy), SupportedAttackDamage.HitModifiers(weapon, Get),
+        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), SupportedAttackDamage.HitModifiers(weapon, Get),
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
@@ -1163,13 +1164,20 @@ public static partial class Game
     // weapon is not in the hands (HandType), as the model the client checks does not show it (Looks).
     public static string? WeaponRestricted(Player player, int effect)
     {
-        var allowed = SkillsFor(player).WeaponRestrictions(effect);
+        var skills = SkillsFor(player);
+        var allowed = skills.WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
                 hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(player).Mods));
-        return Fits(ActiveMainHand(player), UnarmedClassRow) || Fits(ActiveOffHand(player), null)
-            ? null : "the equipped weapon cannot use this skill";
+        if (Fits(ActiveMainHand(player), UnarmedClassRow))
+        {
+            // An empty main hand fits Doryani's Touch only if the off hand also holds no weapon.
+            if (!allowed.Contains(UnarmedClassRow) || skills.EffectId(effect) != "DoryanisTouch"
+                || ActiveOffHand(player)?.Type is not { } offType || skills.WeaponBase(offType.Row) is null) return null;
+        }
+        else if (Fits(ActiveOffHand(player), null)) return null;
+        return "the equipped weapon cannot use this skill";
     }
 
     // A worn item whose requirements are not met (CharacterStatSources): its mods and gems do nothing.

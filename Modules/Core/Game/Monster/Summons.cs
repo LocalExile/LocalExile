@@ -50,6 +50,9 @@ public static partial class Game
         var candidates = GemSkillEffects(player).Where(g => SkillsFor(player).EffectId(g.Effect) == effect).ToArray();
         if (host is uint item && socket is int index)
         {
+            if (index < 0)
+                return candidates.FirstOrDefault(g => SupportedSkill(player, g.Id).WornGrant is { } grant
+                    && grant.Host == item && grant.Socket == index).Id;
             var place = ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p => p.ItemId == item && p.Socket == index);
             if (place.Gem is null) return 0;
             object placeId = PlayerInventories.GemIdentity(place.Gem);

@@ -11,7 +11,7 @@ using GameServer.Core.World;
 /// </summary>
 public enum PlayerStatStep : byte
 {
-    Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
+    Sources, Siphoning, SpiritCharges, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
     AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
@@ -99,6 +99,7 @@ public static partial class Game
             siphoning = SiphoningRawStatsLocked(player, stats);
             foreach (var (key, value) in siphoning) AddTo(stats, key, value);
         });
+        Step(PlayerStatStep.SpiritCharges, (player, stats, _) => ApplySpiritChargeStats(player, stats));
         Step(PlayerStatStep.CryMovement, (player, stats, _) =>
         {
             if (Stat.BaseMovementVelocityPlusPct is var cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(player));
@@ -183,8 +184,10 @@ public static partial class Game
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
         {
             int FlaskGet(uint name) => GetIn(stats, name);
-            AddItemUtilityFlaskRawStats(stats, UtilityStats(player, FlaskGet)
-                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
+            var running = UtilityStats(player, FlaskGet)
+                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList();
+            AddItemUtilityFlaskRawStats(stats, running, Stats);
+            ApplyWiseOak(stats, running);
         });
         Step(PlayerStatStep.SelfVulnerability, (player, stats, _) => AddSelfVulnerabilityStats(player, stats));
         Step(PlayerStatStep.Onslaught, (player, stats, _) =>
@@ -204,7 +207,7 @@ public static partial class Game
         Step(PlayerStatStep.UsingFlask, (player, stats, _) => WithUsingFlask(player, stats));
         Step(PlayerStatStep.SoulEater, (player, stats, _) => WithSoulEater(player, stats));
         Step(PlayerStatStep.MaximumPoolItems, (player, stats, _) =>
-            MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana));
+            MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield));
         Step(PlayerStatStep.ActorScale, (player, stats, _) => ActorScale.Project(stats, CosmeticScaleSources(player)));
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below; the
         // unmodified recovery baseline.

@@ -252,7 +252,7 @@ public static class UtilityFlasks
     /// base × (1 + local increased) × (1 + global increased) × (1 + quality) × (1 + local more), quality multiplying the other increases; effect
     /// = 1 + the local and the character's increased effect.</summary>
     public static (IReadOnlyList<Source> Stats, double Seconds) For(Utility u, Item flask,
-        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int playerLevel = 1)
+        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int playerLevel = 1, double finalMultiplier = 1)
     {
         int Get(uint name) => local.GetValueOrDefault(name);
         double durationInc = PanelStats.FlaskDurationIncrease(character, playerLevel);
@@ -261,7 +261,7 @@ public static class UtilityFlasks
             * (100.0 + durationInc) / 100.0 * (100.0 + flask.Quality) / 100.0
             * (100.0 + Get(Stat.LocalFlaskDurationPlusPctFinal)) / 100.0;
         double effect = FlaskEffectScaling.Multiplier(character, playerLevel, Get(Stat.LocalFlaskEffectPlusPct),
-            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0);
+            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0, finalMultiplier);
         bool Applies(uint stat) => SupportOf(stat) != Support.Unsupported;
         List<Source> stats = [.. u.Stats.Where(s => Applies(s.Stat))
             .Select(s => new Source($"buff {u.BuffRow}", s.Stat, s.Stat == Stat.PhaseThroughObjects ? s.Value
@@ -350,6 +350,7 @@ public static class UtilityFlasks
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
         public long Activation { get; set; }
+        public int SelfChaosDamageLifePctPerMinute { get; init; }
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
     }
@@ -369,12 +370,30 @@ public static class UtilityFlasks
     /// a pending End edge from any subsequent accepted use of the same item.</summary>
     public sealed class Effects
     {
+        public sealed class DamageProgress
+        {
+            public double Through = double.NaN;
+            public double Pending, TakenCarry, BypassCarry;
+        }
+
         readonly List<Active> _active = [];
         readonly Lock _lock = new();
         int _ticker, _lastTicket;
         long _activation;
         readonly Dictionary<uint, long> _latest = [];
         double expiryRate = 1;
+        public DamageProgress SelfDamage { get; } = new();
+
+        public bool HasSelfDamage
+        {
+            get { lock (_lock) return _active.Any(a => a.SelfChaosDamageLifePctPerMinute > 0); }
+        }
+
+        public IReadOnlyList<Active> SelfDamageEffects()
+        {
+            lock (_lock) return [.. _active.Where(a => a.SelfChaosDamageLifePctPerMinute > 0)];
+        }
+
         public void SetExpiryRate(double now, double rate)
         {
             lock (_lock)
