@@ -72,7 +72,7 @@ static partial class Game
     static void SiphonLeechLocked(Player player, SpawnedMonster m, double life)
     {
         if (!(life > 0) || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
-        if (m.Mods.Effects[Stat.CannotHaveLifeLeechedFrom] != 0) return;
+        if (m.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0 || m.Mods.Effects[Stat.CannotHaveLifeLeechedFrom] != 0) return;
         var session = LeechOf(player);
         double now = ProjectileWorldTime(player);
         var instant = session.Hit(now, (life, 0, 0), player.PlayerLife >= player.PlayerMaxLife,

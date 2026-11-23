@@ -1059,6 +1059,9 @@ public static partial class Game
                         player.EnergyShield.Current >= player.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(uint name) => RecoveryStat(name);
+                    double mapRecovery = PanelStats.MapRecoveryMultiplier(RecoveryStat);
+                    bool noRegeneration = RecoveryStat(Stat.MapPlayersNoRegenerationIncludingEs) != 0;
+                    life *= mapRecovery;
                     double takenFactor = IncomingStat(Stat.BaseCannotBeDamaged) > 0 ? 0
                         : IncomingResourceDefences.FinalTakenFactor(player.Pools, IncomingStat);
                     double trapTakenFactor = takenFactor
@@ -1076,27 +1079,28 @@ public static partial class Game
                     player.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
-                    player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
+                    player.EnergyShield.Gain(leeched.EnergyShield * mapRecovery + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
                     if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife);
-                    double antiquarianLife = player.Antiquarian.TakeRecovery(now);
+                    double antiquarianLife = player.Antiquarian.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
                     if (convertLifeRegen) player.EnergyShield.Gain(antiquarianLife);
-                    double enduringCryLife = player.EnduringCryRecovery.Take(now);
-                    double unhingedHitLife = player.Unhinged.HitRecovery.Take(now);
+                    double enduringCryLife = player.EnduringCryRecovery.Take(now) * (noRegeneration ? 0 : mapRecovery);
+                    double unhingedHitLife = player.Unhinged.HitRecovery.Take(now) * mapRecovery;
                     if (convertLifeRegen) player.EnergyShield.Gain(enduringCryLife);
-                    double preventedLife = PreventedDamageOf(player).Take(recoveryFrom, now, preventedPerSecond);
+                    double preventedLife = PreventedDamageOf(player).Take(recoveryFrom, now, preventedPerSecond) * mapRecovery;
                     if (convertLifeRegen) player.EnergyShield.Gain(preventedLife);
                     if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife);
-                    double recoupLife = player.LifeRecoup.Take(now);
+                    double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
+                    double leechedLife = leeched.Life * mapRecovery;
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
-                        + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
+                        + leechedLife + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
                     if (!zealotsOath) nonFlaskLife += unhingedHitLife;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
-                    if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    if (vaalPact) { nonFlaskLife = leechedLife; life = 0; }
                     AdvanceTincturesLocked(player, now, seconds, recoveryStats, out double tinctureManaDrain,
                         out double tinctureLifeDrain, ref deactivatedTinctures);
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(player, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);

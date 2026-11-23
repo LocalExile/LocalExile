@@ -77,6 +77,13 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
+            if (MapModsOf(player) is { } map)
+            {
+                AddTo(stats, Stat.MapPlayersNoRegenerationIncludingEs, map.Get(Stat.MapPlayersNoRegenerationIncludingEs));
+                AddTo(stats, Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal,
+                    map.Get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal));
+                AddTo(stats, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal, map.Get(Stat.MapPlayersSkillAreaOfEffectPlusPctFinal));
+            }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);

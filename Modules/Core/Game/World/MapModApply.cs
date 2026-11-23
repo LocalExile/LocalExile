@@ -48,20 +48,25 @@ public static partial class Game
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsFire, Stat.PhysicalDamagePctToAddAsFire);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsCold, Stat.PhysicalDamagePctToAddAsCold);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsLightning, Stat.PhysicalDamagePctToAddAsLightning);
+        Gain(Stat.MapMonstersPctPhysicalDamageToAddAsChaos, Stat.PhysicalDamagePctToAddAsChaos);
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
         if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
         Gain(Stat.MapMonstersAdditionalPhysicalDamageReduction, Stat.BaseAdditionalPhysicalDamageReductionPct);
+        Gain(Stat.MapMonstersBaseBlockPct, Stat.MonsterBaseBlockPct);
         Gain(Stat.MapMonstersAdditionalElementalResistance, Stat.BaseResistAllElementsPct);
         Gain(Stat.MapMonstersAdditionalChaosResistance, Stat.BaseChaosDamageResistancePct);
+        Gain(Stat.MapMonstersSpellSuppressionChancePct, Stat.BaseSpellSuppressionChancePct);
         if (mods.Get(Stat.MapMonstersAreHexproof) != 0)
             extra[Stat.Hexproof] = 1;
         Gain(Stat.MapMonstersCurseEffectOnSelfPlusPctFinal, Stat.MapMonstersCurseEffectOnSelfPlusPctFinal);
         Gain(Stat.MapMonstersChanceToBlindOnHitPct, Stat.GlobalChanceToBlindOnHitPct);
         Gain(Stat.MapMonstersCriticalStrikeChancePlusPct, Stat.CriticalStrikeChancePlusPct);
         Gain(Stat.MapMonstersCriticalStrikeMultiplierPlus, Stat.BaseCriticalStrikeMultiplierPlus);
+        Gain(Stat.MapMonstersBaseSelfCriticalStrikeMultiplierMinusPct, Stat.BaseSelfCriticalStrikeMultiplierMinusPct);
+        Gain(Stat.MapMonstersCannotBeLeechedFrom, Stat.MapMonstersCannotBeLeechedFrom);
         Gain(Stat.MapMonstersPenetrateElementalResistancesPct, Stat.ReduceEnemyElementalResistancePct);
         Gain(Stat.MapMonstersBaseBleedDurationPlusPct, Stat.BaseBleedDurationPlusPct);
         // The extracted map rows use the real monster stats rather than a synthetic "global" flag:
@@ -110,7 +115,9 @@ public static partial class Game
             yield return extraCard;
         double scarab = MapDropFactor(mods, Stat.MapScarabDropChancePlusPctFinalFromUberMod,
             Stat.MapUnscaledScarabDropChancePlusPctFinalFromUberMod, Stat.MapScarabDropChancePlusPctFinalFromFaridunWish);
-        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel, mods) is { } extraScarab)
+        if (scarab > 1 && !ItemDrops.ScarabsDisabled(mods)
+            && MapDropExtra("drop_scarab_chance_pct", (scarab - 1) * ItemDrops.ScarabQuantityFactor(mods), rng)
+            && drops.Scarab(rng, monsterLevel, mods) is { } extraScarab)
             yield return extraScarab;
         double currency = MapDropFactor(mods, Stat.MapCurrencyDropChancePlusPctFinalFromUberMod);
         if (currency > 1)

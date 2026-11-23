@@ -1013,6 +1013,9 @@ public static partial class Game
         var weapons = WeaponProfileFor(player);
         var activeWeapon = WeaponProfileFor(player, activeSet: true);
         var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
+        var map = MapModsOf(player);
+        if (map?.Get(Stat.MapPlayersSpellDamagePctSuppressed) is int prevention and not 0)
+            bonus = bonus with { SpellSuppressionEffect = ActorScale.Saturate((long)bonus.SpellSuppressionEffect + prevention) };
         int EquipmentInput(uint key) => sources.GetValueOrDefault(key);
         var gear = EquippedBaseDefences(player, EquipmentInput);
         var slots = EquippedArmourDefences(player, EquipmentInput).ToArray();
@@ -1229,13 +1232,26 @@ public static partial class Game
         // The source's condition has already been evaluated from the captured blocked history. The Replica's
         // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
-        player.Ward.SetMaximum(player.PlayerLife > 0 ? pools.Ward : 0);
         player.AppliedAdrenaline = player.Antiquarian.Adrenaline(AreaTime(player));
         ConfigureFortificationRecovery(player, pools.Life, sources);
         pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
             pools.Life, pools.Mana, pools.EnergyShieldPct,
             EquipmentInput(Stat.MaximumLifePctToAddAsMaximumEnergyShield),
             EquipmentInput(Stat.ManaPctToAddAsEnergyShield)) };
+        if (map?.Get(Stat.MapPlayerGlobalDefencesPlusPct) is int defences and not 0)
+        {
+            long percent = Math.Max(0, 100L + defences);
+            long Scale(long value) => (value * percent + 50) / 100;
+            pools = pools with
+            {
+                Armour = ActorScale.Saturate(Scale(pools.Armour)),
+                Evasion = ActorScale.Saturate(Scale(pools.Evasion)),
+                EvasionWhileMoving = pools.EvasionWhileMoving is int moving ? ActorScale.Saturate(Scale(moving)) : null,
+                EnergyShield = (uint)Math.Min(uint.MaxValue, Scale(pools.EnergyShield)),
+                Ward = (uint)Math.Min(uint.MaxValue, Scale(pools.Ward)),
+            };
+        }
+        player.Ward.SetMaximum(player.PlayerLife > 0 ? pools.Ward : 0);
         return pools with
         {
             FortificationRevision = FortificationOf(player).Revision,

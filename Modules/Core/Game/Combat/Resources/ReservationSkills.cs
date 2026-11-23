@@ -212,7 +212,7 @@ public static partial class Game
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, skill.Stats);
                 var rolled = targetPacket.Roll(AreaRng(player)).Scale(critical ? multiplier / 100.0 : 1);
                 var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-                int damage = MonsterTakesMitigated(m, mitigated, spell, now);
+                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
                 if (ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }

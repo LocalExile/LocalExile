@@ -572,7 +572,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(more).Roll(AreaRng(player)), now);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now);
+            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
             bool critical = currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
                 placed.Own, attack, criticalRoll, owner);
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, owner, placed.Own) : 100;
