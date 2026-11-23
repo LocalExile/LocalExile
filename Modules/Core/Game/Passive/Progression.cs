@@ -1413,7 +1413,8 @@ public static partial class Game
         // Reservation efficiency: generic efficiency applies to both pools; the mana/life-specific stats only to theirs.
         // Aura effect is the generic non-curse/aura effect; the Reservation mastery's self-aura effect is included.
         int manaReservation = Get(Stat.BaseManaReservationEfficiencyPlusPct) + Get(Stat.BaseReservationEfficiencyPlusPct)
-            + Get(Stat.ManaReservationEfficiencyPlusPct) + Get(Stat.ReservationEfficiencyPlusPct);
+            + Get(Stat.ManaReservationEfficiencyPlusPct) + Get(Stat.ReservationEfficiencyPlusPct)
+            - 2 * Get(Stat.ManaReservationEfficiencyMinus2PctPer1);
         int lifeReservation = Get(Stat.BaseLifeReservationEfficiencyPlusPct) + Get(Stat.BaseReservationEfficiencyPlusPct)
             + Get(Stat.LifeReservationEfficiencyPlusPct) + Get(Stat.ReservationEfficiencyPlusPct);
         // Absolution's increase counts while the player has a linked target, as the client's 0x142829960 adds it.
@@ -1482,7 +1483,8 @@ public static partial class Game
             ColdMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumColdDamageResistancePct),
             LightningMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumLightningDamageResistancePct),
             ChaosMaxResistance: allMax + Get(Stat.BaseMaximumChaosDamageResistancePct),
-            SpellSuppressionChance: Get(Stat.BaseSpellSuppressionChancePct),
+            // The former dodge mods: "150% of value" is the description's multiplier, shown rounded down.
+            SpellSuppressionChance: Get(Stat.BaseSpellSuppressionChancePct) + Get(Stat.BaseSpellSuppressionChance150PctOfValue) * 3 / 2,
             SpellSuppressionEffect: Get(Stat.BaseSpellDamagePctSuppressed),
             SpellSuppressionLucky: Get(Stat.SpellSuppressionChanceIsLucky) != 0,
             SpellSuppressionUnlucky: Get(Stat.Of("spell_suppression_chance_is_unlucky")) != 0,
