@@ -22,6 +22,32 @@ public class IncursionTests
         return Hex(b);
     }
 
+    // An official create or update as the capture holds it, from the object id on (the message id is the build's own).
+    // The object id and the cell differ by nature, so they are replaced by the ones the writer is given; every other byte
+    // is the capture's. A create's cell starts at byte 18 (id 4, order key 4, checkpoint 2, type hash 4, blob length 2,
+    // then the object flag and the base-data byte).
+    static string Rebase(string capture, uint id, (int X, int Y)? cell = null)
+    {
+        byte[] b = Convert.FromHexString(capture);
+        BinaryPrimitives.WriteUInt32BigEndian(b, id);
+        if (cell is { } c)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(18), c.X);
+            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(22), c.Y);
+        }
+        return Hex(b);
+    }
+
+    // The writer's message without its id, as the official server sends it: the world output writes the order key
+    // 0xffffffff and checkpoint 0 over the header (WorldRecords), so the sample's header is compared as sent.
+    static string Sent(byte[] message)
+    {
+        byte[] b = message[2..];
+        BinaryPrimitives.WriteUInt32BigEndian(b.AsSpan(4), uint.MaxValue);
+        BinaryPrimitives.WriteUInt16BigEndian(b.AsSpan(8), 0);
+        return Hex(b);
+    }
+
     [Fact]
     public void Roll_follows_the_map_stats_and_the_creates_and_messages_have_the_captured_layouts()
     {
@@ -49,10 +75,23 @@ public class IncursionTests
         // IncursionPortal1 [capture 57/57], created asleep (flag 0) for the 0x1a9 that wakes it.
         Assert.Equal(Cell(0x00, at) + "0000000000" + "0100710f000000000000004040010800000000" + "0101" + "00",
             Hex(IncursionWire.Portal1Body(at, flag: 0)));
+        // Official 3.29 capture: a whole IncursionPortal1 create, asleep. It pins the type hash and the blob length 41
+        // before the body bytes (the order key is the world output's, set by Sent), and the tail the official server creates the portal with: the two state bytes 1 and 1,
+        // then the empty task list.
+        uint portal = 0x2a;
+        Assert.Equal(Rebase("00000743ffffffff0000f3d2e12400290000da040000da0300000000000000000000000100710f000000000000004040010800000000010100", portal, at),
+            Sent(InstanceEntities.CreateObject(portal, InstanceEntities.ObjectTypeHash(IncursionWire.Portal1Type), IncursionWire.Portal1Body(at, flag: 0))));
         // A cursed treasure [capture 75/75] and a closed door [capture 107/107], rotation 0.
         Assert.Equal(Cell(0x02, at) + "0000000040010101000100" + "0044" + "000000000000000000000000" + "40400100",
             Hex(IncursionWire.TreasureBody(at, 0f)));
         Assert.Equal(Cell(0x02, at) + "000004" + "0011000000ccb60bc340" + "0101" + "0000", Hex(IncursionWire.DoorBody(at, 0f)));
+        // Official 3.29 capture: a whole AlvaCursedTreasure create, awake (flag 2). It pins the 43-byte body, with the f32
+        // rotation at byte 26 (the sample's own, read back here), the chest variant 0x44 and the closing 40 40 01 00.
+        uint chest = 0x2b;
+        string sample = "00000084ffffffff000064ab6c20002b02008302000098090000ab15a2400000000040010101000100004400000000000000000000000040400100";
+        float turned = BinaryPrimitives.ReadSingleLittleEndian(Convert.FromHexString(sample).AsSpan(26));
+        Assert.Equal(Rebase(sample, chest, at),
+            Sent(InstanceEntities.CreateObject(chest, InstanceEntities.ObjectTypeHash(IncursionWire.TreasureType), IncursionWire.TreasureBody(at, turned))));
         // Alva's arrival effect: 4 zero bytes, Animated with the .ao (u32 UTF-16 units, then the path), no tasks.
         byte[] effect = IncursionWire.EffectBody(at, IncursionWire.TeleportAo);
         Assert.Equal(Cell(0x02, at) + "00000000" + "01", Hex(effect[..19]));
@@ -64,6 +103,9 @@ public class IncursionTests
         Assert.Equal("02bc" + "00000007" + "00000000" + "0000" + "0009" + "06" + "0300" + "0100" + "0100" + "0000",
             Hex(IncursionWire.StateMachineUpdate(7, IncursionWire.AlvaStateMachine, [1, 1, 0])));
         Assert.Equal("0300" + "0200" + "0100" + "0000", Hex(IncursionWire.StateMachine([2, 1, 0])));
+        // Official 3.29 capture: Alva's whole StateMachine update after the option. It pins the blob length 9, component 6, and her three states with flag 0 on each.
+        Assert.Equal(Rebase("000007d1ffffffff00000009060300010001000000", 7),
+            Sent(IncursionWire.StateMachineUpdate(7, IncursionWire.AlvaStateMachine, [1, 1, 0])));
         // The timer (kind 2, whole seconds) and the progress bar (f32 big-endian, kind 0) [capture].
         Assert.Equal("01630200000011", Hex(IncursionWire.Timer(17)));
         Assert.Equal("01630200000000", Hex(IncursionWire.Timer(-3)));
