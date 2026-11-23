@@ -43,6 +43,8 @@ public static partial class Game
         {
             [RecentSavageHitItemFlag] = alive && !player.Closed && !player.LeavingArea
                 && player.RecentEvents.Happened(StatConditions.TakenSavageHit, now),
+            [RecentlyDamagedByHitItemFlag] = alive && !player.Closed && !player.LeavingArea
+                && player.RecentEvents.Happened(DamagedByHitEvent, now),
             ["_while_on_full_life"] = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, lowLifeSources),
             ["_while_on_low_life"] = lowLife,
             ["_while_not_low_life"] = alive && !lowLife,
