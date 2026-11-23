@@ -983,7 +983,7 @@ public static partial class Game
         var gem = SupportedSkill(player, skillId);
         long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
         var playerStats = CharacterPlayerStats(player);
-        int Sum(uint key) => playerStats.GetValueOrDefault(key) + gem.Stats.GetValueOrDefault(key);
+        long Sum(uint key) => (long)playerStats.GetValueOrDefault(key) + gem.Stats.GetValueOrDefault(key);
         var placed = PlacedKind(gem);
         if (placed.Trap) extra += Sum(Stat.TrapCriticalStrikeMultiplierPlus);
         if (placed.Mine) extra += Sum(Stat.MineCriticalStrikeMultiplierPlus);

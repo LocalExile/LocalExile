@@ -5,9 +5,9 @@ namespace GameServer.Gateway.Tests;
 public sealed class SkillTypeEffectTests
 {
     [Fact]
-    public void Trap_critical_multiplier_only_applies_to_traps()
+    public void Skill_type_passives_scale_trap_crit_guard_recovery_retaliation_speed_and_heralds()
     {
-        int Profile(string name, bool allocate)
+        int TrapCrit(string name, bool allocate)
         {
             using var f = new TriggeredSummonTests.Fixture();
             var player = f.Player;
@@ -21,9 +21,94 @@ public sealed class SkillTypeEffectTests
             return Game.SupportedCriticalMultiplier(player, skill);
         }
 
-        int trap = Profile("Ice Trap", allocate: false);
-        Assert.Equal(trap + 35, Profile("Ice Trap", allocate: true));
-        Assert.Equal(Profile("Ice Nova", allocate: false), Profile("Ice Nova", allocate: true));
+        int trap = TrapCrit("Ice Trap", allocate: false);
+        Assert.Equal(trap + 35, TrapCrit("Ice Trap", allocate: true));
+        Assert.Equal(TrapCrit("Ice Nova", allocate: false), TrapCrit("Ice Nova", allocate: true));
+
+        // GuardSkillCooldownRecoveryPlusPct syncs StartTriggeredGuard's runtime RecoverySeconds with the skill bar.
+        bool GuardReadyAfter(bool allocate, double offsetAfterBuff)
+        {
+            using var f = new TriggeredSummonTests.Fixture();
+            var player = f.Player;
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (allocate && ReferenceEquals(owner, player))
+                    values[Stat.GuardSkillCooldownRecoveryPlusPct] = 100;
+                return values;
+            });
+            ushort skill = Assert.Single(f.Equip(("Steelskin", 1)));
+            var gem = Game.SupportedSkill(player, skill);
+            double duration = gem.Stats.GetValueOrDefault(Stat.BaseSkillEffectDuration) / 1000d;
+            double baseCooldown = Game.SkillsFor(player).CooldownMs(gem.Effect, gem.Level) / 1000d;
+            double start = 10;
+            Game.StartTriggeredGuard(player, Game.ProjectilesFor(player), skill, start);
+            return Game.TriggerGuardReady(player, start + duration + baseCooldown * offsetAfterBuff);
+        }
+
+        Assert.False(GuardReadyAfter(allocate: false, offsetAfterBuff: 0.6));
+        Assert.True(GuardReadyAfter(allocate: true, offsetAfterBuff: 0.6));
+
+        // RetaliationSkillSpeedPlusPct speeds up both Divine Retribution (spell) and Vengeful Cry (warcry).
+        (int SpellMs, double WarcrySeconds) RetaliationTimings(bool allocate)
+        {
+            using var f = new TriggeredSummonTests.Fixture();
+            var player = f.Player;
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (allocate && ReferenceEquals(owner, player))
+                    values[Stat.RetaliationSkillSpeedPlusPct] = 100;
+                return values;
+            });
+            ushort spellSkill = Assert.Single(f.Equip(("Divine Retribution", 1)));
+            var spellGem = Game.SupportedSkill(player, spellSkill);
+            int spellMs = Assert.NotNull(Game.CastMs(player, spellGem.Effect, spellSkill));
+            ushort crySkill = Assert.Single(f.Equip(("Vengeful Cry", 1)));
+            var cryGem = Game.SupportedSkill(player, crySkill);
+            double crySeconds = Game.WarcryCastSeconds(player, cryGem.Effect, Game.CharacterPlayerStats(player), cryGem.Stats);
+            return (spellMs, crySeconds);
+        }
+
+        var baseRetal = RetaliationTimings(allocate: false);
+        var fastRetal = RetaliationTimings(allocate: true);
+        Assert.True(fastRetal.SpellMs < baseRetal.SpellMs);
+        Assert.True(fastRetal.WarcrySeconds < baseRetal.WarcrySeconds);
+
+        // DamagePlusPctWithHeraldSkills scales Herald of Ice's SecondaryPanel tooltip and Herald of Ash's burn DPS.
+        (int IcePanelMax, double AshBurnDps) HeraldDamage(bool allocate)
+        {
+            using var f = new TriggeredSummonTests.Fixture();
+            var player = f.Player;
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (!ReferenceEquals(owner, player)) return values;
+                values[Stat.BaseStrength] = values[Stat.BaseDexterity] = values[Stat.BaseIntelligence] = 500;
+                if (allocate) values[Stat.DamagePlusPctWithHeraldSkills] = 50;
+                return values;
+            });
+            ushort iceSkill = Assert.Single(f.Equip(("Herald of Ice", 1)));
+            var iceGem = Game.SupportedSkill(player, iceSkill);
+            var playerStats = Game.CharacterPlayerStats(player);
+            var merged = Game.MergeSkillStats(playerStats, iceGem.Stats);
+            var secondaryBase = Game.SkillsFor(player).SecondaryHitDamage(iceGem.Effect, iceGem.Level, iceGem.Quality);
+            var panel = Game.SecondaryPanelRows(player, k => merged.GetValueOrDefault(k), playerStats, iceGem, secondaryBase)
+                .ToDictionary(r => r.Stat, r => r.Value);
+            int iceMax = panel.GetValueOrDefault(Stat.SecondaryMaximumColdDamage);
+
+            ushort ashSkill = Assert.Single(f.Equip(("Herald of Ash", 1)));
+            var ashGem = Game.SupportedSkill(player, ashSkill);
+            var aura = new AuraCatalog.Aura(ashSkill, ashGem.Effect, "HeraldOfAsh", "Herald of Ash",
+                1, 1, 0, 0, Level: ashGem.Level, IsHerald: true);
+            var monster = new SpawnedMonster("burn target", new(102, 100, 0), 0, 0, 1000) { Life = 1000 };
+            player.Area.Monsters[801] = monster;
+            Game.ReservationAshLocked(player, aura, (100, 100), overkill: 1000, now: 1);
+            return (iceMax, monster.HeraldBurns.PerSecond(1));
+        }
+
+        var baseHerald = HeraldDamage(allocate: false);
+        var scaledHerald = HeraldDamage(allocate: true);
+        Assert.True(baseHerald.IcePanelMax > 0 && baseHerald.AshBurnDps > 0);
+        Assert.Equal((int)Math.Floor(baseHerald.IcePanelMax * 1.5), scaledHerald.IcePanelMax);
+        Assert.Equal(baseHerald.AshBurnDps * 1.5, scaledHerald.AshBurnDps, 6);
     }
 
     [Fact]

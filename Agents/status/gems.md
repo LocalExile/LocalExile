@@ -70,7 +70,6 @@ Nothing yet.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   Nightblade grants Elusive on a supported attack's critical strike. Its supported attacks gain base critical chance
   during Elusive, and Nightblade's own Elusive adds a critical multiplier that decays with the buff.
-  The trap, mine and totem supports' own more or less damage scales the supported hit.
   The trap, mine and totem supports' own more or less damage scales the supported hit. Traps and mines take their
   scoped critical multiplier. Herald passives apply to their secondary AoE and damage, and skill timing reads its
   curse, mark, link and retaliation speed bonuses.

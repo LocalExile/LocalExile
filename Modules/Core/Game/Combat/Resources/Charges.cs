@@ -296,7 +296,9 @@ public static partial class Game
     public static double WarcryCastSeconds(Player player, int effect, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int> own)
     {
-        long speed = Stat.WarcrySpeedPlusPct is var key ? (long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
+        long speed = (long)playerStats.GetValueOrDefault(Stat.WarcrySpeedPlusPct) + own.GetValueOrDefault(Stat.WarcrySpeedPlusPct)
+            + (Supports.Of(effect)?.Types.Contains(120) == true
+                ? (long)playerStats.GetValueOrDefault(Stat.RetaliationSkillSpeedPlusPct) + own.GetValueOrDefault(Stat.RetaliationSkillSpeedPlusPct) : 0);
         return Math.Max(TickSeconds, SkillsFor(player).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(player));
     }
 

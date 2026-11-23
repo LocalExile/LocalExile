@@ -115,8 +115,8 @@ public static partial class Game
         // (WithVaalPrevention publishes has_soul_gain_prevention from it). Vaal Immortal Call holds soul gain for
         // its duration (the buff's cannot_gain_souls); its state is a cheap table read, not a stat build.
         bool held = VaalImmortalCallActive(player, now);
-        var stats = player.VaalPreventionUntil > VaalResourceTime(player) ? null : CharacterPlayerStats(player);
-        if (stats is null || stats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0 || held)
+        var stats = held || player.VaalPreventionUntil > VaalResourceTime(player) ? null : CharacterPlayerStats(player);
+        if (stats is null || stats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0)
         {
             Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: " +
                 $"{(held ? "Vaal Immortal Call" : "soul gain prevention")} (t={VaalResourceTime(player):0.000})");
