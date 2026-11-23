@@ -726,6 +726,7 @@ public static partial class Game
         public HitIncreases WeaponTypedIncreases { get; init; }
         public bool Armed { get; init; }
         public bool Claw { get; init; }
+        public double ReleaseAilmentMore { get; init; } = 1;
     }
 
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
@@ -880,6 +881,8 @@ public static partial class Game
                     && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
             WeaponTypedIncreases = attackWeapon is null || secondary ? default : WeaponTypeDamage.Of(attackWeapon, Get),
             Armed = attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon),
+            ReleaseAilmentMore = gem.Stats.ContainsKey(Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed)
+                ? OverheatAilmentMore(player, skillId) : 1,
             Claw = attackWeapon is not null && !secondary
                 && WeaponIdentity.CountsAs(attackWeapon.ItemClass, attackWeapon.LocalSources, "Claw"),
         };

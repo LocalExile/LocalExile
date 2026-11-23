@@ -796,20 +796,7 @@ public static partial class Game
                     Enqueue(() => SendRampageStun(Player, stun));
                 return ProjectileHitResult.Hit;
             }
-            // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
-            // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats) : default;
-            shot = shot.Against(Blinded(Player, contact.Target.Id), target.SpiderWebs.Count(at),
-                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target), target.MaimedUntil > at, conditional);
-            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
-            if (overexertionMore != 1)
-                shot = shot with
-                {
-                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
-                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
-                    Poison = RepeatAilment(shot.Poison, overexertionMore),
-                };
             int hitChance = 100;
             if (!shot.Spell)
             {
@@ -819,6 +806,19 @@ public static partial class Game
                     return ProjectileHitResult.Miss;
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
+            // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
+            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats) : default;
+            shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
+                target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
+                conditional, areaContact: contact.IsArea);
+            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            if (overexertionMore != 1)
+                shot = shot with
+                {
+                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
+                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
+                    Poison = RepeatAilment(shot.Poison, overexertionMore),
+                };
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);

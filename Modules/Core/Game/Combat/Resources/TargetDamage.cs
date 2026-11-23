@@ -14,6 +14,21 @@ public static partial class Game
         || get(DamageVsLowLifePerFrenzy) != 0
         || get(Stat.TinctureApplied) != 0 && get(TinctureDamageVsLowLife) != 0;
 
+    internal static bool ProjectileTargetChangesDamage(SpiderDamageSource source, bool blinded, int webs, bool ignited,
+        bool bleeding, bool lowLife, bool maimed, TargetContact contact)
+    {
+        if (contact != default) return true;
+        int Get(uint key) => source.Stats.GetValueOrDefault(key);
+        bool attack = source.Attack && !source.Secondary;
+        return blinded && Get(PlayerHitDamage.VsBlindedDamageStat) != 0
+            || webs > 0 && HasSpiderDamage(Get)
+            || ignited && Get(PhysicalVsIgnited) != 0
+            || bleeding && Get(FireVsBleeding) != 0
+            || lowLife && (HasLowLifeDamage(Get) || Get(DamageVsLowLifePerFrenzy) != 0
+                || attack && Get(Stat.TinctureApplied) != 0 && Get(TinctureDamageVsLowLife) != 0)
+            || maimed && attack && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) != 0;
+    }
+
     static bool HasLowLifeDamage(Func<uint, int> get) => get(Stat.DamageVsEnemiesOnLowLifePlusPct) != 0
         || get(Stat.DamageVsEnemiesOnLowLifePlusPctFinal) != 0
         || get(Stat.ClawDamageAgainstEnemiesOnLowLifePlusPct) != 0
