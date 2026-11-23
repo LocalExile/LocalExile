@@ -270,6 +270,7 @@ public static partial class Game
                 Stacks: (ushort)charges));
             state.InspirationRefresh = false;
         }
+        PresentIntensity(player, now);
         return packets;
     }
 
