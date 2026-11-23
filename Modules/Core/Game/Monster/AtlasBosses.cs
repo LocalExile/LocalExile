@@ -325,6 +325,59 @@ static class AtlasBosses
 
     static readonly Store<InstanceState, Dictionary<uint, AtlasBossFight>> Fights = new();
 
+    /// <summary>The GrantedEffects Id of an effect row, e.g. 10459 -> "EDSSanctumLycia2DelayedBlast": the name the
+    /// actor's own skill list carries. Null when the table is missing or the row has no Id.</summary>
+    internal static string? EffectName(int effect)
+    {
+        lock (EffectNames)
+            if (EffectNames.TryGetValue(effect, out string? known)) return known;
+        var table = GameServer.Core.ClientTables.TableOrNull("GrantedEffects");
+        if (table is null) return null;   // not loaded yet: no cache, so the next call can still find it
+        string? name = table.Row(effect)?.TextOrNull("Id");
+        lock (EffectNames) EffectNames[effect] = name;
+        return name;
+    }
+
+    static readonly Dictionary<int, string?> EffectNames = [];
+
+    /// <summary>The spawned monster's own actor skills, named as the client names them (its <see cref="SpawnedMonster.SkillIds"/>).
+    /// Empty for a monster the spawn gave none.</summary>
+    internal static IReadOnlyList<string> ActorSkillNames(Player player, uint id) =>
+        player.Area.Monsters.TryGetValue(id, out var monster)
+            ? [.. monster.SkillIds.Select(s => EffectName(s.Effect)).OfType<string>()]
+            : [];
+
+    /// <summary>The effect a skill name selects out of the monster's own actor: its GrantedEffects Id
+    /// ("EDSSanctumLycia2DelayedBlast") or its row (10459). -1 for anything this actor does not carry.</summary>
+    internal static int EffectByName(SpawnedMonster monster, string action)
+    {
+        foreach (var (effect, _) in monster.SkillIds)
+            if (string.Equals(EffectName(effect), action, StringComparison.OrdinalIgnoreCase)) return effect;
+        if (int.TryParse(action, out int row) && monster.SkillIds.Any(s => s.Effect == row)) return row;
+        return -1;
+    }
+
+    /// <summary>Plays one of a monster's own actor skills by the GrantedEffects Id the client shows: the clip only,
+    /// because no controller owns the skill, so the server owes no hit. False when the monster has no such skill on its
+    /// actor, or the action could not be sent.</summary>
+    internal static async Task<bool> ActorAction(Player player, uint id, string action)
+    {
+        if (!player.Area.Monsters.TryGetValue(id, out var monster)) return false;
+        int effect = EffectByName(monster, action);
+        if (effect < 0) return false;
+        ushort skillId = 0;
+        foreach (var (e, s) in monster.SkillIds)
+            if (e == effect) { skillId = s; break; }
+        if (skillId == 0) return false;
+        var attack = new MonsterAttack(skillId, 1, Math.Max(20, monster.Attack?.Range ?? 20), DamagePacket.Empty)
+            { Spell = true, Scripted = true, NoContact = true };
+        int generation = Interlocked.Increment(ref monster.ActionGeneration);
+        bool played = await MonsterSwingCore(player, id, monster, generation, attack);
+        if (played)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{id:x} ({monster.Label}) plays {action} (skill 0x{skillId:x4})");
+        return played;
+    }
+
     /// <summary>Stops every fight of an instance (it is unloaded): the phase gates unlock and the boss's own walk speed
     /// returns.</summary>
     internal static IDisposable CleanupOnUnload() => new Cleanup();
