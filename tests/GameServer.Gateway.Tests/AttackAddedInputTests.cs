@@ -76,8 +76,11 @@ public sealed class AttackAddedInputTests : IDisposable
     {
         var catalogue = new UniqueCatalog(Program.Items);
         var definition = Assert.IsType<UniqueCatalog.Definition>(catalogue.Find("Eclipse Solaris"));
-        return Assert.IsType<Item>(catalogue.Create(definition with
+        var item = Assert.IsType<Item>(catalogue.Create(definition with
         { Ranges = [new("LightRadiusUnique__1", 0, 20, 20)] }, new Random(17)));
+        // Faun's Horn's own "Adds # to # Fire Damage to Spells and Attacks" stays out: these checks measure the
+        // light-radius fire alone.
+        return item with { Mods = [.. item.Mods.Where(m => m.Section != ModSection.Implicit)] };
     }
 
     [Fact]
