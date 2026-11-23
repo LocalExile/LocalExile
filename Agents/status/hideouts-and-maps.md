@@ -54,7 +54,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   drop factors and the scarab-type weights (ScarabTypes: the Carapaces' `MoreLikely`, `DisableDrops`) act ([maps](../docs/game/maps.md); offline only).
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
-  maps use their tier as the area level (tier + 67). Layouts marked for a specific item require the named map.
+  maps use their tier as the area level (tier + 67). Layouts marked for a specific item require their designated map key or named map, and special map keys are refused on ordinary layouts.
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
   presets, before 0x21, so login does not announce every saved map. A completion re-sends that 0x1a3 right after the

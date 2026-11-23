@@ -1,9 +1,6 @@
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
-using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 
 /// <summary>The native sulphite resource curve and the map-owner scarab modifier, separate from player item quantity.</summary>
@@ -13,6 +10,7 @@ public static class MapSulphite
     public static void LoadMapSulphiteData()
     {
         Resources = LoadResources();
+        _areas = LoadAreas();
     }
 
     public const string Vein = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralVein";
@@ -29,35 +27,77 @@ public static class MapSulphite
         return ClientTables.Table("DelveResourcePerLevel").ToDictionary(r => r.Int("AreaLevel"), r => r.Int("Sulphite"));
     }
 
-    const int DelveLeagueRow = 13, DelveChanceOffset = 144;
+    const int DelveLeagueRow = 13;
     sealed record Placement(bool Present);
+    static readonly Placement PresentTrue = new(true), PresentFalse = new(false);
     static readonly ConditionalWeakTable<InstanceState, Placement> Placements = new();
-    static readonly ConcurrentDictionary<(string Area, int Level), AreaInfo?> Areas = new();
+    sealed record AreaFlags(bool IsMapArea, bool RandomnessDisabled, bool HasLeagueChance, bool HasHardModeLeagueChance);
+    static Dictionary<string, AreaFlags>? _areas;
 
-    public static bool Present(MapMods mods) => mods.Get(Stat.MapDelveLeague) > 0;
+    static Dictionary<string, AreaFlags> LoadAreas()
+    {
+        var areas = new Dictionary<string, AreaFlags>(StringComparer.Ordinal);
+        if (!ClientTables.Has("WorldAreas")) return areas;
+        foreach (var row in ClientTables.Table("WorldAreas"))
+        {
+            if (row.Text("Id") is not { Length: > 0 } id) continue;
+            areas.TryAdd(id, new(
+                row.Bool("IsMapArea"),
+                row.Bool("IsHideout") || row.Bool("IsTown"),
+                row.IntOrNull("LeagueChance1") is >= 0,
+                row.IntOrNull("LeagueChance2") is >= 0));
+        }
+        return areas;
+    }
+
+    static bool Excluded(MapMods mods) =>
+        (mods.Get(Stat.MapDisableLeagues) & (1 << DelveLeagueRow)) != 0
+        || mods.Get(Stat.MapDisableMissions) != 0
+        || mods.Get(Stat.AtlasKeystoneNoExtraContent) != 0
+        || mods.Get(Stat.MapNukeEverything) != 0
+        || mods.Get(Stat.MapAreaUnderlevelled) != 0;
+
+    public static bool Present(MapMods mods) => !Excluded(mods) && mods.Get(Stat.MapDelveLeague) > 0;
 
     public static bool Present(Player player, MapDevice.MapArea map, MapMods mods)
     {
-        if (Present(mods)) return true;
-        if (player.Instance?.KeptAreaStats is null) return false;
-        return Placements.GetValue(player.Instance, _ =>
+        if (player.Instance is { } cachedInstance && Placements.TryGetValue(cachedInstance, out var cached))
+            return cached.Present;
+        if (Excluded(mods))
         {
-            var area = Areas.GetOrAdd((map.Id, map.Level), static key =>
-            {
-                try { return AreaInfo.Load(GamePack.Default.TryRead, key.Area, key.Level); }
-                catch (Exception error) when (error is ArgumentException or FileNotFoundException) { return null; }
-            });
-            if (area is not { IsMapArea: true, RandomnessDisabled: false, LeagueChance: { } nativeChance }
-                || (mods.Get(Stat.MapDisableLeagues) & (1 << DelveLeagueRow)) != 0
-                || mods.Get(Stat.MapDisableMissions) != 0 || mods.Get(Stat.AtlasKeystoneNoExtraContent) != 0
-                || mods.Get(Stat.MapNukeEverything) != 0 || mods.Get(Stat.MapAreaUnderlevelled) != 0)
-                return new(false);
-            long chance = nativeChance(DelveChanceOffset) * (100L + mods.Get(Stat.MapLeagueBaseChancePlusPctFinal)) / 100
-                + mods.Get(Stat.MapLeagueContentAdditionalChancePct) + mods.Get(Stat.MapMasterMissionNikoPctChance);
-            chance = chance * (100L + mods.Get(Stat.MapMasterMissionNikoChancePlusPct)) / 100;
-            // Sulphite is placed after terrain generation, using its own roll for the map's seed.
-            return new(chance >= 100 || chance > 0 && new LevelRandom(player.Seed, false).Next(100u) < chance);
-        }).Present;
+            if (player.Instance is { KeptAreaStats: not null } excludedInstance)
+                Placements.AddOrUpdate(excludedInstance, PresentFalse);
+            return false;
+        }
+        if (Present(mods))
+        {
+            if (player.Instance is { KeptAreaStats: not null } forcedInstance)
+                Placements.AddOrUpdate(forcedInstance, PresentTrue);
+            return true;
+        }
+        if (player.Instance is not { KeptAreaStats: not null } instance) return false;
+        bool present = RollNatural(player, map, mods);
+        Placements.AddOrUpdate(instance, present ? PresentTrue : PresentFalse);
+        return present;
+    }
+
+    static bool RollNatural(Player player, MapDevice.MapArea map, MapMods mods)
+    {
+        var areas = _areas ??= LoadAreas();
+        if (!areas.TryGetValue(map.Id, out var area) || !area.IsMapArea || area.RandomnessDisabled)
+            return false;
+        bool hardMode = Program.LeagueFor(player).HardMode;
+        if (!(hardMode ? area.HasHardModeLeagueChance : area.HasLeagueChance))
+            return false;
+        int baseChance = mods.Get(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0
+            ? 0
+            : LeagueChances.Current.ChanceOf(map.Id, DelveLeagueRow, alternate: hardMode).Chance;
+        long chance = baseChance * Math.Max(0L, 100L + mods.Get(Stat.MapLeagueBaseChancePlusPctFinal)) / 100
+            + mods.Get(Stat.MapLeagueContentAdditionalChancePct)
+            + mods.Get(Stat.MapMasterMissionNikoPctChance);
+        chance = Math.Max(0L, chance) * Math.Max(0L, 100L + mods.Get(Stat.MapMasterMissionNikoChancePlusPct)) / 100;
+        // Sulphite is placed after terrain generation, using its own roll for the map's seed.
+        return chance >= 100 || (chance > 0 && new LevelRandom(player.Seed, false).Next(100u) < (uint)chance);
     }
 
     public static bool Fumes(MapMods mods) => mods.Get(Stat.MapEnragingSulphite) > 0;
