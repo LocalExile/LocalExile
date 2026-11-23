@@ -220,6 +220,72 @@ public sealed class BossKitsTests
         });
     }
 
+    [Fact]
+    public void Boss_moves_unshaped_filters_summons_and_form_cleanup_hold()
+    {
+        InGame(conn =>
+        {
+            var catalog = Game.SkillsFor(conn);
+            // Cyclones, projectile-moves, mines and triggered effects are never misclassified as moves or teleports.
+            Assert.True(BossMoves.IsTeleport(catalog, 4007)); // MerveilTeleport
+            foreach (int excluded in new[] { 2530, 6052, 6566, 2803, 71 }) // Cyclone, HydraTeleportShot, AvariusCharge, SmokeMine, IceNovaTriggered
+            {
+                Assert.False(BossMoves.IsMove(catalog, excluded));
+                Assert.False(BossMoves.IsTeleport(catalog, excluded));
+            }
+            // Kit bosses still pass unshaped safety filters (DeathNova / Triggered excluded) while keeping Merveil's own skills.
+            var twisted = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Seawitch/BossMerveil2"));
+            Assert.False(BossKits.KeepsUnshaped(catalog, twisted, 1618)); // SpikerBossIceSpearDeathNova
+            Assert.False(BossKits.KeepsUnshaped(catalog, twisted, 71));   // IceNovaTriggered
+            Assert.True(BossKits.KeepsUnshaped(catalog, twisted, 3250));  // MerveilSeaWitchScreech
+            Assert.True(BossKits.KeepsUnshaped(catalog, twisted, 3777));  // MerveilGeyser
+            Assert.True(BossKits.KeepsUnshaped(catalog, twisted, 6995));  // SeawitchWaveGeometrySpellMerveil
+            var twistedKit = BossKits.Kit(conn, twisted, 13, Game.MavenNucleus.CombatEffect(catalog, twisted), unique: true);
+            Assert.Contains(twistedKit, k => k.Effect == 3777 && k.Attack.Strike is not null);
+            Assert.Contains(twistedKit, k => k.Effect == 3250);
+            Assert.Contains(twistedKit, k => k.IsTeleport && k.Effect == 4007);
+            // Geyser impact art ends with the final pulse instead of hanging past stay.
+            var geyser = Assert.NotNull(BossMoves.StrikeOf(catalog, 3777, 13));
+            Assert.InRange(geyser.Strike.ImpactSeconds, 0.1, 9.01);
+
+            // Teleport opener respects MinRange and Range before being consumed.
+            var form = new SpawnedMonster("Merveil", new(0, 0, 1), 60, 2, maxLife: 100) { Kit = twistedKit, Attack = twistedKit[0].Attack, Variety = twisted };
+            BossKits.OpenWithTeleport(form);
+            var teleport = Assert.Single(twistedKit, k => k.IsTeleport);
+            Assert.NotEqual(teleport.Attack.SkillId, BossKits.Choose(form, 1, 5)!.SkillId);
+            Assert.NotEqual(teleport.Attack.SkillId, BossKits.Choose(form, 1, 100)!.SkillId);
+            Assert.Equal(teleport.Attack.SkillId, BossKits.Choose(form, 1, 30)!.SkillId);
+
+            // Guessed boss summons resolve to safe adds with world-unit offset and DiesWithParent, excluding chieftains.
+            var piety = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/PietyBoss"));
+            var blood = BossSummons.For(catalog, piety, 2507);
+            Assert.NotNull(blood);
+            Assert.Equal("Metadata/Monsters/BloodElemental/BloodElemental", Game.Monsters.Find(blood.Variety.ToString())?.Id);
+            Assert.Equal(65, blood.Offset);
+            Assert.True(blood.DiesWithParent);
+            var daresso = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Daresso/DaressoBoss"));
+            var clone = BossSummons.For(catalog, daresso, 4614);
+            Assert.NotNull(clone);
+            Assert.Equal("Metadata/Monsters/Daresso/DaressoClone", Game.Monsters.Find(clone.Variety.ToString())?.Id);
+            Assert.True(clone.DiesWithParent);
+            var chief = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/BloodChieftain/MonkeyChiefBloodBossPale"));
+            var monkey = BossSummons.For(catalog, chief, 883);
+            Assert.NotNull(monkey);
+            Assert.DoesNotContain("Chief", Game.Monsters.Find(monkey.Variety.ToString())?.Id ?? "");
+
+            // Second-form cleanup always clears EntranceGrace and removes Form 1 even if the killer leaves mid-transform.
+            var before = new SpawnedMonster("Merveil", new(10, 10, 1), 60, 2, maxLife: 100) { Dead = true, Life = 0 };
+            form.EntranceGrace = true;
+            conn.Area.Monsters[0x9001] = before;
+            conn.Area.Monsters[0x9002] = form;
+            conn.LeavingArea = true;
+            BossForms.Finish(conn, 0x9001, before, 0x9002, form).GetAwaiter().GetResult();
+            Assert.False(form.EntranceGrace);
+            Assert.True(before.CorpseConsumed);
+            Assert.DoesNotContain(0x9001u, conn.Area.Monsters.Keys);
+        });
+    }
+
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
     static void InGame(Action<Player> body)
     {

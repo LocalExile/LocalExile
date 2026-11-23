@@ -2093,9 +2093,7 @@ public static partial class Game
             if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
             return walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, playerAt.X, playerAt.Y, a.SkillId, seq, 0, player.Id)
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, playerAt.X, playerAt.Y, a.SkillId, seq, player.MonsterOrderFlags, targetObjectId: player.Id);
-        // A kit monster's (a boss's) actions are always logged with their skill: which of its list it used is what a
-        // report of a fight is checked against.
-        }, ServerTrace.Combat || ServerTrace.Ai || m.Kit.Count > 0
+        }, ServerTrace.Combat || ServerTrace.Ai
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
@@ -2142,6 +2140,10 @@ public static partial class Game
             // clock does not select this unused fallback or load the legacy contact corpus at its first swing.
             double contact = a.Release?.Fraction ?? stanceContact ?? (walkUp && m.Variety is { } variety
                 ? SkillsFor(player).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
+            if (a.Projectile is not null && a.Effect is int barrageEffect
+                && BossMoves.BarrageOf(SkillsFor(player), barrageEffect) is { } pendingBarrage)
+                m.BusyUntil = Math.Max(m.BusyUntil,
+                    startedAt + seconds * contact + (pendingBarrage.Count - 1) * pendingBarrage.Seconds + player.LockstepActionTail);
             if (player.Connection.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
             {
                 // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
@@ -2168,7 +2170,7 @@ public static partial class Game
             // the rest around it, and each strikes again while its art stands.
             if (a.Effect is int strikeEffect && BossMoves.StrikeOf(SkillsFor(player), strikeEffect, m.Level) is { } many)
             {
-                List<(int X, int Y)> spots = [areaAim, .. BossMoves.StrikeSpots(areaAim, many.Count - 1, many.Spread, AreaRng(player), player.Layout)];
+                List<(int X, int Y)> spots = [areaAim, .. BossMoves.StrikeSpots(areaAim, many.Count - 1, many.Spread, AreaRng(player), player.Layout, player.Barrier)];
                 foreach (var spot in spots)
                 {
                     await PlaceMonsterMarker(player, id, m, a, strike, spot);
@@ -2188,9 +2190,13 @@ public static partial class Game
             // A barrage (BossMoves.Barrages: Merveil's Ice Spears): the rest follow from the same cast, each at where
             // the player then stands, while the action is still the monster's.
             if (a.Effect is int shotEffect && BossMoves.BarrageOf(SkillsFor(player), shotEffect) is { } barrage)
+            {
+                double releaseNow = AreaTime(player);
+                m.BusyUntil = Math.Max(m.BusyUntil, releaseNow + (barrage.Count - 1) * barrage.Seconds + player.LockstepActionTail);
                 for (int i = 1; i < barrage.Count; i++)
-                    LaunchMonsterProjectile(player, id, m, a, projectile, action, null, AreaTime(player) + i * barrage.Seconds,
-                        (ushort)(seq + i));
+                    LaunchMonsterProjectile(player, id, m, a, projectile, action, null, releaseNow + i * barrage.Seconds,
+                        sequence: seq, turn: true);
+            }
             return false;
         }
         if (a.AreaRadius > 0 && !area)

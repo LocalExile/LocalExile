@@ -18,7 +18,8 @@ public static partial class BossSummons
     /// <summary>The summon for a boss's skill whose tables name no monster, or null for a skill that summons nothing
     /// (or nothing the server can create).</summary>
     public static SkillCatalog.MonsterSummonInfo? For(SkillCatalog catalog, MonsterCatalog.Variety boss, int effect) =>
-        Cache.GetOrAdd((boss.Row, effect), _ => Resolve(catalog, boss, effect));
+        Cache.GetOrAdd((boss.Row, effect), _ => Resolve(catalog, boss, effect)) is { } info
+            ? info with { Count = Count } : null;
 
     static readonly string[] Skipped = ["EmptyAction", "Portal", "Cage", "Double", "Fragment", "Lieutenant"];
 
@@ -32,11 +33,13 @@ public static partial class BossSummons
         // Not a step of an encounter or a skill that drives another object (a portal, a cage, a double of the player).
         if (Skipped.Any(w => id.Contains(w, StringComparison.Ordinal))) return null;
         string? monster = Guess(boss, id);
-        int count = Count;
         if (monster is null || Game.Monsters.Find(monster) is not { Supported: true } variety || variety.Row == boss.Row) return null;
         double cast = catalog.CastTimeMs(effect) / 1000d;
         double cooldown = catalog.CooldownMs(effect, 1) / 1000d;
-        return new(variety.Row, count, 6, NoRewards: true, cast > 0 ? cast : 1, cooldown > 0 ? cooldown : 14);
+        return new(variety.Row, Count, 65, NoRewards: true, cast > 0 ? cast : 1, cooldown > 0 ? cooldown : 14)
+        {
+            DiesWithParent = true,
+        };
     }
 
     [GeneratedRegex("Summon|Revive|Raise|SpawnMinion|CallMinion", RegexOptions.CultureInvariant)]
@@ -64,6 +67,9 @@ public static partial class BossSummons
         bool Candidate(MonsterCatalog.Variety v) => v.Row != boss.Row && !v.BossHealthBar && v.MovementSpeed > 0 && v.Supported
             && !v.Id.Contains("Boss", StringComparison.Ordinal) && !v.Id.Contains("Standalone", StringComparison.Ordinal)
             && !v.Id.Contains("Daemon", StringComparison.Ordinal) && !v.Id.Contains("Invisible", StringComparison.Ordinal)
+            && !v.Id.Contains("Raise", StringComparison.Ordinal) && !v.Id.Contains("Summon", StringComparison.Ordinal)
+            && !v.Id.Contains("Chief", StringComparison.Ordinal)
+            && (!v.Id.Contains("Clone", StringComparison.Ordinal) || skill.Contains("Clone", StringComparison.Ordinal))
             && !v.Name.Contains("DNT", StringComparison.Ordinal) && !v.Name.Contains("Daemon", StringComparison.Ordinal)
             && v.Name != "Invisible" && (v.Name != boss.Name || v.Id.Contains("Clone", StringComparison.Ordinal))
             // A named monster ("Kalria, The Risen", Soulmourn) is an encounter of its own, not a summon.

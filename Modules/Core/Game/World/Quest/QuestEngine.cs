@@ -319,9 +319,17 @@ public static partial class Game
             // The new form cannot be hurt while it takes shape, opens with its teleport when it has one, and the body
             // of the form before it leaves when the change is done instead of lying under it (BossForms).
             uint before = player.Area.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key;
+            SpawnedMonster? formedRef = null;
             uint formed = await SpawnMonster(player, form, m.Level, MonsterRarity.Unique, at.X, at.Y,
-                owned: (_, spawned) => { spawned.EntranceGrace = true; BossKits.OpenWithTeleport(spawned); });
-            _ = BossForms.Finish(player, before, m, formed);
+                owned: (_, spawned) =>
+                {
+                    formedRef = spawned;
+                    spawned.EntranceGrace = true;
+                    spawned.BusyUntil = AreaTime(player) + BossForms.TransformSeconds;
+                    BossKits.OpenWithTeleport(spawned);
+                });
+            if (formed != 0 && formedRef is not null)
+                _ = BossForms.Finish(player, before, m, formed, formedRef);
         }
         // A room NPC this death frees (Quests.NpcRule.FreedBy): its last Transitionable state (UpdateQuestNpcs, QuestNpcs.cs).
         bool frees;

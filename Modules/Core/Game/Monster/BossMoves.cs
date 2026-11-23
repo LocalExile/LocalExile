@@ -17,6 +17,7 @@ public static partial class BossMoves
         "TeleportPlayer", "ToCentre", "NoTeleport", "TeleportTower", "StartFight", "PortalIn", "Hide", "Detonation",
         "MirrorArrow", "Burrow", "TeleportMarker", "DeathTeleport",
         "Daemon", "MemoryGame", "Bond", "Mark", "Souls", "EmptyAction", "Emerge", "Retreat",
+        "Cyclone", "Impact", "Trigger", "Flee", "InAoE", "OutAoE",
     ];
 
     static readonly ConcurrentDictionary<int, (bool Move, bool Teleport)> Kinds = new();
@@ -24,12 +25,14 @@ public static partial class BossMoves
     static (bool Move, bool Teleport) KindOf(SkillCatalog catalog, int effect) => Kinds.GetOrAdd(effect, e =>
     {
         string id = catalog.EffectId(e) ?? "";
-        if (id.Length == 0 || Scripted.Any(w => id.Contains(w, StringComparison.Ordinal))) return (false, false);
-        // A move the monster makes itself: not a hold (Cyclone), a clone (Blink Arrow) or a skill set off for it.
-        if (catalog.IsChannelled(e) || catalog.HasType(e, "Minion") || catalog.CastsOnDeath(e) || catalog.IsAura(e)) return (false, false);
+        if (id.Length == 0 || id.EndsWith("GA", StringComparison.Ordinal) || id.EndsWith("EG", StringComparison.Ordinal)
+            || Scripted.Any(w => id.Contains(w, StringComparison.Ordinal))) return (false, false);
+        // A move the monster makes itself: not a hold (Cyclone), a clone (Blink Arrow), a mine, or a skill set off for it.
+        if (catalog.IsChannelled(e) || catalog.HasType(e, "Minion") || catalog.CastsOnDeath(e) || catalog.IsAura(e)
+            || catalog.HasType(e, "Triggered") || catalog.HasType(e, "RemoteMined")) return (false, false);
         bool projectile = catalog.IsProjectile(e) || id.Contains("Projectile", StringComparison.Ordinal) || id.Contains("Shot", StringComparison.Ordinal);
         if ((id.Contains("Teleport", StringComparison.Ordinal) || id.EndsWith("Blink", StringComparison.Ordinal)) && !projectile) return (true, true);
-        return (catalog.IsMovement(e), false);
+        return (!projectile && catalog.IsMovement(e), false);
     });
 
     /// <summary>Skills that fire several projectiles one after another from one cast, and how far apart (seconds). The
@@ -73,12 +76,14 @@ public static partial class BossMoves
         int count = row.CountStat != 0 && stats.GetValueOrDefault(row.CountStat) is > 0 and var named ? Math.Min(named, 30) : Math.Max(1, row.Count);
         double stay = stats.GetValueOrDefault(Stat.BaseSkillEffectDuration) is > 0 and var ms ? ms / 1000d : row.StaySeconds;
         int pulses = row.Pulse > 0 ? (int)Math.Floor(Math.Max(0, stay - row.Seconds) / row.Pulse) : 0;
-        return (new(row.Seconds, row.Art, row.Art, stay, false), row.Radius, count, row.Spread, pulses, row.Pulse, row.Cooldown);
+        double impactSeconds = Math.Max(0.1, stay - row.Seconds);
+        return (new(row.Seconds, row.Art, row.Art, impactSeconds, false), row.Radius, count, row.Spread, pulses, row.Pulse, row.Cooldown);
     }
 
     /// <summary>Where the other hazards of one use come up: scattered within <paramref name="spread"/> cells of the
-    /// first, on walkable ground.</summary>
-    public static List<(int X, int Y)> StrikeSpots((int X, int Y) at, int count, double spread, Random random, AreaLayout layout)
+    /// first, on walkable ground outside barriers.</summary>
+    public static List<(int X, int Y)> StrikeSpots((int X, int Y) at, int count, double spread, Random random,
+        AreaLayout layout, IReadOnlySet<(int X, int Y)>? barrier = null)
     {
         List<(int X, int Y)> spots = [];
         for (int tries = 0; spots.Count < count && tries < count * 6; tries++)
@@ -86,7 +91,7 @@ public static partial class BossMoves
             // Evenly over the disc, not bunched at its centre.
             double turn = random.NextDouble() * Math.Tau, far = Math.Max(6, spread * Math.Sqrt(random.NextDouble()));
             var spot = (at.X + (int)Math.Round(Math.Cos(turn) * far), at.Y + (int)Math.Round(Math.Sin(turn) * far));
-            if (layout.WalkableFor(spot.Item1, spot.Item2, 0)) spots.Add(spot);
+            if (layout.WalkableFor(spot.Item1, spot.Item2, 0) && (barrier is null || !barrier.Contains(spot))) spots.Add(spot);
         }
         return spots;
     }

@@ -225,19 +225,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
-  bosses' official AI weights compare, are unverified. A boss's own teleport and a monster-only movement skill are
-  played as a travel (`BossMoves`; a teleport waits 8 s, a move 6 s when the tables give no cooldown); a summon the
-  tables name no monster for brings one of the boss's family the skill names (`BossSummons`: Piety's blood elementals,
-  Daresso's clones); a summon on cooldown or at the cap is passed over instead of stalling the boss; after a special a
-  skill without a cooldown goes next; a boss whose spells reach its whole aggro range walks up for its melee swing once
-  it has waited 10 s (Merveil, the Siren); a unique's own monster skill the unique shaping has no form for stays a
-  plain action (`BossKits.KeepsUnshaped`: not a set-off piece, not a Rogue Exile's player skill); Merveil's Ice Spear is a barrage of four from one cast, each aimed afresh with the boss turned to it, and her
-  geysers come up under and around the player, stay for the skill's duration and strike each second (`BossMoves.Barrages`,
-  `BossMoves.Strikes`: counts, spacing, radius and spread are ours; the spouts were seen in the client 2026-11-23); a second
-  form (Merveil, Dominus, Innocence) cannot be hurt for the 2 s it takes shape, opens with its teleport, and the form
-  before it is removed then (`BossForms`). Merveil's fight was played in the client 2026-11-23; the rest is checked
-  offline only.
-  Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
+  bosses' official AI weights compare, are unverified.
+  Boss kits also cover teleports, movement moves, family summons, barrages, geyser hazards and second-form transitions.
+  Code: `BossKits`, `BossMoves`, `BossSummons`, `BossForms`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
   room entrance pads and return pairs; Doedre's soul starts visible on creation and instance restore.
   Exact official AI weights remain unverified.

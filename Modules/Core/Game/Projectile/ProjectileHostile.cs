@@ -24,7 +24,8 @@ public static partial class Game
     /// carries none, and the server's object is the projectile the player sees.</summary>
     public static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null,
-        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence, (int X, int Y)? releasedFrom = null)
+        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence, (int X, int Y)? releasedFrom = null,
+        bool turn = false)
     {
         var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -32,10 +33,10 @@ public static partial class Game
         var from = ProjectileSession.Vector(releasedFrom ?? m.Walk.Position(now));
         var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(player, targetId) is { } golem
             ? golem.Monster.Walk.Position(now) : player.Walk.Position(now)));
-        // A shot aimed at where its target stands now, not where the action was ordered (a barrage's later shots), turns
-        // the monster to it: the action's own facing is the ordered aim's.
-        if (TurnToShot && orderedAim is null && releasedFrom is null && (aim - from).Length >= 1)
-            _ = SendWorldRecord(player, id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id, MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
+        // A barrage follow-up aimed at where its target stands now turns the monster to it through the session outbox.
+        if (TurnToShot && turn && orderedAim is null && releasedFrom is null && (aim - from).Length >= 1)
+            session.World(id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id,
+                MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);
@@ -174,13 +175,14 @@ public static partial class Game
 
     public static void LaunchMonsterProjectile(Player player,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
-        (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence)
+        (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence,
+        bool turn = false)
     {
         var session = ProjectilesFor(player);
         session.Advance();
         session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
             () => MonsterActionCurrent(player, id, m, action) && !InGracePeriod(player),
-            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence));
+            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence, turn: turn));
     }
 
     // Called under the XP -> Monsters lock by the runtime. Only the player takes a monster's projectile; a friendly monster in
