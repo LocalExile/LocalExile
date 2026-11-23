@@ -423,22 +423,10 @@ public static partial class Game
                 if (create)
                     await SendWorldCreate(Player, id, () => Project() is { } records ? records.Single() : null,
                         log, wake: wake, awaitBirth: false);
-                else if (!Player.Connection.LockstepClient || !remove)
-                    await SendWorldRecords(Player, id, Project, log);
+                else if (remove)
+                    await SendWorldRecordsEndingInRemoval(Player, id, Project, log);
                 else
-                {
-                    var target = Player.Connection.WorldOutput.PublishedObject(id);
-                    await SendWorldBatch(Player, [target], _ =>
-                    {
-                        if (Project() is not { Length: > 0 } records) return null;
-                        List<OutputRecord> batch = [];
-                        foreach (var bytes in records[..^1]) batch.Add(PresentedRecord(target, bytes, log));
-                        var removal = records[^1].ToArray();
-                        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
-                        batch.Add(OutputRecord.Remove(target, WorldOrder.Last, removal, log));
-                        return new([.. batch]);
-                    });
-                }
+                    await SendWorldRecords(Player, id, Project, log);
                 if (completed || Player.Connection.WorldOutput.Closed) return;
                 await AreaDelay(Player, 0.016);
             }
