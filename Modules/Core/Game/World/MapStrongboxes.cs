@@ -33,6 +33,10 @@ public static partial class MapStrongboxes
         public RolledMod[] Mods { get; init; } = [];
         /// <summary>No currency changes it any more (<c>map_strongboxes_are_corrupted</c>, a Vaal Orb).</summary>
         public bool Corrupted { get; init; }
+        /// <summary>When the items drop (UTC ticks), once the box is open: its daemons are gone (<see cref="DropFrames"/>).
+        /// 0 for a box whose mods do not delay the drop (<c>chest_delay_drops_until_daemons_finish</c>), whose items wait for the
+        /// guards.</summary>
+        public long DropAtTicks { get; init; }
         /// <summary>A unique box's UniqueChests Id (<see cref="StrongboxCatalog.Uniques"/>); its mods are in <see cref="Mods"/>.</summary>
         public string? Unique { get; init; }
         /// <summary>Optional pack-pool area id for guard spawns in biome-populated instances where <c>Packs.For(Layout.Id)</c> is empty.</summary>
@@ -566,7 +570,7 @@ public static partial class MapStrongboxes
 
     const double FramesPerSecond = 30;
 
-    /// <summary>Opens a closed box (under the area's gate): its guards spawn, and its loot waits for them.</summary>
+    /// <summary>Opens a closed box (under the area's gate): its guards spawn, and its loot drops when its daemons are gone.</summary>
     static async Task Open(Player player, Area area, Box box)
     {
         bool first = area.Boxes!.All(b => b.Phase == 0 && b.Cycle == 0);
@@ -589,7 +593,15 @@ public static partial class MapStrongboxes
             int from = Enumerable.Range(0, i).Sum(j => (guards.Count + GuardWaveFrames.Length - 1 - j) / GuardWaveFrames.Length);
             if (size > 0) arrivals.Add(new(now.AddSeconds(GuardWaveFrames[i] / FramesPerSecond).Ticks, guards.GetRange(from, size)));
         }
-        box = ReleaseWaves(box with { Phase = 1, Pending = [], Waves = [.. arrivals.Concat(waves).OrderBy(w => w.AtTicks)] }, now);
+        long dropAt = 0;
+        if (StrongboxCatalog.Find(box.Type) is { } dropType
+            && StrongboxMods.Stat(ItemsFor(player).Mods, dropType, box.Explicits, "chest_delay_drops_until_daemons_finish") > 0)
+        {
+            // Never before a summon wave the daemons still owe.
+            dropAt = Math.Max(now.AddSeconds(DropFrames(Daemons(player, dropType, box).Select(d => d.Daemon)) / FramesPerSecond).Ticks,
+                waves.Select(w => w.AtTicks).DefaultIfEmpty(0).Max());
+        }
+        box = ReleaseWaves(box with { Phase = 1, Pending = [], DropAtTicks = dropAt, Waves = [.. arrivals.Concat(waves).OrderBy(w => w.AtTicks)] }, now);
         area.Boxes![box.Index] = box;
         Keep(player, area);
         // The object the client has stays while its clip plays; OpenPresentation presents it opened once the clip is over.
@@ -794,6 +806,19 @@ public static partial class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
+    /// <summary>The tests' way past the daemons' real-time wait: every open box's drop is due now.</summary>
+    internal static async Task DropNow(Player player)
+    {
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Boxes is null) return;
+        await area.Gate.WaitAsync();
+        try
+        {
+            foreach (var open in area.Boxes.Where(b => b.Phase == 1 && b.DropAtTicks > 0).ToArray()) area.Boxes[open.Index] = open with { DropAtTicks = 1 };
+            Keep(player, area);
+        }
+        finally { area.Gate.Release(); }
+    }
+
     public static async Task Tick(Player player)
     {
         if (!Areas.TryGetValue(player.Instance, out var area) || area.Boxes is not { } boxes || player.Closed || player.LeavingArea) return;
@@ -811,8 +836,16 @@ public static partial class MapStrongboxes
                     Keep(player, area);
                 }
                 if (prior.Pending.Count > 0) await SpawnPending(player, area, prior);
-                if (prior.Pending.Count > 0 || prior.Waves.Count > 0 || prior.Guards.Count == 0) continue;
-                if (prior.Guards.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
+                if (prior.DropAtTicks > 0)
+                {
+                    // The drop does not wait for the guards: in the recordings none was dead at 9 of 10 drops.
+                    if (DateTime.UtcNow.Ticks < prior.DropAtTicks) continue;
+                }
+                else
+                {
+                    if (prior.Pending.Count > 0 || prior.Waves.Count > 0 || prior.Guards.Count == 0) continue;
+                    if (prior.Guards.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
+                }
                 if (!player.Instance.SetState($"Ambush/rewards/{prior.Index}/{prior.Cycle}")) continue;
                 var opened = prior with { Phase = 2 };
                 area.Boxes[prior.Index] = opened;
@@ -834,6 +867,8 @@ public static partial class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
+    const double ItemDistanceMin = 3.0, ItemDistanceMax = 8.5;
+
     /// <summary>The box's items (<see cref="StrongboxLoot"/>) on the ground around it.</summary>
     static async Task Rewards(Player player, Box box)
     {
@@ -851,7 +886,9 @@ public static partial class MapStrongboxes
         var items = ItemDrops.Stacked(contents);
         foreach (var drop in items)
         {
-            var at = player.Layout.Near((box.X + AreaRng(player).Next(-5, 6), box.Y + AreaRng(player).Next(-5, 6)));
+            // 3.0 to 8.5 cells from the box, as the recorded drops lie.
+            double reach = ItemDistanceMin + AreaRng(player).NextDouble() * (ItemDistanceMax - ItemDistanceMin), turn = AreaRng(player).NextDouble() * Math.Tau;
+            var at = player.Layout.Near((box.X + (int)Math.Round(Math.Cos(turn) * reach), box.Y + (int)Math.Round(Math.Sin(turn) * reach)));
             var ground = new WorldItemObject(at.X, at.Y, drop.Item);
             uint id = player.Instance.Ground.Add(ground, player);
             await SendGroundItem(player, id, ground, $"strongbox 0x{box.Id:x} drops {drop.Type.Name}", justDropped: true);

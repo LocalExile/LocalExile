@@ -177,7 +177,9 @@ public sealed class ScarabEncounterTests
             int guardCount = boxOwner.Player.Area.Monsters.Count;
             Assert.True(await MapStrongboxes.Use(boxPeer.Player, new(firstBox.Id, 0, 1, 0), 0));
             Assert.Equal(guardCount, boxOwner.Player.Area.Monsters.Count);
-            foreach (uint guard in active.Guards) { boxOwner.Player.Area.Monsters[guard].Dead = true; boxOwner.Player.Area.Monsters[guard].Life = 0; }
+            // The items drop when the daemons are gone, with the guards still alive; the daemons run in real time.
+            Assert.True(active.DropAtTicks > 0);
+            await MapStrongboxes.DropNow(boxOwner.Player);
             await MapStrongboxes.Tick(boxOwner.Player);
             Assert.Equal(2, Boxes()[0].Phase);
             int rewardCount = boxInstance.Ground.All().Count();
