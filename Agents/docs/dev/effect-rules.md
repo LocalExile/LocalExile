@@ -1,13 +1,36 @@
 # Effect rules
 
-One data-driven engine for "when X happens, do Y" effects: a stat turns a rule on for an actor, an event fires it (or it
-stands while worn), checks, chance and cooldown gate it, and an effect runs. The rules are rows in world.db, so a new
-trigger is usually a row and not code. Code: `Modules/Core/Game/Effects/` (`EffectRules.cs` the engine,
-`EffectKinds.cs` the effect kinds, `GrantedSkillRules.cs` item-granted skills, `TimedBuffs.cs`, `HitEvents.cs`).
+One data-driven system for what things do in the game: a stat turns a rule on for an actor, something fires it (an
+event) or it simply stands (while worn, while in an area, while on a patch of ground), checks, chance and cooldown gate
+it, and an effect runs on a target. The rules are rows in world.db, so adding or changing an effect is usually a row
+and not code. Code: `Modules/Core/Game/Effects/` (`EffectRules.cs` the engine, `EffectKinds.cs` the effect kinds,
+`GrantedSkillRules.cs` item-granted skills, `TimedBuffs.cs`, `HitEvents.cs`).
+
+## Scope
+
+The aim is every effect the game has that fits this shape, from any source: item mods (each recreated one for one),
+passives, granted and gem skills, charges, buffs and auras, monster modifiers, map mods, atlas passives, ground
+patches, and what mods add. Sources are interchangeable through carriers (an item, a skill, a buff, a monster's mod
+set, an area, a patch of ground hold stats and hand them on), and actors are too (a player, a minion, a totem, a
+monster). Nothing is left out on purpose; the only limit on what goes in is speed.
+
+**What is built so far is the first slice**: the engine, the combat events, and item-triggered and always-on item
+skills. It is where the engine was proven, not what it is for. Next, in order: minions and monsters as actors; areas
+as carriers (map mods, fragments, atlas passives, a worn item's map modifier); ground patches as carriers; then every
+item mod, with the charge rules and the existing one-off code moving over as each row matches what the code did.
+
+The rules it is built by:
+
+- A trigger, condition, target or effect that does not exist yet is added as a reusable part of the tables, never as a
+  one-off beside them.
+- Every number is a value on the row ("4 seconds" is "X seconds" with X = 4), and names its source: fixed, the rule's
+  own stat, another stat, the carrier's data.
+- Anything that could be an option is one, and anything that can be on or off has a switch.
+- An effect fires when it properly should (the right hits, the right actor), not only where older code happened to.
 
 ## Why it exists
 
-Before it, each on-kill, on-hit or on-block effect was its own code: about 80 charge rules written out in
+Today each effect is its own code: about 80 charge rules written out in
 `ChargeGains.cs`, Onslaught on kill in `OnslaughtOnKill.cs`, each trigger gem its own payload. An item-granted skill with
 a trigger stat did nothing unless someone wrote a handler: of 188 such skills in the client's data, the code could
 release 12. With the engine, the same 188 are reached by adding rows, and what a row can say (which event, which facts,
