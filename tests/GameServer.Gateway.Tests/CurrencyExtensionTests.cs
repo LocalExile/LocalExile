@@ -59,4 +59,38 @@ public class CurrencyExtensionTests
         Assert.Equal(implicitMod, chaos!.Mods.Where(m => m.Section == ModSection.Implicit).ToList());
         Assert.Equal(ItemRarity.Rare, chaos.Rarity);
     }
+    static string EldritchId(Item item, int influence) =>
+        Program.Items.Mods.ByHash(item.Mods.First(m => m.Section == ModSection.Implicit
+            && Program.Items.Mods.ByHash(m.Hash)!.GenerationType == influence).Hash)!.Id;
+
+    [Fact]
+    public void Orb_of_conflict_raises_one_eldritch_implicit_and_lowers_the_other()
+    {
+        var armour = Rare(Helmet);
+        var eater = Rolls.EldritchIchor(armour, Helmet, 2, new Random(1));
+        Assert.NotNull(eater);
+        var both = Rolls.EldritchEmber(eater!, Helmet, 1, new Random(1));
+        Assert.NotNull(both);
+        Assert.True(Rolls.HasEldritchImplicit(both!));
+        Assert.Equal(2, both!.Mods.Count(m => m.Section == ModSection.Implicit));
+
+        // One implicit alone is refused, and the table action is the one the dispatcher claims.
+        Assert.Null(CurrencyEffects.Conflict(eater!, Rolls, new Random(1)));
+        var conflict = Program.Items.Find(CurrencyEffects.OrbOfConflict)!;
+        Assert.Equal("conflict_orb", Program.Items.CurrencyAction(conflict));
+        Assert.True(CurrencyEffects.TryAction(Program.Items, Rolls, both, conflict, new Random(1), out var viaTable));
+        Assert.NotNull(viaTable);
+
+        // Tier 2 Eater, tier 1 Exarch: the only valid move raises the Exarch implicit and lowers the Eater one.
+        var conflicted = CurrencyEffects.Conflict(both, Rolls, new Random(1));
+        Assert.NotNull(conflicted);
+        Assert.Equal(ItemRarity.Rare, conflicted!.Rarity);
+        Assert.Equal(2, conflicted.Mods.Count(m => m.Section == ModSection.Implicit));
+        Assert.Equal(EldritchId(both, ItemRolls.EaterImplicit)[..^1],
+            EldritchId(conflicted, ItemRolls.EaterImplicit)[..^1]);
+        Assert.Equal(EldritchId(both, ItemRolls.ExarchImplicit)[..^1],
+            EldritchId(conflicted, ItemRolls.ExarchImplicit)[..^1]);
+        Assert.EndsWith("1", EldritchId(conflicted, ItemRolls.EaterImplicit));
+        Assert.EndsWith("2", EldritchId(conflicted, ItemRolls.ExarchImplicit));
+    }
 }

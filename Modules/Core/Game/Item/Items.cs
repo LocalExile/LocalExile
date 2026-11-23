@@ -1583,6 +1583,7 @@ public static partial class Game
             CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(player), random),
             CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(target, RollsFor(player), random),
             CurrencyEffects.EldritchAnnulmentOrb => CurrencyEffects.EldritchAnnulment(target, RollsFor(player), random),
+            CurrencyEffects.OrbOfConflict => CurrencyEffects.Conflict(target, RollsFor(player), random),
             CurrencyEffects.OrbOfBinding => ItemsFor(player).ByHash(target.TypeHash) is { } bindingType
                 ? CurrencyEffects.Binding(target, bindingType, RollsFor(player), ItemsFor(player).Requirements(bindingType), random)
                 : null,
