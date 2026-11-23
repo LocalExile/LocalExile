@@ -29,7 +29,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   including nested clusters (tree art check pending).
   Docs: [15](../docs/protocol/15-progression.md) §2a, [unique jewels](../docs/game/unique-jewels.md).
 - Cluster jewels: a new one has its theme, passive count and sockets, its small passives grant the theme and its
-  notables roll for it; the single-keystone smalls' keystone stats, nesting and the client's layout; keystones,
+  notables roll for it; the single-keystone smalls' keystone stats, nesting (including smaller clusters in larger
+  sockets), unidentified/empty-jewel refusal, block bases, refund-point sync and the client's layout; keystones,
   radius rules and the vendor recipe are missing. Docs: [cluster jewels](../docs/game/cluster-jewels.md).
 - Timeless jewels: the alternate tree in radius, Militant Faith's Devotion mods, Transcendence and Corrupted Soul.
   Other conqueror keystones are partial. Docs: [timeless jewels](../docs/game/timeless-jewels.md).

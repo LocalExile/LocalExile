@@ -5,20 +5,20 @@ using System.Runtime.CompilerServices;
 /// pays for its own 10 s. Prevented is the raw hit minus what it finally dealt: armour, reduction, Fortification, what a
 /// block keeps out, avoidance and immunity count; evasion, ward, energy shield and damage taken as another type do not
 /// (wiki Prevented damage). The recovery writer calls
-/// <see cref="Take"/> with its own step, so scheduling delays change the step, never the rate. Guarded by the Monsters lock.
+/// <see cref="Take"/> with its own step, so scheduling delays change the step, never the rate. Owned by the area's frame.
 /// shortcut: an area change leaves the past 10 s behind, as Life Recoup does, until a capture shows the regeneration
 /// carries over.</summary>
 public sealed class PreventedDamageRecovery
 {
-    const string Stat = "gain_%_total_phys_damage_prevented_in_the_past_10_sec_as_life_regen_per_sec";
+    const uint RegenStat = global::Stat.GainPctTotalPhysDamagePreventedInThePast10SecAsLifeRegenPerSec;
     const double WindowSeconds = 10;
 
     readonly Queue<(double At, double Amount)> hits = new();
 
     /// <summary>The share of the window's damage regenerated per second: a regeneration, so its increases and
     /// prohibitions apply (PoB's pseudo recoup scales it by them).</summary>
-    public static double PerSecond(Func<string, int> get) =>
-        get(Stat) / 1000.0 * PanelStats.LifeRegenerationMultiplier(get);
+    public static double PerSecond(Func<uint, int> get) =>
+        get(RegenStat) / 1000.0 * PanelStats.LifeRegenerationMultiplier(get);
 
     public void Add(double now, double amount)
     {
@@ -40,7 +40,7 @@ public sealed class PreventedDamageRecovery
 
 public static partial class Game
 {
-    static readonly RuleTable<ClientState, PreventedDamageRecovery> PreventedDamage = new();
+    static readonly Store<Player, PreventedDamageRecovery> PreventedDamage = new();
 
-    public static PreventedDamageRecovery PreventedDamageOf(ClientState conn) => PreventedDamage.GetValue(conn, _ => new());
+    public static PreventedDamageRecovery PreventedDamageOf(Player player) => PreventedDamage.GetValue(player, _ => new());
 }

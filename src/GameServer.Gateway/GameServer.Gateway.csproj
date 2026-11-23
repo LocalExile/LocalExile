@@ -14,6 +14,7 @@
   <!-- The Gateway's types are public: modules and mods reach the whole server (Agents/docs/dev/modding.md). -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+    <InternalsVisibleTo Include="perfbench" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -23,6 +24,10 @@
     <Nullable>enable</Nullable>
     <!-- The connection's state is assigned by the game module, which the compiler does not see here. -->
     <NoWarn>$(NoWarn);CS0649;CS0414</NoWarn>
+    <!-- No dynamic PGO: with it the JIT compiles the game module's hot methods twice, and a busy instance spent about 600 ms
+         of CPU a second for its first seconds (after a start or a module reload) against 190 without; steady state is
+         the same or better (PerfBench busy, 2026-11-20: 159 against 128 ms a second after 30 s). -->
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 
 </Project>

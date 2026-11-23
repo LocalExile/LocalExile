@@ -4,9 +4,9 @@
 public static class ArmourAttackDamage
 {
     // 3.29.3b Stats.dat row 13018; Behemoth graph node 2103 grants 2.
-    public const string Per450Armour = "attack_damage_+%_per_450_physical_damage_reduction_rating";
+    public const uint Per450Armour = Stat.AttackDamagePlusPctPer450PhysicalDamageReductionRating;
     // 3.29.3b Stats.dat row 2433; Daughter of Oshabi graph node 6281 grants 3.
-    public const string Per450Evasion = "attack_damage_+%_per_450_evasion";
+    public const uint Per450Evasion = Stat.AttackDamagePlusPctPer450Evasion;
 
     public static int Total(int increasedAttackDamage, int finalArmour, int per450Armour,
         int finalEvasion = 0, int per450Evasion = 0)

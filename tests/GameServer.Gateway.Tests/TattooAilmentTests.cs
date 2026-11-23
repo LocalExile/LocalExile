@@ -31,15 +31,15 @@ public sealed class TattooAilmentTests
             var stats = TattooStats.For(name);
             Assert.NotNull(stats);
             foreach (var (_, stat, value) in Rows.Where(row => row.Name == name))
-                Assert.Contains((Program.Stats.Key(stat)!.Value, value), stats);
+                Assert.Contains((Stat.Of(stat), value), stats);
         }
         // The applied rows are replaced passives, so the catalogue lookup is what 0x33 and the stat pass use.
         Assert.All(Rows.Select(row => row.Name).Distinct(), name => Assert.NotNull(TattooCatalogue.Find(name)));
         // The client's aliases the consumers read already include their base_* sources: the published total is the
         // sum of the display stat and the sources, so the replacement stat is read once.
-        Assert.Equal(15, PanelStats.Of("avoid_stun_%", name => name switch
+        Assert.Equal(15, PanelStats.Of(Stat.AvoidStunPct, name => name switch
         {
-            "avoid_stun_%" => 5, "base_avoid_stun_%" => 10, _ => 0,
+            Stat.AvoidStunPct => 5, Stat.BaseAvoidStunPct => 10, _ => 0,
         }));
     }
 }

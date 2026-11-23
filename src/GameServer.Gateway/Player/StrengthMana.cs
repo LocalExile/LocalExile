@@ -2,7 +2,7 @@
 public static class StrengthMana
 {
     // 3.29.3b Stats.dat row 4992, client key 4993; Mental Conditioning graph node 38080 grants 8.
-    public const string PerFourStrength = "X_mana_per_4_strength";
+    public const uint PerFourStrength = Stat.XManaPer4Strength;
 
     public static long Flat(int finalStrength, int perFourStrength) =>
         Math.Max(0, finalStrength) / 4 * (long)perFourStrength;
