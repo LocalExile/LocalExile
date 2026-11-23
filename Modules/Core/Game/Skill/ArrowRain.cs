@@ -46,11 +46,12 @@ public static partial class Game
     {
         var player = session.Player;
         string id = SkillsFor(player).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence);
+        // from: where the volley leaves when it is not the player (a trap or mine).
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from);
         var shot = (ProjectileOffense)use.Payload!;
         if (mirage) shot = MirageOffense(player, shot);
         if (transform is not null) shot = transform(shot);
-        use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };
+        use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true, FromTrapOrMine = from is not null } };
         var own = SupportedSkill(player, skill).Stats;
         var playerStats = CharacterPlayerStats(player);
         int Own(uint stat) => own.GetValueOrDefault(stat);

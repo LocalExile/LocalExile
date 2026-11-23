@@ -195,7 +195,11 @@ public static partial class Game
                 // position, and the client snapped the player back onto it (live trace: up to 98 cells).
                 // A ranged weapon (a bow) fires at the point instead: arrows flew nowhere while this branch walked the
                 // player, since the projectile is launched by the cast below (live 2026-10-25).
-                bool attack = cast && gem.Name is not null && SkillsFor(player).IsAttack(gem.Effect);
+                // An attack thrown as a trap or mine is a throw, not a swing: it takes the throwing time and is paced by
+                // the placement itself. Gated on the bow's attack time, every third held throw was ignored (live 2026-11-19:
+                // Toxic Rain with Trap Support, throws 0.385 s apart against a 0.45 s attack).
+                bool attack = cast && gem.Name is not null && SkillsFor(player).IsAttack(gem.Effect)
+                    && PlacedKind(SupportedSkill(player, use.SkillId)) is { Trap: false, Mine: false };
                 if (attack && (use.Flags & 0x1) == 0 && !SkillsFor(player).IsMovement(gem.Effect)
                     && (!SkillsFor(player).IsProjectile(gem.Effect) || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
                     && WeaponProfileFor(player).Melee)

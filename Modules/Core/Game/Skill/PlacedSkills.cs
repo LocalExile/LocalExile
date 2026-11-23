@@ -52,24 +52,36 @@ public static partial class Game
     }
 
     /// <summary>The throw as the client draws it: the object's BeThrown action from the thrower to the aim, then its walk
-    /// there over the flight.</summary>
-    public static List<byte[]> PlacedThrowRecords(Player player, uint id, (int X, int Y) from, (int X, int Y) aim, double flight)
+    /// there over the flight. <paramref name="playsNow"/>: the action goes out with its 0x1ac (PlacedActionNow), so its
+    /// clip plays through the flight instead of waiting for the landing.</summary>
+    public static List<byte[]> PlacedThrowRecords(Player player, uint id, (int X, int Y) from, (int X, int Y) aim, double flight,
+        bool playsNow = false)
     {
         List<byte[]> records = [];
         if (SkillsFor(player).ActionSkillId("BeThrown") is ushort thrown)
-            records.Add(InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
+            records.Add(playsNow ? PlacedActionNow(id, from, aim, thrown)
+                : InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
         records.Add(InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)Math.Max(0, flight), InstanceProtocol.FollowTerrain));
         return records;
     }
 
-    /// <summary>The landing: the throw ends, the object stands at its cell and plays Arm.</summary>
-    static void PlacedLandRecords(Player player, uint id, (int X, int Y) at, WorldRecordBuilder bytes)
+    /// <summary>The landing: the throw ends, the object stands at its cell and plays Arm. Without
+    /// <paramref name="arm"/> it only stands at its cell: BeThrown's clip, sent with its 0x1ac at the throw, is the throw
+    /// and the arming in one (the .act's Emerge: throw_arm) and goes on after the landing by itself; Arm is the
+    /// placed-in-place clip (LayTrap: a trap's "place", a mine's "re_arm").</summary>
+    static void PlacedLandRecords(Player player, uint id, (int X, int Y) at, WorldRecordBuilder bytes, bool arm = true)
     {
-        bytes.World(id, InstanceProtocol.ActionEnded(id));
+        if (arm) bytes.World(id, InstanceProtocol.ActionEnded(id));
         bytes.World(id, InstanceProtocol.Teleport(id, at.X, at.Y));
-        if (SkillsFor(player).ActionSkillId("Arm") is ushort arm)
-            bytes.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, arm, 0xffff, 0x0408));
+        if (arm && SkillsFor(player).ActionSkillId("Arm") is ushort armSkill)
+            bytes.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, armSkill, 0xffff, 0x0408));
     }
+
+    /// <summary>When in the throwing time the trap or mine leaves the hand: the class rig's throwfast clip for the held
+    /// weapon (its contact keyframe: 266 of 1000 ms for most, 200 for the Int rig, 333 of 1041 for StrDex).</summary>
+    public static double PlacedThrowContact(Player player) => Animations.SkillAttackContact(
+        Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject,
+        AnimationWeaponProfileFor(player), "throwfast")?.Contact ?? .266;
 
     public static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
     {
@@ -268,18 +280,19 @@ public static partial class Game
             return bytes.Build();
         });
         double started = AreaTime(player);
-        double release = started + seconds;
-        Console.WriteLine($"[gateway] {(admission.Mine ? "mine" : "trap")} throw of skill 0x{admission.Skill:x4}: {seconds:0.000} s");
-        // While the button is held the client starts its next throw when its own throw has finished, which can be before
-        // this wait ends. A throw replaced after at least half its time has left the hand, so it still lands; before that
-        // it was cancelled.
+        // The trap or mine leaves the hand at the throw clip's contact keyframe, not at the end of the throwing time:
+        // waiting the whole time, a single throw showed nothing for most of it (live 2026-11-19).
+        double contact = seconds * PlacedThrowContact(player);
+        double release = started + contact;
+        Console.WriteLine($"[gateway] {(admission.Mine ? "mine" : "trap")} throw of skill 0x{admission.Skill:x4}: {seconds:0.000} s, leaves at {contact:0.000} s");
+        // A throw interrupted before that has not left the hand and is cancelled.
         bool replaced = false;
         while (true)
         {
             if (!PlacedCastStructuralOwnerCurrentLocked(player, admission)) return false;
             if (!current() || recovery != player.ActionInterruptionGeneration)
             {
-                if (AreaTime(player) - started < seconds / 2) return false;
+                if (AreaTime(player) - started < contact) return false;
                 replaced = true;
                 break;
             }
@@ -349,8 +362,7 @@ public static partial class Game
                 proxy = proxy with { Parent = (player.Id, admission.Skill) };
                 string path = PlacedObjectPath(admission.Mine, Get);
                 double now = AreaTime(player);
-                double flight = PlacedFlightSeconds(admission.Mine, Get);
-                var stats = PlacedObjectStats(admission.Mine, flight);
+                double flightOverride = Get(Stat.TrapThrowArmTimeOverride) / 1000d;
                 var bytes = new WorldRecordBuilder(player, worldAdmission);
                 bool committed = false;
                 for (int i = 0; i < count; i++)
@@ -359,13 +371,20 @@ public static partial class Game
                     var point = PlacedThrowPoint(aim, count, circle, AreaRng(player));
                     if (!player.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
                     uint id = player.TakeObjectId();
+                    // The object's trap_throw_arm_time_override is the length the client plays its whole throw_arm clip in:
+                    // the flight is the part before the clip's hit_ground, so the glide below ends as the clip lands, and
+                    // the object is armed when the clip ends.
+                    double share = PlacedFlightShare(admission.Mine);
+                    double throwArm = flightOverride > 0 ? flightOverride : PlacedFlightSeconds(from, point, admission.Mine) / share;
+                    double flight = throwArm * share;
+                    var thrownStats = PlacedObjectStats(admission.Mine, throwArm);
                     double land = now + flight;
-                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land + PlacedArmSeconds,
+                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, now + throwArm,
                         land + PlacedDurationSeconds(admission.Mine, Get),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
                     {
-                        LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
+                        LandAt = land + PlacedLandingDelay, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
                         EffectDurationSeconds = GolemStat(payload, Stat.SkillEffectDuration) / 1000d,
                     };
                     player.Placed.All.Add(id, placement);
@@ -392,7 +411,7 @@ public static partial class Game
                         new TrapMineObject(from.X, from.Y, admission.Mine, [proxy], thrownStats).Blob()));
                     bytes.Presentation(id, InstanceProtocol.EnterWakeZone(id));
                     if (!player.Connection.LockstepClient)
-                        foreach (var record in PlacedThrowRecords(player, id, from, point, flight)) bytes.Presentation(id, record);
+                        foreach (var record in PlacedThrowRecords(player, id, from, point, flight, playsNow: true)) bytes.Presentation(id, record);
                     born.Add((id, land, point));
                     committed = true;
                 }
@@ -412,7 +431,7 @@ public static partial class Game
                 {
                     if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, action)
                         || (!replaced && !current()) || !player.Placed.All.ContainsKey(id)) return null;
-                    return [.. PlacedThrowRecords(player, id, from, point, Math.Max(0, landsAt - AreaTime(player)))];
+                    return [.. PlacedThrowRecords(player, id, from, point, Math.Max(0, landsAt - AreaTime(player)), playsNow: true)];
                 }, "throw trap/mine after birth");
         return accepted;
     }
@@ -503,7 +522,7 @@ public static partial class Game
     {
         if (placed.Landed || now < placed.LandAt) return;
         placed.Landed = true;
-        PlacedLandRecords(player, placed.Id, placed.At, bytes);
+        PlacedLandRecords(player, placed.Id, placed.At, bytes, arm: false);
     }
 
     // A trap's or mine's own action (BeThrown) with its 0x1ac in the same packet: a server-created action waits for
@@ -561,7 +580,7 @@ public static partial class Game
         if (projectile)
         {
             aim = PlacedProjectileAim(placed.At, player.Walk.Position(now), player.Area.MonstersNear(placed.At, 60)
-                .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
+                .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)), AreaRng(player));
         }
         else if (bear)
         {
@@ -573,18 +592,18 @@ public static partial class Game
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
         // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
         // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
-        if (!bear && payload.Name is not null && payload.Effect == placed.Effect && ArrowRain(SkillsFor(conn).EffectId(placed.Effect)))
+        if (!bear && currentSkill && ArrowRain(SkillsFor(player).EffectId(placed.Effect)))
         {
-            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
-            var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
+            var critical = CaptureSkillCriticalRoll(player, placed.Skill);
             var at = placed.At;
-            var rain = conn.Monsters.Values.Where(m => m is { Hostile: true, Dead: false, Life: > 0 })
-                .Select(m => m.Walk.Position(now)).Where(p => Dist(p, at) <= 60).OrderBy(p => Dist(p, at))
+            var rain = player.Area.MonstersNear(at, 60).Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 })
+                .Select(m => m.Value.Walk.Position(now)).Where(p => Dist(p, at) <= 60).OrderBy(p => Dist(p, at))
                 .Select(p => ((int X, int Y)?)p).FirstOrDefault() ?? at;
             session.Runtime.Schedule(session.Runtime.Now, () =>
             {
-                if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && conn.PlayerLife > 0)
+                if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && player.PlayerLife > 0)
                     ReleaseArrowRain(session, placed.Skill, payload, rain, critical, 0, from: at);
             });
             return;
@@ -602,9 +621,16 @@ public static partial class Game
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
-                use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
+                // The volley's rules are the player's own cast's, some of which start it at the player's cell (Spark's
+                // and Twister's wander): it leaves from the trap or mine whatever the skill.
+                var origin = use.Origin;
+                // Its random spread and wander are seeded by the use's sequence: the object's id, so two do not match.
+                use = ClientDrawnVolley(player, session, placed.Skill, payload, use, (ushort)placed.Id, 0) with { Origin = origin };
+                // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
-                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true } };
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true,
+                    Presentation = offense.Presentation ?? MonsterProjectilePresentation(SkillsFor(player).Clips(use.Profile.Id),
+                        use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
             });
             return;
         }
@@ -755,7 +781,9 @@ public static partial class Game
                 foreach (var placed in player.Placed.All.Values.ToArray())
                 {
                     if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
-                    if (player.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(player, placed, bytes); continue; }
+                    // A trap goes off when its duration ends (seen on the official client 2026-11-19); a mine is removed.
+                    bool expired = now >= placed.Until;
+                    if (player.PlayerLife == 0 || expired && placed.Mine) { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
                     if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
@@ -781,7 +809,7 @@ public static partial class Game
                     bool nearby = !placed.Mine && (conversion ? trigger.Value is not null
                         : player.Area.MonstersNear(placed.At, placed.TriggerRadius).Any(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }
                             && Dist(m.Value.Walk.Position(now), placed.At) <= placed.TriggerRadius));
-                    if (!skitter && !nearby && now < placed.DetonateAt) continue;
+                    if (!skitter && !nearby && !expired && now < placed.DetonateAt) continue;
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
@@ -790,7 +818,7 @@ public static partial class Game
                     else PlacedDamageLocked(player, placed, now, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
                     bool rearm = skitter && placed.Mine && effect != "SmokeMine";
-                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={rearm}");
+                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {
                         placed.SkitterTriggered = true; placed.DetonateAt = double.PositiveInfinity;

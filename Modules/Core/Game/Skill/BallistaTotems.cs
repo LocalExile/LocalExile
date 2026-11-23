@@ -19,7 +19,9 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skill);
         var stats = SupportedStats(player, skill);
-        long limit = (long)BaseTotemsAllowed + GolemStat(stats, Stat.NumberOfAdditionalTotemsAllowed);
+        // The skill's own base is a support's: Multiple Totems Support's constant base_number_of_totems_allowed 2.
+        long limit = (long)BaseTotemsAllowed + GolemStat(gem.Stats, Stat.BaseNumberOfTotemsAllowed)
+            + GolemStat(stats, Stat.NumberOfAdditionalTotemsAllowed);
         if (GolemStat(stats, Stat.KeystoneAncestralBond) != 0) limit++;
         if (SkillsFor(player).IsAttack(gem.Effect)) limit += GolemStat(stats, Stat.AttackSkillsAdditionalTotemsAllowed);
         if (GolemStat(gem.Stats, Stat.IsRangedAttackTotem) != 0)
