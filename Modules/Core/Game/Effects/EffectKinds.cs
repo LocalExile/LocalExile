@@ -31,6 +31,25 @@ public static partial class Game
             Prepare = BuffSpecOf,
         });
 
+        // Stats the actor has while a "worn" rule stands ("stats": stat name to value): a skill that is simply on while
+        // its item is worn and whose whole effect is a stat the server already acts on (Blinding Aura: nearby enemies
+        // are blinded). For "worn" rules only.
+        EffectRules.Register(new("stats", [], [], _ => { })
+        {
+            Extra = ["stats"],
+            Prepare = effect =>
+            {
+                if (!effect.TryGetProperty("stats", out var listed) || listed.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    throw new FormatException("the effect \"stats\" needs \"stats\": stat name to value");
+                List<(uint, int)> stats = [];
+                foreach (var stat in listed.EnumerateObject())
+                    stats.Add((Program.Stats.Key(stat.Name) ?? throw new FormatException($"unknown stat \"{stat.Name}\""), stat.Value.GetInt32()));
+                return stats.ToArray();
+            },
+            Stand = standing => GainStandingStats(standing.Conn, ((uint, int)[])standing.Data!, standing.On),
+            StandOnly = true,
+        });
+
         EnsureTriggeredSkills();
 
         // "count" charges of "type" (endurance, frenzy, power), as a skill's own grant: the charge rules apply it at

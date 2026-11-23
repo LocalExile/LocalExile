@@ -130,8 +130,26 @@ public static partial class Game
     }
 
     // The stats of the running timed buffs (CharacterStatSources). The step runs again when the first of them ends.
+    // Stats an actor has while a "worn" rule stands (the "stats" effect kind): each with the rule's own On.
+    sealed class StandingStatSet { public List<((uint Key, int Value)[] Stats, Func<bool> On)> All = []; }
+    static readonly RuleTable<Player, StandingStatSet> StandingStats = new();
+
+    /// <summary>The player has these stats while <paramref name="on"/> holds (a "worn" rule's "stats" effect). They join
+    /// the character's stat sources at the next Sources step, which this asks for.</summary>
+    public static void GainStandingStats(Player player, (uint Key, int Value)[] stats, Func<bool> on)
+    {
+        var set = StandingStats.GetOrCreateValue(player);
+        lock (set) set.All = [.. set.All.Where(s => s.On()), (stats, on)];
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+    }
+
     static Dictionary<uint, int> WithTimedBuffs(Player player, Dictionary<uint, int> sources)
     {
+        if (StandingStats.TryGetValue(player, out var standing))
+            foreach (var (stats, on) in Volatile.Read(ref standing.All))
+                if (on())
+                    foreach (var (key, value) in stats)
+                        sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         if (!TimedBuffs.TryGetValue(player, out var set) || player.PlayerLife == 0) return sources;
         double now = AreaTime(player);
         foreach (var buff in set.ById.Values)

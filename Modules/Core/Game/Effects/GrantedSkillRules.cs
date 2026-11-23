@@ -23,7 +23,12 @@ public static partial class Game
     /// <summary>Releases one kind of item-triggered skill. Accepts: whether it can release this granted effect.
     /// Run: release it for the event that fired the rule (often inside the Monsters lock: quick, no sends or waits).</summary>
     public sealed record TriggeredSkillExecutor(string Name, Func<Player, WornGrantedSkills.Grant, bool> Accepts,
-        Action<EffectRules.Fire, WornGrantedSkills.Grant> Run);
+        Action<EffectRules.Fire, WornGrantedSkills.Grant> Run)
+    {
+        /// <summary>For a "worn" rule: starts the skill as something that is on while its item is worn (an aura, a
+        /// pulse), until the given test turns false. Null for an executor that only answers events.</summary>
+        public Action<EffectRules.Standing, WornGrantedSkills.Grant>? Stand { get; init; }
+    }
 
     static TriggeredSkillExecutor[] _triggeredSkillExecutors = [];
     static readonly object TriggeredSkillGate = new();
@@ -120,11 +125,61 @@ public static partial class Game
         // Releases the granted skill whose stat turned the rule on, "at" the event's monster (the hit or killed one)
         // or at the character itself ("self": a skill that targets its user). What it releases can hit and kill, so the
         // loop guard applies (Chains): by default a triggered skill's own hits and kills trigger no further skill.
-        EffectRules.Register(new("skill", [], ["at"], fire =>
+        EffectRules.Register(skillKind = new("skill", [], ["at"], fire =>
         {
             if (fire.Source?.Thing is WornGrantedSkills.Grant grant) TriggeredSkillExecutorFor(fire.Conn, grant)?.Run(fire, grant);
         }, (_, word) => word is "monster" or "self")
-        { Chains = true, NameDefaults = new Dictionary<string, string> { ["at"] = "monster" } });
+        {
+            Chains = true, NameDefaults = new Dictionary<string, string> { ["at"] = "monster" },
+            // A "worn" rule: the skill is on while its item is worn, as its executor has it (an aura, a pulse).
+            Stand = standing =>
+            {
+                if (standing.Source?.Thing is WornGrantedSkills.Grant grant) TriggeredSkillExecutorFor(standing.Conn, grant)?.Stand?.Invoke(standing, grant);
+            },
+        });
+
+        // A skill that is only a carrier for other effects of a "worn" rule (effect_skills how "worn": Blinding Aura,
+        // whose rule gives a stat): nothing to release.
+        RegisterTriggeredSkillExecutor(new("worn", (_, grant) => EffectSkillRowOf(grant.EffectId)?.How == "worn", (_, _) => { })
+        { Stand = (_, _) => { } });
+
+        // A damage-over-time aura that is on while its item is worn (effect_skills how "aura": Death Aura): the skill's
+        // own "<type> damage to deal per minute" to the hostile monsters within the row's radius, each wearing the row's
+        // buff (art: a BuffDefinitions Id). A DamageAura, as Righteous Fire's burn is.
+        RegisterTriggeredSkillExecutor(new("aura", (_, grant) => EffectSkillRowOf(grant.EffectId)?.How == "aura", (_, _) => { })
+        {
+            Stand = (standing, grant) =>
+            {
+                var player = standing.Conn;
+                if (EffectSkillRowOf(grant.EffectId) is not { } row) return;
+                var own = GrantedSkillStatsOf(player, grant);
+                var perMinute = new[]
+                {
+                    (DamageType.Physical, Stat.BasePhysicalDamageToDealPerMinute), (DamageType.Fire, Stat.BaseFireDamageToDealPerMinute),
+                    (DamageType.Cold, Stat.BaseColdDamageToDealPerMinute), (DamageType.Lightning, Stat.BaseLightningDamageToDealPerMinute),
+                    (DamageType.Chaos, Stat.BaseChaosDamageToDealPerMinute),
+                }.Select(t => (Type: t.Item1, PerSecond: own.GetValueOrDefault(t.Item2) / 60d)).FirstOrDefault(t => t.PerSecond > 0);
+                if (perMinute.PerSecond <= 0) return;
+                ushort buffRow = 0;
+                foreach (var definition in ClientTables.Table("BuffDefinitions"))
+                    if (definition.Text("Id") == row.Art) { buffRow = (ushort)definition.Index; break; }
+                int radius = row.Radius ?? 30;
+                ushort skill = ActorSkillOf(player, grant)?.Id ?? 0;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {grant.EffectId} is on while worn: {perMinute.PerSecond:0.#} {perMinute.Type} damage a second within {radius} cells");
+                StartDamageAura(player, new DamageAura
+                {
+                    Name = grant.EffectId, Radius = () => radius, BuffRow = buffRow, Skill = skill, Marks = [],
+                    Running = standing.On,
+                    Active = () => player.PlayerLife > 0 && !InGracePeriod(player) && !InTown(player),
+                    Damage = seconds =>
+                    {
+                        using var scope = new PlayerStatScope(player, fresh: true);
+                        var stats = new Dictionary<uint, int>(CharacterPlayerStats(player));
+                        return (new SkillDamageContext(SkillHitKind.Spell, stats).OverTime(new DamageOverTime(perMinute.Type, perMinute.PerSecond, seconds)), stats);
+                    },
+                });
+            },
+        });
 
         // A curse or mark on the monster of the event (the one hit): paid for like a cast, and never on a corpse.
         RegisterTriggeredSkillExecutor(new("curse", (_, grant) => CurseCatalog.All.ContainsKey(CurseFamily(grant.EffectId)),
@@ -223,7 +278,8 @@ public static partial class Game
         // once (AreaSkillHit's immediate form, as a trigger gem's Ice Nova). Only the skills named in
         // effect_skills table (how "area"): a ground effect, a chain or a storm is not one hit because its stat set
         // has damage. A row may ask for several hits (hits, every, spread): a storm's bolts around the spot.
-        RegisterTriggeredSkillExecutor(new("area", (_, grant) => TriggeredAreaOf(grant.EffectId) is not null,
+        TriggeredSkillExecutor area = null!;
+        area = new("area", (_, grant) => TriggeredAreaOf(grant.EffectId) is not null,
             (fire, grant) =>
             {
                 var player = fire.Conn;
@@ -317,7 +373,15 @@ public static partial class Game
                     await AreaSkillHit(player, id, skill, at, at, immediate: true,
                         radiusOverride: radius, triggeredCurrent: Current, baseExtra: baseExtra);
                 }
-            }));
+            })
+        {
+            // A "worn" rule: a pulse row goes off around the character while it moves (StartTriggeredPulse).
+            Stand = (standing, grant) =>
+            {
+                if (EffectSkillRowOf(grant.EffectId)?.How == "pulse") StartTriggeredPulse(standing, grant, area);
+            },
+        };
+        RegisterTriggeredSkillExecutor(area);
     }
 
     /// <summary>Base damage a granted skill states in a form the hit plan does not read: added damage per character
@@ -349,6 +413,40 @@ public static partial class Game
     /// each may land.</summary>
     public sealed record TriggeredArea(string? Art = null, float Scale = 1, double Seconds = 2, int? Radius = null,
         int Hits = 1, double Every = 0, int Spread = 0);
+
+    static EffectRules.Kind? skillKind;
+
+    sealed record EffectSkillRows(int Revision, Dictionary<string, GameServer.Storage.GameDataStore.EffectSkillRow> Rows);
+    static EffectSkillRows effectSkillRows = new(-1, []);
+
+    /// <summary>A skill's enabled row of world.db's <c>effect_skills</c>, whatever its "how", or null.</summary>
+    public static GameServer.Storage.GameDataStore.EffectSkillRow? EffectSkillRowOf(string effectId)
+    {
+        var table = Volatile.Read(ref effectSkillRows);
+        int revision = GameData.Current.Revision;
+        if (table.Revision != revision)
+            Volatile.Write(ref effectSkillRows, table = new(revision, GameData.EffectSkills.ToDictionary(r => r.Effect, StringComparer.Ordinal)));
+        return table.Rows.GetValueOrDefault(effectId);
+    }
+
+    /// <summary>A pulse (effect_skills how "pulse": Abberath's Fury): while the rule stands and the character moves,
+    /// the skill goes off around the character every "every" seconds, as the "area" executor releases it.</summary>
+    static void StartTriggeredPulse(EffectRules.Standing standing, WornGrantedSkills.Grant grant, TriggeredSkillExecutor area)
+    {
+        var player = standing.Conn;
+        double every = Math.Max(.2, EffectSkillRowOf(grant.EffectId)?.Every ?? 1), next = 0;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} {grant.EffectId} is on while worn: goes off every {every:0.##} s while moving");
+        EveryFrameAsPlayer(player, standing.On, p =>
+        {
+            double now = AreaTime(p);
+            if (now < next || p.PlayerLife == 0 || InTown(p) || InGracePeriod(p) || !p.Walk.Moving(now)) return Task.CompletedTask;
+            next = now + every;
+            var here = p.Walk.Position(now);
+            area.Run(new EffectRules.Fire(p, new ChargeEvent.SkillUse(false, false, false, grant.Effect, here), now, skillKind!, [], ["self"], null)
+                { Source = standing.Source }, grant);
+            return Task.CompletedTask;
+        });
+    }
 
     sealed record TriggeredAreaTable(int Revision, Dictionary<string, TriggeredArea> Skills);
     static TriggeredAreaTable triggeredAreas = new(-1, []);
@@ -427,6 +525,9 @@ public static partial class Game
                 foreach (var row in GameData.EffectSkills)
                     if (row.How == "area")
                         skills[row.Effect] = new(row.Art, (float)row.Scale, row.Seconds, row.Radius, row.Hits, row.Every, row.Spread);
+                    // A pulse is one area hit each time: its "every" is the time between pulses, not a storm's.
+                    else if (row.How == "pulse")
+                        skills[row.Effect] = new(row.Art, (float)row.Scale, row.Seconds, row.Radius, 1, 0, 0);
                 Volatile.Write(ref triggeredAreas, table = new(revision, skills));
             }
         return table.Skills.GetValueOrDefault(effectId);

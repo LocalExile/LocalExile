@@ -19,8 +19,10 @@ using System.Text.Json;
 /// </summary>
 public static class EffectRules
 {
-    public enum What { Hit, Kill, WhenHit, Block, Stun, SkillUse }
-    static readonly string[] WhatNames = ["hit", "kill", "when_hit", "block", "stun", "skill_use"];
+    /// <summary>The events a rule may name. Worn is no event: its rule stands while its stat is there (an item's
+    /// always-on skill), and its effects are started and ended rather than run (<see cref="Kind.Stand"/>).</summary>
+    public enum What { Hit, Kill, WhenHit, Block, Stun, SkillUse, Worn }
+    static readonly string[] WhatNames = ["hit", "kill", "when_hit", "block", "stun", "skill_use", "worn"];
 
     /// <summary>Turns every rule off (the code a rule replaced runs again from the next stat build). A testing switch.</summary>
     public static volatile bool Enabled = true;
@@ -85,6 +87,18 @@ public static class EffectRules
         /// <summary>Reads the kind's own keys when a row loads: what it returns is handed to <see cref="Fire.Data"/>, and
         /// a <see cref="FormatException"/> refuses the row.</summary>
         public Func<JsonElement, object?>? Prepare { get; init; }
+        /// <summary>Starts the effect for a "worn" rule: it runs until <see cref="Standing.On"/> turns false, and ends
+        /// itself then. A kind without it cannot be used by a "worn" rule.</summary>
+        public Action<Standing>? Stand { get; init; }
+        /// <summary>The kind does nothing for an event: only a "worn" rule may use it.</summary>
+        public bool StandOnly { get; init; }
+    }
+
+    /// <summary>One effect of a "worn" rule, started for this actor. On: whether the rule still stands (its stat is
+    /// still there and this actor is still in its area); the effect asks it every step and ends when it is false.</summary>
+    public sealed record Standing(Player Conn, Kind Kind, double[] Values, string?[] Names, object? Data, Source? Source, Func<bool> On)
+    {
+        public string? Word(string name) => Names[Array.IndexOf(Kind.Names, name)];
     }
 
     public sealed record EffectSpec(Kind Kind, Value[] Values, string?[] Names, object? Data);
@@ -139,6 +153,8 @@ public static class EffectRules
         public LiveRule[][] ByWhat = NoRules;
         // A rule's cooldown uses: how many are held and when the next comes back.
         public Dictionary<(Rule Rule, object? Source), (int Held, double NextAt)>? Cooldowns;
+        // The "worn" rules whose effects stand now, by rule and carrier. Replaced whole, read by each effect's On.
+        public HashSet<(Rule Rule, object? Source)> Standing = [];
 
         // Takes one use at now, or says there is none. Uses come back one at a time, a cooldown apart.
         public bool TakeUse(LiveRule rule, double now)
@@ -171,6 +187,7 @@ public static class EffectRules
         [What.WhenHit] = ["critical"],
         [What.Block] = ["spell", "attack"],
         [What.Stun] = ["melee"],
+        [What.Worn] = [],
         [What.SkillUse] = ["vaal", "curse", "trap", "attack", "spell", "melee", "bow", "travel", "movement", "warcry", "strike", "slam", "channelled", "brand", "aura", "guard"],
     };
 
@@ -252,6 +269,8 @@ public static class EffectRules
         string? who = root.TryGetProperty("who", out var whose) ? whose.GetString() : CombatActors.Self;
         if (string.IsNullOrEmpty(who)) throw new FormatException("\"who\" is empty");
         if (who == "any") who = null;
+        if ((What)when == What.Worn && (root.TryGetProperty("chance", out _) || root.TryGetProperty("cooldown", out _) || root.TryGetProperty("uses", out _)))
+            throw new FormatException("a \"worn\" rule stands while its stat is there: it has no chance, cooldown or uses");
         var checks = new List<Check>();
         if (root.TryGetProperty("checks", out var list))
             foreach (var item in list.EnumerateArray())
@@ -311,6 +330,10 @@ public static class EffectRules
             }
         int depth = root.TryGetProperty("depth", out var deep) ? deep.GetInt32() : 0;
         if (depth < 0) throw new FormatException("\"depth\" is negative");
+        if ((What)when != What.Worn && effects.Find(e => e.Kind.StandOnly) is { } standsOnly)
+            throw new FormatException($"the effect \"{standsOnly.Kind.Name}\" is for a \"worn\" rule only");
+        if ((What)when == What.Worn && effects.Find(e => e.Kind.Stand is null) is { } cannot)
+            throw new FormatException($"the effect \"{cannot.Kind.Name}\" cannot stand: it is for an event, not for \"worn\"");
         return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects])
         { Key = statKey, Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs],
           Only = root.TryGetProperty("only", out var only) ? carrier is not null ? only.GetString() : throw new FormatException("\"only\" names a carrier, and the rule has no \"carrier\"") : null };
@@ -377,7 +400,25 @@ public static class EffectRules
         // No live rule and nothing kept from before: the usual case, and it makes nothing.
         if (lists is null && !Lives.TryGetValue(player, out _)) return;
         var live = Lives.GetOrCreateValue(player);
-        Volatile.Write(ref live.ByWhat, lists is null ? NoRules : [.. lists.Select(l => l?.ToArray() ?? [])]);
+        var byWhat = lists is null ? NoRules : [.. lists.Select(l => l?.ToArray() ?? [])];
+        Volatile.Write(ref live.ByWhat, byWhat);
+        // The "worn" rules: one that is new starts its effects, one that is gone leaves the set and its effects see
+        // that at their next step. A rule that stays is not started again.
+        var worn = byWhat[(int)What.Worn];
+        var before = Volatile.Read(ref live.Standing);
+        if (worn.Length == 0 && before.Count == 0) return;
+        var now = new HashSet<(Rule, object?)>(worn.Select(r => (r.Rule, r.Source?.Key)));
+        Volatile.Write(ref live.Standing, now);
+        foreach (var rule in worn)
+        {
+            var key = (rule.Rule, rule.Source?.Key);
+            if (before.Contains(key)) continue;
+            bool On() => Enabled && !player.Closed && !player.LeavingArea && Volatile.Read(ref live.Standing).Contains(key);
+            foreach (var effect in rule.Do)
+                effect.Kind.Stand?.Invoke(new(player, effect.Kind, effect.Values, effect.Names, effect.Data, rule.Source, On));
+        }
+        // A rule that is gone took stats with it, perhaps: the sources are read again.
+        if (before.Any(key => !now.Contains(key))) Game.MarkPlayerStats(player, PlayerStatStep.Sources);
     }
 
     /// <summary>Whether the actor has a live rule for this event: what a per-hit caller asks before it builds one.</summary>
@@ -389,6 +430,7 @@ public static class EffectRules
     public static void Run(Player player, CombatEvent e)
     {
         if (!Enabled || !Lives.TryGetValue(player, out var live)) return;
+        // What.Worn (6) is no event: nothing maps to it here.
         int what = e switch
         {
             HitLanded => 0, ChargeEvent.Kill => 1, ChargeEvent.WhenHit => 2, ChargeEvent.Block => 3,
