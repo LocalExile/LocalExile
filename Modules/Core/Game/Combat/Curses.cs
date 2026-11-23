@@ -96,15 +96,17 @@ public static partial class Game
             n => Own(n) + (n == SkillDurationModifiers.IncreasedDuration ? Own(Stat.BaseCurseDurationPlusPct) : 0));
         double rate = RecipientEffectTime.Rate(5, n => monster.Mods.Effects[n], temporalChains: effect == "TemporalChains");
         seconds *= Math.Max(0, 1 + Own(Stat.HextouchSupportCurseDurationPlusPctFinal) / 100d);
+        int damageTaken = GolemStat(playerStats, Stat.EnemiesDamageTakenPlusPctWhileCursed);
         if (aura && monster.Curses.All.GetValueOrDefault((player.Id, effect)) is { Aura: true } existing
-            && existing.Skill == skill && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
+            && existing.Skill == skill && existing.CursedDamageTaken == damageTaken
+            && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
         if (definition.Mark)
             foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster)))
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
                 { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
         var curse = new MonsterCurses.Curse(player.Id, effect, skill, definition.Buff, player.NextBuff++, now,
             aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats)
-            { RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0 };
+            { RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0, CursedDamageTaken = damageTaken };
         monster.Curses.Put(curse, CurseLimit(player, playerStats));
         if (!aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0
             && ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse))

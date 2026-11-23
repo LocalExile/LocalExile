@@ -678,21 +678,24 @@ public static partial class Game
         playerStats = SpiderAttackStats(playerStats, webs);
         bool lowLife = EnemyOnLowLife(target);
         int Get(uint key) => GolemStat(playerStats, key);
+        var contact = ContactDamage(player, target, at, playerStats);
         var modifiers = TargetModifiers(Get, lowLife, target.MaimedUntil > at,
             weapon.Melee && Get(Stat.MeleeDamagePlusPctAtCloseRange) != 0 && InCloseRange(player, target, at),
-            claw: lowLife && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"));
+            claw: lowLife && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"), contact: contact);
         playerStats = TypedTargetDamageStats(playerStats, target.Ignites.Burning, target.Bleeds.Burning, lowLife);
         playerStats = WithElementalOverload(player, SkillCatalog.FirstSkillId, playerStats);
         int rating = accuracy ?? PlayerAccuracy(player, playerStats);
         // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
-        var hit = AttackHitConverted(weapon, playerStats, weapon.Melee, conversion, new(rating),
+        var hit = AttackHitConverted(weapon, TargetHitStats(playerStats, contact), weapon.Melee, conversion, new(rating),
             additionalIncreased + modifiers.HitIncrease);
+        if (modifiers.HitMore != 1) hit = hit.Scale(modifiers.HitMore);
         long ailmentIncrease = additionalIncreased + modifiers.AilmentIncrease;
         var ignite = DefaultAttackIgnite(player, playerStats, weapon, ailmentIncrease, conversion, rating);
         var bleed = DefaultAttackBleed(player, playerStats, weapon, ailmentIncrease, conversion, rating);
         var poison = DefaultAttackPoison(player, playerStats, weapon, ailmentIncrease, conversion, rating);
-        return modifiers.More == 1 ? new(hit, ignite, bleed, poison) : new(hit.Scale(modifiers.More),
-            RepeatAilment(ignite, modifiers.More), RepeatAilment(bleed, modifiers.More), RepeatAilment(poison, modifiers.More));
+        return modifiers.AilmentMore == 1 ? new(hit, ignite, bleed, poison) : new(hit,
+            RepeatAilment(ignite, modifiers.AilmentMore), RepeatAilment(bleed, modifiers.AilmentMore),
+            RepeatAilment(poison, modifiers.AilmentMore));
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from
@@ -2716,12 +2719,13 @@ public static partial class Game
                         bool close = spider.Melee && spider.Stats.GetValueOrDefault(global::Stat.MeleeDamagePlusPctAtCloseRange) != 0
                             && InCloseRange(player, m, hitAt);
                         bool blinded = Blinded(player, id, hitAt);
+                        var conditionalDamage = ContactDamage(player, m, hitAt, spider.Stats);
                         var woven = SpiderDamageProfile(spider, webs, blinded, m.Ignites.Burning, m.Bleeds.Burning,
-                            lowLife, maimed, close);
+                            lowLife, maimed, close, conditionalDamage);
                         var conditionalHit = mainHandMore == 1 ? woven.Hit : woven.Hit.Scale(mainHandMore);
                         if (sweepOffSpider is { } off)
                             conditionalHit = conditionalHit.Add(SpiderDamageProfile(off, webs, blinded, m.Ignites.Burning, m.Bleeds.Burning,
-                                lowLife, maimed, close).Hit);
+                                lowLife, maimed, close, conditionalDamage).Hit);
                         double contactMore = ruthless * dualWieldMore;
                         if (contactMore != 1) conditionalHit = conditionalHit.Scale(contactMore);
                         if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));

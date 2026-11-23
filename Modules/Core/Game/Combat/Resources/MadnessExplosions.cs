@@ -50,20 +50,25 @@ public static partial class Game
             var playerStats = receipt.Player;
             int Get(uint key) => playerStats.GetValueOrDefault(key);
             var conversion = DamageStats.Conversion(playerStats, Stats, attack: null);
-            ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false, bool lowLife = false)
+            bool contactDamage = HasContactDamage(Get);
+            ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false,
+                bool lowLife = false, TargetContact contact = default)
             {
                 int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
-                var target = TargetModifiers(Get, lowLife);
+                int HitStat(uint name) => TargetHitStat(name, TargetStat(name), contact);
+                var target = TargetModifiers(Get, lowLife, contact: contact);
                 increased += SpiderDamageIncrease(Get, webs);
                 var woven = SpiderRawDamage(receipt.Raw, Get, webs);
-                var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion, spell: false, area: true,
+                var hit = PlayerHitDamage.Resolve(woven, HitStat, conversion, spell: false, area: true,
                     secondary: true, additionalIncreased: increased + target.HitIncrease);
-                var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat, increased);
+                var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat,
+                    increased + target.AilmentIncrease);
                 var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
                 var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
-                return target.More == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
-                    : new(hit.Scale(target.More), RepeatAilment(ignite, target.More), MonsterIgnites.Settings.None,
-                        RepeatAilment(poison, target.More));
+                if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
+                return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
+                    : new(hit, RepeatAilment(ignite, target.AilmentMore), MonsterIgnites.Settings.None,
+                        RepeatAilment(poison, target.AilmentMore));
             }
             var normal = Profile(0);
             var blinded = Get(PlayerHitDamage.VsBlindedDamageStat) is var increased && increased != 0
@@ -79,10 +84,11 @@ public static partial class Game
                 {
                     if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
                         || MonsterAsleep(player, id) || Dist(at, target.Walk.Position(now)) > receipt.Radius) continue;
-                    var profile = target.SpiderWebs.Count(now) > 0 || target.Ignites.Burning || target.Bleeds.Burning
+                    var profile = contactDamage || target.SpiderWebs.Count(now) > 0 || target.Ignites.Burning || target.Bleeds.Burning
                         || EnemyOnLowLife(target) && (Get(DamageVsLowLifePerFrenzy) != 0 || HasLowLifeDamage(Get))
                         ? Profile(Blinded(player, id) ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0,
-                            target.SpiderWebs.Count(now), target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target))
+                            target.SpiderWebs.Count(now), target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target),
+                            contactDamage ? ContactDamage(player, target, now, playerStats) : default)
                         : Blinded(player, id) ? blinded : normal;
                     int critChance = Get(Stat.GlobalCannotCrit) != 0 ? 0
                         : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get(Stat.CriticalStrikeChancePlusPct), Get, _ => 0);

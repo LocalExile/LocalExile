@@ -5,14 +5,32 @@ public sealed class MonsterCurses(Action? changed = null)
         double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<uint, int> Stats)
     {
         public bool RemainsOnDeath { get; init; }
+        public int CursedDamageTaken { get; init; }
     }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
     public readonly HashSet<uint> PresentedStats = [];
     public int Version, PresentedVersion;
     Dictionary<uint, int> stats = [];
+    bool hasCursedDamageTaken;
     public int this[uint stat] => stats.GetValueOrDefault(stat);
     public IReadOnlyDictionary<uint, int> Stats => stats;
+
+    public bool HasMark(uint caster, double now)
+    {
+        foreach (var mark in All.Values)
+            if (mark.Mark && mark.Caster == caster && mark.Until > now) return true;
+        return false;
+    }
+
+    public int DamageTaken(double now)
+    {
+        if (!hasCursedDamageTaken) return 0;
+        int pct = 0;
+        foreach (var curse in All.Values)
+            if (curse.Until > now) pct = Math.Max(pct, curse.CursedDamageTaken);
+        return pct;
+    }
 
     public void Put(Curse curse, int limit)
     {
@@ -41,6 +59,7 @@ public sealed class MonsterCurses(Action? changed = null)
     void Rebuild()
     {
         stats = [];
+        hasCursedDamageTaken = All.Values.Any(c => c.CursedDamageTaken > 0);
         // The same curse from several casters never stacks; take the strongest application as a whole.
         foreach (var family in All.Values.GroupBy(c => c.Effect))
             foreach (var (key, value) in family.MaxBy(c => c.Stats.Sum(p => Math.Abs((long)p.Value)))!.Stats)

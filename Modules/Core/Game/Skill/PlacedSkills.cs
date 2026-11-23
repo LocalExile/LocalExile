@@ -588,7 +588,8 @@ public static partial class Game
             if (placed.Offense?.Spider is { } spider)
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id),
                     m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m), m.MaimedUntil > now,
-                    spider.Melee && TargetAccuracy.InCloseRange(Dist(placed.At, m.Walk.Position(now))));
+                    spider.Melee && TargetAccuracy.InCloseRange(Dist(placed.At, m.Walk.Position(now))),
+                    ContactDamage(player, m, now, spider.Stats));
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(more).Roll(AreaRng(player)), now);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));

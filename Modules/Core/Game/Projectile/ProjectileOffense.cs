@@ -110,13 +110,14 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public ProjectileOffense Against(bool targetWasBlinded, int webs = 0, bool ignited = false, bool bleeding = false, bool lowLife = false)
         => Against(targetWasBlinded, webs, ignited, bleeding, lowLife, maimed: false);
 
-    internal ProjectileOffense Against(bool targetWasBlinded, int webs, bool ignited, bool bleeding, bool lowLife, bool maimed)
+    internal ProjectileOffense Against(bool targetWasBlinded, int webs, bool ignited, bool bleeding, bool lowLife, bool maimed,
+        Game.TargetContact contact = default)
     {
         if (Spider is { } spider)
         {
-            var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed);
+            var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed, contact: contact);
             return this with { Hit = profile.Hit.Scale(HitProfileMore), AreaHit = SpiderArea is { } area
-                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed).Hit.Scale(HitProfileMore) : AreaHit,
+                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed, contact: contact).Hit.Scale(HitProfileMore) : AreaHit,
                 Ignite = Scale(profile.Ignite, AilmentProfileMore), Bleed = Scale(profile.Bleed, AilmentProfileMore),
                 Poison = Scale(profile.Poison, AilmentProfileMore) };
         }

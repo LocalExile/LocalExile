@@ -65,6 +65,8 @@ public static class StatConditions
         "add_frenzy_charge_on_kill_%_chance_while_dual_wielding",
         "attack_speed_while_dual_wielding_+%",
         "consecrated_ground_enemy_damage_taken_+%_while_affected_by_zealotry",
+        // Evil Eye's condition is on the recipient of a curse; the caster need not be cursed.
+        "enemies_damage_taken_+%_while_cursed",
         "gain_arcane_surge_for_4_seconds_when_you_create_consecrated_ground_while_affected_by_zealotry",
         "block_while_dual_wielding_%",
         "block_while_dual_wielding_claws_%",
@@ -583,6 +585,8 @@ public static class StatConditions
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
+        // Evil Eye tests the recipient of the curse; the caster need not be cursed.
+        if (statId == "enemies_damage_taken_+%_while_cursed") return static _ => State.None;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {

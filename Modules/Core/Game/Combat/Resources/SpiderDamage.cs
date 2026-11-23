@@ -40,17 +40,18 @@ public static partial class Game
         => SpiderDamageProfile(source, webs, blinded, ignited, bleeding, lowLife, maimed: false);
 
     internal static PlacedSkills.DamageProfile SpiderDamageProfile(SpiderDamageSource source, int webs, bool blinded,
-        bool ignited, bool bleeding, bool lowLife, bool maimed, bool close = false)
+        bool ignited, bool bleeding, bool lowLife, bool maimed, bool close = false, TargetContact contact = default)
     {
         int RawStat(uint key) => source.Stats.GetValueOrDefault(key);
         bool attack = source.Attack && !source.Secondary;
         int Get(uint name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding, lowLife, attack);
         var target = TargetModifiers(RawStat, lowLife, maimed && attack, close && source.Melee && !source.Secondary,
-            claw: attack && source.Claw);
+            claw: attack && source.Claw, contact: contact);
         long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
+        int HitStat(uint name) => TargetHitStat(name, Get(name), contact);
         var hitGet = WeaponAttributeDamage.Read(source.Armed ?? (attack && WeaponAttributeDamage.Armed(
-            Get(source.OffHand ? Stat.OffHandWeaponType : Stat.MainHandWeaponType))), Get);
+            Get(source.OffHand ? Stat.OffHandWeaponType : Stat.MainHandWeaponType))), HitStat);
         var hit = PlayerHitDamage.Resolve(raw, hitGet, source.Conversion, spell: !source.Attack && !source.Secondary,
             melee: source.Melee, area: source.Area, projectile: source.Projectile, supportModifiers: source.Modifiers,
             skillTypes: source.Types, secondary: source.Secondary, wieldingWand: source.WieldingWand,
@@ -81,9 +82,10 @@ public static partial class Game
             CriticalMin = poison.CriticalMin * source.PoisonFactor, CriticalMax = poison.CriticalMax * source.PoisonFactor };
         var bleed = source.Attack ? BleedSettings(rows, hand, Get, source.Local, source.Melee, source.Bow,
             projectileAttack: source.Projectile) : MonsterIgnites.Settings.None;
-        if (target.More == 1) return new(hit, ignite, bleed, poison);
-        return new(hit.Scale(target.More), RepeatAilment(ignite, target.More), RepeatAilment(bleed, target.More),
-            RepeatAilment(poison, target.More));
+        if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
+        if (target.AilmentMore == 1) return new(hit, ignite, bleed, poison);
+        return new(hit, RepeatAilment(ignite, target.AilmentMore), RepeatAilment(bleed, target.AilmentMore),
+            RepeatAilment(poison, target.AilmentMore));
     }
 
     static IReadOnlyDictionary<uint, int> SpiderAttackStats(IReadOnlyDictionary<uint, int> player, int webs)

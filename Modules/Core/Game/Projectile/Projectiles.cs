@@ -747,8 +747,9 @@ public static partial class Game
             // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
             // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats) : default;
             shot = shot.Against(Blinded(Player, contact.Target.Id), target.SpiderWebs.Count(at),
-                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target), target.MaimedUntil > at);
+                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target), target.MaimedUntil > at, conditional);
             double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
             if (overexertionMore != 1)
                 shot = shot with
