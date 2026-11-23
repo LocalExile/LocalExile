@@ -388,10 +388,14 @@ public static partial class Game
     }
 
     public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        bool? channelled = null, double costMore = 1)
+        bool? channelled = null, double costMore = 1) =>
+        MergeSkillStats(player, own, channelled, costMore, CostEfficiency.None);
+
+    static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
+        bool? channelled, double costMore, CostEfficiency efficiency)
     {
         var result = new Dictionary<uint, int>(player);
-        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore);
+        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, efficiency);
         return result;
     }
 

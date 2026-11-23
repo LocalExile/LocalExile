@@ -36,7 +36,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
             recovery += (long)Get(player, Stat.WarcryCooldownSpeedPlusPct) + Get(own, Stat.WarcryCooldownSpeedPlusPct);
         if (skills.IsMovement(effect))
             recovery += (long)Get(player, Stat.MovementSkillsCooldownSpeedPlusPct) + Get(own, Stat.MovementSkillsCooldownSpeedPlusPct);
-        if (StanceCatalog.IsStance(skills.EffectId(effect)))
+        if (skills.HasType(effect, "Stance"))
             recovery += (long)Get(player, Stat.StanceSkillCooldownSpeedPlusPct) + Get(own, Stat.StanceSkillCooldownSpeedPlusPct);
         if (skills.EffectId(effect) is "GeneralsCry" or "GeneralsCryAltX" or "GeneralsCryAltY")
             recovery += (long)Get(player, Stat.GeneralsCryCooldownSpeedPlusPct) + Get(own, Stat.GeneralsCryCooldownSpeedPlusPct);

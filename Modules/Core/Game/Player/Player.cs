@@ -378,7 +378,8 @@ public static partial class Game
         cost = (uint)Math.Max(0, Read(Stat.ManaCost));
         int Own(uint key) => own.GetValueOrDefault(key);
         int nativeLife = Math.Max(0, Read(Stat.LifeCost));
-        long flatLife = 0;
+        int convertedLife = 0;
+        int petrifiedLife = 0;
         // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
         // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
         // it would divide no longer exists.
@@ -386,31 +387,38 @@ public static partial class Game
         {
             // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
             // therefore zero: the two conversions do not stack into 140%.
-            life = (int)Math.Min(cost, int.MaxValue);
+            convertedLife = (int)Math.Min(cost, int.MaxValue);
             cost = 0;
         }
         else
         {
-            int lifeBasis = (int)Math.Min(cost, int.MaxValue);
-            if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0)
-                lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stat.ManaCost),
-                    Read, channelled, SkillCostMore(player, own), applyManaEfficiency: false);
-            life = PetrifiedBlood.LifeCost(player, lifeBasis);
-            int split = Math.Clamp(Read(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100);
-            if (split > 0 && skills.IsAttack(effect))
+            int lifeBasis;
+            if (Read(Stat.MarkSkillsCostNoMana) != 0 && skills.HasType(effect, "Mark"))
             {
-                long convertedBase = ((long)Math.Max(0, Own(Stat.ManaCost)) * split + 50) / 100;
-                int nativeBase = Own(Stat.LifeCost);
-                nativeLife = ActorScale.Saturate((long)nativeLife + ManaRecoveryRules.LifeCost(nativeBase + convertedBase, Read)
-                    - ManaRecoveryRules.LifeCost(nativeBase, Read));
-                flatLife = (Math.Max(0, ManaRecoveryRules.FlatManaCost(Read, channelled)) * split + 50) / 100;
-                cost = (uint)(cost * (100L - split) / 100);
+                cost = 0;
+                lifeBasis = 0;
             }
+            else if (Math.Clamp(Read(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100) is int split and > 0
+                && skills.IsAttack(effect) && own.TryGetValue(Stat.ManaCost, out int baseMana))
+            {
+                (int remainingMana, lifeBasis, convertedLife) = ManaRecoveryRules.SplitCostToLife(
+                    baseMana, Read, channelled, SkillCostMore(player, own), split);
+                cost = (uint)remainingMana;
+            }
+            else
+            {
+                lifeBasis = (int)Math.Min(cost, int.MaxValue);
+                if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
+                    && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                    lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
+                        applyManaEfficiency: false);
+            }
+            petrifiedLife = PetrifiedBlood.LifeCost(player, lifeBasis);
         }
         if (nativeLife > 0 && BloodCharges.Uses(Own))
             nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
                 * BloodCharges.More(Own(BloodCharges.CostPerCharge), player.BloodCharges)));
-        life = (int)Math.Min(int.MaxValue, (long)nativeLife + life + flatLife);
+        life = (int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife);
         es = (uint)Math.Max(0, Read(Stat.EsCost));
         if (costPercent != 100)
         {
@@ -420,7 +428,6 @@ public static partial class Game
         }
         if (es > player.EnergyShield.Current) return false;
         bool Has(uint name) => Read(name) != 0;
-        if (Has(Stat.MarkSkillsCostNoMana) && skills.HasType(effect, "Mark")) cost = 0;
         if (Has(Stat.VirtualSpendEnergyShieldForCostsBeforeMana) || Has(Stat.KeystoneEldritchBattery))
             fromEs = Math.Min(cost, player.EnergyShield.Current - es);
         return player.PlayerMana >= cost - fromEs && !(life > 0 && player.PlayerLife <= (uint)life);
@@ -443,7 +450,7 @@ public static partial class Game
     public static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(player, skillId, out cost, out lifeCost, 100);
 
-    static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent, bool useSpell = true)
+    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent, bool useSpell = true)
     {
         var supported = SupportedSkill(player, skillId);
         var own = supported.Stats;
