@@ -202,7 +202,7 @@ The client tells the player itself, so the server sends no text. After a pick in
 `DefaultPortraitFrame` / `DefaultCharacterPortrait` for an emptied slot: "You must log out and in again for the change
 to take effect" (a 0x17 line of the same text showed twice, live 2026-10-31). So a pick is kept apart from what is shown. The account store's `PortraitFrame` takes it at once (control op
 `set_portrait_frame`) and the character list shows it; the login session copies it at Play, tickets carry that copy
-through area changes, and "resolve" gives it to the Gateway (`ClientState.PortraitFrame`). Live 2026-10-31 (a 0x1f9
+through area changes, and "resolve" gives it to the Gateway (`Player.PortraitFrame`). Live 2026-10-31 (a 0x1f9
 through the bridge, watching the image loader `0x14186bfe0`): frame 3 asked for and loaded `SupporterIconFrame3` at
 selection, in game and, through 0xa7, in a party member's client; +0x1a8 stayed 0 through an area change after the pick
 and was 3 after the next Play.

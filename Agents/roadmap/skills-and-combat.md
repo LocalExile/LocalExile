@@ -59,7 +59,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     Reap's damage over time debuff, Vaal Reap's temporary Blood Charge maximum, and executing the secondary hits
     beyond Bear Trap's hit (Herald of Ice, Bear Trap's immobilise and decaying debuff).
     The charge gains, triggers, per-charge targets and charge types [11](../docs/protocol/11-skills.md) §15 lists as
-    not modelled (Divine, Brine, Crab, Fanatic and Celestial Charges, stealing, the Charged Traps/Mines supports).
+    not modelled (Divine, Brine, Crab, Fanatic and Celestial Charges, and stealing).
   - Deferred (owner's decision, 2026-10-29): Spirit and Siphoning Charges. Their only 3.29 player sources are unique
     mods (`maximum_spirit_charges_per_abyss_jewel_equipped`,
     `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need unique definitions beyond

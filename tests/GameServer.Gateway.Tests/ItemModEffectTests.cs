@@ -31,9 +31,9 @@ public sealed class ItemModEffectTests
             Assert.Equal(65, ItemModStats.LevelRequirement(restored, 1, items.Mods));
             Assert.Null((restored with { Mods = [.. restored.Mods] }).RequiredLevel);
             Assert.Null((restored with { Sockets = [new(SocketColour.Red)] }).RequiredLevel);
-            Assert.Equal(149, ItemModStats.Sum([restored], items.Mods)["additional_strength"]);
-            Assert.Equal(60, ItemModStats.Sum([restored], items.Mods)["base_fire_damage_resistance_%"]); // Helical's 50%, no attribute catalyst on resistance.
-            Assert.Equal(132, ItemModStats.Sum([restored with { Quality = 0 }], items.Mods)["additional_strength"]);
+            Assert.Equal(149, ItemModStats.Sum([restored], items.Mods)[Stat.AdditionalStrength]);
+            Assert.Equal(60, ItemModStats.Sum([restored], items.Mods)[Stat.BaseFireDamageResistancePct]); // Helical's 50%, no attribute catalyst on resistance.
+            Assert.Equal(132, ItemModStats.Sum([restored with { Quality = 0 }], items.Mods)[Stat.AdditionalStrength]);
             // A Mods-only frame isolates the two documented properties after ObjectMagicProperties.
             var frame = (new Item(1, ["Mods"], 1) with { Intangibility = 74, MemoryStrands = 27 }).Payload();
             Assert.Equal(new byte[] { 27, 74 }, frame[^2..]);
@@ -43,7 +43,7 @@ public sealed class ItemModEffectTests
             MagicProperties.Write(quality, 0, true, [], alternateQualityType: 6, alternateQuality: 20);
             Assert.Equal(new byte[] { 8, 2, 0, 6, 20 }, quality.ToArray());
             Assert.Equal(355, ItemDefences.Of(new(150, 150, 0, 0),
-                new Dictionary<string, int> { ["local_physical_damage_reduction_rating_+%"] = 137 }, 0).Armour);
+                new Dictionary<uint, int> { [Stat.LocalPhysicalDamageReductionRatingPlusPct] = 137 }, 0).Armour);
             Assert.Equal(157, ItemDefences.Ward(new Item(1, [], 1) with { Quality = 20, DefenceBaseRoll = 31 },
                 new(0, 0, 0, 0, WardMin: 100, WardMax: 131), items.Mods));
         }
@@ -63,21 +63,21 @@ public sealed class ItemModEffectTests
         item = With(items, item, "StrengthImplicitBelt1", ModSection.Implicit, 20);
 
         var stats = ItemModStats.Sum([item], items.Mods);
-        Assert.Equal(160, stats.GetValueOrDefault("base_maximum_life"));
-        Assert.Equal(20, stats.GetValueOrDefault("additional_strength"));
+        Assert.Equal(160, stats.GetValueOrDefault(Stat.BaseMaximumLife));
+        Assert.Equal(20, stats.GetValueOrDefault(Stat.AdditionalStrength));
         // The effect stat itself is never scaled, or it would raise itself.
-        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct));
         var local = ItemModStats.Local(item, items.Mods);
         local.Clear();
-        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct));
         var changed = item with
         {
             Mods = [.. item.Mods.Select(m => m with { Values = [.. m.Values.Select(v => v + 1)] })],
         };
         Assert.Equal(ItemModStats.Sum([changed], items.Mods, local: true).OrderBy(p => p.Key),
             ItemModStats.Local(changed, items.Mods).OrderBy(p => p.Key));
-        Assert.NotEqual(ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"),
-            ItemModStats.Local(changed, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        Assert.NotEqual(ItemModStats.Local(item, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct),
+            ItemModStats.Local(changed, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct));
     }
 
     [Fact]
@@ -90,8 +90,8 @@ public sealed class ItemModEffectTests
         cogwork = With(items, cogwork, "FireResist1", ModSection.Explicit, 40);
 
         var stats = ItemModStats.Sum([cogwork], items.Mods);
-        Assert.Equal(80, stats.GetValueOrDefault("base_maximum_life"));
-        Assert.Equal(50, stats.GetValueOrDefault("base_fire_damage_resistance_%")); // 40 * 1.25
+        Assert.Equal(80, stats.GetValueOrDefault(Stat.BaseMaximumLife));
+        Assert.Equal(50, stats.GetValueOrDefault(Stat.BaseFireDamageResistancePct)); // 40 * 1.25
         Assert.Equal((2, 4), rolls.RareMaxAffixes(cogwork));
 
         var composite = ItemCatalog.Create(items.All.First(t => t.Name == "Composite Ring"));
@@ -113,27 +113,27 @@ public sealed class ItemModEffectTests
         var item = With(items, plain, "ArmourEnchantmentHeistDefenceEffectAttributeRequirements1", ModSection.Enchant, 15, -25);
 
         Program.SetGameLogic(null!);
-        Assert.Equal(110, ItemModStats.Local(item, items.Mods)["local_energy_shield"]);
-        Assert.Equal(50, ItemModStats.Sum([item], items.Mods)["global_defences_+%"]);
+        Assert.Equal(110, ItemModStats.Local(item, items.Mods)[Stat.LocalEnergyShield]);
+        Assert.Equal(50, ItemModStats.Sum([item], items.Mods)[Stat.GlobalDefencesPlusPct]);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var local = ItemModStats.Local(item, items.Mods);
-        Assert.Equal(125, local["local_energy_shield"]); // 115 from the explicit and 10 from the implicit.
-        Assert.Equal(126, local["local_energy_shield_+%"]);
-        Assert.Equal(15, local["heist_enchantment_defence_mod_effect_+%"]);
-        Assert.Equal(-25, local["local_attribute_requirements_+%"]);
+        Assert.Equal(125, local[Stat.LocalEnergyShield]); // 115 from the explicit and 10 from the implicit.
+        Assert.Equal(126, local[Stat.LocalEnergyShieldPlusPct]);
+        Assert.Equal(15, local[Stat.HeistEnchantmentDefenceModEffectPlusPct]);
+        Assert.Equal(-25, local[Stat.LocalAttributeRequirementsPlusPct]);
 
         var global = ItemModStats.Sum([item], items.Mods);
-        Assert.Equal(57, global["global_defences_+%"]);
-        Assert.Equal(-57, global["maximum_energy_shield_+%"]);
-        Assert.Equal(25, global["base_fire_damage_resistance_%"]);
-        Assert.Equal(107, ItemModStats.Sum([item, plain], items.Mods)["global_defences_+%"]);
+        Assert.Equal(57, global[Stat.GlobalDefencesPlusPct]);
+        Assert.Equal(-57, global[Stat.MaximumEnergyShieldPlusPct]);
+        Assert.Equal(25, global[Stat.BaseFireDamageResistancePct]);
+        Assert.Equal(107, ItemModStats.Sum([item, plain], items.Mods)[Stat.GlobalDefencesPlusPct]);
         Assert.Equal(new[] { 100, 110, 50, -50, 25, 10, 15, -25 }, item.Mods.SelectMany(mod => mod.Values));
 
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        Assert.Equal(125, ItemModStats.Local(item, items.Mods)["local_energy_shield"]);
+        Assert.Equal(125, ItemModStats.Local(item, items.Mods)[Stat.LocalEnergyShield]);
         Program.SetGameLogic(null!);
-        Assert.Equal(110, ItemModStats.Local(item, items.Mods)["local_energy_shield"]);
-        Assert.Equal(-50, ItemModStats.Sum([item], items.Mods)["maximum_energy_shield_+%"]);
+        Assert.Equal(110, ItemModStats.Local(item, items.Mods)[Stat.LocalEnergyShield]);
+        Assert.Equal(-50, ItemModStats.Sum([item], items.Mods)[Stat.MaximumEnergyShieldPlusPct]);
     }
 
     [Fact]
@@ -157,8 +157,8 @@ public sealed class ItemModEffectTests
             var local = ItemModStats.Local(enchanted, items.Mods);
             foreach (var (element, _, _) in variants)
             {
-                Assert.Equal(element == matched ? 35 : 33, local[$"local_minimum_added_{element}_damage"]);
-                Assert.Equal(element == matched ? 50 : 47, local[$"local_maximum_added_{element}_damage"]);
+                Assert.Equal(element == matched ? 35 : 33, local[Stat.Of($"local_minimum_added_{element}_damage")]);
+                Assert.Equal(element == matched ? 50 : 47, local[Stat.Of($"local_maximum_added_{element}_damage")]);
             }
         }
 
@@ -166,20 +166,20 @@ public sealed class ItemModEffectTests
         caster = With(items, caster, "IncreasedCastSpeed1", ModSection.Explicit, 33);
         caster = With(items, caster, "WeaponEnchantmentHeistCasterDamageEffect1", ModSection.Enchant, 8);
         var casterStats = ItemModStats.Sum([caster], items.Mods);
-        Assert.Equal(35, casterStats["spell_damage_+%"]);
-        Assert.Equal(33, casterStats["base_cast_speed_+%"]);
+        Assert.Equal(35, casterStats[Stat.SpellDamagePlusPct]);
+        Assert.Equal(33, casterStats[Stat.BaseCastSpeedPlusPct]);
 
         var dual = With(items, weapon, "ChanceToAvoidIgniteEssence4", ModSection.Explicit, 43);
         dual = With(items, dual, "WeaponEnchantmentHeistFireEffectAilmentEffect1_", ModSection.Enchant, 6, 6);
-        Assert.Equal(48, ItemModStats.Sum([dual], items.Mods)["base_avoid_ignite_%"]);
+        Assert.Equal(48, ItemModStats.Sum([dual], items.Mods)[Stat.BaseAvoidIgnitePct]);
 
         var penalty = With(items, weapon, "LocalIncreasedAttackSpeed1", ModSection.Explicit, 20);
         penalty = With(items, penalty, "LocalReducedPhysicalDamagePercentUniqueBow8", ModSection.Explicit, -120);
         penalty = With(items, penalty, "WeaponEnchantmentHeistSpeedEffectDamageEffectPenalty1", ModSection.Enchant, 12, -25);
         var penalized = ItemModStats.Local(penalty, items.Mods);
-        Assert.Equal(22, penalized["local_attack_speed_+%"]);
-        Assert.Equal(24, penalized["local_minimum_added_fire_damage"]);
-        Assert.Equal(-120, penalized["local_weapon_no_physical_damage"]);
+        Assert.Equal(22, penalized[Stat.LocalAttackSpeedPlusPct]);
+        Assert.Equal(24, penalized[Stat.LocalMinimumAddedFireDamage]);
+        Assert.Equal(-120, penalized[Stat.LocalWeaponNoPhysicalDamage]);
     }
 
     sealed class GameRules : IDisposable

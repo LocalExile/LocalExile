@@ -40,33 +40,33 @@ public sealed class PassiveConditionTests
     public void Keystones_never_crit_and_the_tree_s_weapon_rows_reach_the_hit()
     {
         using var f = new MinionUtilityTests.Fixture();
-        var resolute = new Dictionary<uint, int> { [Program.Stats.Key("resolute_technique")!.Value] = 1 };
+        var resolute = new Dictionary<uint, int> { [Stat.ResoluteTechnique] = 1 };
         Assert.True(Game.CriticalProhibitedBy(resolute, attack: true, own: null));
         Assert.False(Game.CriticalProhibitedBy(resolute, attack: false, own: null));
-        Assert.True(AttackAccuracyProfile.From(f.Conn.Pools, resolute, Program.Stats, own: null, local: null)
+        Assert.True(AttackAccuracyProfile.From(f.Player.Pools, resolute, Program.Stats, own: null, local: null)
             .CannotBeEvaded);
 
-        var precise = new Dictionary<uint, int> { [Program.Stats.Key("keystone_precise_technique")!.Value] = 1 };
+        var precise = new Dictionary<uint, int> { [Stat.KeystonePreciseTechnique] = 1 };
         Assert.True(Game.CriticalProhibitedBy(precise, attack: true, own: null));
 
-        foreach (string keystone in new[] { "keystone_elemental_overload", "keystone_ailment_crit" })
+        foreach (uint keystone in new[] { Stat.KeystoneElementalOverload, Stat.KeystoneAilmentCrit })
             Assert.True(Game.CriticalHitsDealNoExtraDamage(
-                new Dictionary<uint, int> { [Program.Stats.Key(keystone)!.Value] = 1 }));
+                new Dictionary<uint, int> { [keystone] = 1 }));
         Assert.False(Game.CriticalHitsDealNoExtraDamage(new Dictionary<uint, int>()));
 
         // The tree's "with <weapon type>" rows (issue #1102, batch 1): the plain rows join the common bucket, the
         // physical rows (including two-handed melee) and the per-element rows their own.
         var stats = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("mace_damage_+%")!.Value] = 30,
-            [Program.Stats.Key("physical_mace_damage_+%")!.Value] = 20,
-            [Program.Stats.Key("two_handed_melee_physical_damage_+%")!.Value] = 40,
-            [Program.Stats.Key("fire_mace_damage_+%")!.Value] = 15,
-            [Program.Stats.Key("sword_damage_+%")!.Value] = 99,
-            [Program.Stats.Key("two_handed_weapon_hit_and_ailment_damage_+%")!.Value] = 60,
-            [Program.Stats.Key("damage_+%_with_one_handed_weapons")!.Value] = 25,
+            [Stat.MaceDamagePlusPct] = 30,
+            [Stat.PhysicalMaceDamagePlusPct] = 20,
+            [Stat.TwoHandedMeleePhysicalDamagePlusPct] = 40,
+            [Stat.FireMaceDamagePlusPct] = 15,
+            [Stat.SwordDamagePlusPct] = 99,
+            [Stat.TwoHandedWeaponHitAndAilmentDamagePlusPct] = 60,
+            [Stat.DamagePlusPctWithOneHandedWeapons] = 25,
         };
-        int Get(string name) => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         var twoHandMace = new SkillCatalog.Unarmed(1000, 10, 20, 10) { ItemClass = "Two Hand Mace" };
         Assert.Equal(90, SupportedAttackDamage.WeaponIncrease(twoHandMace, Get));
         var increases = WeaponTypeDamage.Of(twoHandMace, Get);
@@ -85,28 +85,28 @@ public sealed class PassiveConditionTests
         // the common bucket, its physical row the physical one. 100 physical * 70% bleed * 60 s * 1.75.
         var ailmentStats = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("main_hand_weapon_type")!.Value] = 4,   // two hand mace
-            [Program.Stats.Key("mace_ailment_damage_+%")!.Value] = 25,
-            [Program.Stats.Key("two_handed_melee_weapon_ailment_damage_+%")!.Value] = 40,
-            [Program.Stats.Key("physical_mace_damage_+%")!.Value] = 10,
+            [Stat.MainHandWeaponType] = 4,   // two hand mace
+            [Stat.MaceAilmentDamagePlusPct] = 25,
+            [Stat.TwoHandedMeleeWeaponAilmentDamagePlusPct] = 40,
+            [Stat.PhysicalMaceDamagePlusPct] = 10,
         };
-        int AilmentGet(string name) => Program.Stats.Key(name) is uint key ? ailmentStats.GetValueOrDefault(key) : 0;
+        int AilmentGet(uint key) => ailmentStats.GetValueOrDefault(key);
         var bleed = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true),
                 DamagePacket.Of(DamageType.Physical, new DamageRange(100, 100)), new DamageConversion(), AilmentGet)
             .ToDictionary(r => r.Stat, r => r.Value);
-        Assert.Equal(7350, bleed["maximum_bleeding_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
+        Assert.Equal(7350, bleed[Stat.MaximumBleedingDamageToDealPerMinuteFromNonCriticalMainHandDamage]);
 
         // Unwavering Stance and Arrow Dancing change the rating an enemy attack rolls against, and Unwavering Stance
         // also stops the player's stun.
-        int NoKeystones(string name) => 0;
+        int NoKeystones(uint key) => 0;
         Assert.Equal(1000, EvasionKeystones.Rating(1000, projectile: true, melee: false, NoKeystones));
-        var unwavering = new Dictionary<uint, int> { [Program.Stats.Key("keystone_unwavering_stance")!.Value] = 1 };
-        int Unwavering(string name) => Program.Stats.Key(name) is uint key ? unwavering.GetValueOrDefault(key) : 0;
+        var unwavering = new Dictionary<uint, int> { [Stat.KeystoneUnwaveringStance] = 1 };
+        int Unwavering(uint key) => unwavering.GetValueOrDefault(key);
         Assert.Equal(0, EvasionKeystones.Rating(1000, projectile: true, melee: false, Unwavering));
         Assert.Equal(0, PlayerHitRecovery.Chance(100, 1000, Unwavering));
         Assert.True(PlayerHitRecovery.Chance(100, 1000, NoKeystones) > 0);
-        var arrowDancing = new Dictionary<uint, int> { [Program.Stats.Key("keystone_projectile_evasion")!.Value] = 1 };
-        int Dancing(string name) => Program.Stats.Key(name) is uint key ? arrowDancing.GetValueOrDefault(key) : 0;
+        var arrowDancing = new Dictionary<uint, int> { [Stat.KeystoneProjectileEvasion] = 1 };
+        int Dancing(uint key) => arrowDancing.GetValueOrDefault(key);
         Assert.Equal(2000, EvasionKeystones.Rating(1000, projectile: true, melee: false, Dancing));
         Assert.Equal(750, EvasionKeystones.Rating(1000, projectile: false, melee: true, Dancing));
         Assert.Equal(1000, EvasionKeystones.Rating(1000, projectile: false, melee: false, Dancing));
@@ -114,7 +114,7 @@ public sealed class PassiveConditionTests
         // Magebane: Dexterity's inherent evasion bonus is gone (its accuracy bonus is not), and every 15 Dexterity is
         // 1% spell suppression. 300 Dexterity: 15 base evasion stays 15 instead of 24, and 20% suppression. The sheet
         // takes generic inputs; Core's PassiveBonus turns the keystone into them.
-        var classInfo = Game.SkillsFor(f.Conn).ClassFor(f.Conn.ClassRow);
+        var classInfo = Game.SkillsFor(f.Player).ClassFor(f.Player.Character.ClassRow);
         var plain = CharacterStats.For(classInfo, 90, new CharacterStats.Bonus(Dexterity: 300));
         var magebane = CharacterStats.For(classInfo, 90, new CharacterStats.Bonus(Dexterity: 300,
             NoDexterityEvasion: true, SpellSuppressionPerFifteenDexterity: 1));
@@ -123,31 +123,31 @@ public sealed class PassiveConditionTests
         Assert.Equal(0, plain.SpellSuppressionChance);
         Assert.Equal(20, magebane.SpellSuppressionChance);
         Assert.Equal(plain.Accuracy, magebane.Accuracy);
-        var magebaneStats = new Dictionary<uint, int> { [Program.Stats.Key("keystone_magebane")!.Value] = 1 };
+        var magebaneStats = new Dictionary<uint, int> { [Stat.KeystoneMagebane] = 1 };
         var magebaneBonus = Game.PassiveBonus(magebaneStats, new WeaponProfile(false, false, false, false, false), default);
         Assert.True(magebaneBonus.NoDexterityEvasion);
         Assert.Equal(1, magebaneBonus.SpellSuppressionPerFifteenDexterity);
 
         // Pain Attunement: 30% more Spell Damage on low life, and nothing off it.
         var fire = DamagePacket.Of(DamageType.Fire, new DamageRange(100, 100));
-        int SpellGet(string name) => name switch
+        int SpellGet(uint key) => key switch
         {
-            "keystone_pain_attunement" => 1,
-            "on_low_life" => 1,
+            Stat.KeystonePainAttunement => 1,
+            Stat.OnLowLife => 1,
             _ => 0,
         };
         Assert.Equal(130, PlayerHitDamage.Resolve(fire, SpellGet, new DamageConversion(), spell: true)[DamageType.Fire].Max);
-        int NotLow(string name) => name == "keystone_pain_attunement" ? 1 : 0;
+        int NotLow(uint key) => key == Stat.KeystonePainAttunement ? 1 : 0;
         Assert.Equal(100, PlayerHitDamage.Resolve(fire, NotLow, new DamageConversion(), spell: true)[DamageType.Fire].Max);
 
         // Elemental Overload: the window's 40% more reaches a spell, an attack and an elemental ailment; and while the
         // keystone is allocated an ailment is never from a critical strike (no critical ailment multiplier, and the
         // application rolls the hit's chance instead of a critical strike's guaranteed one).
-        int Overload(string name) => name switch
+        int Overload(uint key) => key switch
         {
-            "keystone_elemental_overload" => 1,
-            "keystone_elemental_overload_damage_+%_final" => 40,
-            "critical_ailment_dot_multiplier_+" => 50,
+            Stat.KeystoneElementalOverload => 1,
+            Stat.KeystoneElementalOverloadDamagePlusPctFinal => 40,
+            Stat.CriticalAilmentDotMultiplierPlus => 50,
             _ => 0,
         };
         Assert.Equal(140, PlayerHitDamage.Resolve(fire, Overload, new DamageConversion(), spell: true)[DamageType.Fire].Max);
@@ -155,17 +155,17 @@ public sealed class PassiveConditionTests
         var overloadRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
                 new DamageConversion(), Overload).ToDictionary(r => r.Stat, r => r.Value);
         // 100 fire * 90% ignite * 60 s * 1.4, the same on a critical strike (its +50% multiplier does not apply).
-        Assert.Equal(7560, overloadRows["maximum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
-        Assert.Equal(7560, overloadRows["maximum_ignite_damage_to_deal_per_minute_from_critical_main_hand_damage"]);
+        Assert.Equal(7560, overloadRows[Stat.MaximumIgniteDamageToDealPerMinuteFromNonCriticalMainHandDamage]);
+        Assert.Equal(7560, overloadRows[Stat.MaximumIgniteDamageToDealPerMinuteFromCriticalMainHandDamage]);
         var overloadSettings = MonsterIgnites.Settings.From(overloadRows.Select(kv => (kv.Key, kv.Value)), "main_hand", Overload);
         Assert.True(overloadSettings.NeverFromCrit);
         Assert.False(new MonsterIgnites().TryApply(overloadSettings, critical: true, 0, 0, false, new Random(1)));
         // Without the keystone the critical row keeps its multiplier and a critical strike always ignites.
-        int NoOverload(string name) => name == "critical_ailment_dot_multiplier_+" ? 50 : 0;
+        int NoOverload(uint key) => key == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0;
         var plainRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
                 new DamageConversion(), NoOverload).ToDictionary(r => r.Stat, r => r.Value);
-        Assert.Equal(5400, plainRows["maximum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
-        Assert.Equal(8100, plainRows["maximum_ignite_damage_to_deal_per_minute_from_critical_main_hand_damage"]);
+        Assert.Equal(5400, plainRows[Stat.MaximumIgniteDamageToDealPerMinuteFromNonCriticalMainHandDamage]);
+        Assert.Equal(8100, plainRows[Stat.MaximumIgniteDamageToDealPerMinuteFromCriticalMainHandDamage]);
         var plainSettings = MonsterIgnites.Settings.From(plainRows.Select(kv => (kv.Key, kv.Value)), "main_hand", NoOverload);
         Assert.False(plainSettings.NeverFromCrit);
         Assert.True(new MonsterIgnites().TryApply(plainSettings, critical: true, 0, 0, false, new Random(1)));
@@ -177,39 +177,39 @@ public sealed class PassiveConditionTests
         Assert.True(events.SkillCritRecently("ImmortalCall", 17.999));
         Assert.False(events.SkillCritRecently("ImmortalCall", 18));
         Assert.False(events.SkillCritRecently("Fireball", 11));
-        var withKeystone = new Dictionary<uint, int> { [Program.Stats.Key("keystone_elemental_overload")!.Value] = 1 };
-        double now = f.Conn.Clock.Elapsed.TotalSeconds;
-        f.Conn.RecentEvents.RecordSkillCrit("ImmortalCall", now, true);
-        var bonusKey = Program.Stats.Key("keystone_elemental_overload_damage_+%_final")!.Value;
+        var withKeystone = new Dictionary<uint, int> { [Stat.KeystoneElementalOverload] = 1 };
+        double now = Game.AreaTime(f.Player);
+        f.Player.RecentEvents.RecordSkillCrit("ImmortalCall", now, true);
+        var bonusKey = Stat.KeystoneElementalOverloadDamagePlusPctFinal;
         var opened = new Dictionary<uint, int>(withKeystone);
-        Assert.True(Game.AddElementalOverload(f.Conn, "ImmortalCall", opened));
+        Assert.True(Game.AddElementalOverload(f.Player, "ImmortalCall", opened));
         Assert.Equal(40, opened.GetValueOrDefault(bonusKey));
         var closed = new Dictionary<uint, int>(withKeystone);
-        Assert.False(Game.AddElementalOverload(f.Conn, "Fireball", closed));
+        Assert.False(Game.AddElementalOverload(f.Player, "Fireball", closed));
         Assert.Equal(0, closed.GetValueOrDefault(bonusKey));
         // A critical strike without the keystone records nothing and sends nothing (this runs on every hit).
-        Assert.Null(Game.ElementalOverloadCritLocked(f.Conn, SkillCatalog.FirstSkillId, "Fireball",
+        Assert.Null(Game.ElementalOverloadCritLocked(f.Player, SkillCatalog.FirstSkillId, "Fireball",
             new Dictionary<uint, int>(), critical: true));
-        Assert.False(f.Conn.RecentEvents.SkillCritRecently("Fireball", now));
+        Assert.False(f.Player.RecentEvents.SkillCritRecently("Fireball", now));
 
         // Perfect Agony: the ailment DoT multiplier becomes the critical strike multiplier (150 + 150 = 300%), other DoT
         // multiplier sources ignored; only critical strikes inflict ailments, and with Elemental Overload none do.
-        int Agony(string name) => name switch
+        int Agony(uint key) => key switch
         {
-            "keystone_ailment_crit" => 1,
-            "base_critical_strike_multiplier_+" => 150,
-            "dot_multiplier_+" => 100,   // ignored under Perfect Agony
+            Stat.KeystoneAilmentCrit => 1,
+            Stat.BaseCriticalStrikeMultiplierPlus => 150,
+            Stat.DotMultiplierPlus => 100,   // ignored under Perfect Agony
             _ => 0,
         };
         var agonyRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
                 new DamageConversion(), Agony).ToDictionary(r => r.Stat, r => r.Value);
-        Assert.Equal(16200, agonyRows["maximum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
+        Assert.Equal(16200, agonyRows[Stat.MaximumIgniteDamageToDealPerMinuteFromNonCriticalMainHandDamage]);
         var agonySettings = MonsterIgnites.Settings.From(agonyRows.Select(kv => (kv.Key, kv.Value)), "main_hand", Agony);
         Assert.True(agonySettings.OnlyFromCrit);
         Assert.False(new MonsterIgnites().TryApply(agonySettings, critical: false, 0, 0, false, new Random(1)));
         Assert.True(new MonsterIgnites().TryApply(agonySettings, critical: true, 0, 0, false, new Random(1)));
-        int Both(string name) => name is "keystone_ailment_crit" or "keystone_elemental_overload" ? 1
-            : name == "base_critical_strike_multiplier_+" ? 150 : 0;
+        int Both(uint key) => key is Stat.KeystoneAilmentCrit or Stat.KeystoneElementalOverload ? 1
+            : key == Stat.BaseCriticalStrikeMultiplierPlus ? 150 : 0;
         var bothRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
                 new DamageConversion(), Both).ToDictionary(r => r.Stat, r => r.Value);
         var bothSettings = MonsterIgnites.Settings.From(bothRows.Select(kv => (kv.Key, kv.Value)), "main_hand", Both);
@@ -217,10 +217,10 @@ public sealed class PassiveConditionTests
 
         // Perfect Agony gates the non-damaging ailments too: a non-critical hit inflicts no chill, freeze or shock, and
         // Elemental Overload makes every hit count as non-critical for ailments, so the two together inflict none.
-        Func<string, int> Elemental(int agony, int overload) => name => name switch
+        Func<uint, int> Elemental(int agony, int overload) => key => key switch
         {
-            "keystone_ailment_crit" => agony,
-            "keystone_elemental_overload" => overload,
+            Stat.KeystoneAilmentCrit => agony,
+            Stat.KeystoneElementalOverload => overload,
             _ => 0,
         };
         var coldHit = DamagePacket.Of(DamageType.Cold, 10, 10);
@@ -236,7 +236,7 @@ public sealed class PassiveConditionTests
 
         // Lethe Shade: ailments on you last twice as long (a reflected one does not), and the damaging-ailment DoT you
         // take is halved while one started within the past second.
-        int Lethe(string name) => name == "keystone_lethe_shade" ? 1 : 0;
+        int Lethe(uint key) => key == Stat.KeystoneLetheShade ? 1 : 0;
         Assert.Equal(2, Game.LetheShadeAilmentDuration(Lethe));
         Assert.Equal(1, Game.LetheShadeAilmentDuration(_ => 0));
         var letheBleed = new IncomingDamagingAilments();
@@ -259,10 +259,10 @@ public sealed class PassiveConditionTests
 
         // Vaal Pact: melee life leech is instant, non-melee life leech is not; non-leech life recovery is blocked while
         // leech itself still recovers.
-        int Vaal(string name) => name == "keystone_vaal_pact" ? 1 : 0;
+        int Vaal(uint key) => key == Stat.KeystoneVaalPact ? 1 : 0;
         Assert.True(LifeRecovery.NonLeechBlocked(Vaal));
         Assert.False(LifeRecovery.NonLeechBlocked(_ => 0));
-        ClientState VaalPlayer(uint life) => new(new(1, "vaal", 300, 300, 100, 100, null, []), 1, 1)
+        Player VaalPlayer(uint life) => new(new(1, "vaal", 300, 300, 100, 100, null, []), 1, 1)
             { Pools = new(1, 1000, 1000, 0, 0), PlayerLife = life };
         var vaalTarget = new SpawnedMonster("vaal", new(0, 0, 0), 0, 0, 1000) { Life = 1000 };
         var meleeSources = new LeechSources(DamagePacket.Of(DamageType.Physical, 1000, 1000),

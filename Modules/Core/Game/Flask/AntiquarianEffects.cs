@@ -4,10 +4,18 @@ using GameServer.Core;
 
 public static class AntiquarianEffects
 {
-    public const string AdrenalineSource = "gain_adrenaline_when_ward_breaks_ms";
-    public const string StunRecoverySource = "regenerate_%_life_over_1_second_when_stunned";
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadAntiquarianEffectsData()
+    {
+        adrenaline = LoadAdrenaline();
+    }
+
+    public const uint AdrenalineSource = Stat.GainAdrenalineWhenWardBreaksMs;
+    public const uint StunRecoverySource = Stat.RegeneratePctLifeOver1SecondWhenStunned;
     public const ushort AdrenalineDefinition = 1090, WardBrokenDefinition = 1878;
-    static readonly Lazy<IReadOnlyDictionary<uint, int>> adrenaline = new(() =>
+    static IReadOnlyDictionary<uint, int> adrenaline = default!;
+
+    static IReadOnlyDictionary<uint, int> LoadAdrenaline()
     {
         var templates = ClientTables.Table("BuffTemplates");
         var definitions = ClientTables.Table("BuffDefinitions");
@@ -18,8 +26,8 @@ public static class AntiquarianEffects
         return definition.Ints("StatsKeys").Select(k => (uint)(k + 1))
             .Zip(template.Ints("Buff_StatValues"))
             .ToDictionary(p => p.First, p => p.Second);
-    });
-    public static IReadOnlyDictionary<uint, int> AdrenalineStats => adrenaline.Value;
+    }
+    public static IReadOnlyDictionary<uint, int> AdrenalineStats => adrenaline;
 
     // PoB CalcOffence 16de4b8: attack-projectile Far Shot ramp, in the server's combat-distance units.
     // Use cumulative projectile travel, never the owner's live distance; spells and melee never use this ramp.
@@ -31,7 +39,7 @@ public static class AntiquarianEffects
     public static double PointBlank(double distance) => distance <= 10 ? 1.3 : distance < 35
         ? 1.3 - (distance - 10) * .3 / 25 : distance < 120 ? 1 - (distance - 35) * .3 / 85 : .7;
 
-    public static int RangedPhysical(int mitigated, bool rangedAttack, Func<string, int> get) =>
-        rangedAttack ? (int)Math.Clamp((long)mitigated + get("physical_ranged_attack_damage_taken_+"), 0, int.MaxValue)
+    public static int RangedPhysical(int mitigated, bool rangedAttack, Func<uint, int> get) =>
+        rangedAttack ? (int)Math.Clamp((long)mitigated + get(Stat.PhysicalRangedAttackDamageTakenPlus), 0, int.MaxValue)
             : mitigated;
 }

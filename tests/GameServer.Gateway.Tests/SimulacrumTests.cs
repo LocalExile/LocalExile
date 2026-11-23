@@ -10,20 +10,20 @@ public sealed class SimulacrumTests
     public void Selected_recipe_uses_only_its_fragment_and_keeps_six_entries()
     {
         var slot = new MapDevice.Slot(InstanceEntities.ObjectTypeHash(SimulacrumRules.Fragment), "MapFragment", "Simulacrum", 3065, [], 0);
-        var conn = new ClientState(new AreaLayout(1, "test", 32, 32, 16, 16, (_, _) => true, []), 1, 1);
-        var request = new MapOpening(conn, [slot], false, null, "unresolved") { Target = 45986 };
+        var player = new Player(new AreaLayout(1, "test", 32, 32, 16, 16, (_, _) => true, []), 1, 1);
+        var request = new MapOpening(player, [slot], false, null, "unresolved") { Target = 45986 };
         SimulacrumRules.Resolve(request, new Random(42));
         var opening = Assert.IsType<MapDevice.Opening>(request.Opening);
         Assert.Contains(opening.Area.Id, SimulacrumRules.ArenaIds);
         Assert.NotEqual("AnyAfflictionEndgameArea", opening.Area.Id);
         Assert.Equal(5, SimulacrumRules.Arenas().Select(a => a.Hash16).Distinct().Count());
         Assert.True(request.ReturnToSource);
-        var mixed = new MapOpening(conn, [slot with { TypeHash = 123, Class = "MapFragment" }, slot], false, null, "") { Target = 45986 };
+        var mixed = new MapOpening(player, [slot with { TypeHash = 123, Class = "MapFragment" }, slot], false, null, "") { Target = 45986 };
         SimulacrumRules.Resolve(mixed, new Random(42));
         Assert.NotNull(mixed.Opening);
         Assert.Equal(new[] { 1 }, mixed.ConsumeSlots);
         Assert.Same(MapMods.None, mixed.Opening!.Mods);
-        var missing = new MapOpening(conn, [], false, null, "") { Target = 45986 };
+        var missing = new MapOpening(player, [], false, null, "") { Target = 45986 };
         SimulacrumRules.Resolve(missing, new Random(42));
         Assert.Null(missing.Opening);
         const string owner = "SimulacrumPortalRegression";
@@ -76,8 +76,8 @@ public sealed class SimulacrumTests
         Assert.False(QuestObject.CanSerialize(DeliriumModule.StarterComponents));
         Assert.True(QuestObject.CanSerialize(DeliriumModule.StarterComponents, haveStateMachine: true));
         var blob = new QuestObject(10, 20, DeliriumModule.StarterComponents) { StateMachine = idle }.Blob();
-        Assert.Equal(5, blob[21]); // Five shared states, not the local affliction_endgame_initiator selector.
-        Assert.Equal(0, blob[22]); // No shared timers.
+        Assert.Equal(5, blob[19]); // Five shared states, not the local affliction_endgame_initiator selector.
+        Assert.Equal(0, blob[20]); // No shared timers.
         Assert.All(idle.Overridden, i => Assert.InRange(i, 0, 4));
         Assert.Equal(5, SimulacrumRules.ArenaIds.Select(DeliriumModule.StarterType).Distinct().Count());
 

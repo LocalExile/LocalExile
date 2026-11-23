@@ -15,12 +15,12 @@ public class CampaignDoorTests
         Assert.Equal(flag, wall.UnblockedBy);
         Assert.True(Quests.IsInstanceFlag(flag));
         var layout = new AreaLayout(1, Act5Areas.Ossuary, 100, 100, 5, 5, null, []);
-        var conn = new ClientState(layout, 1, 1) { Instance = new(), QuestBlockers = [(wall, 50, 50)] };
-        Game.UpdateQuestBlockers(conn);
-        Assert.Single(conn.StationaryBlockers);
-        conn.Instance.SetState(flag);
-        Game.UpdateQuestBlockers(conn);
-        Assert.Empty(conn.StationaryBlockers);
+        var player = new Player(layout, 1, 1) { Instance = new(), QuestBlockers = [(wall, 50, 50)] };
+        Game.UpdateQuestBlockers(player);
+        Assert.Single(player.StationaryBlockers);
+        player.Instance.SetState(flag);
+        Game.UpdateQuestBlockers(player);
+        Assert.Empty(player.StationaryBlockers);
         Assert.False(new InstanceState().HasState(flag));
     }
 
@@ -35,7 +35,7 @@ public class CampaignDoorTests
             {
                 var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf(area)!.Value, seed);
                 var placed = new QuestObjectTypes.AreaPlacements(area, seed, []);
-                var entry = new ClientState(layout, 1, seed) { Instance = new() };
+                var entry = new Player(layout, 1, seed) { Instance = new() };
                 entry.LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string> { module });
                 var doors = Game.PlacedQuestDoors(entry, placed);
                 var arena = doors.Where(d => !d.Object.OpensOnUse).ToList();
@@ -49,7 +49,7 @@ public class CampaignDoorTests
                 {
                     Assert.True(Game.TransitionShown(entry, gate.Id, gate.Transition));
                     var missing = layout with { AreaTransitions = [.. layout.AreaTransitions.Where(t => t.Id != gate.Id)] };
-                    var peer = new ClientState(missing, 1, seed) { Instance = entry.Instance, LeagueModule = entry.LeagueModule };
+                    var peer = new Player(missing, 1, seed) { Instance = entry.Instance, LeagueModule = entry.LeagueModule };
                     var remaining = Game.PlacedQuestDoors(peer, placed);
                     var removed = Assert.Single(doors.Except(remaining));
                     Assert.False(removed.Object.OpensOnUse);

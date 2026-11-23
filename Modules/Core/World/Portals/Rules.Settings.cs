@@ -18,6 +18,12 @@ using GameServer.Core.Diagnostics;
 
 static partial class PortalsRules
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadRulesSettingsData()
+    {
+        AreaMods = AreaModCatalog.Load();
+    }
+
     // How close the player walks to the map device before it opens (its size is not known yet).
     internal const double StashReach = 6;
 
@@ -30,6 +36,6 @@ static partial class PortalsRules
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OpenPortal> MapTownPortals = new(StringComparer.OrdinalIgnoreCase);
 
     // WorldAreas' own mods (AreaModCatalog); loaded with the first Portal Scroll.
-    internal static readonly Lazy<AreaModCatalog> AreaMods = new(() => AreaModCatalog.Load());
+    internal static AreaModCatalog AreaMods = default!;
     internal const string PortalScroll = "Metadata/Items/Currency/CurrencyPortal";
 }

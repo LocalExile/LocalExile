@@ -44,7 +44,7 @@ public sealed class MonsterEssenceDrainTests
         Assert.Equal(100 + 10, late.Advance(3, 1).Damage);
 
         // Contagion spreads the strongest debuff once, for its remaining time, even after the death tick cleared it.
-        var caster = new ClientState(new(1, "caster", 1000, 1000, 100, 100, null, []), 1, 1);
+        var caster = new Player(new(1, "caster", 1000, 1000, 100, 100, null, []), 1, 1);
         drain.Apply(10, new(100, 4, 50));
         drain.Apply(10, new(250, 4, 50, Caster: caster));
         drain.Clear();

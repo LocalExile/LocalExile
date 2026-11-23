@@ -1,23 +1,23 @@
 public static partial class Game
 {
-    static void SetRighteousFireSupportProfileLocked(ClientState conn, RighteousFireState rf,
+    static void SetRighteousFireSupportProfileLocked(Player player, RighteousFireState rf,
         IReadOnlyDictionary<uint, int> own)
     {
-        var more = (own.GetValueOrDefault(Stats.Key(Lifetap.DamageStat)!.Value),
-            own.GetValueOrDefault(Stats.Key(InspirationElementalMore)!.Value));
+        var more = (own.GetValueOrDefault(Lifetap.DamageStat),
+            own.GetValueOrDefault(InspirationElementalMore));
         if (rf.ConditionalSupportMore == more) return;
         rf.ConditionalSupportMore = more;
-        RecordRighteousFireSupportChangeLocked(conn, rf, AreaTime(conn));
+        RecordRighteousFireSupportChangeLocked(player, rf, AreaTime(player));
     }
 
     // Keep earned changes until the player tick consumes them. A new payment or link change replaces
     // the future expiry points. The two more multipliers multiply only while both effects are active.
-    static void RecordRighteousFireSupportChangeLocked(ClientState conn, RighteousFireState rf, double now)
+    static void RecordRighteousFireSupportChangeLocked(Player player, RighteousFireState rf, double now)
     {
         var (lifePct, perCharge) = rf.ConditionalSupportMore;
-        double lifeUntil = lifePct != 0 ? conn.Lifetap.Until : now;
-        int charges = conn.SupportGems.InspirationCharges;
-        double chargeUntil = perCharge != 0 && charges > 0 ? conn.SupportGems.InspirationUntil : now;
+        double lifeUntil = lifePct != 0 ? player.Lifetap.Until : now;
+        int charges = player.SupportGems.InspirationCharges;
+        double chargeUntil = perCharge != 0 && charges > 0 ? player.SupportGems.InspirationUntil : now;
         if (rf.SupportDamageChanges is null && lifeUntil <= now && chargeUntil <= now) return;
         var changes = rf.SupportDamageChanges ??= [];
         while (changes.Count > 0 && changes[^1].At >= now) changes.RemoveAt(changes.Count - 1);

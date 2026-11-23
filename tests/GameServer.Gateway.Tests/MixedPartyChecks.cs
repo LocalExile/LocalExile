@@ -10,18 +10,21 @@ static class MixedPartyChecks
     {
         var presence = new InstancePresence();
         var instance = new InstanceState(presence);
-        var players = new List<ClientState>();
-        var packets = new Dictionary<ClientState, List<byte[]>>();
+        var players = new List<Player>();
+        var packets = new Dictionary<Player, List<byte[]>>();
         string suffix = Guid.NewGuid().ToString("N")[..8];
-        ClientState Player(string name, InstanceState? world = null, bool ssf = false, string? league = null, ulong instanceNumber = 0)
+        Player Player(string name, InstanceState? world = null, bool ssf = false, string? league = null, ulong instanceNumber = 0)
         {
-            var c = new ClientState(new(1, "mixed-party", 100, 100, 20, 20, null, []), 1, 1)
+            var c = new Player(new(1, "mixed-party", 100, 100, 20, 20, null, []), 1, 1)
             {
-                Character = name + suffix, Account = name + suffix, League = league ?? "Standard", Ssf = ssf,
-                Instance = world ?? instance, InstanceNumber = instanceNumber, PlayerSent = true, PlayerLife = 100, ClassRow = 0
+                Character = { Name = name + suffix, Account = name + suffix, League = league ?? "Standard", Ssf = ssf, ClassRow = 0 },
+                Instance = world ?? instance,
+                InstanceNumber = instanceNumber,
+                Connection = { PlayerSent = true },
+                PlayerLife = 100
             };
             var sent = new List<byte[]>();
-            c.Outbox = (bytes, _) => { sent.Add(bytes); return Task.CompletedTask; };
+            c.Connection.Outbox = (bytes, _) => { sent.Add(bytes); return Task.CompletedTask; };
             players.Add(c); packets[c] = sent; Program.InGame.TryAdd(c, 0);
             return c;
         }
@@ -40,7 +43,7 @@ static class MixedPartyChecks
             foreach (var sent in packets[owner]) Array.Fill(sent, (byte)0xee);
             await PartyRoster.Publish(party);
             Assert.Contains(packets[owner], p => p.AsSpan().SequenceEqual(Bot(0).KnownPlayer));
-            Assert.True(await PartyRoster.InviteHuman(owner, friend.Character!));
+            Assert.True(await PartyRoster.InviteHuman(owner, friend.Character.Name!));
             Assert.Equal(party, View(packets[friend]).Id);
             // A guessed acceptance from a different account must not consume the friend's invitation.
             await PartyRoster.AcceptHuman(third, party);
@@ -50,17 +53,17 @@ static class MixedPartyChecks
             {
                 var view = View(packets[c]);
                 Assert.Equal(3, view.Members.Length);
-                Assert.Equal(c.Account, view.Members[view.Own]);
+                Assert.Equal(c.Character.Account, view.Members[view.Own]);
                 Assert.Contains(Bot(0).Account, view.Members);
                 Assert.Equal(3, c.PartySize);
             }
             // Inviting from a non-leader and accepting into an existing group appends rather than replaces.
-            Assert.True(await PartyRoster.InviteHuman(friend, third.Account!));
+            Assert.True(await PartyRoster.InviteHuman(friend, third.Character.Account!));
             await PartyRoster.AcceptHuman(third, party);
             Assert.Equal(4, PartyRoster.Size(party));
             // Human and bot slots share the capacity; pending invites cannot overfill it.
             var pending = Player("Pending");
-            Assert.True(await PartyRoster.InviteHuman(owner, pending.Character!));
+            Assert.True(await PartyRoster.InviteHuman(owner, pending.Character.Name!));
             Assert.True(PartyRoster.TryAddCompanion(friend, Bot(1), out uint same));
             Assert.Equal(party, same);
             Assert.True(PartyRoster.TryAddCompanion(owner, Bot(2), out same));
@@ -80,13 +83,13 @@ static class MixedPartyChecks
             await PartyRoster.Rebind(replacement);
             Assert.Same(replacement, PartyRoster.Leader(party));
             Assert.Equal(321ul, PartyRoster.SharedInstance(friend, new(1, 0, false)));
-            Assert.Equal(replacement.Account, View(packets[replacement]).Members[0]);
+            Assert.Equal(replacement.Character.Account, View(packets[replacement]).Members[0]);
             Assert.True(await PartyRoster.LeaveHuman(replacement, party));
             Assert.Same(friend, PartyRoster.Leader(party));
             Assert.Equal(1, replacement.PartySize);
             Assert.True(PartyRoster.ContainsCompanion(party, Bot(1).Account));
             Assert.Equal(0, View(packets[friend]).Own);
-            await PartyRoster.Kick(friend, third.Account!);
+            await PartyRoster.Kick(friend, third.Character.Account!);
             Assert.Equal(0u, PartyRoster.PartyOf(third));
             Assert.Equal(3, PartyRoster.Size(party)); // One friend and two bots.
             await PartyRoster.LeaveHuman(friend, party);
@@ -95,7 +98,7 @@ static class MixedPartyChecks
             Assert.Equal(1, friend.PartySize);
 
             // The reverse order (human-first) and slot reuse after a bot leaves.
-            Assert.True(await PartyRoster.InviteHuman(owner = replacement, friend.Character!));
+            Assert.True(await PartyRoster.InviteHuman(owner = replacement, friend.Character.Name!));
             party = View(packets[friend]).Id;
             await PartyRoster.AcceptHuman(friend, party);
             Assert.True(PartyRoster.TryAddCompanion(owner, Bot(4), out same));
@@ -107,13 +110,13 @@ static class MixedPartyChecks
             Assert.Equal(2, friend.PartySize);
             Assert.Equal(2, View(packets[owner]).Members.Length);
             // A member cannot simultaneously join another party, nor can SSF/cross-league actors join.
-            Assert.True(await PartyRoster.InviteHuman(third, friend.Character!));
+            Assert.True(await PartyRoster.InviteHuman(third, friend.Character.Name!));
             Assert.Equal(0u, PartyRoster.PartyOf(third));
             var ssf = Player("Solo", ssf: true);
             var otherLeague = Player("OtherLeague", league: "Hardcore");
             Assert.False(PartyRoster.TryAddCompanion(ssf, Bot(5), out _));
-            Assert.True(await PartyRoster.InviteHuman(owner, ssf.Character!));
-            Assert.True(await PartyRoster.InviteHuman(owner, otherLeague.Character!));
+            Assert.True(await PartyRoster.InviteHuman(owner, ssf.Character.Name!));
+            Assert.True(await PartyRoster.InviteHuman(owner, otherLeague.Character.Name!));
             Assert.Equal(0u, PartyRoster.PartyOf(ssf));
             Assert.Equal(0u, PartyRoster.PartyOf(otherLeague));
         }

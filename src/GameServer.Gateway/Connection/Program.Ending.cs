@@ -13,29 +13,29 @@ public partial class Program
     public static readonly TimeSpan EndingTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Ends <paramref name="conn"/> and completes after its cleanup, its save included (<see cref="ClientState.Ended"/>).
+    /// Ends <paramref name="conn"/> and completes after its cleanup, its save included (<see cref="Player.Ended"/>).
     /// <paramref name="message"/> reaches the client first, when it still can. A connection that is already ending is
     /// waited for, not ended twice. Throws <see cref="TimeoutException"/> when its cleanup does not finish within
     /// <see cref="EndingTimeout"/> (a hung handler), so the caller can refuse instead of waiting for ever.
     /// </summary>
-    public static async Task EndAsync(ClientState conn, string reason, string? message = null)
+    public static async Task EndAsync(Player player, string reason, string? message = null)
     {
-        if (!conn.Closed)
+        if (!player.Closed)
         {
-            conn.CloseReason ??= reason;
-            if (message is { Length: > 0 } && conn.Outbox is { } outbox)
+            player.Connection.CloseReason ??= reason;
+            if (message is { Length: > 0 } && player.Connection.Outbox is { } outbox)
             {
                 try { await outbox(InstanceChat.ChatLine(message), $"0x0017 chat line \"{message}\""); }
                 catch (Exception e) when (e is IOException or ObjectDisposedException or OperationCanceledException) { }
             }
             // Closed stops the frame loops (WorldOutput.Close); closing the stream is what ends the pending read.
-            conn.Closed = true;
-            if (conn.Wire.Stream is { } stream)
+            player.Closed = true;
+            if (player.Connection.Session.Stream is { } stream)
             {
                 try { stream.Close(); }
                 catch (Exception e) when (e is IOException or ObjectDisposedException) { }
             }
         }
-        await conn.Ended.Task.WaitAsync(EndingTimeout);
+        await player.Connection.Ended.Task.WaitAsync(EndingTimeout);
     }
 }

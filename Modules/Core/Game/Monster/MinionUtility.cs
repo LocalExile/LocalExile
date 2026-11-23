@@ -5,93 +5,91 @@ static partial class Game
     internal static bool MinionUtility(string? effect) => effect is "ConvocationOld" or "Convocation"
         or "FleshOffering" or "BoneOffering" or "SpiritOffering" or "SignalPrey";
 
-    static IEnumerable<GolemState.Golem> UtilityFighters(ClientState conn) =>
-        conn.Golems.All.Values.Concat(conn.Summons.Fighters.Values).Concat(conn.Reservations.Fighters.Values)
+    static IEnumerable<GolemState.Golem> UtilityFighters(Player player) =>
+        player.Golems.All.Values.Concat(player.Summons.Fighters.Values).Concat(player.Reservations.Fighters.Values)
             .Where(g => !g.Monster.Dead && g.Monster.Life > 0);
 
-    internal static async Task<bool> CastMinionUtility(ClientState conn, ushort source, (int X, int Y) aim,
+    internal static async Task<bool> CastMinionUtility(Player player, ushort source, (int X, int Y) aim,
         uint target, int recovery, Func<bool> current)
     {
-        var gem = SupportedSkill(conn, source);
-        string? effect = SkillsFor(conn).EffectId(gem.Effect);
+        var gem = SupportedSkill(player, source);
+        string? effect = SkillsFor(player).EffectId(gem.Effect);
         if (!MinionUtility(effect)) return false;
         bool recall = effect is "Convocation" or "ConvocationOld";
-        double release = AreaTime(conn) + (recall || effect == "SignalPrey" ? 0 : (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d);
+        double release = AreaTime(player) + (recall || effect == "SignalPrey" ? 0 : (CastMs(player, gem.Effect, source) ?? 1000) / 1000d);
         var lifetime = CombatLifetime;
         while (true)
         {
-            lock (conn.Monsters)
+            if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || player.Closed
+                || player.LeavingArea || player.PlayerLife == 0 || recovery != player.ActionInterruptionGeneration
+                || !SameTriggerSource(gem, SupportedSkill(player, source))) return false;
+            if (!player.Paused && AreaTime(player) >= release)
             {
-                if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || conn.Closed
-                    || conn.LeavingArea || conn.PlayerLife == 0 || recovery != conn.ActionInterruptionGeneration
-                    || !SameTriggerSource(gem, SupportedSkill(conn, source))) return false;
-                if (!conn.Paused && AreaTime(conn) >= release)
-                {
-                    if (effect == "SignalPrey") return SignalPreyLocked(conn, source, gem, aim, target, release);
-                    if (recall) RecallMinionsLocked(conn, gem, release);
-                    else StartOfferingLocked(conn, source, gem, effect!, aim, target, release);
-                    return true;
-                }
+                if (effect == "SignalPrey") return SignalPreyLocked(player, source, gem, aim, target, release);
+                if (recall) RecallMinionsLocked(player, gem, release);
+                else StartOfferingLocked(player, source, gem, effect!, aim, target, release);
+                return true;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
     }
 
-    internal static void RecallMinionsLocked(ClientState conn, SupportedGem gem, double now)
+    internal static void RecallMinionsLocked(Player player, SupportedGem gem, double now)
     {
-        var player = CharacterPlayerStats(conn);
-        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, "base_skill_effect_duration"),
-            n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
-        double rate = GolemStat(gem.Stats, "life_regeneration_rate_per_minute_%")
-            * Math.Max(0, 1 + GolemStat(player, "convocation_buff_effect_+%") / 100d);
-        foreach (var minion in conn.Minions.All)
+        var playerStats = CharacterPlayerStats(player);
+        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration),
+            n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n));
+        double rate = GolemStat(gem.Stats, Stat.LifeRegenerationRatePerMinutePct)
+            * Math.Max(0, 1 + GolemStat(playerStats, Stat.ConvocationBuffEffectPlusPct) / 100d);
+        foreach (var minion in player.Minions.All)
         {
             var m = minion.Monster;
-            if (m.Dead || m.Life == 0 || conn.Summons.Definitions.GetValueOrDefault(minion.Id) is { Follows: false }) continue;
-            var at = NextToPlayer(conn);
-            m.Walk = conn.NewMonsterWalk(minion.Id, at.X, at.Y, Math.Max(m.Walk.Speed, 1), LivingCollision.Size(m), false);
+            if (m.Dead || m.Life == 0 || player.Summons.Definitions.GetValueOrDefault(minion.Id) is { Follows: false }) continue;
+            var at = NextToPlayer(player);
+            m.Walk = player.NewMonsterWalk(minion.Id, at.X, at.Y, Math.Max(m.Walk.Speed, 1), LivingCollision.Size(m), false);
             m.ActionGeneration++; m.LastTarget = null; m.BusyUntil = now;
-            if (OwnedFighter(conn, minion.Id) is { } fighter)
+            if (OwnedFighter(player, minion.Id) is { } fighter)
             {
                 fighter.Pending = null; fighter.Target = 0; fighter.LastStep = now;
                 fighter.Pulses.RemoveAll(p => p.Follows);
                 fighter.RecallUntil = now + duration; fighter.RecallRate = rate;
             }
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(minion.Id, at.X, at.Y), "Convocation recall", minion.Id, m));
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(minion.Id, at.X, at.Y), "Convocation recall", minion.Id, m));
         }
     }
 
-    internal static bool StartOfferingLocked(ClientState conn, ushort source, SupportedGem gem, string effect,
+    internal static bool StartOfferingLocked(Player player, ushort source, SupportedGem gem, string effect,
         (int X, int Y) aim, uint target, double now)
     {
         bool Usable(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
             && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
-        var first = conn.Monsters.GetValueOrDefault(target);
-        if (first is null || !Usable(first)) first = conn.Monsters.Values.Where(Usable)
+        var first = player.Area.Monsters.GetValueOrDefault(target);
+        if (first is null || !Usable(first)) first = player.Area.Monsters.Values.Where(Usable)
             .Where(m => Dist(m.Walk.Position(now), aim) <= 15).MinBy(m => Dist(m.Walk.Position(now), aim));
-        var player = CharacterPlayerStats(conn);
-        if (first is null && GolemStat(player, "offering_skills_do_not_require_corpses") == 0) return false;
+        var playerStats = CharacterPlayerStats(player);
+        if (first is null && GolemStat(playerStats, Stat.OfferingSkillsDoNotRequireCorpses) == 0) return false;
         var centre = first?.Walk.Position(now) ?? aim;
-        var corpses = conn.Monsters.Where(p => Usable(p.Value) && Dist(p.Value.Walk.Position(now), centre) <= 15)
+        var corpses = player.Area.Monsters.Where(p => Usable(p.Value) && Dist(p.Value.Walk.Position(now), centre) <= 15)
             .OrderBy(p => ReferenceEquals(p.Value, first) ? 0 : 1).ThenBy(p => Dist(p.Value.Walk.Position(now), centre)).Take(5).ToArray();
         foreach (var (id, corpse) in corpses)
         {
             corpse.CorpseConsumed = true;
-            NoteCorpseConsumedLocked(conn, corpse);
-            conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
+            NoteCorpseConsumedLocked(player, corpse);
+            player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
+            if (!corpse.CreatedAsCorpse)
+                player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
         }
         int extra = Math.Max(0, corpses.Length - 1);
         string kind = effect == "FleshOffering" ? "flesh" : effect == "BoneOffering" ? "bone" : "spirit";
-        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, "base_skill_effect_duration")
-                + extra * GolemStat(gem.Stats, "offering_skill_effect_duration_per_corpse"),
-            n => GolemStat(player, n) + (n == "skill_effect_duration_+%" ? GolemStat(player, "offering_duration_+%")
-                + GolemStat(player, kind + "_offering_duration_+%") : 0), n => GolemStat(gem.Stats, n));
-        int increase = GolemStat(player, "offering_spells_effect_+%")
-            + GolemStat(player, kind + "_offering_effect_+%") + GolemStat(gem.Stats, "offering_spells_effect_+%");
+        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration)
+                + extra * GolemStat(gem.Stats, Stat.OfferingSkillEffectDurationPerCorpse),
+            n => GolemStat(playerStats, n) + (n == Stat.SkillEffectDurationPlusPct ? GolemStat(playerStats, Stat.OfferingDurationPlusPct)
+                + GolemStat(playerStats, Stat.Of(kind + "_offering_duration_+%")) : 0), n => GolemStat(gem.Stats, n));
+        int increase = GolemStat(playerStats, Stat.OfferingSpellsEffectPlusPct)
+            + GolemStat(playerStats, Stat.Of(kind + "_offering_effect_+%")) + GolemStat(gem.Stats, Stat.OfferingSpellsEffectPlusPct);
         double scale = Math.Max(0, 1 + increase / 100d);
-        Dictionary<string, int> stats = [], baseStats = [];
-        void Add(string to, string from, int bonus = 0)
+        Dictionary<uint, int> stats = [], baseStats = [];
+        void Add(uint to, uint from, int bonus = 0)
         {
             baseStats[to] = GolemStat(gem.Stats, from) + bonus;
             stats[to] = ActorScale.Saturate((long)Math.Floor(baseStats[to] * scale));
@@ -100,110 +98,112 @@ static partial class Game
         if (effect == "FleshOffering")
         {
             buff = 295;
-            Add("attack_speed_+%", "attack_speed_+%_granted_from_skill", GolemStat(player, "flesh_offering_attack_speed_+%"));
-            Add("cast_speed_+%", "cast_speed_+%_granted_from_skill"); Add("base_movement_velocity_+%", "base_movement_velocity_+%");
+            Add(Stat.AttackSpeedPlusPct, Stat.AttackSpeedPlusPctGrantedFromSkill, GolemStat(playerStats, Stat.FleshOfferingAttackSpeedPlusPct));
+            Add(Stat.CastSpeedPlusPct, Stat.CastSpeedPlusPctGrantedFromSkill); Add(Stat.BaseMovementVelocityPlusPct, Stat.BaseMovementVelocityPlusPct);
         }
         else if (effect == "BoneOffering")
         {
             buff = 296;
-            Add("monster_base_block_%", "monster_base_block_%", GolemStat(player, "bone_offering_block_chance_+%"));
-            Add("base_spell_block_%", "base_spell_block_%");
-            Add("life_regeneration_rate_per_minute_%_if_blocked_recently", "minion_life_regeneration_rate_per_minute_%_if_blocked_recently");
+            Add(Stat.MonsterBaseBlockPct, Stat.MonsterBaseBlockPct, GolemStat(playerStats, Stat.BoneOfferingBlockChancePlusPct));
+            Add(Stat.BaseSpellBlockPct, Stat.BaseSpellBlockPct);
+            Add(Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently, Stat.MinionLifeRegenerationRatePerMinutePctIfBlockedRecently);
         }
         else
         {
             buff = 663;
-            Add("critical_strike_chance_+%", "spirit_offering_critical_strike_chance_+%");
-            Add("base_critical_strike_multiplier_+", "spirit_offering_critical_strike_multiplier_+");
+            Add(Stat.CriticalStrikeChancePlusPct, Stat.SpiritOfferingCriticalStrikeChancePlusPct);
+            Add(Stat.BaseCriticalStrikeMultiplierPlus, Stat.SpiritOfferingCriticalStrikeMultiplierPlus);
         }
-        foreach (var fighter in UtilityFighters(conn))
-            if (fighter.UtilityBuffs.Remove(buff, out var previous))
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(fighter.Id, previous), "Offering renewed"));
-        var all = conn.Summons.Offerings;
+        foreach (var fighter in UtilityFighters(player))
+            if (fighter.UtilityBuffs.Remove(buff, out _)) player.Area.Buffs.Clear(fighter.Id, buff, player.Id);
+        var all = player.Summons.Offerings;
         all.RemoveAll(o => o.Effect == effect || now >= o.Until);
-        int limit = GolemStat(player, "allow_multiple_offerings") != 0 ? 3 : GolemStat(player, "allow_2_offerings") != 0 ? 2 : 1;
+        int limit = GolemStat(playerStats, Stat.AllowMultipleOfferings) != 0 ? 3 : GolemStat(playerStats, Stat.Allow2Offerings) != 0 ? 2 : 1;
         while (all.Count >= limit) all.RemoveAt(0);
         all.Add(new(effect, now + duration, buff, source, stats, baseStats, increase));
-        MinionUtilityTick(conn, now);
+        MinionUtilityTick(player, now);
         return true;
     }
 
-    static Dictionary<string, int> MinionOfferingStats(ClientState conn, double now)
+    static Dictionary<uint, int> MinionOfferingStats(Player player, double now)
     {
-        var stats = new Dictionary<string, int>();
-        lock (conn.Monsters)
-            foreach (var offering in conn.Summons.Offerings.Where(o => o.Until > now))
-                foreach (var (key, value) in offering.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
+        var stats = new Dictionary<uint, int>();
+        foreach (var offering in player.Summons.Offerings.Where(o => o.Until > now))
+            foreach (var (key, value) in offering.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
     }
 
-    internal static void MinionUtilityTick(ClientState conn, double now)
+    internal static void MinionUtilityTick(Player player, double now)
     {
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
-        MinionTacticsTick(conn, now);
-        if (conn.PlayerLife == 0) conn.Summons.Offerings.Clear();
-        conn.Summons.Offerings.RemoveAll(o => now >= o.Until);
-        var player = CharacterPlayerStats(conn);
-        int limit = GolemStat(player, "allow_multiple_offerings") != 0 ? 3 : GolemStat(player, "allow_2_offerings") != 0 ? 2 : 1;
-        while (conn.Summons.Offerings.Count > limit) conn.Summons.Offerings.RemoveAt(0);
-        SelfOfferingTick(conn, player, now);
-        foreach (var fighter in UtilityFighters(conn))
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return;
+        MinionTacticsTick(player, now);
+        if (player.PlayerLife == 0) player.Summons.Offerings.Clear();
+        player.Summons.Offerings.RemoveAll(o => now >= o.Until);
+        // Read only when an offering or a fighter needs it: a full stat build each tick (~66 a second) was most of an idle
+        // player's stat builds and allocation (live 2026-11-20).
+        Dictionary<uint, int>? stats = null;
+        Dictionary<uint, int> Player() => stats ??= new Dictionary<uint, int>(CharacterPlayerStats(player));
+        if (player.Summons.Offerings.Count > 1)
         {
-            var active = conn.Summons.Offerings;
+            int limit = GolemStat(Player(), Stat.AllowMultipleOfferings) != 0 ? 3 : GolemStat(Player(), Stat.Allow2Offerings) != 0 ? 2 : 1;
+            while (player.Summons.Offerings.Count > limit) player.Summons.Offerings.RemoveAt(0);
+        }
+        SelfOfferingTick(player, Player, now);
+        foreach (var fighter in UtilityFighters(player))
+        {
+            var active = player.Summons.Offerings;
             foreach (var (row, instance) in fighter.UtilityBuffs.ToArray())
                 if (!active.Any(o => o.Buff == row))
-                { conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(fighter.Id, instance), "Offering expired")); fighter.UtilityBuffs.Remove(row); }
+                { player.Area.Buffs.Clear(fighter.Id, row, player.Id); fighter.UtilityBuffs.Remove(row); }
             foreach (var offering in active)
                 if (!fighter.UtilityBuffs.ContainsKey(offering.Buff))
                 {
-                    ushort instance = conn.NextBuff++; fighter.UtilityBuffs[offering.Buff] = instance;
-                    conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(fighter.Id, instance, offering.Buff, PlayerId, offering.Source,
-                        u68: BitConverter.SingleToUInt32Bits((float)(offering.Until - now))), "Offering buff"));
+                    fighter.UtilityBuffs[offering.Buff] = 1;
+                    player.Area.Buffs.Set(fighter.Id, new(offering.Buff, player.Id, offering.Source, U68: Buff.Seconds(offering.Until - now)));
                 }
-            var stats = MinionOfferingStats(conn, now);
-            if (fighter.Utility.Count == stats.Count && stats.All(p => fighter.Utility.GetValueOrDefault(p.Key) == p.Value)) continue;
-            fighter.Utility = stats; fighter.InputHash = 0;
-            RefreshGolemLocked(conn, fighter, player);
+            var offered = MinionOfferingStats(player, now);
+            if (fighter.Utility.Count == offered.Count && offered.All(p => fighter.Utility.GetValueOrDefault(p.Key) == p.Value)) continue;
+            fighter.Utility = offered; fighter.InputHash = 0;
+            RefreshGolemLocked(player, fighter, Player());
         }
     }
 
-    static void AddSelfOfferingStats(ClientState conn, Dictionary<uint, int> stats)
+    static void AddSelfOfferingStats(Player player, StatMap stats)
     {
-        lock (conn.Monsters)
-            if (conn.PlayerLife > 0)
-                foreach (var (key, value) in conn.Summons.PlayerOfferingStats)
-                    stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        if (player.PlayerLife > 0)
+            foreach (var (key, value) in player.Summons.PlayerOfferingStats)
+                stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
     }
 
-    static void SelfOfferingTick(ClientState conn, IReadOnlyDictionary<uint, int> player, double now)
+    static void SelfOfferingTick(Player player, Func<IReadOnlyDictionary<uint, int>> stats, double now)
     {
-        var state = conn.Summons;
-        var active = GolemStat(player, "offerings_also_buff_you") != 0 ? state.Offerings.ToArray() : [];
+        var state = player.Summons;
+        if (state.Offerings.Count == 0 && state.PlayerOfferingBuffs.Count == 0 && state.PlayerOfferingStats.Count == 0) return;
+        var playerStats = stats();
+        var active = GolemStat(playerStats, Stat.OfferingsAlsoBuffYou) != 0 ? state.Offerings.ToArray() : [];
         foreach (var (row, sent) in state.PlayerOfferingBuffs.ToArray())
             if (!active.Any(o => ReferenceEquals(o, sent.Offering)))
             {
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, sent.Instance), "Self offering ended"));
+                player.Area.Buffs.Clear(player.Id, row, player.Id);
                 state.PlayerOfferingBuffs.Remove(row);
             }
         foreach (var offering in active)
             if (!state.PlayerOfferingBuffs.ContainsKey(offering.Buff))
             {
-                ushort instance = conn.NextBuff++;
-                state.PlayerOfferingBuffs[offering.Buff] = (offering, instance);
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, instance, offering.Buff, PlayerId, offering.Source,
-                    u68: BitConverter.SingleToUInt32Bits((float)(offering.Until - now))), "Self offering buff"));
+                state.PlayerOfferingBuffs[offering.Buff] = (offering, 1);
+                player.Area.Buffs.Set(player.Id, new(offering.Buff, player.Id, offering.Source, U68: Buff.Seconds(offering.Until - now)));
             }
         Dictionary<uint, int> next = [];
         foreach (var offering in active)
         {
-            double scale = Math.Max(0, 1 + (offering.EffectIncrease + GolemStat(player, "self_offering_effect_+%")) / 100d);
+            double scale = Math.Max(0, 1 + (offering.EffectIncrease + GolemStat(playerStats, Stat.SelfOfferingEffectPlusPct)) / 100d);
             foreach (var (name, value) in offering.BaseStats)
             {
-                string stat = name;
-                if (stat == "life_regeneration_rate_per_minute_%_if_blocked_recently")
+                uint stat = name;
+                if (stat == Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently)
                 {
-                    if (!conn.RecentEvents.Happened(StatConditions.Blocked, now)) continue;
-                    stat = "life_regeneration_rate_per_minute_%";
+                    if (!player.RecentEvents.Happened(StatConditions.Blocked, now)) continue;
+                    stat = Stat.LifeRegenerationRatePerMinutePct;
                 }
                 GolemAdd(next, stat, ActorScale.Saturate((long)Math.Floor(value * scale)));
             }
@@ -211,9 +211,9 @@ static partial class Game
         if (next.Count == state.PlayerOfferingStats.Count
             && next.All(p => state.PlayerOfferingStats.GetValueOrDefault(p.Key) == p.Value)) return;
         state.PlayerOfferingStats = next;
-        state.OfferingRevision++;
-        conn.Pools = PoolsFor(conn, conn.Pools.Level);
-        conn.ApplyMovementSpeed();
-        conn.Minions.StatRevision++;
+        state.OfferingRevision++; MarkPlayerStats(player, PlayerStatStep.Offerings);
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        player.Minions.StatRevision++;
     }
 }

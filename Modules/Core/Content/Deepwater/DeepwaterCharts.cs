@@ -33,13 +33,13 @@ internal static class DeepwaterCharts
     /// <summary>A new chart of this base: item level and Area Level <paramref name="areaLevel"/>, rotation 0, a room of
     /// <see cref="Room"/>, and the given rarity or one rolled from world.db (G: normal 60 %, magic 30 %, rare 10 %). Magic and
     /// rare charts are unidentified while <c>deepwater_chart_unidentified</c> is 1 (G: as maps).</summary>
-    public static Item Create(ClientState conn, ItemCatalog.BaseType type, int areaLevel, ItemRarity? rarity, Random random)
+    public static Item Create(Player player, ItemCatalog.BaseType type, int areaLevel, ItemRarity? rarity, Random random)
     {
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
         var item = ItemCatalog.Create(type, random: random) with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, random, areaLevel: level)) };
         var rolled = rarity ?? RollRarity(random);
         if (rolled is not (ItemRarity.Magic or ItemRarity.Rare)) return item;
-        return RollsFor(conn).Roll(item, rolled, random) with { Identified = Setting("deepwater_chart_unidentified") == 0 };
+        return RollsFor(player).Roll(item, rolled, random) with { Identified = Setting("deepwater_chart_unidentified") == 0 };
     }
 
     static ItemRarity RollRarity(Random random)
@@ -52,26 +52,25 @@ internal static class DeepwaterCharts
     /// <summary>GameEvents.RewardItem: Valerie's tutorial chart (offer <see cref="TutorialOffer"/>) is an Area Level 2 magic,
     /// identified Sandy chart with a generic Sandy room (G, the room is unsourced); "Descend" refuses an unidentified chart
     /// (ClientStrings 8466). Another offer's chart gets its component at the offer's item level.</summary>
-    public static Item RewardItem(ClientState conn, int offer, Item item, ItemCatalog.BaseType type)
+    public static Item RewardItem(Player player, int offer, Item item, ItemCatalog.BaseType type)
     {
         if (!IsChart(type)) return item;
-        if (offer == TutorialOfferRow.Value)
+        if (offer == TutorialOfferRow)
         {
-            var random = Random.Shared;
+            var random = AreaRng(player);
             var chart = ItemCatalog.Create(type, random: random) with
             {
                 ItemLevel = TutorialLevel,
                 Chart = new ChartData(TutorialLevel, 0, Room(type.Row, random, generic: true)),
             };
-            return RollsFor(conn).Roll(chart, ItemRarity.Magic, random) with { Identified = true };
+            return RollsFor(player).Roll(chart, ItemRarity.Magic, random) with { Identified = true };
         }
         if (item.Chart is not null) return item;
         byte level = (byte)Math.Clamp((int)item.ItemLevel, 1, 100);
-        return item with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, Random.Shared, areaLevel: level)) };
+        return item with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, AreaRng(player), areaLevel: level)) };
     }
 
-    internal static readonly Lazy<int> TutorialOfferRow = new(() =>
-        ClientTables.TableOrEmpty("QuestRewardOffers").FirstOrDefault(r => r.Text("Id") == TutorialOffer) is { Table: not null } row ? row.Index : -1);
+    internal static int TutorialOfferRow { get; private set; } = -1;
 
     // ---- the charted implicit ----
 
@@ -111,8 +110,12 @@ internal static class DeepwaterCharts
     // The rooms a chart may get: those of the shipped charts' biomes, including Kishara's Rest (#29 SandyCrashedShip1,
     // eligible at area level >= 81) while excluding its boss arena (#30, __col17 = true), [DNT] rows, Lost Shipment and
     // Runes of the Deep (nobody reports them, rules §3.2).
-    static readonly Lazy<(Dictionary<int, long> BiomeOf, RoomRow[] Rooms)> Rooms = new(() =>
+    static (Dictionary<int, long> BiomeOf, RoomRow[] Rooms) Rooms = ([], []);
+
+    public static void LoadGameData()
     {
+        TutorialOfferRow = ClientTables.TableOrEmpty("QuestRewardOffers")
+            .FirstOrDefault(r => r.Text("Id") == TutorialOffer) is { Table: not null } row ? row.Index : -1;
         var biomeOf = new Dictionary<int, long>();
         var bases = ClientTables.TableOrEmpty("BaseItemTypes");
         foreach (var c in ClientTables.TableOrEmpty("DeepwaterCharts"))
@@ -127,8 +130,8 @@ internal static class DeepwaterCharts
                 && r.Text("Id") is { } id && !id.Contains("LostShipment", StringComparison.Ordinal) && !id.Contains("StoneCircle", StringComparison.Ordinal))
             .Select(r => new RoomRow((byte)r.Index, r.Long("Biome"), r.Int("__col2"), r.BoolOrNull("Special") == true, r.Text("Name")!, r.Text("Id")!))
             .ToArray();
-        return (biomeOf, rooms);
-    });
+        Rooms = (biomeOf, rooms);
+    }
 
     /// <summary>A room for a new chart of this base (rules §3.2, every weight G: the real ones are server-side and unknown):
     /// the chart's biome 90 %, another shipped biome 10 %; then a generic room 95 % or a special area 5 % (Anchorfield,
@@ -138,7 +141,7 @@ internal static class DeepwaterCharts
     /// The client crashes drawing a chart whose room names no row, so row 0 is the fallback.</summary>
     public static byte Room(int baseRow, Random random, bool generic = false, int areaLevel = 1)
     {
-        var (biomeOf, rooms) = Rooms.Value;
+        var (biomeOf, rooms) = Rooms;
         if (!biomeOf.TryGetValue(baseRow, out long own) || rooms.Length == 0) return 0;
         long biome = own;
         if (!generic && random.Next(100) >= 90)

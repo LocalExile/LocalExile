@@ -11,8 +11,8 @@ together. All agent and contributor documentation is in [Agents/](Agents/). Read
    per area in `Agents/roadmap/`).
 4. [Agents/docs/README.md](Agents/docs/README.md): the protocol reference and reverse-engineering notes.
 
-Tip: `live.ps1` runs the Gateway with hot reload, so a saved Gateway edit usually applies while the player stays in
-game; it may be worth trying before a restart.
+Tip: modules and mods hot reload, so a module's own build applies to the running Gateway while the player stays in
+game; an edit to the servers themselves is a restart (`live.ps1 -Only Gateway`).
 Suggestions for working with it are in [live testing](Agents/docs/dev/live-testing.md) ("hot reload").
 
 ## What goes where
