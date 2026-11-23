@@ -134,6 +134,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Repeat currency use by type on passives (`C→S 0x78`) and world objects (`C→S 0x79`) routes to Tattoo/Scouring,
   Strongbox and Essence handlers (offline verified; live client check pending).
 
+- Effect rules: item triggers as rows in world.db ([effect rules](../docs/dev/effect-rules.md)). Onslaught and
+  Adrenaline on kill, hit or crit; marks on hit; item-granted skills triggered on hit, crit, kill, when hit, on
+  block, on a skill or attack use and on melee hits (Lightning Bolt, Fire Burst, Ignition Blast, Commandment of
+  Inferno, Blazing Glare, Shield Shatter, Storm Cascade, Starfall and others, as area hits with an effect object for
+  art); Raging Spirits, spiders and wolves on kill; Blood Rage on kill and Shade Form; and the always-on Death Aura,
+  Abberath's Fury and Blinding Aura. Seen in the client 2026-11-22 and 2026-11-23. Every art, radius and storm
+  number is a guess until its row has `checked = 1`. Mageblood's lines work from any worn item.
+  Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
+
 ## Not working yet
 
 - Most uniques and special mods (#60) and chancing to a unique; currency beyond the orbs above; support gems and links.
