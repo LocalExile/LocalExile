@@ -160,16 +160,34 @@ public static partial class Game
                     (DamageType.Chaos, Stat.BaseChaosDamageToDealPerMinute),
                 }.Select(t => (Type: t.Item1, PerSecond: own.GetValueOrDefault(t.Item2) / 60d)).FirstOrDefault(t => t.PerSecond > 0);
                 if (perMinute.PerSecond <= 0) return;
-                ushort buffRow = 0;
+                // The row's art: the buff the monsters inside wear, then after a comma the buff its wearer shows (the
+                // aura around the character is that buff's own visual).
+                string[] buffs = (row.Art ?? "").Split(',', StringSplitOptions.TrimEntries);
+                ushort buffRow = 0, ownRow = 0;
                 foreach (var definition in ClientTables.Table("BuffDefinitions"))
-                    if (definition.Text("Id") == row.Art) { buffRow = (ushort)definition.Index; break; }
+                {
+                    if (definition.Text("Id") == buffs[0]) buffRow = (ushort)definition.Index;
+                    if (buffs.Length > 1 && definition.Text("Id") == buffs[1]) ownRow = (ushort)definition.Index;
+                }
+                bool shown = false;
                 int radius = row.Radius ?? 30;
                 ushort skill = ActorSkillOf(player, grant)?.Id ?? 0;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} {grant.EffectId} is on while worn: {perMinute.PerSecond:0.#} {perMinute.Type} damage a second within {radius} cells");
                 StartDamageAura(player, new DamageAura
                 {
                     Name = grant.EffectId, Radius = () => radius, BuffRow = buffRow, Skill = skill, Marks = [],
-                    Running = standing.On,
+                    Running = () =>
+                    {
+                        if (standing.On()) return true;
+                        if (shown) { player.Area.Buffs.Clear(player.Id, ownRow, player.Id); shown = false; }
+                        return false;
+                    },
+                    // In the area's frame: the wearer's own buff is stated once the aura runs.
+                    Valid = () =>
+                    {
+                        if (!shown && ownRow != 0) { player.Area.Buffs.Set(player.Id, new(ownRow, player.Id)); shown = true; }
+                        return true;
+                    },
                     Active = () => player.PlayerLife > 0 && !InGracePeriod(player) && !InTown(player),
                     Damage = seconds =>
                     {
@@ -367,8 +385,11 @@ public static partial class Game
                         double angle = rng.NextDouble() * Math.Tau, far = Math.Sqrt(rng.NextDouble()) * area.Spread;
                         at = (aim.X + (int)Math.Round(Math.Cos(angle) * far), aim.Y + (int)Math.Round(Math.Sin(angle) * far));
                     }
+                    // A row's scale 0 fits the art to the hit's radius (the art's own size from its file, AreaArtScale),
+                    // so what is seen is what is hit; any other scale is the art's own size times it.
                     if (TriggeredAreaArt && area.Art is { } art)
-                        await PresentEffectArt(player, art, at, area.Scale, area.Seconds);
+                        await PresentEffectArt(player, art, at,
+                            area.Scale > 0 ? area.Scale : AreaArtScale(radius ?? area.Radius ?? 12, EffectArtAo(art) ?? art), area.Seconds);
                     // from and to are the same spot, so the hit lands there whatever the skill's own targeting is.
                     await AreaSkillHit(player, id, skill, at, at, immediate: true,
                         radiusOverride: radius, triggeredCurrent: Current, baseExtra: baseExtra);
