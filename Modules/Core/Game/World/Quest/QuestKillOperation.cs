@@ -105,7 +105,8 @@ public static partial class Game
         }
         if (QuestKillCommitOutput is not { } capture)
         {
-            if (!player.Connection.LockstepClient) return PredictiveBatch();
+            // Predictive area frames share the same typed births and removals as lockstep.
+            if (!player.Connection.LockstepClient && (quest || !InAreaFrame(player))) return PredictiveBatch();
             return Program.SendRecords(player, requires, atGate, still,
                 creates: creates, rules: Program.GameLogicOrNull as IWorldAdmissionRules, quest: quest);
         }
