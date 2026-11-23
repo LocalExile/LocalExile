@@ -44,15 +44,15 @@ public static partial class Game
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
         {
-            QueueMadnessExplosionLocked(player, victimId, monster);
             WitchbaneOnKill(player, monster, now);
+            QueueMadnessExplosionLocked(player, victimId, monster);
             player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
-            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at));
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
                 Frozen: monster.Ailments.FrozenAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
+            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at));
         }
         var packets = new List<(byte[] Packet, string? Log)>();
         if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)
