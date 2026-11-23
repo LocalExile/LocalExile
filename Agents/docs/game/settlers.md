@@ -33,8 +33,12 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
 
 ## Objects the server does own
 
-- **NPCs.** `NpcCatalog`'s Kingsmarch table places the nine villagers on the cells their own room lines give them, as
-  offsets from the arrival (590, 655). Their types list `ControlZone`, `Brackets` and `Functions`, which deserialize
+- **NPCs.** `TownNpcs`' Kingsmarch room (`kingsmarch.arm`: the .dgr's only node, at the area's origin with rotation I,
+  so the room's cells are the area's cells) places the eight villagers the room lists on their own line's cell, with
+  its angle and its model: the King's Hand (429, 624), Tujen (283, 429), Rog (316, 523), Dannig (493, 478), Faustus
+  (389, 625), Isla (213, 547), Sonja the Farmer (367, 794) and Raulf the Recruiter (422, 664). The client's own type
+  table gives the farmer Isla's model, so the room's model is the one sent; `VillageGwennen` has no line in the room and
+  is not placed. Their types list `ControlZone`, `Brackets` and `Functions`, which deserialize
   through the same no-op reader as `BaseEvents` (`0x1400f1180`, `ret 0`), so they cost the blob nothing.
   `VillageVisibilityController`'s `on_or_create_state_visible_0` runs `DisableTargetable()`, `DisableHighlighting()` and
   `HideMinimapIcon()`, and `visible` starts at 0, so the server sends `visible = 1` with the "keep the sent value" flag.
