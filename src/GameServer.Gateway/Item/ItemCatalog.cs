@@ -784,9 +784,10 @@ public sealed class ItemCatalog
             components[type] = [.. t.Texts("components").Take(t.Int("read"))];
             if (!t.IsNull("tags")) itemTags[type] = t.Texts("tags");
             // The Quest component's flags (quest_*: a type without Quest has none).
-            string? Flag(string name) => t.TextOrNull("quest_" + name) is { Length: > 0 } f ? f : null;
-            if (Flag("grant_flag") is not null || Flag("extra_flag") is not null || Flag("remove_flag") is not null || Flag("use_flag") is not null)
-                questFlags[type] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"));
+            string? Flag(string name) => t.Has("quest_" + name) && t.TextOrNull("quest_" + name) is { Length: > 0 } f ? f : null;
+            string? extra2 = Flag("extra_flag2");
+            if (Flag("grant_flag") is not null || Flag("extra_flag") is not null || extra2 is not null || Flag("remove_flag") is not null || Flag("use_flag") is not null)
+                questFlags[type] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"), extra2);
         }
         List<ushort> visualHashes;
         var itemVisualIdentityTable = ClientTables.Table("ItemVisualIdentity");
@@ -894,7 +895,7 @@ public sealed class ItemCatalog
 }
 
 /// <summary>A quest item's Quest component (its .it file; Agents/docs/protocol/12-quests.md §5): <see cref="Grant"/> is held
-/// while the item is carried, <see cref="Extra"/> set when it is first picked up, <see cref="Remove"/> takes the item away
-/// once set (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
-/// QuestStaticRewards keys by that flag).</summary>
-public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);
+/// while the item is carried, <see cref="Extra"/> and <see cref="Extra2"/> are set when it is first picked up,
+/// <see cref="Remove"/> takes the item away once set (and stops it dropping again), <see cref="Use"/> is set by using it
+/// (the quest books, whose static rewards QuestStaticRewards keys by that flag).</summary>
+public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use, string? Extra2 = null);

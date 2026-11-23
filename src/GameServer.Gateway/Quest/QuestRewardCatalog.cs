@@ -170,7 +170,7 @@ public sealed class QuestRewardCatalog
         if (league) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
         var flags = new List<string>();
         if (takenFlag is not null) flags.Add(takenFlag);
-        if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>().Where(f => !saved.Contains(f)));
+        if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra, quest.Extra2 }.OfType<string>().Where(f => !saved.Contains(f)));
         if (flags.Count > 0) CharacterSaves.ChangeQuestFlags(character, flags, true);
         return added;
     });
@@ -241,7 +241,7 @@ public sealed class QuestRewardCatalog
             claimedIds.Add(offerItemId);
             carriedTypes?.Add(reward.TypeHash);
             if (quest is not null)
-                foreach (var f in new[] { quest.Grant, quest.Extra }.OfType<string>())
+                foreach (var f in new[] { quest.Grant, quest.Extra, quest.Extra2 }.OfType<string>())
                     if (saved.Add(f)) granted.Add(f);
         }
 
