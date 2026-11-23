@@ -27,17 +27,17 @@ static partial class QuestobjectsRules
     const uint AscendingClip = 0;
 
     // A statue gargoyle's damage taken (ours: "little", live).
-    static readonly IReadOnlyDictionary<string, int> Dormant = new Dictionary<string, int> { ["base_damage_taken_+%"] = -90 };
+    static readonly IReadOnlyDictionary<uint, int> Dormant = new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = -90 };
 
-    static bool GargoyleDead(ClientState conn, GargoyleSlot g) =>
-        g.Monster.Dead || g.Monster.Life == 0 || !ReferenceEquals(conn.Monsters.GetValueOrDefault(g.Id), g.Monster);
+    static bool GargoyleDead(Player player, GargoyleSlot g) =>
+        g.Monster.Dead || g.Monster.Life == 0 || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(g.Id), g.Monster);
 
     // The arena's gargoyles, one on each small elevator, down in its hole (a new one is in IzaroGargoyle.ot's state 5).
-    static async Task PlaceIzaroGargoyles(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena)
+    static async Task PlaceIzaroGargoyles(Player player, IzaroArena arena)
     {
         var gargoyles = IzaroEffects.Of(IzaroGargoyles.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(gargoyles.Count, arena.Lifts.Count); i++)
-            if (await SpawnIzaroGargoyle(remote, stream, ciphers, conn, gargoyles[i], FacingCentre(arena, arena.Lifts[i].At), null, null) is { } slot)
+            if (await SpawnIzaroGargoyle(player, gargoyles[i], FacingCentre(arena, arena.Lifts[i].At), null, null) is { } slot)
             {
                 slot.Lift = arena.Lifts[i];
                 arena.Gargoyles.Add(slot);
@@ -48,151 +48,137 @@ static partial class QuestobjectsRules
     // can be hit only once it has risen), then little damage (live: little until its beam starts, all of it after; how
     // little is ours); one an earlier trial left takes none until it comes out (it is behind its railing). Not kept with
     // the instance (the arena places it again).
-    static async Task<GargoyleSlot?> SpawnIzaroGargoyle(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<GargoyleSlot?> SpawnIzaroGargoyle(Player player,
         IzaroEffects.Effect effect, AreaPopulation.RoomObject at, string? carried, uint? railing)
     {
         if (Monsters.Find(effect.Variety) is not { Supported: true } variety)
         {
-            Console.WriteLine($"[gateway] {remote} Izaro's gargoyle {effect.Id}: {effect.Variety} cannot be created");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} Izaro's gargoyle {effect.Id}: {effect.Variety} cannot be created");
             return null;
         }
-        byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, at.X, at.Y, rotation: at.Angle,
+        byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y, rotation: at.Angle,
             placement: MonsterPlacement.Established);
-        lock (conn.Monsters)
+        if (player.Area.Monsters.GetValueOrDefault(id) is not { } m) return null;
+        (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId) = (double.PositiveInfinity, false, true, 0);
+        m.StunImmuneUntil = double.PositiveInfinity;
+        m.EncounterStats = Dormant;
+        return new GargoyleSlot(effect, id, m, (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), Emerges.Seconds(variety))
         {
-            if (conn.Monsters.GetValueOrDefault(id) is not { } m) return null;
-            (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId) = (double.PositiveInfinity, false, true, 0);
-            m.StunImmuneUntil = double.PositiveInfinity;
-            m.EncounterStats = Dormant;
-            return new GargoyleSlot(effect, id, m, (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), Emerges.Seconds(variety))
-            {
-                Carried = carried, Railing = railing,
-            };
-        }
+            Carried = carried, Railing = railing,
+        };
     }
 
     // A gargoyle wakes: its buff goes on Izaro and, once its rise has played (seconds), it fights.
-    static async Task WakeIzaroGargoyle(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+    static async Task WakeIzaroGargoyle(Player player, IzaroArena arena,
         GargoyleSlot g, double seconds, string what)
     {
         ushort buff;
-        lock (conn.Monsters)
-        {
-            if (GargoyleDead(conn, g)) return;
-            g.Buff = buff = conn.NextBuff++;
-            (g.Monster.BusyUntil, g.Monster.Aggro, g.Monster.EntranceGrace) = (conn.Clock.Elapsed.TotalSeconds + seconds, true, false);
-            (g.Monster.EncounterStats, g.Monster.StunImmuneUntil) = (null, double.NegativeInfinity);
-            UpdateIzaroStats(arena);
-        }
-        await Send(remote, stream, ciphers, InstanceEntities.AddBuff(arena.Izaro, buff, g.Effect.Buff, g.Id),
-            $"0x01c1 Izaro 0x{arena.Izaro:x} has {g.Effect.Id}: gargoyle 0x{g.Id:x} {what}");
+        if (GargoyleDead(player, g)) return;
+        g.Buff = buff = player.NextBuff++;
+        (g.Monster.BusyUntil, g.Monster.Aggro, g.Monster.EntranceGrace) = (AreaTime(player) + seconds, true, false);
+        (g.Monster.EncounterStats, g.Monster.StunImmuneUntil) = (null, double.NegativeInfinity);
+        UpdateIzaroStats(arena);
+        player.Area.Buffs.Set(arena.Izaro, new(g.Effect.Buff, g.Id));
+        Note($"Izaro 0x{arena.Izaro:x} has {g.Effect.Id}: gargoyle 0x{g.Id:x} {what}");
+        await Task.CompletedTask;
     }
 
     // The earlier trials' gargoyles: their alcoves' railings lower, their buffs go on Izaro and they come out.
-    static async Task ReleaseIzaroGargoyles(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+    static async Task ReleaseIzaroGargoyles(Player player, IzaroArena arena,
         Func<bool> here)
     {
         var carried = arena.Gargoyles.Where(g => g.Carried is not null).ToList();
         foreach (uint railing in carried.Select(g => g.Railing).OfType<uint>().Distinct())
-            await LowerIzaroRailing(remote, stream, ciphers, conn, railing);
+            await LowerIzaroRailing(player, railing);
         foreach (var g in carried)
-            await WakeIzaroGargoyle(remote, stream, ciphers, conn, arena, g, IzaroFights.RailingSeconds, "comes out of the alcove");
+            await WakeIzaroGargoyle(player, arena, g, IzaroFights.RailingSeconds, "comes out of the alcove");
     }
 
-    static async Task LowerIzaroRailing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint railing)
+    static async Task LowerIzaroRailing(Player player, uint railing)
     {
-        await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(railing, IzaroFights.TransitionableIndex, IzaroFights.RailingDown),
+        await Send(player, [.. InstanceEntities.TransitionableUpdate(railing, IzaroFights.TransitionableIndex, IzaroFights.RailingDown),
             .. InstanceEntities.BlockageUpdate(railing, false)], $"0x02bc alcove railing 0x{railing:x} lowers");
-        OpenIzaroDoor(conn, railing);
+        OpenIzaroDoor(player, railing);
     }
 
     // The arena's gargoyles rise together with Izaro, stand, then one at a time a beam runs from it to Izaro (the Beam's
     // end follows its object, as the Soul Eater's line follows the player; the original's beam stays on him, live) and it
     // wakes.
-    static async Task RaiseIzaroGargoyles(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+    static async Task RaiseIzaroGargoyles(Player player, IzaroArena arena,
         Func<bool> here)
     {
         try
         {
             var own = arena.Gargoyles.Where(g => g.Lift is not null).ToList();
             List<byte> bytes = [];
-            lock (conn.Monsters)
-            {
-                if (arena.Over || !here()) return;
-                foreach (var g in own)
-                    bytes.AddRange([.. LiftState(conn, g.Lift!.Value.Id, g.Lift.Value.At, IzaroFights.Raising),
-                        .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaising),
-                        .. InstanceProtocol.AnimationUpdate(g.Id, 0, AscendingClip, 1)]);
-            }
-            await Send(remote, stream, ciphers, [.. bytes], $"0x02bc Izaro's {own.Count} gargoyles rise");
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
+            if (arena.Over || !here()) return;
+            foreach (var g in own)
+                bytes.AddRange([.. LiftState(player, g.Lift!.Value.Id, g.Lift.Value.At, IzaroFights.Raising),
+                    .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaising),
+                    .. InstanceProtocol.AnimationUpdate(g.Id, 0, AscendingClip, 1)]);
+            await Send(player, [.. bytes], $"0x02bc Izaro's {own.Count} gargoyles rise");
+            await AreaDelay(player, IzaroStatues.RiseSeconds);
             bytes = [];
-            lock (conn.Monsters)
+            if (!here()) return;
+            foreach (var g in own)
             {
-                if (!here()) return;
-                foreach (var g in own)
-                {
-                    g.Monster.EntranceGrace = false;
-                    bytes.AddRange([.. LiftState(conn, g.Lift!.Value.Id, g.Lift.Value.At, IzaroFights.Raised),
-                        .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaised)]);
-                }
+                g.Monster.EntranceGrace = false;
+                bytes.AddRange([.. LiftState(player, g.Lift!.Value.Id, g.Lift.Value.At, IzaroFights.Raised),
+                    .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaised)]);
             }
-            await Send(remote, stream, ciphers, [.. bytes], "0x02bc Izaro's gargoyles up");
-            await Task.Delay(TimeSpan.FromSeconds(IzaroGargoyles.StandSeconds));
-            foreach (var g in own.OrderBy(_ => Random.Shared.Next()))
+            await Send(player, [.. bytes], "0x02bc Izaro's gargoyles up");
+            await AreaDelay(player, IzaroGargoyles.StandSeconds);
+            foreach (var g in own.OrderBy(_ => AreaRng(player).Next()))
             {
                 uint beam;
                 ushort awaken = 0;
                 (int X, int Y) from, to;
-                lock (conn.Monsters)
-                {
-                    if (arena.Over || !here()) return;
-                    if (GargoyleDead(conn, g)) continue;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    from = g.Monster.Walk.Position(now);
-                    to = arena.Boss!.Walk.Position(now);
-                    g.Monster.EncounterStats = null;
-                    beam = conn.TakeObjectId();
-                    if (IzaroGargoyles.AwakenBuff is not null) awaken = conn.NextBuff++;
-                }
+                if (arena.Over || !here()) return;
+                if (GargoyleDead(player, g)) continue;
+                double now = AreaTime(player);
+                from = g.Monster.Walk.Position(now);
+                to = arena.Boss!.Walk.Position(now);
+                g.Monster.EncounterStats = null;
+                beam = player.TakeObjectId();
+                if (IzaroGargoyles.AwakenBuff is not null) awaken = player.NextBuff++;
                 // The Goddess casts the beam from her hands (her AwakenGargoyle, live); without her the server's beam runs from the
                 // gargoyle to Izaro.
                 uint goddessId = arena.Goddess;
                 bool cast = arena.GoddessMonster is { } goddess
-                    && await GoddessOfJustice.Awaken(remote, stream, ciphers, conn, goddessId, goddess, g.Id, from, IzaroGargoyles.BeamSeconds);
+                    && await GoddessOfJustice.Awaken(player, goddessId, goddess, g.Id, from, IzaroGargoyles.BeamSeconds);
                 List<byte> start = cast ? [] : [.. InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
                     new BeamEffectObject(from.X, from.Y, g.Id, to.X * BeamEffectObject.WorldPerCell, to.Y * BeamEffectObject.WorldPerCell,
                         arena.Izaro, IzaroGargoyles.BeamRow, IzaroGargoyles.MouthBone).Blob()), .. InstanceProtocol.EnterWakeZone(beam)];
-                if (IzaroGargoyles.AwakenBuff is ushort row) start.AddRange(InstanceEntities.AddBuff(g.Id, awaken, row, cast ? goddessId : arena.Izaro));
-                await Send(remote, stream, ciphers, [.. start], cast ? $"0x01c1 gargoyle 0x{g.Id:x} ({g.Effect.Id}) awakening under the Goddess's beam"
+                if (IzaroGargoyles.AwakenBuff is ushort row) player.Area.Buffs.Set(g.Id, new(row, cast ? goddessId : arena.Izaro));
+                await Send(player, [.. start], cast ? $"0x01c1 gargoyle 0x{g.Id:x} ({g.Effect.Id}) awakening under the Goddess's beam"
                     : $"0x02bb beam 0x{beam:x} from gargoyle 0x{g.Id:x} ({g.Effect.Id}) to Izaro");
                 // The beam runs its time, or until the gargoyle dies or Izaro leaves (live: it goes with the gargoyle).
                 for (double waited = 0; waited < IzaroGargoyles.BeamSeconds; waited += 0.2)
                 {
-                    await Task.Delay(200);
-                    lock (conn.Monsters) if (!here() || arena.Over || GargoyleDead(conn, g)) break;
+                    await AreaDelay(player, 0.2);
+                    if (!here() || arena.Over || GargoyleDead(player, g)) break;
                 }
                 if (!here()) return;
-                if (cast && arena.GoddessMonster is { } caster) await GoddessOfJustice.EndAwaken(remote, stream, ciphers, conn, goddessId, caster);
+                if (cast && arena.GoddessMonster is { } caster) await GoddessOfJustice.EndAwaken(player, goddessId, caster);
                 List<byte> end = cast ? [] : [.. InstanceProtocol.RemoveObject(beam)];
-                if (awaken != 0) end.AddRange(InstanceEntities.RemoveBuff(g.Id, awaken));
+                if (awaken != 0 && IzaroGargoyles.AwakenBuff is ushort awakenRow) player.Area.Buffs.ClearRow(g.Id, awakenRow);
                 bool over, dead;
-                lock (conn.Monsters) (over, dead) = (arena.Over, GargoyleDead(conn, g));
+                (over, dead) = (arena.Over, GargoyleDead(player, g));
                 if (!over && !dead && Emerges.SkillId is ushort emerge)
-                    end.AddRange([.. InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, from.X, from.Y, emerge, 0xffff, conn.MonsterOrderFlags),
+                    end.AddRange([.. InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, from.X, from.Y, emerge, 0xffff, player.MonsterOrderFlags),
                         .. InstanceProtocol.ActionEnded(g.Id)]);
-                await Send(remote, stream, ciphers, [.. end], $"0x02bd beam 0x{beam:x} ends{(over || dead ? "" : $", gargoyle 0x{g.Id:x} awakens")}");
+                await Send(player, [.. end], $"0x02bd beam 0x{beam:x} ends{(over || dead ? "" : $", gargoyle 0x{g.Id:x} awakens")}");
                 if (over) return;
-                if (!dead) await WakeIzaroGargoyle(remote, stream, ciphers, conn, arena, g, g.AwakenSeconds, "awakens");
+                if (!dead) await WakeIzaroGargoyle(player, arena, g, g.AwakenSeconds, "awakens");
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} Izaro's gargoyles stopped: {ServerLog.Describe(ex)}"); }
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} Izaro's gargoyles stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // While he fights: a gargoyle killed takes its buff off Izaro; when the last of the arena's own dies he says so.
-    static async Task WatchIzaroGargoyles(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+    static async Task WatchIzaroGargoyles(Player player, IzaroArena arena,
         Func<bool> here)
     {
         try
@@ -201,27 +187,22 @@ static partial class QuestobjectsRules
             {
                 List<(GargoyleSlot G, ushort Buff)> gone = [];
                 bool allDead = false;
-                lock (conn.Monsters)
+                if (arena.Over) return;
+                foreach (var g in arena.Gargoyles.Where(g => g.Buff != 0 && GargoyleDead(player, g)))
                 {
-                    if (arena.Over) return;
-                    foreach (var g in arena.Gargoyles.Where(g => g.Buff != 0 && GargoyleDead(conn, g)))
-                    {
-                        gone.Add((g, g.Buff));
-                        g.Buff = 0;
-                    }
-                    if (gone.Count > 0) UpdateIzaroStats(arena);
-                    var own = arena.Gargoyles.Where(g => g.Carried is null).ToList();
-                    if (own.Count > 0 && !arena.AllGargoylesDeadSaid && own.All(g => GargoyleDead(conn, g)))
-                        allDead = arena.AllGargoylesDeadSaid = true;
+                    gone.Add((g, g.Buff));
+                    g.Buff = 0;
                 }
-                foreach (var (g, buff) in gone)
-                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(arena.Izaro, buff),
-                        $"0x01c2 Izaro 0x{arena.Izaro:x} loses {g.Effect.Id}: gargoyle 0x{g.Id:x} is dead");
-                if (allDead) await IzaroSays(remote, stream, ciphers, arena.Izaro, IzaroGargoyles.AllDeadLine);
-                await Task.Delay(200);
+                if (gone.Count > 0) UpdateIzaroStats(arena);
+                var own = arena.Gargoyles.Where(g => g.Carried is null).ToList();
+                if (own.Count > 0 && !arena.AllGargoylesDeadSaid && own.All(g => GargoyleDead(player, g)))
+                    allDead = arena.AllGargoylesDeadSaid = true;
+                foreach (var (g, _) in gone) player.Area.Buffs.Clear(arena.Izaro, g.Effect.Buff, g.Id);
+                if (allDead) await IzaroSays(player, arena.Izaro, IzaroGargoyles.AllDeadLine);
+                await AreaDelay(player, 0.2);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} Izaro's gargoyles' watch stopped: {ServerLog.Describe(ex)}"); }
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} Izaro's gargoyles' watch stopped: {ServerLog.Describe(ex)}"); }
     }
 }

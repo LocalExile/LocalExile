@@ -1,5 +1,5 @@
 /// <summary>Arcane Surge Support's buff and per-skill mana-spent counters, Inspiration's charges, Cruelty's buff values
-/// and Overheat's per-use ailment more. Guarded by the connection's Monsters lock.</summary>
+/// and Overheat's per-use ailment more. Owned by the area's frame.</summary>
 public sealed class SupportGemState
 {
     /// <summary>When the Arcane Surge buff ends (Clock seconds); 0 means it is not running.</summary>

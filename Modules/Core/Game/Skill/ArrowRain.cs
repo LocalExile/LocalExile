@@ -31,12 +31,12 @@ public static partial class Game
     }
 
     // Each arrow's impact radius and how far from the aim the arrows land: Blast Rain's land within its own impact radius.
-    public static (int Radius, double Spread) RainArea(ClientState conn, string id, int effect, IReadOnlyDictionary<uint, int> own,
-        IReadOnlyDictionary<uint, int> player)
+    public static (int Radius, double Spread) RainArea(Player player, string id, int effect, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats)
     {
         bool toxic = id == "ToxicRain", blast = id == "BlastRain";
-        int radius = SkillRadius(conn, toxic ? 18 : blast ? 20 : 10, own, false, effect, player);
-        return (radius, blast ? radius * .85 : SkillRadius(conn, 24, own, false, effect, player));
+        int radius = SkillRadius(player, toxic ? 18 : blast ? 20 : 10, own, false, effect, playerStats);
+        return (radius, blast ? radius * .85 : SkillRadius(player, 24, own, false, effect, playerStats));
     }
 
     internal static void ReleaseArrowRain(ProjectileSession session, ushort skill,
@@ -44,28 +44,28 @@ public static partial class Game
         SkillCriticalRoll critical, ushort sequence, bool mirage = false,
         Func<ProjectileOffense, ProjectileOffense>? transform = null, double podDamageFactor = 1)
     {
-        var conn = session.Conn;
-        string id = SkillsFor(conn).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence);
+        var player = session.Player;
+        string id = SkillsFor(player).EffectId(gem.Effect)!;
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence);
         var shot = (ProjectileOffense)use.Payload!;
-        if (mirage) shot = MirageOffense(conn, shot);
+        if (mirage) shot = MirageOffense(player, shot);
         if (transform is not null) shot = transform(shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };
-        var own = SupportedSkill(conn, skill).Stats;
-        var player = CharacterPlayerStats(conn);
-        int Own(string key) => Stats.Key(key) is uint stat ? own.GetValueOrDefault(stat) : 0;
-        int Player(string key) => Stats.Key(key) is uint stat ? player.GetValueOrDefault(stat) : 0;
-        int Get(string key) => Own(key) + Player(key);
-        int variation = SkillArtVariation(conn, gem.Gem);
+        var own = SupportedSkill(player, skill).Stats;
+        var playerStats = CharacterPlayerStats(player);
+        int Own(uint stat) => own.GetValueOrDefault(stat);
+        int Player(uint stat) => playerStats.GetValueOrDefault(stat);
+        int Get(uint key) => Own(key) + Player(key);
+        int variation = SkillArtVariation(player, gem.Gem);
         string? ArtOf(string key) => Art.Animated(key, variation) ?? Art.Animated(key, 0);
         bool toxic = id == "ToxicRain", blast = id == "BlastRain";
         int count = Math.Clamp(GatewayProjectileDefaults.Resolve(GroundArrow.Metadata, Get, 1000, true, true).Count
-            + (toxic ? Get("toxic_rain_num_of_additional_projectiles") : 0)
-            + (mirage ? Get("mirage_archer_number_of_additional_projectiles") : 0), 1, 256);
-        var (radius, spread) = RainArea(conn, id, gem.Effect, own, player);
+            + (toxic ? Get(Stat.ToxicRainNumOfAdditionalProjectiles) : 0)
+            + (mirage ? Get(Stat.MirageArcherNumberOfAdditionalProjectiles) : 0), 1, 256);
+        var (radius, spread) = RainArea(player, id, gem.Effect, own, playerStats);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();
-        var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, Random.Shared);
+        var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, AreaRng(player));
         string? up = toxic ? ArtOf("toxic_rain_arrow_up") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_up.ao" : ArtOf("expanding_rain_of_arrows_up");
         string? down = toxic ? ArtOf("toxic_rain_arrow_down") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_drop.ao" : ArtOf("expanding_rain_of_arrows_arrow");
         string? impact = toxic ? null : blast ? "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao" : ArtOf("expanding_rain_of_arrows_explosion");
@@ -83,9 +83,9 @@ public static partial class Game
         // a fixed mesh); how is not read. Its streak and flash at the archer are stood in for by the falling arrow's
         // art, played once where the shot leaves.
         if (toxic) session.RainArt(use.Origin, down, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: 0);
-        double spacing = blast ? Math.Max(0, Get("blast_rain_arrow_delay_ms")) / 1000d : toxic ? 0 : .04;
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
-        var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
+        double spacing = blast ? Math.Max(0, Get(Stat.BlastRainArrowDelayMs)) / 1000d : toxic ? 0 : .04;
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
+        var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? playerStats);
         double dps = toxic && !damageContext.Suppressed
             ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
         // The falling arrow's art is one clip (index 0: spore_drop.ao and blast_rain's arrow_drop.ao "animate",
@@ -99,11 +99,11 @@ public static partial class Game
             long land = session.Runtime.Now + ProjectileRuntime.Time(.35 + i * spacing);
             session.Runtime.Schedule(land - ProjectileRuntime.Time(fall), () =>
             {
-                if (session.Active && conn.PlayerLife != 0) session.RainArt(at, down, 1, rotation: Facing(at - use.Origin), clip: 0);
+                if (session.Active && player.PlayerLife != 0) session.RainArt(at, down, 1, rotation: Facing(at - use.Origin), clip: 0);
             });
             session.Runtime.Schedule(land, () =>
             {
-                if (!session.Active || conn.PlayerLife == 0) return;
+                if (!session.Active || player.PlayerLife == 0) return;
                 session.Runtime.Impact(use, at, new(id, radius));
                 if (!toxic) session.RainArt(at, impact, 1, radius);
                 else if (duration > 0)
@@ -117,28 +117,28 @@ public static partial class Game
                     session.RainArt(at, Art.ObjectModel("toxic_rain_spore", variation) ?? Art.ObjectModel("toxic_rain_spore", 0), duration,
                         rotation: turn, clip: 1, endClip: ((uint)Random.Shared.Next(2, 5), .966));
                     session.PlaceToxicPod(use, at, radius, duration, dps,
-                        -Get("rain_of_spores_vines_movement_speed_+%_final"), -Get("minimum_rain_of_spores_movement_speed_+%_final_cap"), ArtOf("toxic_rain_explode"));
+                        -Get(Stat.RainOfSporesVinesMovementSpeedPlusPctFinal), -Get(Stat.MinimumRainOfSporesMovementSpeedPlusPctFinalCap), ArtOf("toxic_rain_explode"));
                 }
             });
         }
     }
 
-    static double ToxicPodDps(Func<string,int> get, Func<string,int> own) => ChaosGroundDps(get, own, "toxic_rain_damage_+%");
+    static double ToxicPodDps(Func<uint, int> get, Func<uint, int> own) => ChaosGroundDps(get, own, Stat.ToxicRainDamagePlusPct);
 
     // A projectile attack's chaos damage over time in an area: Toxic Rain's pods and Caustic Arrow's ground.
     // skillIncrease: the skill's own increased damage stat, if it has one.
-    static double ChaosGroundDps(Func<string,int> get, Func<string,int> own, string? skillIncrease)
+    static double ChaosGroundDps(Func<uint, int> get, Func<uint, int> own, uint? skillIncrease)
     {
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return 0;
-        double increased = (double)get("damage_+%") + get("chaos_damage_+%") + get("area_damage_+%")
-            + get("projectile_damage_+%") + get("damage_over_time_+%") + get("chaos_damage_over_time_+%")
-            + (skillIncrease is null ? 0 : get(skillIncrease));
+        double increased = (double)get(Stat.DamagePlusPct) + get(Stat.ChaosDamagePlusPct) + get(Stat.AreaDamagePlusPct)
+            + get(Stat.ProjectileDamagePlusPct) + get(Stat.DamageOverTimePlusPct) + get(Stat.ChaosDamageOverTimePlusPct)
+            + (skillIncrease is uint key ? get(key) : 0);
         double more = 1;
-        foreach (var stat in new[] { "support_void_manipulation_chaos_damage_+%_final", "support_rapid_decay_damage_over_time_+%_final",
-            "support_efficacy_damage_over_time_+%_final", "support_phys_chaos_projectile_chaos_damage_over_time_+%_final",
-            "support_area_concentrate_area_damage_+%_final", "cruelty_damage_over_time_+%_final" }) more *= Math.Max(0, 1 + own(stat) / 100d);
-        return Math.Max(0, get("base_chaos_damage_to_deal_per_minute") / 60d) * more * Math.Max(0, 1 + increased / 100)
-            * Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get("chaos_dot_multiplier_+")) / 100);
+        foreach (var stat in new[] { Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,
+            Stat.SupportEfficacyDamageOverTimePlusPctFinal, Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
+            Stat.SupportAreaConcentrateAreaDamagePlusPctFinal, Stat.CrueltyDamageOverTimePlusPctFinal }) more *= Math.Max(0, 1 + own(stat) / 100d);
+        return Math.Max(0, get(Stat.BaseChaosDamageToDealPerMinute) / 60d) * more * Math.Max(0, 1 + increased / 100)
+            * Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ChaosDotMultiplierPlus)) / 100);
     }
 }
 

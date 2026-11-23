@@ -12,7 +12,7 @@ public sealed class NpcConversationTests
     public void Automatic_conversations_use_catalog_priority_flags_and_visited_rows()
     {
         // Hot reload adds state to existing connections without rerunning their constructors.
-        var existing = (ClientState)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ClientState));
+        var existing = (Player)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Player));
         Assert.Empty(existing.AutomaticNpcTalkRows);
         existing.AutomaticNpcTalkRows.Add(7);
         Assert.Contains(7, existing.AutomaticNpcTalkRows);
@@ -106,19 +106,19 @@ public sealed class NpcConversationTests
     [Fact]
     public async Task A_shortcut_click_runs_its_option_and_lists_the_options_when_nothing_answers()
     {
-        var kirac = Game.Npcs.Value.Find("Metadata/NPC/Epilogue/Kirac")!;
+        var kirac = Game.Npcs.Find("Metadata/NPC/Epilogue/Kirac")!;
         var seen = new List<string>();
         bool answers = true;
         using var subscription = GameEvents.NpcOption.Add("Game", option => { seen.Add(option.Category); return Task.FromResult(answers); });
         async Task<byte[]?> Click(ushort flags, NpcCatalog.Npc? npc = null)
         {
             using var wire = new Wire();
-            var conn = wire.Conn;
-            var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            lock (conn.Npcs) conn.Npcs[0x300] = new SpawnedNpc(npc ?? kirac, x, y);
-            await Game.OnUseObject("npc-shortcut-test", wire.Stream, wire.Ciphers, conn,
-                new InstanceTransfer.UseSkillOnObject(0x300, 0x266, 1, flags), conn.Clock.Elapsed.TotalSeconds);
-            Assert.Equal(0x300u, conn.TalkingTo);
+            var player = wire.Player;
+            var (x, y) = player.Walk.Position(player.Clock.Elapsed.TotalSeconds);
+            lock (player.Npcs) player.Npcs[0x300] = new SpawnedNpc(npc ?? kirac, x, y);
+            await Game.OnUseObject(player,
+                new InstanceTransfer.UseSkillOnObject(0x300, 0x266, 1, flags), player.Clock.Elapsed.TotalSeconds);
+            Assert.Equal(0x300u, player.TalkingTo);
             return wire.Sent(InstanceNpcs.Talk(0x300).Length);
         }
         byte[] options = InstanceNpcs.Talk(0x300);
@@ -136,7 +136,7 @@ public sealed class NpcConversationTests
         Assert.Equal(options, await Click(0x0408 | InstanceTransfer.CtrlFlag));
         // So does a row whose script would only end a talk that never began: Einhar's View Bestiary names a screen of a
         // system the server does not have.
-        var einhar = Game.Npcs.Value.Find("Metadata/NPC/League/Bestiary/EinharHideout")!;
+        var einhar = Game.Npcs.Find("Metadata/NPC/League/Bestiary/EinharHideout")!;
         Assert.Equal(options, await Click(0x0408 | InstanceTransfer.CtrlFlag, einhar));
         await VerifyLillyGemIntroduction();
     }
@@ -144,9 +144,9 @@ public sealed class NpcConversationTests
     static async Task VerifyLillyGemIntroduction()
     {
         using var f = new MinionUtilityTests.Fixture();
-        var conn = f.Conn;
-        conn.Wire = ("lilly-test", f.Stream, f.Ciphers);
-        var npc = new SpawnedNpc(Game.Npcs.Value.Find("Metadata/NPC/Act6/Lilly")!, 100, 100);
+        var conn = f.Player;
+        conn.Connection.Session = new("lilly-test", f.Stream, f.Ciphers);
+        var npc = new SpawnedNpc(Game.Npcs.Find("Metadata/NPC/Act6/Lilly")!, 100, 100);
         conn.Npcs[500] = npc; conn.TalkingTo = 500;
         using var text = GameEvents.NpcOption.Add("Game", option =>
         {
@@ -155,18 +155,18 @@ public sealed class NpcConversationTests
             return Task.FromResult(true);
         });
         Assert.False(await VendorsFeature.BeginLillyGemIntroduction(conn, 500, npc));
-        conn.QuestFlags.Add("a6q4-QuestRewardSeen");
+        conn.Character.QuestFlags.Add("a6q4-QuestRewardSeen");
         Assert.True(await VendorsFeature.BeginLillyGemIntroduction(conn, 500, npc));
-        Assert.True(conn.HasQuestFlag(GemVendorStock.LillyUnlock));
-        Assert.DoesNotContain(VendorsFeature.LillyGemShopLeagueFlag, conn.LeagueQuestFlags);
+        Assert.True(conn.Character.HasQuestFlag(GemVendorStock.LillyUnlock));
+        Assert.DoesNotContain(VendorsFeature.LillyGemShopLeagueFlag, conn.Character.LeagueQuestFlags);
         await VendorsFeature.FinishLillyGemIntroduction(conn);
-        Assert.Contains(VendorsFeature.LillyGemShopLeagueFlag, conn.LeagueQuestFlags);
+        Assert.Contains(VendorsFeature.LillyGemShopLeagueFlag, conn.Character.LeagueQuestFlags);
         Assert.Contains(VendorsFeature.LillyGemShopLeagueFlag, Game.PersonalStashOf(conn).LeagueQuestFlags);
         Assert.False(await VendorsFeature.BeginLillyGemIntroduction(conn, 500, npc));
-        conn.QuestFlags.Remove(GemVendorStock.LillyUnlock);
-        var gems = GemVendorStock.For(Program.Items, Game.Npcs.Value, Program.Skills);
-        Assert.Empty(gems.Stock(npc.Npc.Id, conn.ClassRow, conn.QuestFlagsSnapshot()));
-        Assert.NotEmpty(gems.Stock(npc.Npc.Id, conn.ClassRow, VendorsFeature.VendorQuestFlags(conn)));
+        conn.Character.QuestFlags.Remove(GemVendorStock.LillyUnlock);
+        var gems = GemVendorStock.For(Program.Items, Game.Npcs, Program.Skills);
+        Assert.Empty(gems.Stock(npc.Npc.Id, conn.Character.ClassRow, conn.Character.QuestFlagsSnapshot()));
+        Assert.NotEmpty(gems.Stock(npc.Npc.Id, conn.Character.ClassRow, VendorsFeature.VendorQuestFlags(conn)));
     }
 
     sealed class Wire : IDisposable
@@ -176,7 +176,7 @@ public sealed class NpcConversationTests
         readonly TcpClient reader;
         readonly ConnectionCiphers decrypt = new(new byte[64], true);
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
-        public readonly ClientState Conn = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
+        public readonly Player Player = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
         public NetworkStream Stream => writer.GetStream();
         public Wire()
         {
@@ -184,6 +184,7 @@ public sealed class NpcConversationTests
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accepting.GetAwaiter().GetResult();
+            Player.Connection.Session = new("test", Stream, Ciphers);
         }
         /// <summary>The next <paramref name="count"/> bytes the server wrote, or null when it wrote nothing.</summary>
         public byte[]? Sent(int count)
@@ -194,6 +195,6 @@ public sealed class NpcConversationTests
             decrypt.Receive.Process(bytes);
             return bytes;
         }
-        public void Dispose() { Conn.Closed = true; reader.Dispose(); writer.Dispose(); listener.Stop(); }
+        public void Dispose() { Player.Closed = true; reader.Dispose(); writer.Dispose(); listener.Stop(); }
     }
 }

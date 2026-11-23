@@ -2,13 +2,49 @@ using System.Text.Json;
 using GameServer.Core;
 
 /// <summary>Player summon identities, independent of the golem limit and golem revival policy.</summary>
-public sealed class SummonCatalog(string folder = "data")
+public sealed class SummonCatalog
 {
-    public sealed record Definition(string Id, string Family, string Variety, string LimitStat,
-        string CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true);
-    readonly Lazy<IReadOnlyDictionary<string, Definition>> all = new(() => Load(folder));
-    public IReadOnlyCollection<Definition> All => all.Value.Values.ToArray();
-    public Definition? Find(string? effect) => effect is null ? null : all.Value.GetValueOrDefault(effect);
+    readonly string folder;
+
+    public SummonCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        all = Load(folder);
+        byEffect = LoadByEffect(all);
+    }
+
+    public sealed record Definition(string Id, string Family, string Variety, uint LimitStat,
+        uint CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true)
+    {
+        /// <summary>The limit without its base_ prefix (the final stat the panel shows), 0 when none.</summary>
+        public uint FinalLimitStat => LimitStat == 0 ? 0 : Stat.Of(Program.Stats.Name(LimitStat).Replace("base_", "", StringComparison.Ordinal));
+    }
+    readonly IReadOnlyDictionary<string, Definition> all;
+    public IReadOnlyCollection<Definition> All => all.Values.ToArray();
+    public Definition? Find(string? effect) => effect is null ? null : all.GetValueOrDefault(effect);
+
+    /// <summary>The definition of the player skill a GrantedEffects row shares its ActiveSkills row with (a monster's
+    /// ExileSummonSkeletons is ActiveSkill summon_skeletons, as the gem's SummonSkeletons is): the base gem's, not an
+    /// AltX/AltY's, whose minion is a choice of the gem's. Null for a skill no player summon uses.</summary>
+    public Definition? ForActiveSkill(int effectRow) => byEffect.GetValueOrDefault(effectRow);
+
+    readonly Dictionary<int, Definition> byEffect;
+
+    /// <summary>Every GrantedEffects row whose ActiveSkills row a base player summon has, to that summon (the first in
+    /// row order).</summary>
+    static Dictionary<int, Definition> LoadByEffect(IReadOnlyDictionary<string, Definition> all)
+    {
+        var result = new Dictionary<int, Definition>();
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects) return result;
+        var bySkill = new Dictionary<int, Definition>();
+        foreach (var e in effects)
+            if (e.IntOrNull("ActiveSkill") is int skill && e.Text("Id") is { } id && all.TryGetValue(id, out var d)
+                && !id.EndsWith("AltX", StringComparison.Ordinal) && !id.EndsWith("AltY", StringComparison.Ordinal))
+                bySkill.TryAdd(skill, d);
+        foreach (var e in effects)
+            if (e.IntOrNull("ActiveSkill") is int skill && bySkill.TryGetValue(skill, out var d)) result[e.Index] = d;
+        return result;
+    }
 
     static IReadOnlyDictionary<string, Definition> Load(string folder)
     {
@@ -16,18 +52,18 @@ public sealed class SummonCatalog(string folder = "data")
         var skills = ClientTables.Table("ActiveSkills");
         var result = new Dictionary<string, Definition>(StringComparer.Ordinal);
         var definitions = new Definition[] {
-            new("RaiseZombie", "Zombie", "Metadata/Monsters/RaisedZombies/RaisedZombieStandard", "base_number_of_zombies_allowed", "active_zombie_count", true, true),
-            new("RaiseSpectre", "Spectre", "", "base_number_of_spectres_allowed", "active_spectre_count", true, true),
-            new("VaalSummonSkeletons", "VaalSkeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonMelee1Army", "base_number_of_skeletons_allowed", "", Follows: false),
-            new("SummonSkeletons", "Skeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonStandard", "base_number_of_skeletons_allowed", "active_skeleton_count", Follows: false),
-            new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", "base_number_of_raging_spirits_allowed", "active_raging_spirit_count", Follows: false, Targetable: false),
-            new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", "base_number_of_reapers_allowed", "active_reaper_count", true),
-            new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", "base_number_of_relics_allowed", "number_of_active_relics", true, Targetable: false),
-            new("VaalAnimateWeapon", "VaalAnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", "base_number_of_animated_weapons_allowed", "number_of_active_vaal_animated_weapons"),
-            new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", "base_number_of_animated_weapons_allowed", "active_animated_weapon_count"),
-            new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", "", "active_animated_guardian_count", true),
-            new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
-            new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
+            new("RaiseZombie", "Zombie", "Metadata/Monsters/RaisedZombies/RaisedZombieStandard", Stat.BaseNumberOfZombiesAllowed, Stat.Of("active_zombie_count"), true, true),
+            new("RaiseSpectre", "Spectre", "", Stat.BaseNumberOfSpectresAllowed, Stat.Of("active_spectre_count"), true, true),
+            new("VaalSummonSkeletons", "VaalSkeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonMelee1Army", Stat.BaseNumberOfSkeletonsAllowed, 0, Follows: false),
+            new("SummonSkeletons", "Skeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonStandard", Stat.BaseNumberOfSkeletonsAllowed, Stat.Of("active_skeleton_count"), Follows: false),
+            new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", Stat.BaseNumberOfRagingSpiritsAllowed, Stat.Of("active_raging_spirit_count"), Follows: false, Targetable: false),
+            new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", Stat.BaseNumberOfReapersAllowed, Stat.Of("active_reaper_count"), true),
+            new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", Stat.BaseNumberOfRelicsAllowed, Stat.NumberOfActiveRelics, true, Targetable: false),
+            new("VaalAnimateWeapon", "VaalAnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.NumberOfActiveVaalAnimatedWeapons),
+            new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.Of("active_animated_weapon_count")),
+            new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", 0, Stat.Of("active_animated_guardian_count"), true),
+            new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
+            new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
         };
         foreach (var row in effects)
         {
@@ -41,8 +77,8 @@ public sealed class SummonCatalog(string folder = "data")
             if (id == "SummonSkeletonsAltY") definition = definition with { Variety = "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonSpellcaster1Jewel" };
             if (id == "RaiseSpectreAltX") definition = definition with { Persistent = false };
             if (id == "RaiseZombieAltY") definition = definition with { Persistent = false, Corpse = false };
-            if (template.Family == "Clone" && id.EndsWith("AltX", StringComparison.Ordinal)) definition = definition with { LimitStat = "base_number_of_blink_mirror_arrow_rain_of_arrows_clones" };
-            if (template.Family == "Clone" && id.EndsWith("AltY", StringComparison.Ordinal)) definition = definition with { LimitStat = "base_number_of_blink_mirror_arrow_elemental_hit_clones" };
+            if (template.Family == "Clone" && id.EndsWith("AltX", StringComparison.Ordinal)) definition = definition with { LimitStat = Stat.BaseNumberOfBlinkMirrorArrowRainOfArrowsClones };
+            if (template.Family == "Clone" && id.EndsWith("AltY", StringComparison.Ordinal)) definition = definition with { LimitStat = Stat.BaseNumberOfBlinkMirrorArrowElementalHitClones };
             result.Add(id, definition);
         }
         return result;
@@ -56,7 +92,7 @@ public sealed class SummonedMinions
     public readonly Dictionary<uint, SummonCatalog.Definition> Definitions = [];
     public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.Item> Weapons = [];
     public sealed record Offering(string Effect, double Until, ushort Buff, ushort Source,
-        Dictionary<string, int> Stats, Dictionary<string, int> BaseStats, int EffectIncrease);
+        Dictionary<uint, int> Stats, Dictionary<uint, int> BaseStats, int EffectIncrease);
     public readonly List<Offering> Offerings = [];
     public Dictionary<uint, int> PlayerOfferingStats = [];
     public readonly Dictionary<ushort, (Offering Offering, ushort Instance)> PlayerOfferingBuffs = [];
@@ -67,7 +103,6 @@ public sealed class SummonedMinions
     public int HolyRegenerationPerMinute;
     public ushort HolyBuff;
     public double FeedingFrenzyUntil;
-    public ushort FeedingFrenzyBuff;
     public sealed record Prey(uint Id, SpawnedMonster Monster, ushort Source, double Until, ushort Buff);
     public Prey? SignalledPrey;
     public readonly Queue<uint> Corpses = [];
@@ -84,8 +119,10 @@ public sealed class SummonedMinions
         GolemState.MinionResourceSnapshot? Resources = null, uint? Host = null, int? Socket = null);
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     SummonedMinions? summons;
     public SummonedMinions Summons => System.Threading.LazyInitializer.EnsureInitialized(ref summons);
+    MonsterPlacedObjects? monsterPlaced;
+    public MonsterPlacedObjects MonsterPlaced => System.Threading.LazyInitializer.EnsureInitialized(ref monsterPlaced);
 }

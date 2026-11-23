@@ -6,7 +6,7 @@ public sealed class SwiftAfflictionTests
     public void Swift_affliction_shortens_damage_ailments_from_linked_skills_once()
     {
         using var fixture = new TriggeredSummonTests.Fixture();
-        var conn = fixture.Conn;
+        var conn = fixture.Player;
         ushort Equip(string active, bool supported) => Assert.Single(supported
             ? fixture.Equip((active, 1), ("Swift Affliction Support", 1))
             : fixture.Equip((active, 1)));
@@ -38,7 +38,7 @@ public sealed class SwiftAfflictionTests
     {
         using var fixture = new TriggeredSummonTests.Fixture();
         ushort skill = Assert.Single(fixture.Equip(("Fireball", 1), ("Swift Affliction Support", 1), ("Sadism Support", 1)));
-        var conn = fixture.Conn;
+        var conn = fixture.Player;
         var ignite = Game.SupportedIgnite(conn, skill, spell: true, Game.CharacterPlayerStats(conn));
         Assert.Equal(4 * .75 * .30 / 1.60, ignite.Seconds, 6);
     }

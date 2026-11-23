@@ -3,14 +3,26 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
 /// <summary>The ordinary bench's live client recipes, costs, class filters and guaranteed modifiers.</summary>
-public sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+public sealed class BenchCrafting
 {
+    readonly ItemCatalog catalog;
+    readonly ItemRolls rolls;
+    readonly string folder;
+
+    public BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+    {
+        this.catalog = catalog;
+        this.rolls = rolls;
+        this.folder = folder;
+        _all = Load(catalog, folder);
+    }
+
     public sealed record Recipe(int Row, string Name, ModCatalog.Mod? Mod, ModCatalog.Mod? Enchant,
         int Action, int Sockets, int Links, string Colours, IReadOnlySet<int> Classes,
         IReadOnlyList<(uint Currency, int Amount)> Costs, IReadOnlyList<int> Unlocks);
     public sealed record Result(Item Item, IReadOnlyList<(uint Currency, int Amount)> Costs);
-    readonly Lazy<IReadOnlyList<Recipe>> _all = new(() => Load(catalog, folder));
-    public IReadOnlyList<Recipe> All => _all.Value;
+    readonly IReadOnlyList<Recipe> _all;
+    public IReadOnlyList<Recipe> All => _all;
     public IEnumerable<int> UnlockFlags => All.SelectMany(r => r.Unlocks).Where(i => i > 0).Distinct();
     public Recipe? Find(int row) => All.FirstOrDefault(r => r.Row == row);
     public bool IsCrafted(ItemMod mod) => mod.Section == ModSection.Explicit && catalog.Mods.ByHash(mod.Hash)?.Domain == 9;
@@ -85,12 +97,12 @@ public sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string f
                 if (catalog.Mods.ByHash(existing.Hash) is { } definition)
                     for (int i = 0; i < definition.Stats.Count && i < existing.Values.Count; i++)
                     {
-                        string stat = definition.Stats[i].Id;
-                        if (stat == "item_generation_can_have_multiple_crafted_mods" && existing.Values[i] > 0) limit = Math.Max(limit, 3);
-                        else if (stat == "local_can_have_additional_crafted_mods") limit += existing.Values[i];
+                        uint stat = definition.Stats[i].Id;
+                        if (stat == Stat.ItemGenerationCanHaveMultipleCraftedMods && existing.Values[i] > 0) limit = Math.Max(limit, 3);
+                        else if (stat == Stat.LocalCanHaveAdditionalCraftedMods) limit += existing.Values[i];
                     }
             if (Enumerable.Range(0, mod.Stats.Count).Any(i =>
-                mod.Stats[i].Id == "item_generation_can_have_multiple_crafted_mods" && mod.RangeAt(i).Min > 0))
+                mod.Stats[i].Id == Stat.ItemGenerationCanHaveMultipleCraftedMods && mod.RangeAt(i).Min > 0))
                 limit = Math.Max(limit, 3);
             bool conflict(ItemMod m) => catalog.Mods.ByHash(m.Hash) is { } other &&
                 (other.Hash == mod.Hash || other.Families.Intersect(mod.Families).Any());

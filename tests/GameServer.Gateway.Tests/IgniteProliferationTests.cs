@@ -2,11 +2,11 @@ namespace GameServer.Gateway.Tests;
 
 public class IgniteProliferationTests
 {
-    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
-        name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
+    static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 
     static SpawnedMonster At(int x, params (string, int)[] stats) => new($"at {x}", new(x, 100, 1), 0, 0, 100)
-        { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };
+        { Mods = new([], [], new(stats.ToDictionary(s => Stat.Of(s.Item1), s => s.Item2))) };
 
     // The radius is the largest source (the main hand's only for attacks in it). A spreading ignite burns every living,
     // ignitable monster in its radius at its own damage per second; the copy does not spread and is not a new ignite.
@@ -17,20 +17,20 @@ public class IgniteProliferationTests
             ("main_hand_ignite_proliferation_radius", 20));
         Assert.Equal((17, 20), (Game.IgniteProliferationRadius(get, "spell"), Game.IgniteProliferationRadius(get, "main_hand")));
 
-        var conn = new ClientState(new(1, "ignite", 300, 300, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "ignite", 300, 300, 100, 100, null, []), 1, 1);
         var (source, near, far, immune) = (At(100), At(110), At(116), At(105, ("immune_to_ignite", 1)));
         uint id = 0;
-        foreach (var m in new[] { source, near, far, immune }) conn.Monsters[++id] = m;
+        foreach (var m in new[] { source, near, far, immune }) player.Area.Monsters[++id] = m;
         Assert.True(source.Ignites.Add(0, 100, 4, spread: 15));
 
-        var packets = Game.MonsterAilmentChangesLocked(conn, now: .25);
+        Game.MonsterAilmentChangesLocked(player, now: .25);
         Assert.True(near.Ignites.Burning);
         Assert.False(far.Ignites.Burning);
         Assert.False(immune.Ignites.Burning);
         Assert.Empty(near.Ignites.Spreads(.25));
         Assert.Equal(0, near.Ignites.LastApplied);
         Assert.NotNull(near.Ignites.Buff);
-        Assert.Contains(packets, p => p.Log.Contains("ignited by proliferation"));
+        Assert.True(player.Area.Buffs.HasRow(2, Game.IgnitedBuffRow));
         Assert.Equal(100, near.Ignites.Advance(1.25, 1));
     }
 
@@ -38,37 +38,37 @@ public class IgniteProliferationTests
     [Fact]
     public void Corpse_spreads_its_ignite_until_it_ends()
     {
-        var conn = new ClientState(new(1, "corpse", 300, 300, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "corpse", 300, 300, 100, 100, null, []), 1, 1);
         var (source, near) = (At(100), At(110));
-        conn.Monsters[1] = source;
-        conn.Monsters[2] = near;
+        player.Area.Monsters[1] = source;
+        player.Area.Monsters[2] = near;
         source.Ignites.Add(0, 100, 4, spread: 15);
-        Game.MonsterAilmentChangesLocked(conn, now: .25);
+        Game.MonsterAilmentChangesLocked(player, now: .25);
         Assert.Equal(100, near.Ignites.Advance(1.25, 1));
 
         source.Dead = true;
         source.Life = 0;
         source.Ignites.Clear();
         Assert.Single(source.Ignites.Spreads(1.5));
-        Game.MonsterAilmentChangesLocked(conn, now: 1.5);
+        Game.MonsterAilmentChangesLocked(player, now: 1.5);
         Assert.Equal(125, near.Ignites.Advance(2.5, 1));
 
-        Game.MonsterAilmentChangesLocked(conn, now: 4.5);
+        Game.MonsterAilmentChangesLocked(player, now: 4.5);
         Assert.Equal(150, near.Ignites.Advance(4.5, 1));
         Assert.False(near.Ignites.Burning);
 
         // An intact corpse's copy holds; once the corpse shatters its aura retires and the copy ends at the next tick.
         var (shattered, close) = (At(200), At(210));
-        conn.Monsters[3] = shattered;
-        conn.Monsters[4] = close;
+        player.Area.Monsters[3] = shattered;
+        player.Area.Monsters[4] = close;
         shattered.Ignites.Add(4.5, 100, 4, spread: 15);
         shattered.Dead = true;
         shattered.Life = 0;
         shattered.Ignites.Clear();
-        Game.MonsterAilmentChangesLocked(conn, now: 4.75);
+        Game.MonsterAilmentChangesLocked(player, now: 4.75);
         Assert.True(close.Ignites.Burning);
         shattered.Ailments.Shatter();
-        Game.MonsterAilmentChangesLocked(conn, now: 5);
+        Game.MonsterAilmentChangesLocked(player, now: 5);
         Assert.Empty(shattered.Ignites.Spreads(5));
         Assert.Equal(25, close.Ignites.Advance(6, 1));
         Assert.False(close.Ignites.Burning);

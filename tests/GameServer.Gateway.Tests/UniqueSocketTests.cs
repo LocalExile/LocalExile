@@ -26,7 +26,7 @@ public class UniqueSocketTests
         foreach (string name in new[] { "Tombfist", "Lightpoacher", "Bubonic Trail", "Shroud of the Lightless", "Hale Negator", "Command of the Pit" })
         {
             var item = Assert.IsType<Item>(uniques.Create(name, new Random(17)));
-            int expected = ItemModStats.Local(item, items.Mods)["local_has_X_abyss_sockets"];
+            int expected = ItemModStats.Local(item, items.Mods)[Stat.LocalHasXAbyssSockets];
             Assert.True(expected > 0);
             var legacy = CharacterSaves.ToSaved(item with { Sockets = [], Links = null }, items.Mods);
             Assert.Equal(expected, CharacterSaves.FromSaved(legacy, items).Sockets.Count(s => s.Colour == SocketColour.Abyss));
@@ -39,15 +39,15 @@ public class UniqueSocketTests
         Assert.Equal(6, loyal.Sockets.Count);
         Assert.Equal(new byte[] { 6 }, loyal.Links);
         Assert.All(loyal.Sockets, socket => Assert.NotEqual(SocketColour.White, socket.Colour));
-        Assert.Equal(1, ItemModStats.Local(loyal, items.Mods).GetValueOrDefault("local_socketed_gem_level_+"));
-        Assert.NotEqual(0, ItemModStats.Sum([loyal], items.Mods).GetValueOrDefault("global_defences_+%"));
+        Assert.Equal(1, ItemModStats.Local(loyal, items.Mods).GetValueOrDefault(Stat.LocalSocketedGemLevelPlus));
+        Assert.NotEqual(0, ItemModStats.Sum([loyal], items.Mods).GetValueOrDefault(Stat.GlobalDefencesPlusPct));
         // Dialla's Malefaction has no fixed count: ordinary sockets, still never white.
         var dialla = Assert.IsType<Item>(uniques.Create("Dialla's Malefaction", new Random(17)));
         Assert.Equal(2, dialla.Sockets.Count);
         Assert.Equal(new byte[] { 2 }, dialla.Links);
         Assert.All(dialla.Sockets, socket => Assert.NotEqual(SocketColour.White, socket.Colour));
         foreach (var robe in new[] { loyal, dialla })
-            Assert.Equal(1, ItemModStats.Local(robe, items.Mods).GetValueOrDefault("local_sockets_cannot_be_white"));
+            Assert.Equal(1, ItemModStats.Local(robe, items.Mods).GetValueOrDefault(Stat.LocalSocketsCannotBeWhite));
         // A fixed "Has X Sockets" count: Loreweave six, Crest of Desire one, Voidfletcher's one plus two make three.
         var loreweave = Assert.IsType<Item>(uniques.Create("Loreweave", new Random(17)));
         Assert.Equal(6, loreweave.Sockets.Count);
@@ -82,8 +82,8 @@ public class UniqueSocketTests
         Assert.Equal(1, ItemModStats.LevelRequirement(robe, type.DropLevel, items.Mods));
         Assert.Equal(0, ItemDefences.Calculate(robe, items.Defences(type)!.Value, items.Mods).EnergyShield);
         var local = ItemModStats.Local(robe, items.Mods);
-        local["local_energy_shield"] = 100;
-        local["local_energy_shield_+%"] = 200;
+        local[Stat.LocalEnergyShield] = 100;
+        local[Stat.LocalEnergyShieldPlusPct] = 200;
         Assert.Equal(0, ItemDefences.Of(items.Defences(type)!.Value, local, 20).EnergyShield);
         var own = ItemModStats.ApplyBaseRequirementOverrides(new(1, robe, 0, 0, 17, 1), items.Mods);
         Assert.Equal(0, own.Intelligence);

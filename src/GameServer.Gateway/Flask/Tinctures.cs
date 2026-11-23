@@ -45,18 +45,18 @@ public static class Tinctures
         ("TinctureApplyWitherStacksOnHitUnique__1", "tincture_unique5"),
     ];
 
-    static readonly HashSet<string> UnscaledStats = new(StringComparer.Ordinal)
-    {
-        "culling_strike_with_tinctured_weapons",
-        "melee_splash_with_tinctured_weapons",
-        "toxicity_stacks_gained_on_hit_with_tinctured_weapons",
-        "all_damage_with_tinctured_weapons_can_ignite",
-        "all_damage_with_tinctured_weapons_can_shock",
-        "all_damage_with_tinctured_weapons_can_freeze",
-        "all_damage_with_tinctured_weapons_can_poison",
-        "always_stun_enemies_that_are_on_full_life_with_tinctured_weapons",
-        "tinctured_weapon_hits_cannot_be_evaded_while_on_low_life",
-    };
+    static readonly HashSet<uint> UnscaledStats =
+    [
+        Stat.CullingStrikeWithTincturedWeapons,
+        Stat.MeleeSplashWithTincturedWeapons,
+        Stat.ToxicityStacksGainedOnHitWithTincturedWeapons,
+        Stat.AllDamageWithTincturedWeaponsCanIgnite,
+        Stat.AllDamageWithTincturedWeaponsCanShock,
+        Stat.AllDamageWithTincturedWeaponsCanFreeze,
+        Stat.AllDamageWithTincturedWeaponsCanPoison,
+        Stat.AlwaysStunEnemiesThatAreOnFullLifeWithTincturedWeapons,
+        Stat.TincturedWeaponHitsCannotBeEvadedWhileOnLowLife,
+    ];
 
     public static Catalog Load(string folder, IReadOnlyList<ItemCatalog.BaseType> rows)
     {
@@ -119,28 +119,28 @@ public static class Tinctures
     }
 
     /// <summary>Tincture effect multiplier: 1 + (quality + local effect + character effect) / 100.</summary>
-    public static double EffectMultiplier(Item item, IReadOnlyDictionary<string, int> local, Func<string, int> character,
+    public static double EffectMultiplier(Item item, IReadOnlyDictionary<uint, int> local, Func<uint, int> character,
         int emptyFlaskSlots = 0, bool highToxicity = false, bool usedLifeFlaskRecently = false, bool usingFlask = false)
     {
         long percent = 100L + item.Quality
-            + local.GetValueOrDefault("local_tincture_mod_effect_+%")
-            + character("base_tincture_mod_effect_+%")
-            + character("tincture_mod_effect_+%")
-            + (long)Math.Max(0, emptyFlaskSlots) * character("tincture_mod_effect_+%_per_empty_flask_slot")
-            + (highToxicity ? character("tincture_effect_+%_at_high_toxicity") : 0)
-            + (usedLifeFlaskRecently ? character("tincture_effect_+%_if_used_life_flask_recently") : 0)
-            + (!usingFlask ? character("tincture_effect_+%_while_not_using_flask") : 0);
+            + local.GetValueOrDefault(Stat.LocalTinctureModEffectPlusPct)
+            + character(Stat.BaseTinctureModEffectPlusPct)
+            + character(Stat.TinctureModEffectPlusPct)
+            + (long)Math.Max(0, emptyFlaskSlots) * character(Stat.TinctureModEffectPlusPctPerEmptyFlaskSlot)
+            + (highToxicity ? character(Stat.TinctureEffectPlusPctAtHighToxicity) : 0)
+            + (usedLifeFlaskRecently ? character(Stat.TinctureEffectPlusPctIfUsedLifeFlaskRecently) : 0)
+            + (!usingFlask ? character(Stat.TinctureEffectPlusPctWhileNotUsingFlask) : 0);
         return Math.Max(0, percent) / 100.0;
     }
 
     /// <summary>All non-local stats of a tincture item, scaled by its tincture effect multiplier (flag stats stay unscaled).</summary>
-    public static IReadOnlyList<(string Stat, int Value)> ScaledMods(Item item, ModCatalog mods, double effect)
+    public static IReadOnlyList<(uint Stat, int Value)> ScaledMods(Item item, ModCatalog mods, double effect)
     {
-        var totals = new Dictionary<string, long>(StringComparer.Ordinal);
+        var totals = new Dictionary<uint, long>();
         foreach (var (id, value) in ItemModStats.Values(item, mods, local: false))
             totals[id] = totals.GetValueOrDefault(id) + value;
         if (totals.Count == 0) return [];
-        var list = new List<(string Stat, int Value)>(totals.Count);
+        var list = new List<(uint Stat, int Value)>(totals.Count);
         foreach (var (id, raw) in totals)
         {
             if (raw == 0) continue;
@@ -152,23 +152,23 @@ public static class Tinctures
     }
 
     /// <summary>Interval in seconds between Mana Burn / Weeping Wounds stacks; +infinity when periodic burn is disabled.</summary>
-    public static double DebuffInterval(Definition def, IReadOnlyDictionary<string, int> local, Func<string, int> character)
+    public static double DebuffInterval(Definition def, IReadOnlyDictionary<uint, int> local, Func<uint, int> character)
     {
-        if (local.GetValueOrDefault("local_cannot_generate_toxicity_stacks_over_time") != 0)
+        if (local.GetValueOrDefault(Stat.LocalCannotGenerateToxicityStacksOverTime) != 0)
             return double.PositiveInfinity;
-        double increased = Math.Max(0.1, (100.0 + local.GetValueOrDefault("local_tincture_toxicity_rate_+%")
-            + character("tincture_toxicity_rate_+%") + character("virtual_tincture_toxicity_rate_+%")) / 100.0);
-        double more = Math.Max(0.0, (100.0 + character("warden_tincture_toxicity_rate_+%_final")) / 100.0)
-            * Math.Max(0.0, (100.0 + character("virtual_tincture_toxicity_rate_+%_final")) / 100.0);
+        double increased = Math.Max(0.1, (100.0 + local.GetValueOrDefault(Stat.LocalTinctureToxicityRatePlusPct)
+            + character(Stat.TinctureToxicityRatePlusPct) + character(Stat.VirtualTinctureToxicityRatePlusPct)) / 100.0);
+        double more = Math.Max(0.0, (100.0 + character(Stat.WardenTinctureToxicityRatePlusPctFinal)) / 100.0)
+            * Math.Max(0.0, (100.0 + character(Stat.VirtualTinctureToxicityRatePlusPctFinal)) / 100.0);
         double rate = Math.Max(0.1, increased * more);
         return Math.Max(0.05, def.DebuffIntervalSeconds / rate);
     }
 
     /// <summary>Cooldown duration in seconds triggered when this tincture deactivates.</summary>
-    public static double CooldownSeconds(Definition def, IReadOnlyDictionary<string, int> local, Func<string, int> character)
+    public static double CooldownSeconds(Definition def, IReadOnlyDictionary<uint, int> local, Func<uint, int> character)
     {
-        double rate = Math.Max(0.1, (100.0 + local.GetValueOrDefault("local_tincture_cooldown_recovery_+%")
-            + character("tincture_cooldown_recovery_+%")) / 100.0);
+        double rate = Math.Max(0.1, (100.0 + local.GetValueOrDefault(Stat.LocalTinctureCooldownRecoveryPlusPct)
+            + character(Stat.TinctureCooldownRecoveryPlusPct)) / 100.0);
         return Math.Max(0.1, def.CooldownSeconds / rate);
     }
 
@@ -183,19 +183,19 @@ public static class Tinctures
 
     public sealed record Active(uint ItemId, byte Slot, string Name, Item Item, Definition Definition,
         ushort Buff, ushort BuffRow, double ActivatedAt, double DebuffInterval, double CooldownDuration,
-        IReadOnlyDictionary<string, int> Local, double InitialEffectMultiplier,
-        IReadOnlyList<(string Stat, int Value)> InitialScaledStats)
+        IReadOnlyDictionary<uint, int> Local, double InitialEffectMultiplier,
+        IReadOnlyList<(uint Stat, int Value)> InitialScaledStats)
     {
         public double NextBurnAt { get; set; } = double.IsInfinity(DebuffInterval)
             ? double.PositiveInfinity : ActivatedAt + DebuffInterval;
         public double EffectMultiplier { get; set; } = InitialEffectMultiplier;
-        public IReadOnlyList<(string Stat, int Value)> ScaledStats { get; set; } = InitialScaledStats;
+        public IReadOnlyList<(uint Stat, int Value)> ScaledStats { get; set; } = InitialScaledStats;
     }
 
     public sealed record Lingering(uint ItemId, byte Slot, Item Item, string Name, ushort Buff, ushort BuffRow,
-        double Ends, IReadOnlyList<(string Stat, int Value)> ScaledStats);
+        double Ends, IReadOnlyList<(uint Stat, int Value)> ScaledStats);
 
-    /// <summary>Reload-persistent per-connection tincture state held on <see cref="ClientState"/>.</summary>
+    /// <summary>Reload-persistent per-player tincture state held on <see cref="Player"/>.</summary>
     public sealed class Effects
     {
         readonly List<Active> _active = [];
@@ -278,7 +278,7 @@ public static class Tinctures
             }
         }
 
-        public bool UpdateScaling(uint itemId, double multiplier, IReadOnlyList<(string Stat, int Value)> scaled)
+        public bool UpdateScaling(uint itemId, double multiplier, IReadOnlyList<(uint Stat, int Value)> scaled)
         {
             lock (_lock)
             {
@@ -425,13 +425,13 @@ public static class Tinctures
             }
         }
 
-        public (IReadOnlyList<(string Stat, int Value)> Stats, int Stacks, bool Active, bool Lingering) EffectiveSnapshot()
+        public (IReadOnlyList<(uint Stat, int Value)> Stats, int Stacks, bool Active, bool Lingering) EffectiveSnapshot()
         {
             if (!_anyEffective) return ([], 0, false, false);
             lock (_lock)
             {
                 if (_active.Count == 0 && _lingering.Count == 0) return ([], 0, false, false);
-                var stats = new List<(string Stat, int Value)>();
+                var stats = new List<(uint Stat, int Value)>();
                 foreach (var a in _active) stats.AddRange(a.ScaledStats);
                 foreach (var l in _lingering) stats.AddRange(l.ScaledStats);
                 return (stats, BurnStacks, _active.Count > 0, _lingering.Count > 0);

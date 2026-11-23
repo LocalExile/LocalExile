@@ -24,14 +24,14 @@ public static class ChargeEffects
 {
     /// <summary>Metadata/Characters/Character.ot's per-charge stats (the Brine charge ones belong to another charge
     /// type and are left out). They are the base forms the panel rows sum and <see cref="PerCharge"/> reads.</summary>
-    public static readonly IReadOnlyList<(string Stat, int Value)> Inherent =
+    public static readonly IReadOnlyList<(uint Stat, int Value)> Inherent =
     [
-        ("base_attack_speed_+%_per_frenzy_charge", 4),
-        ("base_cast_speed_+%_per_frenzy_charge", 4),
-        ("object_inherent_damage_+%_final_per_frenzy_charge", 4),
-        ("physical_damage_reduction_%_per_endurance_charge", 4),
-        ("elemental_damage_reduction_%_per_endurance_charge", 4),
-        ("critical_strike_chance_+%_per_power_charge", 50),
+        (Stat.BaseAttackSpeedPlusPctPerFrenzyCharge, 4),
+        (Stat.BaseCastSpeedPlusPctPerFrenzyCharge, 4),
+        (Stat.ObjectInherentDamagePlusPctFinalPerFrenzyCharge, 4),
+        (Stat.PhysicalDamageReductionPctPerEnduranceCharge, 4),
+        (Stat.ElementalDamageReductionPctPerEnduranceCharge, 4),
+        (Stat.CriticalStrikeChancePlusPctPerPowerCharge, 50),
     ];
 
     /// <summary>One per-charge stat: × the charges of <paramref name="Type"/> held (null: all three types together), it
@@ -39,18 +39,18 @@ public static class ChargeEffects
     /// <paramref name="Special"/>: a stat per the type's special charge (Brutal, Affliction, Absorption), which counts
     /// the type's charges only while they are converted (<see cref="Charges.ConversionFlag"/>). <paramref name="PerMaximum"/>:
     /// × the type's maximum instead of the charges held ("per maximum Power Charge").</summary>
-    public sealed record Rule(string Stat, ChargeType? Type, string[] Targets, int? Cap = null, bool Special = false,
+    public sealed record Rule(uint Stat, ChargeType? Type, uint[] Targets, int? Cap = null, bool Special = false,
         bool PerMaximum = false);
 
     // The physical one goes into the passives' base form, which the virtual total and the hits read; the elemental one has
     // no base form.
-    const string PhysicalReduction = "base_additional_physical_damage_reduction_%";
-    const string AdditionalPhysicalReduction = "additional_physical_damage_reduction_%";
-    const string AdditionalElementalReduction = "additional_elemental_damage_reduction_%";
+    const uint PhysicalReduction = Stat.BaseAdditionalPhysicalDamageReductionPct;
+    const uint AdditionalPhysicalReduction = Stat.AdditionalPhysicalDamageReductionPct;
+    const uint AdditionalElementalReduction = Stat.AdditionalElementalDamageReductionPct;
 
-    static Rule E(string stat, params string[] targets) => new(stat, ChargeType.Endurance, targets);
-    static Rule F(string stat, params string[] targets) => new(stat, ChargeType.Frenzy, targets);
-    static Rule P(string stat, params string[] targets) => new(stat, ChargeType.Power, targets);
+    static Rule E(uint stat, params uint[] targets) => new(stat, ChargeType.Endurance, targets);
+    static Rule F(uint stat, params uint[] targets) => new(stat, ChargeType.Frenzy, targets);
+    static Rule P(uint stat, params uint[] targets) => new(stat, ChargeType.Power, targets);
 
     /// <summary>
     /// The per-charge stats the server applies, and the stats they add to. "Adds X to Y damage per charge" without "to
@@ -61,125 +61,125 @@ public static class ChargeEffects
     public static readonly IReadOnlyList<Rule> PerCharge =
     [
         // Endurance
-        E("physical_damage_reduction_%_per_endurance_charge", PhysicalReduction),
-        E("elemental_damage_reduction_%_per_endurance_charge", AdditionalElementalReduction),
-        E("resist_all_elements_%_per_endurance_charge", "base_resist_all_elements_%"),
-        E("chaos_damage_resistance_%_per_endurance_charge", "base_chaos_damage_resistance_%"),
-        E("life_regeneration_rate_per_minute_%_per_endurance_charge", "life_regeneration_rate_per_minute_%"),
-        E("life_regen_per_minute_per_endurance_charge", "base_life_regeneration_rate_per_minute"),
-        E("melee_damage_+%_per_endurance_charge", "melee_damage_+%"),
-        E("physical_damage_per_endurance_charge_+%", "physical_damage_+%"),
-        E("damage_+%_per_endurance_charge", "damage_+%"),
-        E("additional_block_%_per_endurance_charge", "additional_block_%"),
-        E("additional_attack_block_%_per_endurance_charge", "additional_block_%"),
-        E("base_max_fortification_per_endurance_charge", "base_max_fortification"),
-        E("physical_damage_reduction_rating_+%_per_endurance_charge", "physical_damage_reduction_rating_+%"),
-        E("physical_damage_reduction_rating_per_endurance_charge", "base_physical_damage_reduction_rating"),
-        E("spell_suppression_chance_%_per_endurance_charge", "base_spell_suppression_chance_%"),
-        E("movement_speed_+%_per_endurance_charge", "base_movement_velocity_+%"),
-        E("attack_and_cast_speed_+%_per_endurance_charge", "attack_and_cast_speed_+%"),
-        E("critical_strike_chance_+%_per_endurance_charge", "critical_strike_chance_+%"),
-        E("area_of_effect_+%_per_endurance_charge", "base_skill_area_of_effect_+%"),
-        E("stun_duration_+%_per_endurance_charge", "base_stun_duration_+%"),
-        E("minimum_added_fire_damage_per_endurance_charge", "attack_minimum_added_fire_damage", "spell_minimum_added_fire_damage"),
-        E("maximum_added_fire_damage_per_endurance_charge", "attack_maximum_added_fire_damage", "spell_maximum_added_fire_damage"),
-        E("minimum_added_physical_damage_per_endurance_charge", "attack_minimum_added_physical_damage", "spell_minimum_added_physical_damage"),
-        E("maximum_added_physical_damage_per_endurance_charge", "attack_maximum_added_physical_damage", "spell_maximum_added_physical_damage"),
-        E("fire_damage_%_to_add_as_chaos_per_endurance_charge", "fire_damage_%_to_add_as_chaos"),
+        E(Stat.PhysicalDamageReductionPctPerEnduranceCharge, PhysicalReduction),
+        E(Stat.ElementalDamageReductionPctPerEnduranceCharge, AdditionalElementalReduction),
+        E(Stat.ResistAllElementsPctPerEnduranceCharge, Stat.BaseResistAllElementsPct),
+        E(Stat.ChaosDamageResistancePctPerEnduranceCharge, Stat.BaseChaosDamageResistancePct),
+        E(Stat.LifeRegenerationRatePerMinutePctPerEnduranceCharge, Stat.LifeRegenerationRatePerMinutePct),
+        E(Stat.LifeRegenPerMinutePerEnduranceCharge, Stat.BaseLifeRegenerationRatePerMinute),
+        E(Stat.MeleeDamagePlusPctPerEnduranceCharge, Stat.MeleeDamagePlusPct),
+        E(Stat.PhysicalDamagePerEnduranceChargePlusPct, Stat.PhysicalDamagePlusPct),
+        E(Stat.DamagePlusPctPerEnduranceCharge, Stat.DamagePlusPct),
+        E(Stat.AdditionalBlockPctPerEnduranceCharge, Stat.AdditionalBlockPct),
+        E(Stat.AdditionalAttackBlockPctPerEnduranceCharge, Stat.AdditionalBlockPct),
+        E(Stat.BaseMaxFortificationPerEnduranceCharge, Stat.BaseMaxFortification),
+        E(Stat.PhysicalDamageReductionRatingPlusPctPerEnduranceCharge, Stat.PhysicalDamageReductionRatingPlusPct),
+        E(Stat.PhysicalDamageReductionRatingPerEnduranceCharge, Stat.BasePhysicalDamageReductionRating),
+        E(Stat.SpellSuppressionChancePctPerEnduranceCharge, Stat.BaseSpellSuppressionChancePct),
+        E(Stat.MovementSpeedPlusPctPerEnduranceCharge, Stat.BaseMovementVelocityPlusPct),
+        E(Stat.AttackAndCastSpeedPlusPctPerEnduranceCharge, Stat.AttackAndCastSpeedPlusPct),
+        E(Stat.CriticalStrikeChancePlusPctPerEnduranceCharge, Stat.CriticalStrikeChancePlusPct),
+        E(Stat.AreaOfEffectPlusPctPerEnduranceCharge, Stat.BaseSkillAreaOfEffectPlusPct),
+        E(Stat.StunDurationPlusPctPerEnduranceCharge, Stat.BaseStunDurationPlusPct),
+        E(Stat.MinimumAddedFireDamagePerEnduranceCharge, Stat.AttackMinimumAddedFireDamage, Stat.SpellMinimumAddedFireDamage),
+        E(Stat.MaximumAddedFireDamagePerEnduranceCharge, Stat.AttackMaximumAddedFireDamage, Stat.SpellMaximumAddedFireDamage),
+        E(Stat.MinimumAddedPhysicalDamagePerEnduranceCharge, Stat.AttackMinimumAddedPhysicalDamage, Stat.SpellMinimumAddedPhysicalDamage),
+        E(Stat.MaximumAddedPhysicalDamagePerEnduranceCharge, Stat.AttackMaximumAddedPhysicalDamage, Stat.SpellMaximumAddedPhysicalDamage),
+        E(Stat.FireDamagePctToAddAsChaosPerEnduranceCharge, Stat.FireDamagePctToAddAsChaos),
         // Frenzy
-        F("base_attack_speed_+%_per_frenzy_charge", "attack_speed_+%"),
-        F("base_cast_speed_+%_per_frenzy_charge", "base_cast_speed_+%"),
-        F("attack_and_cast_speed_+%_per_frenzy_charge", "attack_and_cast_speed_+%"),
-        F("movement_velocity_+%_per_frenzy_charge", "base_movement_velocity_+%"),
-        F("stun_recovery_+%_per_frenzy_charge", "base_stun_recovery_+%"),
-        F("physical_damage_+%_per_frenzy_charge", "physical_damage_+%"),
-        F("damage_+%_per_frenzy_charge", "damage_+%"),
-        F("lightning_damage_+%_per_frenzy_charge", "lightning_damage_+%"),
-        F("cold_damage_+%_per_frenzy_charge", "cold_damage_+%"),
-        F("elemental_damage_+%_per_frenzy_charge", "elemental_damage_+%"),
-        F("evasion_rating_+%_per_frenzy_charge", "evasion_rating_+%"),
-        F("global_defences_+%_per_frenzy_charge", "global_defences_+%"),
-        F("spell_suppression_chance_%_per_frenzy_charge", "base_spell_suppression_chance_%"),
-        F("projectile_speed_+%_per_frenzy_charge", "base_projectile_speed_+%"),
-        F("life_regeneration_rate_per_minute_%_per_frenzy_charge", "life_regeneration_rate_per_minute_%"),
-        F("accuracy_rating_+%_per_frenzy_charge", "accuracy_rating_+%"),
-        F("accuracy_rating_+_per_frenzy_charge", "accuracy_rating"),
-        F("critical_strike_chance_+%_per_frenzy_charge", "critical_strike_chance_+%"),
-        F("bleeding_dot_multiplier_per_frenzy_charge_+", "bleeding_dot_multiplier_+"),
-        F("faster_bleed_per_frenzy_charge_%", "faster_bleed_%"),
-        F("poison_damage_+%_per_frenzy_charge", "base_poison_damage_+%"),
-        F("poison_dot_multiplier_+_per_frenzy_charge", "poison_dot_multiplier_+"),
-        F("life_leech_from_attack_damage_permyriad_per_frenzy_charge", "base_life_leech_from_attack_damage_permyriad"),
-        F("additional_attack_block_%_per_frenzy_charge", "additional_block_%"),
-        F("physical_damage_reduction_percent_per_frenzy_charge", PhysicalReduction),
-        F("life_gained_on_enemy_death_per_frenzy_charge", "base_life_gained_on_enemy_death"),
-        F("minimum_added_cold_damage_per_frenzy_charge", "attack_minimum_added_cold_damage", "spell_minimum_added_cold_damage"),
-        F("maximum_added_cold_damage_per_frenzy_charge", "attack_maximum_added_cold_damage", "spell_maximum_added_cold_damage"),
-        F("cold_damage_%_to_add_as_chaos_per_frenzy_charge", "cold_damage_%_to_add_as_chaos"),
+        F(Stat.BaseAttackSpeedPlusPctPerFrenzyCharge, Stat.AttackSpeedPlusPct),
+        F(Stat.BaseCastSpeedPlusPctPerFrenzyCharge, Stat.BaseCastSpeedPlusPct),
+        F(Stat.AttackAndCastSpeedPlusPctPerFrenzyCharge, Stat.AttackAndCastSpeedPlusPct),
+        F(Stat.MovementVelocityPlusPctPerFrenzyCharge, Stat.BaseMovementVelocityPlusPct),
+        F(Stat.StunRecoveryPlusPctPerFrenzyCharge, Stat.BaseStunRecoveryPlusPct),
+        F(Stat.PhysicalDamagePlusPctPerFrenzyCharge, Stat.PhysicalDamagePlusPct),
+        F(Stat.DamagePlusPctPerFrenzyCharge, Stat.DamagePlusPct),
+        F(Stat.LightningDamagePlusPctPerFrenzyCharge, Stat.LightningDamagePlusPct),
+        F(Stat.ColdDamagePlusPctPerFrenzyCharge, Stat.ColdDamagePlusPct),
+        F(Stat.ElementalDamagePlusPctPerFrenzyCharge, Stat.ElementalDamagePlusPct),
+        F(Stat.EvasionRatingPlusPctPerFrenzyCharge, Stat.EvasionRatingPlusPct),
+        F(Stat.GlobalDefencesPlusPctPerFrenzyCharge, Stat.GlobalDefencesPlusPct),
+        F(Stat.SpellSuppressionChancePctPerFrenzyCharge, Stat.BaseSpellSuppressionChancePct),
+        F(Stat.ProjectileSpeedPlusPctPerFrenzyCharge, Stat.BaseProjectileSpeedPlusPct),
+        F(Stat.LifeRegenerationRatePerMinutePctPerFrenzyCharge, Stat.LifeRegenerationRatePerMinutePct),
+        F(Stat.AccuracyRatingPlusPctPerFrenzyCharge, Stat.AccuracyRatingPlusPct),
+        F(Stat.AccuracyRatingPlusPerFrenzyCharge, Stat.AccuracyRating),
+        F(Stat.CriticalStrikeChancePlusPctPerFrenzyCharge, Stat.CriticalStrikeChancePlusPct),
+        F(Stat.BleedingDotMultiplierPerFrenzyChargePlus, Stat.BleedingDotMultiplierPlus),
+        F(Stat.FasterBleedPerFrenzyChargePct, Stat.FasterBleedPct),
+        F(Stat.PoisonDamagePlusPctPerFrenzyCharge, Stat.BasePoisonDamagePlusPct),
+        F(Stat.PoisonDotMultiplierPlusPerFrenzyCharge, Stat.PoisonDotMultiplierPlus),
+        F(Stat.LifeLeechFromAttackDamagePermyriadPerFrenzyCharge, Stat.BaseLifeLeechFromAttackDamagePermyriad),
+        F(Stat.AdditionalAttackBlockPctPerFrenzyCharge, Stat.AdditionalBlockPct),
+        F(Stat.PhysicalDamageReductionPercentPerFrenzyCharge, PhysicalReduction),
+        F(Stat.LifeGainedOnEnemyDeathPerFrenzyCharge, Stat.BaseLifeGainedOnEnemyDeath),
+        F(Stat.MinimumAddedColdDamagePerFrenzyCharge, Stat.AttackMinimumAddedColdDamage, Stat.SpellMinimumAddedColdDamage),
+        F(Stat.MaximumAddedColdDamagePerFrenzyCharge, Stat.AttackMaximumAddedColdDamage, Stat.SpellMaximumAddedColdDamage),
+        F(Stat.ColdDamagePctToAddAsChaosPerFrenzyCharge, Stat.ColdDamagePctToAddAsChaos),
         // Power
-        P("critical_strike_chance_+%_per_power_charge", "critical_strike_chance_+%"),
-        P("additional_critical_strike_chance_per_power_charge_permyriad", "additional_base_critical_strike_chance"),
-        P("critical_strike_multiplier_+_per_power_charge", "base_critical_strike_multiplier_+"),
-        P("cast_speed_+%_per_power_charge", "base_cast_speed_+%"),
-        P("attack_and_cast_speed_+%_per_power_charge", "attack_and_cast_speed_+%"),
-        P("skill_area_of_effect_+%_per_power_charge", "base_skill_area_of_effect_+%"),
-        new("skill_area_of_effect_+%_per_power_charge_up_to_50%", ChargeType.Power, ["base_skill_area_of_effect_+%"], Cap: 50),
-        P("spell_damage_+%_per_power_charge", "spell_damage_+%"),
-        P("projectile_damage_+%_per_power_charge", "projectile_damage_+%"),
-        P("damage_+%_per_power_charge", "damage_+%"),
-        P("elemental_damage_+%_per_power_charge", "elemental_damage_+%"),
-        P("mana_regeneration_rate_per_minute_%_per_power_charge", "mana_regeneration_rate_per_minute_%"),
-        P("mana_regeneration_rate_+%_per_power_charge", "mana_regeneration_rate_+%"),
-        P("mana_regeneration_rate_per_minute_per_power_charge", "base_mana_regeneration_rate_per_minute"),
-        P("life_regeneration_rate_per_minute_%_per_power_charge", "life_regeneration_rate_per_minute_%"),
-        P("additional_spell_block_%_per_power_charge", "base_spell_block_%"),
-        P("additional_attack_block_%_per_power_charge", "additional_block_%"),
-        P("spell_suppression_chance_%_per_power_charge", "base_spell_suppression_chance_%"),
-        P("chance_to_poison_on_hit_%_per_power_charge", "base_chance_to_poison_on_hit_%"),
-        P("poison_damage_+%_per_power_charge", "base_poison_damage_+%"),
-        P("poison_duration_+%_per_power_charge", "poison_duration_+%"),
-        P("mana_leech_from_attack_damage_permyriad_per_power_charge", "base_mana_leech_from_attack_damage_permyriad"),
-        P("life_and_energy_shield_recovery_rate_+%_per_power_charge",
-            "life_recovery_rate_+%", "energy_shield_recovery_rate_+%"),
-        P("damage_taken_goes_to_mana_%_per_power_charge", "base_damage_removed_from_mana_before_life_%"),
-        P("energy_shield_+%_per_power_charge", "maximum_energy_shield_+%"),
-        P("movement_speed_+%_per_power_charge", "base_movement_velocity_+%"),
-        P("physical_damage_reduction_percent_per_power_charge", PhysicalReduction),
-        P("cooldown_recovery_+%_per_power_charge", "base_cooldown_speed_+%"),
-        P("minimum_added_lightning_damage_per_power_charge", "attack_minimum_added_lightning_damage", "spell_minimum_added_lightning_damage"),
-        P("maximum_added_lightning_damage_per_power_charge", "attack_maximum_added_lightning_damage", "spell_maximum_added_lightning_damage"),
-        P("minimum_added_lightning_damage_to_spells_per_power_charge", "spell_minimum_added_lightning_damage"),
-        P("maximum_added_lightning_damage_to_spells_per_power_charge", "spell_maximum_added_lightning_damage"),
-        P("spell_minimum_added_cold_damage_per_power_charge", "spell_minimum_added_cold_damage"),
-        P("spell_maximum_added_cold_damage_per_power_charge", "spell_maximum_added_cold_damage"),
-        P("lightning_damage_%_to_add_as_chaos_per_power_charge", "lightning_damage_%_to_add_as_chaos"),
+        P(Stat.CriticalStrikeChancePlusPctPerPowerCharge, Stat.CriticalStrikeChancePlusPct),
+        P(Stat.AdditionalCriticalStrikeChancePerPowerChargePermyriad, Stat.AdditionalBaseCriticalStrikeChance),
+        P(Stat.CriticalStrikeMultiplierPlusPerPowerCharge, Stat.BaseCriticalStrikeMultiplierPlus),
+        P(Stat.CastSpeedPlusPctPerPowerCharge, Stat.BaseCastSpeedPlusPct),
+        P(Stat.AttackAndCastSpeedPlusPctPerPowerCharge, Stat.AttackAndCastSpeedPlusPct),
+        P(Stat.SkillAreaOfEffectPlusPctPerPowerCharge, Stat.BaseSkillAreaOfEffectPlusPct),
+        new(Stat.SkillAreaOfEffectPlusPctPerPowerChargeUpTo50Pct, ChargeType.Power, [Stat.BaseSkillAreaOfEffectPlusPct], Cap: 50),
+        P(Stat.SpellDamagePlusPctPerPowerCharge, Stat.SpellDamagePlusPct),
+        P(Stat.ProjectileDamagePlusPctPerPowerCharge, Stat.ProjectileDamagePlusPct),
+        P(Stat.DamagePlusPctPerPowerCharge, Stat.DamagePlusPct),
+        P(Stat.ElementalDamagePlusPctPerPowerCharge, Stat.ElementalDamagePlusPct),
+        P(Stat.ManaRegenerationRatePerMinutePctPerPowerCharge, Stat.ManaRegenerationRatePerMinutePct),
+        P(Stat.ManaRegenerationRatePlusPctPerPowerCharge, Stat.ManaRegenerationRatePlusPct),
+        P(Stat.ManaRegenerationRatePerMinutePerPowerCharge, Stat.BaseManaRegenerationRatePerMinute),
+        P(Stat.LifeRegenerationRatePerMinutePctPerPowerCharge, Stat.LifeRegenerationRatePerMinutePct),
+        P(Stat.AdditionalSpellBlockPctPerPowerCharge, Stat.BaseSpellBlockPct),
+        P(Stat.AdditionalAttackBlockPctPerPowerCharge, Stat.AdditionalBlockPct),
+        P(Stat.SpellSuppressionChancePctPerPowerCharge, Stat.BaseSpellSuppressionChancePct),
+        P(Stat.ChanceToPoisonOnHitPctPerPowerCharge, Stat.BaseChanceToPoisonOnHitPct),
+        P(Stat.PoisonDamagePlusPctPerPowerCharge, Stat.BasePoisonDamagePlusPct),
+        P(Stat.PoisonDurationPlusPctPerPowerCharge, Stat.PoisonDurationPlusPct),
+        P(Stat.ManaLeechFromAttackDamagePermyriadPerPowerCharge, Stat.BaseManaLeechFromAttackDamagePermyriad),
+        P(Stat.LifeAndEnergyShieldRecoveryRatePlusPctPerPowerCharge,
+            Stat.LifeRecoveryRatePlusPct, Stat.EnergyShieldRecoveryRatePlusPct),
+        P(Stat.DamageTakenGoesToManaPctPerPowerCharge, Stat.BaseDamageRemovedFromManaBeforeLifePct),
+        P(Stat.EnergyShieldPlusPctPerPowerCharge, Stat.MaximumEnergyShieldPlusPct),
+        P(Stat.MovementSpeedPlusPctPerPowerCharge, Stat.BaseMovementVelocityPlusPct),
+        P(Stat.PhysicalDamageReductionPercentPerPowerCharge, PhysicalReduction),
+        P(Stat.CooldownRecoveryPlusPctPerPowerCharge, Stat.BaseCooldownSpeedPlusPct),
+        P(Stat.MinimumAddedLightningDamagePerPowerCharge, Stat.AttackMinimumAddedLightningDamage, Stat.SpellMinimumAddedLightningDamage),
+        P(Stat.MaximumAddedLightningDamagePerPowerCharge, Stat.AttackMaximumAddedLightningDamage, Stat.SpellMaximumAddedLightningDamage),
+        P(Stat.MinimumAddedLightningDamageToSpellsPerPowerCharge, Stat.SpellMinimumAddedLightningDamage),
+        P(Stat.MaximumAddedLightningDamageToSpellsPerPowerCharge, Stat.SpellMaximumAddedLightningDamage),
+        P(Stat.SpellMinimumAddedColdDamagePerPowerCharge, Stat.SpellMinimumAddedColdDamage),
+        P(Stat.SpellMaximumAddedColdDamagePerPowerCharge, Stat.SpellMaximumAddedColdDamage),
+        P(Stat.LightningDamagePctToAddAsChaosPerPowerCharge, Stat.LightningDamagePctToAddAsChaos),
         // All three
-        new("damage_+%_per_frenzy_power_or_endurance_charge", null, ["damage_+%"]),
+        new(Stat.DamagePlusPctPerFrenzyPowerOrEnduranceCharge, null, [Stat.DamagePlusPct]),
         // Brutal (Endurance Charges converted): Character.ot's 3% chance to deal triple damage (the hits' gambler roll)
         // and 10% increased stun threshold per charge (PanelStatDefaults). Affliction's more ailment damage is
         // DamageMore(ailment); its more effect of non-damaging ailments and Absorption's recoup of elemental damage
         // taken as energy shield have no server consumer yet (11-skills.md §15).
-        new("chance_to_deal_triple_damage_%_per_brutal_charge", ChargeType.Endurance, ["base_chance_to_deal_triple_damage_%"], Special: true),
-        new("stun_threshold_+%_per_brutal_charge", ChargeType.Endurance, ["stun_threshold_+%"], Special: true),
+        new(Stat.ChanceToDealTripleDamagePctPerBrutalCharge, ChargeType.Endurance, [Stat.BaseChanceToDealTripleDamagePct], Special: true),
+        new(Stat.StunThresholdPlusPctPerBrutalCharge, ChargeType.Endurance, [Stat.StunThresholdPlusPct], Special: true),
     ];
 
-    static readonly HashSet<string> Expanded = [.. PerCharge.Select(r => r.Stat)];
+    static readonly HashSet<uint> Expanded = [.. PerCharge.Select(r => r.Stat)];
 
     /// <summary>Whether a per-charge stat is one <see cref="Expand"/> turns into a stat the server calculates with (so a
     /// consumer gating on unsupported stats must not refuse it: PlayerHitRecovery's stun threshold and recovery).</summary>
-    public static bool Expands(string stat) => Expanded.Contains(stat);
+    public static bool Expands(uint stat) => Expanded.Contains(stat);
 
     /// <summary>Stats that apply while the character has none of a type, or at least one.</summary>
-    public sealed record Condition(string Stat, ChargeType Type, bool WhenNone, string[] Targets);
+    public sealed record Condition(uint Stat, ChargeType Type, bool WhenNone, uint[] Targets);
 
     /// <summary>The "with no … charges" / "while you have any … charges" stats whose effect the server models.</summary>
     public static readonly IReadOnlyList<Condition> Conditional =
     [
-        new("damage_while_no_frenzy_charges_+%", ChargeType.Frenzy, true, ["damage_+%"]),
-        new("global_critical_strike_multiplier_+_while_you_have_no_frenzy_charges", ChargeType.Frenzy, true, ["base_critical_strike_multiplier_+"]),
-        new("skill_area_of_effect_+%_while_no_frenzy_charges", ChargeType.Frenzy, true, ["base_skill_area_of_effect_+%"]),
-        new("critical_strike_multiplier_+_while_have_any_frenzy_charges", ChargeType.Frenzy, false, ["base_critical_strike_multiplier_+"]),
-        new("additional_maximum_all_resistances_%_with_no_endurance_charges", ChargeType.Endurance, true, ["additional_maximum_all_resistances_%"]),
+        new(Stat.DamageWhileNoFrenzyChargesPlusPct, ChargeType.Frenzy, true, [Stat.DamagePlusPct]),
+        new(Stat.GlobalCriticalStrikeMultiplierPlusWhileYouHaveNoFrenzyCharges, ChargeType.Frenzy, true, [Stat.BaseCriticalStrikeMultiplierPlus]),
+        new(Stat.SkillAreaOfEffectPlusPctWhileNoFrenzyCharges, ChargeType.Frenzy, true, [Stat.BaseSkillAreaOfEffectPlusPct]),
+        new(Stat.CriticalStrikeMultiplierPlusWhileHaveAnyFrenzyCharges, ChargeType.Frenzy, false, [Stat.BaseCriticalStrikeMultiplierPlus]),
+        new(Stat.AdditionalMaximumAllResistancesPctWithNoEnduranceCharges, ChargeType.Endurance, true, [Stat.AdditionalMaximumAllResistancesPct]),
     ];
 
     /// <summary>
@@ -194,11 +194,11 @@ public static class ChargeEffects
     /// caller's own rules after these; <paramref name="maximum"/>: the maxima its <see cref="Rule.PerMaximum"/> rules
     /// count (none without it).
     /// </summary>
-    public static Dictionary<string, int> Expand(Func<string, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null,
+    public static Dictionary<uint, int> Expand(Func<uint, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null,
         IEnumerable<Rule>? rules = null, Func<ChargeType, int>? maximum = null)
     {
-        var added = new Dictionary<string, int>(StringComparer.Ordinal);
-        void Add(string stat, long value)
+        var added = new Dictionary<uint, int>();
+        void Add(uint stat, long value)
         {
             if (value != 0) added[stat] = (int)Math.Clamp(added.GetValueOrDefault(stat) + value, int.MinValue, int.MaxValue);
         }
@@ -212,11 +212,11 @@ public static class ChargeEffects
             long value = (long)perCharge * (rule.PerMaximum ? rule.Type is { } m ? maximum?.Invoke(m) ?? 0 : 0
                 : rule.Type is { } t ? rule.Special ? Special(t) : Standard(t) : total);
             if (rule.Cap is int cap) value = Math.Min(value, cap);
-            foreach (string target in rule.Targets) Add(target, value);
+            foreach (uint target in rule.Targets) Add(target, value);
         }
         foreach (var c in Conditional)
             if (get(c.Stat) is int value and not 0 && (Standard(c.Type) == 0) == c.WhenNone)
-                foreach (string target in c.Targets) Add(target, value);
+                foreach (uint target in c.Targets) Add(target, value);
         Add(AdditionalPhysicalReduction, (long)get(PhysicalReduction) + added.GetValueOrDefault(PhysicalReduction));
         return added;
     }
@@ -229,7 +229,7 @@ public static class ChargeEffects
     /// type's rows instead: <c>current_brutal_charges</c> (the Charges tab's row and the buff's <c>Current_StatsKey</c>)
     /// and <c>minimum_brutal_charges</c> (when <paramref name="minimumConverted"/>, the "modifiers to minimum … instead
     /// apply" flag), and zero on its own. The special rows are always sent, so a removed flag clears them.</summary>
-    public static IEnumerable<(string Stat, int Value)> Display(Func<ChargeType, int> held, Func<ChargeType, Charges.Limits> limits,
+    public static IEnumerable<(uint Stat, int Value)> Display(Func<ChargeType, int> held, Func<ChargeType, Charges.Limits> limits,
         Func<ChargeType, bool>? converted = null, Func<ChargeType, bool>? minimumConverted = null)
     {
         foreach (var type in Charges.Types)
@@ -247,12 +247,12 @@ public static class ChargeEffects
     }
 
     // Display's stat names per type (Charges.Types order), built once: every stat snapshot lists them.
-    static readonly (string Current, string ActualCurrent, string Minimum, string CurrentRemovable, string CurrentSpecial,
-        string MinimumSpecial)[] DisplayNames = [.. Charges.Types.Select(type =>
+    static readonly (uint Current, uint ActualCurrent, uint Minimum, uint CurrentRemovable, uint CurrentSpecial,
+        uint MinimumSpecial)[] DisplayNames = [.. Charges.Types.Select(type =>
         {
             string name = Charges.Name(type), special = Charges.SpecialName(type);
-            return ($"current_{name}_charges", $"actual_current_{name}_charges", $"minimum_{name}_charges",
-                $"current_removable_{name}_charges", $"current_{special}_charges", $"minimum_{special}_charges");
+            return (Stat.Of($"current_{name}_charges"), Stat.Of($"actual_current_{name}_charges"), Stat.Of($"minimum_{name}_charges"),
+                Stat.Of($"current_removable_{name}_charges"), Stat.Of($"current_{special}_charges"), Stat.Of($"minimum_{special}_charges"));
         })];
 
     /// <summary>
@@ -267,18 +267,18 @@ public static class ChargeEffects
     /// CalcPerform's Damage MORE with KeywordFlag.Ailment).
     /// <paramref name="get"/> reads the character's final stats, which hold both the per-charge values and the counts.
     /// </summary>
-    public static double DamageMore(Func<string, int> get, bool spell = false, bool ailment = false)
+    public static double DamageMore(Func<uint, int> get, bool spell = false, bool ailment = false)
     {
         static double More(long percent) => Math.Max(0, 100 + percent) / 100.0;
-        double more = More((long)get("object_inherent_damage_+%_final_per_frenzy_charge") * get("current_frenzy_charges"));
+        double more = More((long)get(Stat.ObjectInherentDamagePlusPctFinalPerFrenzyCharge) * get(Stat.CurrentFrenzyCharges));
         if (spell)
         {
-            int power = get("current_power_charges");
-            more *= More((long)get("object_inherent_spell_damage_+%_final_per_power_charge") * power)
-                * More((long)get("quiet_might_keystone_spell_damage_+%_final_per_power_charge") * power);
+            int power = get(Stat.CurrentPowerCharges);
+            more *= More((long)get(Stat.ObjectInherentSpellDamagePlusPctFinalPerPowerCharge) * power)
+                * More((long)get(Stat.QuietMightKeystoneSpellDamagePlusPctFinalPerPowerCharge) * power);
         }
         if (ailment)
-            more *= More((long)get("ailment_damage_+%_final_per_affliction_charge") * get("current_affliction_charges"));
+            more *= More((long)get(Stat.AilmentDamagePlusPctFinalPerAfflictionCharge) * get(Stat.CurrentAfflictionCharges));
         return more;
     }
 
@@ -289,7 +289,7 @@ public static class ChargeEffects
     /// Path of Building's CalcDefence adds the physical one to armour's reduction and applies the elemental one after
     /// resistance (DamageModel.MitigatePhysical, DamageModel.Reduce).
     /// </summary>
-    public static (int Physical, int Elemental) Reduction(Func<string, int> get) =>
+    public static (int Physical, int Elemental) Reduction(Func<uint, int> get) =>
         (Math.Clamp(get(PhysicalReduction), 0, GameServer.Core.World.DamageModel.DamageReductionCap),
          Math.Clamp(get(AdditionalElementalReduction), 0, GameServer.Core.World.DamageModel.DamageReductionCap));
 }

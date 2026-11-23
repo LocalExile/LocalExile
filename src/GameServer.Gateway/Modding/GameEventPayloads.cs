@@ -1,6 +1,6 @@
 using GameServer.Modding;
 
-// What some GameEvents hand their subscribers (GameEvents.cs). `Player` is the same connection as GameServer.Modding sees it.
+// What some GameEvents hand their subscribers (GameEvents.cs). `Player` is the player entity; `ModPlayer` is the same player as GameServer.Modding sees it.
 
 /// <summary>A monster: its <c>MonsterVarieties.dat</c> id, name, level, rarity and where it is (cells).</summary>
 public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameServer.Core.Protocol.Instance.MonsterRarity Rarity, int X, int Y)
@@ -10,13 +10,13 @@ public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameS
 }
 
 /// <summary>A monster the player killed, after its kill was committed (<see cref="GameEvents.MonsterKilled"/>).</summary>
-public sealed record MonsterKill(ClientState Conn, MonsterInfo Monster)
+public sealed record MonsterKill(Player Player, MonsterInfo Monster)
 {
-    public IPlayer Player => Program.PlayerOf(Conn);
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
 }
 
 /// <summary>An option picked in an NPC's dialogue (an <c>NPCTalk</c> row).</summary>
-/// <param name="Conn">Who picked it.</param>
+/// <param name="Player">Who picked it.</param>
 /// <param name="Npc">The NPC's name.</param>
 /// <param name="Category">The row's category: Gossip, Quests, QuestReward, BuyItems, SellItems …</param>
 /// <param name="Option">Its text.</param>
@@ -26,28 +26,36 @@ public sealed record MonsterKill(ClientState Conn, MonsterInfo Monster)
 /// <param name="Row">Its <c>NPCTalk</c> row.</param>
 /// <param name="OpensGuildHideouts">A SelectHideout row's choice of list.</param>
 /// <param name="RewardOffer">A QuestReward row's offer.</param>
-public sealed record NpcOption(ClientState Conn, string Npc, string Category, string Option, string Script, bool HasText, int Index, int Row,
+public sealed record NpcOption(Player Player, string Npc, string Category, string Option, string Script, bool HasText, int Index, int Row,
     bool OpensGuildHideouts, int? RewardOffer)
 {
-    public IPlayer Player => Program.PlayerOf(Conn);
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+}
+
+/// <summary>A new instance's monsters are placed (<see cref="GameEvents.AreaPopulated"/>): the monsters' level, the
+/// population's seed (for an encounter's own rolls) and the cells the packs and bosses took, to keep an encounter
+/// apart from them.</summary>
+public sealed record AreaPopulated(Player Player, byte Level, int Seed, IReadOnlyList<(int X, int Y)> Taken)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
 }
 
 /// <summary>A gamble window as it opens (<see cref="GameEvents.Gambles"/>).</summary>
 public sealed class GambleWindow
 {
-    public GambleWindow(ClientState conn, string npc, int characterLevel) : this(conn, npc, characterLevel, characterLevel) { }
+    public GambleWindow(Player player, string npc, int characterLevel) : this(player, npc, characterLevel, characterLevel) { }
 
-    public GambleWindow(ClientState conn, string npc, int characterLevel, int priceLevel)
+    public GambleWindow(Player player, string npc, int characterLevel, int priceLevel)
     {
-        Conn = conn;
+        Player = player;
         Npc = npc;
         CharacterLevel = characterLevel;
         PriceLevel = Math.Max(characterLevel, priceLevel);
     }
 
-    public ClientState Conn { get; }
+    public Player Player { get; }
 
-    public IPlayer Player => Program.PlayerOf(Conn);
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
 
     /// <summary>The NPC's <c>NPCs</c> id.</summary>
     public string Npc { get; }
@@ -68,10 +76,10 @@ public sealed record GambleOffer(ItemCatalog.BaseType Shown, uint Gold, Func<Ran
 
 /// <summary>An item about to be placed into an inventory row (<see cref="GameEvents.InventoryPlacementRefusal"/>):
 /// <paramref name="Replaced"/> is the single item that will be swapped onto the cursor, or null when none is displaced.</summary>
-public sealed record InventoryPlacement(ClientState Conn, byte Row, GameServer.Core.Protocol.Instance.Item Item,
+public sealed record InventoryPlacement(Player Player, byte Row, GameServer.Core.Protocol.Instance.Item Item,
     GameServer.Core.Protocol.Instance.InventoryItem? Replaced)
 {
-    public IPlayer Player => Program.PlayerOf(Conn);
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
 }
 
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
@@ -81,10 +89,10 @@ public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? Achievemen
 }
 
 /// <summary>A checked device recipe before payment: content may resolve an abstract destination or refuse it.</summary>
-public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> slots, bool campaign,
+public sealed class MapOpening(Player player, IReadOnlyList<MapDevice.Slot> slots, bool campaign,
     MapDevice.Opening? opening, string reason)
 {
-    public ClientState Conn { get; } = conn;
+    public Player Player { get; } = player;
     public IReadOnlyList<MapDevice.Slot> Slots { get; } = slots;
     public bool Campaign { get; } = campaign;
     public ushort Target { get; init; }
@@ -102,12 +110,12 @@ public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> s
 }
 
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several subscribers multiply.</summary>
-public sealed class DropRoll(ClientState conn, MonsterInfo monster)
+public sealed class DropRoll(Player player, MonsterInfo monster)
 {
     /// <summary>Who killed it.</summary>
-    public ClientState Conn { get; } = conn;
+    public Player Player { get; } = player;
 
-    public IPlayer Player => Program.PlayerOf(Conn);
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
 
     /// <summary>What died.</summary>
     public MonsterInfo Monster { get; } = monster;
@@ -135,8 +143,24 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
     /// <summary>Items to drop as well, each as /item takes it: a <c>BaseItemTypes</c> id or name, or a unique's name.</summary>
     public List<string> Items { get; } = [];
 
+    /// <summary>Base types (a <c>BaseItemTypes</c> id or name) to drop as the kill's own items roll: its rarity chances
+    /// (with <see cref="Rarity"/>) and the item level its rarity gives, so one may drop magic, rare or unique.</summary>
+    public List<string> RolledItems { get; } = [];
+
     /// <summary>Items to drop as well, as they are: already made and rolled.</summary>
     public List<GameServer.Core.Protocol.Instance.Item> Made { get; } = [];
+
+    /// <summary>Changes to every item the kill drops (the server's own, <see cref="Items"/> and <see cref="RolledItems"/>),
+    /// in order: each takes a drop and returns what drops in its place (the drop itself, changed, or several of them).
+    /// A change tells the drops it leaves alone by their type.</summary>
+    public List<Func<ItemDrops.Drop, Random, IEnumerable<ItemDrops.Drop>>> Changes { get; } = [];
+
+    /// <summary>The drops after every change.</summary>
+    public IEnumerable<ItemDrops.Drop> Changed(IEnumerable<ItemDrops.Drop> drops, Random rng)
+    {
+        foreach (var change in Changes) drops = drops.SelectMany(d => change(d, rng)).ToList();
+        return drops;
+    }
 
     Action<List<ItemDrops.Drop>>? _transforms;
 
@@ -162,12 +186,12 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>
-public sealed class ExperienceGain(ClientState conn, MonsterInfo monster, uint experience)
+public sealed class ExperienceGain(Player player, MonsterInfo monster, uint experience)
 {
     /// <summary>Who gains it.</summary>
-    public ClientState Conn { get; } = conn;
+    public Player Player { get; } = player;
 
-    public IPlayer Player => Program.PlayerOf(Conn);
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
 
     /// <summary>What died.</summary>
     public MonsterInfo Monster { get; } = monster;
@@ -177,21 +201,21 @@ public sealed class ExperienceGain(ClientState conn, MonsterInfo monster, uint e
 }
 
 /// <summary>Stats added to the character, like /god's: the pools (life, mana) are not rebuilt from them. Values of the same stat add up.</summary>
-public sealed class StatSheet(ClientState conn)
+public sealed class StatSheet(Player player)
 {
-    readonly Dictionary<string, int> _added = new(StringComparer.Ordinal);
+    readonly Dictionary<uint, int> _added = new();
 
     /// <summary>Whose stats these are.</summary>
-    public ClientState Conn { get; } = conn;
+    public Player Player { get; } = player;
 
-    public IPlayer Player => Program.PlayerOf(Conn);
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
 
     /// <summary>Adds <paramref name="value"/> to the stat with this <c>Stats.dat</c> id (an unknown id is ignored).</summary>
-    public void Add(string stat, int value) =>
+    public void Add(uint stat, int value) =>
         _added[stat] = (int)Math.Clamp((long)_added.GetValueOrDefault(stat) + value, int.MinValue, int.MaxValue);
 
     /// <summary>What was added so far.</summary>
-    public IReadOnlyDictionary<string, int> Added => _added;
+    public IReadOnlyDictionary<uint, int> Added => _added;
 }
 
 /// <summary>The official league whose Currency Exchange prices are traded at.</summary>

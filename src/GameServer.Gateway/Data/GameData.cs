@@ -34,11 +34,6 @@ public static class GameData
         try
         {
             Reload("startup");
-            // Load the reference catalogues once here rather than on the first item or the first admin request. The
-            // mod list and base types are the two lists an interface needs; both are cached for the process lifetime.
-            _ = Program.Items.Mods.All;
-            if (Program.Items.Error is { } error)
-                Console.WriteLine($"[gateway] game data: item reference data unavailable: {error}");
         }
         catch
         {

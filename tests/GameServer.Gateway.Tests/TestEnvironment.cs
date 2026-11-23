@@ -17,6 +17,20 @@ static class TestEnvironment
         GameServer.Storage.SqlUpdater.Update(GameServer.Core.ClientTables.DefaultPath, "client", log: _ => { });
         // The game content (settings, catalogues, drop tables) from a scratch world.db, as the Gateway opens its own.
         GameData.Open(ScratchWorld);
+        // The game data in memory and built, as the Gateway does before it listens (ClientTables.LoadAll, WorldLoader).
+        ClientTables.LoadAll();
+        WorldLoader.Load();
+        // The modules the tests reference build theirs in their module load, which the tests do not run.
+        GameServer.Modules.Game.GameModule.LoadData();
+        // The Ruthless tests' data set, which a server builds for its first Ruthless character.
+        global::Game.LoadHardModeData();
+        GameServer.Modules.M_vendors.VendorsModule.LoadData();
+        GameServer.Modules.Social.SocialModule.LoadData();
+        GameServer.Modules.Atlas.AtlasModule.LoadData();
+        GameServer.Modules.M_portals.PortalsModule.LoadData();
+        GameServer.Modules.Survivors.SurvivorsSkillsModule.LoadData();
+        GameServer.Modules.Harvest.HarvestModule.LoadData();
+        GameServer.Modules.Deepwater.DeepwaterModule.LoadData();
         // A test that loads a character's inventories expects a save store; the test order is not stable, so
         // open the scratch one before any test and let ReleaseSaves return to it.
         Saves.Open(ScratchSaves);
