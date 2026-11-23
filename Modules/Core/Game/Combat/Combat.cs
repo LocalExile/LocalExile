@@ -2700,7 +2700,12 @@ public static partial class Game
                     int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, playerStats, skillStats);
                     double at = ProjectileWorldTime(player);
-                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
+                    // Deferred manual hits use the same lifetime guard as automatic payloads. The native link
+                    // resolver excludes triggered skills from these supports.
+                    var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, at);
+                    rolled = resonance.Packet;
+                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at,
+                        resonance.Mods, resonance.Penetration,
                         gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                     hitCode = HitCode(mitigated);
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
@@ -2724,6 +2729,8 @@ public static partial class Game
                         cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats);
                     if (applied is not null)
                     {
+                        if (applied.Value.Life < lifeBefore)
+                            RecordResonanceHitLocked(player, m, skillStats, rolled, at);
                         CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
                         if (!spell) ReleaseCriticalTrigger(player, ProjectilesFor(player),
                             criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
@@ -3038,8 +3045,8 @@ public static partial class Game
         });
         int ignorePhysicalChance = ActorScale.Saturate((long)mods.IgnorePhysicalReductionChance
             + (attack ? mods.TincturedWeaponIgnorePhysicalReductionChance : 0));
-        bool ignorePhys = rolled[DamageType.Physical].Max > 0
-            && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared);
+        bool ignorePhys = mods.IgnorePhysicalReduction || (rolled[DamageType.Physical].Max > 0
+            && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared));
         int takenPct = additionalTakenPct + (trapOrMine ? BearTrapDamageTaken(m, now) : 0);
         int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random);
         return (damage,

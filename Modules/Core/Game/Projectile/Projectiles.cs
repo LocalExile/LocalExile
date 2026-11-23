@@ -691,11 +691,17 @@ public static partial class Game
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
             int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, noExtra: shot.NoExtraCriticalDamage);
+            bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
+            bool canGainResonance = canBenefitResonance && !shot.Mirage;
+            var resonance = canBenefitResonance
+                ? WithResonanceHitLocked(Player, shot.SkillStats, rolled, shot.ResistanceMods, shot.Penetration, at)
+                : (Packet: rolled, Mods: shot.ResistanceMods, Penetration: shot.Penetration);
+            rolled = resonance.Packet;
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine,
+            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
+                resonance.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine,
                 additionalTakenPct: additionalTaken);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
@@ -713,6 +719,8 @@ public static partial class Game
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
+                RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
             Player.RecentEvents.RecordCriticalOutcome(at, critical);
             if (ElementalOverloadCritLocked(Player, shot.SourceSkill, null, player, critical) is { } eoBuff)
                 Packet(eoBuff, $"elemental overload on skill 0x{shot.SourceSkill:x4}");
@@ -1130,7 +1138,7 @@ public static partial class Game
         return session;
     }
 
-    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage];
+    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage, PlayerStatStep.Resonance];
 
     public static void AdvanceProjectiles(Player player) => player.ProjectileRuntime?.Advance();
 

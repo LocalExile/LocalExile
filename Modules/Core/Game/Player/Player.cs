@@ -235,6 +235,7 @@ public static partial class Game
         player.ChannelMovement = default;
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
+        ClearResonance(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
