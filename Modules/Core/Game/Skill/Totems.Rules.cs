@@ -177,6 +177,12 @@ public static partial class Game
             }
             return Valid();
         }
+        if (source.Supports.Any(s => s.Effect.Id is "SupportMultipleTotems" or "SupportMultipleTotemsRoyale"))
+        {
+            if (await WaitUntil(placedAt))
+                await CreateTotems(player, skillId, effect, level, variety, at, Valid, finishPlacement: null, count: 2);
+            return;
+        }
         bool spell = SpellTotemEffect(player, effect);
         double contact = spell ? start + seconds * Animations.SpellRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject) : placedAt;
         if (await WaitUntil(contact))
@@ -195,9 +201,14 @@ public static partial class Game
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null) =>
         CreateTotem(player, skillId, effect, gemLevel, variety, at, current, null);
 
-    internal static async Task<uint?> CreateTotem(Player player,
+    internal static Task<uint?> CreateTotem(Player player,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
         Func<Task<bool>>? finishPlacement)
+        => CreateTotems(player, skillId, effect, gemLevel, variety, at, current, finishPlacement, count: 1);
+
+    static async Task<uint?> CreateTotems(Player player,
+        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
+        Func<Task<bool>>? finishPlacement, int count)
     {
         if (!CurrentGameWork || player.Closed || player.LeavingArea) return null;
         var stats = SupportedStats(player, skillId);
@@ -222,7 +233,9 @@ public static partial class Game
                 [.. buffStats.Where(own.ContainsKey).Select(s => (s, own[s])).Where(s => s.Item2 != 0)]);
         }
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
-        (int X, int Y) place = (Math.Clamp(at.X, 0, Math.Max(0, player.Layout.GridW - 1)), Math.Clamp(at.Y, 0, Math.Max(0, player.Layout.GridH - 1)));
+        (int X, int Y) requested = (Math.Clamp(at.X, 0, Math.Max(0, player.Layout.GridW - 1)),
+            Math.Clamp(at.Y, 0, Math.Max(0, player.Layout.GridH - 1)));
+        var place = requested;
         var playerStats = CharacterPlayerStats(player);
         bool ballista = BallistaEffect(player, effect) && GolemStat(own, Stat.IsRangedAttackTotem) != 0;
         bool spellTotem = (SpellTotemEffect(player, effect) || ballista || NativeProjectileTotem(player, effect)) && IsTotemSkill(player, skillId);
@@ -262,7 +275,9 @@ public static partial class Game
         void Activate(uint objectId, WorldRecordBuilder bytes)
         {
             double now = AreaTime(player);
-            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, strike, grantedId, devour,
+            var ownStrike = strike is null ? null : new TotemState.Strike(strike.GrantedId, strike.Radius);
+            var ownDevour = devour is null ? null : new TotemState.Devour(devour.Life, devour.Mana);
+            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, ownStrike, grantedId, ownDevour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
                 SourceHost = SupportedSkill(player, skillId).Host, SourceItem = SupportedSkill(player, skillId).SourceGem,
@@ -284,7 +299,6 @@ public static partial class Game
                     AreaTime(player) + seconds, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, place, groundRadius),
                     ConsecratedEnemyDamageTakenNow(player)) { SourceAlive = placed.Alive, GrantsCurseImmunity = Get(Stat.ConsecratedGroundImmuneToCurses) != 0 });
             }
-            TotemRecords(player, bytes);
             Console.WriteLine($"[gateway] {CharacterName(player)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
                 + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
                 + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}")
@@ -298,27 +312,37 @@ public static partial class Game
         await SendWorldBatch(player, [], admission =>
         {
             if (!Valid()) return null;
-            uint objectId = player.TakeObjectId();
-            place = ClearPosition(objectId);
+            if (count > 1)
+            {
+                limit = TotemLimit(player, skillId);
+                if (limit < 1) return null;
+                playerStats = CharacterPlayerStats(player);
+            }
             var bytes = new WorldRecordBuilder(player, admission);
             if (player.MonsterTypes.Add((variety.Row, level)))
                 bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
             var objectStats = new List<(uint, int)>();
             if (life != baseLife) objectStats.Add((Stat.MaximumLife, (int)life));
             if (spellTotem && Stat.UsesNoMana is var noMana) objectStats.Add((noMana, 1));
-            var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-                TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
-                Stats: objectStats) { LifeData = variety.LifeData };
-            bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
-                InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
-            bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
-            // It rises where it appeared: the Emerge basic action, at once (0x1ab then 0x1ac). A totem has no
-            // Transitionable component, so the monster rise's 0x2bc is not sent and the actor needs no grant.
-            if (Emerges.SkillId is ushort emerge)
-                bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
-                    emerge, player.NextActionSequence(), 0x0800, objectId));
-            if (finishPlacement is null) Activate(objectId, bytes);
-            created = objectId;
+            for (int i = 0; i < Math.Min(count, limit); i++)
+            {
+                uint objectId = player.TakeObjectId();
+                place = requested;
+                place = ClearPosition(objectId);
+                var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
+                    TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
+                    Stats: objectStats) { LifeData = variety.LifeData };
+                bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
+                    InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
+                bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
+                // The Emerge action needs neither a Transitionable component nor a granted actor skill.
+                if (Emerges.SkillId is ushort emerge)
+                    bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
+                        emerge, player.NextActionSequence(), 0x0800, objectId));
+                if (finishPlacement is null) Activate(objectId, bytes);
+                created ??= objectId;
+            }
+            if (finishPlacement is null) TotemRecords(player, bytes);
             return bytes.Build();
         });
         if (created is not uint pendingId || finishPlacement is null) return created;
@@ -343,6 +367,7 @@ public static partial class Game
                         bytes.World(pendingId, InstanceProtocol.Teleport(pendingId, place.X, place.Y));
                     }
                     Activate(pendingId, bytes);
+                    TotemRecords(player, bytes);
                     active = true;
                     return bytes.Build();
                 });
