@@ -169,6 +169,7 @@ public sealed class BetrayalEncounter
         var plan = run.Plan;
         var instance = player.Instance;
         await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
+        run.Jun = 0;
         if (run.RulesetPayload is { } payload && AssassinationRules is { } row)
             await Broadcast(player, InstanceRulesets.Data(row, [payload]), $"0x02c9 JobAssassinationRules {payload}");
         var cell = plan.MemberCell;
@@ -187,7 +188,8 @@ public sealed class BetrayalEncounter
             Console.WriteLine($"[betrayal] {plan.Member.Id} (variety {plan.Member.Variety}) cannot be written; the mission ends");
             run.Advance(BetrayalRun.Stage.Fight);
             run.Advance(BetrayalRun.Stage.Defeated);
-            run.Advance(BetrayalRun.Stage.Chosen);
+            // No Advance(Chosen) here: Leave performs the Chosen -> Done transition, and advancing past it first
+            // would make Leave return at once with the carts stranded (review #1379 point 2).
             await Leave(player, live);
             return;
         }
@@ -351,7 +353,13 @@ public sealed class BetrayalEncounter
             player.Instance.World.MonsterOrigins.TryRemove(run.Member, out _);
             await SendWorldRemoval(player, run.Member, $"0x02bd member 0x{run.Member:x} leaves");
         }
-        if (run.Jun != 0) await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
+        if (run.Jun != 0)
+        {
+            await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
+            // Reset at once: without this a second Leave (or a Start that already removed him) would issue a
+            // duplicate SendWorldRemoval for the same id (review #1379 point 2).
+            run.Jun = 0;
+        }
         foreach (uint cart in run.Carts) await SendWorldRemoval(player, cart, $"0x02bd cart 0x{cart:x}");
         foreach (uint spawner in run.Spawners) await SendWorldRemoval(player, spawner, $"0x02bd assassination portal 0x{spawner:x}");
         run.Spawners.Clear();
