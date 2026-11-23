@@ -130,13 +130,15 @@ public sealed class SaveDatabase : IDisposable
     }
 
     /// <summary>SQLite's <c>data_version</c> for main: advances whenever another connection commits. Safe inside or
-    /// outside a transaction.</summary>
+    /// outside a transaction; inside <see cref="Atomically{T}"/> it begins the transaction first so the version matches
+    /// the transaction's WAL snapshot.</summary>
     public long ExternalVersion
     {
         get
         {
             lock (_gate)
             {
+                if (_inAtomic && _tx is null) _tx = _db.BeginTransaction();
                 if (_dataVersion is null)
                 {
                     _dataVersion = _db.CreateCommand();

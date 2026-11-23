@@ -26,8 +26,8 @@ public static class SaveRows
     /// <summary>Writes a character's save, replacing what was there.</summary>
     public static void WriteCharacter(SaveDatabase db, string name, Save save) => db.Atomically(() =>
     {
-        var cache = CacheFor(db);
         long id = CharacterId(db, name) ?? Insert(db, "INSERT INTO character_saves (name, has_inventories) VALUES ($name, 0) RETURNING id", ("$name", name));
+        var cache = CacheFor(db);
         WriteCharacterRow(db, cache, id, save);
     });
 
@@ -36,8 +36,8 @@ public static class SaveRows
     public static bool WriteCharacterInventories(SaveDatabase db, string name,
         Dictionary<byte, List<SavedPlacement>> inventories, SavedItem? startWeapon, uint? unsavedExperience) => db.Atomically(() =>
     {
-        var cache = CacheFor(db);
         if (CharacterId(db, name) is not { } id) return false;
+        var cache = CacheFor(db);
         if (unsavedExperience is { } xp)
             Run(db, "UPDATE character_saves SET has_inventories = 1, experience = $xp WHERE id = $id", ("$id", id), ("$xp", (long)xp));
         else
@@ -245,9 +245,9 @@ public static class SaveRows
     /// <summary>Writes a stash's header (its tabs' items are <see cref="WriteStashTab"/>'s), creating the stash.</summary>
     public static void WriteStash(SaveDatabase db, string account, AccountStash.Save header) => db.Atomically(() =>
     {
-        var cache = CacheFor(db);
         long id = StashId(db, account) ?? Insert(db, "INSERT INTO stash_saves (account, last_tab, next_item_id, gold) VALUES ($a, 0, 0, 0) RETURNING id",
             ("$a", account));
+        var cache = CacheFor(db);
         Run(db, "UPDATE stash_saves SET last_tab = $l, next_item_id = $n, gold = $g, delve = $d, league_quest_flags = $q, unknown = $u WHERE id = $id",
             ("$id", id), ("$l", (long)header.LastTab), ("$n", (long)header.NextItemId), ("$g", (long)header.Gold),
             ("$d", Value(header.Delve is { } delve ? delve.GetRawText() : null)), ("$q", Value(JsonOf(header.LeagueQuestFlags))),
@@ -320,8 +320,8 @@ public static class SaveRows
     /// <summary>Writes one stash tab's items, replacing that tab's; the stash's header is written first.</summary>
     public static void WriteStashTab(SaveDatabase db, string account, int tab, List<SavedPlacement> items) => db.Atomically(() =>
     {
-        var cache = CacheFor(db);
         long id = StashId(db, account) ?? throw new InvalidOperationException($"stash of {account}: its header is not saved");
+        var cache = CacheFor(db);
         var bucket = new List<(long? Inventory, string Role, int Ord, SavedPlacement? Placement, SavedItem Item)>(items.Count);
         for (int i = 0; i < items.Count; i++) bucket.Add((tab, "placed", i, items[i], items[i].Item));
         WriteItemBucket(db, cache, Owner.Stash, id, tab, bucket);

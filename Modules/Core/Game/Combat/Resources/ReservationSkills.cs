@@ -53,13 +53,18 @@ public static partial class Game
 
     static void ReservationHitLocked(Player player, SpawnedMonster target)
     {
-        if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(player).Any(a => a.EffectId == "Zealotry")
-            && RandomRolls.Chance(GolemStat(CharacterPlayerStats(player), Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, AreaRng(player)))
+        if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(player).Any(a => a.EffectId == "Zealotry"))
         {
-            var at = target.Walk.Position(AreaTime(player));
-            player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
-                AreaTime(player) + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14)));
-            PresentNearby(player);
+            var playerStats = CharacterPlayerStats(player);
+            if (RandomRolls.Chance(GolemStat(playerStats, Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, AreaRng(player)))
+            {
+                double now = AreaTime(player);
+                var at = target.Walk.Position(now);
+                player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
+                    now + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14),
+                    OwnConsecratedGroundCreatedLocked(player, playerStats)));
+                PresentNearby(player);
+            }
         }
         if (ReservationAura(player, "HeraldOfPurity") is { } purity && !target.Dead
             && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
@@ -112,10 +117,11 @@ public static partial class Game
         var modifiers = skill.Supports.SelectMany(s => s.Stats)
             .Select(s => (s.Key, s.Value)).ToArray();
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
+        int herald = aura.IsHerald ? Get(Stat.DamagePlusPctWithHeraldSkills) : 0;
         return (increased, webs, ignited, bleeding, lowLife) =>
         {
             int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
-            increased += SpiderDamageIncrease(Get, webs);
+            increased += herald + SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(player, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
                 spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
@@ -212,7 +218,7 @@ public static partial class Game
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, skill.Stats);
                 var rolled = targetPacket.Roll(AreaRng(player)).Scale(critical ? multiplier / 100.0 : 1);
                 var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-                int damage = MonsterTakesMitigated(m, mitigated, spell, now);
+                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
                 if (ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
@@ -241,7 +247,7 @@ public static partial class Game
         finally { player.Reservations.Secondary = false; }
     }
 
-    static void ReservationAshLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
+    public static void ReservationAshLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
     {
         var skill = SupportedSkill(player, aura.SkillId);
         var playerStats = CharacterPlayerStats(player);
@@ -249,7 +255,8 @@ public static partial class Game
         if (DamageStats.Prohibited(DamageType.Fire, Get)) return;
         // Overkill is already final hit damage. Only burning/DoT (including typed DoT multipliers) scales this burn.
         double dps = overkill * ReservationStat(player, aura, Stat.HeraldOfAshBurningPctOverkillDamagePerMinute) / 6000.0
-            * Math.Max(0, 1 + (Get(Stat.BurnDamagePlusPct) + Get(Stat.DamageOverTimePlusPct)) / 100.0)
+            * Math.Max(0, 1 + (Get(Stat.BurnDamagePlusPct) + Get(Stat.DamageOverTimePlusPct)
+                + Get(Stat.DamagePlusPctWithHeraldSkills)) / 100.0)
             * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100.0)
             * Math.Max(0, 1 + ReservationStat(player, aura, Stat.HeraldOfAshBurningDamagePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Get(Stat.DeliriumAuraDamageOverTimePlusPctFinal) / 100.0);

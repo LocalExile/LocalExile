@@ -234,6 +234,20 @@ public class SavedPartReadTests : IDisposable
             SaveRows.WriteStash(Saves.Db, account, renamed);
             Assert.Equal("Renamed", SaveRows.LoadStash(Saves.Db, account)!.Tabs[0].Name);
 
+            // ExternalVersion inside Atomically starts the SQLite transaction (BEGIN IMMEDIATE) immediately so no
+            // external writer can commit between reading ExternalVersion and the transaction's statements, and
+            // subsequent transactions observe any external commit and invalidate SaveRows write caches.
+            var unchangedBefore = Saves.Db.Unchanged!.Value;
+            long versionInside = Saves.Db.Atomically(() => Saves.Db.ExternalVersion);
+            Assert.Equal(unchangedBefore.Others, versionInside);
+            Assert.Equal(unchangedBefore.Own + 1, Saves.Db.Unchanged!.Value.Own);
+            using (var other = new SaveDatabase(Saves.Db.Path, Saves.Db.AuthPath))
+                SaveRows.WriteStash(other, account, baseHeader);
+            Assert.NotEqual(versionInside, Saves.Db.Atomically(() => Saves.Db.ExternalVersion));
+            Assert.Equal("One", SaveRows.LoadStash(Saves.Db, account)!.Tabs[0].Name);
+            SaveRows.WriteStash(Saves.Db, account, renamed);
+            Assert.Equal("Renamed", SaveRows.LoadStash(Saves.Db, account)!.Tabs[0].Name);
+
             // Pinned-session selective inventory and experience updates stay consistent in memory and flush cleanly.
             Saves.PinSession(name, account, null);
             try

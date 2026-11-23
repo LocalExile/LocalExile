@@ -12,7 +12,10 @@ public sealed class MonsterContagion
     /// the caster's Contagion skin art drawn at each spread (null: the default). Caster owns it, also through spreads: a
     /// kill by its damage and its owner-only gains are that player's, never the connection running the world.</summary>
     public sealed record Cast(double DamagePerSecond, double Seconds, int Radius, double SpreadMore = 1, ushort SkillId = 0,
-        string? SpreadAo = null, Player? Caster = null);
+        string? SpreadAo = null, Player? Caster = null)
+    {
+        public int SpreadOnHitChance { get; init; }
+    }
 
     // Each application counts from Start (when it landed) to Until.
     readonly List<(Cast Cast, double Start, double Until)> instances = [];
@@ -24,6 +27,12 @@ public sealed class MonsterContagion
 
     /// <summary>The strongest application affecting the monster at the last advance; null when none is.</summary>
     public Cast? Active => Strongest(instances, last)?.Cast;
+
+    public Cast? ForHitSpread(double now)
+    {
+        var active = Strongest(instances, now);
+        return active is { Cast.SpreadOnHitChance: > 0 } hit ? hit.Cast with { Seconds = hit.Until - now } : null;
+    }
 
     /// <summary>The native <c>contagion</c> buff instance on the monster.</summary>
     /// <summary>The row of the buff that shows the debuff (its source: BuffSource), null while none.</summary>
@@ -123,7 +132,7 @@ public sealed class MonsterContagion
         instances.Clear();
         ended.Clear();
         carry = 0;
-        return cast is { Seconds: > 0 } ? cast : null;
+        return cast is { Seconds: > 0, SpreadOnHitChance: 0 } ? cast : null;
     }
 
     static (Cast Cast, double Start, double Until)? Strongest(IEnumerable<(Cast Cast, double Start, double Until)> list, double t)

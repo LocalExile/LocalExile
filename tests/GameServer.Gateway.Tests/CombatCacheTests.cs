@@ -181,5 +181,38 @@ public sealed class CombatCacheTests
         Assert.False(player.Walk.Floor(15, 40));
         player.Barrier = new HashSet<(int X, int Y)>();
         Assert.True(player.Walk.Floor(15, 40));
+
+        // Removing and later replacing a blocker slot must restore activeCount and spatial queries.
+        var set = new GameServer.Core.World.BlockerSet([new GameServer.Core.World.ClientPathfinder.Blocker(10, 10, 2)]);
+        Assert.True(set.OverlapsFootprint(10, 10, 1));
+        set.Remove(0);
+        Assert.False(set.OverlapsFootprint(10, 10, 1));
+        set.Replace(0, new GameServer.Core.World.ClientPathfinder.Blocker(12, 12, 2));
+        Assert.True(set.OverlapsFootprint(12, 12, 1));
+
+        // First-tick AntiquarianPresentation must not swallow active sustained Adrenaline (PositiveInfinity).
+        var antiq = new Player(layout, 2, 2) { PlayerLife = 100 };
+        antiq.Clock.Stop();
+        antiq.Antiquarian.SustainAdrenaline(0);
+        Assert.Equal(double.PositiveInfinity, antiq.Antiquarian.AdrenalineUntil);
+        Assert.NotNull(Game.AntiquarianPresentation(antiq));
+        Assert.Equal(double.PositiveInfinity, antiq.SentAdrenalineUntil);
+        Assert.Null(Game.AntiquarianPresentation(antiq));
+
+        // MayExplodeOnKill must recognize every explosion source: HitFireExplosionPercent, captured equipment
+        // (cursed corpse, Pride, cursed chaos), and all explosion stats, while returning false when none apply.
+        var emptyStats = new Dictionary<uint, int>();
+        var corpse = new SpawnedMonster("corpse", new(10, 10, 0), 1, 1, 100) { Hostile = true };
+        Assert.False(Game.MayExplodeOnKill(antiq, corpse, default, emptyStats));
+        corpse.HitFireExplosionPercent = 10;
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, default, emptyStats));
+        corpse.HitFireExplosionPercent = 0;
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, new Game.KillEquipmentSnapshot(10, 0, 0), emptyStats));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, new Game.KillEquipmentSnapshot(0, 10, 0), emptyStats));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, new Game.KillEquipmentSnapshot(0, 0, 25), emptyStats));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, default, new Dictionary<uint, int> { [Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct] = 10 }));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, null, new Dictionary<uint, int> { [Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride] = 10 }));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, null, new Dictionary<uint, int> { [Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct] = 25 }));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, null, new Dictionary<uint, int> { [Stat.EnemiesNearCursedCorpsesAreBlindedAndExplodeOnDeathForPctLifeAsPhysicalDamage] = 10 }));
     }
 }

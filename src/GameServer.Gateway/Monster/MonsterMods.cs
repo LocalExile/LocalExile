@@ -157,7 +157,8 @@ public sealed class MonsterModEffects
             .Add(DamageType.Physical, DamageType.Chaos, this[Stat.BasePhysicalDamagePctToConvertToChaos])
             .AddGain(DamageType.Physical, DamageType.Fire, this[Stat.PhysicalDamagePctToAddAsFire])
             .AddGain(DamageType.Physical, DamageType.Cold, this[Stat.PhysicalDamagePctToAddAsCold])
-            .AddGain(DamageType.Physical, DamageType.Lightning, this[Stat.PhysicalDamagePctToAddAsLightning]);
+            .AddGain(DamageType.Physical, DamageType.Lightning, this[Stat.PhysicalDamagePctToAddAsLightning])
+            .AddGain(DamageType.Physical, DamageType.Chaos, this[Stat.PhysicalDamagePctToAddAsChaos]);
         var scaled = DamagePacket.Empty;
         foreach (var (type, range) in baseHit.Components)
         {
@@ -194,7 +195,8 @@ public sealed class MonsterModEffects
         var gains = new DamageConversion()
             .AddGain(DamageType.Physical, DamageType.Fire, extra.GetValueOrDefault(Stat.PhysicalDamagePctToAddAsFire))
             .AddGain(DamageType.Physical, DamageType.Cold, extra.GetValueOrDefault(Stat.PhysicalDamagePctToAddAsCold))
-            .AddGain(DamageType.Physical, DamageType.Lightning, extra.GetValueOrDefault(Stat.PhysicalDamagePctToAddAsLightning));
+            .AddGain(DamageType.Physical, DamageType.Lightning, extra.GetValueOrDefault(Stat.PhysicalDamagePctToAddAsLightning))
+            .AddGain(DamageType.Physical, DamageType.Chaos, extra.GetValueOrDefault(Stat.PhysicalDamagePctToAddAsChaos));
         var added = hit.Convert(gains);
         if (extra.GetValueOrDefault(Stat.DamagePlusPct) is int increased and not 0) added = added.Scale(Math.Max(0, 1 + increased / 100.0));
         return added.Round();
@@ -334,6 +336,7 @@ public sealed class MonsterModCatalog
     {
         Stat.MaximumLifePlusPct, Stat.DamagePlusPct, Stat.PhysicalDamagePlusPct,
         Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning,
+        Stat.PhysicalDamagePctToAddAsChaos,
         Stat.BasePhysicalDamagePctToConvertToFire, Stat.BasePhysicalDamagePctToConvertToCold,
         Stat.BasePhysicalDamagePctToConvertToLightning, Stat.BasePhysicalDamagePctToConvertToChaos,
         Stat.DamagePlusPctWhenOnLowLife, Stat.AttackSpeedPlusPctWhenOnLowLife, Stat.CastSpeedPlusPctWhenOnLowLife,

@@ -89,9 +89,12 @@ public static class LesserShrines
                 active.Add((item.Id, item.Item));
                 if (grant is not null) continue;
                 foreach (var mod in item.Item.Mods)
-                foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
-                    if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine")
-                    { grant = new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level); break; }
+                {
+                    foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
+                        if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine")
+                        { grant = new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level); break; }
+                    if (grant is not null) break;
+                }
             }
             state.CachedCatalog = catalog;
             state.CachedSkills = skills;

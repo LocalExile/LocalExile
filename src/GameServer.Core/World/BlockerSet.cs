@@ -112,6 +112,13 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     public void Replace(int index, ClientPathfinder.Blocker blocker)
     {
         var previous = all[index];
+        if (previous == Gone)
+        {
+            all[index] = blocker;
+            activeCount++;
+            Index(index, blocker);
+            return;
+        }
         int oldBx = Floor(previous.X), oldBy = Floor(previous.Y);
         int newBx = Floor(blocker.X), newBy = Floor(blocker.Y);
         all[index] = blocker;

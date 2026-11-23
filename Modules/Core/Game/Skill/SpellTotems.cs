@@ -17,10 +17,11 @@ public static partial class Game
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
         SummonData.Find(SkillsFor(player).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
-    static bool SameSocketedSkillSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
+    static bool SameLinkedSkillSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
         && a.Effect == b.Effect && a.Quality == b.Quality
-        && a.SourceGem is not null && b.SourceGem is not null
-        && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
+        && (a.WornGrant is { } worn ? b.WornGrant == worn && b.RequirementsMet
+            : a.SourceGem is not null && b.SourceGem is not null
+                && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem)))
         && a.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality))
             .SequenceEqual(b.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality)));
     public static void BindTotemSource(Player player, TotemState.Totem totem)
@@ -91,7 +92,7 @@ public static partial class Game
             && SupportedSkill(player, totem.SkillId) is var supported && supported.Host == totem.SourceHost
             && supported.SourceGem is not null && totem.SourceItem is not null
             && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem))
-            && (!TotemSources.TryGetValue(totem, out var captured) || SameSocketedSkillSource(captured, supported))
+            && (!TotemSources.TryGetValue(totem, out var captured) || SameLinkedSkillSource(captured, supported))
             && GemSkillInstanceDisabled(player, totem.Effect, totem.SkillId) is null
             && TotemPathAvailable(player, totem.SkillId, totem.Effect)
             && IsTotemSkill(player, totem.SkillId);
