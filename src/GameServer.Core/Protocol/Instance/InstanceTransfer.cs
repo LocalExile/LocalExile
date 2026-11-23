@@ -4,17 +4,20 @@ namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Changing area through an area transition, and the instance chooser (Agents/docs/protocol/09-area-change.md).
-/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b4 (change area: the client shows the loading screen and
-/// answers C→S 0x2cd, built by 0x14214efe0) → S→C 0x27 (the destination instance's address, ticket and key, on the
-/// current instance connection) → the client connects to it. In game nothing listens to login 0x14 (the login
-/// connection's listener list at +0x298 is empty), so an area change cannot come from Auth.
+/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b4 (change area: the client displays the HUD
+/// "Entering &lt;area&gt;" banner, stores any loading-screen override, and answers C→S 0x2cd, built by 0x14214efe0) →
+/// server creates and pre-generates the destination instance while "Entering &lt;area&gt;" is shown → S→C 0x27 (the
+/// destination instance's address, ticket and key, on the current instance connection: hides the banner, pushes the
+/// loading screen and opens the new connection), or S→C 0x2b5 on refusal (hides the banner without connecting). In game
+/// nothing listens to login 0x14 (the login connection's listener list at +0x298 is empty), so an area change cannot
+/// come from Auth.
 /// With Ctrl held the 0x24 flags carry 0x0004, and the server answers 0xae (instance list) instead, which opens the
 /// client's InstanceChooserWindow (ShowForTransition(area, vector&lt;ClientInstanceListEntry&gt;, bool)).</para>
 /// </summary>
 public static class InstanceTransfer
 {
-    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b4, InstanceListId = 0xae, LeaveAreaAckId = 0x2cd,
-        ConnectInstanceId = 0x27, ChooseInstanceId = 0xaf;
+    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b4, CancelChangeAreaId = 0x2b5,
+        InstanceListId = 0xae, LeaveAreaAckId = 0x2cd, ConnectInstanceId = 0x27, ChooseInstanceId = 0xaf;
 
     /// <summary>The length of a C→S 0x2cd at the start of <paramref name="data"/> (writer 0x141fa6480): u16 id, u16 BE byte
     /// count, then that many bytes (u16 6 and 0x360 bytes: 870 in all). Null until its header has arrived.</summary>
@@ -66,12 +69,20 @@ public static class InstanceTransfer
 
     /// <summary>
     /// S→C 0x2b4 (class 0x1435ca918, write 0x141f99270; dispatcher case 0xe8): u16 destination WorldAreas.HASH16, u16
-    /// LoadingScreenOverrides row (1-based, 0 = the area's default). The handler notifies the loading-screen listeners
-    /// (+0x6d70) and calls 0x14214efe0, which sends C→S 0x2cd once and flushes. An unknown hash is fatal ("Instance sent
-    /// change area notification that does not exist").
+    /// LoadingScreenOverrides row (1-based, 0 = the area's default). The handler notifies the listeners at +0x6d70
+    /// (0x140d5acb0 → InGameUI +0x570 0x140dc70b0, which shows ClientStrings 695 "Entering {0}" and records the override
+    /// on LoadingState +0x88a without pushing the loading screen yet) and calls 0x14214efe0, which sends C→S 0x2cd once
+    /// (+0xcd4a) and flushes. An unknown hash is fatal ("Instance sent change area notification that does not exist").
     /// </summary>
     public static byte[] ChangeArea(ushort destinationHash16, ushort loadingScreen = 0) =>
         new LoginWriter().U16(ChangeAreaId).U16(destinationHash16).U16(loadingScreen).ToArray();
+
+    /// <summary>
+    /// S→C 0x2b5 (empty message 0x1431768d8; dispatcher case 0xe9 → +0x6df0 → 0x140d60720 → InGameUI +0x578 0x140dc73a0):
+    /// hides the HUD "Entering &lt;area&gt;" banner shown by 0x2b4 when a transfer is refused or cancelled. Does not
+    /// reset the one-shot 0x2cd flag (+0xcd4a).
+    /// </summary>
+    public static byte[] CancelChangeArea() => new LoginWriter().U16(CancelChangeAreaId).ToArray();
 
     /// <summary>
     /// S→C 0x27 (class vtable 0x1435e7180, write 0x1421a4760, read 0x1421a4900; dispatcher case 0xe): connect to another

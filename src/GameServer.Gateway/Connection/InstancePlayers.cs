@@ -11,7 +11,10 @@ public sealed class InstancePresence
     public void AddPlayer(Player player) => _players[player.Id] = player;
     public void RemovePlayer(uint id) => _players.TryRemove(id, out _);
     /// <summary>The players in game here now, but <paramref name="id"/>.</summary>
-    public Player[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id && InGame(p))];
+    public Player[] PlayersExcept(uint id) =>
+        _players.IsEmpty || (_players.Count == 1 && _players.ContainsKey(id))
+            ? []
+            : [.. _players.Values.Where(p => p.Id != id && InGame(p))];
     public Player? Player(uint id) => _players.TryGetValue(id, out var p) && InGame(p) ? p : null;
     static bool InGame(Player p) => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent;
 }
@@ -182,9 +185,16 @@ public sealed partial class Player
     public uint PeerType;
     /// <summary>This player's minions as created (SharedMonsters.cs), and as of its last frame, for the other clients.</summary>
     public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SharedMonsterOrigin> MinionOrigins = new();
+    sealed record TransferTarget(ushort Area, ulong Instance);
+    TransferTarget? _transferredTo;
+
     /// <summary>Where Auth sent this connection's player (area, instance), from the transfer until the next connection:
     /// a party member who follows at once joins them there (Social's PartyInstance).</summary>
-    public (ushort Area, ulong Instance)? TransferredTo;
+    public (ushort Area, ulong Instance)? TransferredTo
+    {
+        get => Volatile.Read(ref _transferredTo) is { } target ? (target.Area, target.Instance) : null;
+        set => Volatile.Write(ref _transferredTo, value is { } target ? new TransferTarget(target.Area, target.Instance) : null);
+    }
     /// <summary>This player's shares of the instance host's kills, for its own loop to apply (SharedKills.cs).</summary>
     public readonly System.Collections.Concurrent.ConcurrentQueue<Func<Player, Task>> KillShares = new();
     /// <summary>The party this player is in, counting the player (1: none): Social's parties and PlayerBots' (SetPartySize).

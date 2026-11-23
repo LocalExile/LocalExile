@@ -13,6 +13,9 @@ public static partial class Game
     // Anything else is logged in hex: those are the next messages to map.
     // The most a hold on the server has been seen to outlast the client's is 33 ms.
     const double HoldEndGraceSeconds = .06;
+    static readonly string MoveMode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
+    static readonly float MoveSpeed = float.TryParse(Environment.GetEnvironmentVariable("Game_MOVE_SPEED"),
+        System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 37f;
 
     // Where the player appears in the area, with the line that says why. Back through a town portal: where the portal
     // stands (OpenTownPortal). Waypoint travel: next to the destination's waypoint, which a generated area has only from
@@ -71,10 +74,10 @@ public static partial class Game
             using var stats = new PlayerStatScope(player);
             // Temporary lag instrumentation (remove with the investigation): which phase of a cast message takes its time.
             long useStarted = Stopwatch.GetTimestamp(), phaseAt = useStarted, useCpuStarted = ConnectionPerformance.LagProbe ? ThreadCpuMilliseconds() : 0;
-            var phases = new List<string>();
+            List<string>? phases = ConnectionPerformance.LagProbe ? [] : null;
             void Mark(string name)
             {
-                if (!ConnectionPerformance.LagProbe) return;
+                if (phases is null) return;
                 long now = Stopwatch.GetTimestamp();
                 phases.Add($"{name}={Stopwatch.GetElapsedTime(phaseAt, now).TotalMilliseconds:0}");
                 phaseAt = now;
@@ -82,6 +85,10 @@ public static partial class Game
             // A terminal Hardcore owner may only leave for character selection or log in.
             if (HardcoreProgressBlocked(player) && id is not (InstanceProtocol.ExitToCharacterSelectId or InstanceProtocol.ExitToLoginId)
                 && !(player.PendingCharacterSelectExit && id == InstanceTransfer.LeaveAreaAckId)) continue;
+            // While an area change is in flight (0x2b4 sent, pre-generating the destination before 0x27), ignore
+            // gameplay, inventory and interaction packets; only transfer acknowledgement, exit and pause control run.
+            if (player.LeavingArea && id is not (InstanceTransfer.LeaveAreaAckId or InstanceProtocol.ExitToCharacterSelectId
+                or InstanceProtocol.ExitToLoginId or InstancePause.RequestId)) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
             if (GameEvents.WantsPacket(id) && await GameEvents.AnyPacket(player, id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
@@ -94,7 +101,8 @@ public static partial class Game
             // Kinetic Blast burst's backlog of contacts (and the kills and loot they enqueue) run inside the input
             // handler: 0x0025 took 100-200 ms and the input queue reached 7 s (2026-11-05). Handlers that need a
             // current simulation use ProjectileMutation, which advances under the same locks.
-            // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so move it now.
+            // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so prepare the destination area and move
+            // it off the inbox handler so 0x1b ticks keep getting answered while "Entering <area>" is displayed.
             if (id == InstanceTransfer.LeaveAreaAckId)
             {
                 if (player.PendingCharacterSelectExit)
@@ -102,7 +110,7 @@ public static partial class Game
                     await FinishCharacterSelectExit(player);
                     return;
                 }
-                if (player.PendingTransfer is { } leaving) await Transfer(player, leaving);
+                if (player.PendingTransfer is { } leaving) _ = AreaFrames.Start(() => RunTransfer(player, leaving));
                 continue;
             }
             // Native TakeHit blocks predicted action starts too. Buffered normal actions must not restart the server's
@@ -144,11 +152,13 @@ public static partial class Game
                     continue;
                 }
                 // A gem skill cast at the ground (Fireball) stops the player where it stands; anything else (Move) walks there.
-                if (InTown(player) && SkillsFor(player).ActionName(use.SkillId) != "Move") continue;
-                if (SkillsFor(player).ActionName(use.SkillId) != "Move")
+                var skills = SkillsFor(player);
+                string? actionName = skills.ActionName(use.SkillId);
+                if (InTown(player) && actionName != "Move") continue;
+                if (actionName != "Move")
                     await EndGracePeriod(player, action: true);
                 Mark("grace");
-                bool cast = SkillsFor(player).IsGemSkill(use.SkillId);
+                bool cast = skills.IsGemSkill(use.SkillId);
                 var gem = cast ? GemSkillEffects(player).FirstOrDefault(g => g.Id == use.SkillId) : default;
                 if (cast && gem.Name is null)
                 {
@@ -171,8 +181,8 @@ public static partial class Game
                 Mark("disabled");
                 // The ordinary ranged attack fires at the ground point; it is neither a melee hit nor a Move action.
                 // Both bows and wands create their native Projectiles.dat object at the weapon's attack contact.
-                string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(player, activeSet: true));
-                if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
+                if (use.SkillId == SkillCatalog.FirstSkillId
+                    && OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(player, activeSet: true)) is { } ordinaryProjectile)
                 {
                     double duration = DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player));
                     if (!TryBeginRangedAttack(player, at, duration, use.SkillId, use.Slot, out var shot)) continue;
@@ -376,8 +386,10 @@ public static partial class Game
                 {
                     await Send(player, [],
                     $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {player.Walk.Destination} in {player.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
-                    still: () => acknowledged = SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
-                        () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action)),
+                    still: () => acknowledged = cast
+                        ? SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
+                            () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action))
+                        : (cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action)),
                     atGate: () =>
                     {
                         byte[] reply = [.. InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
@@ -416,22 +428,20 @@ public static partial class Game
                 else if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(player, gem.Effect))
                     ResyncAfter(player, MovementSeconds(player, gem.Effect, gem.Level, use.SkillId), gem.Name);
                 if (!PlayerActionCurrent(player, action)) continue;
-                string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
-                if (mode == "teleport")
+                if (MoveMode == "teleport")
                     await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, use.X, use.Y),
                         $"0x01b7 teleport to ({use.X}, {use.Y})", still: () => PlayerActionCurrent(player, action));
-                else if (mode == "move")
+                else if (MoveMode == "move")
                 {
-                    float speed = float.TryParse(Environment.GetEnvironmentVariable("Game_MOVE_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 37f;
-                    await SendWorldRecord(player, player.Id, InstanceProtocol.MoveTo(player.Id, use.X, use.Y, speed),
-                        $"0x01ba move to ({use.X}, {use.Y}) speed {speed}", still: () => PlayerActionCurrent(player, action));
+                    await SendWorldRecord(player, player.Id, InstanceProtocol.MoveTo(player.Id, use.X, use.Y, MoveSpeed),
+                        $"0x01ba move to ({use.X}, {use.Y}) speed {MoveSpeed}", still: () => PlayerActionCurrent(player, action));
                 }
                 }
                 finally
                 {
                     Mark("tail");
                     double useTotal = Stopwatch.GetElapsedTime(useStarted).TotalMilliseconds;
-                    if (ConnectionPerformance.LagProbe && useTotal > 40)
+                    if (phases is not null && useTotal > 40)
                         Console.WriteLine($"[slow-use] {player.Connection.Remote} total={useTotal:0} cpu={(ThreadCpuMilliseconds() - useCpuStarted):0}"
                             + $" {string.Join(" ", phases)}");
                 }
@@ -986,6 +996,7 @@ public static partial class Game
                     $"0x02a0 foresight preview key {req.Key} for item {req.TargetId}: {(preview is null ? "refused" : "preview")}");
             }
         }
+        if (player.Closed || player.LeavingArea) return;
         // a1q5: after a read that moved items, the Medicine Chest's flag (and its removal once Nessa has one), here on the
         // message path so the inventory revisions stay in order.
         await GameEvents.RunMessagesHandled(player, [.. messages.Select(m => m.Id)]);
