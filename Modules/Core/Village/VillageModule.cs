@@ -39,12 +39,27 @@ public sealed class VillageModule : IModule
         public byte Capacity = 90;
         /// <summary>Worker index → VillageJobs row.</summary>
         public readonly Dictionary<byte, byte> Assignments = [];
-        /// <summary>The recruits waiting to be hired (the recruitment panel).</summary>
-        public readonly List<byte> Recruits = [];
+        /// <summary>Worker index → skill level (the client's job level, the worker's rank).</summary>
+        public readonly Dictionary<byte, byte> Ranks = [];
+        /// <summary>The recruits waiting to be hired (the recruitment panel): the <c>VillageJobs</c> row they would take and
+        /// their skill level.</summary>
+        public readonly List<(byte Row, byte Skill)> Recruits = [];
+        /// <summary>What the panel has been told about the recruits; the list is pushed again when it changes.</summary>
+        public int RecruitVersion;
+        /// <summary>What the panel has been told about the recruits already.</summary>
+        public int RecruitsPushed = -1;
         /// <summary>The <c>VillageUpgradeCategories</c> rows this settlement has bought.</summary>
         public readonly HashSet<int> Upgrades = [];
         /// <summary>Workers told to stop mapping after the map they are in (the town map's pause button).</summary>
         public readonly HashSet<byte> Paused = [];
+        /// <summary>What the panel has been told, as a counter: the rows are pushed again when it changes.</summary>
+        public int Version;
+        /// <summary>What the panel has been told already.</summary>
+        public int Pushed;
+        /// <summary>What the panel has been told about the settlement's numbers. -1 so the first tick pushes them.</summary>
+        public int StatePushed = -1;
+        /// <summary>The VillageResources rows the town holds (the panel's resource counters).</summary>
+        public readonly Dictionary<int, uint> Resources = [];
     }
 
     readonly ConditionalWeakTable<IPlayer, Settlement> _settlements = new();
@@ -68,6 +83,21 @@ public sealed class VillageModule : IModule
         [0x16] = "take all rewards (u32)",
         [0x18] = "give treasury gold (u32)",
         [0x19] = "take treasury gold (u32)",
+        // The client also builds these, from other serializer clusters that share the 0x2ca helper (0x1421a1960): the
+        // action byte on its own is ambiguous, so the dispatch key is (record kind, action). The names are the client's
+        // own shapes; what each one does belongs to the panel that sent it.
+        [0x01] = "hire worker (u8 candidate index)",
+        [0x02] = "release worker (u8 row index)",
+        [0x0c] = "set option (u8)",
+        [0x0d] = "set option (u8)",
+        [0x0e] = "set option (u8, u8)",
+        [0x0f] = "confirm",
+        [0x10] = "confirm",
+        [0x11] = "confirm",
+        [0x17] = "confirm",
+        [0x1b] = "set option (u8)",
+        [0x1c] = "set option (u8)",
+        [0x1d] = "set option (u8)",
     };
 
     /// <summary>The village of a player in the league.</summary>
@@ -84,6 +114,15 @@ public sealed class VillageModule : IModule
     /// <summary>Where the state frames to push are written, one per line: <c>kind subtag hex</c>. Rewriting the file
     /// re-sends them on the next tick, so a payload can be tried against the live client without a rebuild.</summary>
     public const string StateFile = "data/kingsmarch-state.txt";
+
+    /// <summary>The file that tells the town there are recruits waiting (the recruitment panel's slots stay grey
+    /// without it).</summary>
+    public const string RecruitsFile = "data/kingsmarch-recruits.txt";
+
+    /// <summary>What hiring one of the waiting recruits costs. The client weighs the button against the treasury's gold
+    /// (its own <c>VillageRecruitBalancePerTier</c> holds 2,000 gold a tier), so the price is paid out of the
+    /// treasury; the client never moves gold itself, the server does.</summary>
+    public const uint RecruitPrice = 2000;
 
     /// <summary>Put a file here and the server opens the port window itself, the stand-in for clicking Tujen's Shipping
     /// line: a test client reaches the port panel without a hand on the mouse. Once per connection, in the town.</summary>
@@ -136,6 +175,111 @@ public sealed class VillageModule : IModule
                 $"0x02c9 village state kind 0x{kind:x2} subtag {subtag}: {Convert.ToHexString(payload)}");
         }
         if (!File.Exists(FramesFile)) await WriteFrames(player);
+    }
+
+    /// <summary>Tells the panel who works in the town: the whole list at once (S→C 0x2c9, kind 0x9b, subtag 0), which is
+    /// the client's <c>0x141767f60</c> switch: subtag 0 takes a count and then that many row payloads and REPLACES the
+    /// record's row list (it grows, shrinks or overwrites it at <c>+0x160</c>), while subtag 5 only appends one row
+    /// (so pushing a row per worker again and again would pile up copies of the same worker). The rows go out again
+    /// whenever the settlement changes, so the panel's population and job list follow the server's own town.</summary>
+    /// <param name="player">The player whose panel is open.</param>
+    async Task PushWorkers(IPlayer player)
+    {
+        if (player.AreaId != "KalguuranSettlersLeague") return;
+        var settlement = Of(player);
+        if (settlement.Version == 0 || settlement.Pushed == settlement.Version) return;
+        settlement.Pushed = settlement.Version;
+        var rows = settlement.Assignments.OrderBy(pair => pair.Key)
+            .Select(pair => VillageWorkers.Row(pair.Value, pair.Key, settlement.Ranks.GetValueOrDefault(pair.Key)))
+            .ToList();
+        var payload = new List<byte> { (byte)rows.Count };
+        foreach (var row in rows) payload.AddRange(row);
+        await player.Send(StateFrame(TownRecordKind, 0, payload.ToArray()),
+            $"0x02c9 village workers: {rows.Count} row(s), subtag 0 replaces the list");
+    }
+
+    /// <summary>Tells the panel who is waiting to be hired (S→C 0x2c9, kind 0x9b, subtag 1). The client's reader
+    /// 0x141773300 takes a count and then that many recruits; each recruit is the worker's row plus a u32, so the
+    /// candidate cards get the name, the job, the wage and the skill level the server chose.</summary>
+    /// <param name="player">The player whose recruits are shown.</param>
+    async Task PushRecruits(IPlayer player)
+    {
+        if (player.AreaId != "KalguuranSettlersLeague") return;
+        var settlement = Of(player);
+        if (settlement.Recruits.Count == 0 && settlement.RecruitVersion == 0 && File.Exists(RecruitsFile)) RollRecruits(settlement);
+        if (settlement.RecruitsPushed == settlement.RecruitVersion) return;
+        settlement.RecruitsPushed = settlement.RecruitVersion;
+        // the count is read twice: once by the handler (0x141767fc1) and once by the reader (0x141773338)
+        var payload = new List<byte> { (byte)settlement.Recruits.Count, (byte)settlement.Recruits.Count };
+        for (int i = 0; i < settlement.Recruits.Count; i++)
+            payload.AddRange(VillageWorkers.Recruit(settlement.Recruits[i].Row, i, settlement.Recruits[i].Skill, RecruitPrice));
+        await player.Send(StateFrame(TownRecordKind, 1, payload.ToArray()),
+            $"0x02c9 village recruits: {settlement.Recruits.Count}");
+    }
+
+    /// <summary>Tells the panel the settlement's numbers: the treasury, the resource and production counters and the
+    /// village clock (S→C 0x2c9, kind 0x9b, subtag 4). The client's reader 0x1424c8190 takes, in this order: 21 u32 (the
+    /// resource counters), 15 u32 (the production counters), the gold, one more u32, six flag bytes, three u64, four
+    /// entries (a u64, three bytes and the name they carry), a u64, two bytes and the village's clock; the handler then
+    /// reads one more u64 and adds (its now − that value) to the clock, so both have to be the client's own time in whole
+    /// seconds — zero or milliseconds push the clock into the future and the client kills itself with its own "advancing
+    /// village state to a time in the past" complaint. A frame one byte short aborts the client with 0xc000041d, so the
+    /// layout has to be exact.</summary>
+    async Task PushState(IPlayer player)
+    {
+        if (player.AreaId != "KalguuranSettlersLeague") return;
+        var settlement = Of(player);
+        if (settlement.StatePushed == settlement.Version) return;
+        settlement.StatePushed = settlement.Version;
+        long clock = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        // The block the client reads, in the order its reader 0x1424c8190 takes it: 21 resource counters, 15 production
+        // counters, the gold, one more number, six farm-adjacency markers, three pairs, three named blocks (a u64, the
+        // length of the name, two bytes, the name), a u64, two packed bytes, the village's clock and four packed bytes.
+        var payload = new List<byte>(245);
+        for (int i = 0; i < 21; i++)
+            payload.AddRange(BitConverter.GetBytes(settlement.Resources.GetValueOrDefault(i)));
+        for (int j = 0; j < 15; j++) payload.AddRange(BitConverter.GetBytes(0u));
+        payload.AddRange(BitConverter.GetBytes(settlement.Gold));
+        payload.AddRange(BitConverter.GetBytes(0u));
+        payload.AddRange(new byte[6]);
+        for (int k = 0; k < 3; k++)
+        {
+            payload.AddRange(BitConverter.GetBytes(0u));
+            payload.AddRange(BitConverter.GetBytes(0u));
+        }
+        for (int e = 0; e < 3; e++)
+        {
+            payload.AddRange(BitConverter.GetBytes((ulong)0));
+            payload.Add(0);
+            payload.Add(0);
+            payload.Add(0);
+        }
+        payload.AddRange(BitConverter.GetBytes((ulong)0));
+        payload.Add(0);
+        payload.Add(0);
+        payload.AddRange(BitConverter.GetBytes((ulong)clock));
+        payload.AddRange(new byte[4]);
+        // The handler reads one more u64 after the block: the time the frame was made, which it subtracts from its own
+        // clock and adds to the village's. Both have to be the client's own time in whole seconds.
+        payload.AddRange(BitConverter.GetBytes((ulong)clock));
+        await player.Send(StateFrame(TownRecordKind, 4, payload.ToArray()),
+            $"0x02c9 village state: gold {settlement.Gold}, 21 resources, 15 production counters");
+    }
+
+    /// <summary>Puts a worker in the town and tells the panel about it: the dev stand-in for the recruitment panel's hire
+    /// button, which the panel itself sends as action 0x00 and 0x03.</summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="jobRow">The <c>VillageJobs</c> row the worker takes (1 is "Mining Crimson Iron").</param>
+    public async Task<string> Hire(IPlayer player, int jobRow, int rank = 1)
+    {
+        var settlement = Of(player);
+        byte worker = (byte)(settlement.Assignments.Count + 1);
+        settlement.Assignments[worker] = (byte)jobRow;
+        settlement.Ranks[worker] = VillageWages.Skill(rank);
+        settlement.Workers = (byte)settlement.Assignments.Count;
+        settlement.Version++;
+        await PushWorkers(player);
+        return $"worker {worker} takes VillageJobs row {jobRow} at rank {rank} ({settlement.Workers}/{settlement.Capacity})";
     }
 
 
@@ -195,14 +339,52 @@ public sealed class VillageModule : IModule
     public void Load(IModuleContext module)
     {
         MappingCommands.Register(module.Manifest.Id);
+        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) =>
+        {
+            var player = Program.PlayerOf(conn);
+            return commands.Add("villagepanel", "/villagepanel hire <jobRow> [rank] (the town panel's workers)", async args =>
+            {
+                if (args.Length >= 2 && string.Equals(args[0], "hire", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(args[1], out int row))
+                {
+                    int rank = args.Length >= 3 && int.TryParse(args[2], out int given) ? given : 1;
+                    await player.Tell("Kingsmarch: " + await Hire(player, row, rank));
+                    return;
+                }
+                if (args.Length >= 2 && string.Equals(args[0], "gold", StringComparison.OrdinalIgnoreCase)
+                    && uint.TryParse(args[1], out uint gold))
+                {
+                    var settlement = Of(player);
+                    settlement.Gold = gold;
+                    settlement.Version++;
+                    await PushState(player);
+                    await player.Tell("Kingsmarch: the treasury holds " + gold);
+                    return;
+                }
+                if (args.Length >= 2 && string.Equals(args[0], "purse", StringComparison.OrdinalIgnoreCase)
+                    && uint.TryParse(args[1], out uint purse))
+                {
+                    // the tester's way of getting gold to try the panel's buttons with
+                    var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+                    uint total = stash.AddGold(purse);
+                    await player.Send(InstanceEntities.Gold(total), $"0x02aa gold: {total}");
+                    await player.Tell($"Kingsmarch: the purse holds {total}");
+                    return;
+                }
+                await player.Tell("usage: /villagepanel hire <VillageJobs row> [rank 1-5] | /villagepanel gold <amount> | /villagepanel purse <amount>");
+            });
+        });
         GameEvents.Tick.Add(module.Manifest.Id, async (conn, now) =>
         {
             var player = Program.PlayerOf(conn);
             await OpenPort(player);
             await StatePoll(player, now);
+            await PushWorkers(player);
+            await PushRecruits(player);
+            await PushState(player);
             MappingEngine.Advance(player.Character ?? "", now);
         });
-        GameEvents.Packet(ActionId).Add(module.Manifest.Id, (conn, bytes) =>
+        GameEvents.Packet(ActionId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             // The wire is u16 id | u8 ruleset row | compact-int length | blob (the client's writer 0x141fa7c10); the row
             // is the record the panel belongs to (0x9b the town, 0x74 the farm) and the blob's first byte is the action.
@@ -215,7 +397,7 @@ public sealed class VillageModule : IModule
             catch (InvalidDataException)
             {
                 Console.WriteLine($"[gateway] 0x02ca village action: a cut-off message ({bytes.Length} bytes)");
-                return Task.FromResult(true);
+                return true;
             }
             var action = blob.Length > 0 ? blob[0] : (byte)0;
             var named = Actions.GetValueOrDefault(action, "unknown action");
@@ -228,12 +410,14 @@ public sealed class VillageModule : IModule
             var who = player.Character ?? "";
             var note = action switch
             {
-                0x18 => Give(settlement, Amount(args), args, who),
-                0x19 => Take(settlement, Amount(args), args, who),
+                0x18 => await Give(settlement, Amount(args), player),
+                0x19 => await Take(settlement, Amount(args), player),
                 0x03 => Assign(settlement, args),
+                0x02 => Release(settlement, args),
                 0x06 => Sail(player, args),
                 0x07 => args.Length == 0 ? "abandon (no slot)" : KingsmarchPort.DropShip(who, args[0]) ? $"ship {args[0]} abandoned" : $"no ship in slot {args[0]}",
-                0x00 => Recruit(player, args),
+                0x00 => await RerollRecruits(player, args.Length > 0 ? args[0] : 0),
+                0x01 => await HireRecruit(player, args.Length > 0 ? args[0] : 0),
                 0x04 => Farm(player, args),
                 0x05 => Upgrade(settlement, args),
                 0x0a => "abandon captured shipment: none is captured here",
@@ -246,7 +430,10 @@ public sealed class VillageModule : IModule
 
             Console.WriteLine($"[gateway] 0x02ca village action 0x{action:x2} {named}, kind 0x{kind:x2}, " +
                 $"blob {Convert.ToHexString(blob)}{(note is null ? "" : ", " + note)}");
-            return Task.FromResult(true);
+            await PushWorkers(player);
+            await PushRecruits(player);
+            await PushState(player);
+            return true;
         });
     }
 
@@ -274,24 +461,102 @@ public sealed class VillageModule : IModule
         return $"send shipment slot {args[0]} port row {args[1]}: {said} (value {value}, crew {crew})";
     }
 
-    /// <summary>The panel's ADD: the player puts gold into the treasury.</summary>
-    static string Give(Settlement settlement, uint amount, ReadOnlySpan<byte> args, string who)
+    /// <summary>The panel's ADD: the player puts gold into the treasury. The gold leaves the account's stash, so the
+    /// treasury cannot be filled out of nothing; the client is told the new total with the same 0x02aa the account's
+    /// gold is announced with.</summary>
+    static async Task<string> Give(Settlement settlement, uint amount, IPlayer player)
     {
-        settlement.Gold += amount;
-        long gold = KingsmarchPort.Fund(who, amount);
-        return $"treasury +{amount} (gold now {gold})";
+        var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+        uint take = (uint)Math.Min(amount, stash.Gold);
+        if (take == 0) return $"the account has no gold to put into the treasury ({stash.Gold} held)";
+        uint? left = stash.TrySpendGold(take);
+        if (left is null) return $"the account has {stash.Gold} gold, less than the {take} asked for";
+        settlement.Gold += take;
+        settlement.Version++;
+        await player.Send(InstanceEntities.Gold(left.Value), $"0x02aa gold: {left} (put {take} into the treasury)");
+        return $"treasury +{take} (gold now {settlement.Gold})";
     }
 
-    /// <summary>The panel's REMOVE: the player takes gold out of the treasury.</summary>
-    static string Take(Settlement settlement, uint amount, ReadOnlySpan<byte> args, string who)
+    /// <summary>The panel's REMOVE: the player takes gold out of the treasury, and it goes back into the account.</summary>
+    static async Task<string> Take(Settlement settlement, uint amount, IPlayer player)
     {
-        uint taken = Math.Min(amount, settlement.Gold);
+        uint taken = (uint)Math.Min(amount, settlement.Gold);
+        if (taken == 0) return "the treasury is empty";
         settlement.Gold -= taken;
-        long gold = KingsmarchPort.Gold(who);
-        return $"treasury -{taken} (gold now {gold})";
+        settlement.Version++;
+        var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+        uint gold = stash.AddGold(taken);
+        await player.Send(InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (took {taken} out of the treasury)");
+        return $"treasury -{taken} (gold now {settlement.Gold})";
     }
 
     /// <summary>The recruitment panel's hire button: the tier of the slot the player picked.</summary>
+    /// <summary>The recruitment panel's reroll button: a new set of recruits, paid for out of the player's purse. The
+    /// client shows the price itself (its <c>VillageRecruitBalancePerTier</c> holds 2,000 gold a reroll), and the button
+    /// does nothing on its own: the server owns who is waiting to be hired.</summary>
+    /// <param name="player">The player who is rerolling.</param>
+    async Task<string> RerollRecruits(IPlayer player, int tier = 0)
+    {
+        var settlement = Of(player);
+        var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+        // the panel has two buttons: the plain reroll and the "high quality" one, which costs more and brings better
+        // recruits (the client's tier 1 sender is 0x140510400)
+        bool high = tier != 0;
+        int cost = high ? 16000 : 2000;
+        int lowest = high ? 2 : 0;              // a high quality reroll never brings a recruit below rank 3
+        if (stash.Gold < cost) return $"reroll: {cost} gold needed, {stash.Gold} on hand";
+        uint? left = stash.TrySpendGold(cost);
+        RollRecruits(settlement, lowest);
+        settlement.RecruitVersion++;
+        await PushRecruits(player);
+        await player.Send(InstanceEntities.Gold(left!.Value), $"0x02aa gold: {left.Value} (paid {cost} for a reroll)");
+        return $"reroll: {settlement.Recruits.Count} new recruits for {cost} gold";
+    }
+
+    /// <summary>The recruitment panel's hire button: the client sends the candidate's own index (the card's
+    /// <c>+0x440</c>), and the town takes the recruit into service. The price is paid out of the treasury, because
+    /// that is the gold the client weighs the button against (<c>0x14050fd8f</c> reads the treasury's
+    /// <c>+0x198</c>); the client never moves gold itself, so the server takes it and tells the panel the new
+    /// numbers.</summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="index">The candidate's slot in the waiting list.</param>
+    async Task<string> HireRecruit(IPlayer player, int index)
+    {
+        var settlement = Of(player);
+        if (index < 0 || index >= settlement.Recruits.Count)
+            return $"no recruit in slot {index} ({settlement.Recruits.Count} waiting)";
+        if (settlement.Gold < RecruitPrice)
+            return $"hiring needs {RecruitPrice} gold in the treasury ({settlement.Gold} there)";
+
+        var (row, skill) = settlement.Recruits[index];
+        settlement.Recruits.RemoveAt(index);
+        settlement.RecruitVersion++;
+        settlement.Gold -= RecruitPrice;
+        byte worker = (byte)(settlement.Assignments.Count + 1);
+        settlement.Assignments[worker] = row;
+        settlement.Ranks[worker] = skill;
+        settlement.Workers = (byte)settlement.Assignments.Count;
+        settlement.Version++;
+        await PushWorkers(player);
+        await PushRecruits(player);
+        await PushState(player);
+        return $"hired recruit {index}: worker {worker} takes VillageJobs row {row} at rank " +
+            $"{VillageWages.Rank(skill) + 1} for {RecruitPrice} gold (treasury {settlement.Gold})";
+    }
+
+    /// <summary>Picks the two recruits waiting to be hired: a job that has a name to show and a skill level.</summary>
+    /// <param name="settlement">The settlement the recruits belong to.</param>
+    static void RollRecruits(Settlement settlement, int lowest = 0)
+    {
+        settlement.Recruits.Clear();
+        // the jobs that have a name to show: the five mining and the five smelting ones, plus disenchanting and mapping
+        int[] jobs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 17, 18];
+        int top = Math.Max(VillageWages.Ranks, lowest + 1);
+        for (int i = 0; i < 2; i++)
+            settlement.Recruits.Add(((byte)jobs[Random.Shared.Next(jobs.Length)],
+                (byte)Random.Shared.Next(lowest, top)));
+    }
+
     static string Recruit(IPlayer player, ReadOnlySpan<byte> args)
     {
         int index = args.Length > 0 ? args[0] + 1 : 1;
@@ -347,13 +612,47 @@ public sealed class VillageModule : IModule
         return taken == 0 ? $"no shipment waiting at index {index}" : $"collected shipment {index}: {taken} barter";
     }
 
-    /// <summary>A worker takes a job (the panel's job list).</summary>
+    /// <summary>A worker takes a job (the panel's job list) or leaves it. The panel's two buttons are one action: the
+    /// job row it names, and the worker it means. Row 0 is "Idling", so it is a worker leaving its job; any other row is
+    /// a worker taking it. The worker is one of the town's own, so the town does not grow: the worker changes the job
+    /// and the panel's worker list is pushed again.</summary>
     static string Assign(Settlement settlement, ReadOnlySpan<byte> args)
     {
         if (args.Length < 2) return "assign worker (no arguments)";
         byte worker = args[0], row = args[1];
-        settlement.Assignments[worker] = row;
+        // The panel numbers the workers of the column it shows: the "Current Workers" column holds them all, in the
+        // order they were pushed, and the "Available Workers" column holds the ones without a job.
+        var order = settlement.Assignments.OrderBy(pair => pair.Key).ToList();
+        if (row == 0)
+        {
+            // The panel's REMOVE button: the worker leaves its job and goes back to the available ones.
+            if (order.Count <= worker) return $"remove worker {worker}: no worker to remove";
+            settlement.Assignments[order[worker].Key] = 0;
+            settlement.Workers = (byte)settlement.Assignments.Count;
+            settlement.Version++;
+            return $"worker {order[worker].Key} back to idle ({settlement.Workers}/{settlement.Capacity})";
+        }
+        // The panel's ASSIGN button: one of the available workers takes the job.
+        var idle = order.Where(pair => pair.Value == 0).ToList();
+        if (idle.Count <= worker) return $"assign worker {worker}: no available worker to assign";
+        settlement.Assignments[idle[worker].Key] = row;
         settlement.Workers = (byte)settlement.Assignments.Count;
-        return $"worker {worker} on VillageJobs row {row} ({settlement.Workers}/{settlement.Capacity})";
+        settlement.Version++;
+        return $"worker {idle[worker].Key} on VillageJobs row {row} ({settlement.Workers}/{settlement.Capacity})";
+    }
+
+    /// <summary>The panel's release button (the small icon on a worker): the worker leaves the town for good, so the
+    /// worker list shrinks and the panel is told about it.</summary>
+    static string Release(Settlement settlement, ReadOnlySpan<byte> args)
+    {
+        byte index = args.Length > 0 ? args[0] : (byte)0;
+        var order = settlement.Assignments.OrderBy(pair => pair.Key).ToList();
+        if (order.Count <= index) return $"release worker {index}: no worker to release";
+        byte key = order[index].Key;
+        settlement.Assignments.Remove(key);
+        settlement.Ranks.Remove(key);
+        settlement.Workers = (byte)settlement.Assignments.Count;
+        settlement.Version++;
+        return $"worker {key} released ({settlement.Workers}/{settlement.Capacity})";
     }
 }

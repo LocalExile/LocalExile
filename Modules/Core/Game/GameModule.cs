@@ -216,6 +216,14 @@ public sealed class GameModule : IModule, IDisposable
                         await player.Tell("Kingsmarch: " + await KingsmarchTown.Assign(player, worker, plot));
                         return;
                     }
+                    if (verb == "stock" && args.Length >= 3 && int.TryParse(args[2], out int amount))
+                    {
+                        int now = KingsmarchTown.Grant(player, args[1], amount);
+                        await player.Tell(now == 0
+                            ? "usage: /village stock <resource> <count>  (e.g. Wheat, IronOre)"
+                            : $"Kingsmarch: put {amount} {args[1]} in the town, {now} there now.");
+                        return;
+                    }
                     await player.Tell(KingsmarchTown.StoreText(player));
                 })
                 .Add("recruit", "/recruit [hire <1-3>] (Kingsmarch's workers)", async args =>
@@ -243,6 +251,12 @@ public sealed class GameModule : IModule, IDisposable
                         && int.TryParse(args[2 - 1], out int port) && int.TryParse(args[3], out int count))
                     {
                         await player.Tell("Kingsmarch: " + KingsmarchPort.Send(player, port, args[2], count));
+                        return;
+                    }
+                    if (args.Length >= 2 && string.Equals(args[0], "crew", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(args[1], out int more) && more > 0)
+                    {
+                        await player.Tell("Kingsmarch: " + KingsmarchPort.Crew(player, more));
                         return;
                     }
                     await player.Tell(KingsmarchPort.Report(player));

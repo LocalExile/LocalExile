@@ -915,6 +915,19 @@ public static class KingsmarchTown
         return taken;
     }
 
+    /// <summary>Puts a resource straight into the town's store and says how much is there now. The port needs cargo
+    /// before it will load a ship, and the farm only makes it once workers exist, so this is the hand-over the
+    /// developer commands use to test the harbour on its own.</summary>
+    public static int Grant(IPlayer player, string resource, int count)
+    {
+        if (resource.Length == 0 || count <= 0) return 0;
+        var progress = State(player);
+        int now;
+        lock (progress.Store) progress.Store[resource] = now = progress.Store.GetValueOrDefault(resource) + count;
+        Persist(progress);
+        return now;
+    }
+
     /// <summary>The town's farm as one report: each plot's crop, how long it needs, who tends it, and what is stored.</summary>
     public static string StoreText(IPlayer player)
     {

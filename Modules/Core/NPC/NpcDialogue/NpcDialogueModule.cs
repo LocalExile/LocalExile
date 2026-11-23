@@ -8,18 +8,17 @@ namespace GameServer.Modules.NpcDialogue;
 public sealed class NpcDialogueModule : IModule
 {
     // The Settlers (Kingsmarch) screens: the S->C 0x7b kind of each SendOpenScreen(<name>) in an NPCTalk row's script.
-    // The kinds were read off the live client, one panel at a time: 0x56 opens the KINGSMARCH town map and 0x55 opens the
-    // RECRUITMENT panel (the town's "Hire Workers" button sends 0x55 too). The client's own screen-name table
-    // (0x142fd8c00, records of kind / name) is a different id space - it names 0x54 KalguurRecruitmentWindow and 0x55
-    // KalguurTownMapWindow - so its numbers must not be used here; only a kind seen on screen counts. The other kinds are
-    // still unverified. No row opens KalguurFarm: that panel comes from the town map, not from an NPC.
+    // The kinds are the client's own screen table (0x142fd89f0: entries of a UTF-16 name, a length and a kind), which the
+    // panel dispatcher 0x142169dd0 switches on: 0x54 recombinator, 0x55 recruitment, 0x56 town map, 0x57 mine,
+    // 0x58 port, 0x59 farm, 0x5a blacksmith, 0x5b disenchanting, 0x5c map runners, 0x5d fishing, 0x5e currency exchange.
+    // 0x56 (town map) and 0x58 (port) were also confirmed on screen. 0x57 opens the MINING panel, not the port.
     private static readonly Dictionary<string, byte> Screens = new(StringComparer.Ordinal)
     {
         ["KalguurTownMapWindow"] = 0x56,       // the King's Hand: Manage Town (category 57), and the three noticeboards.
         ["KalguurRecruitmentWindow"] = 0x55,   // Raulf, the Recruiter: Town Recruitment (NPCTalk category 54).
-        ["KalguurDisenchantingWindow"] = 0x5a, // Rog, the Disenchanter (category 55). Not seen on screen yet.
-        ["KalguurPortWindow"] = 0x57,          // Tujen, the Harbourmaster: Shipping (category 56). Not seen on screen yet.
-        ["CurrencyExchangeWindow"] = 0x4a,     // Faustus, the Financier (category 53). Not seen on screen yet.
+        ["KalguurDisenchantingWindow"] = 0x5b, // Rog, the Disenchanter (category 55).
+        ["KalguurPortWindow"] = 0x58,          // Tujen, the Harbourmaster: Shipping (category 56).
+        ["CurrencyExchangeWindow"] = 0x5e,     // Faustus, the Financier (category 53).
     };
 
     private static readonly Regex ScreenScript = new(@"SendOpenScreen\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled);
