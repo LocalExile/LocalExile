@@ -655,10 +655,10 @@ public static class UtilityFlasks
 
     /// <summary>S→C 0x1c1 for an effect: the flask's buff (<see cref="Flasks.Buff"/>: duration and flask-bar cell) and the
     /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
-    public static void ShowBuffs(Active e, Player player)
+    public static void ShowBuffs(Active e, Player player, ushort? visual = null)
     {
         double seconds = (e.Ends - e.Started) * e.ExpiryRate;
-        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds));
+        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds, visual: visual));
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
             player.Area.Buffs.Set(player.Id, new(x.BuffRow, player.Id, U68: global::Buff.Seconds(seconds), Tag: extra));
     }

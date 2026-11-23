@@ -219,7 +219,7 @@ public static partial class Game
                         bool live = player.PlayerLife > 0 && effect.Ends > now
                             && player.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
                             && ReferenceEquals(player.UtilityFlaskEffects.Of(effect.ItemId), effect);
-                        if (live) UtilityFlasks.ShowBuffs(effect with { Started = now }, player);
+                        if (live) UtilityFlasks.ShowBuffs(effect with { Started = now }, player, FlaskEffectVisual(player, effect.Slot));
                         packet = [prefix];
                     }
                     state.Packets.RemoveAt(0); sent = true; return packet;
