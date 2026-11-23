@@ -24,6 +24,8 @@ public static class Saves
     static readonly Dictionary<string, (AccountStash.Save? Header, bool Dirty)> _stashes = new(StringComparer.Ordinal);
     static readonly Dictionary<(string Account, int Tab), (List<CharacterSaves.SavedPlacement>? Items, bool Dirty)> _stashTabs = [];
 
+    public static bool IsOpen => _db is not null;
+
     public static SaveDatabase Db => _db ?? throw new InvalidOperationException("the save database is not open (Saves.Open)");
 
     public static string DefaultPath => SaveDatabase.DefaultPath;

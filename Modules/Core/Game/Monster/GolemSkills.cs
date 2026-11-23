@@ -64,12 +64,12 @@ public static partial class Game
             values[Stat.CriticalStrikeChancePlusPct] = values.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct)
                 + 50 * charges.Held(ChargeType.Power);
         }
-        int Get(uint n) => GolemStat(playerStats, n);
         long gaze = Math.Min(30, (long)Math.Max(0, Get(Stat.NumberOfMinionAbyssJewels))
             * Math.Max(0, Get(Stat.MinionDamageOverTimeMultiplierPlusPerMinionAbyssJewelUpToPlus30)));
         int dotMultiplier = ActorScale.Saturate(gaze + Get(Stat.BaseMinionDotMultiplierPlus));
         if (dotMultiplier != 0)
             values[Stat.DotMultiplierPlus] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.DotMultiplierPlus) + dotMultiplier);
+        int Get(uint n) => GolemStat(playerStats, n);
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
         // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
         // maximum kernel as the owner's charge session; its maximum already includes Character.ot's base three.
