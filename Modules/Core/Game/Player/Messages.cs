@@ -82,6 +82,10 @@ public static partial class Game
             // A terminal Hardcore owner may only leave for character selection or log in.
             if (HardcoreProgressBlocked(player) && id is not (InstanceProtocol.ExitToCharacterSelectId or InstanceProtocol.ExitToLoginId)
                 && !(player.PendingCharacterSelectExit && id == InstanceTransfer.LeaveAreaAckId)) continue;
+            // While an area change is in flight (0x2b4 sent, pre-generating the destination before 0x27), ignore
+            // gameplay, inventory and interaction packets; only transfer acknowledgement, exit and pause control run.
+            if (player.LeavingArea && id is not (InstanceTransfer.LeaveAreaAckId or InstanceProtocol.ExitToCharacterSelectId
+                or InstanceProtocol.ExitToLoginId or InstancePause.RequestId)) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
             if (GameEvents.WantsPacket(id) && await GameEvents.AnyPacket(player, id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
@@ -94,7 +98,8 @@ public static partial class Game
             // Kinetic Blast burst's backlog of contacts (and the kills and loot they enqueue) run inside the input
             // handler: 0x0025 took 100-200 ms and the input queue reached 7 s (2026-11-05). Handlers that need a
             // current simulation use ProjectileMutation, which advances under the same locks.
-            // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so move it now.
+            // The client's answer to 0x2b4 (0x14214efe0): it is ready to leave, so prepare the destination area and move
+            // it off the inbox handler so 0x1b ticks keep getting answered while "Entering <area>" is displayed.
             if (id == InstanceTransfer.LeaveAreaAckId)
             {
                 if (player.PendingCharacterSelectExit)
@@ -102,7 +107,7 @@ public static partial class Game
                     await FinishCharacterSelectExit(player);
                     return;
                 }
-                if (player.PendingTransfer is { } leaving) await Transfer(player, leaving);
+                if (player.PendingTransfer is { } leaving) _ = AreaFrames.Start(() => RunTransfer(player, leaving));
                 continue;
             }
             // Native TakeHit blocks predicted action starts too. Buffered normal actions must not restart the server's
@@ -970,6 +975,7 @@ public static partial class Game
                     $"0x02a0 foresight preview key {req.Key} for item {req.TargetId}: {(preview is null ? "refused" : "preview")}");
             }
         }
+        if (player.Closed || player.LeavingArea) return;
         // a1q5: after a read that moved items, the Medicine Chest's flag (and its removal once Nessa has one), here on the
         // message path so the inventory revisions stay in order.
         await GameEvents.RunMessagesHandled(player, [.. messages.Select(m => m.Id)]);
