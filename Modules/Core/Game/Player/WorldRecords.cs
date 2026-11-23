@@ -223,7 +223,7 @@ public static partial class Game
         }
 
         var target = player.Connection.WorldOutput.PublishedObject(id);
-        return Program.SendRecords(player, [target], _ =>
+        return SendWorldBatch(player, [target], _ =>
         {
             if (records() is not { Length: > 0 } batch) return null;
             List<OutputRecord> output = [];
@@ -233,7 +233,7 @@ public static partial class Game
             BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
             output.Add(OutputRecord.Remove(target, WorldOrder.Last, removal, log));
             return new([.. output]);
-        }, rules: Program.GameLogicOrNull as IWorldAdmissionRules);
+        });
     }
 
     public static async Task SendWorldRemoval(Player player, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)

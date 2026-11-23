@@ -164,6 +164,41 @@ public class WorldOutputTests : IDisposable
     }
 
     [Fact]
+    public async Task Predictive_area_frame_completes_object_creation_and_removal()
+    {
+        var player = new Player(new(1, "predictive-object", 300, 300, 100, 100, null, []), 1, 1);
+        player.Connection.LockstepClient = false;
+        player.Connection.WorldOutput.Begin(1);
+        const uint id = 101;
+        var previous = GameArea.Own(player.Area);
+        try
+        {
+            var create = InstanceEntities.CreateObject(id, 0x1234, [0, 0]);
+            var creating = Game.SendWorldCreate(player, id, create);
+            Assert.True(creating.IsCompleted);
+            Assert.True(await creating);
+            var created = Assert.Single(player.Area.Delta.Take());
+            Assert.Equal(AreaDelta.Kind.Create, created.Kind);
+            Assert.Equal(id, created.Entity);
+
+            var target = player.Connection.WorldOutput.PublishedObject(id);
+            Assert.True(target.IsReady);
+
+            var removing = Game.SendWorldRemoval(player, id);
+            Assert.True(removing.IsCompleted);
+            await removing;
+            var removed = Assert.Single(player.Area.Delta.Take());
+            Assert.Equal(AreaDelta.Kind.Remove, removed.Kind);
+            Assert.Equal(id, removed.Entity);
+            Assert.Equal(WorldObject.BirthState.Retired, target.State);
+        }
+        finally
+        {
+            GameArea.Own(previous);
+        }
+    }
+
+    [Fact]
     public async Task Birth_cancellation_and_synchronous_quest_capture_preserve_incarnations_and_owned_bytes()
     {
         var player = new Player(new(1, "world-lifetime", 300, 300, 100, 100, null, []), 1, 1) { Connection = { LockstepClient = true } };
