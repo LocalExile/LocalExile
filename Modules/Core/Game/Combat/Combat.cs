@@ -3134,6 +3134,9 @@ public static partial class Game
         // EncounterStats, whether it was there when the shrine spawned or walked in later) takes no hit at all, so every
         // path through this funnel leaves its life alone.
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return null;
+        // A Misery essence's proximity shield blocks a hit from outside its ring; Scorn's avoid_damage_% can avoid the hit.
+        if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt)) return null;
+        if (damage > 0 && m.Effects[Stat.AvoidDamagePct] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
         uint before = m.Life;
         if (allyAt is null) SpiderHitRewardsLocked(player, m, ProjectileWorldTime(player), playerStats);
         (m.Life, bool starts) = TakeOwnerHitLocked(player, m, damage, cull, rampageSource, playerStats, cullPlayer);
