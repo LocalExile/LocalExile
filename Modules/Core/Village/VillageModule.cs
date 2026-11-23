@@ -497,7 +497,7 @@ public sealed class VillageModule : IModule
                 0x18 => await Give(settlement, Amount(args), player),
                 0x19 => await Take(settlement, Amount(args), player),
                 0x03 => Assign(settlement, args, player),
-                0x02 => Release(settlement, args, player),
+                0x02 => Unassign(settlement, args, player),
                 0x06 => Sail(player, args),
                 0x07 => args.Length == 0 ? "abandon (no slot)" : KingsmarchPort.DropShip(who, args[0]) ? $"ship {args[0]} abandoned" : $"no ship in slot {args[0]}",
                 0x00 => await RerollRecruits(player, args.Length > 0 ? args[0] : 0),
@@ -710,24 +710,43 @@ public sealed class VillageModule : IModule
         if (row == 0)
         {
             // The panel's REMOVE button: the worker leaves its job and goes back to the available ones.
-            if (order.Count <= worker) return $"remove worker {worker}: no worker to remove";
-            settlement.Assignments[order[worker].Key] = 0;
-            _ = KingsmarchTown.MoveTo(player, order[worker].Key, 0);
+        if (order.Count == 0) return "remove worker: the town has no workers";
+        byte at = (byte)Math.Min((int)worker, order.Count - 1);
+            settlement.Assignments[order[at].Key] = 0;
+            _ = KingsmarchTown.MoveTo(player, order[at].Key, 0);
             settlement.Workers = (byte)settlement.Assignments.Count;
             settlement.Version++;
-            return $"worker {order[worker].Key} back to idle ({settlement.Workers}/{settlement.Capacity})";
+            return $"worker {order[at].Key} back to idle ({settlement.Workers}/{settlement.Capacity})";
         }
         // The panel's ASSIGN button: one of the available workers takes the job.
         var idle = order.Where(pair => pair.Value == 0).ToList();
-        if (idle.Count <= worker) return $"assign worker {worker}: no available worker to assign";
-        settlement.Assignments[idle[worker].Key] = row;
+        // The index is a place in the available column, and that column shrinks as workers are placed, so it is
+        // clamped rather than rejecting whoever is last -that was the worker nobody could ever place.
+        if (idle.Count == 0) return "assign worker: every worker already has a job";
+        var pick = idle[Math.Min((int)worker, idle.Count - 1)];
+        settlement.Assignments[pick.Key] = row;
         settlement.Workers = (byte)settlement.Assignments.Count;
         settlement.Version++;
-        return $"worker {idle[worker].Key} on VillageJobs row {row} ({settlement.Workers}/{settlement.Capacity})";
+        KingsmarchTown.MoveTo(player, pick.Key, row).GetAwaiter().GetResult();
+        return $"worker {pick.Key} on VillageJobs row {row} ({settlement.Workers}/{settlement.Capacity})";
     }
 
     /// <summary>The panel's release button (the small icon on a worker): the worker leaves the town for good, so the
     /// worker list shrinks and the panel is told about it.</summary>
+    /// <summary>The red button under a worker in the farm window: the worker leaves its job and goes back to the
+    /// available list. It is not a dismissal -the town keeps the worker and so does the farm, so only the job is cleared.
+    /// Treating it as a dismissal made the panel and the farm drift apart by one worker every time.</summary>
+    static string Unassign(Settlement settlement, ReadOnlySpan<byte> args, IPlayer player)
+    {
+        byte index = args.Length > 0 ? args[0] : (byte)0;
+        var order = settlement.Assignments.OrderBy(pair => pair.Key).ToList();
+        if (order.Count == 0) return "remove worker: the town has no workers";
+        var pick = order[Math.Min((int)index, order.Count - 1)];
+        settlement.Assignments[pick.Key] = 0;
+        settlement.Version++;
+        KingsmarchTown.MoveTo(player, pick.Key, 0).GetAwaiter().GetResult();
+        return $"worker {pick.Key} back to idle ({settlement.Assignments.Count(pair => pair.Value == 0)} available)";
+    }
     static string Release(Settlement settlement, ReadOnlySpan<byte> args, IPlayer player)
     {
         byte index = args.Length > 0 ? args[0] : (byte)0;
