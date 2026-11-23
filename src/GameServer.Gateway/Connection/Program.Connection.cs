@@ -797,8 +797,9 @@ public partial class Program
         string line = $"Network mode error: this area received both Predictive-only ({Ids(predictive)}) and Lockstep-only " +
             $"({Ids(lockstep)}) client messages. Please report this to the developers with these packet ids.";
         Console.WriteLine($"[gateway] {remote} {line}");
-        var chat = InstanceChat.ChatLine(line);
-        for (int i = 0; i < 6; i++) await Send(remote, stream, ciphers, chat, $"0x0017 chat line (network mode error {i + 1}/6)");
+        // The wire encrypts the message buffer in place. Each diagnostic needs its own plaintext.
+        for (int i = 0; i < 6; i++)
+            await Send(remote, stream, ciphers, InstanceChat.ChatLine(line), $"0x0017 chat line (network mode error {i + 1}/6)");
     }
 
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone

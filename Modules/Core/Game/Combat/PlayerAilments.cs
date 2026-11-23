@@ -129,7 +129,9 @@ public static partial class Game
         if (blood is not null)
             lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvanceCorruptedBlood(player, blood, until, stats,
                 immunities.Contains(DamageType.Physical), letheFactor));
-        player.PlayerLife = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - lifeDamage), until);
+        uint lifeAfter = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - lifeDamage), until);
+        RecordRechargeLifeDamage(player, (long)player.PlayerLife - lifeAfter, until, stats);
+        player.PlayerLife = lifeAfter;
         if (player.PlayerLife == 0)
         {
             player.InvalidateIncomingHits();
@@ -264,6 +266,8 @@ public static partial class Game
         {
             if (!(name is var key)) return 0;
             long value = sources.GetValueOrDefault(key);
+            if (key == Stat.TemporalChainsActionSpeedPlusPctFinal)
+                value += player.Pools.MapTemporalChainsActionSpeedPct;
             if (leadership is { } active)
                 foreach (var (stat, amount) in active.Stats)
                     if (stat == key) value += amount;

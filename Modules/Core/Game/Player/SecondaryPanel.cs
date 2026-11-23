@@ -21,9 +21,11 @@ public static partial class Game
         var conversion = DamageStats.Conversion(merged, Stats, attack: null);
         var modifiers = supported.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         bool area = get(Stat.IsAreaDamage) != 0, projectile = get(Stat.BaseIsProjectile) != 0;
+        long herald = SkillsFor(player).EffectId(supported.Effect) is { } effectId && IsHeraldAura(effectId)
+            ? get(Stat.DamagePlusPctWithHeraldSkills) : 0;
         var raw = SecondaryRawHit(player, supported, secondaryBase, get);
         var hit = PlayerHitDamage.Resolve(raw, get, conversion, spell: false, area: area, projectile: projectile,
-            supportModifiers: modifiers, skillTypes: types, secondary: true);
+            supportModifiers: modifiers, skillTypes: types, secondary: true, additionalIncreased: herald);
         int chance = SpellCriticalStrike.Chance(SkillsFor(player).SpellCritChance(supported.Effect, supported.Level), Player, Own,
             playerIncrease: Player(Stat.CriticalStrikeChancePlusPct));
         int multiplier = CriticalHitMultiplier((long)DamageModel.BaseCriticalStrikeMultiplier
@@ -41,7 +43,7 @@ public static partial class Game
         rows.Add((Stat.DisplayHundredTimesDamagePerSkillUse, SpellDamage.Display((hit.MinTotal, hit.MaxTotal), 0, factor).PerUse));
         rows.Add((Stat.HundredTimesDamagePerSecond, 0));
         rows.AddRange(AilmentPanelStats.Compute(new("secondary", Spell: false),
-            raw, conversion, get));
+            raw, conversion, get, herald));
         return rows;
     }
 
