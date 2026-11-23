@@ -225,6 +225,7 @@ public static partial class Game
         player.ChannelMovement = default;
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
+        ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
         ClearAntiquarianOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath

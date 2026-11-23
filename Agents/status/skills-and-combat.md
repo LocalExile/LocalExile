@@ -147,7 +147,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
-- Warcry release and cooldowns. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
+- Warcry release and cooldowns. Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
+  to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
