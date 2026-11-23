@@ -440,6 +440,7 @@ public static partial class Game
             nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
                 * BloodCharges.More(Own(BloodCharges.CostPerCharge), player.BloodCharges)));
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife);
+        if (Read(Stat.NoManaCost) != 0) cost = 0;
         es = (uint)Math.Max(0, Read(Stat.EsCost));
         if (costPercent != 100)
         {

@@ -153,7 +153,8 @@ Nothing yet.
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
   transfigured and Trarthan gems grant their own skill; Vaal gems grant their Vaal skill and base skill.
-  Vaal soul collection/native budget payloads are implemented, pending native acceptance.
+  Vaal soul collection/native budget payloads are implemented, pending native acceptance. Vaal Clarity spends souls
+  to grant a timed aura that removes mana costs for the caster and nearby allies while preserving other skill costs.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
   The variant is sent in the SkillGem data and saved.
   Item serialization also derives the native variant flag for standalone and socketed gems, preserving level-lock

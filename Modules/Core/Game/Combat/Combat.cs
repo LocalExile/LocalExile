@@ -1446,8 +1446,9 @@ public static partial class Game
         }
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(player, skillId, Current);
-        if (gem.Name is not null && vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) == "VaalHaste")
-            return await ActivateVaalHaste(player, skillId, Current);
+        if (gem.Name is not null && vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) is { } auraEffect
+            && TimedVaalAuraBuffRows.TryGetValue(auraEffect, out ushort auraRow))
+            return await ActivateTimedVaalAura(player, skillId, auraEffect, auraRow, Current);
         if (gem.Name is not null && IsBlessing(SupportedSkill(player, skillId)))
             return ScheduleBlessing(player, skillId, recoveryGeneration, Current);
         // A guard skill cast from the skill bar starts its buff in CastSelfBuff. An instant cast passes guardStart, and

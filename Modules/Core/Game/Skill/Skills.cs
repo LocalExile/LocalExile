@@ -780,6 +780,11 @@ public static partial class Game
                 if (convertedLife > 0)
                     Publish(Stat.LifeCost, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCost)) + convertedLife));
             }
+            if (Get(Stat.NoManaCost) != 0)
+            {
+                Publish(Stat.ManaCost, 0);
+                Publish(Stat.ManaCostPerMinute, 0);
+            }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
                 Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,

@@ -13,10 +13,12 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
 public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    public static bool VaalExecutor(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
-            or VaalImmortalCallEffect or "VaalHaste" or "VaalSmite"
-            || IsVaalMinion(SkillsFor(player).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "");
+    public static bool VaalExecutor(Player player, int effect)
+    {
+        string id = SkillsFor(player).EffectId(effect) ?? "";
+        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or VaalImmortalCallEffect or "VaalSmite"
+            || IsVaalMinion(id) || VaalAuras.ContainsKey(id) || TimedVaalAuraBuffRows.ContainsKey(id);
+    }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(player);
 
@@ -55,6 +57,7 @@ public static partial class Game
             life = mana;
             mana = 0;
         }
+        if (Get(Stat.NoManaCost) != 0) mana = 0;
         int preventionMs = SkillsFor(player).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
         bool buffScaled = Get(Stat.ModifiersToBuffEffectDurationAlsoAffectSoulPreventionDuration) != 0;

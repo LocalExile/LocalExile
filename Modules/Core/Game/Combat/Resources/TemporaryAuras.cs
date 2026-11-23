@@ -12,6 +12,11 @@ public static partial class Game
         public bool StatsPending;
     }
     internal static readonly RuleTable<Player, TemporaryAuraState> TemporaryAuraStates = new();
+    static readonly Dictionary<string, ushort> TimedVaalAuraBuffRows = new(StringComparer.Ordinal)
+    {
+        ["VaalClarity"] = 158,
+        ["VaalHaste"] = 161,
+    };
 
     internal static bool IsBlessing(SupportedGem skill) => IsBlessingSkill(skill)
         && GolemStat(skill.Stats, Stat.SupportAuraDurationBaseBuffDuration) > 0;
@@ -129,20 +134,20 @@ public static partial class Game
 
     internal static IDisposable CleanupTemporaryAuras() => new TemporaryAuraCleanup();
 
-    static async Task<bool> ActivateVaalHaste(Player player, ushort id, Func<bool> current)
+    static async Task<bool> ActivateTimedVaalAura(Player player, ushort id, string effect, ushort row, Func<bool> current)
     {
         if (!current()) return false;
         var skill = SupportedSkill(player, id);
         double duration = VaalAuraSeconds(GolemStat(skill.Stats, Stat.BaseSkillEffectDuration),
             CharacterPlayerStats(player), skill.Stats);
         if (duration <= 0) return false;
-        StartTemporaryAuraLocked(player, id, "VaalHaste", 161, duration, blessing: false);
+        StartTemporaryAuraLocked(player, id, effect, row, duration, blessing: false);
         await SendOwnAuraChanges(player);
         await SendCharacterStats(player, PlayerStatChange.Auras);
         return true;
     }
 
-    static bool SharedPlayerAura(string effect) => AuraCatalog.Shared(effect) || effect is "Smite" or "VaalHaste";
+    static bool SharedPlayerAura(string effect) => AuraCatalog.Shared(effect) || effect == "Smite" || TimedVaalAuraBuffRows.ContainsKey(effect);
 
     static int TemporaryAuraValue(AuraCatalog.Aura aura, uint stat, int effect)
     {
@@ -162,7 +167,7 @@ public static partial class Game
 
     static void WithTemporaryAuraStats(Player player, IDictionary<uint, int> stats)
     {
-        static bool Temporary(AuraCatalog.Aura aura) => aura.EffectId is "Smite" or "VaalHaste";
+        static bool Temporary(AuraCatalog.Aura aura) => aura.EffectId == "Smite" || TimedVaalAuraBuffRows.ContainsKey(aura.EffectId);
         if (!player.Auras.Values.Any(Temporary) && !player.ReceivedAuras.Values.Any(Temporary)) return;
         WithTemporaryAuraStats(AffectingAuras(player), player.Pools.AuraEffectPct, stats);
     }
@@ -187,6 +192,7 @@ public static partial class Game
         if (extra != 0)
             stats[Stat.BaseSmiteNumberOfTargets] = (stats.TryGetValue(Stat.BaseSmiteNumberOfTargets, out int curExtra) ? curExtra : 0) + extra;
         Add(Stat.CastSpeedPlusPct, auras.Where(a => a.AffectsSelf && a.EffectId == "VaalHaste"), Stat.CastSpeedPlusPctGrantedFromSkill);
+        if (auras.Any(a => a.AffectsSelf && a.EffectId == "VaalClarity")) stats[Stat.NoManaCost] = 1;
     }
 
     sealed class TemporaryAuraCleanup : IDisposable
