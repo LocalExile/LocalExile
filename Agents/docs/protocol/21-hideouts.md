@@ -533,6 +533,19 @@ stands its portals on a ring whose radius is `MapDevices.dat` `__col2` of the va
 small model, 36 for its large one, up to 46 (16 without a row). Each is outside its model's hull. The generator writes
 the places to `hideout_portal_spawns`. A place on unwalkable ground moves to the nearest walkable cell.
 
+`MapDevices.dat` `__col10` set marks a device variation that opens **one portal at a time**: Atzoatl
+(VaalSerpentGod), Zodiac Dragon, Champion's Podium, Relic of the Precursors, Eternal Incarceration, Disease Vector,
+Archon of Rebirth, the small Expedition device, the first Divine Genesis variation and the Divine hideout's own device.
+Every one of them whose model sets portal places gives all six the same place, while the variations without the flag
+(the large Expedition device, the second Divine Genesis) spread theirs; Atzoatl's script turns the device to its next
+gem when a portal is consumed (`on_decrease_state_open_portals_count`). So the server stands one portal at the first
+place and the next one there after it is taken, `__col11` ms later (an assumption: Atzoatl 3500, Precursors 3300; at
+least `Game_MAP_PORTAL_GAP_MS`). Atzoatl is the one such device that sets no place in any file. Its mesh
+(VaalSnakeMapDevice/rig_5be54da3.smd, scale 2) is the tall disc behind x = -13, a round platform of radius about 16
+centred near (-21, 0) at the foot of its stairs, and a small round one at (-40, 0) under the blood bowl, the button. So
+its portal stands `__col2` (24) cells from the device towards its button, on the large platform (an assumption, like
+the ring).
+
 ### Moving installed furniture and NPCs
 
 The native Edit UI sends C→S **0x5b**, 15 bytes, when a selected object is dropped or rotated.

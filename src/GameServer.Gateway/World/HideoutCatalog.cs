@@ -121,6 +121,14 @@ public static class HideoutCatalog
     public static int? MapDevicePortalRadius(uint hash, int variation) =>
         Devices.TryGetValue((hash, variation), out var d) && d.Radius > 0 ? d.Radius : null;
 
+    /// <summary>For a device variation that opens one portal at a time, the delay in ms before the next portal appears
+    /// after one is taken; null for the others, which open all six at once. MapDevices.dat __col10 of the same row as the
+    /// button marks them (Atzoatl, Champion's Podium, Relic of the Precursors, the small Expedition device …): the models
+    /// that set portal places give all six the same place, and Atzoatl's script turns the device to its next gem when a
+    /// portal is consumed. __col11 is taken as that delay (Atzoatl 3500, the small Expedition device 3500).</summary>
+    public static int? MapDeviceNextPortalMs(uint hash, int variation) =>
+        Devices.TryGetValue((hash, variation), out var d) && d.OneAtATime ? d.NextPortalMs : null;
+
     /// <summary>The places a map device model sets for its portals (its on_game_object_set portal_spawn_locations, else its
     /// doodad type's .ot; grid cells from the device, unrotated) with their facings in degrees where it gives them; empty
     /// when neither sets them.
@@ -142,7 +150,7 @@ public static class HideoutCatalog
         return result;
     }
 
-    sealed record DeviceRow(string? Button, int Dx, int Dy, int Radius);
+    sealed record DeviceRow(string? Button, int Dx, int Dy, int Radius, bool OneAtATime, int NextPortalMs);
 
     static Dictionary<(uint Hash, int Variation), DeviceRow> Devices = default!;
 
@@ -164,7 +172,8 @@ public static class HideoutCatalog
             string? button = r.IntOrNull("MiscObject") is (>= 0 and int m) && m < misc.Count && misc[m] is { Length: > 0 } type
                 && offset.Length >= 2 ? type : null;
             if (!rowsOf.TryGetValue(doodad, out var rows)) rowsOf[doodad] = rows = [];
-            rows.Add(new(button, button is null ? 0 : offset[0], button is null ? 0 : offset[1], r.IntOrNull("__col2") ?? 0));
+            rows.Add(new(button, button is null ? 0 : offset[0], button is null ? 0 : offset[1], r.IntOrNull("__col2") ?? 0,
+                r.BoolOrNull("__col10") == true, Math.Max(0, r.IntOrNull("__col11") ?? 0)));
         }
         var rowOfModel = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var r in ClientTables.TableOrEmpty("hideout_device_variations")) rowOfModel.TryAdd(r.Text("model")!, r.Int("variation"));

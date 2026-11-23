@@ -65,12 +65,16 @@ public static partial class Game
         lock (ButtonsOf(player)) ButtonsOf(player)[id] = (device, d with { X = x, Y = y });
     }
 
-    /// <summary>Where hideout map device <paramref name="d"/>'s portal <paramref name="index"/> stands: the place its model
-    /// sets (turned with the device, facing the model's given degrees on top of the device's turn), else on the ring of its
-    /// variation's radius (HideoutCatalog.MapDevicePortalRadius; 16 without a MapDevices.dat row). Rotation null: the
-    /// portals' usual facing.</summary>
+    /// <summary>Where hideout map device <paramref name="d"/>'s portal <paramref name="index"/> stands, turned with the
+    /// device: the place its model sets (facing the model's given degrees on top of the device's turn), else on the ring of
+    /// its variation's radius (HideoutCatalog.MapDevicePortalRadius; 16 without a MapDevices.dat row). A device that opens
+    /// one portal at a time and sets no place stands it at that radius towards its button: Atzoatl's model has a round
+    /// platform at the foot of its stairs there (21-hideouts.md). Rotation null: the portals' usual facing.</summary>
     public static (int X, int Y, float? Rotation) HideoutPortalPlace(HideoutCatalog.Doodad d, int index)
     {
+        // A device that opens one portal at a time stands each at the same place.
+        bool single = HideoutNextPortalMs(d) is not null;
+        if (single) index = 0;
         var spawns = HideoutCatalog.PortalSpawns(d.Model);
         if (index >= 0 && index < spawns.Count)
         {
@@ -78,9 +82,20 @@ public static partial class Game
             var (x, y) = DeviceCell(d, dx, dy);
             return (x, y, degrees is double g ? d.Rotation + (float)(g * Math.PI / 180) : null);
         }
-        var ring = MapDevice.PortalCell(d.X, d.Y, index, radius: HideoutCatalog.MapDevicePortalRadius(d.Hash, d.Variation) ?? 16);
-        return (ring.X, ring.Y, null);
+        int radius = HideoutCatalog.MapDevicePortalRadius(d.Hash, d.Variation) ?? 16;
+        var (rx, ry) = MapDevice.PortalCell(0, 0, index, radius: radius);
+        if (single && HideoutCatalog.MapDeviceButton(d.Hash, d.Variation) is var (_, bx, by) && (bx, by) != (0, 0))
+        {
+            double length = Math.Sqrt(bx * bx + by * by);
+            (rx, ry) = ((int)Math.Round(bx * radius / length), (int)Math.Round(by * radius / length));
+        }
+        var cell = DeviceCell(d, rx, ry);
+        return (cell.X, cell.Y, null);
     }
+
+    /// <summary>For a device that opens one portal at a time (HideoutCatalog.MapDeviceNextPortalMs), the delay in ms
+    /// before the next stands after one is taken; null for a device that opens all of them at once.</summary>
+    public static int? HideoutNextPortalMs(HideoutCatalog.Doodad d) => HideoutCatalog.MapDeviceNextPortalMs(d.Hash, d.Variation);
 
     static (int X, int Y) DeviceCell(HideoutCatalog.Doodad d, int dx, int dy)
     {
