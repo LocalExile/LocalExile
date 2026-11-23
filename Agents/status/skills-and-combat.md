@@ -197,6 +197,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.
   Puncture always bleeds, for its skill duration and with its more bleeding damage.
   Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
+- Doomfletch's weapon physical gain reaches attacks as separate fire, cold and lightning damage.
+- Equipment modifiers scale from final attributes, Oskarm uses final Accuracy for attack critical chance, and
+  Mask of the Stitched Demon uses full maximum Energy Shield for Life regeneration.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
