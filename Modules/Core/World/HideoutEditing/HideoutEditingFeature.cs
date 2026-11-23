@@ -6,6 +6,7 @@ using static Program;
 static class HideoutEditingFeature
 {
     const string DecorationKeyPrefix = "deco:";
+    const int MaxUncapturedCoordinate = 2048;
     static readonly ConditionalWeakTable<GameArea, Dictionary<uint, HideoutCatalog.Doodad>> AreaDecorations = new();
 
     static Dictionary<uint, HideoutCatalog.Doodad> DecorationsOf(Player player) =>
@@ -13,6 +14,21 @@ static class HideoutEditingFeature
 
     static IEnumerable<Player> AreaPlayers(Player player) =>
         player.Frames.Players().Where(p => !p.Closed && !p.LeavingArea).Append(player).Distinct();
+
+    static async Task BroadcastRebuildCollision(Player player, string reason)
+    {
+        byte[] packet = InstanceHideoutEditing.RebuildCollision();
+        foreach (var member in AreaPlayers(player))
+            await Send(member, packet, reason);
+    }
+
+    static bool PlacementInBounds(AreaLayout layout, int x, int y)
+    {
+        if (HideoutEditing.Cells(layout) is { } cells) return cells(x, y);
+        int maxW = layout.GridW > 0 ? layout.GridW : MaxUncapturedCoordinate;
+        int maxH = layout.GridH > 0 ? layout.GridH : MaxUncapturedCoordinate;
+        return x >= 0 && y >= 0 && x < maxW && y < maxH;
+    }
 
     static bool CanEditHere(Player player) =>
         player.Connection.PlayerSent && player.PendingTransfer is null && OwnHideout(player)
@@ -64,13 +80,13 @@ static class HideoutEditingFeature
             await SpawnDecorationObject(player, saved, "saved hideout decoration");
     }
 
-    /// <summary>C→S 0x59 / 0x5a: places a hideout decoration at the requested grid cell, saves it and updates collision.</summary>
+    /// <summary>C→S 0x59: places a hideout decoration at the requested grid cell, saves it and updates collision.</summary>
     internal static async Task PlaceDecoration(Player player, InstanceHideoutEditing.Place place)
     {
-        if (!CanEditHere(player) || !float.IsFinite(place.Rotation)) return;
-        if (HideoutEditing.Cells(player.Layout)?.Invoke(place.X, place.Y) == false)
+        if (!CanEditHere(player) || player.Character.Account is null || !float.IsFinite(place.Rotation)) return;
+        if (!PlacementInBounds(player.Layout, place.X, place.Y))
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8} at ({place.X},{place.Y}): unwalkable cell");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8} at ({place.X},{place.Y}): out of bounds or unwalkable cell");
             return;
         }
         if (HideoutCatalog.DoodadByHash(place.Hash) is not var (type, _) || string.IsNullOrEmpty(type)
@@ -81,10 +97,16 @@ static class HideoutEditingFeature
         }
         string key = DecorationKeyPrefix + Guid.NewGuid().ToString("N")[..12];
         var saved = new global::Game.SavedHideoutDecoration(key, place.Hash, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored);
-        global::Game.AddAccountHideoutDecoration(player, player.Layout.Id, saved);
+        if (!global::Game.AddAccountHideoutDecoration(player, player.Layout.Id, saved))
+        {
+            int limit = global::Game.MaxHideoutDecorations;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8}: hideout decoration limit ({limit}) reached");
+            if (player.Commands is { } cmd)
+                await cmd.Reply($"Hideout decoration limit ({limit}) reached.");
+            return;
+        }
         if (await SpawnDecorationObject(player, saved, "hideout decoration") is not uint id) return;
-        await Send(player, InstanceHideoutEditing.RebuildCollision(),
-            $"rebuild hideout collision after placing {key} (0x{id:x})");
+        await BroadcastRebuildCollision(player, $"rebuild hideout collision after placing {key} (0x{id:x})");
         await PushOutOfCollision(player);
     }
 
@@ -97,6 +119,14 @@ static class HideoutEditingFeature
             Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout reclaim 0x{objectId:x}: not a removable custom decoration");
             return;
         }
+        if (global::Game.DisplayCaseHasStoredItem(player, player.Layout.Id, entry.Key))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout reclaim 0x{objectId:x}: display case holds a stored item");
+            if (player.Commands is { } cmd)
+                await cmd.Reply("Cannot reclaim this Item Display Case while it holds a stored item. Remove the displayed item first.");
+            return;
+        }
+        if (!global::Game.RemoveAccountHideoutDecoration(player, player.Layout.Id, entry.Key)) return;
         var areaDecorations = DecorationsOf(player);
         lock (areaDecorations) areaDecorations.Remove(objectId);
         foreach (var member in AreaPlayers(player))
@@ -105,18 +135,24 @@ static class HideoutEditingFeature
             member.RemoveBlocker(objectId);
             lock (member.HideoutDoodads) member.HideoutDoodads.Remove(objectId);
         }
-        global::Game.RemoveAccountHideoutDecoration(player, player.Layout.Id, entry.Key);
         await global::Game.SendWorldRemoval(player, objectId,
             $"0x02bd reclaim hideout decoration {entry.Key} (0x{objectId:x})");
-        await Send(player, InstanceHideoutEditing.RebuildCollision(),
-            "rebuild hideout collision after decoration reclaim");
+        await BroadcastRebuildCollision(player, "rebuild hideout collision after decoration reclaim");
     }
 
     /// <summary>C→S 0x5e: mode 0 reclaims all custom decorations; mode 1 resets placements and decorations to defaults.</summary>
     internal static async Task ResetHideout(Player player, byte mode)
     {
         if (!CanEditHere(player)) return;
+        if (global::Game.HideoutHasStoredDisplayCaseItems(player, player.Layout.Id))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout reset mode {mode}: an Item Display Case holds a stored item");
+            if (player.Commands is { } cmd)
+                await cmd.Reply("Cannot reset hideout while an Item Display Case holds a stored item. Remove all displayed items first.");
+            return;
+        }
         bool resetPlacements = mode != 0;
+        if (!global::Game.ClearAccountHideoutDecorations(player, player.Layout.Id, resetPlacements)) return;
         var custom = player.HideoutEditor.All()
             .Where(o => o.Entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
             .ToList();
@@ -133,13 +169,12 @@ static class HideoutEditingFeature
             await global::Game.SendWorldRemoval(player, id,
                 $"0x02bd reclaim hideout decoration {entry.Key} (0x{id:x})");
         }
-        global::Game.ClearAccountHideoutDecorations(player, player.Layout.Id, resetPlacements);
         player.Furniture = null;
-        await Send(player, InstanceHideoutEditing.RebuildCollision(),
-            $"rebuild hideout collision after 0x5e mode {mode}");
-        await player.Commands!.Reply(resetPlacements
-            ? $"Hideout reset to default layout ({custom.Count} decoration(s) reclaimed; re-enter hideout to restore default station positions)."
-            : $"Reclaimed {custom.Count} hideout decoration(s).");
+        await BroadcastRebuildCollision(player, $"rebuild hideout collision after 0x5e mode {mode}");
+        if (player.Commands is { } commands)
+            await commands.Reply(resetPlacements
+                ? $"Hideout reset to default layout ({custom.Count} decoration(s) reclaimed; re-enter hideout to restore default station positions)."
+                : $"Reclaimed {custom.Count} hideout decoration(s).");
     }
 
     /// <summary>C→S 0x255: validates and persists the hideout music box selection (u16 Music.dat row; 0xffff = default).</summary>
@@ -175,10 +210,10 @@ static class HideoutEditingFeature
         return true;
     }
 
-    /// <summary>C→S 0x67: places or swaps the cursor item into an Item Display Case, persisting across hideout visits.</summary>
+    /// <summary>C→S 0x67: places or swaps the cursor item into an Item Display Case, persisting per league across hideout visits.</summary>
     internal static async Task PlaceDisplayCaseItem(Player player, InstanceHideoutEditing.DisplayCasePlace place)
     {
-        if (!CanEditHere(player)) return;
+        if (!CanEditHere(player) || player.Character.Account is null) return;
         HideoutCatalog.Doodad? doodad;
         lock (player.HideoutDoodads) doodad = player.HideoutDoodads.GetValueOrDefault(place.ObjectId);
         if (doodad?.Type != HideoutCatalog.ItemDisplayCaseType || !player.HideoutEditor.TryGet(place.ObjectId, out var entry))
@@ -192,24 +227,29 @@ static class HideoutEditingFeature
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0067 display case 0x{place.ObjectId:x}: expected cursor inventory, got {place.InventoryId}");
             return;
         }
+        var catalog = ItemsFor(player);
         InventoryItem? removed = null, restored = null;
         bool ok = Saves.Atomically(() =>
         {
+            var held = items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == place.ItemId);
+            if (held is null) return false;
+            if (held.Item.Components.Contains("Quest") || catalog.Stash.IsQuestItem(held.Item.TypeHash)) return false;
             var existing = global::Game.AccountDisplayCaseItem(player, player.Layout.Id, entry.Key);
             removed = items.Remove(PlayerInventories.Cursor, place.ItemId);
             if (removed is null) return false;
-            global::Game.SetAccountDisplayCaseItem(player, player.Layout.Id, entry.Key,
-                CharacterSaves.ToSaved(removed.Item, ItemsFor(player).Mods));
+            if (!global::Game.SetAccountDisplayCaseItem(player, player.Layout.Id, entry.Key,
+                    CharacterSaves.ToSaved(removed.Item, catalog.Mods)))
+                throw new InvalidOperationException("Failed to persist Item Display Case item");
             if (existing is not null)
             {
-                var prior = CharacterSaves.FromSaved(existing, ItemsFor(player));
+                var prior = CharacterSaves.FromSaved(existing, catalog);
                 restored = items.Put(PlayerInventories.Cursor, new InventoryItem(items.NewItemId(), 0, 0, prior));
             }
             return true;
         });
         if (!ok || removed is null)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0067 display case 0x{place.ObjectId:x}: item {place.ItemId} not on cursor");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0067 display case 0x{place.ObjectId:x}: item {place.ItemId} refused or not on cursor");
             return;
         }
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
@@ -220,7 +260,7 @@ static class HideoutEditingFeature
     /// <summary>C→S 0x68: toggles an Item Display Case; when turning off with a stored item, returns it to cursor or inventory.</summary>
     internal static async Task ToggleDisplayCase(Player player, InstanceHideoutEditing.DisplayCaseToggle toggle)
     {
-        if (!CanEditHere(player)) return;
+        if (!CanEditHere(player) || player.Character.Account is null) return;
         HideoutCatalog.Doodad? doodad;
         lock (player.HideoutDoodads) doodad = player.HideoutDoodads.GetValueOrDefault(toggle.ObjectId);
         if (doodad?.Type != HideoutCatalog.ItemDisplayCaseType || !player.HideoutEditor.TryGet(toggle.ObjectId, out var entry))
@@ -252,7 +292,8 @@ static class HideoutEditingFeature
                 returned = items.Put(PlayerInventories.MainInventory, new InventoryItem(items.NewItemId(), cell.X, cell.Y, item));
             }
             else return false;
-            global::Game.SetAccountDisplayCaseItem(player, player.Layout.Id, entry.Key, null);
+            if (!global::Game.SetAccountDisplayCaseItem(player, player.Layout.Id, entry.Key, null))
+                throw new InvalidOperationException("Failed to clear Item Display Case item");
             return true;
         });
         if (!ok || returned is null)
@@ -328,7 +369,7 @@ static class HideoutEditingFeature
             Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout move 0x{move.ObjectId:x}: {player.Layout.Id} is not the character's selected hideout");
             return;
         }
-        if (!player.HideoutEditor.TryMove(move, HideoutEditing.Cells(player.Layout),
+        if (!player.HideoutEditor.TryMove(move, (x, y) => PlacementInBounds(player.Layout, x, y),
             (key, p) =>
             {
                 if (key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
@@ -363,8 +404,7 @@ static class HideoutEditingFeature
             $"hideout move {entry.Key} 0x{move.ObjectId:x} to ({p.X},{p.Y}), saved");
         await Send(player, InstanceHideoutEditing.Rotation(move.ObjectId, p.Rotation),
             $"hideout rotation {p.Rotation:0.###}");
-        await Send(player, InstanceHideoutEditing.RebuildCollision(),
-            "rebuild hideout model collision from current placements");
+        await BroadcastRebuildCollision(player, "rebuild hideout model collision from current placements");
         await PushOutOfCollision(player);
     }
 }

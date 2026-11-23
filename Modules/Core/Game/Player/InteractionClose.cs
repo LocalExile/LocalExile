@@ -20,16 +20,21 @@ public static partial class Game
         }
     }
 
-    /// <summary>Closes any open NPC dialogue/shop/sale, stash or crafting bench state once the player
+    /// <summary>Fast check for whether any NPC, stash, crafting bench, or module window interaction is open.</summary>
+    public static bool HasOpenInteraction(Player player) =>
+        player.TalkingTo != 0 || player.Sale is not null || player.Shop is not null
+        || player.StashOpen || player.GuildStashOpen || player.BenchOpen
+        || player.ModuleWindow is not null;
+
+    /// <summary>Closes any open NPC dialogue/shop/sale, stash, crafting bench, or module window state once the player
     /// moves beyond interaction reach. NPC sales close with S→C 0x00b9 + 0x0084 object 0 and return offered
-    /// items; NPC dialogue and shops close with S→C 0x0084 object 0. Personal/guild stash and crafting bench
-    /// have no close-only S→C 0x7b packet (0x140dcae70 toggles kind 1; 0x140dcb010 and 0x140dd8e80 only open),
+    /// items; NPC dialogue and shops close with S→C 0x0084 object 0. Personal/guild stash, crafting bench and
+    /// module windows have no close-only S→C 0x7b packet (0x140dcae70 toggles kind 1; 0x140dcb010 and 0x140dd8e80 only open),
     /// so their server state and bench balance inventory are cleared cleanly while the client closes locally.</summary>
     public static async Task CloseInteractionsIfMovingAway(Player player, (int X, int Y)? movingTo, double at)
     {
         if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
-        if (player.TalkingTo == 0 && player.Sale is null && player.Shop is null
-            && !player.StashOpen && !player.GuildStashOpen && !player.BenchOpen) return;
+        if (!HasOpenInteraction(player)) return;
         if (Interlocked.CompareExchange(ref player.InteractionClosing, 1, 0) != 0) return;
         try
         {
@@ -80,6 +85,20 @@ public static partial class Game
                 player.BenchOpen = false;
                 await RefreshBenchBalance(player, clear: true);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} crafting bench closed (moved out of range)");
+            }
+            if (player.ModuleWindow is { } openModule)
+            {
+                var anchor = player.ModuleWindowAnchor is { } existing && existing.Owner == openModule
+                    ? (existing.X, existing.Y)
+                    : (player.ModuleWindowAnchor = (openModule, here.X, here.Y)) is { } created
+                        ? (created.X, created.Y)
+                        : here;
+                if (BeyondCloseRange(here, movingTo, anchor, 0))
+                {
+                    player.ModuleWindow = null;
+                    player.ModuleWindowAnchor = null;
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} module window '{openModule}' closed (moved out of range)");
+                }
             }
         }
         finally

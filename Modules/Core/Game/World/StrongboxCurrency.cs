@@ -21,6 +21,8 @@ public static partial class MapStrongboxes
             ? Task.FromResult(false)
             : UseItemOnCore(player, InstanceItems.ReadUseItemOnObject(message), "0x0074");
 
+    static readonly byte[] CurrencyRows = [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory];
+
     /// <summary>GameEvents.Packet(0x79): Shift-click / repeat currency use by type hash on a strongbox.</summary>
     public static Task<bool> UseItemTypeOn(Player player, byte[] message)
     {
@@ -30,12 +32,8 @@ public static partial class MapStrongboxes
             || area.Boxes?.FirstOrDefault(b => b.Id == req.TargetObjectId) is null)
             return Task.FromResult(false);
         var items = ItemsOf(player);
-        byte[] rows = [PlayerInventories.MainInventory,
-            .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length)
-                .Select(r => (byte)r)
-                .Where(r => r != PlayerInventories.MainInventory && r != PlayerInventories.Cursor)];
-        foreach (byte row in rows)
-            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stack)
+        foreach (byte row in CurrencyRows)
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash && items.RowOf(i.Id) == row) is { } stack)
                 return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
         Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory");
         return Task.FromResult(true);

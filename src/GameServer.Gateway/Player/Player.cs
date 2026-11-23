@@ -841,6 +841,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public HideoutScene? CurrentHideoutScene;
     /// <summary>The module whose native window is open (IPlayerWorld.OpenWindow).</summary>
     public string? ModuleWindow;
+    /// <summary>Where the player stood when <see cref="ModuleWindow"/> opened, for walk-away closing.</summary>
+    public (string Owner, int X, int Y)? ModuleWindowAnchor;
     public bool BossRecoveryHandled;
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }

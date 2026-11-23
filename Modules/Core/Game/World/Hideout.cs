@@ -36,6 +36,9 @@ public static partial class Game
         if (!PlayerActionCurrent(player, action)) return;
         player.StashOpen = false;
         player.BenchOpen = false;
+        player.ModuleWindow = null;
+        player.ModuleWindowAnchor = null;
+        await RefreshBenchBalance(player, clear: true);
         player.GuildStashOpen = true;
         var guild = GuildStashOf(player);
         var tabs = guild.Records(null, player.Connection.GuildStashTabsSent, ItemsFor(player));

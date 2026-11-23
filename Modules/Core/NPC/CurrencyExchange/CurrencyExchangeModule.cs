@@ -117,10 +117,10 @@ public sealed class CurrencyExchangeModule : IModule
         ["Metadata/Items/Currency/CurrencyRemoveMod"] = 10.0,                 // Orb of Annulment
         ["Metadata/Items/Currency/CurrencyRerollImplicit"] = 0.2,             // Blessed Orb
         ["Metadata/Items/Currency/CurrencyGemQuality"] = 1.0,                 // Gemcutter's Prism
-        ["Metadata/Items/Currency/CurrencyFlaskQuality"] = 0.5,               // Glassblower's Bauble
+        ["Metadata/Items/Currency/CurrencyFlaskQuality"] = 0.35,              // Glassblower's Bauble
         ["Metadata/Items/Currency/CurrencyMapQuality"] = 0.4,                 // Cartographer's Chisel
         ["Metadata/Items/Currency/CurrencyArmourQuality"] = 0.02,             // Armourer's Scrap
-        ["Metadata/Items/Currency/CurrencyWeaponQuality"] = 0.02,             // Blacksmith's Whetstone
+        ["Metadata/Items/Currency/CurrencyWeaponQuality"] = 0.05,             // Blacksmith's Whetstone
         ["Metadata/Items/Currency/CurrencyIdentification"] = 0.005,           // Scroll of Wisdom
         ["Metadata/Items/Currency/CurrencyPortal"] = 0.01,                    // Portal Scroll
         ["Metadata/Items/Currency/CurrencyRerollMapType"] = 0.2,              // Orb of Horizons
@@ -157,7 +157,8 @@ public sealed class CurrencyExchangeModule : IModule
                 }
                 _baselinePrices = prices;
             }
-            return new ExchangeRates(Now, BaselineLeague, new Dictionary<string, Dictionary<string, ExchangePrice>>(StringComparer.Ordinal)
+            long hour = ExchangeRates.QuantizeHour(Now);
+            return new ExchangeRates(hour, BaselineLeague, new Dictionary<string, Dictionary<string, ExchangePrice>>(StringComparer.Ordinal)
             {
                 [ExchangeRates.Standard] = _baselinePrices,
                 [BaselineLeague] = _baselinePrices,
@@ -170,7 +171,12 @@ public sealed class CurrencyExchangeModule : IModule
         lock (_ratesLock)
         {
             var file = new FileInfo(RatesFile);
-            if (!file.Exists) return _rates ?? BaselineRates(items);
+            if (!file.Exists)
+            {
+                _rates = null;
+                _ratesWritten = default;
+                return BaselineRates(items);
+            }
             if (file.LastWriteTimeUtc == _ratesWritten && _rates is not null) return _rates;
             try
             {
@@ -387,48 +393,57 @@ public sealed class CurrencyExchangeModule : IModule
     async Task Claim(IPlayer player, Wire.Claim claim)
     {
         // As the window says, nothing is claimed until the order is completed or closed.
-        if (BookOf(player).Orders.Find(o => o.Id == claim.Order) is not { } order || order.State == Wire.OrderState.Listed) return;
         bool bought = claim.Side == 1;
-        uint item = bought ? order.Want : order.Have, amount = bought ? order.ClaimWant : order.ClaimHave;
-        if (amount == 0) return;
-
         var owner = PlayerOf(player);
-        var catalogType = ItemsFor(owner).ByHash(item);
-        int maxStack = Math.Max(1, (int)(catalogType?.MaxStack ?? 1));
+        var inv = global::Game.ItemsOf(owner);
 
         if (claim.ToCursor)
         {
-            if (catalogType is null) return;
-            var inv = global::Game.ItemsOf(owner);
             InventoryItem? removedCursor = null, addedCursor = null;
             ExchangeOrder? cursorOrder = null;
             bool committed = Saves.Atomically(() =>
             {
+                if (BookOf(player).Orders.Find(o => o.Id == claim.Order) is not { } current
+                    || current.State == Wire.OrderState.Listed) return false;
+                uint item = bought ? current.Want : current.Have;
+                uint available = bought ? current.ClaimWant : current.ClaimHave;
+                if (available == 0 || ItemsFor(owner).ByHash(item) is not { } catalogType) return false;
+                int maxStack = Math.Max(1, (int)catalogType.MaxStack);
                 var held = inv.Items(PlayerInventories.Cursor).FirstOrDefault();
                 if (held is not null && (held.Item.TypeHash != item || held.Item.StackSize >= maxStack)) return false;
                 int room = held is null ? maxStack : maxStack - held.Item.StackSize;
-                int take = (int)Math.Min(amount, (uint)room);
-                if (take <= 0) return false;
-                if (!Save(player, book =>
+                if (room <= 0) return false;
+
+                uint taken = 0;
+                bool savedOk = WorldOf(player).AccountData.Change(SaveKey, json =>
                 {
-                    if (book.Orders.Find(o => o.Id == claim.Order) is not { } saved) return;
-                    if (bought) saved.ClaimWant -= (uint)take;
-                    else saved.ClaimHave -= (uint)take;
-                    cursorOrder = saved;
-                    Forget(book, saved);
-                }) || cursorOrder is null) return false;
+                    var book = ExchangeBook.Parse(json);
+                    if (book.TryClaim(claim.Order, bought, (uint)room, out taken) is not { } updated) return null;
+                    cursorOrder = updated;
+                    return book.Serialize();
+                });
+                if (!savedOk || taken == 0 || cursorOrder is null) return false;
+
+                var prototype = ItemCatalog.Create(catalogType);
+                var shape = global::Game.ShapeOf(prototype);
                 if (held is null)
                 {
-                    var created = ItemCatalog.Create(catalogType) with { StackSize = (ushort)take };
+                    var created = prototype with { StackSize = (ushort)taken };
+                    if (shape is { } s) created = PlayerInventories.Completed(new InventoryItem(0, 0, 0, created), s).Item;
                     addedCursor = inv.Add(PlayerInventories.Cursor, 0, 0, created);
                 }
                 else
                 {
                     removedCursor = held;
-                    addedCursor = inv.Change(PlayerInventories.Cursor, held.Id,
-                        cur => cur with { StackSize = (ushort)(cur.StackSize + take) });
+                    addedCursor = inv.Change(PlayerInventories.Cursor, held.Id, cur =>
+                    {
+                        var grown = cur with { StackSize = (ushort)(cur.StackSize + taken) };
+                        return shape is { } s ? PlayerInventories.Completed(held with { Item = grown }, s).Item : grown;
+                    });
                 }
-                return addedCursor is not null;
+                if (addedCursor is null)
+                    throw new InvalidOperationException("Currency Exchange cursor item update failed after debiting claim");
+                return true;
             });
             if (!committed || addedCursor is null) return;
             await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
@@ -439,17 +454,35 @@ public sealed class CurrencyExchangeModule : IModule
         }
 
         // Ctrl+left-click (PressKind == 1) takes one stack to inventory; Ctrl+right-click (PressKind == 0) takes all stacks.
-        uint wanted = claim.PressKind == 0 ? amount : Math.Min(amount, (uint)maxStack);
         ExchangeOrder? changed = null;
-        int placed = await WorldOf(player).ReceiveCurrency(item, (int)wanted, into => Save(player, book =>
+        ItemCatalog.BaseType? receivedType = null;
+        uint wanted = 0;
+        var (placed, stacks) = Saves.Atomically(() =>
         {
-            if (book.Orders.Find(o => o.Id == claim.Order) is not { } saved) return;
-            if (bought) saved.ClaimWant -= (uint)into;
-            else saved.ClaimHave -= (uint)into;
-            changed = saved;
-            Forget(book, saved);
-        }), "Currency Exchange claim");
-        if (placed < wanted) await player.Tell("Currency Exchange: not enough room in the inventory.");
+            if (BookOf(player).Orders.Find(o => o.Id == claim.Order) is not { } current
+                || current.State == Wire.OrderState.Listed) return (0, (IReadOnlyList<PlayerInventories.Stacking>)[]);
+            uint item = bought ? current.Want : current.Have;
+            uint available = bought ? current.ClaimWant : current.ClaimHave;
+            if (available == 0 || ItemsFor(owner).ByHash(item) is not { } catalogType)
+                return (0, (IReadOnlyList<PlayerInventories.Stacking>)[]);
+            receivedType = catalogType;
+            int maxStack = Math.Max(1, (int)catalogType.MaxStack);
+            wanted = claim.PressKind == 0 ? available : Math.Min(available, (uint)maxStack);
+            return ItemMoves.ReceiveCurrency(inv, ItemCatalog.Create(catalogType), (int)wanted, global::Game.ShapeOf, into =>
+                WorldOf(player).AccountData.Change(SaveKey, json =>
+                {
+                    var book = ExchangeBook.Parse(json);
+                    if (book.TryClaim(claim.Order, bought, (uint)into, out uint debited) is not { } updated
+                        || debited != (uint)into) return null;
+                    changed = updated;
+                    return book.Serialize();
+                }));
+        });
+        foreach (var stack in stacks)
+            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                inv.NextRevision(PlayerInventories.MainInventory), stack.RemovedIds, stack.AddedItems),
+                $"Currency Exchange claim: {placed} {receivedType?.Name}");
+        if (wanted > 0 && placed < wanted) await player.Tell("Currency Exchange: not enough room in the inventory.");
         if (changed is not null) await SendOrder(player, changed, "claimed");
     }
 

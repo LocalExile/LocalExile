@@ -77,10 +77,8 @@ public sealed class HarvestModule : IModule
     /// <summary>C→S 0xf9: Ctrl + click an item between inventory/stash and HarvestCraftingItem (row 43).</summary>
     async Task<bool> MoveItem(Player player, InstanceHarvest.MoveItem request)
     {
+        if (WorldOf(player).OpenWindowOwner != Window) return false;
         var items = ItemsOf(player);
-        bool stationOpen = WorldOf(player).OpenWindowOwner == Window;
-        bool inSlot = items.Items(Slot).Any(i => i.Id == request.ItemId);
-        if (!stationOpen && !inSlot) return false;
         if (request.IntoStation)
         {
             if (ItemMoves.MoveToSlot(items, Slot, request.ItemId, intoSlot: true, ShapeOf) is { } moved)
@@ -91,14 +89,17 @@ public sealed class HarvestModule : IModule
                     items.NextRevision(moved.To), [], [moved.Placed]), $"0x00f9 Ctrl + click: item {request.ItemId} into Horticrafting slot");
                 return true;
             }
-            var stash = PersonalStashOf(player);
-            if (request.Tab < stash.Count && ItemMoves.StashToSlot(stash, items, request.Tab, Slot, request.ItemId) is { } fromStash)
+            if (player.StashOpen)
             {
-                await SendTabChange(player, stash, request.Tab, [fromStash.Id], [],
-                    $"0x00f9 stash tab {request.Tab}: remove item {fromStash.Id} into Horticrafting slot");
-                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(Slot),
-                    items.NextRevision(Slot), [], [fromStash]), $"0x00f9 Ctrl + click: item {fromStash.Id} into Horticrafting slot");
-                return true;
+                var stash = PersonalStashOf(player);
+                if (request.Tab < stash.Count && ItemMoves.StashToSlot(stash, items, request.Tab, Slot, request.ItemId, ShapeOf) is { } fromStash)
+                {
+                    await SendTabChange(player, stash, request.Tab, [fromStash.Id], [],
+                        $"0x00f9 stash tab {request.Tab}: remove item {fromStash.Id} into Horticrafting slot");
+                    await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(Slot),
+                        items.NextRevision(Slot), [], [fromStash]), $"0x00f9 Ctrl + click: item {fromStash.Id} into Horticrafting slot");
+                    return true;
+                }
             }
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f9 item {request.ItemId} into Horticrafting slot refused (missing or slot taken)");
             return true;

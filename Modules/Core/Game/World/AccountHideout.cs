@@ -6,14 +6,17 @@ public static partial class Game
 {
     // Account-wide module data lives under the account's unqualified stash key, independently of league stash contents.
     const string AccountHideoutKey = "game.account-hideout.v1";
+    // Display-case items are strictly league-scoped in PersonalStashOf(player) so characters in different leagues
+    // (Standard / Hardcore / SSF / Ruthless / Challenge) can never transfer items through a shared hideout.
+    const string LeagueDisplayCasesKey = "game.hideout-display-cases.v1";
+    public const int MaxHideoutDecorations = 750;
     public sealed record SavedHideoutDecoration(string Key, uint Hash, int X, int Y, float Rotation,
         byte Variation = 0, bool Mirrored = false);
     public sealed record AccountHideoutProfile(string Area, string Founder,
         Dictionary<string, Dictionary<string, HideoutPlacement>> Placements,
         Dictionary<string, List<CharacterSaves.SavedMonsterStatue>> Statues,
         Dictionary<string, List<SavedHideoutDecoration>>? Decorations = null,
-        Dictionary<string, ushort>? Music = null,
-        Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>? DisplayCases = null);
+        Dictionary<string, ushort>? Music = null);
     public sealed class HideoutMigrationSettings
     {
         public string? LegacySourceCharacter { get; set; }
@@ -150,17 +153,21 @@ public static partial class Game
     public static IReadOnlyList<SavedHideoutDecoration> AccountHideoutDecorations(Player player) =>
         SharedHideout(player, instanceOwner: true)?.Decorations?.GetValueOrDefault(player.Layout.Id) ?? [];
 
-    public static void AddAccountHideoutDecoration(Player player, string area, SavedHideoutDecoration decoration)
+    public static bool AddAccountHideoutDecoration(Player player, string area, SavedHideoutDecoration decoration)
     {
-        if (player.Character.Account is null) return;
+        if (player.Character.Account is null) return false;
+        bool added = false;
         ChangeSharedHideout(player, p =>
         {
             var areas = p.Decorations is null ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
             var list = areas.TryGetValue(area, out var old) ? new List<SavedHideoutDecoration>(old) : [];
+            if (list.Count >= MaxHideoutDecorations) return p;
             list.Add(decoration);
             areas[area] = list;
+            added = true;
             return p with { Decorations = areas };
         });
+        return added;
     }
 
     public static void UpdateAccountHideoutDecoration(Player player, string area, string key, HideoutPlacement position,
@@ -182,7 +189,7 @@ public static partial class Game
 
     public static bool RemoveAccountHideoutDecoration(Player player, string area, string key)
     {
-        if (player.Character.Account is null) return false;
+        if (player.Character.Account is null || DisplayCaseHasStoredItem(player, area, key)) return false;
         bool removed = false;
         ChangeSharedHideout(player, p =>
         {
@@ -191,36 +198,27 @@ public static partial class Game
             if (list.Count == old.Count) return p;
             removed = true;
             var areas = new Dictionary<string, List<SavedHideoutDecoration>>(p.Decorations) { [area] = list };
-            Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>? cases = p.DisplayCases;
-            if (cases is not null && cases.TryGetValue(area, out var areaCases) && areaCases.ContainsKey(key))
-            {
-                cases = new Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>(cases);
-                var nextCases = new Dictionary<string, CharacterSaves.SavedItem>(areaCases);
-                nextCases.Remove(key);
-                cases[area] = nextCases;
-            }
-            return p with { Decorations = areas, DisplayCases = cases };
+            return p with { Decorations = areas };
         });
         return removed;
     }
 
-    public static void ClearAccountHideoutDecorations(Player player, string area, bool resetPlacements)
+    public static bool ClearAccountHideoutDecorations(Player player, string area, bool resetPlacements)
     {
-        if (player.Character.Account is null) return;
+        if (player.Character.Account is null || HideoutHasStoredDisplayCaseItems(player, area)) return false;
         ChangeSharedHideout(player, p =>
         {
             var decorations = p.Decorations is null ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
             decorations.Remove(area);
-            var cases = p.DisplayCases is null ? null : new Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>(p.DisplayCases);
-            cases?.Remove(area);
             var placements = p.Placements;
             if (resetPlacements)
             {
                 placements = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
                 placements.Remove(area);
             }
-            return p with { Placements = placements, Decorations = decorations, DisplayCases = cases };
+            return p with { Placements = placements, Decorations = decorations };
         });
+        return true;
     }
 
     public static ushort? AccountHideoutMusic(Player player, string? area = null)
@@ -242,19 +240,61 @@ public static partial class Game
         });
     }
 
-    public static CharacterSaves.SavedItem? AccountDisplayCaseItem(Player player, string area, string key) =>
-        SharedHideout(player, instanceOwner: true)?.DisplayCases?.GetValueOrDefault(area)?.GetValueOrDefault(key);
+    static Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>? ReadDisplayCaseMap(AccountStash stash) =>
+        stash.ModuleData(LeagueDisplayCasesKey) is { } text
+            ? JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>>(text)
+            : null;
 
-    public static void SetAccountDisplayCaseItem(Player player, string area, string key, CharacterSaves.SavedItem? item)
+    static IEnumerable<AccountStash> AccountLeagueStashes(Player player)
     {
-        if (player.Character.Account is null) return;
-        ChangeSharedHideout(player, p =>
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = PersonalStashOf(player);
+        string currentKey = AccountStash.Key(player.Character.Account ?? CharacterName(player), player.Character.League);
+        seen.Add(currentKey);
+        yield return current;
+        if (player.Character.Account is not { } account || !Saves.IsOpen) yield break;
+        var store = new SqliteAccountStore(Saves.Db);
+        if (store.FindAccount(account) is not { } identity) yield break;
+        foreach (var ch in store.CharactersOf(identity.Id))
         {
-            var cases = p.DisplayCases is null ? new Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>() : new(p.DisplayCases);
+            string key = AccountStash.Key(account, ch.League);
+            if (seen.Add(key) && Saves.LoadStash(key) is not null)
+                yield return AccountStash.For(key, ItemsFor(player));
+        }
+    }
+
+    public static bool DisplayCaseHasStoredItem(Player player, string area, string key)
+    {
+        if (player.Character.Account is null) return false;
+        foreach (var stash in AccountLeagueStashes(player))
+            if (ReadDisplayCaseMap(stash)?.GetValueOrDefault(area)?.ContainsKey(key) == true) return true;
+        return false;
+    }
+
+    public static bool HideoutHasStoredDisplayCaseItems(Player player, string area)
+    {
+        if (player.Character.Account is null) return false;
+        foreach (var stash in AccountLeagueStashes(player))
+            if (ReadDisplayCaseMap(stash)?.GetValueOrDefault(area) is { Count: > 0 }) return true;
+        return false;
+    }
+
+    public static CharacterSaves.SavedItem? AccountDisplayCaseItem(Player player, string area, string key) =>
+        player.Character.Account is null ? null
+            : ReadDisplayCaseMap(PersonalStashOf(player))?.GetValueOrDefault(area)?.GetValueOrDefault(key);
+
+    public static bool SetAccountDisplayCaseItem(Player player, string area, string key, CharacterSaves.SavedItem? item)
+    {
+        if (player.Character.Account is null) return false;
+        return PersonalStashOf(player).ChangeModuleData(LeagueDisplayCasesKey, text =>
+        {
+            var cases = text is null
+                ? new Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>()
+                : JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>>(text) ?? [];
             var areaCases = cases.TryGetValue(area, out var old) ? new Dictionary<string, CharacterSaves.SavedItem>(old) : [];
             if (item is null) areaCases.Remove(key); else areaCases[key] = item;
-            cases[area] = areaCases;
-            return p with { DisplayCases = cases };
+            if (areaCases.Count == 0) cases.Remove(area); else cases[area] = areaCases;
+            return JsonSerializer.Serialize(cases);
         });
     }
 

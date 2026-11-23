@@ -105,6 +105,8 @@ public sealed partial class AccountStash
     Dictionary<string, JsonElement>? _unknown;  // fields of a newer build's save, written back as they are
     bool _stale;  // dropped after a failed save: the database has the stash as it is
     bool _itemsInHeader;  // loaded from a stash saved before tabs had rows: the next save writes every tab
+    bool _publicTabsDirty;  // set only when a tab's Public flag changes
+    bool _itemNotesDirty;   // set only when an item's Note is changed or a noted item moves/leaves
     StashRules _rules = new();  // what each tab type holds (the catalog's)
     const string PublicTabsModuleKey = "stash.public-tabs.v1";
     const string ItemNotesModuleKey = "stash.item-notes.v1";
@@ -203,15 +205,23 @@ public sealed partial class AccountStash
         List<(int Tab, List<CharacterSaves.SavedPlacement> Items)> tabs;
         lock (_lock)
         {
-            var publicTabs = Enumerable.Range(0, _tabs.Count).Where(i => _tabs[i].Saved.Public).ToList();
-            if (publicTabs.Count > 0) _moduleData[PublicTabsModuleKey] = JsonSerializer.Serialize(publicTabs);
-            else _moduleData.Remove(PublicTabsModuleKey);
-            var itemNotes = new Dictionary<uint, string>();
-            foreach (var tab in _tabs)
-                foreach (var it in tab.Items)
-                    if (it.Item.Note is { Length: > 0 } note) itemNotes[it.Id] = note;
-            if (itemNotes.Count > 0) _moduleData[ItemNotesModuleKey] = JsonSerializer.Serialize(itemNotes);
-            else _moduleData.Remove(ItemNotesModuleKey);
+            if (_publicTabsDirty)
+            {
+                var publicTabs = Enumerable.Range(0, _tabs.Count).Where(i => _tabs[i].Saved.Public).ToList();
+                if (publicTabs.Count > 0) _moduleData[PublicTabsModuleKey] = JsonSerializer.Serialize(publicTabs);
+                else _moduleData.Remove(PublicTabsModuleKey);
+                _publicTabsDirty = false;
+            }
+            if (_itemNotesDirty)
+            {
+                var itemNotes = new Dictionary<uint, string>();
+                foreach (var tab in _tabs)
+                    foreach (var it in tab.Items)
+                        if (it.Item.Note is { Length: > 0 } note) itemNotes[it.Id] = note;
+                if (itemNotes.Count > 0) _moduleData[ItemNotesModuleKey] = JsonSerializer.Serialize(itemNotes);
+                else _moduleData.Remove(ItemNotesModuleKey);
+                _itemNotesDirty = false;
+            }
             header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData),
                 [.. _leagueQuestFlags]) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
@@ -458,8 +468,15 @@ public sealed partial class AccountStash
                 if (i == tab || t.Saved.UniqueCategory != 0 && t.Saved.Parent == tab)
                 {
                     removed += t.Items.Count;
-                    if (t.Items.Count > 0) { t.Items.Clear(); t.Revision++; changed.Add(i); }
-                    t.Saved = t.Saved with { Hidden = true, Affinities = 0, Parent = i == tab ? ushort.MaxValue : t.Saved.Parent };
+                    if (t.Items.Count > 0)
+                    {
+                        if (t.Items.Any(it => it.Item.Note is { Length: > 0 })) _itemNotesDirty = true;
+                        t.Items.Clear();
+                        t.Revision++;
+                        changed.Add(i);
+                    }
+                    if (t.Saved.Public) _publicTabsDirty = true;
+                    t.Saved = t.Saved with { Hidden = true, Public = false, Affinities = 0, Parent = i == tab ? ushort.MaxValue : t.Saved.Parent };
                 }
                 else if (t.Saved.UniqueCategory == 0 && t.Saved.Parent == tab) t.Saved = t.Saved with { Parent = ushort.MaxValue };
             }
@@ -500,16 +517,19 @@ public sealed partial class AccountStash
     }
 
     /// <summary>Sets or clears a premium tab's Public flag (C→S 0xcf, bit 3 = 0x08 in S→C 0x136) and propagates it to
-    /// any hidden child pages owned by that tab (matching 0x14216e103). False for no such tab or a non-premium tab.</summary>
+    /// any hidden child pages owned by that tab (matching 0x14216e103). False for no such tab, hidden/deleted tabs,
+    /// child pages, or non-premium tabs.</summary>
     public bool SetPublic(int tab, bool isPublic)
     {
         bool changed = false;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type)) return false;
-            if (_tabs[tab].Saved.Public != isPublic)
+            if (tab < 0 || tab >= _tabs.Count) return false;
+            var saved = _tabs[tab].Saved;
+            if (saved.Hidden || saved.UniqueCategory != 0 || !IsPremium(saved.Type)) return false;
+            if (saved.Public != isPublic)
             {
-                _tabs[tab].Saved = _tabs[tab].Saved with { Public = isPublic };
+                _tabs[tab].Saved = saved with { Public = isPublic };
                 changed = true;
             }
             for (int i = 0; i < _tabs.Count; i++)
@@ -518,17 +538,30 @@ public sealed partial class AccountStash
                     _tabs[i].Saved = _tabs[i].Saved with { Public = isPublic };
                     changed = true;
                 }
+            if (changed) _publicTabsDirty = true;
         }
         if (changed) Persist();
         return true;
     }
 
-    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside <paramref name="tab"/>.</summary>
+    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside an open, visible, public, premium <paramref name="tab"/>.</summary>
     public InventoryItem? SetItemNote(int tab, uint itemId, string? note)
     {
         string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
         if (normalized is { Length: > 250 }) normalized = normalized[..250];
-        return Change(tab, itemId, item => item with { Note = normalized });
+        InventoryItem result;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count) return null;
+            var t = _tabs[tab];
+            if (t.Saved.Hidden || !t.Saved.Public || !IsPremium(t.Saved.Type)) return null;
+            int at = t.Items.FindIndex(i => i.Id == itemId);
+            if (at < 0) return null;
+            result = t.Items[at] = t.Items[at] with { Item = t.Items[at].Item with { Note = normalized } };
+            _itemNotesDirty = true;
+        }
+        Persist(tab);
+        return result;
     }
 
     /// <summary>The tab of a stash inventory id, or null.</summary>
@@ -605,6 +638,7 @@ public sealed partial class AccountStash
             if (at < 0) return null;
             it = items[at];
             items.RemoveAt(at);
+            if (it.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
         }
         Persist(tab);
         return it;
@@ -689,6 +723,7 @@ public sealed partial class AccountStash
             // An item keeps the id this stash gave it; one from a character or the other stash gets one of this stash's.
             var placed = held with { Id = OwnId(held.Id) ? held.Id : _nextItemId++, X = (byte)x, Y = (byte)y };
             t.Items.Add(placed);
+            if (placed.Item.Note is { Length: > 0 } || displaced?.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
             result = (placed, displaced);
         }
         Persist(tab);
@@ -900,7 +935,9 @@ public sealed partial class AccountStash
             var items = _tabs[tab].Items;
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) return null;
+            string? priorNote = items[at].Item.Note;
             result = items[at] = items[at] with { Item = change(items[at].Item) };
+            if (!string.Equals(priorNote, result.Item.Note, StringComparison.Ordinal)) _itemNotesDirty = true;
         }
         Persist(tab);
         return result;
@@ -984,7 +1021,12 @@ public sealed partial class AccountStash
                 amount -= take;
                 var items = _tabs[tab].Items;
                 var paid = tabs.TryGetValue(tab, out var p) ? p : tabs[tab] = ([], []);
-                if (take == s.Item.StackSize) { items.Remove(s); paid.Removed.Add(s.Id); }
+                if (take == s.Item.StackSize)
+                {
+                    items.Remove(s);
+                    paid.Removed.Add(s.Id);
+                    if (s.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+                }
                 else paid.Changed.Add(items[items.IndexOf(s)] = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize - take) } });
             }
         }

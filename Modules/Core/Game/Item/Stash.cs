@@ -82,6 +82,7 @@ public static partial class Game
         await RefreshBenchBalance(player, clear: true);
         player.BenchOpen = false;
         player.ModuleWindow = null;
+        player.ModuleWindowAnchor = null;
         if (player.StashObject == 0) return;
         var at = player.StashAt;
         if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, Player.StashBlockerSize, out var objectWalk)) return;

@@ -92,6 +92,9 @@ public static partial class Game
         player.StashOpen = false;
         player.GuildStashOpen = false;
         player.BenchOpen = false;
+        player.ModuleWindow = null;
+        player.ModuleWindowAnchor = null;
+        await RefreshBenchBalance(player, clear: true);
         player.AutomaticNpcTalkRows.Clear();
         player.TalkingTo = id;
         player.InNpcTalk = false;

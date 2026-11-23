@@ -185,23 +185,32 @@ public static class ItemMoves
         byte from;
         if (intoSlot)
         {
-            if (items.RowOf(itemId) is not byte src || src == slotRow || src == Cursor) return null;
+            if (items.RowOf(itemId) is not byte src
+                || src is not (PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory)) return null;
             from = src;
         }
         else from = slotRow;
         byte to = intoSlot ? slotRow : Main;
         if (items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item || shapeOf(item.Item) is not { } shape) return null;
+        if (intoSlot && (item.Item.Components.Contains("Quest") || shape.Class == "QuestItem")) return null;
         var cell = intoSlot ? (items.Items(to).Count == 0 ? ((byte)0, (byte)0) : null)
             : items.FreeCell(to, shape.Width, shape.Height, shapeOf);
         if (cell is null || items.Remove(from, itemId) is not { } taken) return null;
         return new(from, to, items.Put(to, taken with { X = cell.Value.X, Y = cell.Value.Y }));
     });
 
-    /// <summary>Moves one item from a stash tab into an empty single-item crafting slot (e.g. HarvestCraftingItem).</summary>
-    public static InventoryItem? StashToSlot(AccountStash stash, PlayerInventories items, int tab, byte slotRow, uint itemId) =>
+    /// <summary>Moves one item from a stash tab into an empty single-item crafting slot (e.g. HarvestCraftingItem).
+    /// Rejects oversized stacks (e.g. 5,000/50,000 currency tab stacks) and quest items.</summary>
+    public static InventoryItem? StashToSlot(AccountStash stash, PlayerInventories items, int tab, byte slotRow, uint itemId,
+        Func<Item, PlayerInventories.Shape?> shapeOf) =>
         Saves.Atomically<InventoryItem?>(() =>
     {
-        if (tab < 0 || tab >= stash.Count || items.Items(slotRow).Count > 0 || stash.Take(tab, itemId) is not { } taken) return null;
+        if (tab < 0 || tab >= stash.Count || items.Items(slotRow).Count > 0) return null;
+        if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == itemId) is not { } inTab
+            || shapeOf(inTab.Item) is not { } shape) return null;
+        if (inTab.Item.StackSize > Math.Max((ushort)1, shape.MaxStack)
+            || inTab.Item.Components.Contains("Quest") || shape.Class == "QuestItem") return null;
+        if (stash.Take(tab, itemId) is not { } taken) return null;
         stash.SetLastTab(tab);
         return items.Put(slotRow, taken with { X = 0, Y = 0 });
     });

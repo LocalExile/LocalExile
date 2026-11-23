@@ -24,12 +24,16 @@ public sealed class HideoutEditingModule : IModule
             UseDisplayCase(player, use, at));
         GameEvents.Command(module.Manifest.Id, "save_hideout", "/save_hideout (save and report the current hideout layout)",
             (player, _) => global::Game.SaveHideoutLayout(player));
-        foreach (ushort placeId in new[] { InstanceHideoutEditing.PlaceId, InstanceHideoutEditing.PlaceGuildId })
-            GameEvents.Packet(placeId).Add(module.Manifest.Id, async (player, bytes) =>
-            {
-                await PlaceDecoration(player, InstanceHideoutEditing.ReadPlace(bytes));
-                return true;
-            });
+        GameEvents.Packet(InstanceHideoutEditing.PlaceId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await PlaceDecoration(player, InstanceHideoutEditing.ReadPlace(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceHideoutEditing.PlaceGuildId).Add(module.Manifest.Id, (player, _) =>
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x005a guild hideout decoration placement refused (guild hideouts are not supported)");
+            return Task.FromResult(true);
+        });
         GameEvents.Packet(InstanceHideoutEditing.MoveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await MoveHideoutObject(player, InstanceHideoutEditing.ReadMove(bytes));

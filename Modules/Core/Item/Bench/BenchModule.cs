@@ -106,6 +106,7 @@ static class BenchFeature
         player.GuildStashOpen = false;
         player.BenchOpen = true;
         player.ModuleWindow = null;
+        player.ModuleWindowAnchor = null;
         await RefreshBenchBalance(player);
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.CraftingBenchUi),
             "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(player, action));
@@ -164,17 +165,22 @@ static class BenchFeature
     /// notification (0x140d6d030 → 0x1402a7210).</summary>
     internal static Task<IReadOnlyList<int>> UnlockAreaRecipes(Player player)
     {
-        if (!LeagueFor(player).Rules.CraftingBench) return Task.FromResult<IReadOnlyList<int>>([]);
+        if (!LeagueFor(player).Rules.CraftingBench || HardcoreProgressBlocked(player))
+            return Task.FromResult<IReadOnlyList<int>>([]);
         var recipeIds = Bench.UnlocksForArea(player.Layout.Id);
         return recipeIds.Count == 0 ? Task.FromResult<IReadOnlyList<int>>([]) : UnlockRecipes(player, recipeIds);
     }
 
     internal static async Task<IReadOnlyList<int>> UnlockRecipes(Player player, IEnumerable<int> recipeIds)
     {
+        if (HardcoreProgressBlocked(player)) return [];
         var stash = PersonalStashOf(player);
         var saved = stash.LeagueQuestFlags.ToHashSet();
         var fresh = recipeIds.Where(id => id > 0 && !saved.Contains(id)).Distinct().ToList();
         if (fresh.Count == 0) return [];
+        // Game.SetLeagueQuestFlags updates both AccountStash.LeagueQuestFlags and Character.LeagueQuestFlags and
+        // sends 0x02bc PlayerLeagueQuestFlagsUpdate. When every fresh id is already in Character.LeagueQuestFlags
+        // (e.g. default league recipe flags published at area entry), only persist them to AccountStash.
         bool anyUnsetInPlayer = fresh.Any(id => !player.Character.LeagueQuestFlags.Contains(id));
         if (anyUnsetInPlayer)
             await global::Game.SetLeagueQuestFlags(player, fresh);

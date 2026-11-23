@@ -873,17 +873,21 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
 - **Hideout decorations, `/save_hideout`, music box and Item Display Case (3.29.3c).**
   - `C→S 0x16` command 50 (`Commands.dat` row 49 `SaveHideout` + 1) and `/save_hideout` report and confirm the saved
     hideout layout.
-  - `C→S 0x59` (personal) / `0x5a` (guild), 16 bytes (writer `0x141f99e90`): u32 BE MtxTypeGameSpecific HASH32, u16 BE
-    x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 mirrored).
-  - `C→S 0x5d` (6 bytes): u32 BE object id reclaims a custom decoration (core stations and NPCs are protected).
+  - `C→S 0x59` (personal; `0x5a` guild placement is refused), 16 bytes (writer `0x141f99e90`): u32 BE
+    MtxTypeGameSpecific HASH32, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 mirrored). Capped at
+    750 custom decorations per hideout.
+  - `C→S 0x5d` (6 bytes): u32 BE object id reclaims a custom decoration (core stations, NPCs, and occupied Item Display
+    Cases are protected).
   - `C→S 0x5e` (3 bytes, writer `0x140e27920`, sender `0x140213f10`): u8 mode (0 reclaims all custom decorations, 1 also
-    resets saved station placements).
+    resets saved station placements; refused while any Item Display Case holds a stored item).
   - `C→S 0x255` (4 bytes, writer `0x141f99160`, sender `0x140bb8010`): u16 BE `Music.dat` row (`0xffff` = default);
-    3.29.3c has no `S→C 0x255` handler because the client starts local track playback in `0x140bb7f57` before sending.
+    persisted in the hideout save and reported by `/save_hideout`. 3.29.3c has no `S→C 0x255` handler because the
+    client starts local track playback in `0x140bb7f57` before sending (re-entry replay is not wired).
   - Item Display Case (`Metadata/MiscellaneousObjects/Hideout/ItemDisplayCase`): its `ItemDisplayCase` component reads
     0 bytes (`0x1400ecff0`). Clicking opens `S→C 0x7b` kind `0x49` (`0x140dcb9c0`); `C→S 0x67` (14 bytes, writer
     `0x141f973b0`, sender `0x140705a40`: u32 object, u32 cursor inventory, u32 item) places/swaps a cursor item, and
-    `C→S 0x68` (7 bytes, writer `0x141f96e50`: u32 object, u8 flag) toggles or reclaims it.
+    `C→S 0x68` (7 bytes, writer `0x141f96e50`: u32 object, u8 flag) toggles or reclaims it. Stored items are strictly
+    league-scoped in the account's league stash, reject quest items, and block reclaiming/resetting while occupied.
 - **Horticrafting Ctrl + click and recipe unlock notifications.**
   - `C→S 0xf9` (10 bytes, writer `0x141fa0040`, sender `0x140312da0`): u32 BE item id, u8 flags, u16 BE stash tab, u8
     intoStation moves an item into or out of `HarvestCraftingItem` (row 43) from inventory or personal stash.

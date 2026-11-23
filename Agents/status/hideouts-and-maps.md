@@ -186,8 +186,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The map-device underfoot escape and walking through its released old position were verified in the client.
   Extracted AO hull radii cover small and large map devices; persistence and clearance have automated coverage.
   Map-device, Nessa and stash movement/rotation and reconnect persistence were verified in the real client.
-  Placing/reclaiming/resetting custom decorations (`C→S 0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout` (command 50),
-  music box selection (`0x255`), Item Display Case (`0x7b` `0x49`, `0x67`, `0x68`), Horticrafting Ctrl + click (`0xf9`),
+  Placing/reclaiming/resetting custom decorations (`C→S 0x59`/`0x5d`/`0x5e`, capped at 750; `0x5a` guild placement refused),
+  `/save_hideout` (command 50), music box persistence (`0x255`, saved and reported in `/save_hideout`; no re-entry replay packet),
+  league-scoped Item Display Case (`0x7b` `0x49`, `0x67`, `0x68`), Horticrafting Ctrl + click (`0xf9`),
   and `RecipeUnlockDisplay` area unlock flags are implemented (offline verified; live client checks pending).
   The dev `/statue` command places a saved stone Monster Statue of a chosen MonsterVarieties row (live client verified:
   no life bar or name, idle animation, survives leaving and re-entering).

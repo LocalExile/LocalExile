@@ -228,11 +228,12 @@ public static class InstanceStash
     public const int TakeFromTabLength = 12;
 
     /// <summary>C→S 0xf5 (12 bytes, writer 0x141f9a550, sender 0x1403136e1): take an oil/item out of a special stash tab
-    /// (Blight tab oil row). u32 BE item id (+2), u8 kind (+6), u32 BE tab (+7), u8 bulk/flag (+11).</summary>
+    /// (Blight tab oil row). u32 BE item id (+2), u8 kind (+6), u32 BE tab (+7), u8 uiPanelState (+11, UI panel state
+    /// at 0x1403136d5/0x140313879, not a Ctrl+Right-Click bulk flag).</summary>
     public const ushort TakeBlightOilId = 0xf5;
     public const int TakeBlightOilLength = 12;
 
-    public readonly record struct TakeBlightOil(uint ItemId, byte Kind, uint Tab, byte Bulk);
+    public readonly record struct TakeBlightOil(uint ItemId, byte Kind, uint Tab, byte UiPanelState);
 
     public static TakeBlightOil ReadTakeBlightOil(ReadOnlySpan<byte> m)
     {

@@ -146,11 +146,12 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 - **0xcf** (14 bytes, writer `0x141f9d290`, sender `0x14216e070`): toggles a premium tab's Public flag.
   u8 kind, u16 BE tab, u64 (0), u8 isPublic; persists `TabFlags.Public` (0x08) and resends S→C 0x136.
 - **0x1a1** (variable length, writer `0x141fa2270`, senders `0x14021de00`/`0x1402fbbf0`/`0x140b10ca0`): sets or clears
-  an item's price note (u32 BE inventory id, u32 BE item id with bit 31 flag, WStr note).
+  an item's price note (u32 BE inventory id, u32 BE item id with bit 31 flag, WStr note) on items in an open, visible,
+  public, premium stash tab.
   The note travels in the item's `Base` component bit 4 (0x10) as `WStr32` before `SkinTransferSource` (0x40) and
   `Price` (0x80).
 - **0xf5** (12 bytes, writer `0x141f9a550`, sender `0x1403136e1`): Blight tab oil take-out (u32 BE item id, u8 kind,
-  u32 BE tab, u8 bulk).
+  u32 BE tab, u8 uiPanelState — UI panel state at `0x1403136d5`/`0x140313879`, not a bulk flag).
 - **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
   Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
   the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
