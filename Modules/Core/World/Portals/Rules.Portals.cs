@@ -54,14 +54,25 @@ static partial class PortalsRules
             && MapDevice.OpenOf(open.Owner)?.Run == open.Run;
         bool Available(int index) => Current() && MapDevice.OpenOf(open.Owner)?.Left.Contains(index) == true;
         uint type = InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath);
+        HideoutCatalog.Doodad? hideoutDevice = null;
+        if (!device.Campaign) lock (player.HideoutDoodads) hideoutDevice = player.HideoutDoodads.GetValueOrDefault(deviceId);
+        var facing = new Dictionary<int, float>();
         (int X, int Y) Place(int index)
         {
-            var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
-            return device.Campaign && player.Layout.Walkable is { } walk && !walk(ring.X, ring.Y) ? player.Layout.Near(ring) : ring;
+            (int X, int Y) cell;
+            if (hideoutDevice is not null)
+            {
+                var (x, y, rotation) = global::Game.HideoutPortalPlace(hideoutDevice, index);
+                if (rotation is float r) lock (facing) facing[index] = r;
+                cell = (x, y);
+            }
+            else cell = MapDevice.PortalCell(centre.X, centre.Y, index);
+            return player.Layout.Walkable is { } walk && !walk(cell.X, cell.Y) ? player.Layout.Near(cell) : cell;
         }
+        float Facing(int index) { lock (facing) return facing.GetValueOrDefault(index); }
         Task Create(uint id, int x, int y, int index, string log) =>
             global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, type,
-                new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()), log, wake: true, awaitBirth: false);
+                new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: Facing(index) + player.PortalRotationRadians).Blob()), log, wake: true, awaitBirth: false);
         _ = AreaFrames.Start(async () =>
         {
             try

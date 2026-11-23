@@ -509,6 +509,15 @@ static class HideoutEditingFeature
         await Send(player, InstanceHideoutEditing.Rotation(move.ObjectId, p.Rotation),
             $"hideout rotation {p.Rotation:0.###}");
         if (device is not null) await global::Game.MoveMapDeviceButton(player, move.ObjectId, device);
+        // The map portals standing at the device stand again where it now puts them.
+        if (device is not null && MapDevice.AtEntrance(player.Layout.Hash, player.InstanceNumber) is { PortalsLeft: > 0 } open)
+        {
+            await PortalsRules.RemoveMapPortals(player);
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try { await PortalsRules.SpawnMapPortals(player, open, standing: true); }
+            finally { Program.ViewOf.Value = previousView; }
+        }
         await BroadcastRebuildCollision(player, "rebuild hideout model collision from current placements");
         await PushOutOfCollision(player);
     }

@@ -39,6 +39,8 @@ static class HideoutFiles
             note = "Hideouts.dat rows with their area and default decoration (HideoutFile): doodads with MtxTypeGameSpecific hash, grid x/y, rotation r (65536 = a turn), variation fv. scripts/re/atlas hideouts.",
             hideouts = list,
             collisionRadii = StationaryCollisionRadii(files, root),
+            portalSpawns = PortalSpawns(files, root),
+            deviceVariations = DeviceVariations(files, root),
         }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
         Console.WriteLine($"{output}: {list.Count} hideouts, {doodads} doodads");
         if (files.Missing.Count > 0) Console.WriteLine($"missing: {string.Join(", ", files.Missing.Keys)}");
@@ -101,6 +103,76 @@ static class HideoutFiles
         }
         return result;
     }
+
+    public sealed record PortalSpawn(double X, double Y, double? Orientation);
+
+    /// <summary>A map device model's own portal places: its BaseAnimationEvents on_game_object_set sets
+    /// game_object.portal_spawn_locations (MakeLocation(x, y), grid cells from the device) and optionally
+    /// portal_spawn_orientations (degrees, in the same order). A model that sets none takes its doodad type's: Zodiac Dragon
+    /// and Throne of the Ruler set this.portal_spawn_locations in their .ot (BaseEvents on_construction_complete). A model
+    /// that only clears them (PrisonHallwayMapDeviceCircle) or where neither sets them has none: the server's ring stands
+    /// instead. The nearest file of the extends chain that sets them decides.</summary>
+    static Dictionary<string, List<PortalSpawn>> PortalSpawns(GameFiles files, string root)
+    {
+        var result = new Dictionary<string, List<PortalSpawn>>(StringComparer.Ordinal);
+        List<PortalSpawn>? Of(string path, HashSet<string> chain, string extension)
+        {
+            if (!chain.Add(path) || ModelText(files, path) is not { } text) return null;
+            if (text.Contains("portal_spawn_locations", StringComparison.Ordinal))
+            {
+                static double Number(string v) => double.Parse(v, CultureInfo.InvariantCulture);
+                var orientations = Regex.Matches(text, @"portal_spawn_orientations\s*\+=\s*(-?[\d.]+)").Select(m => Number(m.Groups[1].Value)).ToList();
+                return [.. Regex.Matches(text, @"portal_spawn_locations\s*\+=\s*MakeLocation\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)")
+                    .Select((m, i) => new PortalSpawn(Number(m.Groups[1].Value), Number(m.Groups[2].Value),
+                        i < orientations.Count ? orientations[i] : null))];
+            }
+            foreach (Match parent in Regex.Matches(text, "extends\\s*\"([^\"]+)\""))
+                if (parent.Groups[1].Value is var name && name != "nothing"
+                    && Of(name.EndsWith(extension) ? name : name + extension, chain, extension) is { } inherited) return inherited;
+            return null;
+        }
+        var unset = new List<(string Model, string Type)>();
+        foreach (var row in ClientTable.Load(Path.Combine(root, "data", "client.db"), "HideoutDoodads"))
+        {
+            string type = row.Text("InheritsFrom") ?? "";
+            if (!type.EndsWith("MappingDevice", StringComparison.Ordinal) && !type.Contains("/MapDeviceVariants/", StringComparison.Ordinal)
+                && !type.StartsWith("Metadata/MapDevices/", StringComparison.Ordinal)) continue;
+            foreach (var model in row.Texts("Variation_AOFiles"))
+            {
+                if (result.ContainsKey(model)) continue;
+                var spawns = Of(model, new(StringComparer.Ordinal), ".ao");
+                if (spawns is null) unset.Add((model, type));
+                else if (spawns.Count > 0) result[model] = spawns;
+            }
+        }
+        // The types' places come after the models', so the models' rows keep their numbers.
+        foreach (var (model, type) in unset)
+            if (!result.ContainsKey(model) && Of(type + ".ot", new(StringComparer.Ordinal), ".ot") is { Count: > 0 } spawns)
+                result[model] = spawns;
+        return result;
+    }
+
+    /// <summary>Which of its doodad's MapDevices.dat rows a map device model is: the model's BaseAnimationEvents
+    /// on_attachment_chain_complete sets game_object.map_device_type_variation (the Hallowed Library's large model 1, its
+    /// small one 0). Only the models that set it.</summary>
+    static Dictionary<string, int> DeviceVariations(GameFiles files, string root)
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var row in ClientTable.Load(Path.Combine(root, "data", "client.db"), "HideoutDoodads"))
+        {
+            string type = row.Text("InheritsFrom") ?? "";
+            if (!type.EndsWith("MappingDevice", StringComparison.Ordinal) && !type.Contains("/MapDeviceVariants/", StringComparison.Ordinal)
+                && !type.StartsWith("Metadata/MapDevices/", StringComparison.Ordinal)) continue;
+            foreach (var model in row.Texts("Variation_AOFiles"))
+                if (ModelText(files, model) is { } text
+                    && Regex.Match(text, @"map_device_type_variation\s*=\s*(\d+)") is { Success: true } set)
+                    result[model] = int.Parse(set.Groups[1].Value, CultureInfo.InvariantCulture);
+        }
+        return result;
+    }
+
+    static string? ModelText(GameFiles files, string path) => files.Bytes(path) is not { } bytes ? null
+        : bytes.AsSpan().StartsWith(Encoding.Unicode.Preamble) ? Encoding.Unicode.GetString(bytes) : Encoding.UTF8.GetString(bytes);
 
     public sealed record Doodad(string Name, uint Hash, int X, int Y, int R, int Fv);
 

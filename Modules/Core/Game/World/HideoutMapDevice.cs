@@ -23,10 +23,13 @@ public static partial class Game
         await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 hideout doodad 0x{id:x} enters wake zone");
         lock (player.HideoutDoodads) player.HideoutDoodads[id] = d;
         await RegisterStationaryCollision(player, id, d.Type!, d.X, d.Y, d.Rotation, MapDeviceKey, d.Model);
-        // The server's blocker is one circle around the model's whole hull; a button inside it (Sun: 20 cells, hull 26)
-        // could not be reached, so the circle stops short of the button.
-        if (HideoutCatalog.MapDeviceButton(d.Hash, d.Variation) is var (_, bx, by) && StationaryCollision.Resolve(d.Type!, d.Model) is (int size, double hull)
-            && Math.Sqrt(bx * bx + by * by) - ButtonClearance is var reach && reach < hull)
+        // The server's blocker is one circle around the model's whole hull; a button or portal place inside it (Sun's
+        // button: 20 cells, hull 26; the Precursors' portal at the centre) could not be reached, so the circle stops short
+        // of the nearest.
+        double nearest = Enumerable.Range(0, MapDevice.PortalCount).Select(i => HideoutPortalPlace(d, i))
+            .Min(p => Math.Sqrt((p.X - d.X) * (p.X - d.X) + (p.Y - d.Y) * (p.Y - d.Y)));
+        if (HideoutCatalog.MapDeviceButton(d.Hash, d.Variation) is var (_, bx, by)) nearest = Math.Min(nearest, Math.Sqrt(bx * bx + by * by));
+        if (StationaryCollision.Resolve(d.Type!, d.Model) is (int size, double hull) && nearest - ReachClearance is var reach && reach < hull)
         {
             double capped = Math.Max(1, reach);
             player.SetBlocker(id, d.X, d.Y, size, capped);
@@ -35,7 +38,7 @@ public static partial class Game
         await SpawnMapDeviceButton(player, id, d);
     }
 
-    const double ButtonClearance = 4;
+    const double ReachClearance = 4;
 
     /// <summary>Whether this server can stand the map device type up in a hideout. The Puzzle Cube's client script runs
     /// a native puzzle (InteractPuzzleCube, with its grabber objects and sub-cube state) on hover and drag; without
@@ -60,6 +63,23 @@ public static partial class Game
             $"0x02bb create map device button 0x{id:x} ({type}) at ({x}, {y}) for device 0x{device:x}");
         await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 map device button 0x{id:x} enters wake zone");
         lock (ButtonsOf(player)) ButtonsOf(player)[id] = (device, d with { X = x, Y = y });
+    }
+
+    /// <summary>Where hideout map device <paramref name="d"/>'s portal <paramref name="index"/> stands: the place its model
+    /// sets (turned with the device, facing the model's given degrees on top of the device's turn), else on the ring of its
+    /// variation's radius (HideoutCatalog.MapDevicePortalRadius; 16 without a MapDevices.dat row). Rotation null: the
+    /// portals' usual facing.</summary>
+    public static (int X, int Y, float? Rotation) HideoutPortalPlace(HideoutCatalog.Doodad d, int index)
+    {
+        var spawns = HideoutCatalog.PortalSpawns(d.Model);
+        if (index >= 0 && index < spawns.Count)
+        {
+            var (dx, dy, degrees) = spawns[index];
+            var (x, y) = DeviceCell(d, dx, dy);
+            return (x, y, degrees is double g ? d.Rotation + (float)(g * Math.PI / 180) : null);
+        }
+        var ring = MapDevice.PortalCell(d.X, d.Y, index, radius: HideoutCatalog.MapDevicePortalRadius(d.Hash, d.Variation) ?? 16);
+        return (ring.X, ring.Y, null);
     }
 
     static (int X, int Y) DeviceCell(HideoutCatalog.Doodad d, int dx, int dy)
