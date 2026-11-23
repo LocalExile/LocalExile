@@ -4,8 +4,9 @@ namespace GameServer.Modules.Betrayal;
 
 /// <summary>
 /// One instance's Betrayal mission, as plain state: its plan, the objects it put in the area, how far it has gone and what
-/// is due when. It belongs to the area instance, so a second party member, a portal re-entry and a module reload all read
-/// the same one. Its clock is the frames the area has run (<see cref="Step"/>), not real time.
+/// is due when. It belongs to the area instance, so a second party member and a portal re-entry read the same one. It does
+/// not survive a module reload: the encounter's lives are cleared on unload, so a reloaded module starts no mission in an
+/// area that already has one. Its clock is the frames the area has run (<see cref="Step"/>), not real time.
 /// </summary>
 public sealed class BetrayalRun(BetrayalPlan.Plan plan, byte level)
 {
@@ -77,6 +78,7 @@ public sealed class BetrayalRun(BetrayalPlan.Plan plan, byte level)
         lock (gate)
         {
             clock += seconds;
+            if (timers.Count == 0) return [];
             var due = timers.Where(t => clock + 1e-9 >= t.At).OrderBy(t => t.At).Select(t => t.What).ToList();
             timers.RemoveAll(t => clock + 1e-9 >= t.At);
             return due;
