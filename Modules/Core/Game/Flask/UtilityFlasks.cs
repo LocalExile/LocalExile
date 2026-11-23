@@ -129,30 +129,35 @@ public static partial class Game
         _ => 0,
     };
 
-    // The player's increased rarity of items found (Gold Flask, gear, passives) multiplied by area and
-    // monster/boss rarity (ItemDrops.WithIncreasedRarity). Player IIR uses PoE diminishing returns;
-    // innate boss rarity (MonsterDroppedItemRarityPlusPct above the baseline rarity tier) scales
-    // multiplicatively with player IIR rather than adding linearly.
+    // The player's increased rarity of items found (Gold Flask, gear, passives, and Item Rarity Support) multiplied
+    // by area and monster/boss rarity (ItemDrops.WithIncreasedRarity). Player IIR uses PoE diminishing returns;
+    // innate boss rarity (MonsterDroppedItemRarityPlusPct above the baseline rarity tier) uses soft diminishing
+    // returns so Act Bosses (+10,000-15,000% IIR) drop abundant rares and elevated uniques (~3-4.5x) without
+    // turning half their drops into uniques.
     public static int IncreasedItemRarity(Player player, SpawnedMonster? monster = null)
     {
         var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         int rawPlayerIir = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
-        double effectivePlayerIir = ItemDrops.EffectivePlayerIir(rawPlayerIir);
+        double effectivePlayerIir = ItemDrops.EffectivePlayerIir(rawPlayerIir)
+            + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
         double monsterIirFactor = 1.0;
         if (monster is not null)
         {
             int rawMonsterIir = monster.Effects[Stat.MonsterDroppedItemRarityPlusPct];
             int baseline = BaselineMonsterIir(monster.Rarity);
             if (rawMonsterIir > baseline)
-                monsterIirFactor = (100.0 + rawMonsterIir) / (100.0 + baseline);
+            {
+                double extraPct = ((100.0 + rawMonsterIir) / (100.0 + baseline) - 1.0) * 100.0;
+                double effectiveBossPct = extraPct / (1.0 + extraPct / 450.0);
+                monsterIirFactor = 1.0 + effectiveBossPct / 100.0;
+            }
             else if (rawMonsterIir < 0)
                 monsterIirFactor = Math.Max(0, 100.0 + rawMonsterIir) / 100.0;
         }
         int areaAndExtraIir = (MapModsOf(player)?.Rarity ?? 0)
             + (monster?.Effects[Stat.BaseItemFoundRarityPlusPct] ?? 0)
-            + (monster?.Effects[Stat.FromLeagueItemRarityPlusPctPermyriad] ?? 0) / 100
-            + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
+            + (monster?.Effects[Stat.FromLeagueItemRarityPlusPctPermyriad] ?? 0) / 100;
         double totalFactor = Math.Max(0, 100.0 + effectivePlayerIir) / 100.0
             * Math.Max(0, 100.0 + areaAndExtraIir) / 100.0
             * monsterIirFactor;

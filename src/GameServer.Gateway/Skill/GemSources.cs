@@ -24,7 +24,6 @@ public static class GemSources
         "Enlighten Support",
         "Portal",
         "Detonate Mines",
-        "Block Chance Reduction Support",
     ];
 
     public static bool IsExceptionalSupport(ItemCatalog.BaseType type) =>

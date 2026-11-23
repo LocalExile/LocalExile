@@ -41,14 +41,14 @@ INSERT INTO system_settings (key, value) VALUES
 -- Recalibrate drop_currency_weights for 3.28/3.29 retail parity:
 -- higher early scroll share, lower Chromatic/Regret weights, ~0.055% Exalted/Divine parity,
 -- and ~0.000033% Mirror of Kalandra / Hinekora's Lock parity.
-UPDATE drop_currency_weights SET weight = 1150.0, notes = 'Scroll of Wisdom; 3.29 campaign scroll share adjustment' WHERE currency_id = 'Metadata/Items/Currency/CurrencyIdentification';
-UPDATE drop_currency_weights SET weight = 360.0, notes = 'Portal Scroll; 3.29 campaign scroll share adjustment' WHERE currency_id = 'Metadata/Items/Currency/CurrencyPortal';
-UPDATE drop_currency_weights SET weight = 110.0, notes = 'Chromatic Orb; 3.28/3.29 retail parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyRerollSocketColours';
-UPDATE drop_currency_weights SET weight = 16.0, notes = 'Orb of Regret; 3.28/3.29 retail parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyPassiveRefund';
-UPDATE drop_currency_weights SET weight = 2.2, notes = 'Exalted Orb; 3.28/3.29 ~0.055% parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyAddModToRare';
-UPDATE drop_currency_weights SET weight = 2.2, notes = 'Divine Orb; 3.28/3.29 ~0.055% parity with Exalted Orb' WHERE currency_id = 'Metadata/Items/Currency/CurrencyModValues';
-UPDATE drop_currency_weights SET weight = 0.0014, notes = 'Mirror of Kalandra; 3.28/3.29 ~0.000033% retail parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyDuplicate';
-UPDATE drop_currency_weights SET weight = 0.0014, notes = 'Hinekora''s Lock; matched to Mirror of Kalandra 3.28/3.29 parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyHinekorasLock';
+UPDATE drop_currency_weights SET weight = 1150.0, notes = 'Scroll of Wisdom, 3.29 campaign scroll share adjustment' WHERE currency_id = 'Metadata/Items/Currency/CurrencyIdentification';
+UPDATE drop_currency_weights SET weight = 360.0, notes = 'Portal Scroll, 3.29 campaign scroll share adjustment' WHERE currency_id = 'Metadata/Items/Currency/CurrencyPortal';
+UPDATE drop_currency_weights SET weight = 110.0, notes = 'Chromatic Orb, 3.28/3.29 retail parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyRerollSocketColours';
+UPDATE drop_currency_weights SET weight = 16.0, notes = 'Orb of Regret, 3.28/3.29 retail parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyPassiveRefund';
+UPDATE drop_currency_weights SET weight = 2.2, notes = 'Exalted Orb, 3.28/3.29 ~0.055% parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyAddModToRare';
+UPDATE drop_currency_weights SET weight = 2.2, notes = 'Divine Orb, 3.28/3.29 ~0.055% parity with Exalted Orb' WHERE currency_id = 'Metadata/Items/Currency/CurrencyModValues';
+UPDATE drop_currency_weights SET weight = 0.0014, notes = 'Mirror of Kalandra, 3.28/3.29 ~0.000033% retail parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyDuplicate';
+UPDATE drop_currency_weights SET weight = 0.0014, notes = 'Hinekora''s Lock, matched to Mirror of Kalandra 3.28/3.29 parity weight' WHERE currency_id = 'Metadata/Items/Currency/CurrencyHinekorasLock';
 
 -- Oni-Goroshi only drops from Uber Hillock in The Twilight Strand, never from the general drop pool.
 UPDATE unique_items SET encounter_only = 1 WHERE name = 'Oni-Goroshi';

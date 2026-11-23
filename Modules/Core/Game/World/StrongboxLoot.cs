@@ -265,9 +265,15 @@ public static class StrongboxLoot
                 }
                 if (type.Class.EndsWith("Flask", StringComparison.Ordinal))
                     rarity = rolledUnique || rng.NextDouble() < chances.Magic ? ItemRarity.Magic : ItemRarity.Normal;
+                else if (type.Class is "Jewel" or "AbyssJewel")
+                    rarity = rolledUnique || rng.NextDouble() < chances.Rare ? ItemRarity.Rare : ItemRarity.Magic;
                 else
                     rarity = rolledUnique || rng.NextDouble() < chances.Rare ? ItemRarity.Rare
                         : rng.NextDouble() < chances.Magic ? ItemRarity.Magic : ItemRarity.Normal;
+            }
+            else if (rarity == ItemRarity.Normal && type.Class is "Jewel" or "AbyssJewel")
+            {
+                rarity = ItemRarity.Magic;
             }
             if (rarity != ItemRarity.Normal) item = rolls.Roll(item, rarity.Value, rng) with { Identified = false };
             return new(item, type);
@@ -278,8 +284,8 @@ public static class StrongboxLoot
         ItemDrops.Drop? Unique(Func<ItemCatalog.BaseType, bool> kind, Func<UniqueCatalog.Definition, bool>? named = null)
         {
             var uniqueCatalog = UniquesFor(player);
-            var pool = uniqueCatalog.All.Where(u => (named is null ? !u.EncounterOnly : named(u)) && catalog.Find(u.BaseTypeId) is { } t
-                && (named is not null || t.DropLevel <= level) && ItemDrops.Droppable(t) && kind(t)).ToArray();
+            var pool = uniqueCatalog.All.Where(u => (named is null ? drops.IsDropEligibleUnique(u, level) : named(u))
+                && catalog.Find(u.BaseTypeId) is { } t && ItemDrops.Droppable(t) && kind(t)).ToArray();
             if (pool.Length == 0) return null;
             var chosen = drops.PickUnique(pool, rng) ?? (named is null ? null : pool[rng.Next(pool.Length)]);
             if (chosen is null || uniqueCatalog.Create(chosen, rng) is not { } item

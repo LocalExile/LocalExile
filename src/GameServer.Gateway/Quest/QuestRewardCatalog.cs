@@ -104,7 +104,10 @@ public sealed class QuestRewardCatalog
             || type.Id == AbyssJewels.StygianVise || type.HasOneSocket)
             return items.DefaultSockets(type, itemLevel, random: random);
         int classCap = SystemSettings.Default.SocketMax(type.Class);
-        if (classCap <= 0) return items.DefaultSockets(type, itemLevel, random: random);
+        if (classCap <= 0)
+            return SystemSettings.Default.Values.Count == 0
+                ? items.DefaultSockets(type, itemLevel, random: random)
+                : ([], null);
         int levelCap = itemLevel >= 50 ? 6 : itemLevel >= 35 ? 5 : itemLevel >= 25 ? 4 : itemLevel >= 2 ? 3 : 2;
         int max = Math.Min(classCap, levelCap);
         int target = itemLevel >= 25 ? Math.Min(max, 4) : itemLevel >= 12 ? Math.Min(max, 3) : Math.Min(max, 2);

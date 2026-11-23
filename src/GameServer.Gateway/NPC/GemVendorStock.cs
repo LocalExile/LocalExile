@@ -24,14 +24,12 @@ public sealed class GemVendorStock
         sellable = new[] { false, true }
             .SelectMany(support => new[] { 1, 2, 3, 4 }.SelectMany(colour => items.ShopGems(colour, support)))
             .ToDictionary(t => t.Id,t => t.Row,StringComparer.Ordinal);
-        act1To3OffersByBase = BuildAct1To3Offers();
+        act1To3OffersByBase = VendorCatalog.Default is not null ? BuildAct1To3Offers(VendorCatalog.Default) : null;
     }
 
-    static Dictionary<string, int[]> BuildAct1To3Offers()
+    static Dictionary<string, int[]> BuildAct1To3Offers(VendorCatalog catalog)
     {
         var map = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
-        var catalog = VendorCatalog.Default;
-        if (catalog is null) return [];
         foreach (string vendor in new[] { "Nessa", "Yeena", "Clarissa" })
             foreach (var rule in catalog.Gems(vendor))
             {
@@ -79,7 +77,7 @@ public sealed class GemVendorStock
 
     readonly Dictionary<string,int> sellable;
     readonly IReadOnlySet<int> hardModeRows;
-    readonly Dictionary<string, int[]> act1To3OffersByBase;
+    volatile Dictionary<string, int[]>? act1To3OffersByBase;
 
     /// <summary>The NPC's gem stock at character level/quest state: BaseItemTypes rows, in row order. Empty before the
     /// character has completed a quest that offers gems (or when campaign Lilly/Siosa's unlock is missing).
@@ -109,6 +107,10 @@ public sealed class GemVendorStock
             : npcId.Contains("/Act3/") ? "Clarissa" : npcId.Contains("/Act4/") ? "Petarus and Vanja" : "";
         if (siosa) vendor = "Siosa";
         var catalog = VendorCatalog.Default;
+        if (catalog is null) return [];
+        var act1To3Offers = act1To3OffersByBase;
+        if (act1To3Offers is null)
+            act1To3OffersByBase = act1To3Offers = BuildAct1To3Offers(catalog);
         var selected = vendor.Length > 0 ? catalog.Gems(vendor)
             : new[] { "Nessa", "Yeena", "Clarissa", "Petarus and Vanja" }.SelectMany(catalog.Gems);
         var rows = new SortedSet<int>();
@@ -117,7 +119,7 @@ public sealed class GemVendorStock
             bool unlocked = siosa
                 // Siosa sells all classes' Act 1-3 gems only once their Act 1-3 quest offers are completed;
                 // Library-exclusive gems without Act 1-3 vendor offers unlock from Siosa's own a3q12 quest.
-                ? (!act1To3OffersByBase.TryGetValue(rule.Base, out var questOffers) || questOffers.Any(Done))
+                ? (act1To3Offers is null || !act1To3Offers.TryGetValue(rule.Base, out var questOffers) || questOffers.Any(Done))
                 : (rule.Class == classRow && rule.Offers.Any(Done));
             if (unlocked && sellable.TryGetValue(rule.Base, out int row)) rows.Add(row);
         }
