@@ -65,7 +65,11 @@ public static partial class Game
         bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
-        int percent = generic + (bleeding ? bleedingPercent : 0);
+        long percent = (long)generic + (bleeding ? bleedingPercent : 0);
+        int prideChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride);
+        long physicalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct);
+        if (prideChance > 0 && ReservationAura(player, "Pride") is not null) physicalChance += prideChance;
+        if (physicalChance > 0 && AreaRng(player).Next(100) < physicalChance) percent += 10;
         int chance = Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct);
         int chaosPercent = chance > 0 && AreaRng(player).Next(100) < chance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
