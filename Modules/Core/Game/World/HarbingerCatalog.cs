@@ -44,7 +44,7 @@ public static class HarbingerCatalog
         double CastSeconds, double CooldownSeconds);
 
     /// <summary>One species-mod ally aura on an Empowered Obelisk (<c>HarbingerTotemScarab3</c>).</summary>
-    public sealed record ObeliskAura(string ModId, ushort BuffRow, double Radius, IReadOnlyDictionary<string, int> Stats);
+    public sealed record ObeliskAura(string ModId, ushort BuffRow, double Radius, IReadOnlyDictionary<uint, int> Stats);
 
     /// <summary>Decoded skill kit and implicit auras for a managed Harbinger, King helper or Empowered Obelisk variety.</summary>
     public sealed record VarietyKit(string VarietyId, IReadOnlyList<ActorSkill> Skills, IReadOnlyList<ObeliskAura> ObeliskAuras);
@@ -154,21 +154,27 @@ public static class HarbingerCatalog
         new("Metadata/Items/Currency/CurrencyDuplicateShard", 0.15, 1, 1),              // Mirror Shard (DropLvl 35)
     ];
 
-    static readonly Lazy<IReadOnlyList<Entry>> Data = new(Load);
-    static readonly Lazy<HashSet<string>> ManagedVarieties = new(() =>
-    {
-        var set = new HashSet<string>(StringComparer.Ordinal) { KingVariety };
-        foreach (var e in Data.Value) set.Add(e.Variety);
-        foreach (string v in KingHelperVarieties) set.Add(v);
-        foreach (string v in EmpoweredObeliskVarieties) set.Add(v);
-        return set;
-    });
+    static IReadOnlyList<Entry> Data = [];
+    static HashSet<string> ManagedVarieties = new(StringComparer.Ordinal);
     static readonly ConcurrentDictionary<(HarbingerKind Kind, int Level), WaveProfile> WaveProfiles = new();
     static readonly ConcurrentDictionary<string, VarietyKit> VarietyKits = new(StringComparer.Ordinal);
 
-    public static IReadOnlyList<Entry> All => Data.Value;
+    public static void LoadGameData()
+    {
+        var data = Load();
+        Data = data;
+        var set = new HashSet<string>(StringComparer.Ordinal) { KingVariety };
+        foreach (var e in data) set.Add(e.Variety);
+        foreach (string v in KingHelperVarieties) set.Add(v);
+        foreach (string v in EmpoweredObeliskVarieties) set.Add(v);
+        ManagedVarieties = set;
+        WaveProfiles.Clear();
+        VarietyKits.Clear();
+    }
 
-    public static bool IsManagedVariety(string? varietyId) => varietyId is not null && ManagedVarieties.Value.Contains(varietyId);
+    public static IReadOnlyList<Entry> All => Data;
+
+    public static bool IsManagedVariety(string? varietyId) => varietyId is not null && ManagedVarieties.Contains(varietyId);
 
     static IReadOnlyList<Entry> Load()
     {
@@ -228,14 +234,13 @@ public static class HarbingerCatalog
         {
             int effLevel = Program.Skills.MaxLevelAt(row, level);
             var stats = Program.Skills.EffectStats(row, effLevel);
-            int Get(string name)
+            int Get(uint key)
             {
-                if (Program.Stats.Key(name) is not uint key) return 0;
                 int sum = 0;
                 foreach (var (k, v) in stats) if (k == key) sum += v;
                 return sum;
             }
-            int baseCount = Get("number_of_monsters_to_summon");
+            int baseCount = Get(Stat.NumberOfMonstersToSummon);
             if (baseCount > 0)
             {
                 int cdMs = Program.Skills.CooldownMs(row, effLevel);
@@ -243,14 +248,14 @@ public static class HarbingerCatalog
                 return new(
                     CooldownSeconds: cd,
                     BaseCount: baseCount,
-                    ExtraCountChancePct: Math.Max(0, Get("harbinger_minion_extra_monster_chance_%")),
-                    Permyriad: Math.Max(1, Get("harbinger_minion_remove_parent_life_on_death_permyriad")),
-                    MaxMagic: Math.Max(0, Get("harbinger_minion_max_magic_count")),
-                    MaxRare: Math.Max(0, Get("harbinger_minion_max_rare_count")),
+                    ExtraCountChancePct: Math.Max(0, Get(Stat.HarbingerMinionExtraMonsterChancePct)),
+                    Permyriad: Math.Max(1, Get(Stat.HarbingerMinionRemoveParentLifeOnDeathPermyriad)),
+                    MaxMagic: Math.Max(0, Get(Stat.HarbingerMinionMaxMagicCount)),
+                    MaxRare: Math.Max(0, Get(Stat.HarbingerMinionMaxRareCount)),
                     MagicChancePct: magicChance,
                     RareChancePct: rareChance,
                     AliveCap: aliveCap,
-                    RepeatCount: Math.Max(0, Get("skill_repeat_count")));
+                    RepeatCount: Math.Max(0, Get(Stat.SkillRepeatCount)));
             }
         }
 
@@ -354,7 +359,7 @@ public static class HarbingerCatalog
         {
             if (Program.Items.Mods.Row(modRow) is not { } mod) continue;
             foreach (var stat in mod.Stats)
-                if (stat.Id == "base_aura_area_of_effect_+%")
+                if (stat.Id == Stat.BaseAuraAreaOfEffectPlusPct)
                     auraAoePct += stat.Min;
             if (mod.BuffTemplate is not null)
                 auraMods.Add(mod);
@@ -371,7 +376,7 @@ public static class HarbingerCatalog
                 continue;
             int baseRadius = tpl.Int("AuraRadius");
             if (baseRadius <= 0) continue;
-            var statMap = new Dictionary<string, int>(StringComparer.Ordinal);
+            var statMap = new Dictionary<uint, int>();
             foreach (var s in mod.Stats)
                 if (s.Min != 0)
                     statMap[s.Id] = statMap.GetValueOrDefault(s.Id) + s.Min;
@@ -403,15 +408,15 @@ public static class HarbingerCatalog
 
         if (mods is not null)
         {
-            tenths += Math.Max(0, mods.Get("map_harbinger_additional_currency_shard_stack_tenths_to_drop"));
+            tenths += Math.Max(0, mods.Get(Stat.MapHarbingerAdditionalCurrencyShardStackTenthsToDrop));
             // In tenths like the base stat: the Atlas mod's 38 is the strong Harbinger's own 38 (3.8 stacks).
-            tenths += Math.Max(0, mods.Get("map_harbingers_drops_additional_currency_shards"));
-            extraStackChance = Math.Max(0, mods.Get("map_harbinger_additional_currency_shard_stack_chance_%"));
-            fullCurrencyStat = Math.Max(0, mods.Get("map_harbingers_have_chance_to_drop_full_currency"));
-            dupChance = Math.Max(0, mods.Get("map_harbinger_currency_shards_duplicate_chance"));
-            if (mods.Get("map_harbinger_base_currency_shard_stack_tenths_to_drop_best_of_3_outcomes") > 0) luckyDraws = 3;
-            else if (mods.Get("map_harbinger_lucky_shard_drops") > 0) luckyDraws = 2;
-            singleType = mods.Get("map_harbinger_single_currency_type") > 0;
+            tenths += Math.Max(0, mods.Get(Stat.MapHarbingersDropsAdditionalCurrencyShards));
+            extraStackChance = Math.Max(0, mods.Get(Stat.MapHarbingerAdditionalCurrencyShardStackChancePct));
+            fullCurrencyStat = Math.Max(0, mods.Get(Stat.MapHarbingersHaveChanceToDropFullCurrency));
+            dupChance = Math.Max(0, mods.Get(Stat.MapHarbingerCurrencyShardsDuplicateChance));
+            if (mods.Get(Stat.MapHarbingerBaseCurrencyShardStackTenthsToDropBestOf3Outcomes) > 0) luckyDraws = 3;
+            else if (mods.Get(Stat.MapHarbingerLuckyShardDrops) > 0) luckyDraws = 2;
+            singleType = mods.Get(Stat.MapHarbingerSingleCurrencyType) > 0;
         }
 
         int stacks = Math.Max(0, tenths) / 10 + (random.Next(10) < Math.Max(0, tenths) % 10 ? 1 : 0);

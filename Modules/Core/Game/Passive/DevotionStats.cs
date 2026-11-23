@@ -13,28 +13,28 @@
 /// </summary>
 public static class DevotionStats
 {
-    public const string Devotion = "base_devotion";
+    public const uint Devotion = Stat.BaseDevotion;
 
-    sealed record Target(string Stat, int Factor = 1);
+    sealed record Target(uint Stat, int Factor = 1);
 
-    static readonly IReadOnlyDictionary<string, Target[]> Targets = new Dictionary<string, Target[]>
+    static readonly IReadOnlyDictionary<uint, Target[]> Targets = new Dictionary<uint, Target[]>
     {
-        ["totem_damage_+%_per_10_devotion"] = [new("totem_damage_+%")],
-        ["sigil_damage_+%_per_10_devotion"] = [new("sigil_damage_+%")],
-        ["channelled_skill_damage_+%_per_10_devotion"] = [new("channelled_skill_damage_+%")],
-        ["area_damage_+%_per_10_devotion"] = [new("area_damage_+%")],
-        ["elemental_damage_+%_per_10_devotion"] = [new("elemental_damage_+%")],
-        ["elemental_resistance_%_per_10_devotion"] = [new("base_resist_all_elements_%")],
-        ["non_damaging_ailment_effect_+%_per_10_devotion"] = [new("non_damaging_ailment_effect_+%")],
-        ["self_elemental_status_duration_-%_per_10_devotion"] = [new("self_elemental_status_duration_-%")],
-        ["self_curse_duration_+%_per_10_devotion"] = [new("self_curse_duration_+%")],
-        ["minion_attack_and_cast_speed_+%_per_10_devotion"] = [new("minion_attack_and_cast_speed_+%")],
-        ["minion_accuracy_rating_per_10_devotion"] = [new("minion_accuracy_rating")],
-        ["mana_regeneration_rate_per_minute_per_10_devotion"] = [new("base_mana_regeneration_rate_per_minute")],
-        ["mana_cost_+%_per_10_devotion"] = [new("mana_cost_+%")],
-        ["base_mana_cost_efficiency_+%_per_10_devotion"] = [new("base_mana_cost_efficiency_+%")],
-        ["non_curse_aura_effect_+%_per_10_devotion"] = [new("non_curse_aura_effect_+%")],
-        ["shield_defences_+%_per_10_devotion"] = [new("combined_shield_defences_+%")],
+        [Stat.TotemDamagePlusPctPer10Devotion] = [new(Stat.TotemDamagePlusPct)],
+        [Stat.SigilDamagePlusPctPer10Devotion] = [new(Stat.SigilDamagePlusPct)],
+        [Stat.ChannelledSkillDamagePlusPctPer10Devotion] = [new(Stat.ChannelledSkillDamagePlusPct)],
+        [Stat.AreaDamagePlusPctPer10Devotion] = [new(Stat.AreaDamagePlusPct)],
+        [Stat.ElementalDamagePlusPctPer10Devotion] = [new(Stat.ElementalDamagePlusPct)],
+        [Stat.ElementalResistancePctPer10Devotion] = [new(Stat.BaseResistAllElementsPct)],
+        [Stat.NonDamagingAilmentEffectPlusPctPer10Devotion] = [new(Stat.NonDamagingAilmentEffectPlusPct)],
+        [Stat.SelfElementalStatusDurationMinusPctPer10Devotion] = [new(Stat.SelfElementalStatusDurationMinusPct)],
+        [Stat.SelfCurseDurationPlusPctPer10Devotion] = [new(Stat.SelfCurseDurationPlusPct)],
+        [Stat.MinionAttackAndCastSpeedPlusPctPer10Devotion] = [new(Stat.MinionAttackAndCastSpeedPlusPct)],
+        [Stat.MinionAccuracyRatingPer10Devotion] = [new(Stat.MinionAccuracyRating)],
+        [Stat.ManaRegenerationRatePerMinutePer10Devotion] = [new(Stat.BaseManaRegenerationRatePerMinute)],
+        [Stat.ManaCostPlusPctPer10Devotion] = [new(Stat.ManaCostPlusPct)],
+        [Stat.BaseManaCostEfficiencyPlusPctPer10Devotion] = [new(Stat.BaseManaCostEfficiencyPlusPct)],
+        [Stat.NonCurseAuraEffectPlusPctPer10Devotion] = [new(Stat.NonCurseAuraEffectPlusPct)],
+        [Stat.ShieldDefencesPlusPctPer10Devotion] = [new(Stat.CombinedShieldDefencesPlusPct)],
     };
 
     /// <summary>Replaces every per-10-Devotion stat in <paramref name="sources"/> with its normal stat(s) times the
@@ -42,16 +42,15 @@ public static class DevotionStats
     /// into a panel as a flat stat.</summary>
     public static void Apply(Dictionary<uint, int> sources, StatCatalog stats)
     {
-        int steps = stats.Key(Devotion) is uint devotionKey && sources.TryGetValue(devotionKey, out int devotion)
+        int steps = Devotion is var devotionKey && sources.TryGetValue(devotionKey, out int devotion)
             ? Math.Max(0, devotion) / 10
             : 0;
         foreach (var (perStat, targets) in Targets)
         {
-            if (stats.Key(perStat) is not uint perKey || !sources.TryGetValue(perKey, out int value)) continue;
-            sources.Remove(perKey);
+            if (!sources.Remove(perStat, out int value)) continue;
             if (steps == 0) continue;
             foreach (var target in targets)
-                if (stats.Key(target.Stat) is uint targetKey)
+                if (target.Stat is var targetKey)
                     sources[targetKey] = ActorScale.Add(targetKey, sources.GetValueOrDefault(targetKey),
                         value * steps * target.Factor);
         }

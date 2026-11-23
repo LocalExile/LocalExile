@@ -1,27 +1,27 @@
 /// <summary>Resource routing after mitigation. Ward consumes the reduced hit before typed ES bypass.</summary>
 public static class IncomingResourceDefences
 {
-    public const string TakenStat = "harbinger_channel_buff_damage_taken_+%_final";
-    public const string ConditionalTakenStat = "damage_taken_+%_final";
-    public const string UnhingedSaneDamageFinal = "physical_and_chaos_damage_taken_+%_final_while_not_unhinged";
-    public const string BypassStat = "base_non_chaos_damage_bypass_energy_shield_%";
+    public const uint TakenStat = Stat.HarbingerChannelBuffDamageTakenPlusPctFinal;
+    public const uint ConditionalTakenStat = Stat.DamageTakenPlusPctFinal;
+    public const uint UnhingedSaneDamageFinal = Stat.PhysicalAndChaosDamageTakenPlusPctFinalWhileNotUnhinged;
+    public const uint BypassStat = Stat.BaseNonChaosDamageBypassEnergyShieldPct;
 
     // The Eater of Worlds body-armour implicits: "1% less Damage Taken per X Strength / Dexterity / Intelligence".
-    public const string LessPerStrength = "body_armour_implicit_damage_taken_-1%_final_per_X_strength";
-    public const string LessPerDexterity = "body_armour_implicit_damage_taken_-1%_final_per_X_dexterity";
-    public const string LessPerIntelligence = "body_armour_implicit_damage_taken_-1%_final_per_X_intelligence";
+    public const uint LessPerStrength = Stat.BodyArmourImplicitDamageTakenMinus1PctFinalPerXStrength;
+    public const uint LessPerDexterity = Stat.BodyArmourImplicitDamageTakenMinus1PctFinalPerXDexterity;
+    public const uint LessPerIntelligence = Stat.BodyArmourImplicitDamageTakenMinus1PctFinalPerXIntelligence;
 
     // Final more/less damage-taken stats modules handed over, in the order they were handed over.
-    static volatile string[] _finalTaken = [];
+    static volatile uint[] _finalTaken = [];
     static readonly object FinalTakenLock = new();
 
     /// <summary>A hand-over for modules: each stat in <paramref name="stats"/> multiplies incoming hit and
     /// over-time damage by max(0, 1 + value / 100), a "more" or "less" damage-taken modifier. The framework names
     /// none; with none handed over, or none on the character, the factor is 1. Disposing the result (the module's
     /// lifetime) takes back the stats it added.</summary>
-    public static IDisposable HandOverFinalTaken(IReadOnlyCollection<string> stats)
+    public static IDisposable HandOverFinalTaken(IReadOnlyCollection<uint> stats)
     {
-        string[] added;
+        uint[] added;
         lock (FinalTakenLock)
         {
             added = [.. stats.Distinct().Except(_finalTaken)];
@@ -30,7 +30,7 @@ public static class IncomingResourceDefences
         return new FinalTakenHandOver(added);
     }
 
-    sealed class FinalTakenHandOver(string[] stats) : IDisposable
+    sealed class FinalTakenHandOver(uint[] stats) : IDisposable
     {
         int _disposed;
 
@@ -44,7 +44,7 @@ public static class IncomingResourceDefences
 
     /// <summary>The final "less Damage Taken" share from the attribute implicits: each stat's attribute total divided by
     /// its X, added together and capped at 100%. The attribute totals include the item's own attributes.</summary>
-    public static int LessTakenPct(CharacterStats.Pools pools, Func<string, int> get) =>
+    public static int LessTakenPct(CharacterStats.Pools pools, Func<uint, int> get) =>
         Per(pools.Strength, get(LessPerStrength)) + Per(pools.Dexterity, get(LessPerDexterity))
         + Per(pools.Intelligence, get(LessPerIntelligence));
 
@@ -53,16 +53,16 @@ public static class IncomingResourceDefences
     /// <summary>The combined final damage-taken multiplier from <see cref="TakenStat"/>,
     /// <see cref="ConditionalTakenStat"/>, attribute implicits (<see cref="LessTakenPct"/>) and any handed-over
     /// final taken stats (<see cref="HandOverFinalTaken"/>).</summary>
-    public static double FinalTakenFactor(CharacterStats.Pools pools, Func<string, int> get) =>
+    public static double FinalTakenFactor(CharacterStats.Pools pools, Func<uint, int> get) =>
         FinalTakenFactor(get, LessTakenPct(pools, get));
 
-    /// <inheritdoc cref="FinalTakenFactor(CharacterStats.Pools, Func{string, int})"/>
-    public static double FinalTakenFactor(Func<string, int> get, int lessPct = 0)
+    /// <inheritdoc cref="FinalTakenFactor(CharacterStats.Pools, Func{uint, int})"/>
+    public static double FinalTakenFactor(Func<uint, int> get, int lessPct = 0)
     {
         double factor = Math.Max(0, 1 + get(TakenStat) / 100.0)
             * Math.Max(0, 1 + get(ConditionalTakenStat) / 100.0)
             * Math.Max(0, 1 - Math.Clamp(lessPct, 0, 100) / 100.0);
-        string[] extra = _finalTaken;
+        uint[] extra = _finalTaken;
         for (int i = 0; i < extra.Length; i++)
         {
             int pct = get(extra[i]);
@@ -71,13 +71,13 @@ public static class IncomingResourceDefences
         return factor;
     }
 
-    public static int Taken(int damage, Func<string, int> get, int lessPct = 0)
+    public static int Taken(int damage, Func<uint, int> get, int lessPct = 0)
     {
         decimal value = Math.Max(0, damage)
             * Math.Max(0m, 1 + get(TakenStat) / 100m)
             * Math.Max(0m, 1 + get(ConditionalTakenStat) / 100m)
             * (1 - Math.Clamp(lessPct, 0, 100) / 100m);
-        string[] extra = _finalTaken;
+        uint[] extra = _finalTaken;
         for (int i = 0; i < extra.Length; i++)
         {
             int pct = get(extra[i]);
@@ -92,11 +92,11 @@ public static class IncomingResourceDefences
         return bypass + shield.Damage(Math.Max(0, damage) - bypass, false, now);
     }
 
-    public static int TakenOverTime(double damage, Func<string, int> get, ref double carry, int lessPct = 0,
+    public static int TakenOverTime(double damage, Func<uint, int> get, ref double carry, int lessPct = 0,
         int typedIncreasedPct = 0, int reductionPct = 0, int finalTakenPct = 0)
     {
         double earned = Math.Max(0, damage)
-            * Math.Max(0, 1 + ((long)get("base_damage_taken_+%") + typedIncreasedPct) / 100.0)
+            * Math.Max(0, 1 + ((long)get(Stat.BaseDamageTakenPlusPct) + typedIncreasedPct) / 100.0)
             * Math.Max(0, 1 - Math.Clamp(reductionPct, 0, 100) / 100.0)
             * FinalTakenFactor(get, lessPct)
             * Math.Max(0, 1 + finalTakenPct / 100.0) + carry;

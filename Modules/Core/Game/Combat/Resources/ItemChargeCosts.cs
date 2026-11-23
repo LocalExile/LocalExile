@@ -1,9 +1,9 @@
 public static class ItemChargeCosts
 {
-    public const string ManaEfficiencyPerEndurance = "base_mana_cost_efficiency_+%_per_endurance_charge";
-    public const string ManaEfficiency = "base_mana_cost_efficiency_+%";
+    public const uint ManaEfficiencyPerEndurance = Stat.BaseManaCostEfficiencyPlusPctPerEnduranceCharge;
+    public const uint ManaEfficiency = Stat.BaseManaCostEfficiencyPlusPct;
 
-    public static IEnumerable<(string Stat, int Value)> Expand(Func<string, int> get,
+    public static IEnumerable<(uint Stat, int Value)> Expand(Func<uint, int> get,
         Func<ChargeType, int> held, Func<ChargeType, bool> converted)
     {
         int count = converted(ChargeType.Endurance) ? 0 : Math.Max(0, held(ChargeType.Endurance));

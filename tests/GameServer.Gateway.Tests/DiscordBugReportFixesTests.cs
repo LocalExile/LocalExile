@@ -28,8 +28,9 @@ public sealed class DiscordBugReportFixesTests : IDisposable
         Assert.Equal(0x00, nonBlocking[18]); // hidden = 0
         Assert.Equal(0x00, nonBlocking[19]); // blocking = 0
         Assert.Equal(0x01, nonBlocking[20]); // noWalkerBlock = 1
-        Assert.Equal(0x02, blocking[17]);
-        Assert.Equal(0x01, blocking[19]);    // blocking = 1
+        // Default blocking is left to the object type's own .ot Positioned flag (flags1 = 0, no 3-byte override).
+        Assert.Equal(0x00, blocking[17]);
+        Assert.Equal(nonBlocking.Length - 3, blocking.Length);
 
         // 2. Quest items (Sewer Keys) are refused by personal/guild stash grid tabs, crafting slots, and AddStacked.
         TestEnvironment.OpenOwnSaves("discordfixes");
@@ -80,34 +81,34 @@ public sealed class DiscordBugReportFixesTests : IDisposable
             //    and Medium cluster jewel inside a Large tree socket opens its child socket while Megalomaniac opens none.
             foreach (int cell in new[] { 11, 12, 13, 15, 17, 20 })
                 Assert.Equal(39 * Program.Passives.ClusterIndex(cell), Program.Passives.ClusterBlockBase(cell));
-            var conn = new ClientState(new(1, "clusterfixes", 100, 100, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "clusterfixes", 100, 100, 100, 100, null, []), 1, 1)
             {
-                Character = account, ClassRow = 1,
+                Character = { Name = account, ClassRow = 1 },
                 Pools = CharacterStats.For(Program.Skills.ClassFor(1), 100),
                 LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
             };
-            conn.Passives.Add(Program.Passives.JewelNodeForSlot(20)!.Value);
+            player.Character.Passives.Add(Program.Passives.JewelNodeForSlot(20)!.Value);
             var mediumType = items.Find("Medium Cluster Jewel")!;
             var unidMedium = ItemCatalog.Create(mediumType) with { Identified = false };
-            Assert.NotNull(Game.PassiveJewelRefusal(conn, 20, 0, unidMedium));
+            Assert.NotNull(Game.PassiveJewelRefusal(player, 20, 0, unidMedium));
             var emptyCluster = ItemCatalog.Create(mediumType) with { Mods = [] };
-            Assert.NotNull(Game.PassiveJewelRefusal(conn, 20, 0, emptyCluster));
+            Assert.NotNull(Game.PassiveJewelRefusal(player, 20, 0, emptyCluster));
             var validMedium = ClusterJewels.Create(mediumType, ClusterJewels.FindTheme(mediumType.Cluster!, "Fire Damage"), 5, 1)!;
-            Assert.Null(Game.PassiveJewelRefusal(conn, 20, 0, validMedium));
-            Game.ItemsOf(conn).Add(PlayerInventories.PassiveJewels, 20, 0, validMedium);
-            Assert.True(Game.ClusterSlotOpen(conn, 51));
+            Assert.Null(Game.PassiveJewelRefusal(player, 20, 0, validMedium));
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, 20, 0, validMedium);
+            Assert.True(Game.ClusterSlotOpen(player, 51));
             var layout = ClusterJewelLayout.For(20, validMedium)!;
-            Assert.True(Game.ClusterNodeExists(conn, (ushort)(layout.Base + layout.EntryOffset)));
-            Assert.False(Game.ClusterNodeExists(conn, Game.MaxClusterNodeId));
+            Assert.True(Game.ClusterNodeExists(player, (ushort)(layout.Base + layout.EntryOffset)));
+            Assert.False(Game.ClusterNodeExists(player, Game.MaxClusterNodeId));
             // Nested cluster jewel must be strictly smaller than its parent (Small fits inside Medium, another Medium does not).
             var smallCluster = ClusterJewels.Create(items.Find("Small Cluster Jewel")!, null, 3, 0)!;
-            Assert.Null(Game.PassiveJewelRefusal(conn, 51, 0, smallCluster));
-            Assert.NotNull(Game.PassiveJewelRefusal(conn, 51, 0, validMedium));
+            Assert.Null(Game.PassiveJewelRefusal(player, 51, 0, smallCluster));
+            Assert.NotNull(Game.PassiveJewelRefusal(player, 51, 0, validMedium));
             // Megalomaniac has 0 sockets and must not open child cells.
             var mega = new UniqueCatalog(items).Create("Megalomaniac", new Random(1))!;
-            Game.ItemsOf(conn).Remove(PlayerInventories.PassiveJewels, Game.ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Single().Id);
-            Game.ItemsOf(conn).Add(PlayerInventories.PassiveJewels, 20, 0, mega);
-            Assert.False(Game.ClusterSlotOpen(conn, 51));
+            Game.ItemsOf(player).Remove(PlayerInventories.PassiveJewels, Game.ItemsOf(player).Items(PlayerInventories.PassiveJewels).Single().Id);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, 20, 0, mega);
+            Assert.False(Game.ClusterSlotOpen(player, 51));
 
             // 5. Snipe & General's Cry hybrid gems never emit their support-only Effect2 into active skills.
             foreach (string gemId in new[] { "Metadata/Items/Gems/SkillGemChannelledSnipe", "Metadata/Items/Gems/SkillGemGeneralsCry" })
@@ -162,8 +163,8 @@ public sealed class DiscordBugReportFixesTests : IDisposable
         var kb = GatewayProjectileSkillProfiles.Resolve("KineticBolt", "Metadata/Projectiles/ZigZagWandProjectile",
             stat => stat switch
             {
-                "kinetic_wand_base_number_of_zig_zags" => 2,
-                "number_of_additional_projectiles" => 2,
+                Stat.KineticWandBaseNumberOfZigZags => 2,
+                Stat.NumberOfAdditionalProjectiles => 2,
                 _ => 0,
             }, 100, attack: true);
         kb = GatewayProjectileSkillProfiles.WithKineticBoltLegs(kb, sequence: 2);

@@ -22,7 +22,7 @@ public class WhenOnLifeConditionTests
     [Fact]
     public void Movement_velocity_stat_reaches_the_walk_speed_bonus()
     {
-        var stats = new Dictionary<uint, int> { [Program.Stats.Key("movement_velocity_+%")!.Value] = 20 };
+        var stats = new Dictionary<uint, int> { [Stat.MovementVelocityPlusPct] = 20 };
         var bonus = Game.PassiveBonus(stats, default, default);
         Assert.Equal(20, bonus.MovementVelocityPct);
     }

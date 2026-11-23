@@ -66,7 +66,9 @@ public sealed class CharacterAudioCatalog
         }
     }
 
-    public static readonly Lazy<CharacterAudioCatalog> Default = new(() => Load());
+    public static CharacterAudioCatalog Default { get; private set; } = default!;
+
+    public static void LoadGameData() => Default = Load();
 
     public Entry? ById(string? id) => id is not null && _byId.TryGetValue(id, out var e) ? e : null;
 

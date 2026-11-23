@@ -16,11 +16,8 @@ Each setting's default, limits and meaning are in its `settings.json`.
 
 - **An account and a character** in the save database: account `<name>_bot`, a random Russian or English character name,
   a random class. Its progress (level, last town) is written to the character record.
-- **A body in towns.** A bot is a published player without a connection (`InstancePlayer` with no owner) of every live
-  instance of its town (`Program.InGame` lists the connections in game). Each client there replicates it as it
-  replicates another player (`LivingCollision.SyncInstancePlayers`): created with its class model and gear, walking by
-  the Move action (0x1ab, skill 0x2909) toward its destination, which the client paths and animates.
-  It is only shown where a player is. Party followers instead use controlled player connections and the ordinary combat pipeline.
+- **A body in towns.** A bot walks the towns where players are (`Program.InGame` lists the connections in game), but it
+  is not an entity of their areas, so no client draws it (the area replicates only its own entities). Party followers instead use controlled player connections and the ordinary combat pipeline.
 - **Gear** (`BotGear`): real base items of the game data for its class and level (weapon by class, armour by the class's
   attributes, a belt), drawn as the server draws a player's equipment. Party builds include connected passives and compatible linked gems.
 - **The route**: `story-main.md` (the main story, 52 quests) and `story-side.md` (side quests, 30), act by act, main

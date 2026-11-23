@@ -15,7 +15,7 @@ namespace GameServer.Modules.Deepwater;
 internal static class DeepwaterBuffs
 {
     public const ushort CraiceannsCall = 2735, SailorsLantern = 2733;
-    const string CraiceannStat = "chance_%_to_spawn_crab_pack_on_kill_vs_rare_or_unique", SailorStat = "%_chance_to_duplicate_dropped_gold";
+    const uint CraiceannStat = Stat.ChancePctToSpawnCrabPackOnKillVsRareOrUnique, SailorStat = Stat.PctChanceToDuplicateDroppedGold;
     const string CrabPack = "DeepwaterCrabBuffPack";
 
     sealed class Held
@@ -26,7 +26,7 @@ internal static class DeepwaterBuffs
         public readonly List<(int X, int Y)> Crabs = [];
     }
 
-    static readonly ConditionalWeakTable<ClientState, Held> Holders = new();
+    static readonly ConditionalWeakTable<Player, Held> Holders = new();
     // How many buffs are held on the server: the per-kill and per-stat-build hooks return at once while none is.
     static int _held;
 
@@ -39,50 +39,46 @@ internal static class DeepwaterBuffs
     static int Setting(string key) => DeepwaterLoot.Setting(key);
 
     /// <summary>An encounter's opener gets its buff (under the encounter gate, once per chest).</summary>
-    public static async Task Grant(IModuleContext module, ClientState conn, DeepwaterEncounters.EncounterKind kind)
+    public static async Task Grant(IModuleContext module, Player player, DeepwaterEncounters.EncounterKind kind)
     {
-        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         if (kind == DeepwaterEncounters.EncounterKind.CursedTreasure)
         {
             // Until death or leaving the area (G: no duration in the data; the Game module removes it at life 0 and on leaving).
-            int? row = MapTorment.PossessPlayer(conn, null, double.PositiveInfinity);
-            module.Log($"{CharacterName(conn)}: Cursed Treasure possession {(row is int r ? $"by spirit row {r}" : "not given (none fits or already held)")}");
+            int? row = MapTorment.PossessPlayer(player, null, double.PositiveInfinity);
+            module.Log($"{CharacterName(player)}: Cursed Treasure possession {(row is int r ? $"by spirit row {r}" : "not given (none fits or already held)")}");
             return;
         }
         bool coral = kind == DeepwaterEncounters.EncounterKind.CoralNest;
-        var held = Holders.GetValue(conn, _ => new());
+        var held = Holders.GetValue(player, _ => new());
         ushort buff;
-        lock (conn.Monsters)
+        lock (held)
         {
-            lock (held)
-            {
-                if ((coral ? held.Craiceann : held.Sailor) != 0) return;
-                buff = conn.NextBuff++;
-                if (buff == 0) buff = conn.NextBuff++;
-                if (coral) held.Craiceann = buff; else held.Sailor = buff;
-                Interlocked.Increment(ref _held);
-            }
+            if ((coral ? held.Craiceann : held.Sailor) != 0) return;
+            buff = player.NextBuff++;
+            if (buff == 0) buff = player.NextBuff++;
+            if (coral) held.Craiceann = buff; else held.Sailor = buff;
+            Interlocked.Increment(ref _held);
         }
         string name = coral ? "Craiceann's Call" : "Sailor's Lantern";
-        await global::Game.SendWorldRecord(PlayerOf(conn), PlayerId, InstanceEntities.AddBuff(PlayerId, buff, coral ? CraiceannsCall : SailorsLantern),
+        await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.AddBuff(player.Id, buff, coral ? CraiceannsCall : SailorsLantern),
             $"0x01c1 {name} ({kind} opened)");
-        module.Log($"{CharacterName(conn)}: {name} granted");
-        await SendStats(conn, name);
+        module.Log($"{CharacterName(player)}: {name} granted");
+        await SendStats(player, name);
     }
 
     /// <summary>Each tick: at life 0 the buffs end; otherwise spawn any queued crab packs.</summary>
-    public static async Task Tick(IModuleContext module, ClientState conn)
+    public static async Task Tick(IModuleContext module, Player player)
     {
-        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(conn, out var held) || conn.Closed || conn.LeavingArea) return;
-        if (conn.PlayerLife == 0)
+        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(player, out var held) || player.Closed || player.LeavingArea) return;
+        if (player.PlayerLife == 0)
         {
             var ended = Take(held);
             if (ended.Count == 0) return;
-            var player = PlayerOf(conn);
             foreach (ushort buff in ended)
-                await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), "0x01c2 Allflame encounter buff ends (died)");
-            module.Log($"{CharacterName(conn)}: Allflame encounter buffs end (died)");
-            await SendStats(conn, "died");
+                await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.RemoveBuff(player.Id, buff), "0x01c2 Allflame encounter buff ends (died)");
+            module.Log($"{CharacterName(player)}: Allflame encounter buffs end (died)");
+            await SendStats(player, "died");
             return;
         }
         (int X, int Y)[] crabs;
@@ -91,15 +87,15 @@ internal static class DeepwaterBuffs
             crabs = held.Crabs.Count == 0 ? [] : [.. held.Crabs];
             held.Crabs.Clear();
         }
-        foreach (var at in crabs) await SpawnCrabs(module, conn, at);
+        foreach (var at in crabs) await SpawnCrabs(module, player, at);
     }
 
     /// <summary>The player left the area: its buffs went with it (the next area does not show them again).</summary>
-    public static void Forget(ClientState conn)
+    public static void Forget(Player player)
     {
-        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(conn, out var held)) return;
+        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(player, out var held)) return;
         Take(held);
-        Holders.Remove(conn);
+        Holders.Remove(player);
     }
 
     static List<ushort> Take(Held held)
@@ -117,11 +113,11 @@ internal static class DeepwaterBuffs
     }
 
     /// <summary>PlayerStatSources: the held buffs' stats (the chances), so the sheet shows them.</summary>
-    public static Dictionary<uint, int> PlayerStats(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> sources)
     {
-        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(conn, out var held)) return sources;
-        if (held.Craiceann != 0 && Stats.Key(CraiceannStat) is uint c) sources[c] = sources.GetValueOrDefault(c) + Setting("deepwater_craiceann_chance");
-        if (held.Sailor != 0 && Stats.Key(SailorStat) is uint s) sources[s] = sources.GetValueOrDefault(s) + Setting("deepwater_sailors_lantern_chance");
+        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(player, out var held)) return sources;
+        if (held.Craiceann != 0) sources[CraiceannStat] = sources.GetValueOrDefault(CraiceannStat) + Setting("deepwater_craiceann_chance");
+        if (held.Sailor != 0) sources[SailorStat] = sources.GetValueOrDefault(SailorStat) + Setting("deepwater_sailors_lantern_chance");
         return sources;
     }
 
@@ -130,8 +126,8 @@ internal static class DeepwaterBuffs
     public static Task Killed(MonsterKill kill)
     {
         if (kill.Monster.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique) || Volatile.Read(ref _held) == 0
-            || !Holders.TryGetValue(kill.Conn, out var held) || held.Craiceann == 0) return Task.CompletedTask;
-        if (Random.Shared.Next(100) < Setting("deepwater_craiceann_chance"))
+            || !Holders.TryGetValue(kill.Player, out var held) || held.Craiceann == 0) return Task.CompletedTask;
+        if (AreaRng(kill.Player).Next(100) < Setting("deepwater_craiceann_chance"))
             lock (held) if (held.Craiceann != 0) held.Crabs.Add((kill.Monster.X, kill.Monster.Y));
         return Task.CompletedTask;
     }
@@ -140,43 +136,39 @@ internal static class DeepwaterBuffs
     /// <c>deepwater_sailors_lantern_chance</c> percent (G 25; "Gold dropped from slain enemies has a chance to be duplicated").</summary>
     public static void Drops(IModuleContext module, DropRoll roll)
     {
-        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(roll.Conn, out var held) || held.Sailor == 0) return;
-        if (Random.Shared.Next(100) >= Setting("deepwater_sailors_lantern_chance")) return;
+        if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(roll.Player, out var held) || held.Sailor == 0) return;
+        if (AreaRng(roll.Player).Next(100) >= Setting("deepwater_sailors_lantern_chance")) return;
         roll.Gold *= 2;
-        module.Log($"{CharacterName(roll.Conn)}: Sailor's Lantern duplicates the gold of {roll.Monster.Name}");
+        module.Log($"{CharacterName(roll.Player)}: Sailor's Lantern duplicates the gold of {roll.Monster.Name}");
     }
 
     // MonsterPacks 3160 (3-8 of CoconutCrabEncounter / NimbleCrabEncounter) at the corpse: normal, the area level,
     // aggressive (G: the data names only the pack).
-    static async Task SpawnCrabs(IModuleContext module, ClientState conn, (int X, int Y) at)
+    static async Task SpawnCrabs(IModuleContext module, Player player, (int X, int Y) at)
     {
         if (Packs.Find(CrabPack) is not { } pack) return;
-        var layout = conn.Layout;
+        var layout = player.Layout;
         var members = AreaPopulation.AtPacks([(pack, at.X, at.Y, MonsterRarity.Normal)], (x, y) => layout.WalkableFor(x, y, 1),
-            v => Monsters.Find(v.ToString()) is { Supported: true }, Random.Shared.Next());
-        byte level = (byte)DeepwaterEncounters.AreaLevel(conn);
-        var (remote, stream, ciphers) = conn.Wire;
+            v => Monsters.Find(v.ToString()) is { Supported: true }, AreaRng(player).Next());
+        byte level = (byte)DeepwaterEncounters.AreaLevel(player);
         int spawned = 0;
         foreach (var m in members)
         {
-            if (conn.Closed || conn.LeavingArea) break;
+            if (player.Closed || player.LeavingArea) break;
             if (Monsters.Find(m.Variety.ToString()) is not { Supported: true } variety) continue;
-            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, m.Rarity, m.X, m.Y, log: false,
+            uint id = await SpawnMonster(player, variety, level, m.Rarity, m.X, m.Y, log: false,
                 unrisen: false, alone: false, owned: (_, monster) => monster.Aggro = true);
             if (id != 0) spawned++;
         }
-        module.Log($"{CharacterName(conn)}: Craiceann's Call brings {spawned} crabs at ({at.X}, {at.Y})");
+        module.Log($"{CharacterName(player)}: Craiceann's Call brings {spawned} crabs at ({at.X}, {at.Y})");
     }
 
-    static async Task SendStats(ClientState conn, string why)
+    static async Task SendStats(Player player, string why)
     {
-        lock (conn.Monsters)
-        {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            conn.ApplyMovementSpeed();
-        }
-        var w = conn.Wire;
-        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
             $"0x01b3 player stats (Allflame buff: {why})");
     }
 }

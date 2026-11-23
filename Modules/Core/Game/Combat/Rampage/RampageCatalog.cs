@@ -7,8 +7,16 @@ using GameServer.Core;
 /// granted effect, GEPL and stat-set level rows. Animated weapons retain their own variety/mod/skill records.
 /// Production data always defaults to the repository's data/; a fixture may supply a different folder explicitly.
 /// </summary>
-public sealed class RampageCatalog(string folder = "data")
+public sealed class RampageCatalog
 {
+    readonly string folder;
+
+    public RampageCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        data = Load(folder);
+    }
+
     public const ushort BuffDefinitionRow = 328;
     // Native Game.exe: HUD constructor 0x14024b810, row328 observer 0x14024c6c0 (ID 0x149),
     // count/threshold selector 0x14024d3f0 (Buff+0x40), HUD update 0x14024cb00 (duration +0x1c/+0x18).
@@ -27,10 +35,10 @@ public sealed class RampageCatalog(string folder = "data")
     public sealed record ModStat(uint Key, string Name, int Minimum, int Maximum);
     public sealed record ModPlan(int Row, string Id, IReadOnlyList<ModStat> Stats);
     public sealed record SkillLevel(int GrantedLevelRow, int StatLevelRow, int Level,
-        IReadOnlyDictionary<string, int> Stats, IReadOnlyDictionary<uint, int> WireStats,
+        IReadOnlyDictionary<uint, int> Stats, IReadOnlyDictionary<uint, int> WireStats,
         ClientRow GrantedLevelData, ClientRow StatLevelData)
     {
-        public int Get(string stat) => Stats.GetValueOrDefault(stat);
+        public int Get(uint stat) => Stats.GetValueOrDefault(stat);
         public int CooldownMs => GrantedLevelData.Int("Cooldown");
         public int StoredUses => GrantedLevelData.Int("StoredUses");
         public int SpellCriticalChance => StatLevelData.Int("SpellCritChance");
@@ -50,12 +58,12 @@ public sealed class RampageCatalog(string folder = "data")
 
     sealed record Data(string? Error, IReadOnlyList<Tier> Tiers, IReadOnlyList<AnimatedWeapon> Weapons,
         IReadOnlyDictionary<string, uint> StatKeys);
-    readonly Lazy<Data> data = new(() => Load(folder));
-    public string? Error => data.Value.Error;
-    public IReadOnlyList<Tier> Tiers => data.Value.Tiers;
-    public IReadOnlyList<AnimatedWeapon> AnimatedWeapons => data.Value.Weapons;
+    readonly Data data;
+    public string? Error => data.Error;
+    public IReadOnlyList<Tier> Tiers => data.Tiers;
+    public IReadOnlyList<AnimatedWeapon> AnimatedWeapons => data.Weapons;
     public IReadOnlyList<int> Thresholds => Array.AsReadOnly(Tiers.Select(t => t.Threshold).ToArray());
-    public uint? StatKey(string name) => data.Value.StatKeys.TryGetValue(name, out uint key) ? key : null;
+    public uint? StatKey(string name) => data.StatKeys.TryGetValue(name, out uint key) ? key : null;
 
     static readonly (int Threshold, int Variety, int Effect, string Id, Kind Kind)[] Expected =
     [
@@ -94,11 +102,12 @@ public sealed class RampageCatalog(string folder = "data")
             var statKeys = Rows("Stats").Select((r, i) => (Name: Text(r, "Id"), Key: (uint)i + 1))
                 .ToFrozenDictionary(r => r.Name, r => r.Key, StringComparer.Ordinal);
             string StatName(int row) => Text(Row("Stats", row), "Id");
+            uint StatId(int row) => (uint)row + 1;
             var buff = Row("BuffDefinitions", BuffDefinitionRow);
             Require(Text(buff, "Id") == "rampage_stack" && buff.Bool("ShowCount")
                 && buff.Bool("CancelOnDeath"), "Rampage buff definition changed.");
-            Require(StatName(Int(buff, "Current_StatsKey")) == "current_rampage_stacks"
-                && StatName(Int(buff, "Maximum_StatsKey")) == "max_rampage_stacks", "Rampage buff count stats changed.");
+            Require(StatId(Int(buff, "Current_StatsKey")) == Stat.CurrentRampageStacks
+                && StatId(Int(buff, "Maximum_StatsKey")) == Stat.MaxRampageStacks, "Rampage buff count stats changed.");
             var grantedLevels = Rows("GrantedEffectsPerLevel").Select((r, i) => (Row: r, Index: i))
                 .GroupBy(r => Int(r.Row, "GrantedEffect")).ToDictionary(g => g.Key, g => g.ToArray());
             var statLevels = Rows("GrantedEffectStatSetsPerLevel").Select((r, i) => (Row: r, Index: i))
@@ -112,9 +121,9 @@ public sealed class RampageCatalog(string folder = "data")
                 var set = Row("GrantedEffectStatSets", setIndex);
                 var active = Row("ActiveSkills", Int(effect, "ActiveSkill"));
                 var action = Row("ActionTypes", Int(active, "ActionType"));
-                var constants = new Dictionary<string, int>(StringComparer.Ordinal);
-                foreach (int stat in Ints(set, "ImplicitStats")) constants[StatName(stat)] = 1;
-                var constantKeys = new HashSet<string>(StringComparer.Ordinal);
+                var constants = new Dictionary<uint, int>();
+                foreach (int stat in Ints(set, "ImplicitStats")) constants[StatId(stat)] = 1;
+                var constantKeys = new HashSet<uint>();
                 AddPairs(constants, set, "ConstantStats", "ConstantStatsValues", false, constantKeys);
                 Require(grantedLevels.TryGetValue(index, out var gl), $"Missing GEPL for effect {index}.");
                 Require(statLevels.TryGetValue(setIndex, out var sl), $"Missing GESSPL for effect {index}.");
@@ -126,12 +135,12 @@ public sealed class RampageCatalog(string folder = "data")
                         .OrderBy(s => Int(s.Row, "GemLevel")).ToArray();
                     Require(candidates.Length > 0, $"Missing GESSPL for effect {index} level {level}.");
                     var statsAtLevel = candidates[^1];
-                    var values = new Dictionary<string, int>(constants, StringComparer.Ordinal);
+                    var values = new Dictionary<uint, int>(constants);
                     AddPairs(values, statsAtLevel.Row, "FloatStats", "BaseResolvedValues", true, constantKeys);
                     AddPairs(values, statsAtLevel.Row, "AdditionalStats", "AdditionalStatsValues", true, constantKeys);
-                    foreach (int flag in Ints(statsAtLevel.Row, "AdditionalFlags")) values[StatName(flag)] = 1;
-                    levels.Add(new(entry.Index, statsAtLevel.Index, level, values.ToFrozenDictionary(StringComparer.Ordinal),
-                        values.ToFrozenDictionary(p => statKeys[p.Key], p => p.Value), entry.Row, statsAtLevel.Row));
+                    foreach (int flag in Ints(statsAtLevel.Row, "AdditionalFlags")) values[StatId(flag)] = 1;
+                    levels.Add(new(entry.Index, statsAtLevel.Index, level, values.ToFrozenDictionary(),
+                        values.ToFrozenDictionary(), entry.Row, statsAtLevel.Row));
                 }
                 var plan = new SkillPlan(index, Text(effect, "Id"), setIndex, Int(effect, "CastTime"),
                     checked((ushort)Int(action, "HASH16")), Array.AsReadOnly(Ints(active, "ActiveSkillTypes")),
@@ -139,14 +148,14 @@ public sealed class RampageCatalog(string folder = "data")
                 skills.Add(index, plan);
                 return plan;
             }
-            void AddPairs(Dictionary<string, int> target, ClientRow row, string keys, string values, bool addConstants,
-                HashSet<string> constantKeys)
+            void AddPairs(Dictionary<uint, int> target, ClientRow row, string keys, string values, bool addConstants,
+                HashSet<uint> constantKeys)
             {
                 int[] ids = Ints(row, keys), amounts = Ints(row, values);
                 Require(ids.Length == amounts.Length, $"Rampage {keys}/{values} lengths differ.");
                 for (int i = 0; i < ids.Length; i++)
                 {
-                    string name = StatName(ids[i]);
+                    uint name = StatId(ids[i]);
                     target[name] = checked((addConstants && constantKeys.Contains(name) ? target.GetValueOrDefault(name) : 0) + amounts[i]);
                     if (!addConstants) constantKeys.Add(name);
                 }
@@ -208,15 +217,15 @@ public sealed class RampageCatalog(string folder = "data")
                 Require(baseLevel is not null, "Rampage tier has no level-one skill row.");
                 foreach (var weapon in weapons)
                 {
-                    string countStat = weapon.Kind switch
+                    uint countStat = weapon.Kind switch
                     {
-                        WeaponKind.Dagger => "number_of_animated_daggers_to_summon",
-                        WeaponKind.Bow => "number_of_animated_bows_to_summon",
-                        _ => "number_of_animated_two_handed_swords_to_summon",
+                        WeaponKind.Dagger => Stat.NumberOfAnimatedDaggersToSummon,
+                        WeaponKind.Bow => Stat.NumberOfAnimatedBowsToSummon,
+                        _ => Stat.NumberOfAnimatedTwoHandedSwordsToSummon,
                     };
                     int count = baseLevel!.Get(countStat);
                     if (count == 0) continue;
-                    int duration = baseLevel.Get("base_skill_effect_duration");
+                    int duration = baseLevel.Get(Stat.BaseSkillEffectDuration);
                     Require(count is > 0 and <= 1000 && duration > 0, "Invalid Rampage summon count/duration.");
                     summons.Add(new(weapon, count, duration));
                 }

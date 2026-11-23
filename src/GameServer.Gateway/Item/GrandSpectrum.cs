@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 public static class GrandSpectrum
 {
-    const string CountStat = "number_of_stackable_unique_jewels";
+    const uint CountStat = Stat.NumberOfStackableUniqueJewels;
 
     // The current three outcomes for each base. The old mana and armour versions still have readable item mods.
     static readonly Dictionary<string, string[]> Variants = new()
@@ -15,17 +15,21 @@ public static class GrandSpectrum
             "MinimumFrenzyChargesPerStackableJewelUnique__1"],
     };
 
-    static readonly Dictionary<string, string> Targets = new()
+    // Each "<prefix>_per_stackable_unique_jewel" coefficient and the stat it adds to.
+    static readonly (uint Per, uint Target)[] Targets = [.. new (string Prefix, uint Target)[]
     {
-        ["X_mana"] = "base_maximum_mana", ["X_armour"] = "base_physical_damage_reduction_rating",
-        ["elemental_damage_+%"] = "elemental_damage_+%", ["critical_strike_chance_+%"] = "critical_strike_chance_+%",
-        ["elemental_resistance_%"] = "base_resist_all_elements_%", ["maximum_life_+%"] = "maximum_life_+%",
-        ["avoid_all_elemental_status_%"] = "avoid_all_elemental_status_%",
-        ["minion_critical_strike_multiplier_+"] = "minion_critical_strike_multiplier_+",
-        ["minimum_endurance_charges"] = "base_minimum_endurance_charges",
-        ["minimum_frenzy_charges"] = "base_minimum_frenzy_charges",
-        ["minimum_power_charges"] = "base_minimum_power_charges",
-    };
+        ("X_mana", Stat.BaseMaximumMana),
+        ("X_armour", Stat.BasePhysicalDamageReductionRating),
+        ("elemental_damage_+%", Stat.ElementalDamagePlusPct),
+        ("critical_strike_chance_+%", Stat.CriticalStrikeChancePlusPct),
+        ("elemental_resistance_%", Stat.BaseResistAllElementsPct),
+        ("maximum_life_+%", Stat.MaximumLifePlusPct),
+        ("avoid_all_elemental_status_%", Stat.AvoidAllElementalStatusPct),
+        ("minion_critical_strike_multiplier_+", Stat.MinionCriticalStrikeMultiplierPlus),
+        ("minimum_endurance_charges", Stat.BaseMinimumEnduranceCharges),
+        ("minimum_frenzy_charges", Stat.BaseMinimumFrenzyCharges),
+        ("minimum_power_charges", Stat.BaseMinimumPowerCharges),
+    }.Select(t => (Stat.Of(t.Prefix + "_per_stackable_unique_jewel"), t.Target))];
 
     public static string? Roll(string baseName, Random random) =>
         Variants.TryGetValue(baseName, out var variants) ? variants[random.Next(variants.Length)] : null;
@@ -35,10 +39,9 @@ public static class GrandSpectrum
 
     public static void Apply(Dictionary<uint, int> sources, StatCatalog stats)
     {
-        if (stats.Key(CountStat) is not uint key || !sources.TryGetValue(key, out int count) || count <= 0) return;
-        foreach (var (prefix, target) in Targets)
-            if (stats.Key(prefix + "_per_stackable_unique_jewel") is uint per
-                && sources.TryGetValue(per, out int coefficient) && stats.Key(target) is uint output)
+        if (!sources.TryGetValue(CountStat, out int count) || count <= 0) return;
+        foreach (var (per, output) in Targets)
+            if (sources.TryGetValue(per, out int coefficient))
                 sources[output] = (int)Math.Clamp(sources.GetValueOrDefault(output) + (long)coefficient * count, int.MinValue, int.MaxValue);
     }
 }

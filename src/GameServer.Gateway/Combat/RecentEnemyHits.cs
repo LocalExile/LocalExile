@@ -1,10 +1,10 @@
-/// <summary>LocalExile incoming-contact model v1. Owned by one area connection; use under its Monsters lock.</summary>
+/// <summary>LocalExile incoming-contact model v1. Owned by one area connection; use in the area's frame.</summary>
 public sealed class RecentEnemyHits
 {
-    public const string Counter = "number_of_times_have_been_hit_by_enemy_recently";
-    public const string PerHit = "chance_to_double_armour_effect_on_hit_%_per_enemy_hit_taken_recently_capped";
-    public const string GenericChance = "chance_to_double_armour_effect_on_hit_%";
-    public const string VirtualChance = "virtual_chance_to_double_armour_effect_on_hit_%";
+    public const uint Counter = Stat.NumberOfTimesHaveBeenHitByEnemyRecently;
+    public const uint PerHit = Stat.ChanceToDoubleArmourEffectOnHitPctPerEnemyHitTakenRecentlyCapped;
+    public const uint GenericChance = Stat.ChanceToDoubleArmourEffectOnHitPct;
+    public const uint VirtualChance = Stat.VirtualChanceToDoubleArmourEffectOnHitPct;
     public const double RecentlySeconds = 4;
     readonly Queue<double> contacts = new();
 
@@ -14,8 +14,19 @@ public sealed class RecentEnemyHits
         return contacts.Count;
     }
 
-    public void Record(double now) { Count(now); contacts.Enqueue(now); }
-    public void Clear() => contacts.Clear();
+    /// <summary>A contact was recorded or the contacts cleared (the stats that count them follow).</summary>
+    public Action? Changed;
+
+    public void Record(double now) { Count(now); contacts.Enqueue(now); Changed?.Invoke(); }
+
+    /// <summary>Seconds until the count next drops (the oldest contact leaves the window); null when none is counted.</summary>
+    public double? NextChangeIn(double now) => Count(now) > 0 && contacts.TryPeek(out double at) ? at + RecentlySeconds - now : null;
+    public void Clear()
+    {
+        if (contacts.Count == 0) return;
+        contacts.Clear();
+        Changed?.Invoke();
+    }
 
     // The 30% cap applies to the per-hit contribution, before adding the independent generic chance.
     public static int Chance(int count, int perHit, int generic) =>

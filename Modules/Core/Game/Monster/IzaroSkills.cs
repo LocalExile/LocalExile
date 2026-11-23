@@ -16,6 +16,12 @@ using static Program;
 /// </summary>
 static class IzaroSkills
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadIzaroSkillsData()
+    {
+        BuffRows = LoadBuffRows();
+    }
+
     enum Shape { Circle, Ahead, Line, Cone, Leap, Charge, Self }
 
     // Effect: GrantedEffects row. Contact: the clip's contact over its length (LabyrinthBoss's rig.amd). Reach: how far the
@@ -97,21 +103,21 @@ static class IzaroSkills
     static IEnumerable<Move> MovesOf(MonsterCatalog.Variety variety) =>
         Moves.Where(m => variety.GrantedEffects?.Contains(m.Effect) == true);
 
-    static int Value(IReadOnlyList<(uint Key, int Value)> stats, string name) =>
-        Stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Key == key).Value : 0;
+    static int Value(IReadOnlyList<(uint Key, int Value)> stats, uint name) =>
+        name is var key ? stats.FirstOrDefault(s => s.Key == key).Value : 0;
 
     // The skill as its level has it: a spell's cast time and base damage, an attack's slower time and more damage than his
     // plain one's.
-    static MonsterAttack Attack(ClientState conn, MonsterAttack plain, Move move, byte level)
+    static MonsterAttack Attack(Player player, MonsterAttack plain, Move move, byte level)
     {
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         int effectLevel = catalog.MonsterEffectLevel(move.Effect, level);
         var stats = catalog.EffectStats(move.Effect, effectLevel);
-        double more = 1 + (Value(stats, "active_skill_damage_+%_final") + Value(stats, "active_skill_physical_damage_+%_final")) / 100.0;
+        double more = 1 + (Value(stats, Stat.ActiveSkillDamagePlusPctFinal) + Value(stats, Stat.ActiveSkillPhysicalDamagePlusPctFinal)) / 100.0;
         bool spell = catalog.IsSpell(move.Effect);
-        double speed = 1 + Value(stats, "active_skill_attack_speed_+%_final") / 100.0;
+        double speed = 1 + Value(stats, Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100.0;
         double seconds = spell ? catalog.CastTimeMs(move.Effect) / 1000.0
-            : (Value(stats, "cast_time_overrides_attack_duration") != 0 ? catalog.CastTimeMs(move.Effect) / 1000.0 : plain.Seconds) / speed;
+            : (Value(stats, Stat.CastTimeOverridesAttackDuration) != 0 ? catalog.CastTimeMs(move.Effect) / 1000.0 : plain.Seconds) / speed;
         var damage = move.MonsterDamage is { } scaled && Monsters.BaseDamage(level) is int baseDamage
             ? DamagePacket.Of(scaled.Type, baseDamage * scaled.Low, baseDamage * scaled.High).Scale(more)
             : spell ? catalog.HitDamage(move.Effect, effectLevel).Scale(more) : plain.Damage.Scale(more);
@@ -119,45 +125,45 @@ static class IzaroSkills
     }
 
     /// <summary>The actor's skill list (Izaro's, a lieutenant's): the plain attack first, then each skill he uses, with the 0x1ab ids it names.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? melee)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player player, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? melee)
     {
         if (melee is null || !MovesOf(variety).Any()) return null;
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         var list = new List<GrantedSkill> { melee };
         // The record's times are final, so neither the skill's speed nor the cast-time override goes with them.
-        string[] notSent = [.. MonsterSkillStatsNotSent, "active_skill_attack_speed_+%_final", "cast_time_overrides_attack_duration"];
-        var finalStats = notSent.Select(name => Stats.Key(name)).OfType<uint>().ToHashSet();
+        uint[] notSent = [.. MonsterSkillStatsNotSent, Stat.ActiveSkillAttackSpeedPlusPctFinal, Stat.CastTimeOverridesAttackDuration];
+        var finalStats = notSent.Select(name => (name)).OfType<uint>().ToHashSet();
         foreach (var move in MovesOf(variety))
         {
             int effectLevel = catalog.MonsterEffectLevel(move.Effect, level);
-            var own = Attack(conn, attack, move, level).InPlaceSkillStats();
+            var own = Attack(player, attack, move, level).InPlaceSkillStats();
             // The client takes neither from the effect's row: its art (the Upheaval's Ornaments, else Glacial Cascade's ice) and
             // the final radius its effect builders read (11-skills.md: without it Ice Nova drew nothing).
             List<(uint, int)> drawn = [.. own];
-            if (catalog.ArtVariation(move.Effect) is int art and > 0 && Stats.Key("skill_art_variation") is uint artKey) drawn.Add((artKey, art));
-            if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey)
+            if (catalog.ArtVariation(move.Effect) is int art and > 0 && Stat.SkillArtVariation is var artKey) drawn.Add((artKey, art));
+            if (Stat.ActiveSkillAreaOfEffectRadius is var radiusKey)
                 drawn.Add((radiusKey, (int)(move.Shape is Shape.Line or Shape.Charge ? move.Width : move.Size)));
             // The Grasping Ornaments' action spaces them by the final duration and counts them by the final area (0x141b9df80,
             // 0x14193efd0): with no duration only his clip played, and the hits came from nothing (live).
             var effectStats = catalog.EffectStats(move.Effect, effectLevel);
-            if (Value(effectStats, "base_skill_effect_duration") is int duration and > 0 && Stats.Key("skill_effect_duration") is uint durationKey)
+            if (Value(effectStats, Stat.BaseSkillEffectDuration) is int duration and > 0 && Stat.SkillEffectDuration is var durationKey)
                 drawn.Add((durationKey, duration));
-            if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint areaKey)
-                drawn.Add((areaKey, Value(effectStats, "active_skill_area_of_effect_radius_+%_final")));
+            if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var areaKey)
+                drawn.Add((areaKey, Value(effectStats, Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal)));
             var dropped = drawn.Select(s => s.Item1).Concat(finalStats).ToHashSet();
-            var stats = WithBehaviourVariation(conn, move.Effect, [.. catalog.EffectStats(move.Effect, effectLevel).Where(s => !dropped.Contains(s.Item1)), .. drawn]);
+            var stats = WithBehaviourVariation(player, move.Effect, [.. catalog.EffectStats(move.Effect, effectLevel).Where(s => !dropped.Contains(s.Item1)), .. drawn]);
             if (catalog.FindByRow(SkillId(move), move.Effect, effectLevel, stats) is { } skill) list.Add(skill);
         }
         return list;
     }
 
     /// <summary>His skills while the fight lasts, one at a time, between the ordinary AI's swings.</summary>
-    internal static async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster boss, Func<bool> here)
+    internal static async Task Run(Player player, uint id, SpawnedMonster boss, Func<bool> here)
     {
         if (boss.Variety is not { } variety || boss.Attack is not { } plain) return;
-        var moves = MovesOf(variety).Select(m => (Move: m, Use: Attack(conn, plain, m, boss.Level))).ToList();
+        var moves = MovesOf(variety).Select(m => (Move: m, Use: Attack(player, plain, m, boss.Level))).ToList();
         var ready = new Dictionary<Move, double>();
-        double next = conn.Clock.Elapsed.TotalSeconds + FirstSeconds;
+        double next = AreaTime(player) + FirstSeconds;
         // Holding the AI back until `next`: its BusyUntil is ours, to give up when no skill is ready.
         bool held = false;
         void Hold(double until)
@@ -165,73 +171,68 @@ static class IzaroSkills
             // A trial's end has taken him out of the fight: its BusyUntil stays.
             if (double.IsFinite(boss.BusyUntil) && boss.Aggro) { boss.BusyUntil = until; held = true; }
         }
-        lock (conn.Monsters) Hold(next + HeldPastGap + 0.1);
+        Hold(next + HeldPastGap + 0.1);
         try
         {
             while (here())
             {
-                await Task.Delay(50);
+                await AreaDelay(player, 0.05);
                 if (!here()) return;
                 (Move Move, MonsterAttack Use)? chosen = null;
                 int action = 0;
-                lock (conn.Monsters)
+                if (boss.Dead || boss.Life == 0) return;
+                double now = AreaTime(player);
+                // A monster in its hit recovery starts no action (07 §6), as the ordinary AI keeps.
+                if (now < next || (!held && now < boss.BusyUntil) || now < boss.FlinchUntil || !boss.Aggro || player.Paused || InGracePeriod(player)
+                    || MonsterAsleep(player, id) || MonsterActionFactor(boss, now) == 0) continue;
+                var (from, playerAt) = (boss.Walk.Position(now), player.Walk.Position(now));
+                double distance = Dist(from, playerAt);
+                var usable = moves.Where(m => distance >= m.Move.Near && distance <= m.Move.Reach && now >= ready.GetValueOrDefault(m.Move)).ToList();
+                if (usable.Count == 0)
                 {
-                    if (boss.Dead || boss.Life == 0) return;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    // A monster in its hit recovery starts no action (07 §6), as the ordinary AI keeps.
-                    if (now < next || (!held && now < boss.BusyUntil) || now < boss.FlinchUntil || !boss.Aggro || conn.Paused || InGracePeriod(conn)
-                        || conn.AsleepMonsters.Contains(id) || MonsterActionFactor(boss, now) == 0) continue;
-                    var (from, player) = (boss.Walk.Position(now), conn.Walk.Position(now));
-                    double distance = Dist(from, player);
-                    var usable = moves.Where(m => distance >= m.Move.Near && distance <= m.Move.Reach && now >= ready.GetValueOrDefault(m.Move)).ToList();
-                    if (usable.Count == 0)
-                    {
-                        // None ready: the AI's turn, a swing or the chase.
-                        if (held && double.IsFinite(boss.BusyUntil)) boss.BusyUntil = now;
-                        held = false;
-                        continue;
-                    }
+                    // None ready: the AI's turn, a swing or the chase.
+                    if (held && double.IsFinite(boss.BusyUntil)) boss.BusyUntil = now;
                     held = false;
-                    chosen = usable[Random.Shared.Next(usable.Count)];
-                    action = ++boss.ActionGeneration;
-                    // Not a walk-up swing the AI may call off (a predictive client's), and the chase stops.
-                    boss.SwingGeneration = null;
-                    boss.BusyUntil = now + chosen.Value.Use.Seconds;
-                    ready[chosen.Value.Move] = now + chosen.Value.Move.Cooldown;
+                    continue;
                 }
-                await Use(remote, stream, ciphers, conn, id, boss, action, chosen.Value.Move, chosen.Value.Use);
-                lock (conn.Monsters)
+                held = false;
+                chosen = usable[AreaRng(player).Next(usable.Count)];
+                action = ++boss.ActionGeneration;
+                // Not a walk-up swing the AI may call off (a predictive client's), and the chase stops.
+                boss.SwingGeneration = null;
+                boss.BusyUntil = now + chosen.Value.Use.Seconds;
+                ready[chosen.Value.Move] = now + chosen.Value.Move.Cooldown;
+                await Use(player, id, boss, action, chosen.Value.Move, chosen.Value.Use);
+                now = AreaTime(player);
+                double free = Math.Max(now, boss.BusyUntil);
+                // Out of his plain attack's reach he runs at the player for a moment: held at every gap, he would not chase.
+                if (Dist(boss.Walk.Position(now), player.Walk.Position(now)) > plain.Range)
                 {
-                    double now = conn.Clock.Elapsed.TotalSeconds, free = Math.Max(now, boss.BusyUntil);
-                    // Out of his plain attack's reach he runs at the player for a moment: held at every gap, he would not chase.
-                    if (Dist(boss.Walk.Position(now), conn.Walk.Position(now)) > plain.Range)
-                    {
-                        next = free + RunMinSeconds + Random.Shared.NextDouble() * (RunMaxSeconds - RunMinSeconds);
-                        held = false;
-                    }
-                    else
-                    {
-                        next = free + GapMinSeconds + Random.Shared.NextDouble() * (GapMaxSeconds - GapMinSeconds);
-                        Hold(next + HeldPastGap);
-                    }
+                    next = free + RunMinSeconds + AreaRng(player).NextDouble() * (RunMaxSeconds - RunMinSeconds);
+                    held = false;
+                }
+                else
+                {
+                    next = free + GapMinSeconds + AreaRng(player).NextDouble() * (GapMaxSeconds - GapMinSeconds);
+                    Hold(next + HeldPastGap);
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} Izaro's skills stopped: {ServerLog.Describe(ex)}"); }
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} Izaro's skills stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static async Task Use(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster boss, int action, Move move, MonsterAttack use)
+    static async Task Use(Player player, uint id, SpawnedMonster boss, int action, Move move, MonsterAttack use)
     {
         double startedAt = 0;
         (int X, int Y) from = default, aim = default;
-        ushort sequence = conn.NextActionSequence();
-        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action, () =>
+        ushort sequence = player.NextActionSequence();
+        if (!await SendMonsterAction(player, id, boss, action, () =>
         {
-            if (AreaTime(conn) < boss.FlinchUntil
-                || MonsterSwingOrderLocked(conn, boss, use, action, generic: false, use.Seconds, AreaTime(conn)) is not { } order)
+            if (AreaTime(player) < boss.FlinchUntil
+                || MonsterSwingOrderLocked(player, boss, use, action, generic: false, use.Seconds, AreaTime(player)) is not { } order)
             {
-                boss.BusyUntil = conn.Clock.Elapsed.TotalSeconds;
+                boss.BusyUntil = AreaTime(player);
                 return null;
             }
             (startedAt, from, aim) = (order.StartedAt, order.From, order.Player);
@@ -240,34 +241,34 @@ static class IzaroSkills
             boss.BusyUntil = Math.Max(boss.BusyUntil, startedAt + move.HoldSeconds);
             // A skill played where he stands leaves his walk running (07 §6): he walked on through the cast (measured, trace-sync.js).
             // A short Move replaces the walk; the client refuses one under 3 cells away (0x141949a20).
-            var stop = conn.LockstepClient ? from : StopCell(conn, boss, from, aim);
+            var stop = player.Connection.LockstepClient ? from : StopCell(player, boss, from, aim);
             boss.Walk.Order(stop.X, stop.Y, startedAt);
-            byte[] halt = stop == from ? [] : InstanceProtocol.ActionStarted(id, from.X, from.Y, stop.X, stop.Y, IzaroFights.MoveSkill, conn.NextActionSequence(), conn.MonsterOrderFlags);
+            byte[] halt = stop == from ? [] : InstanceProtocol.ActionStarted(id, from.X, from.Y, stop.X, stop.Y, IzaroFights.MoveSkill, player.NextActionSequence(), player.MonsterOrderFlags);
             // The dash goes to a cell the server names: aimed at the player's object the client chose where it ended by its own
             // player, up to 95 cells from the server's cell, and the next order set him back (measured).
-            if (move.Shape == Shape.Charge) aim = ChargeEnd(conn, boss, from, aim);
+            if (move.Shape == Shape.Charge) aim = ChargeEnd(player, boss, from, aim);
             // The Upheaval aims at the cell too: aimed at the player's object, it walked him up to about 13 cells from the player
             // through its whole cast (measured).
             return [.. InstanceProtocol.ActionEnded(id), .. halt,
-                .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, use.SkillId, sequence, conn.MonsterOrderFlags,
-                    targetObjectId: move.Shape is Shape.Line or Shape.Charge || move.DelaySeconds > 0 ? null : PlayerId)];
+                .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, use.SkillId, sequence, player.MonsterOrderFlags,
+                    targetObjectId: move.Shape is Shape.Line or Shape.Charge || move.DelaySeconds > 0 ? null : player.Id)];
         }, $"0x01ab {boss.Variety?.Name ?? "Izaro"} 0x{id:x} uses {move.Name} (0x{use.SkillId:x4}, {use.Seconds:0.00} s)")) return;
-        if (move.StartArt is { } start) await ShowArt(remote, stream, ciphers, conn, id, start);
+        if (move.StartArt is { } start) await ShowArt(player, id, start);
         double contact = startedAt + use.Seconds * move.Contact;
-        if (!await WaitMonsterActionTime(conn, id, boss, action, contact)) return;
+        if (!await WaitMonsterActionTime(player, id, boss, action, contact)) return;
         // The leap and the charge carry him to where they aimed (the client's action moves its copy).
-        if (move.Shape is Shape.Leap or Shape.Charge && conn.Layout.WalkableFor(aim.X, aim.Y, 0))
-            lock (conn.Monsters) boss.Walk.Teleport(aim.X, aim.Y, conn.Clock.Elapsed.TotalSeconds);
-        if (move.Art is { } art) await ShowArt(remote, stream, ciphers, conn, id, art);
+        if (move.Shape is Shape.Leap or Shape.Charge && player.Layout.WalkableFor(aim.X, aim.Y, 0))
+            boss.Walk.Teleport(aim.X, aim.Y, AreaTime(player));
+        if (move.Art is { } art) await ShowArt(player, id, art);
         if (move.Shape == Shape.Self)
         {
-            await SelfBuff(remote, stream, ciphers, conn, id, move);
+            await SelfBuff(player, id, move);
             return;
         }
         // A mark that bursts later lands whatever its user does next.
         if (move.DelaySeconds > 0)
         {
-            _ = DelayedHit(remote, stream, ciphers, conn, id, boss, move, use, from, aim, sequence);
+            _ = DelayedHit(player, id, boss, move, use, from, aim, sequence);
             return;
         }
         // The spikes rise one after the other (the time between them is ours), and one hit is all the player takes from them.
@@ -275,36 +276,36 @@ static class IzaroSkills
         {
             for (int spike = 0; spike < LineSpikes; spike++)
             {
-                if (spike > 0 && !await WaitMonsterActionTime(conn, id, boss, action, contact + spike * move.TickSeconds)) return;
-                if (await Hit(remote, stream, ciphers, conn, id, boss, action, move, use, from, aim, sequence, spike)) return;
+                if (spike > 0 && !await WaitMonsterActionTime(player, id, boss, action, contact + spike * move.TickSeconds)) return;
+                if (await Hit(player, id, boss, action, move, use, from, aim, sequence, spike)) return;
             }
             return;
         }
-        await Hit(remote, stream, ciphers, conn, id, boss, action, move, use, from, aim, sequence);
+        await Hit(player, id, boss, action, move, use, from, aim, sequence);
         if (move.TickSeconds <= 0) return;
         for (double at = contact + move.TickSeconds; at < contact + move.TicksFor; at += move.TickSeconds)
         {
-            if (!await WaitMonsterActionTime(conn, id, boss, action, at)) return;
-            await Hit(remote, stream, ciphers, conn, id, boss, action, move, use, from, aim, sequence);
+            if (!await WaitMonsterActionTime(player, id, boss, action, at)) return;
+            await Hit(player, id, boss, action, move, use, from, aim, sequence);
         }
     }
 
     // A Self skill's buff on its user, for its time.
-    static async Task SelfBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, Move move)
+    static async Task SelfBuff(Player player, uint id, Move move)
     {
-        if (move.Buff is not { } name || BuffRows.Value.GetValueOrDefault(name) is not (> 0 and var row)) return;
-        ushort buff;
-        lock (conn.Monsters) buff = conn.NextBuff++;
-        var layout = conn.Layout;
-        await Send(remote, stream, ciphers, InstanceEntities.AddBuff(id, buff, (ushort)row, id), $"0x01c1 0x{id:x} has {name}");
-        await Task.Delay(TimeSpan.FromSeconds(move.BuffSeconds));
-        if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
-        await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
+        if (move.Buff is not { } name || BuffRows.GetValueOrDefault(name) is not (> 0 and var row)) return;
+        var layout = player.Layout;
+        player.Area.Buffs.Set(id, new((ushort)row, id));
+        await AreaDelay(player, move.BuffSeconds);
+        if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
+        player.Area.Buffs.Clear(id, (ushort)row, id);
     }
 
-    static readonly Lazy<Dictionary<string, int>> BuffRows = new(() =>
+    static Dictionary<string, int> BuffRows = default!;
+
+    static Dictionary<string, int> LoadBuffRows()
     {
-        var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+        var rows = new Dictionary<string, int>();
         var wanted = Moves.Select(m => m.Buff).OfType<string>().ToHashSet();
         if (!ClientTables.Has("BuffDefinitions")) return rows;
         int row = 0;
@@ -314,41 +315,38 @@ static class IzaroSkills
             row++;
         }
         return rows;
-    });
-
-    // The hit of a mark that bursts DelaySeconds after the contact, round the cell it was aimed at.
-    static async Task DelayedHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster boss,
-        Move move, MonsterAttack use, (int X, int Y) from, (int X, int Y) aim, ushort sequence)
-    {
-        var layout = conn.Layout;
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(move.DelaySeconds));
-            if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
-            MonsterHitOutcome? outcome = null;
-            await Send(remote, stream, ciphers, [], $"0x01af 0x{id:x} {move.Name} lands", atGate: () =>
-            {
-                lock (conn.Monsters)
-                {
-                    if (InGracePeriod(conn) || !MonsterPresent(conn, id, boss)) return null;
-                    double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
-                    var here = conn.Walk.Position(now);
-                    if (!Inside(move, from, aim, here)) return null;
-                    outcome = CommitMonsterHitLocked(remote, conn, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
-                    return outcome?.HitPacket;
-                }
-            });
-            if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} 0x{id:x}'s {move.Name} stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static bool Free(ClientState conn, SpawnedMonster boss, (int X, int Y) cell) =>
-        conn.Layout.WalkableFor(cell.X, cell.Y, Math.Max(0, LivingCollision.Size(boss))) && !conn.Barrier.Contains(cell);
+    // The hit of a mark that bursts DelaySeconds after the contact, round the cell it was aimed at.
+    static async Task DelayedHit(Player player, uint id, SpawnedMonster boss,
+        Move move, MonsterAttack use, (int X, int Y) from, (int X, int Y) aim, ushort sequence)
+    {
+        var layout = player.Layout;
+        try
+        {
+            await AreaDelay(player, move.DelaySeconds);
+            if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
+            MonsterHitOutcome? outcome = null;
+            await Send(player, [], $"0x01af 0x{id:x} {move.Name} lands", atGate: () =>
+            {
+                if (InGracePeriod(player) || !MonsterPresent(player, id, boss)) return null;
+                double now = Math.Max(ProjectileWorldTime(player), AreaTime(player));
+                var here = player.Walk.Position(now);
+                if (!Inside(move, from, aim, here)) return null;
+                outcome = CommitMonsterHitLocked(player, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
+                return outcome?.HitPacket;
+            });
+            if (outcome is not null) await PresentMonsterHit(player, id, outcome);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} 0x{id:x}'s {move.Name} stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    static bool Free(Player player, SpawnedMonster boss, (int X, int Y) cell) =>
+        player.Layout.WalkableFor(cell.X, cell.Y, Math.Max(0, LivingCollision.Size(boss))) && !player.Barrier.Contains(cell);
 
     // The cell along his way to the aim, the last free one up to `cells` along it.
-    static (int X, int Y) Along(ClientState conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim, int cells)
+    static (int X, int Y) Along(Player player, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim, int cells)
     {
         double dx = aim.X - from.X, dy = aim.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy);
         if (length < 1) return from;
@@ -356,51 +354,48 @@ static class IzaroSkills
         for (int k = 1; k <= cells; k++)
         {
             (int X, int Y) cell = ((int)Math.Round(from.X + dx / length * k), (int)Math.Round(from.Y + dy / length * k));
-            if (!Free(conn, boss, cell)) break;
+            if (!Free(player, boss, cell)) break;
             last = cell;
         }
         return last;
     }
 
     // Where the Move that ends his walk goes: StopCells on, towards the aim, else any free way.
-    static (int X, int Y) StopCell(ClientState conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim)
+    static (int X, int Y) StopCell(Player player, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim)
     {
         foreach (var toward in new[] { aim, (from.X + 1, from.Y), (from.X - 1, from.Y), (from.X, from.Y + 1), (from.X, from.Y - 1) })
         {
-            var cell = Along(conn, boss, from, toward, StopCells);
+            var cell = Along(player, boss, from, toward, StopCells);
             if (Dist(from, cell) >= StopCells - 1) return cell;
         }
         return from;
     }
 
     // The dash goes about ChargeCells towards the player, not to the player (55 to 63 measured, trace-sync.js).
-    static (int X, int Y) ChargeEnd(ClientState conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) player) =>
-        Along(conn, boss, from, player, ChargeCells);
+    static (int X, int Y) ChargeEnd(Player player, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) playerAt) =>
+        Along(player, boss, from, playerAt, ChargeCells);
 
     // An effect for its clip: riding on him turned as he is (attachment kind 0, flags 3, as the Arrow Nova arrow), or on
     // his cell.
-    static async Task ShowArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, Fx art)
+    static async Task ShowArt(Player player, uint id, Fx art)
     {
         uint effect;
         (int X, int Y) at;
-        lock (conn.Monsters)
-        {
-            effect = conn.NextObjectId++;
-            at = conn.Monsters.TryGetValue(id, out var boss) ? boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : default;
-        }
-        var layout = conn.Layout;
+        effect = player.NextObjectId++;
+        at = player.Area.Monsters.TryGetValue(id, out var boss) ? boss.Walk.Position(AreaTime(player)) : default;
+        var layout = player.Layout;
         var blob = art.OnHim ? new EffectObject(at.X, at.Y, art.Ao) { Parent = id, AttachKind = 0, AttachFlags = 3 }.Blob()
             : new EffectObject(at.X, at.Y, art.Ao).Blob();
-        await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob),
+        await Send(player, [.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob),
             .. InstanceProtocol.EnterWakeZone(effect)], $"Izaro 0x{id:x} shows {art.Ao} at ({at.X}, {at.Y}) for {art.Seconds:0.0} s");
-        _ = RemoveArt(remote, stream, ciphers, conn, layout, effect, art.Seconds);
+        _ = RemoveArt(player, layout, effect, art.Seconds);
     }
 
-    static async Task RemoveArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaLayout layout, uint effect, double seconds)
+    static async Task RemoveArt(Player player, AreaLayout layout, uint effect, double seconds)
     {
-        await Task.Delay(TimeSpan.FromSeconds(seconds));
-        if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
-        try { await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null); }
+        await AreaDelay(player, seconds);
+        if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
+        try { await Send(player, InstanceProtocol.RemoveObject(effect), null); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
     }
 
@@ -428,23 +423,23 @@ static class IzaroSkills
     }
 
     // Whether the player took it.
-    static async Task<bool> Hit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster boss, int action,
+    static async Task<bool> Hit(Player player, uint id, SpawnedMonster boss, int action,
         Move move, MonsterAttack use, (int X, int Y) from, (int X, int Y) aim, ushort sequence, int spike = 0)
     {
         MonsterHitOutcome? outcome = null;
-        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, boss, action, () =>
+        if (!await SendMonsterAction(player, id, boss, action, () =>
         {
-            if (InGracePeriod(conn)) return null;
-            double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
-            foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())
+            if (InGracePeriod(player)) return null;
+            double now = Math.Max(ProjectileWorldTime(player), AreaTime(player));
+            foreach (var golem in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).ToArray())
                 if (!golem.Monster.Dead && Inside(move, from, aim, golem.Monster.Walk.Position(now), spike))
-                    GolemTakeHitLocked(conn, golem, id, boss, use, now, area: true);
-            var here = conn.Walk.Position(now);
+                    GolemTakeHitLocked(player, golem, id, boss, use, now, area: true);
+            var here = player.Walk.Position(now);
             if (!Inside(move, from, aim, here, spike)) return null;
-            outcome = CommitMonsterHitLocked(remote, conn, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
+            outcome = CommitMonsterHitLocked(player, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
             return outcome?.HitPacket;
         }, $"0x01af {boss.Variety?.Name ?? "Izaro"} 0x{id:x} {move.Name} hits the player")) return false;
-        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        if (outcome is not null) await PresentMonsterHit(player, id, outcome);
         return outcome is not null;
     }
 }

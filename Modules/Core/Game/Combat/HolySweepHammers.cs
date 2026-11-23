@@ -26,14 +26,14 @@ public static class HolySweepHammers
     }
 
     /// <summary>The skill's hammers, from its stats; null for a skill without them.</summary>
-    public static Settings? For(Func<string, int> get)
+    public static Settings? For(Func<uint, int> get)
     {
-        int count = get("holy_sweep_number_of_holy_bolts_to_create");
-        int radius = get("active_skill_base_secondary_area_of_effect_radius");
+        int count = get(Stat.HolySweepNumberOfHolyBoltsToCreate);
+        int radius = get(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius);
         if (count <= 0 || radius <= 0) return null;
-        double more = Math.Max(0, 1 + get("holy_sweep_hammerfall_damage_+%_final") / 100.0);
-        int rate = Math.Max(0, get("holy_sweep_hammerfall_rate_ms"));
-        return new(count, radius, more, CannotBeEvaded: rate == 0, rate / 1000.0, rate > 0 ? Math.Max(0, get("base_skill_effect_duration")) : 0);
+        double more = Math.Max(0, 1 + get(Stat.HolySweepHammerfallDamagePlusPctFinal) / 100.0);
+        int rate = Math.Max(0, get(Stat.HolySweepHammerfallRateMs));
+        return new(count, radius, more, CannotBeEvaded: rate == 0, rate / 1000.0, rate > 0 ? Math.Max(0, get(Stat.BaseSkillEffectDuration)) : 0);
     }
 
     /// <summary>Hammerfalls' time between waves as the client's controller holds it (0x141b1a270, +0x350): the rate over

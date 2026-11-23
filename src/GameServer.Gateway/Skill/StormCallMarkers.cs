@@ -27,7 +27,7 @@ public sealed class StormCallMarkers
     }
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     StormCallMarkers? stormCallMarkers;
     public StormCallMarkers StormCall => System.Threading.LazyInitializer.EnsureInitialized(ref stormCallMarkers);

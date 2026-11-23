@@ -13,14 +13,14 @@ public static class MavenProgress
 
     const string SaveKey = "atlas.maven";
     static readonly Progress Empty = new(0, []);
-    static readonly Lazy<IReadOnlyList<Round>> Catalog = new(() =>
+    public static IReadOnlyList<Round> Rounds { get; private set; } = [];
+
+    internal static void LoadData() => Rounds =
         [.. ClientTables.TableOrEmpty("MavenFights")
             .Where(r => (r.Text("Id") ?? "").StartsWith("Atlas", StringComparison.Ordinal))
             .Select(r => new Round(r.Text("Id")!, r.Int("BaseItemType"), r.Int("MinMapTier"),
                 r.Int("WitnessesRequired"), r.Int("AreaLevel"), r.Int("__col3")))
-            .OrderBy(r => r.MapTier)]);
-
-    public static IReadOnlyList<Round> Rounds => Catalog.Value;
+            .OrderBy(r => r.MapTier)];
     public static Round? Current(Progress progress) =>
         Rounds.Count == 0 ? null : Rounds[Math.Clamp(progress.Wins, 0, Rounds.Count - 1)];
 
