@@ -350,6 +350,7 @@ public static class UtilityFlasks
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
         public long Activation { get; set; }
+        public int SelfChaosDamageLifePctPerMinute { get; init; }
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
     }
@@ -369,12 +370,30 @@ public static class UtilityFlasks
     /// a pending End edge from any subsequent accepted use of the same item.</summary>
     public sealed class Effects
     {
+        public sealed class DamageProgress
+        {
+            public double Through = double.NaN;
+            public double Pending, TakenCarry, BypassCarry;
+        }
+
         readonly List<Active> _active = [];
         readonly Lock _lock = new();
         int _ticker, _lastTicket;
         long _activation;
         readonly Dictionary<uint, long> _latest = [];
         double expiryRate = 1;
+        public DamageProgress SelfDamage { get; } = new();
+
+        public bool HasSelfDamage
+        {
+            get { lock (_lock) return _active.Any(a => a.SelfChaosDamageLifePctPerMinute > 0); }
+        }
+
+        public IReadOnlyList<Active> SelfDamageEffects()
+        {
+            lock (_lock) return [.. _active.Where(a => a.SelfChaosDamageLifePctPerMinute > 0)];
+        }
+
         public void SetExpiryRate(double now, double rate)
         {
             lock (_lock)

@@ -162,6 +162,7 @@ public static partial class Game
         if (player.PlayerLife > 0) AdvanceSiphoningDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceHerEmbraceDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceFlameTouchedDamage(player, now, stats);
+        if (player.PlayerLife > 0) AdvanceUtilityFlaskChaosDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceChargeDegenerationLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceRecentHitLifeLossLocked(player, now);
         if (player.PlayerLife == 0)
