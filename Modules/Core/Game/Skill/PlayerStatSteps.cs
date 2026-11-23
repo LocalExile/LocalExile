@@ -12,7 +12,7 @@ using GameServer.Core.World;
 public enum PlayerStatStep : byte
 {
     Sources, Siphoning, SpiritCharges, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
-    AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
+    AvianCrab, Subscribers, ClassAttributes, OvercapCrit, BlockDamage, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward, Resonance,
 }
@@ -175,6 +175,13 @@ public static partial class Game
         {
             if (player.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
+        });
+        // "#% increased Damage per 1% Chance to Block Attack Damage": the capped attack block chance in Pools.
+        Step(PlayerStatStep.BlockDamage, (player, stats, _) =>
+        {
+            if (GetIn(stats, Stat.DamagePlusPctPer1PctBlockChance) is int perBlock and not 0)
+                AddTo(stats, Stat.DamagePlusPct,
+                    (long)perBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
