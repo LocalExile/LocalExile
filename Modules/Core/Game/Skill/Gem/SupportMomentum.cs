@@ -20,6 +20,7 @@ public static partial class Game
         public int ShownStacks;
         public double ShownUntil;
         public MomentumChannel? Channel;
+        public bool SkillRefreshDeferred;
 
         public bool Current(Player owner) => ReferenceEquals(walk, owner.Walk) && epoch == owner.ProjectileEpoch
             && !owner.Closed && !owner.LeavingArea && owner.PlayerLife > 0;
@@ -120,11 +121,27 @@ public static partial class Game
         StatsChangeAt(state.Until, () => AreaTime(player));
     }
 
+    // A value-only Actor skill-list refresh replaces the skill that the Lockstep client is channelling.
+    // Keep resolving paid ticks at their current speed and publish the skill records when that use ends.
+    static bool DeferMomentumChannelSkills(Player player)
+    {
+        if (!player.Connection.LockstepClient || !Momenta.TryGetValue(player, out var state)
+            || !state.Current(player) || state.Channel is not { } channel
+            || !ChannelCurrent(player, channel.Skill, channel.Action, channel.Generation)) return false;
+        state.SkillRefreshDeferred = true;
+        return true;
+    }
+
     static void CheckMomentumPresentation(Player player, double now)
     {
         if (!Momenta.TryGetValue(player, out var state)) return;
         if (!state.Current(player)) { ClearMomentum(player); return; }
         state.Refresh(player, now);
+        if (state.Channel is null && state.SkillRefreshDeferred)
+        {
+            state.SkillRefreshDeferred = false;
+            if (!PublishByFrame(player, PlayerStatChange.Sources)) PresentStats(player);
+        }
         PresentMomentum(player, state, now);
     }
 
