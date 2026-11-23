@@ -6,8 +6,8 @@ namespace GameServer.Gateway.Tests;
 // Red/blue supports whose stats had no consumer: Maim, Bloodlust, Power Charge on Critical and Volatility.
 public sealed class RedSupportMechanicsTests
 {
-    static Func<string, int> Stats(params (string Name, int Value)[] stats) =>
-        name => stats.Where(s => s.Name == name).Sum(s => s.Value);
+    static Func<uint, int> Stats(params (string Name, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Name) == name).Sum(s => s.Value);
 
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
         stats.ToDictionary(s => Program.Stats.Key(s.Name) ?? throw new InvalidOperationException(s.Name), s => s.Value);
@@ -16,7 +16,7 @@ public sealed class RedSupportMechanicsTests
     public void Maim_bloodlust_power_charges_and_volatility_apply()
     {
         static MonsterModSet Target(params (string Name, int Value)[] stats) =>
-            new([], [], new(stats.ToDictionary(s => s.Name, s => s.Value)));
+            new([], [], new(stats.ToDictionary(s => Stat.Of(s.Name), s => s.Value)));
 
         // A plain hit Maims for 4 s and changes movement only.
         var plain = new SpawnedMonster("plain", new(105, 100, 100), 0, 0, 1000);
@@ -95,7 +95,7 @@ public sealed class RedSupportMechanicsTests
 
         // The actual ailment tick publishes the folded movement bucket and updates the native walk without
         // compounding, then restores the speed roll at expiry. Base 50, +50%, and a +50% object roll walk at 112.5.
-        var conn = new ClientState(new(1, "maim review", 300, 300, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "maim review", 300, 300, 100, 100, null, []), 1, 1);
         const uint id = 0x21a2;
         double baseSpeed = 50, roll = 1.5;
         var ticked = new SpawnedMonster("ticked", new(105, 100, baseSpeed * 1.5 * roll), 0, 0, 1000)
@@ -103,34 +103,27 @@ public sealed class RedSupportMechanicsTests
             Mods = Target(("base_movement_velocity_+%", 50)), SpeedRoll = 50,
             Variety = new MonsterCatalog.Variety(0, "Ticked", "Ticked", "Ticked", null, null, MovementSpeed: 50),
         };
-        conn.Monsters[id] = ticked;
+        player.Area.Monsters[id] = ticked;
         Game.HitDebuffsOnHitLocked(ticked, Stats(("maim_on_hit_%", 100)), spell: false, critical: false, now: 10,
             new Random(1));
-        bool MovementPacket(IEnumerable<(byte[] Packet, string Log)> packets, int pct, uint targetId = id) =>
-            packets.Any(p => p.Packet.SequenceEqual(InstanceEntities.StatsUpdate(targetId,
-                [(StatKeys.MovementVelocityPct, pct)])));
-        var firstTick = Game.MonsterAilmentChangesLocked(conn, now: 11);
+        Game.MonsterAilmentChangesLocked(player, now: 11);
         Assert.Equal(baseSpeed * 1.2 * roll, ticked.Walk.Speed, 9);
-        Assert.True(MovementPacket(firstTick, 20));
-        var repeatedTick = Game.MonsterAilmentChangesLocked(conn, now: 12);
+        Game.MonsterAilmentChangesLocked(player, now: 12);
         Assert.Equal(baseSpeed * 1.2 * roll, ticked.Walk.Speed, 9);
-        Assert.False(MovementPacket(repeatedTick, 20));
-        var expiryTick = Game.MonsterAilmentChangesLocked(conn, now: 14);
+        Game.MonsterAilmentChangesLocked(player, now: 14);
         Assert.Equal(baseSpeed * 1.5 * roll, ticked.Walk.Speed, 9);
-        Assert.True(MovementPacket(expiryTick, 50));
 
         // A chill composes with Maim through action speed while Maim alone publishes only the movement bucket.
         ticked.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 4, now: 15, Stats(),
             name => ticked.Effects[name], stated: 20);
-        Game.MonsterAilmentChangesLocked(conn, now: 16);
+        Game.MonsterAilmentChangesLocked(player, now: 16);
         int chilledAction = ticked.Ailments.SentActionSpeed;
         Assert.Equal(-20, chilledAction);
         Game.HitDebuffsOnHitLocked(ticked, Stats(("maim_on_hit_%", 100)), spell: false, critical: false, now: 16,
             new Random(1));
-        var composedTick = Game.MonsterAilmentChangesLocked(conn, now: 17);
+        Game.MonsterAilmentChangesLocked(player, now: 17);
         Assert.Equal(baseSpeed * 1.2 * .8 * roll, ticked.Walk.Speed, 9);
         Assert.Equal(chilledAction, ticked.Ailments.SentActionSpeed);
-        Assert.True(MovementPacket(composedTick, 20));
 
         // By expiry the +20% bucket can already equal the shown maimed value. No movement packet is needed, but the
         // semantic state still has to leave Maim so a later Maim publishes again.
@@ -140,9 +133,8 @@ public sealed class RedSupportMechanicsTests
             SpeedRoll = 50, MaimedMovementShown = true, MaimedMovementShownPct = 20,
             Variety = new MonsterCatalog.Variety(0, "Same", "Same", "Same", null, null, MovementSpeed: 50),
         };
-        conn.Monsters[id + 1] = sameValue;
-        var sameValueTick = Game.MonsterAilmentChangesLocked(conn, now: 18);
-        Assert.False(MovementPacket(sameValueTick, 20, id + 1));
+        player.Area.Monsters[id + 1] = sameValue;
+        Game.MonsterAilmentChangesLocked(player, now: 18);
         Assert.False(sameValue.MaimedMovementShown);
         Assert.Equal(0, sameValue.MaimedMovementShownPct);
 

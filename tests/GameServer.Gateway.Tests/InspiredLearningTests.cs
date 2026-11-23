@@ -10,7 +10,7 @@ public class InspiredLearningTests
         var tree = Program.Passives;
         var items = Program.Items;
         var jewel = new UniqueCatalog(items).Create("Inspired Learning", new Random(13))!;
-        var radius = ItemModStats.Local(jewel, items.Mods)["local_jewel_effect_base_radius"];
+        var radius = ItemModStats.Local(jewel, items.Mods)[Stat.LocalJewelEffectBaseRadius];
         var eligible = Enumerable.Range(0, 60).Select(tree.JewelNodeForSlot).OfType<ushort>()
             .Select(s => (Socket: s, Notables: tree.NodesInRadius(s, radius).Where(n => tree.Find(n) is
                 { IsNotable: true, IsAscendancy: false, IsKeystone: false }).Take(4).ToArray()))

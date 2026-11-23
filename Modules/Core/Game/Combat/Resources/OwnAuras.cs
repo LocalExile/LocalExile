@@ -4,25 +4,31 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadOwnAurasData()
+    {
+        SublimeRestrictions = LoadSublimeRestrictions();
+    }
+
     sealed record AuraReconcileInputs(object? ItemSources, ItemCatalog Items, SkillCatalog Skills,
-        CharacterStats.Pools Pools, Dictionary<uint, int> Sources, Dictionary<uint, int> Overrides,
+        CharacterStats.Pools Pools, Dictionary<uint, int> Sources,
         (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras,
         string[] Remembered, string? SavedStance, bool SavedBlood, string Stance,
         bool ActiveBlood, ushort BloodBuff, int ManaReserved, int LifeReserved,
         bool CanRestore, bool Town, bool Dirty, int Restricted, bool DisabledSpells)
     {
-        public static AuraReconcileInputs Capture(ClientState conn)
+        public static AuraReconcileInputs Capture(Player player)
         {
-            var sources = CharacterStatSources(conn).Stats;
-            var saved = CharacterSaves.Remembered(CharacterName(conn));
-            return new(conn.StatSourcesCache, ItemsFor(conn), SkillsFor(conn), conn.Pools, sources,
-                new(conn.PlayerStats), [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
-                [.. saved.Auras], saved.Stance, saved.PetrifiedBlood, conn.Stance,
-                conn.PetrifiedBlood.Active, conn.PetrifiedBlood.Buff,
-                PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false),
-                PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true),
-                !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0,
-                InTown(conn), conn.AuraStatsDirty, OwnAuraRestrictionValue(conn, new(sources)), SpellsDisabled(conn, sources));
+            var sources = CharacterStatSources(player).Stats;
+            var saved = CharacterSaves.Remembered(CharacterName(player));
+            return new(player.StatSourcesCache, ItemsFor(player), SkillsFor(player), player.Pools, sources,
+                [.. ItemsOf(player).EquipmentSnapshot()], [.. player.Auras.Values],
+                [.. saved.Auras], saved.Stance, saved.PetrifiedBlood, player.Stance,
+                player.PetrifiedBlood.Active, player.PetrifiedBlood.Buff,
+                PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false),
+                PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true),
+                !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0,
+                InTown(player), player.AuraStatsDirty, OwnAuraRestrictionValue(player, new(sources)), SpellsDisabled(player, sources));
         }
 
         public bool Matches(AuraReconcileInputs b) => ReferenceEquals(ItemSources, b.ItemSources)
@@ -32,28 +38,28 @@ public static partial class Game
             && SavedStance == b.SavedStance && SavedBlood == b.SavedBlood && Stance == b.Stance
             && ActiveBlood == b.ActiveBlood && BloodBuff == b.BloodBuff
             && ManaReserved == b.ManaReserved && LifeReserved == b.LifeReserved
-            && SameInOrder(Sources, b.Sources) && SameInOrder(Overrides, b.Overrides)
+            && SameInOrder(Sources, b.Sources)
             && Remembered.AsSpan().SequenceEqual(b.Remembered) && Auras.AsSpan().SequenceEqual(b.Auras)
             && Equipment.Length == b.Equipment.Length && Equipment.Zip(b.Equipment).All(p =>
                 p.First.Row == p.Second.Row && p.First.Item.Id == p.Second.Item.Id
                 && SameSkillItem(p.First.Item.Item, p.Second.Item.Item, Items));
     }
     sealed class AuraReconcileCache { public AuraReconcileInputs? Inputs; }
-    static readonly RuleTable<ClientState, AuraReconcileCache> AuraReconcileCaches = new();
+    static readonly Store<Player, AuraReconcileCache> AuraReconcileCaches = new();
 
     static (int ArtVariation, bool HideVisual, ushort? SourceVisual, ushort? BuffVisual) ReservationCosmeticVisuals(
-        ClientState conn, ushort skillId, string effectId, bool hasSource)
+        Player player, ushort skillId, string effectId, bool hasSource)
     {
-        uint gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
-        return ReservationCosmeticVisualsForGem(conn, gem, effectId, hasSource);
+        uint gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId).Gem;
+        return ReservationCosmeticVisualsForGem(player, gem, effectId, hasSource);
     }
 
     static (int ArtVariation, bool HideVisual, ushort? SourceVisual, ushort? BuffVisual) ReservationCosmeticVisualsForGem(
-        ClientState conn, uint gem, string effectId, bool hasSource)
+        Player player, uint gem, string effectId, bool hasSource)
     {
         if (gem == 0) return default;
-        int variation = SkillArtVariation(conn, gem);
-        bool hide = SkillCosmeticStat(conn, gem, "skill_hide_user_buff_effects") != 0;
+        int variation = SkillArtVariation(player, gem);
+        bool hide = SkillCosmeticStat(player, gem, Stat.SkillHideUserBuffEffects) != 0;
         if (variation == 0 && !hide) return default;
         if (effectId == "TempestShield")
             return (variation, hide, null, null);
@@ -96,26 +102,24 @@ public static partial class Game
 
     // Re-emits active reservation buffs whose gem's skill cosmetic just changed so Tempest Shield, auras, heralds and
     // Arctic Armour take the new art immediately without needing a manual re-toggle.
-    public static async Task RefreshReservationCosmetics(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint? gem = null)
+    public static async Task RefreshReservationCosmetics(Player player, uint? gem = null)
     {
         bool changed = false;
-        lock (conn.Monsters)
         {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Auras.Count == 0) return;
-            var gems = GemSkillEffects(conn).ToDictionary(g => g.Id, g => g.Gem);
-            foreach (var aura in conn.Auras.Values.ToArray())
+            if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Auras.Count == 0) return;
+            var gems = GemSkillEffects(player).ToDictionary(g => g.Id, g => g.Gem);
+            foreach (var aura in player.Auras.Values.ToArray())
             {
-                if (IsTemporaryAura(conn, aura) || !gems.TryGetValue(aura.SkillId, out uint auraGem) || auraGem == 0
+                if (IsTemporaryAura(player, aura) || !gems.TryGetValue(aura.SkillId, out uint auraGem) || auraGem == 0
                     || (gem is uint target && auraGem != target)) continue;
                 var (artVariation, hideVisual, sourceVisual, buffVisual) =
-                    ReservationCosmeticVisualsForGem(conn, auraGem, aura.EffectId, aura.SourceBuff is not null);
+                    ReservationCosmeticVisualsForGem(player, auraGem, aura.EffectId, aura.SourceBuff is not null);
                 if (aura.ArtVariation == artVariation && aura.HideVisual == hideVisual
                     && aura.SourceVisual == sourceVisual && aura.BuffVisual == buffVisual) continue;
-                conn.Auras[aura.SkillId] = aura with
+                player.Auras[aura.SkillId] = aura with
                 {
-                    Buff = conn.NextBuff++,
-                    SourceBuff = aura.SourceBuff is not null ? conn.NextBuff++ : null,
+                    Buff = player.NextBuff++,
+                    SourceBuff = aura.SourceBuff is not null ? player.NextBuff++ : null,
                     ArtVariation = artVariation,
                     HideVisual = hideVisual,
                     SourceVisual = sourceVisual,
@@ -123,184 +127,207 @@ public static partial class Game
                 };
                 changed = true;
             }
-            if (changed) conn.AuraStatsDirty = true;
+            if (changed) player.AuraStatsDirty = true;
         }
-        if (changed) await SendOwnAuraChanges(remote, stream, ciphers, conn);
+        if (changed) await SendOwnAuraChanges(player);
     }
 
     // Check the current caster and this instance's link group before native use/cooldown publication.
     // Keep accepted Warcry/RF behavior and each caller's original cancellation/ownership predicate.
-    public static bool OwnAuraAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
+    public static bool OwnAuraAcknowledgementAllowed(Player player, int effect, ushort skillId, Func<bool> nativeUse)
     {
-        lock (conn.Monsters)
-            return !OwnAuraSkillRestricted(conn, effect, skillId) && nativeUse();
+        return !OwnAuraSkillRestricted(player, effect, skillId) && nativeUse();
     }
 
     // Raw caster sources only: never CharacterPlayerStats, PlayerSkills, aura bonuses or PoolsFor.
-    public static int OwnAuraRestrictionValue(ClientState conn, Dictionary<uint, int>? sources = null)
+    public static int OwnAuraRestrictionValue(Player player, Dictionary<uint, int>? sources = null)
     {
-        lock (conn.Monsters)
-        {
-            sources ??= CharacterStatSources(conn).Stats;
-            AddItemUtilityFlaskRawStats(sources,
-                conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
-            return OwnAuraRestriction.Value(sources, conn.PlayerStats);
-        }
+        sources ??= CharacterStatSources(player).Stats;
+        AddItemUtilityFlaskRawStats(new PlainStatMap(sources),
+            player.UtilityFlaskEffects.Stats().Concat(player.FlaskGrounds.PlayerStats()), Stats);
+        return OwnAuraRestriction.Value(sources);
     }
 
-    static readonly Lazy<(string Family, uint Key)[]> SublimeRestrictions = new(() =>
+    static (string Family, uint Key)[] SublimeRestrictions = default!;
+
+    static (string Family, uint Key)[] LoadSublimeRestrictions() =>
         (from family in new[] { "Anger", "Clarity", "Determination", "Discipline", "Grace", "Haste", "Hatred",
             "Malevolence", "Precision", "Pride", "PurityOfElements", "PurityOfFire", "PurityOfIce",
             "PurityOfLightning", "Vitality", "Wrath", "Zealotry" }
          let name = ReservationStatName(family)
          let key = Stats.Key($"your_auras_except_{name}_are_disabled")
          where key.HasValue
-         select (family, key.Value)).ToArray());
+         select (family, key.Value)).ToArray();
 
-    static bool SublimeDisables(ClientState conn, int effect, IReadOnlyDictionary<uint, int> sources)
+    static bool SublimeDisables(Player player, int effect, IReadOnlyDictionary<uint, int> sources)
     {
-        string family = AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? "");
-        lock (conn.Monsters)
-            return SublimeRestrictions.Value.Any(rule => rule.Family != family &&
-                conn.PlayerStats.GetValueOrDefault(rule.Key, sources.GetValueOrDefault(rule.Key)) != 0);
+        string family = AuraCatalog.Family(SkillsFor(player).EffectId(effect) ?? "");
+        return SublimeRestrictions.Any(rule => rule.Family != family &&
+            sources.GetValueOrDefault(rule.Key) != 0);
     }
 
-    // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources; a developer value replaces them.
+    // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources.
     // The client greys such a skill itself: skill_disabled_by_stat is 0x1520 AND casting_spell (FUN_1428d6330).
-    static bool SpellsDisabled(ClientState conn, Dictionary<uint, int>? sources = null)
+    static bool SpellsDisabled(Player player, Dictionary<uint, int>? sources = null)
     {
-        if (Stats.Key("your_spells_are_disabled") is not uint key) return false;
-        lock (conn.Monsters)
-            return (conn.PlayerStats.TryGetValue(key, out int set) ? set
-                : (sources ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key)) != 0;
+        uint key = Stat.YourSpellsAreDisabled;
+        return ((sources ?? StatSourceValues(player)).GetValueOrDefault(key)) != 0;
     }
 
     // What the client counts as a spell for that restriction: the casting_spell flag SkillCatalog publishes.
-    static bool CastingSpell(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect);
+    static bool CastingSpell(Player player, int effect) => SkillsFor(player).IsSpell(effect) && !SkillsFor(player).IsAttack(effect);
 
     // Auras contains only the current ordinary self-aura executor's source/recipient pairs.
     // Received buffs, RF, flasks and other temporary effects have separate ownership and are untouched.
     // Local policy: suspend runtime effects, retaining ActiveAuras intent; this is not a proven GGG lifecycle.
     // Disabled spells suspend the auras that are spells (every supported one) the same way.
-    public static bool SuspendRestrictedOwnAuras(ClientState conn, Dictionary<uint, int>? sources = null)
+    public static bool SuspendRestrictedOwnAuras(Player player, Dictionary<uint, int>? sources = null)
     {
-        if (conn.Auras.Count == 0) return false;
-        lock (conn.Monsters) sources ??= CharacterStatSources(conn).Stats;
-        bool all = OwnAuraRestrictionValue(conn, sources) != 0, spells = SpellsDisabled(conn, sources);
-        var gone = conn.Auras.Values.Where(a => (all || SublimeDisables(conn, a.Effect, sources!)) && SkillsFor(conn).IsAura(a.Effect)
-            || spells && CastingSpell(conn, a.Effect)).ToArray();
+        if (player.Auras.Count == 0) return false;
+        sources ??= CharacterStatSources(player).Stats;
+        bool all = OwnAuraRestrictionValue(player, sources) != 0, spells = SpellsDisabled(player, sources);
+        var gone = player.Auras.Values.Where(a => (all || SublimeDisables(player, a.Effect, sources!)) && SkillsFor(player).IsAura(a.Effect)
+            || spells && CastingSpell(player, a.Effect)).ToArray();
         if (gone.Length == 0) return false;
-        foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
-        if (gone.Any(a => StanceCatalog.IsStance(a.EffectId))) ReconcileStanceSelectionLocked(conn, persist: false);
-        conn.AuraStatsDirty = true;
+        foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
+        if (gone.Any(a => StanceCatalog.IsStance(a.EffectId))) ReconcileStanceSelectionLocked(player, persist: false);
+        player.AuraStatsDirty = true;
         return true;
     }
 
     sealed record ReservationInputs(StatSourcesResult? Sources, CharacterStats.Pools Pools,
-        (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Overrides);
-    sealed class ReservationInputCache { public bool Building; public ReservationInputs? Inputs; }
-    static readonly RuleTable<ClientState, ReservationInputCache> ReservationInputCaches = new();
-    static ReservationInputs CaptureReservationInputs(ClientState conn) => new(conn.StatSourcesCache, conn.Pools,
-        [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values], new(conn.PlayerStats));
+        (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras);
+    sealed class ReservationInputCache
+    {
+        public bool Building;
+        public ReservationInputs? Inputs;
+        // When an own aura's state next changes on its own (AreaTime): the Stats phase reconciles them then.
+        public double NextAt = double.PositiveInfinity;
+    }
+    static readonly Store<Player, ReservationInputCache> ReservationInputCaches = new();
+    static ReservationInputs CaptureReservationInputs(Player player) => new(player.StatSourcesCache, player.Pools,
+        [.. ItemsOf(player).EquipmentSnapshot()], [.. player.Auras.Values]);
 
     // Pool readers only check immutable inputs. Skill pricing, source qualification and persistence run on change,
     // while the normal player tick reconciles deadlines. This also handles an equipment edit before publication.
-    static void EnsureReservationInputs(ClientState conn)
+    static void EnsureReservationInputs(Player player)
     {
-        if (conn.Auras.Count == 0) return;
-        var cache = ReservationInputCaches.GetOrCreateValue(conn);
+        if (player.Auras.Count == 0) return;
+        var cache = ReservationInputCaches.GetOrCreateValue(player);
         if (cache.Building) return;
-        var current = CaptureReservationInputs(conn);
+        var current = CaptureReservationInputs(player);
         if (cache.Inputs is { } old && ReferenceEquals(old.Sources, current.Sources) && old.Pools == current.Pools
-            && old.Auras.AsSpan().SequenceEqual(current.Auras) && SameInOrder(old.Overrides, current.Overrides)
+            && old.Auras.AsSpan().SequenceEqual(current.Auras)
             && old.Equipment.Length == current.Equipment.Length && old.Equipment.Zip(current.Equipment).All(p =>
                 p.First.Row == p.Second.Row && p.First.Item.Id == p.Second.Item.Id
                 && ReferenceEquals(p.First.Item.Item, p.Second.Item.Item))) return;
-        EnsureOwnAuraPools(conn);
+        EnsureOwnAuraPools(player);
     }
 
-    public static void EnsureOwnAuraPools(ClientState conn)
+    public static void EnsureOwnAuraPools(Player player)
     {
-        lock (conn.Monsters)
+        var cache = ReservationInputCaches.GetOrCreateValue(player);
+        bool building = cache.Building;
+        cache.Building = true;
+        try
         {
-            var cache = ReservationInputCaches.GetOrCreateValue(conn);
-            bool building = cache.Building;
-            cache.Building = true;
-            try
+            var raw = player.Auras.Count > 0 ? CharacterStatSources(player).Stats : new Dictionary<uint, int>();
+            bool changed = CatAspectReconcileLocked(player, AreaTime(player), raw);
+            changed |= IntimidatingCryPoolsChangedLocked(player);
+            changed |= AvianReconcileLocked(player, AreaTime(player), raw);
+            changed |= CrabReconcileLocked(player, AreaTime(player), raw);
+            SpiderReconcileOwnerLocked(player, AreaTime(player));
+            changed |= player.Reservations.CrabPoolsDirty;
+            changed |= MadnessReconcileLocked(player, AreaTime(player));
+            changed |= SuspendRestrictedOwnAuras(player, raw);
+            changed |= RepriceOwnAuras(player, out bool poolsRebuilt);
+            if (changed)
             {
-                var raw = conn.Auras.Count > 0 ? CharacterStatSources(conn).Stats : new Dictionary<uint, int>();
-                bool changed = CatAspectReconcileLocked(conn, AreaTime(conn), raw);
-                changed |= IntimidatingCryPoolsChangedLocked(conn);
-                changed |= AvianReconcileLocked(conn, AreaTime(conn), raw);
-                changed |= CrabReconcileLocked(conn, AreaTime(conn), raw);
-                SpiderReconcileOwnerLocked(conn, AreaTime(conn));
-                changed |= conn.Reservations.CrabPoolsDirty;
-                changed |= MadnessReconcileLocked(conn, AreaTime(conn));
-                changed |= SuspendRestrictedOwnAuras(conn, raw);
-                changed |= RepriceOwnAuras(conn, out bool poolsRebuilt);
-                if (changed)
-                {
-                    if (!poolsRebuilt) conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                    conn.ApplyMovementSpeed();
-                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
-                }
-                var life = LifeReservationOf(conn);
-                conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, life);
+                if (!poolsRebuilt) player.Pools = PoolsFor(player, player.Pools.Level);
+                player.ApplyMovementSpeed();
+                player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
             }
-            finally
-            {
-                cache.Building = building;
-                if (!building) cache.Inputs = CaptureReservationInputs(conn);
-            }
+            var life = LifeReservationOf(player);
+            player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, life);
         }
+        finally
+        {
+            cache.Building = building;
+            if (!building) cache.Inputs = CaptureReservationInputs(player);
+            cache.NextAt = OwnAurasNextChangeAt(player);
+        }
+    }
+
+    // A Cat or Avian phase ends, a Crab barrier is due, a Glorious Madness touch lands or ends.
+    static double OwnAurasNextChangeAt(Player player)
+    {
+        var state = player.Reservations;
+        double next = double.PositiveInfinity;
+        if (state.CatOwner is not null && state.Cat != ReservationState.CatPhase.None) next = Math.Min(next, state.CatPhaseDeadline);
+        if (state.AvianOwner is not null) next = Math.Min(next, state.AvianDeadline);
+        if (state.CrabOwner is not null && state.CrabBarriers < state.CrabMaximum) next = Math.Min(next, state.NextCrabBarrier);
+        var madness = player.Madness;
+        if (madness.Active)
+        {
+            next = Math.Min(next, madness.NextTouch);
+            for (int i = 0; i < 4; i++) if (madness.Touches[i] > 0) next = Math.Min(next, madness.Until[i]);
+        }
+        return next;
+    }
+
+    /// <summary>The Stats phase: the own auras' timed changes (<see cref="OwnAurasNextChangeAt"/>) once due.</summary>
+    internal static void StepOwnAuras(Player player)
+    {
+        if (ReservationInputCaches.TryGetValue(player, out var cache) && AreaTime(player) >= cache.NextAt)
+            EnsureOwnAuraPools(player);
     }
 
     // Reservation exemptions and support cost multipliers can change while an aura stays on, including before any
     // equipment/stat notification. Reprice the active owner from current sources here; unchanged auras are left alone.
     sealed record AuraPriceInputs(StatSourcesResult? Qualified, CharacterStats.Pools Pools,
-        string Stance, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Raw, Dictionary<uint, int> Overrides);
+        string Stance, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Raw);
     sealed class AuraPriceCache { public AuraPriceInputs? Last; }
-    static readonly RuleTable<ClientState, AuraPriceCache> AuraPrices = new();
+    static readonly Store<Player, AuraPriceCache> AuraPrices = new();
 
-    static bool RepriceOwnAuras(ClientState conn, out bool poolsRebuilt)
+    static bool RepriceOwnAuras(Player player, out bool poolsRebuilt)
     {
         poolsRebuilt = false;
-        if (conn.Auras.Count == 0) return false;
-        var input = new AuraPriceInputs(conn.StatSourcesCache, conn.Pools, conn.Stance,
-            [.. conn.Auras.Values], CharacterStatSources(conn).Stats, new(conn.PlayerStats));
-        var cache = AuraPrices.GetOrCreateValue(conn);
+        if (player.Auras.Count == 0) return false;
+        var input = new AuraPriceInputs(player.StatSourcesCache, player.Pools, player.Stance,
+            [.. player.Auras.Values], CharacterStatSources(player).Stats);
+        var cache = AuraPrices.GetOrCreateValue(player);
         if (cache.Last is { } old && ReferenceEquals(old.Qualified, input.Qualified)
             && old.Pools == input.Pools && old.Stance == input.Stance
             && old.Auras.AsSpan().SequenceEqual(input.Auras)
-            && SameInOrder(old.Raw, input.Raw) && SameInOrder(old.Overrides, input.Overrides)) return false;
+            && SameInOrder(old.Raw, input.Raw)) return false;
         cache.Last = input;
         bool changed = false;
         bool stanceTouched = false;
         var changedAuras = new List<AuraCatalog.Aura>();
-        foreach (var aura in conn.Auras.Values.ToArray())
+        foreach (var aura in player.Auras.Values.ToArray())
         {
-            if (IsTemporaryAura(conn, aura)) continue;
-            if (IsBlessing(SupportedSkill(conn, aura.SkillId)))
+            if (IsTemporaryAura(player, aura)) continue;
+            if (IsBlessing(SupportedSkill(player, aura.SkillId)))
             {
-                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
-                conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura);
+                CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
+                player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura);
                 changed = true; continue;
             }
-            var reservation = SupportedReservationCost(conn, aura.SkillId);
+            var reservation = SupportedReservationCost(player, aura.SkillId);
             if (reservation is null)
             {
                 // A support/source that no longer supplies the reservation cannot remain active.
-                conn.Auras.Remove(aura.SkillId);
-                EndReservationRuntimeLocked(conn, aura);
+                player.Auras.Remove(aura.SkillId);
+                EndReservationRuntimeLocked(player, aura);
                 stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
                 changed = true;
                 continue;
             }
-            var gem = SupportedSkill(conn, aura.SkillId);
-            var support = AuraSupport(conn, aura.SkillId);
-            var context = ReservationContext(conn, aura.SkillId);
+            var gem = SupportedSkill(player, aura.SkillId);
+            var support = AuraSupport(player, aura.SkillId);
+            var context = ReservationContext(player, aura.SkillId);
             string? stance = StanceCatalog.IsStance(aura.EffectId)
-                ? StanceCatalog.SelectionOf(aura, conn.Stance) : null;
+                ? StanceCatalog.SelectionOf(aura, player.Stance) : null;
             var repriced = aura with
             {
                 ManaFlat = reservation.Value.ManaFlat, ManaPercent = reservation.Value.ManaPercent,
@@ -313,7 +340,7 @@ public static partial class Game
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
             };
             if (repriced == aura) continue;
-            conn.Auras[aura.SkillId] = repriced;
+            player.Auras[aura.SkillId] = repriced;
             changedAuras.Add(repriced);
             changed = true;
         }
@@ -321,84 +348,84 @@ public static partial class Game
         // affordability so the checked pool and the source snapshot that supplied the new reservation agree.
         if (changedAuras.Count > 0)
         {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            player.Pools = PoolsFor(player, player.Pools.Level);
             poolsRebuilt = true;
         }
-        while (!ReservationBudgetFits(conn) && conn.Auras.Count > 0)
+        while (!ReservationBudgetFits(player) && player.Auras.Count > 0)
         {
             // Existing unchanged auras keep their admission. Of the reservations whose price just rose, the latest
             // source loses admission first, keeping its saved intent for when it is affordable again. If the
             // percentage did not change, a pool/efficiency input made the whole active set unaffordable, so trim the
             // active set from its latest source in the same deterministic order.
             var overCapacity = changedAuras.Count > 0
-                ? changedAuras.Where(a => conn.Auras.ContainsKey(a.SkillId)).OrderByDescending(a => a.SkillId)
-                : conn.Auras.Values.OrderByDescending(a => a.SkillId);
+                ? changedAuras.Where(a => player.Auras.ContainsKey(a.SkillId)).OrderByDescending(a => a.SkillId)
+                : player.Auras.Values.OrderByDescending(a => a.SkillId);
             if (!overCapacity.Any())
-                overCapacity = conn.Auras.Values.OrderByDescending(a => a.SkillId);
+                overCapacity = player.Auras.Values.OrderByDescending(a => a.SkillId);
             if (overCapacity.FirstOrDefault() is not { } aura) break;
-            if (!conn.Auras.Remove(aura.SkillId)) break;
-            EndReservationRuntimeLocked(conn, aura);
+            if (!player.Auras.Remove(aura.SkillId)) break;
+            EndReservationRuntimeLocked(player, aura);
             stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
             changed = true;
             // A trimmed aura may have supplied pool stats. Rebuild before the next capacity decision and make sure
             // EnsureOwnAuraPools does not publish the pre-removal pool.
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            player.Pools = PoolsFor(player, player.Pools.Level);
             poolsRebuilt = true;
         }
         if (!poolsRebuilt && changed)
         {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            player.Pools = PoolsFor(player, player.Pools.Level);
             poolsRebuilt = true;
         }
-        if (stanceTouched) ReconcileStanceSelectionLocked(conn, persist: true);
-        if (changed) conn.AuraStatsDirty = true;
+        if (stanceTouched) ReconcileStanceSelectionLocked(player, persist: true);
+        if (changed) player.AuraStatsDirty = true;
         return changed;
     }
 
-    public static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
+    public static void ReconcileOwnAuras(Player player, bool validateSkills = false)
     {
-        ExpireTemporaryAuras(conn);
+        ExpireTemporaryAuras(player);
         // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
         // Cache only the lifecycle decision after comparing its complete effective inputs. A full
         // replay bypasses it; module reload discards these connection-weak entries automatically.
-        var inputs = AuraReconcileInputs.Capture(conn);
-        var cached = AuraReconcileCaches.GetOrCreateValue(conn);
+        var inputs = AuraReconcileInputs.Capture(player);
+        var cached = AuraReconcileCaches.GetOrCreateValue(player);
         if (!validateSkills && cached.Inputs is { } previous && previous.Matches(inputs)) return;
-        EnsureOwnAuraPools(conn);
+        EnsureOwnAuraPools(player);
         // Revalidate the source skill as well as the restriction before queued activation/entry adds.
         // Dirty runtime or presented instances are owned by this lifecycle; pure unpresented pool inputs are not adds.
-        if (conn.Auras.Count > 0 && (validateSkills || conn.AuraStatsDirty || conn.PresentedAuras.Count > 0))
+        if (player.Auras.Count > 0 && (validateSkills || player.AuraStatsDirty))
         {
-            var available = GemSkillEffects(conn).ToDictionary(g => g.Id, g => g.Effect);
-            var gone = conn.Auras.Values.Where(a => InTown(conn)
+            var available = GemSkillEffects(player).ToDictionary(g => g.Id, g => g.Effect);
+            var gone = player.Auras.Values.Where(a => InTown(player)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect
-                || GemSkillInstanceDisabled(conn, a.Effect, a.SkillId) is not null).ToArray();
+                || GemSkillInstanceDisabled(player, a.Effect, a.SkillId) is not null).ToArray();
             // Worn grants are equipment sources, not resumable gem intent. A removed/inactive host must not restore its
             // aura from stale family intent when another item or area publication follows. A still-valid gem or worn
             // host of the same family keeps the intent and takes ownership at the restore step below.
             var availableFamilies = available.Values
-                .Select(effect => AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? ""))
+                .Select(effect => AuraCatalog.Family(SkillsFor(player).EffectId(effect) ?? ""))
                 .Where(family => family.Length > 0).ToHashSet(StringComparer.Ordinal);
-            if (!InTown(conn))
+            if (!InTown(player))
                 foreach (var aura in gone.Where(a => a.WornGrant is not null
                              && !availableFamilies.Contains(AuraCatalog.Family(a.EffectId)))
                          .GroupBy(a => AuraCatalog.Family(a.EffectId)))
-                    CharacterSaves.SetAuraActive(CharacterName(conn), aura.First().EffectId, false);
-            foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
-            if (gone.Length > 0 || conn.AuraStatsDirty)
+                    CharacterSaves.SetAuraActive(CharacterName(player), aura.First().EffectId, false);
+            foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
+            if (gone.Length > 0 || player.AuraStatsDirty)
             {
-                conn.AuraStatsDirty = true;
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                conn.ApplyMovementSpeed();
-                conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
-                conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
+                player.AuraStatsDirty = true;
+                player.Pools = PoolsFor(player, player.Pools.Level);
+                player.ApplyMovementSpeed();
+                player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
+                player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
             }
         }
-        if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
-            RestoreRememberedAuras(conn, CharacterSaves.Remembered(CharacterName(conn)).Auras);
-        SuspendPetrifiedBloodIfUnavailable(conn);
-        if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
-            RestoreRememberedPetrifiedBlood(conn);
+        if (!player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0 && !InTown(player))
+            RestoreRememberedAuras(player, CharacterSaves.Remembered(CharacterName(player)).Auras);
+        SuspendPetrifiedBloodIfUnavailable(player);
+        if (!player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0 && !InTown(player))
+            RestoreRememberedPetrifiedBlood(player);
         // Remember the inputs actually checked. If reconciliation mutated auras/pools, the next
         // invocation validates the resulting state once rather than blessing an unchecked result.
         cached.Inputs = inputs;
@@ -407,163 +434,56 @@ public static partial class Game
     // Called under the send gate and Monsters lock. Diff against what actually reached this object,
     // rather than prebuilding adds/removes across an await. Old instances end once; new ones start once.
     // Reconcile before constructing any player/Actor/mana snapshot, including another mechanic's refresh.
-    public static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false) =>
-        [.. WithOwnAuraRecords(conn, () => [snapshot()], replay).SelectMany(p => p)];
+    public static byte[] WithOwnAuraChanges(Player player, Func<byte[]> snapshot, bool replay = false) =>
+        [.. WithOwnAuraRecords(player, () => [snapshot()], replay).SelectMany(p => p)];
 
-    public static byte[][] WithOwnAuraRecords(ClientState conn, Func<byte[][]> snapshot, bool replay = false)
+    public static byte[][] WithOwnAuraRecords(Player player, Func<byte[][]> snapshot, bool replay = false)
     {
         // At-gate builders are synchronous and hold Monsters. Do not inherit the input handler's
         // older scope across its await; resolve each supported skill once for this snapshot.
-        using var skillScope = new PlayerStatScope(conn, fresh: true);
-        ReconcileOwnAuras(conn, validateSkills: replay);
+        using var skillScope = new PlayerStatScope(player, fresh: true);
+        ReconcileOwnAuras(player, validateSkills: replay);
         // Reconciliation can replace pools, remove a source or switch stance. The packet must see
         // the resulting state, not supported gems or character stats captured before that mutation.
-        using var packetScope = new PlayerStatScope(conn, fresh: true);
+        using var packetScope = new PlayerStatScope(player, fresh: true);
         // LoadProgress can restore intent before the object exists. Keep aura publication pending;
         // in particular never prefix a creation snapshot with buffs, Stats, Actor or Life updates.
-        if (!conn.PlayerObjectCreated && !conn.PlayerSent) return snapshot();
+        if (!player.Connection.PlayerObjectCreated && !player.Connection.PlayerSent) return snapshot();
         var packets = new List<byte[]>();
-        packets.AddRange(ReconcileReceivedAuraRecordsLocked(conn));
-        ClampReservedResources(conn);
-        bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff
-            && a.AffectsSelf == b.AffectsSelf && a.ArtVariation == b.ArtVariation
-            && a.HideVisual == b.HideVisual && a.SourceVisual == b.SourceVisual && a.BuffVisual == b.BuffVisual;
-        // Both records are published for every aura, including Generosity ones (the received one only has its icon
-        // suppressed), so both must be removed and restored symmetrically — across module reloads too.
-        foreach (var old in conn.PresentedAuras.Values)
-            if (!conn.Auras.TryGetValue(old.SkillId, out var current) || !Same(old, current))
-                packets.AddRange(AuraCatalog.EndPackets(old, PlayerId));
-        foreach (var id in conn.PresentedAuras.Keys.ToArray())
-            if (!conn.Auras.TryGetValue(id, out var current) || !Same(conn.PresentedAuras[id], current))
-                conn.PresentedAuras.Remove(id);
-        if (conn.AuraStatsDirty || replay)
-            foreach (var aura in conn.Auras.Values)
-                if (!conn.PresentedAuras.ContainsKey(aura.SkillId))
-                {
-                    packets.AddRange(AuraBuffs(aura, TemporaryAuraSecondsLeft(conn, aura)));
-                    conn.PresentedAuras[aura.SkillId] = aura;
-                }
-        PresentCatPhaseLocked(conn, packets);
-        PresentCatOnslaughtLocked(conn, packets);
-        PresentAvianPhaseLocked(conn, packets);
-        PresentCrabLocked(conn, packets);
-        PresentSelfVulnerabilityLocked(conn, packets);
-        PresentMadnessLocked(conn, packets);
+        packets.AddRange(ReconcileReceivedAuraRecordsLocked(player));
+        ClampReservedResources(player);
+        // The player's own aura buffs are its auras now (both buffs of each, Generosity's too: its received one only has
+        // its icon suppressed); the Buffs component writes what changed.
+        player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id && b.Tag == 0 && AuraCatalog.IsAuraRow(b.Row),
+            player.Auras.Values.SelectMany(aura => AuraBuffs(player.Id, aura, TemporaryAuraSecondsLeft(player, aura))));
+        PresentAvianPhaseLocked(player);
+        PresentCrabLocked(player);
+        PresentSelfVulnerabilityLocked(player);
+        PresentMadnessLocked(player);
         // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
         // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
-        using var publicationStats = new PlayerStatScope(conn, fresh: true);
-        if (conn.AuraStatsDirty)
+        using var publicationStats = new PlayerStatScope(player, fresh: true);
+        if (player.AuraStatsDirty)
         {
-            conn.AuraStatsDirty = false;
-            packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-            packets.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
-            packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
-                (uint)ReservedMana(conn), pool: ManaPool));
-            packets.Add(PlayerLifeUpdate(conn));
+            player.AuraStatsDirty = false;
+            packets.Add(PlayerStatsOffFrames(player));
+            packets.Add(PlayerSkillsIfChanged(player, PlayerSkills(player)));
+            player.Frames.Area?.Life.Changed(player);
         }
-        var petrified = conn.PetrifiedBlood;
-        if (petrified.PresentedBuff != 0 && (!petrified.Active || petrified.Buff != petrified.PresentedBuff))
-        {
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, petrified.PresentedBuff));
-            petrified.PresentedBuff = 0;
-        }
-        if (petrified.Active && petrified.PresentedBuff == 0)
-        {
-            packets.Add(InstanceEntities.AddBuff(PlayerId, petrified.Buff, PetrifiedBlood.BuffRow, PlayerId,
-                petrified.SkillId, activeSkill: SkillsFor(conn).ActionHash(petrified.Effect) is ushort hash
-                    ? (petrified.SkillId, hash) : null));
-            petrified.PresentedBuff = petrified.Buff;
-        }
-        if (Lifetap.PresentationRecords(conn) is { } lifetap) packets.AddRange(lifetap);
+        var petrified = player.PetrifiedBlood;
+        if (petrified.Active)
+            player.Area.Buffs.Keep(player.Id, new(PetrifiedBlood.BuffRow, player.Id, petrified.SkillId,
+                ActiveSkill: SkillsFor(player).ActionHash(petrified.Effect) is ushort hash ? (petrified.SkillId, hash) : null));
+        else player.Area.Buffs.Clear(player.Id, PetrifiedBlood.BuffRow, player.Id);
+        if (Lifetap.PresentationRecords(player) is { } lifetap) packets.AddRange(lifetap);
         packets.AddRange(snapshot());
         return [.. packets.Where(p => p.Length > 0)];
     }
 
-    // Cat's two phase rows are owned by the exact accepted root aura. Build their diff at this send gate, so an add
-    // queued for an old owner can never reach the wire after that owner was removed or replaced.
-    static void PresentCatPhaseLocked(ClientState conn, List<byte[]> packets)
-    {
-        var state = conn.Reservations;
-        bool active = CatAspectRootActiveLocked(conn);
-        IReadOnlyList<uint> phaseValues = [];
-        if (active)
+    public static Task SendOwnAuraChanges(Player player,
+        bool replay = false) => SendWorldRecords(player, player.Id, () =>
         {
-            var rawStats = CharacterStatSources(conn).Stats;
-            Func<string, int> raw = name => Stats.Key(name) is uint key
-                ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
-                    : rawStats.GetValueOrDefault(key)
-                : 0;
-            phaseValues = CatAspectPhaseValues(state.Cat,
-                CatAspectPhaseStatsLocked(conn, conn.Pools.AuraEffectPct, raw));
-        }
-        int value1 = phaseValues.Count > 0 ? unchecked((int)phaseValues[0]) : 0;
-        int value2 = phaseValues.Count > 1 ? unchecked((int)phaseValues[1]) : 0;
-        int value3 = phaseValues.Count > 2 ? unchecked((int)phaseValues[2]) : 0;
-        ushort row = active ? CatAspectPhaseRow(state.Cat) : (ushort)0;
-        bool sameValues = state.PresentedCatPhaseRow == row
-            && state.PresentedCatValue1 == value1 && state.PresentedCatValue2 == value2
-            && state.PresentedCatValue3 == value3;
-        if (active && state.PresentedCatPhaseBuff != 0
-            && state.CatPhaseBuff == state.PresentedCatPhaseBuff && !sameValues)
-            state.CatPhaseBuff = conn.NextBuff++;
-        ushort wanted = active ? state.CatPhaseBuff : (ushort)0;
-        if (state.PresentedCatPhaseBuff != 0 && (state.PresentedCatPhaseBuff != wanted || !sameValues))
-        {
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCatPhaseBuff));
-            state.PresentedCatPhaseBuff = 0;
-        }
-        if (active && wanted != 0 && (state.PresentedCatPhaseBuff != wanted || !sameValues))
-        {
-            float remaining = (float)Math.Max(0, state.CatPhaseDeadline - AreaTime(conn));
-            // Cat phase rows are not recovery rows, so 0x1c1 carries no GrantedStats values here.
-            packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, CatAspectPhaseRow(state.Cat), PlayerId,
-                state.CatOwner!.Value.Skill, u68: BitConverter.SingleToUInt32Bits(remaining)));
-            state.PresentedCatPhaseBuff = wanted;
-            if (!sameValues) conn.AuraStatsDirty = true;
-        }
-        state.PresentedCatPhaseRow = row;
-        state.PresentedCatValue1 = value1;
-        state.PresentedCatValue2 = value2;
-        state.PresentedCatValue3 = value3;
-        state.PresentedCatRevision = state.CatRevision;
-    }
-
-    // Cat owns this presentation independently of the kill/flask Onslaught state. Its stats have already composed
-    // through UtilityStats; this only keeps one BuffDefinitions row 215 instance on the wire for the current Agility.
-    static void PresentCatOnslaughtLocked(ClientState conn, List<byte[]> packets)
-    {
-        var state = conn.Reservations;
-        var onslaught = ItemsFor(conn).Onslaught;
-        bool active = onslaught is not null && CatOnslaughtActiveLocked(conn);
-        if (active && state.CatOnslaughtBuff == 0) state.CatOnslaughtBuff = conn.NextBuff++;
-        if (active && state.PresentedCatOnslaughtBuff != 0
-            && state.CatOnslaughtBuff == state.PresentedCatOnslaughtBuff
-            && state.PresentedCatOnslaughtPhaseBuff != state.PresentedCatPhaseBuff)
-            state.CatOnslaughtBuff = conn.NextBuff++;
-        ushort wanted = active ? state.CatOnslaughtBuff : (ushort)0;
-        if (state.PresentedCatOnslaughtBuff != 0
-            && state.PresentedCatOnslaughtBuff != wanted)
-        {
-            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCatOnslaughtBuff));
-            state.PresentedCatOnslaughtBuff = 0;
-            state.PresentedCatOnslaughtPhaseBuff = 0;
-        }
-        if (active && wanted != 0 && state.PresentedCatOnslaughtBuff != wanted)
-        {
-            float remaining = (float)Math.Max(0, state.CatPhaseDeadline - AreaTime(conn));
-            // Onslaught row 215 is not a recovery row, so 0x1c1 carries no GrantedStats payload.
-            packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, onslaught!.BuffRow, PlayerId,
-                u68: BitConverter.SingleToUInt32Bits(remaining)));
-            state.PresentedCatOnslaughtBuff = wanted;
-            state.PresentedCatOnslaughtPhaseBuff = state.PresentedCatPhaseBuff;
-        }
-    }
-
-    public static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        bool replay = false) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
-        {
-            lock (conn.Monsters)
-                return conn.Closed || conn.LeavingArea || conn.RageRetired
-                    ? null : WithOwnAuraRecords(conn, () => [], replay);
+            return player.Closed || player.LeavingArea || player.RageRetired
+                ? null : WithOwnAuraRecords(player, () => [], replay);
         }, "own aura reconciliation");
 }

@@ -2,7 +2,7 @@ using GameServer.Core.Accounts;
 
 public static partial class Game
 {
-    public static void ValidateImportedBuild(Character character, CharacterSaves.Save input)
+    public static void ValidateImportedBuild(GameServer.Core.Accounts.Character character, CharacterSaves.Save input)
     {
         var save = ImportedProgress.Normalize(input);
         var ordinary = save.Passives ?? [];

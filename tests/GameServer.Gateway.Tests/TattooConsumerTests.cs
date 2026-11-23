@@ -22,7 +22,7 @@ public sealed class TattooConsumerTests
         {
             var stats = TattooStats.For(name);
             Assert.NotNull(stats);
-            Assert.Contains((Program.Stats.Key(stat)!.Value, value), stats);
+            Assert.Contains((Stat.Of(stat), value), stats);
         }
     }
 
@@ -43,17 +43,17 @@ public sealed class TattooConsumerTests
 
         // Guard skills' duration: "Guard Skills have 6% increased Duration" adds into the same increased-duration sum
         // as skill_effect_duration_+%, it does not multiply the finished duration.
-        int Get(string name) => name switch
+        int Get(uint name) => name switch
         {
-            "skill_effect_duration_+%" => 50, "guard_skill_effect_duration_+%" => 6, _ => 0,
+            Stat.SkillEffectDurationPlusPct => 50, Stat.GuardSkillEffectDurationPlusPct => 6, _ => 0,
         };
         Assert.Equal(15.6, Game.GuardDuration(10000, Get, _ => 0), 6);
 
         // Melee hits which stun: 100% chance to Fortify grants the gain model's stacks from the hit's raw damage and
         // the target's life and rarity; cannot_gain_fortification_from_hits blocks it.
-        var values = new Dictionary<string, int>
+        var values = new Dictionary<uint, int>
         {
-            [FortificationSession.ChanceOnStun] = 100, ["fortification_gained_from_hits_+%"] = 50,
+            [FortificationSession.ChanceOnStun] = 100, [Stat.FortificationGainedFromHitsPlusPct] = 50,
         };
         var session = new FortificationSession();
         int expected = FortificationGainModel.Calculate(200m, 1000m, MonsterRarity.Normal, session.Value.Maximum,

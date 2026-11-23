@@ -8,7 +8,7 @@ public sealed class SkinTransferTests
 {
     static string Saved(Item item, ItemCatalog catalog) => JsonSerializer.Serialize(CharacterSaves.ToSaved(item, catalog.Mods));
     static ItemMod Mod(ItemCatalog catalog, string stat, int value) => catalog.Mods.All
-        .First(m => m.Stats.Count == 1 && m.Stats[0].Id == stat).With(ModSection.Explicit, [value], new Random(1));
+        .First(m => m.Stats.Count == 1 && m.Stats[0].Id == Program.Stats.Key(stat)).With(ModSection.Explicit, [value], new Random(1));
 
     [Fact]
     public void Native_binding_preserves_both_items_through_relational_saves_stash_and_failed_reclaim()
@@ -88,10 +88,11 @@ public sealed class SkinTransferTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         string name = "Sources" + Guid.NewGuid().ToString("N");
         var catalog = Program.Items;
-        var conn = new ClientState(new(1, "sources", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "sources", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = name, God = true, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100), Pools = new(100, 1000, 1000, int.MaxValue, 0,
+            Character = { Name = name, Experience = CharacterStats.ExperienceFor(100) },
+            God = true, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            Pools = new(100, 1000, 1000, int.MaxValue, 0,
                 Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
         };

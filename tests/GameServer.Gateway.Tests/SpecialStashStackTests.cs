@@ -55,6 +55,8 @@ public class SpecialStashStackTests : IDisposable
         string account = "SpecialMoves" + Guid.NewGuid().ToString("N");
         var stash = AccountStash.For(account, catalog);
         var items = PlayerInventories.For(account, catalog);
+        // A new character starts with three Scrolls of Wisdom: this test counts from none.
+        foreach (var starter in items.Items(PlayerInventories.MainInventory).ToArray()) items.Remove(PlayerInventories.MainInventory, starter.Id);
         PlayerInventories.Shape? ShapeOf(Item i) => Shape(catalog, i);
         var type = catalog.All.Single(t => t.Name == "Simulacrum" && t.Components.Contains("Stack"));
         Assert.Equal(1, type.MaxStack);

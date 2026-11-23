@@ -25,10 +25,10 @@ static class IzaroIdols
     static int ChannelEffect(MonsterCatalog.Variety variety) => variety.GrantedEffects is [_, int channel, ..] ? channel : -1;
 
     /// <summary>The actor's skill list: its default skill, then the channel, with the 0x1ab id it names.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player player, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
     {
         if (!IsIdol(variety) || skill is null || ChannelEffect(variety) is not (>= 0 and var effect)) return null;
-        var catalog = Game.SkillsFor(conn);
+        var catalog = Game.SkillsFor(player);
         // A spell's cast-time stats: the client's cast-duration path crashed on an actor record with only attack stats
         // (Monsters.cs, the King's Death Effigy).
         var stats = (attack with { SkillId = ChannelSkillId, Spell = true, Seconds = catalog.CastTimeMs(effect) / 1000.0 }).SkillStats();
@@ -36,7 +36,7 @@ static class IzaroIdols
     }
 
     /// <summary>Its fill and cast, until <paramref name="up"/> says it is no longer up.</summary>
-    internal static async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster idol,
+    internal static async Task Run(Player player, uint id, SpawnedMonster idol,
         int element, double fillSeconds, Func<bool> up)
     {
         if (idol.Attack is not { } plain) return;
@@ -57,59 +57,47 @@ static class IzaroIdols
                 int action;
                 uint life;
                 (int X, int Y) at;
-                lock (conn.Monsters)
-                {
-                    action = ++idol.ActionGeneration;
-                    idol.Life = life = Math.Min(idol.Life, 1u);
-                    at = idol.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-                }
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), null);
-                if (!await SendMonsterAction(remote, stream, ciphers, conn, id, idol, action, () =>
-                    InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, ChannelSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags),
+                action = ++idol.ActionGeneration;
+                idol.Life = life = Math.Min(idol.Life, 1u);
+                at = idol.Walk.Position(AreaTime(player));
+                if (!await SendMonsterAction(player, id, idol, action, () =>
+                    InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, ChannelSkillId, player.NextActionSequence(), player.MonsterOrderFlags),
                     $"0x01ab idol 0x{id:x} fills")) return;
                 // Its life fills; hits take it down meanwhile.
                 while (true)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(TickSeconds));
+                    await AreaDelay(player, TickSeconds);
                     if (!up()) return;
                     bool full;
-                    lock (conn.Monsters)
-                    {
-                        if (idol.Dead) return;
-                        idol.Life = life = (uint)Math.Min(idol.MaxLife, idol.Life + Math.Ceiling(idol.MaxLife * TickSeconds / fillSeconds));
-                        full = life >= idol.MaxLife;
-                    }
-                    await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), null);
+                    if (idol.Dead) return;
+                    idol.Life = life = (uint)Math.Min(idol.MaxLife, idol.Life + Math.Ceiling(idol.MaxLife * TickSeconds / fillSeconds));
+                    full = life >= idol.MaxLife;
                     if (full) break;
                 }
                 // Full: it casts its circles (its act's SpellAreaOfEffect: Deactivate_cast and the gold nova) and its life goes to 1.
                 List<(int X, int Y)> spots;
-                lock (conn.Monsters)
-                {
-                    idol.Life = 1;
-                    spots = Spots(conn);
-                }
-                await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 1, SummonAnimation),
-                    .. InstanceProtocol.LifeUpdate(id, 1)], $"idol 0x{id:x} casts {spots.Count} circles");
-                _ = Circles(remote, stream, ciphers, conn, id, idol, burst, element, spots);
-                await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.SitSeconds));
+                idol.Life = 1;
+                spots = Spots(player);
+                await Send(player, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 1, SummonAnimation)], $"idol 0x{id:x} casts {spots.Count} circles");
+                _ = Circles(player, id, idol, burst, element, spots);
+                await AreaDelay(player, IzaroChronos.SitSeconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} idol 0x{id:x} stopped: {ServerLog.Describe(ex)}"); }
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} idol 0x{id:x} stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // Where its circles go: one on the player, the rest at walkable cells round the player within the placement radius,
-    // apart from each other. Under the Monsters lock.
-    static List<(int X, int Y)> Spots(ClientState conn)
+    // apart from each other. In the area's frame.
+    static List<(int X, int Y)> Spots(Player player)
     {
-        var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        var spots = new List<(int X, int Y)> { player };
+        var playerAt = player.Walk.Position(AreaTime(player));
+        var spots = new List<(int X, int Y)> { playerAt };
         for (int tries = 0; spots.Count < IzaroChronos.Circles && tries < 200; tries++)
         {
-            double angle = Random.Shared.NextDouble() * Math.PI * 2, reach = Math.Sqrt(Random.Shared.NextDouble()) * IzaroChronos.PlacementRadius;
-            (int X, int Y) cell = ((int)Math.Round(player.X + Math.Cos(angle) * reach), (int)Math.Round(player.Y + Math.Sin(angle) * reach));
-            if (!conn.Layout.WalkableFor(cell.X, cell.Y, 0) || conn.Barrier.Contains(cell)) continue;
+            double angle = AreaRng(player).NextDouble() * Math.PI * 2, reach = Math.Sqrt(AreaRng(player).NextDouble()) * IzaroChronos.PlacementRadius;
+            (int X, int Y) cell = ((int)Math.Round(playerAt.X + Math.Cos(angle) * reach), (int)Math.Round(playerAt.Y + Math.Sin(angle) * reach));
+            if (!player.Layout.WalkableFor(cell.X, cell.Y, 0) || player.Barrier.Contains(cell)) continue;
             if (spots.Any(s => Distance(s, cell) < IzaroChronos.CircleSpacing)) continue;
             spots.Add(cell);
         }
@@ -120,64 +108,59 @@ static class IzaroIdols
 
     // The circles show for their fuse, each with its beacon's orb in the middle (beacon.ot: rig.ao, its start then its
     // loop; at the end its end clip), then burst: the player inside one takes its hit (one hit, however many).
-    static async Task Circles(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster idol,
+    static async Task Circles(Player player, uint id, SpawnedMonster idol,
         MonsterAttack burst, int element, List<(int X, int Y)> spots)
     {
-        var layout = conn.Layout;
-        bool Gone() => conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout);
+        var layout = player.Layout;
+        bool Gone() => player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout);
         try
         {
             var circles = new List<uint>();
             var orbs = new List<uint>();
             List<byte> show = [];
-            lock (conn.Monsters)
-                foreach (var s in spots)
-                {
-                    uint effect = conn.NextObjectId++, orb = conn.NextObjectId++;
-                    circles.Add(effect);
-                    orbs.Add(orb);
-                    show.AddRange([.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(s.X, s.Y, IzaroChronos.CircleArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(effect),
-                        .. InstanceEntities.CreateObject(orb, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(s.X, s.Y, IzaroChronos.OrbArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(orb)]);
-                }
-            await Send(remote, stream, ciphers, [.. show], null);
-            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.OrbStartSeconds));
+            foreach (var s in spots)
+            {
+                uint effect = player.NextObjectId++, orb = player.NextObjectId++;
+                circles.Add(effect);
+                orbs.Add(orb);
+                show.AddRange([.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                    new EffectObject(s.X, s.Y, IzaroChronos.CircleArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(effect),
+                    .. InstanceEntities.CreateObject(orb, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                    new EffectObject(s.X, s.Y, IzaroChronos.OrbArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(orb)]);
+            }
+            await Send(player, [.. show], null);
+            await AreaDelay(player, IzaroChronos.OrbStartSeconds);
             if (Gone()) return;
-            await Send(remote, stream, ciphers, [.. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbLoopClip, 1))], null);
-            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.FuseSeconds - IzaroChronos.OrbStartSeconds));
+            await Send(player, [.. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbLoopClip, 1))], null);
+            await AreaDelay(player, IzaroChronos.FuseSeconds - IzaroChronos.OrbStartSeconds);
             if (Gone()) return;
             var bursts = new List<uint>();
             List<byte> burstBytes = [.. circles.SelectMany(InstanceProtocol.RemoveObject),
                 .. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbEndClip, 1))];
-            lock (conn.Monsters)
-                foreach (var s in spots)
-                {
-                    uint effect = conn.NextObjectId++;
-                    bursts.Add(effect);
-                    burstBytes.AddRange([.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(s.X, s.Y, IzaroChronos.BurstArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(effect)]);
-                }
-            await Send(remote, stream, ciphers, [.. burstBytes], null);
-            MonsterHitOutcome? outcome = null;
-            await Send(remote, stream, ciphers, [], $"idol 0x{id:x}'s circles burst", atGate: () =>
+            foreach (var s in spots)
             {
-                lock (conn.Monsters)
-                {
-                    if (InGracePeriod(conn) || !MonsterPresent(conn, id, idol)) return null;
-                    double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
-                    var here = conn.Walk.Position(now);
-                    var nearest = spots.MinBy(s => Distance(s, here));
-                    if (Distance(nearest, here) > IzaroChronos.CircleRadius) return null;
-                    outcome = CommitMonsterHitLocked(remote, conn, id, idol, burst, now, here, nearest, checkRange: false, sequence: conn.NextActionSequence());
-                    return outcome?.HitPacket;
-                }
+                uint effect = player.NextObjectId++;
+                bursts.Add(effect);
+                burstBytes.AddRange([.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                    new EffectObject(s.X, s.Y, IzaroChronos.BurstArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(effect)]);
+            }
+            await Send(player, [.. burstBytes], null);
+            MonsterHitOutcome? outcome = null;
+            await Send(player, [], $"idol 0x{id:x}'s circles burst", atGate: () =>
+            {
+                if (InGracePeriod(player) || !MonsterPresent(player, id, idol)) return null;
+                double now = Math.Max(ProjectileWorldTime(player), AreaTime(player));
+                var here = player.Walk.Position(now);
+                var nearest = spots.MinBy(s => Distance(s, here));
+                if (Distance(nearest, here) > IzaroChronos.CircleRadius) return null;
+                outcome = CommitMonsterHitLocked(player, id, idol, burst, now, here, nearest, checkRange: false, sequence: player.NextActionSequence());
+                return outcome?.HitPacket;
             });
-            if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
-            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.ExplodeSeconds));
-            if (!Gone()) await Send(remote, stream, ciphers, [.. bursts.Concat(orbs).SelectMany(InstanceProtocol.RemoveObject)], null);
+            if (outcome is not null) await PresentMonsterHit(player, id, outcome);
+            await AreaDelay(player, IzaroChronos.ExplodeSeconds);
+            if (!Gone()) await Send(player, [.. bursts.Concat(orbs).SelectMany(InstanceProtocol.RemoveObject)], null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} idol 0x{id:x}'s circles stopped: {ServerLog.Describe(ex)}"); }
+        { if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} idol 0x{id:x}'s circles stopped: {ServerLog.Describe(ex)}"); }
     }
 }

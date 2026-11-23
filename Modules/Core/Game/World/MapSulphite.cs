@@ -5,29 +5,37 @@ using GameServer.Core;
 /// <summary>The native sulphite resource curve and the map-owner scarab modifier, separate from player item quantity.</summary>
 public static class MapSulphite
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadMapSulphiteData()
+    {
+        Resources = LoadResources();
+    }
+
     public const string Vein = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralVein";
     public const string Chest = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralChest";
-    public const string EnragedQuantity = "from_league_item_quantity_+%_permyriad";
+    public const uint EnragedQuantity = Stat.FromLeagueItemQuantityPlusPctPermyriad;
     public const int FumesQuantity = 5000;
     // The native daemon supplies no radius in its exported skill rows. Keep the server's encounter radius explicit.
     public const int FumesRadius = 60;
 
-    static readonly Lazy<Dictionary<int, int>> Resources = new(() =>
+    static Dictionary<int, int> Resources = default!;
+
+    static Dictionary<int, int> LoadResources()
     {
         return ClientTables.Table("DelveResourcePerLevel").ToDictionary(r => r.Int("AreaLevel"), r => r.Int("Sulphite"));
-    });
+    }
 
-    public static bool Present(MapMods mods) => mods.Get("map_delve_league") > 0;
-    public static bool Fumes(MapMods mods) => mods.Get("map_enraging_sulphite") > 0;
+    public static bool Present(MapMods mods) => mods.Get(Stat.MapDelveLeague) > 0;
+    public static bool Fumes(MapMods mods) => mods.Get(Stat.MapEnragingSulphite) > 0;
 
     public static int Yield(int level, MapMods mods, bool owner, int nearbyPlayers = 1)
     {
         int count = Math.Max(1, nearbyPlayers);
         decimal party = (100 + 50L * (count - 1)) / (100m * count);
-        decimal bonus = owner ? Math.Max(0, 100L + mods.Get("map_owner_sulphite_gained_+%")) / 100m : 1;
-        decimal mined = Math.Max(0, 100L + mods.Get("map_sulphite_mined_+%")) / 100m;
+        decimal bonus = owner ? Math.Max(0, 100L + mods.Get(Stat.MapOwnerSulphiteGainedPlusPct)) / 100m : 1;
+        decimal mined = Math.Max(0, 100L + mods.Get(Stat.MapSulphiteMinedPlusPct)) / 100m;
         decimal quantity = Math.Max(0, 100L + mods.Quantity) / 100m;
-        return (int)Math.Clamp(decimal.Floor(Resources.Value.GetValueOrDefault(level) * quantity * party * bonus * mined), 0, int.MaxValue);
+        return (int)Math.Clamp(decimal.Floor(Resources.GetValueOrDefault(level) * quantity * party * bonus * mined), 0, int.MaxValue);
     }
 
     public static ushort Credit(int current, int gain, int capacity) =>
@@ -42,9 +50,8 @@ public static class MapSulphite
     public static byte[] Blob(int x, int y, float? height, bool mined, bool fumes)
     {
         var w = new BlobWriter();
-        w.U8(0).U8(0).I32(x).I32(y).F32(0).U16(0).U8((byte)(height is null ? 0 : 4)).U8(2);
-        if (height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
-        w.U8(0).U8(1).U8(0).U8(0).U8((byte)(mined ? 6 : 0));
+        w.U8(0).U8(0).Positioned(x, y, fixedHeight: height is float z ? BlobWriter.FixedHeight(z) : null);
+        w.U8(0).U8(0).U8((byte)(mined ? 6 : 0));
         States(mined, fumes).Write(w);
         return w.U8(0).ToArray();
     }
