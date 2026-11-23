@@ -20,6 +20,27 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
     public double HitProfileMore { get; init; } = 1;
+
+    public ProjectileOffense ScaleDamage(double more)
+    {
+        if (more == 1) return this;
+        MonsterIgnites.Settings Scale(MonsterIgnites.Settings ailment) => ailment with
+        {
+            Min = ailment.Min * more, Max = ailment.Max * more,
+            CriticalMin = ailment.CriticalMin * more, CriticalMax = ailment.CriticalMax * more,
+        };
+        return this with
+        {
+            Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
+            HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+            Ignite = Scale(Ignite), Bleed = Scale(Bleed),
+            Poison = Poison with
+            {
+                Min = Poison.Min * more, Max = Poison.Max * more,
+                CriticalMin = Poison.CriticalMin * more, CriticalMax = Poison.CriticalMax * more,
+            },
+        };
+    }
     public double AilmentProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }

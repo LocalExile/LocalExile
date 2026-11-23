@@ -1,9 +1,10 @@
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
+using Xunit.Abstractions;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class PlacedSupportsTests
+public sealed class PlacedSupportsTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task Locus_keeps_close_mines_armed_while_the_rest_of_the_sequence_fires()
@@ -48,6 +49,70 @@ public sealed class PlacedSupportsTests
             Game.DetonateMinesLocked(player, clock.At);
             await Game.PlayerMinionsTick(player, clock.At);
             Assert.Empty(player.Placed.All);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
+    public async Task Invention_scales_real_trap_and_mine_hits_by_time_on_the_ground()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var clock = new PlacedClock();
+        var previous = Game.AreaUpdateContext.Value;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.GlobalCannotCrit] = 1;
+                values[Stat.SpellMinimumAddedColdDamage] =
+                    values[Stat.SpellMaximumAddedColdDamage] = 100_000;
+            }
+            return values;
+        });
+        try
+        {
+            foreach (string placement in new[] { "Trap Support", "Blastchain Mine Support" })
+            {
+                var gems = new List<(string, int)>
+                {
+                    ("Ice Nova", 1), (placement, 1), ("Invention Support", 1),
+                    ("Added Cold Damage Support", 1), ("Increased Area of Effect Support", 1),
+                };
+                if (placement == "Trap Support") gems.Add(("Elemental Focus Support", 1));
+                ushort skillId = Assert.Single(fixture.Equip(gems.ToArray()));
+                Assert.Equal(14, Game.SupportedSkill(player, skillId).Stats
+                    .GetValueOrDefault(Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100));
+                var (fresh, age) = await Contact(0);
+                var (aged, laterAge) = await Contact(3);
+                double expected = fresh * (1 + Math.Min(100, laterAge * 14) / 100) / (1 + Math.Min(100, age * 14) / 100);
+                output.WriteLine($"{placement}: age {age:F3}s {fresh} damage; age {laterAge:F3}s {aged} damage; expected about {expected:F0}.");
+                // The spells retain their small native damage range on top of the fixed added damage.
+                Assert.InRange(aged, expected * .9995, expected * 1.0005);
+
+                async Task<(uint Damage, double Age)> Contact(double wait)
+                {
+                    clock.At += 1;
+                    fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                    Assert.True(await Game.CastGemSkill(player, skillId, (100, 100), (112, 100)));
+                    var placed = Assert.Single(player.Placed.All.Values);
+                    Assert.Empty(player.Area.Monsters);
+                    const uint Target = 750;
+                    var monster = new SpawnedMonster("invention target", new(placed.At.X, placed.At.Y, 0), 0, 0, 1_000_000);
+                    player.Area.Monsters.Add(Target, monster);
+                    clock.At = placed.Armed + .01 + wait;
+                    Assert.True(clock.At < placed.Until);
+                    if (placed.Mine) Game.DetonateMinesLocked(player, clock.At);
+                    await Game.PlayerMinionsTick(player, clock.At);
+                    player.Area.Monsters.Remove(Target);
+                    Assert.Empty(player.Placed.All);
+                    Assert.True(monster.Life < monster.MaxLife);
+                    return (monster.MaxLife - monster.Life, clock.At - placed.LandAt);
+                }
+            }
         }
         finally { Game.AreaUpdateContext.Value = previous; }
     }

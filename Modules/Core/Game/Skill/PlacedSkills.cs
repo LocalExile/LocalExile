@@ -517,6 +517,8 @@ public static partial class Game
     static void PlacedDamageLocked(Player player,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
+        int inventionRate = GolemStat(placed.Own, Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100);
+        double inventionMore = 1 + Math.Clamp(inventionRate * Math.Max(0, now - placed.LandAt), 0, 100) / 100;
         bool bear = SkillsFor(player).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
         double radius = SkillRadius(player, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
@@ -553,13 +555,15 @@ public static partial class Game
             {
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
-                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true } };
+                var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true } };
             });
             return;
         }
         using var statScope = new PlayerStatScope(player, fresh: true);
         double more = ReservationAura(player, "SummonSkitterbots") is { } skitter
             ? Math.Max(0, 1 + ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d) : 1;
+        more *= inventionMore;
         var owner = CharacterPlayerStats(player);
         var playerStats = placed.Offense?.Caster ?? owner;
         bool spell = placed.Offense?.Spell ?? spellDamage;
@@ -636,7 +640,7 @@ public static partial class Game
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
                 .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
             double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore;
+                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * inventionMore;
             var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(playerStats))
                 .OverTime(new(DamageType.Fire, dps, 1));
             int baseDuration = Get(Stat.BaseSkillEffectDuration);
