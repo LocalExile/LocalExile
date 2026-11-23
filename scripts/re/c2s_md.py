@@ -71,11 +71,12 @@ def writer(fa):
                " ", t or "", flags=re.S)
     if not t or "{" not in t: return None
     body = t.split("{", 1)[1]
-    fixed = sum(int(n, 0) for n in re.findall(r"FUN_140dfa000\([^,]+,[^,]+,(0x[0-9a-f]+|\d+)\)", body))
-    var = re.search(r"FUN_140dfa000\([^,]+,[^,]+,[^)0-9][^)]*\)", body)
+    sizes = re.findall(r"\bFUN_140dfa000\s*\([^,;]+,[^,;]+,\s*(0x[0-9a-f]+|\d+)\s*\)", body)
+    fixed = sum(int(n, 0) for n in sizes)
+    all_fixed = len(sizes) == len(re.findall(r"\bFUN_140dfa000\s*\(", body))
     calls = set(re.findall(r"(FUN_1[0-9a-f]{8})\([^;]*param_2", body)) - {"FUN_140dfa000"}
     branch = re.search(r"\b(if|for|while|do|switch)\b|\?", body)
-    return fixed, not var and not calls and not branch
+    return fixed, all_fixed and not calls and not branch
 
 def gateway_framing():
     """Read the fixed table and the instance IDs with their own framing."""
