@@ -169,6 +169,9 @@ public sealed record KillContext(Player Player, SpawnedMonster Monster, string V
     public void Later(Func<Task> send) => Afterwards.Add(send);
 }
 
+/// <summary>A player's current chat availability (away / do-not-disturb flags and autoreply messages).</summary>
+public readonly record struct ChatAvailability(bool Afk, string AfkMessage, bool Dnd, string DndMessage);
+
 /// <summary>Where the framework hands over to the league's code, the modules and the mods.</summary>
 public static class GameEvents
 {
@@ -607,6 +610,18 @@ public static class GameEvents
     /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
     /// the module delivered it to the party.</summary>
     public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
+    /// <summary>A party invitation requested by target character or account name (such as <c>/invite</c>); true when a
+    /// subscriber handled the request.</summary>
+    public static readonly GameEvent<Func<Player, string, Task<bool>>> PartyInvite = new();
+    /// <summary>Whether the viewer is ignoring messages or requests from the named sender (account or character name).</summary>
+    public static readonly GameEvent<Func<Player, string, bool>> PlayerIgnored = new();
+    /// <summary>Whether the first player (visitor) is permitted to enter the second player's (owner's) hideout.</summary>
+    public static readonly GameEvent<Func<Player, Player, bool>> HideoutVisitAllowed = new();
+    /// <summary>A player's current chat availability (away / do-not-disturb flags and autoreply text); the first non-null
+    /// answer wins.</summary>
+    public static readonly GameEvent<Func<Player, ChatAvailability?>> ChatAvailabilityQuery = new();
+    /// <summary>The player performed chat activity (such as sending a chat line); subscribers may clear away state.</summary>
+    public static readonly GameEvent<Func<Player, Task>> ChatActivity = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -749,5 +764,56 @@ public static class GameEvents
     {
         foreach (var run in PartyChat.For(player)) if (await run(player, text, items)) return true;
         return false;
+    }
+
+    public static async Task<bool> RunPartyInvite(Player player, string target)
+    {
+        foreach (var (owner, run) in PartyInvite.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, nameof(PartyInvite), async () => handled = await run(player, target)) && handled)
+                return true;
+        }
+        return false;
+    }
+
+    public static bool IsPlayerIgnored(Player viewer, string? sender)
+    {
+        if (string.IsNullOrWhiteSpace(sender) || !PlayerIgnored.Any) return false;
+        foreach (var (owner, run) in PlayerIgnored.Subscribers(viewer))
+        {
+            bool ignored = false;
+            if (GameEventOwners.Guard(owner, nameof(PlayerIgnored), () => ignored = run(viewer, sender)) && ignored)
+                return true;
+        }
+        return false;
+    }
+
+    public static bool CanVisitHideout(Player visitor, Player owner)
+    {
+        foreach (var (ownerId, run) in HideoutVisitAllowed.Subscribers(visitor))
+        {
+            bool allowed = false;
+            if (GameEventOwners.Guard(ownerId, nameof(HideoutVisitAllowed), () => allowed = run(visitor, owner)) && allowed)
+                return true;
+        }
+        return false;
+    }
+
+    public static ChatAvailability GetChatAvailability(Player player)
+    {
+        foreach (var (owner, run) in ChatAvailabilityQuery.Subscribers(player))
+        {
+            ChatAvailability? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(ChatAvailabilityQuery), () => answer = run(player)) && answer is { } value)
+                return value;
+        }
+        return default;
+    }
+
+    public static async Task RunChatActivity(Player player)
+    {
+        foreach (var (owner, run) in ChatActivity.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(ChatActivity), () => run(player));
     }
 }

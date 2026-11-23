@@ -397,6 +397,73 @@ public static partial class Game
         await ChangeArea(player, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
+    // C→S 0x17a: visit a named character's hideout (self, same party, friend, or invited via 0x179).
+    public static async Task WarpToPlayerHideout(Player player, string rawTarget, string why)
+    {
+        if (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded) return;
+        string targetName = rawTarget.Trim();
+        if (targetName.Length == 0
+            || string.Equals(targetName, CharacterName(player), StringComparison.OrdinalIgnoreCase)
+            || player.Character.Account is not null && string.Equals(targetName, player.Character.Account, StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(player, why);
+            return;
+        }
+        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+            && (string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Character.Account, targetName, StringComparison.OrdinalIgnoreCase)));
+        if (target is null)
+        {
+            await (player.Commands?.Reply("Player not found.") ?? Task.CompletedTask);
+            return;
+        }
+        if (ReferenceEquals(target, player)
+            || string.Equals(CharacterName(target), CharacterName(player), StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(player, why);
+            return;
+        }
+        bool sameLeague = !player.Character.Ssf && !target.Character.Ssf
+            && player.Character.Hardcore == target.Character.Hardcore && player.Character.LeagueForm == target.Character.LeagueForm
+            && string.Equals(player.Character.League, target.Character.League, StringComparison.OrdinalIgnoreCase);
+        if (!sameLeague)
+        {
+            await (player.Commands?.Reply("You cannot visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (!CanVisitHideout(player, target))
+        {
+            await (player.Commands?.Reply("You do not have permission to visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (HomeHideout(target) is not { } hideout)
+        {
+            await (player.Commands?.Reply("That player does not have a hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        string ownerName = CharacterName(target);
+        if (HideoutCatalog.ByArea(target.Layout.Hash) is not null && OwnHideout(target) && target.InstanceNumber != 0)
+        {
+            if (player.Layout.Hash == target.Layout.Hash && player.InstanceNumber == target.InstanceNumber) return;
+            await ChangeArea(player,
+                new PendingTransfer(target.Layout.Hash, target.InstanceNumber, false, AtWaypoint: true),
+                $"{why}: {ownerName}'s {hideout.Name}");
+            return;
+        }
+        if (player.Layout.Hash == hideout.AreaHash16 && string.Equals(player.InstanceOwner, ownerName, StringComparison.OrdinalIgnoreCase))
+            return;
+        await ChangeArea(player,
+            new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true) { InstanceOwner = ownerName },
+            $"{why}: {ownerName}'s {hideout.Name}");
+    }
+
+    static bool CanVisitHideout(Player visitor, Player owner)
+    {
+        if (visitor.Character.Account is not null && string.Equals(visitor.Character.Account, owner.Character.Account, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return GameEvents.CanVisitHideout(visitor, owner);
+    }
+
     /// <summary>Whether <paramref name="areaHash"/> is a safe returnable world area (a town, waypoint campaign area, or
     /// the player's own hideout) — excluding maps, pinnacle boss recipes, Labyrinth areas, Delve areas, and other players' hideouts.</summary>
     public static bool IsReturnableWorldArea(Player player, ushort areaHash)
@@ -583,7 +650,8 @@ public static partial class Game
             await FailOnFrame(fail, restoreSession: true, resumeVitals: false).ConfigureAwait(false);
             return;
         }
-        ulong join = t.Instance != 0 || t.New ? 0 : InstanceEvents.TransferInstance.For(player).Select(run => run(player, t)).FirstOrDefault(i => i != 0);
+        ulong join = t.Instance != 0 || t.New || !string.IsNullOrWhiteSpace(t.InstanceOwner) ? 0
+            : InstanceEvents.TransferInstance.For(player).Select(run => run(player, t)).FirstOrDefault(i => i != 0);
         uint sourceTicket = player.Ticket;
         string? soloOwner = player.Character.Ssf ? player.Character.Id?.ToString("N") : null;
         string characterName = CharacterName(player);
@@ -598,10 +666,11 @@ public static partial class Game
             r = await call(new ControlRequest
             {
                 Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,
+                Owner = t.InstanceOwner,
             }).ConfigureAwait(false);
             // The party member's instance may be gone or closed to this player: the default choice then.
             if (join != 0 && !r.Ok)
-                r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed }).ConfigureAwait(false);
+                r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed, Owner = t.InstanceOwner }).ConfigureAwait(false);
             else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
         }
         catch (Exception ex)
@@ -611,7 +680,6 @@ public static partial class Game
             await FailOnFrame(fail, restoreSession: true, resumeVitals: true).ConfigureAwait(false);
             throw;
         }
-
         if (!r.Ok)
         {
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
