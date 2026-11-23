@@ -25,6 +25,7 @@ public static partial class Game
     // time per connection (QuestGate), so a background sync never interleaves with another change.
     public static async Task SetQuestFlags(Player player, IEnumerable<string> flags, bool on = true)
     {
+        if (flags is ICollection<string> { Count: 0 }) return;
         if (QuestKillCommitOutput is not null)
         {
             await SetQuestFlagsHeld(player, flags, on);
@@ -41,9 +42,16 @@ public static partial class Game
     // Gameplay and persistence commit before any notification. Caller holds the combat lock when used by simulation.
     public static QuestFlagCommit? CommitQuestFlags(Player player, IEnumerable<string> flags, bool on = true)
     {
+        if (flags is ICollection<string> { Count: 0 }) return null;
+        List<string>? wanted = null;
+        foreach (string flag in flags)
+        {
+            wanted ??= [];
+            if (!wanted.Contains(flag)) wanted.Add(flag);
+        }
+        if (wanted is null) return null;
         // Queued work cannot mutate progress after a committed Hardcore death.
         if (HardcoreProgressBlocked(player)) return null;
-        var wanted = flags.Distinct().ToList();
         var clientBefore = PlayerQuestFlags(player);
         var ownBefore = player.Character.QuestFlagsSnapshot();
         bool InstanceHas(string flag) => player.Instance?.HasState(flag) == true;

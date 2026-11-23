@@ -393,6 +393,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     MonsterModSet mods = MonsterModSet.None;
     // A curse put on or taken off changes its stats.
     public MonsterCurses Curses => curses ??= new(() => MarkStats(CursesLayer));
+    public bool HasCurses => curses is not null && (curses.All.Count > 0 || curses.Presented.Count > 0 || curses.PresentedVersion != curses.Version);
     MonsterCurses? curses;
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
@@ -986,6 +987,11 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public const int NpcBlockerSize = 4, StashBlockerSize = 2, MapDeviceBlockerSize = 3;
     readonly Dictionary<uint, ClientPathfinder.Blocker> _blockers = [];
     volatile IReadOnlyList<ClientPathfinder.Blocker> _blockerList = [];
+    // Cached player blocker snapshot (Blockers): reused while stationary, monster and peer bodies stay on the same cells.
+    // Never mutated after publication so concurrent readers stay race-free.
+    readonly Lock _playerBlockersGate = new();
+    IReadOnlyList<ClientPathfinder.Blocker>? keptPlayerBlockers;
+    List<ClientPathfinder.Blocker>? sparePlayerBlockers;
     public IReadOnlyList<ClientPathfinder.Blocker> Blockers
     {
         get
@@ -993,20 +999,56 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             var fixedOnes = _blockerList;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
-            List<ClientPathfinder.Blocker>? all = null;
-            foreach (var (id, m) in CollisionMonsters)
+            lock (_playerBlockersGate)
             {
-                if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
-            }
-            // Another player stands where its own walk has it.
-            foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
-                if (peer.PlayerLife > 0 && peer is { } other)
+                var list = sparePlayerBlockers ?? new List<ClientPathfinder.Blocker>();
+                sparePlayerBlockers = null;
+                list.Clear();
+                for (int i = 0; i < fixedOnes.Count; i++) list.Add(fixedOnes[i]);
+                if (Area.DormantMonsters.Count == 0)
                 {
-                    var at = other.Walk.Position(now);
-                    (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                    foreach (var (id, m) in Area.Monsters)
+                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
-            return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
+                else
+                {
+                    foreach (var (id, m) in CollisionMonsters)
+                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                }
+                // Another player stands where its own walk has it.
+                var peers = Instance?.PlayersExcept(Id);
+                if (peers is { Length: > 0 })
+                    foreach (var peer in peers)
+                        if (peer.PlayerLife > 0)
+                        {
+                            var at = peer.Walk.Position(now);
+                            list.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                        }
+                if (list.Count == fixedOnes.Count)
+                {
+                    keptPlayerBlockers = null;
+                    sparePlayerBlockers = list;
+                    return fixedOnes;
+                }
+                if (keptPlayerBlockers is { } kept && SameBlockers(kept, list))
+                {
+                    sparePlayerBlockers = list;
+                    return kept;
+                }
+                var built = new GameServer.Core.World.BlockerSet(list);
+                keptPlayerBlockers = built;
+                sparePlayerBlockers = list;
+                return built;
+            }
         }
+    }
+
+    static bool SameBlockers(IReadOnlyList<ClientPathfinder.Blocker> a, List<ClientPathfinder.Blocker> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < b.Count; i++)
+            if (a[i] != b[i]) return false;
+        return true;
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
@@ -1043,7 +1085,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     private PlayerWalk NewPlayerWalk()
     {
         var l = Layout;
-        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
+        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && (Barrier is not { Count: > 0 } b || !b.Contains((cx, cy))) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }

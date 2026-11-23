@@ -352,7 +352,11 @@ public static partial class Game
 
     public static Task SendNativeCooldownRefresh(Player player)
     {
-        if (!player.SingleUseCooldowns.Values.Any(s => s.NeedsNativeRefresh)) return Task.CompletedTask;
+        if (player.SingleUseCooldowns.Count == 0) return Task.CompletedTask;
+        bool dirty = false;
+        foreach (var s in player.SingleUseCooldowns.Values)
+            if (s.NeedsNativeRefresh) { dirty = true; break; }
+        if (!dirty) return Task.CompletedTask;
         int epoch;
         epoch = player.ProjectileEpoch;
         return Send(player, [], "0x02bc player active cooldown progress/rate refresh",

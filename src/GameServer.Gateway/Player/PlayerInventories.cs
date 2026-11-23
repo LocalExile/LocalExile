@@ -452,6 +452,24 @@ public sealed partial class PlayerInventories
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
     }
 
+    /// <summary>Whether any gem socketed in <see cref="GemExperienceRows"/> matches <paramref name="predicate"/>, without allocating.</summary>
+    public bool AnySocketedGem(Func<uint, Item, bool> predicate)
+    {
+        lock (_lock)
+            foreach (var row in GemExperienceRows)
+            {
+                if (!_items.TryGetValue(row, out var items)) continue;
+                for (int at = 0; at < items.Count; at++)
+                {
+                    if (items[at].Item.Sockets is not { Count: > 0 } held) continue;
+                    for (int socket = 0; socket < held.Count; socket++)
+                        if (held[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && predicate(items[at].Id, gem))
+                            return true;
+                }
+            }
+        return false;
+    }
+
     /// <summary>
     /// Changes the gems socketed in the <see cref="GemExperienceRows"/> items in one step (a gem moved meanwhile is never
     /// changed with another's values), without saving it now (like <see cref="ChangeUnsaved"/>). <paramref name="change"/>
