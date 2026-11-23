@@ -1305,6 +1305,8 @@ public static partial class Game
                     bool walkChanges = channelWalk is not null || player.ChannelMovement.Skill != 0;
                     player.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
                     if (walkChanges) player.ApplyMovementSpeed();
+                    player.LastLockstepChannelAim = null;
+                    player.LockstepChannelAimPending = HeldLockstepMovingChannel(player);
                     if (GolemStat(SupportedSkill(player, skillId).Stats, Stat.CastWhileChannellingTimeMs) > 0)
                         BeginChannelTriggers(player, ProjectilesFor(player), skillId,
                             action, player.ChannelGeneration, to, AreaTime(player));
@@ -2121,6 +2123,11 @@ public static partial class Game
                     {
                         ChannelAimedAt(player, aim.X, aim.Y, at);
                         player.LastChannelUpdateAt = now;
+                        if (HeldLockstepMovingChannel(player))
+                        {
+                            player.LastLockstepChannelAim = (aim, at);
+                            player.LockstepChannelAimPending = false;
+                        }
                     }
                     aimLockstepChannel = player.LockstepSkill.Channel is not null;
                 }
