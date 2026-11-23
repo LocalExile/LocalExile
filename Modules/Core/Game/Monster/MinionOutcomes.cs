@@ -45,7 +45,9 @@ public static partial class Game
         if (playerKill)
         {
             QueueMadnessExplosionLocked(player, victimId, monster);
+            WitchbaneOnKill(player, monster, now);
             player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at));
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
                 Frozen: monster.Ailments.FrozenAtDeath(now));

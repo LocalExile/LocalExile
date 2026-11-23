@@ -231,7 +231,7 @@ public static partial class Game
             if (factor <= 0) continue;
             double raw = dead.MaxLife * .25 * factor;
             var packet = DamagePacket.Of(DamageType.Chaos, raw, raw);
-            foreach (var (targetId, target) in player.Area.Monsters.ToArray())
+            foreach (var (targetId, target) in player.Area.MonstersNear(at, radius))
             {
                 if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable
                     || Dist(target.Walk.Position(now), at) > radius) continue;
