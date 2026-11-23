@@ -186,7 +186,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
-- Blight: pump click, lanes, enemies, foundations and towers (no HUD rows, no chests); not yet run in the client.
+- Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (no HUD, no chests); not yet run in the client.
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

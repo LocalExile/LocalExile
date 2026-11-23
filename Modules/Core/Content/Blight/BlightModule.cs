@@ -18,15 +18,8 @@ public sealed class BlightModule : IModule
         var encounter = new BlightEncounter();
         module.Lifetime.Own(new Cleanup(encounter.Runs.Clear));
         GameEvents.PlayerEntered.Add(id, encounter.Enter);
-        GameEvents.AreaTick.Add(id, GameEvents.Always(async (player, seconds) =>
-        {
-            if (player.Instance is null || !encounter.Runs.TryGetValue(player.Instance, out _)) return;
-            // One live client of the instance runs it.
-            var runner = InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && c.PlayerLife > 0
-                && c.Connection.PlayerSent && !c.LeavingArea && !c.Closed).MinBy(c => c.Id);
-            if (!ReferenceEquals(runner, player) || player.Paused) return;
-            await encounter.Tick(player);
-        }));
+        // Only a map can hold a pump, and only its connection that runs the instance's monsters steps it.
+        GameEvents.AreaTick.Add(id, start => MapDevices.IsMapArea(start.Layout.Hash) ? (player, _) => encounter.Step(player) : null);
         GameEvents.ObjectUse.Add(id, encounter.Use);
         GameEvents.Packet(InstanceBlight.TowerBuildId).Add(id, (player, bytes) => encounter.Build(player, bytes));
         GameEvents.Kill.Add(id, kill => kill.Later(() => encounter.Killed(kill)));

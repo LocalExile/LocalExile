@@ -8,9 +8,10 @@ using GameServer.Modules.Blight;
 namespace GameServer.Gateway.Tests;
 
 /// <summary>
-/// A Blight defence is the instance's: a party member's click starts it for both clients, the build phase lays the lanes and the
-/// foundations, a tower the client asks for is paid from the shared resource and raised, the lanes send their enemies, and the
-/// defence ends when they are all dealt with. A client that enters later is shown the pump as it stands. Nothing waits on real time:
+/// A Blight defence is the instance's: the pump is created once for the area, a party member's click starts it for both clients, the
+/// build phase lays the lanes and the foundations, a tower the client asks for is paid from the shared resource and raised, the lanes
+/// send their enemies, and the defence ends when they are all dealt with. A client that enters again is not sent the objects a second
+/// time (the area's records give them), and a reloaded module carries on from the instance's saved copy. Nothing waits on real time:
 /// the area time is passed to the tick.
 /// </summary>
 public sealed class BlightDefenceTests
@@ -22,6 +23,8 @@ public sealed class BlightDefenceTests
         var encounter = new BlightEncounter();
         var d = area.Defend(encounter);
         await encounter.Enter(area.A);
+        // The area keeps the pump's records for whoever joins later.
+        Assert.True(area.A.Area.Objects.Has(d.Pump));
         await encounter.Start(area.B, d);
         Assert.Equal(Phase.Building, d.Phase);
         Assert.NotNull(d.Plan);
@@ -29,23 +32,30 @@ public sealed class BlightDefenceTests
         Assert.NotEmpty(d.Spots);
         Assert.Equal(BlightEncounter.StartResource, d.Resource);
 
-        // The client's choice of the first Chilling tower on a foundation (BlightTowers row 1).
+        // The client's choice of the first Chilling tower on a foundation (BlightTowers row 1), and a message too short to read.
         var spot = d.Spots.Values.First();
         uint foundation = spot.Id;
         byte[] request = [0x02, 0x65, .. BitConverter.GetBytes(foundation).Reverse(), 0, 0, 0, 1];
+        Assert.True(await encounter.Build(area.A, request[..6]));
+        Assert.Equal(0, spot.Row);
         Assert.True(await encounter.Build(area.A, request));
         Assert.Equal(1, spot.Row);
         Assert.NotEqual(foundation, spot.Id);
         Assert.Equal(BlightEncounter.StartResource - (uint)BlightTables.Towers[1].Cost, d.Resource);
         Assert.False(d.Spots.ContainsKey(foundation));
 
-        // A client that enters later is shown the pump and the tower.
+        // A client that comes back is told the resource and sent no create again: each client was sent the pump once, the state
+        // each change made once, and its own bytes (the writer encrypts a buffer in place).
         await encounter.Enter(area.B);
         byte[] a = await area.WireA.Finish(), b = await area.WireB.Finish();
         byte[] pump = BitConverter.GetBytes(InstanceEntities.ObjectTypeHash(BlightEncounter.PumpObject)).Reverse().ToArray();
         byte[] paid = InstanceBlight.Resource(d.Resource);
-        Assert.True(BlightArea.Find(a, pump) >= 0 && BlightArea.Find(b, pump) >= 0, "both clients are given the pump");
+        Assert.Equal(1, BlightArea.Count(a, pump));
+        Assert.Equal(1, BlightArea.Count(b, pump));
         Assert.True(BlightArea.Find(a, paid) >= 0 && BlightArea.Find(b, paid) >= 0, "both clients are told the new resource");
+        Assert.True(area.A.Area.Objects.Has(spot.Id) && !area.A.Area.Objects.Has(foundation), "the area's records hold the tower, not the foundation it replaced");
+        Assert.Equal("BlightedMapTree1", BlightLayout.Pick(BlightTables.Topologies, 100, new Random(1), blighted: true)?.Id);
+        Assert.NotEqual("BlightedMapTree1", BlightLayout.Pick(BlightTables.Topologies, 100, new Random(1))?.Id);
     }
 
     [Fact]
@@ -62,6 +72,17 @@ public sealed class BlightDefenceTests
         Assert.Equal(Phase.Running, d.Phase);
         Assert.Equal(d.Plan!.Lanes.Count * 2, d.Monsters.Count);
         Assert.All(d.Monsters.Keys, id => Assert.Equal(d.Level, area.A.Area.Monsters[id].Level));
+
+        // The module is reloaded: the instance's saved copy gives the same defence, with the same lanes, spots and enemies.
+        encounter.Runs.Clear();
+        await encounter.Tick(area.A, now += 1);
+        Assert.True(encounter.Runs.TryGetValue(area.Instance, out var run));
+        var kept = Assert.Single(run.Defences);
+        Assert.NotSame(d, kept);
+        Assert.Equal((d.Pump, d.Phase, d.Resource, d.Spots.Count), (kept.Pump, kept.Phase, kept.Resource, kept.Spots.Count));
+        Assert.Equal(d.Plan.Lanes.Select(l => l.End), kept.Plan!.Lanes.Select(l => l.End));
+        Assert.Equal(d.Monsters.Keys.Order(), kept.Monsters.Keys.Order());
+        d = kept;
 
         // One reaches the pump: it costs durability and leaves the instance; the rest are killed.
         uint first = d.Monsters.Keys.First();
@@ -105,17 +126,16 @@ sealed class BlightArea : IAsyncDisposable
     }
 
     /// <summary>The instance's defence, as the level's pump would make it (the layout is not a generated one).</summary>
-    public Defence Defend(BlightEncounter encounter)
-    {
-        var run = new Run();
-        var d = new Defence(Instance.World.NewMonsterId(), (300, 300), 0, Level) { MaxDurability = BlightEncounter.MapDurability };
-        d.Durability = d.MaxDurability;
-        run.Defences.Add(d);
-        encounter.Runs.Add(Instance, run);
-        return d;
-    }
+    public Defence Defend(BlightEncounter encounter) => encounter.Place(A, [(300, 300, 0f)]).Defences[0];
 
     public static int Find(byte[] bytes, byte[] part) => bytes.AsSpan().IndexOf(part);
+
+    public static int Count(byte[] bytes, byte[] part)
+    {
+        int n = 0, from = 0;
+        while (bytes.AsSpan(from).IndexOf(part) is var at && at >= 0) { n++; from += at + part.Length; }
+        return n;
+    }
 
     public async ValueTask DisposeAsync()
     {

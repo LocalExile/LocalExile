@@ -82,10 +82,15 @@ public static class BlightLayout
         return null;
     }
 
-    /// <summary>One of the rows whose level range holds the area level, by weight; null when none fits.</summary>
-    public static Topology? Pick(IReadOnlyList<Topology> topologies, int level, Random rng)
+    /// <summary>The highest area level (a row's range can name a level above it: BlightTopologies row 64, BlightedMapTree1, holds 101 to 102).</summary>
+    public const int MaxAreaLevel = 100;
+
+    /// <summary>One of the rows whose level range holds the area level, by weight; null when none fits. A Blighted map takes the rows whose
+    /// range lies above every area level (the Blighted map's own tree) when the table has any [estimated: no capture holds a Blighted map].</summary>
+    public static Topology? Pick(IReadOnlyList<Topology> topologies, int level, Random rng, bool blighted = false)
     {
-        var fits = topologies.Where(t => t.Weight > 0 && t.MinLevel <= level && level <= t.MaxLevel).ToList();
+        var fits = blighted ? topologies.Where(t => t.Weight > 0 && t.MinLevel > MaxAreaLevel).ToList() : [];
+        if (fits.Count == 0) fits = [.. topologies.Where(t => t.Weight > 0 && t.MinLevel <= level && level <= t.MaxLevel)];
         int total = fits.Sum(t => t.Weight);
         if (total <= 0) return null;
         int roll = rng.Next(total);
