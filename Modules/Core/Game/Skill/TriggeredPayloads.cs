@@ -7,10 +7,13 @@ public static partial class Game
     static bool TriggerAreaSpell(Player player, SupportedGem gem) => SkillsFor(player).EffectId(gem.Effect)
         is "IceNova";
 
+    static bool TriggerBrandSpell(Player player, int effect) => IsBrandSkill(player, effect)
+        && BrandFamilyOf(SkillsFor(player).EffectId(effect)) is not BrandFamily.Trigger;
+
     public static bool TriggerPayloadAvailable(Player player, SupportedGem gem)
     {
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
-            || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
+            || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
         if (CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect))
@@ -80,6 +83,8 @@ public static partial class Game
                     ApplyCurseLocked(player, monster, id, now, false, gem, playerStats);
             await EnemyDebuffsTick(player, AreaTime(player));
         }
+        else if (TriggerBrandSpell(player, gem.Effect))
+            await ResolveCastBrand(player, id, skill, aim, recoveryGeneration: null, current);
         else if (TriggerAreaSpell(player, gem))
             await AreaSkillHit(player, id, skill,
                 player.Walk.Position(AreaTime(player)), aim, immediate: true, triggeredCurrent: current);
