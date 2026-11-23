@@ -121,17 +121,22 @@ public static partial class Game
         return list;
     }
 
-    static ItemDrops.Drop? RollMapDropForKill(Player player, int level, MonsterRarity rarity, int tier, Random rng, double chanceFactor)
+    public static ItemDrops.Drop? RollMapDropForKill(Player player, int level, MonsterRarity rarity, int tier, Random rng, double chanceFactor)
     {
         var mods = MapModsOf(player);
-        if (mods is not null) chanceFactor *= MapDropFactor(mods, Stat.MapMapItemDropChancePlusPct);
-        var drops = DropsFor(player);
+        if (mods is not null)
+        {
+            if (mods.Get(Stat.MapMonsterNoMapDrops) > 0) return null;
+            int explicitMods = mods.Get(Stat.MapNumberOfExplicitMods);
+            if (explicitMods == 0) explicitMods = mods.ExplicitMods.Count;
+            long increased = 100L + mods.Get(Stat.MapMapItemDropChancePlusPct)
+                + (long)mods.Get(Stat.MapMapItemDropChancePlusPctPerMapMod) * explicitMods;
+            chanceFactor *= Math.Max(0L, increased) / 100.0;
+            chanceFactor *= MapDropFactor(mods, Stat.MapMapItemDropChancePlusPctFinalFromUberMod,
+                Stat.MapUnscaledMapItemDropChancePlusPctFinalFromUberMod);
+        }
         int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
-        if (upgrade <= 0 || tier is <= 0 or >= 16)
-            return drops.Map(level, rarity, tier, rng, chanceFactor: chanceFactor);
-        return drops.Map(level, rarity, tier, rng,
-            acceptedTier => rng.NextDouble() < Math.Min(1000, upgrade) / 1000d ? acceptedTier + 1 : acceptedTier,
-            chanceFactor: chanceFactor);
+        return DropsFor(player).Map(level, rarity, tier, rng, chanceFactor: chanceFactor, tierUpgradePermillage: upgrade);
     }
 
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and
