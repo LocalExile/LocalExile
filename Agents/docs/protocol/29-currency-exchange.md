@@ -61,11 +61,11 @@ A status string's id in the client is its `ClientStrings` row + 1. `FaustusSettl
 - **Unknown `/exchange`:** check the character's effective [module list](../dev/modules.md).
   If Currency Exchange is absent, enable it for that league in Waypoint's **Leagues**, select
   **Save module choices**, then restart the servers. If it is still unavailable, check module-load errors.
-- **Window opens without quotes:** check
-  [Live Economy](https://github.com/LocalExile/LocalExile-Mods/tree/main/mods/liveeconomy)
-  for load/download failures and missing or stale rates; an unpriced pair can also have no quotes.
-  Its **Current league** selects the official challenge-league price feed, not the local league name
-  (such as Phrecia); see [Rates](#rates).
+- **Window opens without quotes:** without a rates file, the exchange uses built-in prices.
+  With [Live Economy](https://github.com/LocalExile/LocalExile-Mods/tree/main/mods/liveeconomy),
+  a stale feed can leave the whole market empty. If only one pair is empty, check whether the
+  selected feed prices both items. **Current league** uses the official challenge league's feed
+  even when the local league is Phrecia. See [Rates](#rates).
 
 ## Rates
 
