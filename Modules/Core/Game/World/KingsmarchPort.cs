@@ -66,8 +66,6 @@ internal static class KingsmarchPort
         public int Barter { get; set; }
         /// <summary>The town's treasury: gold the player funded into Kingsmarch (Johan's Fund the Treasury).</summary>
         public long Gold { get; set; }
-        /// <summary>Wages the treasury could not pay yet; they are paid from the next funding.</summary>
-        public int Wages { get; set; }
         public List<Ship> Ships { get; set; } = [];
     }
 
@@ -213,49 +211,21 @@ internal static class KingsmarchPort
         }
     }
 
-    /// <summary>The gold in the character's town treasury, and the wages still owed to its workers.</summary>
+    /// <summary>The gold in the character's town treasury.</summary>
     public static long Gold(string who)
     {
         lock (_saved) return Harbour(who).Gold;
     }
 
-    public static int Wages(string who)
-    {
-        lock (_saved) return Harbour(who).Wages;
-    }
-
-    /// <summary>Puts gold into the treasury and settles any wages owed first; the treasury after.</summary>
+    /// <summary>Puts gold into the treasury; the treasury after.</summary>
     public static long Fund(string who, long amount)
     {
         lock (_saved)
         {
             var port = Harbour(who);
             port.Gold += Math.Max(0, amount);
-            int owed = Math.Min(port.Wages, (int)Math.Min(port.Gold, int.MaxValue));
-            port.Wages -= owed;
-            port.Gold -= owed;
             Save();
             return port.Gold;
-        }
-    }
-
-    /// <summary>Pays a worker's wage: false when the treasury is short, in which case the wage is owed and settled by the
-    /// next funding, so the town keeps working instead of stalling on an empty treasury.</summary>
-    public static bool PayWages(string who, int amount)
-    {
-        lock (_saved)
-        {
-            var port = Harbour(who);
-            if (amount <= 0) return true;
-            if (port.Gold < amount)
-            {
-                port.Wages += amount;
-                Save();
-                return false;
-            }
-            port.Gold -= amount;
-            Save();
-            return true;
         }
     }
 

@@ -4,15 +4,14 @@ using GameServer.Modding;
 
 /// <summary>
 /// The town objects of Kingsmarch (<c>KalguuranSettlersLeague</c>): the buildings, platforms, wharves and props the server
-/// must create — the client draws the room's own doodads, but the town's floor, docks and buildings are objects of the
+/// must create -the client draws the room's own doodads, but the town's floor, docks and buildings are objects of the
 /// <c>Metadata/Terrain/Leagues/Settlers/HubTown/Objects/*</c> types, which is why the authored furniture floats without them.
 ///
 /// The list is <c>data/kingsmarch-town.json</c> (from the client's <c>room_doodads</c> rows of the <c>kingsmarch.arm</c>
 /// room, index 1984): type, model, room-local cell and angle. A type whose components this blob cannot write is skipped and
 /// logged, never sent half-written: a short blob makes the client report "Buffer Underflow" and quit.
 ///
-/// <c>data/kingsmarch-limit.txt</c> is how many objects to create (0 = none). It is meant to be raised a step at a time —
-/// 1, then 10, then all — because the first all-at-once attempt (2026-11-17 00:2x) made the client quit as the town loaded,
+/// <c>data/kingsmarch-limit.txt</c> is how many objects to create (0 = none). It is meant to be raised a step at a time -/// 1, then 10, then all -because the first all-at-once attempt (2026-11-17 00:2x) made the client quit as the town loaded,
 /// so at least one component's layout here is still wrong. The safest types (Positioned, BaseEvents, Animated,
 /// StateMachine, InteractionAction, MinimapIcon) come first, so the lowest limits exercise the least uncertain blobs.
 /// </summary>
@@ -72,10 +71,11 @@ internal static class KingsmarchTown
     // Per connection: the next object row and id. A connection is one area load, so leaving and coming back starts over.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, Progress> _progress = [];
     static readonly object _lock = new();
-    // Spawning is opt-in per module load (see Tick): /village_spawn turns it on for this session.
+    // Placement is opt-in per module load: a reload must not re-send objects the client still holds (that corrupts its
+    // object map — crash 0x148859 on 2026-11-23 19:44), so only a real area load or /village_spawn turns it on.
     static bool _armed;
 
-    /// <summary>Lets the next ticks spawn the town's objects (dev: /village_spawn).</summary>
+    /// <summary>Lets the next ticks place the town's objects (dev: /village_spawn).</summary>
     public static void Arm() => _armed = true;
 
     /// <summary>An area load: the client holds none of the town's objects yet, so it is built again from the saved farm.</summary>
@@ -90,8 +90,8 @@ internal static class KingsmarchTown
             // The client is still loading the area; objects sent into a loading area are dropped.
             progress.Ready = Environment.TickCount64 / 1000.0 + 3.0;
             Restore(progress, player.Character);
-            // A real area load is the one case where sending the town again is safe, so the town needs no dev command.
-            // The player's area is not updated yet while the area is being generated, so this cannot test for the town.
+            // The area generation does not always fire (a cached layout re-entered from a town does not generate again),
+            // so the tick also notices a new instance; either way a fresh area is what lets the town be placed again.
             _armed = true;
         }
         return Task.CompletedTask;
@@ -114,32 +114,47 @@ internal static class KingsmarchTown
     sealed class Progress
     {
         public int Next;
+        // The instance these objects were placed in: a new one means the client holds nothing and the town is built again.
+        public object? Instance;
         // Ids start at a random-ish base so that a module reload (which starts a new Progress) does not re-send the same
         // ids into a town the client already has: re-creating an id it still knows leaves the old object in place.
         public uint Id = 0x5A000000u + (uint)(Environment.TickCount64 & 0xFF) * 0x100;
-        // The farm plots this connection created: a click on one of these ids plants or harvests.
+        // The farm plots this connection created: a click on one of these ids chooses its crop.
         public readonly Dictionary<uint, Plot> Plots = [];
-        // The character whose farm this is, the crops it had stored when the area loaded, and what it has harvested.
+        // The character whose farm this is, the crops it had stored when the area loaded, and what it has produced.
         public string Who = "";
         public List<SavedPlot> Saved = [];
         public readonly Dictionary<string, int> Store = [];
         // Before this (seconds, Environment.TickCount64 based) the area is still loading and nothing may be sent.
         public double Ready;
-        // Plots removed for a replant, waiting for their re-create (the client's destroy is deferred).
+        // Plots removed for a crop change, waiting for their re-create (the client's destroy is deferred).
         public readonly List<(double At, Plot Plot, int X, int Y)> Pending = [];
-        // Which crop the next planting takes (the plots take turns at the five crops).
-        public int Rotation;
         // The workers hired for this character's town; each tends one plot, works the mine or the smeltery, or sits idle.
         public readonly List<Worker> Workers = [];
+        // The mine's ore rotation, and which crop a bare plot takes when it is next clicked (the plots take turns at the
+        // five crops, since the farm panel that would let a player choose one cannot be opened in this build).
+        public int MineRotation;
+        public int CropNext;
         // When the mine's and the smeltery's running cycle started (seconds, Environment.TickCount64 based), so a worker
         // set to either job brings its produce in MineSeconds/SmeltSeconds later. The mine digs one ore a worker a cycle;
         // the smeltery refines one ore a worker a cycle.
         public double MineStartedAt;
         public double SmeltStartedAt;
-        // The mine's ore rotation, like the plots' Rotation.
-        public int MineRotation;
         // The town's clickable boards, since the client never builds its Kingsmarch panel in this build.
         public readonly Dictionary<uint, TownBoard> Boards = [];
+        // Wall-clock seconds the town's wages were last settled at; wages are charged only for time the town is running,
+        // so the time a character was away is neither paid for twice nor left unpaid (RE C.3).
+        public double WageSettledAt;
+        // Wages earned but not yet a whole gold piece, so a slow trickle of work still costs what it owes.
+        public double WageDebt;
+        // Wall-clock seconds the farm was last written to data/kingsmarch-farm.json.
+        public double PersistedAt;
+        // Set when the treasury ran out: every job in the town stops producing until it is funded again. The town keeps
+        // its state, so a single fill of the treasury restarts it (ClientStrings 7486/7684).
+        public bool Halted;
+        // True once this session placed the town's plots. A save made before that (a module reload while the character
+        // stands in the town) has no plots in memory, and writing it would wipe the crops a character left growing.
+        public bool Placed;
     }
 
     /// <summary>What a click on one of the town's boards does.</summary>
@@ -151,7 +166,7 @@ internal static class KingsmarchTown
     }
 
     /// <summary>A board standing in the town: the client's own Kingsmarch panel is never built in this build, so the
-    /// town's buttons are objects — walk up to the board, click it and the action happens.</summary>
+    /// town's buttons are objects -walk up to the board, click it and the action happens.</summary>
     sealed class TownBoard
     {
         public BoardAction Action;
@@ -163,35 +178,47 @@ internal static class KingsmarchTown
         public int Plot = -1;
         public int Harvests;
         public string Name = "";
+        // The worker's farming rank (1..5, the stat VillageBaseStats' 20773 caps at 5). It is the multiplier the rate
+        // formula applies to that worker's contribution (RE C.1); the per-rank curve itself lives on the server and has
+        // to be sampled, so this is the linear stand-in until it is measured.
+        public int Rank = 1;
     }
 
-    /// <summary>One of the town's six farm plots: what grows there and since when.</summary>
+    /// <summary>One of the town's six farm plots: the crop it is growing and how much of it has accumulated.
+    ///
+    /// Farming is continuous (RE 0.1): there is no planting, no growing, no maturing and no harvesting, and a plot with
+    /// a crop left to itself turns time into crops. <see cref="Carry"/> is the fractional remainder the formula keeps on
+    /// the plot between settlements, so the whole numbers land in the town's store one at a time.</summary>
     sealed class Plot
     {
         public string Who = "";    // the character whose farm this plot belongs to
-        public uint ObjectId;      // the id the client knows this plot by (it changes on every replant)
+        public uint ObjectId;      // the id the client knows this plot by (it changes on every crop change)
         public int Order;          // 0..5, the plot's index in the room
         public byte StateIndex;    // the StateMachine component's index, for its 0x2bc update
         public string[] States = [];   // the type's shared state names, in wire order
         public TownObject Row = null!; // the room row, so the plot can be re-created in another plant state
         public (string[] Components, string[] States) Type;
-        public int Crop;           // 0 = bare, 1..5 = the plant state value
-        public double PlantedAt;
+        public int Crop;           // 0 = nothing growing, 1..5 = the plant state value
+        public double Carry;       // the fraction of a crop grown but not yet reached a whole one
+        // Wall-clock seconds (Unix epoch) of the last settlement. A wall clock, not the process tick counter, because the
+        // town has to settle for the time the character was away.
+        public double SettledAt;
         // When the client was last sent this plot. A plot is never removed again within a few seconds of being created: the
         // client's destroy is deferred and tearing down an object it has only just built is what corrupted its object map.
         public double CreatedAt;
-        public int Harvests;
+        public int Produced;       // whole crops this plot has handed to the town's store
     }
 
     /// <summary>A plot as stored in <c>data/kingsmarch-farm.json</c>.</summary>
     sealed class SavedPlot
     {
         public int Crop { get; set; }
-        public double Planted { get; set; }
-        public int Harvests { get; set; }
+        public double Carry { get; set; }
+        public double Settled { get; set; }
+        public int Produced { get; set; }
     }
 
-    /// <summary>One character's farm: its plots, its workers and what it has harvested. MineStarted and SmeltStarted hold
+    /// <summary>One character's farm: its plots, its workers and what it has produced. MineStarted and SmeltStarted hold
     /// the running job cycles so a reload does not hand out free ore (0 = none running, restored to now).</summary>
     sealed class SavedFarm
     {
@@ -200,6 +227,9 @@ internal static class KingsmarchTown
         public Dictionary<string, int> Store { get; set; } = [];
         public double MineStarted { get; set; }
         public double SmeltStarted { get; set; }
+        // Wall-clock seconds the town's wages were last settled at, so the offline time a character was away is not paid
+        // for twice (the treasury is charged only for time the town is running, RE C.3).
+        public double WageSettled { get; set; }
     }
 
     /// <summary>A worker as stored in <c>data/kingsmarch-farm.json</c>.</summary>
@@ -208,6 +238,7 @@ internal static class KingsmarchTown
         public int Plot { get; set; } = -1;
         public int Harvests { get; set; }
         public string Name { get; set; } = "";
+        public int Rank { get; set; } = 1;
     }
 
     static readonly Dictionary<string, SavedFarm> _farms = [];
@@ -277,20 +308,32 @@ internal static class KingsmarchTown
             Console.WriteLine($"[gateway] kingsmarch tick: area '{player.AreaId}' character {player.Character} seed {player.Seed} limit {Limit()} objects {Ordered().Count} cwd {Directory.GetCurrentDirectory()} file {File.Exists(DataFile)} filter {Filter().Length}");
         if (!string.Equals(player.AreaId, Area, StringComparison.Ordinal)) return;
         await EnsureOwnerFlag(player);
-        // Spawning waits for an explicit /village_spawn: a module reload starts with an empty Progress, and re-sending the
-        // town's objects into an area where the client already has them is what killed the client on 2026-11-19 (the
-        // client logged ObjectInWakeZone … already in the wake zone and dropped the connection).
-        if (!_armed) return;
-        _types ??= Types();
 
         Progress progress;
+        object instance = Program.PlayerOf(player).Instance;
+        // The tick's own time value is not the clock the rest of this file uses, so wait on Environment.TickCount64 here.
+        double clock = Environment.TickCount64 / 1000.0;
         lock (_lock)
         {
             progress = _progress.GetOrCreateValue(player);
             if (progress.Who.Length == 0) Restore(progress, player.Character);
+            if (progress.Instance is null)
+                // The first tick of a module load: adopt the instance the character is already in without placing the town
+                // again, since the client holds objects this Progress knows nothing about.
+                progress.Instance = instance;
+            else if (!ReferenceEquals(progress.Instance, instance))
+            {
+                // A real area load: a new instance, so the client holds none of the town's objects and they are placed
+                // again. This is the one case where re-sending the town is safe.
+                progress.Instance = instance;
+                progress.Next = 0;
+                progress.Plots.Clear();
+                progress.Ready = clock + 3.0;
+                _armed = true;
+            }
         }
-        // The tick's own time value is not the clock the rest of this file uses, so wait on Environment.TickCount64 here.
-        double clock = Environment.TickCount64 / 1000.0;
+        _types ??= Types();
+        if (!_armed) return;
         if (clock < progress.Ready) return;
         // The boards are the town's buttons and stand on their own: they are created whatever the object limit says, so a
         // limit of 0 (no town furniture) still leaves a way to fund the treasury, hire a worker and read the farm.
@@ -300,8 +343,14 @@ internal static class KingsmarchTown
 
         var objects = Ordered();
         await Flush(player, progress, clock);
-        await Work(player, progress, clock);
+        if (Work(progress) is { } news) await player.Tell(news);
         await TownJobs(player, progress, clock);
+        // The farm is a running rate, so it is written to disk on a timer rather than on every tick and every crop.
+        if (progress.PersistedAt == 0 || UtcNow() - progress.PersistedAt >= 60)
+        {
+            progress.PersistedAt = UtcNow();
+            Persist(progress);
+        }
 
         int created = 0;
         while (progress.Next < objects.Count && progress.Next < limit && created < 20)
@@ -336,20 +385,24 @@ internal static class KingsmarchTown
                     Blob(x, y, o, type, plot ? saved?.Crop ?? 0 : null, plot ? hands : null)),
                 $"0x02bb create Kingsmarch object 0x{id:x} {o.Type} at ({x}, {y}) plot {plot} workers {hands}");
             // No 0x1a9: the create blob's object flag (bit 1) already puts the object in the wake zone, and the explicit
-            // enter is what the client answers with "ObjectInWakeZone was called … already in the wake zone".
+            // enter is what the client answers with "ObjectInWakeZone was called -already in the wake zone".
             if (plot)
                 lock (_lock) progress.Plots[id] = new Plot
                 {
-                    Who = progress.Who, ObjectId = id, Order = progress.Plots.Count, StateIndex = (byte)stateIndex, States = type.States,
-                    Row = o, Type = type, Crop = saved?.Crop ?? 0, PlantedAt = saved?.Planted ?? 0, Harvests = saved?.Harvests ?? 0,
-                    CreatedAt = clock,
+                    Who = progress.Who, ObjectId = id, Order = order, StateIndex = (byte)stateIndex, States = type.States,
+                    Row = o, Type = type, Crop = saved?.Crop ?? 0, Carry = saved?.Carry ?? 0, Produced = saved?.Produced ?? 0,
+                    // The town only produces while it is loaded: the saved timestamp is deliberately dropped so a character
+                    // that was away gets nothing for the time it was gone (an empty treasury would have stopped the town
+                    // anyway, and paying for that time is the open question of RE C.3's P0 list).
+                    SettledAt = UtcNow(), CreatedAt = clock,
                 };
+            if (plot) progress.Placed = true;
             created++;
         }
     }
 
     /// <summary>The town's clickable boards, on the plaza next to where the player arrives (590, 655): the treasury, the
-    /// recruiter and the farm report. They are <c>NoticeboardInteractable</c> — the same components as the farm plots, which
+    /// recruiter and the farm report. They are <c>NoticeboardInteractable</c> -the same components as the farm plots, which
     /// the client has been building and clicking without trouble.</summary>
     static readonly (BoardAction Action, int X, int Y, string Model)[] BoardRows =
     [
@@ -361,10 +414,10 @@ internal static class KingsmarchTown
     /// <summary>How much gold one click on the treasury board puts in (the character's stash pays, as with the NPC).</summary>
     const int TreasuryPick = 1000;
 
-    /// <summary>Creates the town's boards — once per area load, and independent of the object limit, since they are the only
+    /// <summary>Creates the town's boards -once per area load, and independent of the object limit, since they are the only
     /// way to fund the treasury, hire a worker or read the farm without a chat command. Off unless
     /// <c>data/kingsmarch-boards.txt</c> exists: the client answers a server-made <c>NoticeboardInteractable</c> with
-    /// <c>Error executing GEAL … expected a number type</c> and then dies in its object map (fault RVA 0x148b38, 2026-11-19),
+    /// <c>Error executing GEAL -expected a number type</c> and then dies in its object map (fault RVA 0x148b38, 2026-11-19),
     /// so a board needs a type the client builds without its doodad-line data.</summary>
     static async Task Boards(IPlayer player, Progress progress, double clock)
     {
@@ -402,7 +455,7 @@ internal static class KingsmarchTown
     }
 
     /// <summary>Dev: a stash on the player's own cell. A <c>0x2bb</c> object never stamps the area's walk grid, so this is the
-    /// reference for "does the client block a server-made object in this area at all" — in Lioneye's Watch the same object
+    /// reference for "does the client block a server-made object in this area at all" -in Lioneye's Watch the same object
     /// blocks walkers. Its type is <c>blocking = true</c> in the .ot and its hull comes from the model's AO walk shapes.</summary>
     public static async Task<string> Box(IPlayer player)
     {
@@ -414,7 +467,7 @@ internal static class KingsmarchTown
         if (!shape.Components.All(Supported.Contains))
             return $"{type} needs components no writer has: {string.Join(", ", shape.Components)}";
         var (px, py) = player.Position;
-        // The type owns its model: writing a made-up path makes the client throw "… .ao is non-virtual" (2026-11-20).
+        // The type owns its model: writing a made-up path makes the client throw "-.ao is non-virtual" (2026-11-20).
         var row = new TownObject(type, "", px, py, 0f);
         uint id = progress.Id++;
         await player.Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), Blob(px, py, row, shape)),
@@ -424,7 +477,7 @@ internal static class KingsmarchTown
 
     /// <summary>Dev: one object of any type the client has registered, carrying an arbitrary model, next to the player. The town's
     /// own <c>HubTown/Objects/*</c> types are not in the client's register (so a 0x2bb with one is refused); the types in the
-    /// dat tables' eight object registers — chests, miscellaneous objects, NPCs — are, and their <c>Positioned</c> carries
+    /// dat tables' eight object registers -chests, miscellaneous objects, NPCs -are, and their <c>Positioned</c> carries
     /// <c>blocking</c> plus a walk hull from the model's AO, which is what makes a server-made object stop a walker.</summary>
     public static async Task<string> Prop(IPlayer player, string type, string model, int dx, int dy)
     {
@@ -501,7 +554,7 @@ internal static class KingsmarchTown
     /// <summary>Where a click should send the player when the town's walls are in the way. Live 2026-11-21 clipping the
     /// straight line alone trapped the player: standing beside a wall or a barrel, the first cell of any click towards the
     /// open ground could be blocked, so the move was refused again and again and the character twitched in place while
-    /// refusing to leave. So the straight line is only the first candidate — the line is also tried bent to either side,
+    /// refusing to leave. So the straight line is only the first candidate -the line is also tried bent to either side,
     /// and the bent line that travels furthest wins, which walks the player along the obstacle instead of pinning them.
     /// Returns the player's own cell only when no direction moves at all; the caller lets such a click through untouched
     /// rather than answering it, so a corner can never trap anyone.</summary>
@@ -534,8 +587,8 @@ internal static class KingsmarchTown
         => Math.Sqrt((double)(cell.X - x0) * (cell.X - x0) + (double)(cell.Y - y0) * (cell.Y - y0));
 
     /// <summary>Dev switch: <c>data/kingsmarch-bounce.txt</c> present turns the wall handling on (delete it to stop).
-    /// The client's own walker ignores the server's walk grid — live 2026-11-20 a click walked straight through a wall
-    /// the server had stamped as blocked — so the module clips such a move to the wall face instead.</summary>
+    /// The client's own walker ignores the server's walk grid -live 2026-11-20 a click walked straight through a wall
+    /// the server had stamped as blocked -so the module clips such a move to the wall face instead.</summary>
     internal static bool BounceOn() => File.Exists("data/kingsmarch-bounce.txt");
 
     /// <summary>Whether the area is the town, so the bounce only ever applies here.</summary>
@@ -552,9 +605,15 @@ internal static class KingsmarchTown
         double now = Environment.TickCount64 / 1000.0;
         progress.MineStartedAt = farm.MineStarted > 0 ? farm.MineStarted : now;
         progress.SmeltStartedAt = farm.SmeltStarted > 0 ? farm.SmeltStarted : now;
+        progress.WageSettledAt = UtcNow();
+        progress.Halted = false;
         progress.Workers.Clear();
         foreach (var saved in farm.Workers)
-            progress.Workers.Add(new Worker { Order = progress.Workers.Count, Plot = saved.Plot, Harvests = saved.Harvests, Name = saved.Name });
+            progress.Workers.Add(new Worker
+            {
+                Order = progress.Workers.Count, Plot = saved.Plot, Harvests = saved.Harvests, Name = saved.Name,
+                Rank = saved.Rank < 1 ? 1 : saved.Rank,
+            });
     }
 
     /// <summary>The objects with the surely-written types first, so a low limit only exercises those.</summary>
@@ -690,7 +749,7 @@ internal static class KingsmarchTown
                     w.U8(0);
                     break;
                 // Functions writes nothing: its read is `ret 0` (0x1400f1180, verified in the client). Writing a count there
-                // shifts every component after it — InteractionAction, MinimapIcon — and the client quits.
+                // shifts every component after it -InteractionAction, MinimapIcon -and the client quits.
                 case "Functions":
                     break;
                 case "Brackets":     // 0 bytes, same ret-family reader as Functions
@@ -755,6 +814,47 @@ internal static class KingsmarchTown
     /// <summary>The town's farm crops, by the plot's <c>plant</c> state value (1..5).</summary>
     static readonly string[] Crops = ["Wheat", "Corn", "Pumpkin", "Globulora", "Orbisfera"];
 
+    /// <summary>One crop as the farming formula needs it: the <c>BaseProductionTime</c> of its VillageProduction row in
+    /// seconds (how long one unit takes) and the <c>ShippingValue</c> of its VillageExports row (what the port charges for
+    /// it, and the value of one unit of it). All five crops are worth the same per worker-hour: 12/360 = 1/30, so the rate
+    /// the formula computes is the same for every crop and only the two bonuses and the rank can move it (RE C侫.1).</summary>
+    sealed record Crop(string Name, int BaseTimeSec, int ExportValue);
+    static readonly Crop[] CropTable =
+    [
+        new("Wheat", 360, 12),
+        new("Corn", 450, 15),
+        new("Pumpkin", 540, 18),
+        new("Globulora", 630, 21),
+        new("Orbisfera", 720, 24),
+    ];
+
+    /// <summary>The town's farming attributes (RE C侫.3), read from VillageBaseStats and read again whenever the town's
+    /// stats are refreshed. All three are 0 at the town's base level, which is the state this build can reach: the two
+    /// yield bonuses are 0 and the farming speed bonus is 0, so the rate is the plain time-based one.</summary>
+    const int StatFarmingSpeed = 20698;         // farming speed, +%
+    const int StatYieldPerDifferentCrop = 20735;  // yield per distinct crop the town is growing, +%
+    const int StatYieldPerAdjacentPlot = 20736;   // yield per plot next to a growing one, +%
+    const int StatMaxFarmersPerPlot = 20720;   // the plots' worker cap, 3
+    const int StatCropRankMax = 20721;         // the farming rank cap, 5
+
+    /// <summary>How many workers one plot takes (MAX_FARMERS_PER_PLOT, 3 at base level).</summary>
+    static int MaxFarmersPerPlot =>
+        FarmStat(StatMaxFarmersPerPlot) > 0 ? (int)FarmStat(StatMaxFarmersPerPlot) : 3;
+
+    /// <summary>The six plots' neighbours (VillageFarmAdjacency, indexed by the plot's room order 0..5). Only the yield
+    /// bonus reads them.</summary>
+    static readonly int[][] Adjacency = [[1, 2], [0, 3], [0, 3, 4], [1, 2, 5], [2, 5], [3, 4]];
+
+    /// <summary>How a worker's farming rank multiplies its contribution to the rate. The per-rank curve is a server-side
+    /// coefficient the client never sees (RE C.1), so this is the linear stand-in -rank 1 = 1, rank 5 = 2 -to be
+    /// replaced by a live sample of the rate table.</summary>
+    static double RankMult(int rank) => 1.0 + 0.25 * Math.Max(0, Math.Min(rank, StatCropRankMax) - 1);
+
+    /// <summary>What the town pays a working worker per hour, from the treasury (Johan's Fund the Treasury). The wage
+    /// itself is a server-side worker record field, so this is the calibration stand-in; it is charged only while a worker
+    /// is working, and an empty treasury stops the town rather than going into debt (RE C.3).</summary>
+    const int WagePerHour = 25;
+
     /// <summary>The mine's ores and the bar each refines into, in VillageResources order (the ore row's
     /// <c>Result</c> in VillageExports names the same pairing). The real mine digs the ore its level reaches
     /// (VillageProduction Mining1..5, one ore a level); with the town's buildings still at their base level the
@@ -762,14 +862,10 @@ internal static class KingsmarchTown
     static readonly string[] Ores = ["IronOre", "CopperOre", "Amber", "BismuthOre", "VerisiumOre"];
     static readonly string[] Bars = ["RefinedIron", "RefinedCopper", "RefinedAmber", "RefinedBismuth", "RefinedVerisium"];
 
-    /// <summary>How long a crop takes to ripen, in seconds.</summary>
-    const double GrowSeconds = 60;
     /// <summary>One worker-cycle of the mine or the smeltery (VillageProduction Mining1/Smelting1
     /// <c>BaseProductionTime</c>; the deeper tiers are 145/180/280/480 and arrive with the building upgrades).</summary>
     const double MineSeconds = 120;
     const double SmeltSeconds = 120;
-    /// <summary>What the town pays a worker for one harvest, from the treasury (Johan's Fund the Treasury).</summary>
-    const int Wage = 25;
     // Seconds a plot is left alone after the client was sent it: its destroy is deferred, so removing a fresh plot again is
     // what breaks the client's object map.
     const double Quiet = 6;
@@ -779,7 +875,42 @@ internal static class KingsmarchTown
     const int MineJob = -2;
     const int SmelterJob = -3;
 
-    /// <summary>A click on a farm plot (C→S 0x24, skill 0x266): plants a crop on a bare plot, harvests a ripe one and says
+    /// <summary>Unix epoch seconds, the clock the town's continuous production settles on. The town has to settle the
+    /// time a character was away, which a process-local tick counter cannot do.</summary>
+    static double UtcNow() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
+
+    /// <summary>The town's attribute overrides, read from <c>data/kingsmarch-stats.txt</c> ("20735=5" a line). The town's
+    /// real attribute sheet is built from its buildings, which this build cannot upgrade, so at the base level every one of
+    /// the three farming attributes is 0 -the file exists so the two yield bonuses and the speed bonus can be measured
+    /// against the real client without an upgrade UI.</summary>
+    const string StatsFile = "data/kingsmarch-stats.txt";
+    static readonly Dictionary<int, double> StatValues = Stats();
+
+    static Dictionary<int, double> Stats()
+    {
+        var all = new Dictionary<int, double>();
+        try
+        {
+            if (!File.Exists(StatsFile)) return all;
+            foreach (string line in File.ReadAllLines(StatsFile))
+            {
+                int eq = line.IndexOf('=');
+                if (eq <= 0) continue;
+                if (int.TryParse(line[..eq].Trim(), out int id) &&
+                    double.TryParse(line[(eq + 1)..].Trim(), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double value))
+                    all[id] = value;
+            }
+        }
+        catch (IOException) { }
+        return all;
+    }
+
+    /// <summary>The town's farming attributes as the formula reads them (RE C.1/C.2). A stat the town has no override for
+    /// reads as its base value, which is 0 for all three.</summary>
+    static double FarmStat(int id) => StatValues.TryGetValue(id, out double value) ? value : 0;
+
+    /// <summary>A click on a farm plot (C->S 0x24, skill 0x266): plants a crop on a bare plot, harvests a ripe one and says
     /// what happened. The crop is the plot object's own <c>plant</c> StateMachine state (the client swaps its model to
     /// CropsWheat01/Corn/Pumpkins/Globulora/Orbisfera for 1..5), sent as a 0x2bc component update. False = not ours.</summary>
     public static async Task<bool> Use(IPlayer player, uint objectId)
@@ -799,53 +930,96 @@ internal static class KingsmarchTown
             _progress.TryGetValue(player, out progress);
             if (progress is null || !progress.Plots.TryGetValue(objectId, out plot)) return false;
         }
-        double now = Environment.TickCount64 / 1000.0;
-        if (plot.Crop == 0)
-        {
-            // The farm panel (client screen 0x59) cannot be opened in this build, so a click chooses the crop instead: the
-            // plots take turns at the five crops, so one character can grow all of them.
-            int crop;
-            lock (_lock) crop = 1 + progress.Rotation++ % Crops.Length;
-            plot.Crop = crop;
-            plot.PlantedAt = now;
-            await SetPlant(player, progress, objectId, plot);
-            await player.Tell($"Plot {plot.Order + 1}: planted {Crops[crop - 1]} (ripe in {GrowSeconds:0} s).");
-            Persist(progress);
-            return true;
-        }
-        double ripe = plot.PlantedAt + GrowSeconds;
-        if (now < ripe)
-        {
-            await player.Tell($"{Crops[plot.Crop - 1]} is still growing ({ripe - now:0} s).");
-            return true;
-        }
+        double now = UtcNow();
+        // A plot the client has only just been sent is left alone for a while: its 0x2bd destroy is deferred, and removing
+        // a fresh plot again right away is what corrupted the client's object map.
         if (now - plot.CreatedAt < Quiet)
         {
             await player.Tell($"Plot {plot.Order + 1} is still settling ({plot.CreatedAt + Quiet - now:0} s).");
             return true;
         }
-        string harvested = Crops[plot.Crop - 1];
-        plot.Crop = 0;
-        plot.Harvests++;
-        lock (progress.Store) progress.Store[harvested] = progress.Store.GetValueOrDefault(harvested) + 1;
-        await SetPlant(player, progress, objectId, plot);
-        await player.Tell($"Plot {plot.Order + 1}: harvested {harvested} ({InStore(progress, harvested)} in the town).");
-        Persist(progress);
+        if (plot.Crop == 0)
+        {
+            // The farm panel (client screen 0x59) cannot be opened in this build, so a click chooses the crop instead: the
+            // plots take turns at the five crops, so one character can grow all of them. There is no planting cost and no
+            // growing time to wait for -what a crop produces is a rate from that moment on (RE 0.1).
+            int crop;
+            lock (_lock) crop = 1 + progress.CropNext++ % Crops.Length;
+            plot.Crop = crop;
+            plot.SettledAt = now;
+            await SetPlant(player, progress, objectId, plot);
+            await player.Tell(progress.Workers.Any(w => w.Plot == plot.Order)
+                ? $"Plot {plot.Order + 1}: now growing {Crops[crop - 1]} ({CropTable[crop - 1].ExportValue} a unit at the port)."
+                : $"Plot {plot.Order + 1}: now growing {Crops[crop - 1]}, but no worker tends it. /village assign <worker> {plot.Order + 1}");
+            Persist(progress);
+            return true;
+        }
+        // A growing plot has nothing to harvest: a click reads it out instead.
+        Settle(progress, plot, now);
+        int hands = progress.Workers.Count(w => w.Plot == plot.Order);
+        double rate = PlotRate(progress, plot);
+        await player.Tell(hands == 0
+            ? $"Plot {plot.Order + 1}: {Crops[plot.Crop - 1]}, {InStore(progress, Crops[plot.Crop - 1])} of it in the town -nobody is tending it."
+            : progress.Halted
+                ? $"Plot {plot.Order + 1}: {Crops[plot.Crop - 1]} -the town has halted, the treasury is empty (fund it with Johan)."
+                : $"Plot {plot.Order + 1}: {Crops[plot.Crop - 1]}, {rate * 3600:0.#} an hour from {hands} worker(s), {plot.Produced} grown so far, {InStore(progress, Crops[plot.Crop - 1])} in the town.");
         return true;
     }
 
-    /// <summary>Writes this connection's farm into data/kingsmarch-farm.json: its plots' crops and what it has harvested.</summary>
+    /// <summary>How fast a plot turns time into crops, in crops a second (RE C.1/C.2):
+    /// <c>(1/T) * 鍗?rank_mult(worker) * (1 + speed_bonus) * (1 + yield_bonus)</c>, where the yield bonus counts the crops
+    /// the town is growing and the neighbours of this plot that are growing. 0 while the plot is bare, untended or the
+    /// town has halted.</summary>
+    static double PlotRate(Progress progress, Plot plot)
+    {
+        if (plot.Crop == 0 || progress.Halted) return 0;
+        double rank = 0;
+        foreach (var worker in progress.Workers) if (worker.Plot == plot.Order) rank += RankMult(worker.Rank);
+        if (rank <= 0) return 0;
+        double speed = FarmStat(StatFarmingSpeed) / 100.0;
+        int distinct = progress.Plots.Values.Where(p => p.Crop != 0).Select(p => p.Crop).Distinct().Count();
+        int adjacent = Adjacency[plot.Order].Count(o => progress.Plots.Values.Any(p => p.Order == o && p.Crop != 0));
+        double bonus = (FarmStat(StatYieldPerDifferentCrop) * distinct + FarmStat(StatYieldPerAdjacentPlot) * adjacent) / 100.0;
+        return rank * (1.0 + speed) * (1.0 + bonus) / CropTable[plot.Crop - 1].BaseTimeSec;
+    }
+
+    /// <summary>Settles one plot up to <paramref name="now"/>: the fraction it has grown stays on the plot, the whole crops
+    /// go into the town's store. Called from the tick for every plot, so a plot nobody tends simply keeps its timestamp up
+    /// to date instead of banking free time.</summary>
+    static void Settle(Progress progress, Plot plot, double now)
+    {
+        double dt = now - plot.SettledAt;
+        plot.SettledAt = now;
+        if (dt <= 0 || plot.Crop == 0) return;
+        double gain = PlotRate(progress, plot) * dt;
+        if (gain <= 0) return;
+        plot.Carry += gain;
+        int whole = (int)Math.Floor(plot.Carry);
+        if (whole <= 0) return;
+        plot.Carry -= whole;
+        plot.Produced += whole;
+        string crop = Crops[plot.Crop - 1];
+        lock (progress.Store) progress.Store[crop] = progress.Store.GetValueOrDefault(crop) + whole;
+    }
+
+    /// <summary>Writes this connection's farm into data/kingsmarch-farm.json: its plots' crops and what it has produced.</summary>
     static void Persist(Progress progress)
     {
         var farm = Farm(progress.Who);
         lock (_lock)
         {
-            farm.Plots = [.. progress.Plots.Values.OrderBy(p => p.Order)
-                .Select(p => new SavedPlot { Crop = p.Crop, Planted = p.PlantedAt, Harvests = p.Harvests })];
-            progress.Saved = farm.Plots;
-            farm.Workers = [.. progress.Workers.Select(w => new SavedWorker { Plot = w.Plot, Harvests = w.Harvests, Name = w.Name })];
+            // A session that never placed the plots (a module reload while the character stands in the town) has an empty
+            // plot list, and writing that would erase the crops the character had growing, so only a placed town saves them.
+            if (progress.Placed)
+            {
+                farm.Plots = [.. progress.Plots.Values.OrderBy(p => p.Order)
+                    .Select(p => new SavedPlot { Crop = p.Crop, Carry = p.Carry, Settled = p.SettledAt, Produced = p.Produced })];
+                progress.Saved = farm.Plots;
+            }
+            farm.Workers = [.. progress.Workers.Select(w => new SavedWorker { Plot = w.Plot, Harvests = w.Harvests, Name = w.Name, Rank = w.Rank })];
             farm.MineStarted = progress.MineStartedAt;
             farm.SmeltStarted = progress.SmeltStartedAt;
+            farm.WageSettled = progress.WageSettledAt;
         }
         lock (progress.Store) farm.Store = new(progress.Store);
         SaveFarm();
@@ -856,7 +1030,7 @@ internal static class KingsmarchTown
         lock (progress.Store) return progress.Store.GetValueOrDefault(crop);
     }
 
-    /// <summary>How much of a crop the town is holding — what the port needs to know before it loads a ship.</summary>
+    /// <summary>How much of a crop the town is holding -what the port needs to know before it loads a ship.</summary>
     public static int Stored(IPlayer player, string crop)
     {
         Progress progress;
@@ -882,20 +1056,22 @@ internal static class KingsmarchTown
         return taken;
     }
 
-    /// <summary>The town's farm as one report: each plot's crop, how long it needs, who tends it, and what is stored.</summary>
+    /// <summary>The town's farm as one report: each plot's crop and rate, who tends it, and what is stored.</summary>
     public static string StoreText(IPlayer player)
     {
         Progress progress;
         progress = State(player);
         double clock = Environment.TickCount64 / 1000.0;
         var lines = new List<string>();
+        if (progress.Halted) lines.Add("HALTED: the treasury is empty, nothing is being produced");
         foreach (var plot in progress.Plots.Values.OrderBy(p => p.Order))
         {
-            string what = plot.Crop == 0
-                ? "bare"
-                : plot.PlantedAt + GrowSeconds > clock ? $"{Crops[plot.Crop - 1]}, ripe in {plot.PlantedAt + GrowSeconds - clock:0} s" : $"{Crops[plot.Crop - 1]}, ready";
+            string what = plot.Crop == 0 ? "bare, click it to choose a crop" : Crops[plot.Crop - 1];
+            double rate = PlotRate(progress, plot);
             string who = string.Join(",", progress.Workers.Where(w => w.Plot == plot.Order).Select(w => w.Order + 1));
-            lines.Add($"plot {plot.Order + 1}: {what}{(who.Length > 0 ? $" (worker {who})" : "")}");
+            lines.Add($"plot {plot.Order + 1}: {what}"
+                + (plot.Crop == 0 ? "" : $", {rate * 3600:0.#}/h, {plot.Produced} grown")
+                + (who.Length > 0 ? $" (worker {who})" : " (no one)"));
         }
         var idle = progress.Workers.Where(w => w.Plot < 0).Select(w => w.Order + 1).ToList();
         lines.Add(idle.Count == 0 ? "workers: none idle" : $"workers: idle {string.Join(",", idle)}");
@@ -907,25 +1083,25 @@ internal static class KingsmarchTown
             : $"worker {string.Join(",", atSmelter)}, next bar in {Math.Max(0, progress.SmeltStartedAt + SmeltSeconds - clock):0} s"));
         var store = progress.Store.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key} {kv.Value}").ToList();
         lines.Add("stored: " + (store.Count == 0 ? "nothing yet" : string.Join(", ", store)));
-        int owed = KingsmarchPort.Wages(progress.Who);
-        lines.Add($"treasury: {KingsmarchPort.Gold(progress.Who)} gold, {Wage} a harvest"
-            + (owed > 0 ? $", {owed} owed in wages" : ""));
-        lines.Add("commands: /village hire · /village assign <worker> <plot 1-6 | mine | smelter> · /treasury [gold]");
+        int worked = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
+        lines.Add($"treasury: {KingsmarchPort.Gold(progress.Who)} gold, {worked * WagePerHour} an hour in wages"
+            + (progress.WageDebt >= 1 ? $", {progress.WageDebt:0.#} due" : ""));
+        lines.Add("commands: /recruit ; /village assign <worker> <plot 1-6 | mine | smelter> ; /treasury [gold]");
         return string.Join(" | ", lines);
     }
 
-    /// <summary>The town's treasury: the gold it holds, what a harvest pays, and the wages it still owes.</summary>
+    /// <summary>The town's treasury: the gold it holds, what its wages cost an hour, and whether it has halted.</summary>
     public static string TreasuryText(IPlayer player)
     {
         var progress = State(player);
-        int owed = KingsmarchPort.Wages(progress.Who);
-        return $"{KingsmarchPort.Gold(progress.Who)} gold in the town, {Wage} a harvest"
-            + (owed > 0 ? $", {owed} owed in wages" : ", no wages owed")
+        int worked = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
+        return $"{KingsmarchPort.Gold(progress.Who)} gold in the town, {worked * WagePerHour} an hour in wages"
+            + (progress.Halted ? ", the town is halted (the treasury is empty)" : ", no wages owed")
             + " | /treasury <gold> puts more in (Johan's Fund the Treasury adds a thousand at a time)";
     }
 
     /// <summary>Johan's "Fund the Treasury": gold moves from the account's stash into the town's treasury, and the wages the
-    /// town still owed are settled with it first. The S→C 0x2aa that carries the new total is what the client shows.</summary>
+    /// town still owed are settled with it first. The S->C 0x2aa that carries the new total is what the client shows.</summary>
     public static async Task<string> FundTreasury(IPlayer player, int amount)
     {
         var progress = State(player);
@@ -936,8 +1112,9 @@ internal static class KingsmarchTown
         if (left is null) return $"the account has {stash.Gold} gold, less than the {take} asked for";
         long treasury = KingsmarchPort.Fund(progress.Who, take);
         await player.Send(InstanceEntities.Gold(left.Value), $"0x02aa gold: {left} (funded the Kingsmarch treasury with {take})");
-        int owed = KingsmarchPort.Wages(progress.Who);
-        return $"Funded the treasury with {take} gold: {treasury} gold in the town{(owed > 0 ? $", {owed} still owed in wages" : ", no wages owed")}.";
+        // Funding is also what puts a halted town back to work, which the next tick notices and reports.
+        return $"Funded the treasury with {take} gold: {treasury} gold in the town"
+            + (progress.Halted ? ", which restarts the town's jobs." : ", no wages owed.");
     }
 
     /// <summary>The recruiter's pool: the Kalguur names Raulf offers, and what one hire costs in barter. The harbour and
@@ -992,7 +1169,7 @@ internal static class KingsmarchTown
     public static Task<string> Hire(IPlayer player) => Recruit(player, 1);
 
     /// <summary>Puts a worker on a plot: the plot is re-stated with its <c>num_workers</c> count and the worker tends it from
-    /// then on — planting an empty plot and harvesting a ripe one while the player is elsewhere.</summary>
+    /// then on -planting an empty plot and harvesting a ripe one while the player is elsewhere.</summary>
     public static async Task<string> Assign(IPlayer player, int worker, int plotOrder)
     {
         Progress progress;
@@ -1003,6 +1180,10 @@ internal static class KingsmarchTown
             if (worker < 1 || worker > progress.Workers.Count) return $"no worker {worker}: the town has {progress.Workers.Count} (hire with /village hire)";
             plot = progress.Plots.Values.FirstOrDefault(p => p.Order == plotOrder - 1)
                 ?? throw new InvalidOperationException($"no plot {plotOrder}: the town has {progress.Plots.Count}");
+            // A plot takes up to MAX_FARMERS_PER_PLOT (3) workers, and each one adds its own rate to the plot (RE C.1).
+            int onPlot = progress.Workers.Count(w => w.Plot == plotOrder - 1 && progress.Workers.IndexOf(w) != worker - 1);
+            if (onPlot >= MaxFarmersPerPlot)
+                return $"plot {plotOrder} already has {onPlot} of its {MaxFarmersPerPlot} farmers";
             progress.Workers[worker - 1].Plot = plotOrder - 1;
             Persist(progress);
         }
@@ -1017,7 +1198,7 @@ internal static class KingsmarchTown
             $"0x02bc Kingsmarch plot {plot.Order + 1} num_workers {count}");
     }
 
-    /// <summary>Puts a worker on one of the town's two jobs — the mine (VillageJobTypes 1) or the smeltery (2) — instead
+    /// <summary>Puts a worker on one of the town's two jobs -the mine (VillageJobTypes 1) or the smeltery (2) -instead
     /// of a farm plot. Neither job has a client-side plot state to re-state (the mine hut and smeltery stand as plain
     /// town furniture), so unlike <see cref="Assign"/> this only moves the worker and saves the farm.</summary>
     public static string AssignJob(IPlayer player, int worker, string job)
@@ -1041,10 +1222,12 @@ internal static class KingsmarchTown
     /// <summary>The two town jobs the farm plots do not cover. A mine cycle brings one ore a digging worker up out of
     /// the rotation into the town's store; a smeltery cycle refines one ore a refining worker into its VillageExports
     /// <c>Result</c> bar, taking whatever ore the store holds (RefinedIron first). Like Work, one event a tick, and like
-    /// a harvest the event's wages are charged to the treasury first — an empty treasury owes them rather than stalling
+    /// a harvest the event's wages are charged to the treasury first -an empty treasury owes them rather than stalling
     /// the town. A smeltery cycle with no ore waits for one instead of restarting, so the next bar follows the next ore.</summary>
     static async Task TownJobs(IPlayer player, Progress progress, double clock)
     {
+        // Wages are not paid per cycle here: a worker costs its hourly wage for as long as it works, whatever it works at
+        // (see SettleWages). A cycle only delivers the produce.
         int digging;
         lock (_lock) digging = progress.Workers.Count(w => w.Plot == MineJob);
         if (digging > 0 && clock - progress.MineStartedAt >= MineSeconds)
@@ -1053,9 +1236,7 @@ internal static class KingsmarchTown
             lock (_lock) ore = Ores[progress.MineRotation++ % Ores.Length];
             lock (progress.Store) progress.Store[ore] = progress.Store.GetValueOrDefault(ore) + digging;
             progress.MineStartedAt = clock;
-            bool paid = KingsmarchPort.PayWages(progress.Who, Wage * digging);
-            await player.Tell($"The mine brought up {digging} {ore} ({InStore(progress, ore)} in the town)."
-                + (paid ? "" : $" ({Wage * digging} gold of wages is owed: fund the treasury with Johan.)"));
+            await player.Tell($"The mine brought up {digging} {ore} ({InStore(progress, ore)} in the town).");
             Persist(progress);
             return;
         }
@@ -1077,55 +1258,65 @@ internal static class KingsmarchTown
             }
             if (made.Count == 0) return;
             progress.SmeltStartedAt = clock;
-            bool paid = KingsmarchPort.PayWages(progress.Who, Wage * made.Values.Sum());
             await player.Tell($"The smeltery refined {made.Values.Sum()} ore into "
                 + string.Join(", ", made.OrderBy(kv => kv.Key).Select(kv => $"{kv.Value} {kv.Key}"))
-                + $" ({string.Join(", ", made.Keys.Select(b => InStore(progress, b) + " " + b))} in the town)."
-                + (paid ? "" : $" ({Wage * made.Values.Sum()} gold of wages is owed: fund the treasury with Johan.)"));
+                + $" ({string.Join(", ", made.Keys.Select(b => InStore(progress, b) + " " + b))} in the town).");
             Persist(progress);
         }
     }
 
-    /// <summary>The assigned workers' round: a ripe plot is harvested into the town's store, an empty one is planted with the
-    /// next crop of the rotation, so the farm keeps producing whether the player is standing there or not.</summary>
-    static async Task Work(IPlayer player, Progress progress, double clock)
+    /// <summary>The farm's round: every plot is settled up to now, so its crop lands in the town's store as it grows. A
+    /// plot produces whether the player is standing there or not, as long as a worker tends it and the town is not
+    /// halted.</summary>
+    /// <summary>Settles every plot up to now and charges the town's wages. A plot turns time into crops while a worker
+    /// tends it; the wage is charged per hour worked, and the moment the treasury cannot cover it the whole town halts
+    /// until it is funded again (RE C.3). Returns a line for the player when the town started or stopped working.</summary>
+    static string? Work(Progress progress)
     {
-        List<Plot> tended;
-        lock (_lock) tended = [.. progress.Plots.Values.Where(p => progress.Workers.Any(w => w.Plot == p.Order)).OrderBy(p => p.Order)];
-        foreach (var plot in tended)
+        bool halted = progress.Halted;
+        List<Plot> plots;
+        lock (_lock) plots = [.. progress.Plots.Values];
+        double now = UtcNow();
+        foreach (var plot in plots) Settle(progress, plot, now);
+        SettleWages(progress, now);
+        if (progress.Halted == halted) return null;
+        return progress.Halted
+            ? "Kingsmarch: the treasury is empty, so every job in the town has stopped. Fund it with Johan (or /treasury)."
+            : "Kingsmarch: the treasury is funded again, so the town is working.";
+    }
+
+    /// <summary>Charges the town's wages for the time since they were last settled: every working worker costs
+    /// <see cref="WagePerHour"/> an hour out of the treasury, and an idle one costs nothing (RE C.3). When the treasury
+    /// cannot pay, the town halts -the plots keep their crops but stop growing, and one fill of the treasury restarts
+    /// everything (ClientStrings 7486/7684). Time the character was away is not billed and not produced for: the town is
+    /// only running while its character is in it.</summary>
+    static void SettleWages(Progress progress, double now)
+    {
+        double dt = now - progress.WageSettledAt;
+        progress.WageSettledAt = now;
+        if (progress.Halted)
         {
-            // A plot the client has only just been sent is left alone for a while: removing it again right away is the
-            // sequence that corrupts the client's object map (its 0x2bd destroy is deferred).
-            if (clock - plot.CreatedAt < Quiet) continue;
-            if (plot.Crop == 0)
-            {
-                int crop;
-                lock (_lock) crop = 1 + progress.Rotation++ % Crops.Length;
-                plot.Crop = crop;
-                plot.PlantedAt = clock;
-                await SetPlant(player, progress, plot.ObjectId, plot);
-                Persist(progress);
-                return;     // one plot a tick: the re-create waits for the client's deferred destroy anyway
-            }
-            if (clock < plot.PlantedAt + GrowSeconds) continue;
-            string harvested = Crops[plot.Crop - 1];
-            plot.Harvests++;
-            lock (progress.Store) progress.Store[harvested] = progress.Store.GetValueOrDefault(harvested) + 1;
-            // Harvested and sown with the next crop in one re-create: a bare step in between would mean two removals of the
-            // same plot seconds apart, which is what killed the client on 2026-11-19 19:51 (fault 0x1ee74f3).
-            int next;
-            lock (_lock) next = 1 + progress.Rotation++ % Crops.Length;
-            plot.Crop = next;
-            plot.PlantedAt = clock;
-            await SetPlant(player, progress, plot.ObjectId, plot);
-            Persist(progress);
-            // A harvest is what the town pays its worker for. An empty treasury does not stop the work: the wage is owed
-            // and settled by the next funding (Johan's Fund the Treasury), so the farm never stalls on gold.
-            bool paid = KingsmarchPort.PayWages(progress.Who, Wage);
-            await player.Tell($"A worker harvested {harvested} on plot {plot.Order + 1} and sowed {Crops[next - 1]} ({InStore(progress, harvested)} in the town)."
-                + (paid ? "" : $" ({Wage} gold of wages is owed: fund the treasury with Johan.)"));
+            // Nothing was worked while halted, so nothing is owed; a funded treasury puts the town back to work.
+            progress.WageDebt = 0;
+            if (KingsmarchPort.Gold(progress.Who) > 0) progress.Halted = false;
             return;
         }
+        if (dt <= 0) return;
+        // A missing tick (a reload, a lagging area load) must not bill an hour of wages at once.
+        if (dt > 60) dt = 0;
+        int working = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
+        if (working == 0)
+        {
+            progress.WageDebt = 0;
+            return;
+        }
+        progress.WageDebt += WagePerHour * working * dt / 3600.0;
+        int due = (int)Math.Floor(progress.WageDebt);
+        if (due <= 0) return;
+        int pay = (int)Math.Min(due, KingsmarchPort.Gold(progress.Who));
+        if (pay > 0) KingsmarchPort.Spend(progress.Who, pay);
+        progress.WageDebt -= pay;
+        if (pay < due) progress.Halted = true;
     }
 
     static async Task SetPlant(IPlayer player, Progress progress, uint objectId, Plot plot)
@@ -1135,7 +1326,7 @@ internal static class KingsmarchTown
         // The new object needs a fresh id too: re-creating the same id leaves the old, bare instance in place (17:50).
         // Removing and creating in the same batch is what corrupted the client's object map (its 0x2bd destroy is
         // deferred, so the new object reusing the old block while that block is still queued breaks its tree lookup), so
-        // the create waits for a later tick: see D:\大肥鱼工作区\scratch\object-lifecycle-report.md.
+        // the create waits for a later tick: see D:\婢堆嗗亯妤哥厧浼愭担婊冨隘\scratch\object-lifecycle-report.md.
         var states = new StateMachineData(new int[plot.States.Length], 0, plot.States).Set("plant", plot.Crop);
         await player.Send(InstanceEntities.StateMachineUpdate(objectId, plot.StateIndex, states),
             $"0x02bc Kingsmarch plot 0x{objectId:x} plant {plot.Crop}");

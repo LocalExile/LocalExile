@@ -244,6 +244,11 @@ public sealed class GameModule : IModule, IDisposable
                     }
                     await me.Tell($"Kingsmarch farm: {KingsmarchTown.StoreText(me)}");
                 });
+            commands.Add("village_spawn", "/village_spawn (dev: place the Kingsmarch town's objects)", async _ =>
+            {
+                KingsmarchTown.Arm();
+                await me.Tell("Kingsmarch: placing the town's objects.");
+            });
             commands.Add("recruit", "/recruit [hire <1-3>] (Kingsmarch's workers)", async args =>
             {
                 if (args.Length > 0 && args[0] == "hire")
@@ -276,15 +281,34 @@ public sealed class GameModule : IModule, IDisposable
                     { await me.Tell("Kingsmarch: " + KingsmarchPort.Send(me, port, args[2], count)); return; }
                     await me.Tell($"Kingsmarch port: {KingsmarchPort.Report(me)}");
                 });
-            commands.Add("village_spawn", "/village_spawn (dev: place the Kingsmarch town objects)", async args =>
-            { KingsmarchTown.Arm(); await me.Tell("Kingsmarch: placing the town's objects."); });
-            commands.Add("ui", "/ui <kind in hex>", async args =>
-                await me.Tell(args.Length > 0 && int.TryParse(args[0], out int kind)
-                    ? $"0x007b open UI kind 0x{kind:x2}" : "usage: /ui <kind in hex>"));
+            commands.Add("ui", "/ui <kind in hex> [a] [b] [c] [d] (dev: ask the client to open one of its screens)", async args =>
+            {
+                if (args.Length < 1 || !int.TryParse(args[0], out int kind))
+                { await me.Tell("usage: /ui <kind in hex> [a] [b] [c] [d]"); return; }
+                uint[] slot = new uint[4];
+                for (int i = 0; i < 4 && i + 1 < args.Length; i++)
+                    uint.TryParse(args[i + 1], out slot[i]);
+                await me.Send(InstanceWaypoints.OpenUi((byte)kind, slot[0], slot[1], slot[2], slot[3]),
+                    $"0x007b open UI kind 0x{kind:x2} a {slot[0]} b {slot[1]} c {slot[2]} d {slot[3]}");
+                await me.Tell($"0x007b open UI kind 0x{kind:x2} a {slot[0]} b {slot[1]} c {slot[2]} d {slot[3]}");
+            });
             commands.Add("goto", "/goto <area id> (dev: walk the character into another area)", async args =>
             {
                 if (args.Length < 1) { await me.Tell("usage: /goto <area id>"); return; }
-                await me.Tell("Kingsmarch: travelling to " + await Program.WorldOf(me).TravelTo(args[0], "dev /goto"));
+                await me.Tell("Travelling to " + args[0] + ".");
+                await Program.WorldOf(me).TravelTo(args[0], "dev /goto");
+            });
+            commands.Add("tp", "/tp <x> <y> (dev: put the character on a cell of this area)", async args =>
+            {
+                if (args.Length < 2 || !int.TryParse(args[0], out int tx) || !int.TryParse(args[1], out int ty))
+                {
+                    await me.Tell("usage: /tp <x> <y>");
+                    return;
+                }
+                var game = Program.PlayerOf(me);
+                game.Walk.Teleport(tx, ty, game.Frames.Now(game));
+                await global::Game.SendWorldRecord(me, game.Id, InstanceProtocol.Teleport(game.Id, tx, ty), $"dev /tp to ({tx}, {ty})");
+                await me.Tell($"Teleported to ({tx}, {ty}) in {me.AreaId}.");
             });
             commands.Add("pos", "/pos (where the server thinks you stand)", async _ =>
                 await me.Tell(me.Position.ToString()));
@@ -423,7 +447,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         foreach (var previous in Rules.ClaimCharacter(player))
         {
             // An area change: the old connection handed the character over (Travel.Transfer) and the client drops it once
-            // this one is up (09 §6). It is not another login, and main's transfer path already orders its saves.
+            // this one is up (09 搂6). It is not another login, and main's transfer path already orders its saves.
             if (previous.TransferAccepted) continue;
             Console.WriteLine($"[gateway] {Program.CharacterName(player)}: another login took the character; ending the older connection");
             try
@@ -455,7 +479,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
 
     public async Task Entered(Player player, int level, int ticketLevel)
     {
-        // The client generates the area from here (S→C 0x1d) until its 0x7d: the packs are planned meanwhile.
+        // The client generates the area from here (S鈫扖 0x1d) until its 0x7d: the packs are planned meanwhile.
         Rules.PlanPopulationAhead(player);
         if (level != ticketLevel)
         {
