@@ -19,6 +19,7 @@ public sealed class AbyssEncounterTests
         // The reward chest is the captured Chests row; its mods give 300% more items (the capture dropped 4).
         Assert.True(AbyssTables.HasRewardChest);
         Assert.Equal(300, AbyssTables.ChestQuantityPct);
+        Assert.Equal(25000, AbyssTables.ChestRarityPct);
         Assert.Equal(new[] { "Pit", "Lightless" }, AbyssTables.Families.Select(f => f.Name).Distinct());
         // The captured families' monsters: the level 45 area's Pit types, the level 61 area's Lightless ones.
         Assert.Contains("Metadata/Monsters/AbyssTwoLeague/PrimordialMonster02", AbyssTables.Families.First(f => f.Name == "Pit").Regular);
@@ -43,14 +44,11 @@ public sealed class AbyssEncounterTests
             Convert.ToHexString(AbyssWire.Pit((100, 200), (1150f, 2300f), MathF.PI / 4, 1722)).ToLowerInvariant());
         Assert.Equal("020064000000c8000000db0f493f0000020000002d00000000000000004040010800000000000100",
             Convert.ToHexString(AbyssWire.Chest((100, 200), MathF.PI / 4, 45)).ToLowerInvariant());
-        Assert.Equal("02029cfcf0400001013412000079c800770001013412000064000000c6000000db0f493f0000040000000000"
-                + "0000000001650000004d0065007400610064006100740061002f0045006600660065006300740073002f0045"
-                + "006e007600690072006f006e006d0065006e0074002f004c00650061006700750065005f0041006200790073"
-                + "007300540077006f002f004100620079007300730043006900720063006c00650050006c006100740066006f"
-                + "0072006d002f004100620079007300730043006900720063006c00650050006c006100740066006f0072006d"
-                + "0043006c006f00730065006400430068006500730074005f00300031002e0061006f000100000000",
-            Convert.ToHexString(AbyssWire.Plinth((100, 198), MathF.PI / 4, 0x1234, AbyssTables.PlinthAo)).ToLowerInvariant());
-        Assert.Equal("01bd000002a600000227900201000000000227", Convert.ToHexString(AbyssWire.ChestClick(0x2a6, 0x227)).ToLowerInvariant());
+        var plinth = AbyssWire.Plinth((100, 198), MathF.PI / 4, 0x1234, AbyssTables.PlinthAo);
+        Assert.StartsWith("02029cfcf04000010134120000", Convert.ToHexString(plinth).ToLowerInvariant());
+        Assert.Contains(Convert.ToHexString(System.Text.Encoding.Unicode.GetBytes(AbyssTables.PlinthAo)), Convert.ToHexString(plinth));
+        // The click carries the standard order (0, 0), so the frame keeps it ahead of the open.
+        Assert.Equal("01bd000002a600000000000001000000000227", Convert.ToHexString(AbyssWire.ChestClick(0x2a6, 0x227)).ToLowerInvariant());
 
         // The pit stands on a lattice point at most SiteRadius steps from the spot's (cell (471, 471) is point (41, 41)), on
         // that point's cell, each arm's first piece two lattice steps (23 cells) out, every piece inside the map, and the

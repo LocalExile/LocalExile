@@ -66,11 +66,12 @@ public static class AbyssWire
         return w.Bytes(Convert.FromHexString(ChestTail)).ToArray();
     }
 
-    /// <summary>S→C 0x1bd, the click action the official open of the chest starts with: chest, player, u16 0x9002,
-    /// 01 00 00, player [capture 1/1: <c>000002a6 00000227 9002 01 00 00 00000227</c>]. The client's open (its highlight
-    /// and name off) follows it.</summary>
+    /// <summary>S→C 0x1bd, the click action the official open of the chest starts with: chest, the standard order
+    /// (key and checkpoint 0, as every world record here carries, so the frame keeps it ahead of the open), 01 00 00, player
+    /// [capture 1/1: the same body, with the player and 0x9002 where the order is]. The client's open (its highlight and
+    /// name off) follows it.</summary>
     public static byte[] ChestClick(uint chest, uint player) =>
-        new LoginWriter().U16(0x1bd).U32(chest).U32(player).U16(0x9002).U8(1).U8(0).U8(0).U32(player).ToArray();
+        new LoginWriter().U16(0x1bd).U32(chest).U32(0).U16(0).U8(1).U8(0).U8(0).U32(player).ToArray();
 
     // Positioned: i32 x, i32 y, f32 rotation, u16 team, u8 flags (0x40 world position, 0x04 fixed height, 0x02 shown),
     // u8 0, and what those flags carry: the world position as two f32, or the height as an i32 in 7.8125 steps and an f32.

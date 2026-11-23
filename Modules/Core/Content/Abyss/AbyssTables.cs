@@ -108,6 +108,10 @@ public static class AbyssTables
     /// <c>chest_item_quantity_+%</c> = 300, which makes 4 of the 1 it would drop; the capture's chest dropped 4], and
     /// whether the Chests table has the row.</summary>
     public static int ChestQuantityPct { get; private set; }
+
+    /// <summary>The reward chest's item rarity, in percent increased [data: its Chests row's mods, the stat
+    /// <c>chest_item_rarity_+%</c> = 25000, which is what makes the trove's items rare].</summary>
+    public static int ChestRarityPct { get; private set; }
     public static bool HasRewardChest { get; private set; }
 
     /// <summary>The CoreLeagues row of Abyss (a bit of MapDisableLeagues), looked up by its Id.</summary>
@@ -132,18 +136,19 @@ public static class AbyssTables
             ? league.Index : LeagueChances.Abyss;
         var chest = ClientTables.TableOrEmpty("Chests").FirstOrDefault(r => r.TextOrNull("Id") == RewardChest);
         HasRewardChest = chest.Table is not null;
-        ChestQuantityPct = HasRewardChest ? QuantityOf(chest) : 0;
+        ChestQuantityPct = HasRewardChest ? StatOf(chest, "chest_item_quantity_+%") : 0;
+        ChestRarityPct = HasRewardChest ? StatOf(chest, "chest_item_rarity_+%") : 0;
         Families = LoadFamilies();
     }
 
-    static int QuantityOf(ClientRow chest)
+    static int StatOf(ClientRow chest, string statId)
     {
         var mods = ClientTables.TableOrEmpty("Mods");
         var stats = ClientTables.TableOrEmpty("Stats");
         int total = 0;
         foreach (int key in Keys(chest, "ModsKeys"))
             if (mods.Row(key) is { } mod && mod.IntOrNull("StatsKey1") is int stat
-                && stats.Row(stat)?.TextOrNull("Id") == "chest_item_quantity_+%")
+                && stats.Row(stat)?.TextOrNull("Id") == statId)
                 total += mod.IntOrNull("Stat1Min") ?? 0;
         return total;
     }

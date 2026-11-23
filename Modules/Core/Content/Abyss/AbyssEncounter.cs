@@ -92,8 +92,34 @@ public sealed class AbyssEncounter
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
-    static IEnumerable<Player> Clients(Player player) =>
-        InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c));
+    /// <summary>The cells of the area's players (the frame's own list, no scan of every instance), or the stepping player's.</summary>
+    static List<(int X, int Y)> Here(Player player, double now)
+    {
+        var players = player.Frames.Players();
+        var cells = new List<(int X, int Y)>(players.Length + 1);
+        foreach (var c in players)
+            if (!c.Controlled && Current(c)) cells.Add(c.Walk.Position(now));
+        if (cells.Count == 0) cells.Add(player.Walk.Position(now));
+        return cells;
+    }
+
+    static bool Within(IReadOnlyList<(int X, int Y)> clients, (int X, int Y) cell, double distance)
+    {
+        double squared = distance * distance;
+        foreach (var p in clients)
+        {
+            double dx = p.X - cell.X, dy = p.Y - cell.Y;
+            if (dx * dx + dy * dy <= squared) return true;
+        }
+        return false;
+    }
+
+    static bool Within(IReadOnlyList<(int X, int Y)> clients, List<(int X, int Y)> cells, double distance)
+    {
+        foreach (var cell in cells)
+            if (Within(clients, cell, distance)) return true;
+        return false;
+    }
 
     // ---- the roll ---------------------------------------------------------------------------------------------------------
 
@@ -187,7 +213,11 @@ public sealed class AbyssEncounter
         // The monsters of the old area are gone with it.
         state.ArmMonsters.Clear();
         state.WaveMonsters.Clear();
-        if (state.Pit != 0) await CreatePit(player, state);
+        if (state.Pit != 0)
+        {
+            await CreatePit(player, state);
+            if (state.PitState == AbyssTables.PitDoneState) await PitIcon(player, state);
+        }
         foreach (var arm in state.Arms)
             for (int k = 0; k < arm.Cells.Count; k++)
                 if (arm.Pieces[k].Id != 0) await CreateCrack(player, state, arm, k);
@@ -217,7 +247,7 @@ public sealed class AbyssEncounter
             await Sync(player, state);
             state.Now += Math.Max(0, seconds);
             double now = AreaTime(player);
-            var here = Clients(player).Select(c => c.Walk.Position(now)).DefaultIfEmpty(player.Walk.Position(now)).ToList();
+            var here = Here(player, now);
             await Reveal(player, state, here);
             while (state.Kills.TryDequeue(out var at)) OnKill(state, at);
             switch (state.Stage)
@@ -257,13 +287,13 @@ public sealed class AbyssEncounter
     {
         if (state.Stage != Stage.Arms) return;
         foreach (var arm in state.Arms)
-            if (arm.StartedAt is null && arm.Cells.Min(c => Distance(at, c)) <= AbyssTables.InfluenceDistance)
+            if (arm.StartedAt is null && Within([at], arm.Cells, AbyssTables.InfluenceDistance))
                 arm.StartedAt = state.Now;
     }
 
     /// <summary>A click on the reward chest: walk up to it, open it only in reach with the action still current, and
-    /// always end the action. The open is the captured 0x1bd click, the chest's component 5 and Transitionable 3, then
-    /// the drop. False when the click was not this encounter's chest.</summary>
+    /// always end the action. The open is the captured 0x1bd click (to the opener), the chest's component 5 and
+    /// Transitionable 3, then the drop. False when the click was not this encounter's chest.</summary>
     public async Task<bool> OnUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (Of(player) is not { Chest: not 0 } state || use.TargetId != state.Chest) return false;
@@ -272,7 +302,9 @@ public sealed class AbyssEncounter
         if (state.ChestOpened) return true;
         if (!state.ChestReady)
         {
-            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
+            // Only the action this click would have ended: a later one is not cancelled.
+            int current = player.ActionCount;
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, current));
             return true;
         }
         var at = state.PitCell;
@@ -287,21 +319,22 @@ public sealed class AbyssEncounter
         try
         {
             if (arrive > now) await AreaDelay(player, arrive - now);
-            if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
-            bool claimed = false;
-            if (PlayerWalk.InReach(stop, at, size, player.Layout.Walkable))
-                lock (state) { claimed = !state.ChestOpened; state.ChestOpened = true; }
-            if (claimed)
+            // The encounter's gate first (the tick and the other openers use it), then the claim, with the player where the
+            // walk really left them.
+            await state.Gate.WaitAsync();
+            try
             {
-                await state.Gate.WaitAsync();
-                try
-                {
-                    await SendWorldRecord(player, state.Chest, AbyssWire.ChestClick(state.Chest, player.Id), $"0x1bd Abyss chest 0x{state.Chest:x} click");
-                    await ChestOpened(player, state);
-                    await DropReward(player, state);
-                }
-                finally { state.Gate.Release(); }
+                if (state.ChestOpened || !state.ChestReady || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
+                    || player.Closed || player.LeavingArea
+                    || !PlayerWalk.InReach(player.Walk.Position(AreaTime(player)), at, size, player.Layout.Walkable)) return true;
+                state.ChestOpened = true;
+                // The click is the opener's own message (first in the frame, before the open), not the chest's record: a
+                // late joiner is not given it.
+                await Send(player, AbyssWire.ChestClick(state.Chest, player.Id), $"0x1bd Abyss chest 0x{state.Chest:x} click");
+                await ChestOpened(player, state);
+                await DropReward(player, state);
             }
+            finally { state.Gate.Release(); }
         }
         finally
         {
@@ -310,12 +343,35 @@ public sealed class AbyssEncounter
         return true;
     }
 
+    /// <summary><see cref="GameEvents.ChestsOpened"/> (a warcry, the caster mastery): the ready chest opens when the radius
+    /// around <paramref name="at"/> reaches it.</summary>
+    public async Task OpenNear(Player player, (int X, int Y) at, int radius)
+    {
+        if (Of(player) is not { Chest: not 0, ChestReady: true } state || Distance(at, state.PitCell) > radius) return;
+        await state.Gate.WaitAsync();
+        try
+        {
+            if (state.ChestOpened || !state.ChestReady || player.PlayerLife == 0 || player.Closed || player.LeavingArea) return;
+            state.ChestOpened = true;
+            await ChestOpened(player, state);
+            await DropReward(player, state);
+        }
+        finally { state.Gate.Release(); }
+    }
+
     static QuestObjectTypes.Info? ChestInfo() =>
         QuestObjectTypes.Find(AbyssTables.RewardChest) ?? QuestObjectTypes.Find(AbyssTables.ChestParentType);
 
     /// <summary>The index of a component in an object type's list (the update messages name it), or the fallback.</summary>
     static byte Component(QuestObjectTypes.Info? info, string name, byte fallback) =>
-        info is not null && info.Components.ToList().IndexOf(name) is >= 0 and var i ? (byte)i : fallback;
+        info is not null && IndexOf(info.Components, name) is >= 0 and var i ? (byte)i : fallback;
+
+    static int IndexOf(IReadOnlyList<string> names, string name)
+    {
+        for (int i = 0; i < names.Count; i++)
+            if (names[i] == name) return i;
+        return -1;
+    }
 
     // ---- the plan ---------------------------------------------------------------------------------------------------------
 
@@ -495,9 +551,10 @@ public sealed class AbyssEncounter
 
     // ---- the flow ---------------------------------------------------------------------------------------------------------
 
+    /// <summary>One create, held until it is written: a record for the object follows (a piece's next state, the plinth
+    /// up, the chest ready) and a lockstep client takes none for an object that is not born yet. The blob's flag 0x02 wakes it.</summary>
     static Task Create(Player player, uint id, string type, byte[] blob, string log) =>
-        // The blob's flag 0x02 wakes the object with its create; nothing waits on its birth.
-        SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), blob), log, awaitBirth: false);
+        SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), blob), log);
 
     static Task Transition(Player player, uint id, string type, byte state, string log) =>
         SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, Component(QuestObjectTypes.Find(type), "Transitionable", 3), state), log);
@@ -505,11 +562,10 @@ public sealed class AbyssEncounter
     /// <summary>Creates each piece a player is near, one by one as the captures do (the pit's too).</summary>
     static async Task Reveal(Player player, State state, IReadOnlyList<(int X, int Y)> clients)
     {
-        bool Near((int X, int Y) cell) => clients.Any(p => Distance(p, cell) <= AbyssTables.RevealDistance);
-        if (state.Pit == 0 && Near(state.PitCell)) await Show(player, state);
+        if (state.Pit == 0 && Within(clients, state.PitCell, AbyssTables.RevealDistance)) await Show(player, state);
         foreach (var arm in state.Arms)
             for (int k = 0; k < arm.Cells.Count; k++)
-                if (arm.Pieces[k].Id == 0 && Near(arm.Cells[k])) await Show(player, state, arm, k);
+                if (arm.Pieces[k].Id == 0 && Within(clients, arm.Cells[k], AbyssTables.RevealDistance)) await Show(player, state, arm, k);
     }
 
     static async Task Show(Player player, State state)
@@ -551,7 +607,7 @@ public sealed class AbyssEncounter
         bool running = state.Arms.Any(a => a.StartedAt is not null);
         foreach (var arm in state.Arms)
         {
-            if (arm.StartedAt is not null || !running || !clients.Any(p => arm.Cells.Min(c => Distance(p, c)) <= AbyssTables.ArmNearDistance)) continue;
+            if (arm.StartedAt is not null || !running || !Within(clients, arm.Cells, AbyssTables.ArmNearDistance)) continue;
             arm.StartedAt = state.Now;
         }
     }
@@ -633,13 +689,19 @@ public sealed class AbyssEncounter
         await CreatePlinth(player, state);
         state.PitState = AbyssTables.PitDoneState;
         await Transition(player, state.Pit, AbyssTables.PitType, AbyssTables.PitDoneState, "0x02bc Abyss pit done");
+        await PitIcon(player, state);
+        if (state.Plan.Chest is null) return;
+        state.Chest = player.TakeObjectId();
+        await CreateChest(player, state);
+    }
+
+    /// <summary>The pit's minimap icon once the chest is there (AbyssChestActive).</summary>
+    static async Task PitIcon(Player player, State state)
+    {
         int icon = AbyssTables.ChestIconRow;
         if (icon >= 0)
             await SendWorldRecord(player, state.Pit, InstanceEntities.ComponentUpdate(state.Pit,
                 Component(QuestObjectTypes.Find(AbyssTables.PitType), "MinimapIcon", 5), [0x01, (byte)icon, (byte)(icon >> 8)]), "0x02bc Abyss pit icon");
-        if (state.Plan.Chest is null) return;
-        state.Chest = player.TakeObjectId();
-        await CreateChest(player, state);
     }
 
     static Task CreatePlinth(Player player, State state) =>
@@ -690,14 +752,14 @@ public sealed class AbyssEncounter
         if (state.ChestOpened || state.Chest == 0 && state.PlinthUp) state.Stage = Stage.Over;
     }
 
-    /// <summary>The chest's drop: the quantity its row's mods give (1 item, 300% more: 4 [data, capture: 4 dropped]) of
-    /// jewellery [ESTIMATE: the capture's chest dropped Abyss jewels and the item class filter is the row's name's
+    /// <summary>The chest's drop: the quantity and the rarity its row's mods give (1 item, 300% more quantity: 4 [data,
+    /// capture: 4 dropped]; 25000% increased rarity) of jewellery [ESTIMATE: the capture's chest dropped Abyss jewels and the item class filter is the row's name's
     /// "Jewellery"] at the area's level on the floor around the pit, as just dropped. Normal loot rules (AllowsLoot).</summary>
     static async Task DropReward(Player player, State state)
     {
         if (!GameEvents.AllowsLoot(player)) return;
         int want = Math.Max(1, (int)Math.Round((100 + AbyssTables.ChestQuantityPct) / 100.0));
-        var drops = DropsFor(player).Container(state.Level, want, 0, state.Random, t => JewelleryClasses.Contains(t.Class));
+        var drops = DropsFor(player).Container(state.Level, want, AbyssTables.ChestRarityPct, state.Random, t => JewelleryClasses.Contains(t.Class));
         var layout = player.Layout;
         for (int i = 0; i < drops.Count; i++)
         {

@@ -30,6 +30,7 @@ public sealed class AbyssModule : IModule
             _encounter.Of(player) is null ? Task.CompletedTask : _encounter.Advance(player, seconds)));
         GameEvents.Kill.Add(id, _encounter.Killed);
         GameEvents.ObjectUse.Add(id, _encounter.OnUse);
+        GameEvents.ChestsOpened.Add(id, _encounter.OpenNear);
     }
 
     sealed class Cleanup(Action clean) : IDisposable
