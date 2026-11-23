@@ -2,38 +2,38 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static bool ChaosDamageBypassesEnergyShield(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static bool ChaosDamageBypassesEnergyShield(Player player, IReadOnlyDictionary<uint, int> stats)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        return Get("chaos_damage_does_not_bypass_energy_shield") == 0
-            && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
-            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
-                && (ulong)conn.PlayerLife * 100 > (ulong)conn.PlayerMaxLife * (uint)LowLifeThresholdPct(stats))
-            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0
-                && (ulong)conn.PlayerMana * 2 > conn.Pools.Mana);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        return Get(Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
+            && Get(Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
+            && !(Get(Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
+                && (ulong)player.PlayerLife * 100 > (ulong)player.PlayerMaxLife * (uint)LowLifeThresholdPct(stats))
+            && !(Get(Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
+                && (ulong)player.PlayerMana * 2 > player.Pools.Mana);
     }
 
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
     // damage by type (only its proportions count).
-    public static int DamagePlayerHitTyped(ClientState conn, int physical, int other, int chaos, double at,
-        IReadOnlyDictionary<uint, int> player, GameServer.Core.World.DamagePacket types)
+    public static int DamagePlayerHitTyped(Player player, int physical, int other, int chaos, double at,
+        IReadOnlyDictionary<uint, int> playerStats, GameServer.Core.World.DamagePacket types)
     {
-        if (conn.Immune) return 0;
+        if (player.Immune) return 0;
         // "You cannot be Damaged or Killed": base_cannot_be_damaged (BuffDefinitions 261 shrine_godmode, the Divine
         // shrine's 20 s). It is the buff's own stat rather than a shrine-specific flag, so anything else that grants it
         // protects the player the same way.
-        if (Stats.Key("base_cannot_be_damaged") is uint cannotBeDamaged
-            && player.GetValueOrDefault(cannotBeDamaged) > 0) return 0;
-        var state = ResourceEffectsOf(conn);
-        if (!ResourceEffectsCurrent(conn, state) || conn.LeavingArea) return 0;
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        if (Stat.BaseCannotBeDamaged is var cannotBeDamaged
+            && playerStats.GetValueOrDefault(cannotBeDamaged) > 0) return 0;
+        var state = ResourceEffectsOf(player);
+        if (!ResourceEffectsCurrent(player, state) || player.LeavingArea) return 0;
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
         // Redirect the combined non-chaos hit before Ward, retaining the physical share.
         int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
-        var kept = TotemsTakeHitLocked(conn, nonChaos, chaos, at, player);
+        var kept = TotemsTakeHitLocked(player, nonChaos, chaos, at, playerStats);
         physical = nonChaos == 0 ? 0 : (int)((long)physical * kept.NonChaos / nonChaos);
         other = kept.NonChaos - physical;
         chaos = kept.Chaos;
-        int less = IncomingResourceDefences.LessTakenPct(conn.Pools, Get);
+        int less = IncomingResourceDefences.LessTakenPct(player.Pools, Get);
         physical = IncomingResourceDefences.Taken(physical, Get, less);
         other = IncomingResourceDefences.Taken(other, Get, less);
         chaos = IncomingResourceDefences.Taken(chaos, Get, less);
@@ -41,33 +41,35 @@ public static partial class Game
         // Apply it before every resource pool so it is not repeated between mitigation and allocation.
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
-        (physical, other, chaos) = MitigateTriggeredGuardHit(conn, physical, other, chaos, at);
+        (physical, other, chaos) = MitigateTriggeredGuardHit(player, physical, other, chaos, at);
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
-        physical = PhysicalAegisDamage(conn, physical, at);
-        (physical, other, chaos) = AbsorbTriggeredGuardHit(conn, physical, other, chaos, at);
-        RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
-        (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
-        CrabPhysicalHitLocked(conn, physical, at, player);
-        bool protectsMana = Get("virtual_energy_shield_protects_mana") != 0 || Get("keystone_eldritch_battery") != 0;
+        physical = PhysicalAegisDamage(player, physical, at);
+        (physical, other, chaos) = AbsorbTriggeredGuardHit(player, physical, other, chaos, at);
+        RecordDamageTakenTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
+        (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
+        CrabPhysicalHitLocked(player, physical, at, playerStats);
+        bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
         int bypass = Get(IncomingResourceDefences.BypassStat);
-        int physicalLife = protectsMana ? conn.EnergyShield.Damage(physical, true, at)
-            : IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at);
-        int otherLife = protectsMana ? conn.EnergyShield.Damage(other, true, at)
-            : IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at);
+        int physicalLife = protectsMana ? player.EnergyShield.Damage(physical, true, at)
+            : IncomingResourceDefences.Damage(player.EnergyShield, physical, bypass, at);
+        int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
+            : IncomingResourceDefences.Damage(player.EnergyShield, other, bypass, at);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
-        int chaosLife = conn.EnergyShield.Damage(chaos, true, at);
+        int chaosLife = player.EnergyShield.Damage(chaos, true, at);
         var manaTypes = RemainingManaDamageTypes(types, physicalLife, otherLife);
-        int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)conn.PlayerMana + conn.EnergyShield.Current) : (int)conn.PlayerMana;
+        int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)player.PlayerMana + player.EnergyShield.Current) : (int)player.PlayerMana;
         int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, manaTypes, manaPool, Get);
-        int toMana = protectsMana ? conn.EnergyShield.Damage(fromMana, false, at) : fromMana;
-        conn.PlayerMana -= (uint)Math.Min(toMana, conn.PlayerMana);
-        if (ResourceEffectsCurrent(conn, state)) state.Mana.Hit(at,
-            (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get("damage_taken_goes_to_mana_%"));
+        int toMana = protectsMana ? player.EnergyShield.Damage(fromMana, false, at) : fromMana;
+        player.PlayerMana -= (uint)Math.Min(toMana, player.PlayerMana);
+        if (ResourceEffectsCurrent(player, state)) state.Mana.Hit(at,
+            (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get(Stat.DamageTakenGoesToManaPct));
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
         // Vaal Immortal Call's "you cannot die" holds that Life at 1 (wiki); the hit and its effects still land.
-        return VaalImmortalCallHitLife(conn,
-            PetrifiedBlood.PreventHitLifeLoss(conn, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at), at);
+        int lifeDamage = VaalImmortalCallHitLife(player,
+            PetrifiedBlood.PreventHitLifeLoss(player, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at), at);
+        RecordRechargeLifeDamage(player, lifeDamage, at, playerStats);
+        return lifeDamage;
     }
 
     // Mana-before-Life uses the remaining typed weights after Aegis, Ward and ES. In particular, physical damage
@@ -91,27 +93,27 @@ public static partial class Game
         return result;
     }
 
-    public static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
+    public static (int Physical, int Other, int Chaos) AbsorbPlayerWard(Player player,
         int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
-        conn.Ward.Advance(now);
-        bool wasBroken = conn.Ward.Broken;
-        int remaining = conn.Ward.Damage(total, now, Get);
+        player.Ward.Advance(now);
+        bool wasBroken = player.Ward.Broken;
+        int remaining = player.Ward.Damage(total, now, Get);
         int absorbed = total - remaining;
         // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
-        int bypass = Math.Clamp(Get("base_damage_bypass_ward_%"), 0, 100);
+        int bypass = Math.Clamp(Get(Stat.BaseDamageBypassWardPct), 0, 100);
         int nonChaosEligible = nonChaos - (int)((long)nonChaos * bypass / 100);
         int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
         int physicalEligible = physical - (int)((long)physical * bypass / 100);
         int physicalAbsorbed = Math.Min(physicalEligible, nonChaosAbsorbed);
-        if (!wasBroken && conn.Ward.Broken
-            && conn.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
+        if (!wasBroken && player.Ward.Broken
+            && player.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
         {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            conn.ApplyMovementSpeed();
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
         }
         return (physical - physicalAbsorbed, Math.Max(0, other - (nonChaosAbsorbed - physicalAbsorbed)),
             Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)));

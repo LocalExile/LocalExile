@@ -16,9 +16,11 @@ public static class SkillArea
     /// <summary>Explicit data wins. Cyclone's base radius is not in its exported stat set (PoB: 16 cells). The player's
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which
     /// no gem grants (see GroundSlamWave).</summary>
-    public static int BaseRadius(string? effect, Func<string, int> get) =>
-        get("active_skill_base_area_of_effect_radius") is int radius and > 0 ? radius
-            : effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+    public static int BaseRadius(string? effect, Func<uint, int> get) =>
+        get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
+
+    static int? KnownBaseRadius(string? effect) =>
+        effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
@@ -27,18 +29,18 @@ public static class SkillArea
             : effect == "Brandsurge" ? 26
             : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : 12;
 
-    static readonly string[] MoreArea =
+    static readonly uint[] MoreArea =
     [
-        "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",
-        "support_concentrated_effect_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final_from_skill_specific_stat",
-        "blood_sand_stance_melee_skills_area_of_effect_+%_final",
+        Stat.ActiveSkillAreaOfEffectPlusPctFinal, Stat.SkillAreaOfEffectPlusPctFinal,
+        Stat.SupportConcentratedEffectSkillAreaOfEffectPlusPctFinal, Stat.SkillAreaOfEffectPlusPctFinalFromSkillSpecificStat,
+        Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinal, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal,
     ];
 
-    const string MorePerRemovableCharge = "area_of_effect_+%_final_per_removable_power_frenzy_or_endurance_charge";
+    const uint MorePerRemovableCharge = Stat.AreaOfEffectPlusPctFinalPerRemovablePowerFrenzyOrEnduranceCharge;
 
     /// <summary>The base form of increased area: the player's goes into the panel total <c>skill_area_of_effect_+%</c>
     /// (PanelStats), a skill's own (gem quality) stays in it.</summary>
-    public const string BaseIncreased = "base_skill_area_of_effect_+%";
+    public const uint BaseIncreased = Stat.BaseSkillAreaOfEffectPlusPct;
 
     /// <summary>The player's final stats without the base form of increased area (<paramref name="baseKey"/>), which
     /// the panel total already counts: a skill's own base can then be laid over them and <see cref="Increased"/>
@@ -51,39 +53,40 @@ public static class SkillArea
 
     /// <summary>The combined increased-area input before more multipliers: a skill's own base (when the stats hold
     /// one) plus the player's total, with the spell-only increase for spells.</summary>
-    public static int Increased(Func<string, int> get, bool spell) =>
-        get("base_skill_area_of_effect_+%") + get("skill_area_of_effect_+%") + (spell ? get("spell_area_of_effect_+%") : 0);
+    public static int Increased(Func<uint, int> get, bool spell) =>
+        get(Stat.BaseSkillAreaOfEffectPlusPct) + get(Stat.SkillAreaOfEffectPlusPct) + (spell ? get(Stat.SpellAreaOfEffectPlusPct) : 0);
 
     /// <summary>The client's precomputed radius percentage (0x1591), not the increased area percentage.</summary>
-    public static int RadiusPercent(Func<string, int> get, bool spell) =>
+    public static int RadiusPercent(Func<uint, int> get, bool spell) =>
         (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
-            * Math.Max(0L, 100L + get("active_skill_area_of_effect_radius_+%_final")) / 100 - 100, -100, int.MaxValue);
+            * Math.Max(0L, 100L + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal)) / 100 - 100, -100, int.MaxValue);
 
     /// <summary>Supports' more or less area, each a "_final" multiplier on the supported skill: Spell Cascade, Arcanist
     /// Brand, Corrupting Cry and Blessed Call (only a warcry carries the last two).</summary>
-    static readonly string[] SupportMoreArea =
+    static readonly uint[] SupportMoreArea =
     [
-        "support_spell_cascade_area_of_effect_+%_final", "support_brand_area_of_effect_+%_final",
-        "support_corrupting_cry_area_of_effect_+%_final", "consecrated_cry_warcry_area_of_effect_+%_final",
+        Stat.SupportSpellCascadeAreaOfEffectPlusPctFinal, Stat.SupportBrandAreaOfEffectPlusPctFinal,
+        Stat.SupportCorruptingCryAreaOfEffectPlusPctFinal, Stat.ConsecratedCryWarcryAreaOfEffectPlusPctFinal,
+        Stat.SupportSpellBoostAreaOfEffectPlusPctFinal,
     ];
 
     /// <summary>Greater Spell Echo: increased area for each repeat of the spell (the first cast is repeat 0).</summary>
-    public const string IncreasedPerRepeat = "support_greater_spell_echo_area_of_effect_+%_per_repeat";
+    public const uint IncreasedPerRepeat = Stat.SupportGreaterSpellEchoAreaOfEffectPlusPctPerRepeat;
 
     /// <summary>A "more area" percentage as the radius multiplier it gives: the square root of (1 + more), as the area
     /// modifier is (Fist of War's 59% more area is ×1.26 radius, not ×1.59).</summary>
     public static double RadiusMultiplier(int moreAreaPercent) => Math.Sqrt(Math.Max(0, 1 + moreAreaPercent / 100.0));
 
     /// <summary>The area modifier: (1 + increased) × each more multiplier, at least 0.</summary>
-    public static double Modifier(Func<string, int> get, bool spell)
+    public static double Modifier(Func<uint, int> get, bool spell)
     {
         int increased = Increased(get, spell);
         double mod = Math.Max(0, 1 + increased / 100.0);
-        foreach (string more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
-        foreach (string more in SupportMoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        foreach (uint more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        foreach (uint more in SupportMoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
         // Discharge: more area per removable charge it will spend (the charges above the minimum).
         if (get(MorePerRemovableCharge) is int perCharge and not 0)
-            mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get($"current_removable_{Charges.Name(t)}_charges"))) / 100.0);
+            mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get(Stat.Of($"current_removable_{Charges.Name(t)}_charges")))) / 100.0);
         return mod;
     }
 
@@ -93,21 +96,21 @@ public static class SkillArea
     /// <summary>The increased area scoped to a skill's types (passives and items: "increased Area of Effect for Melee
     /// Skills", "... for Attacks" and so on), which the panel total skill_area_of_effect_+% does not hold. A Herald has
     /// no such stat in this build.</summary>
-    public static int TypedIncrease(Func<string, int> get, Types types) =>
-        (types.Melee ? get("melee_skills_area_of_effect_+%") : 0) + (types.Attack ? get("attack_area_of_effect_+%") : 0)
-        + (types.Warcry ? get("warcry_skill_area_of_effect_+%") : 0) + (types.Vaal ? get("vaal_skills_area_of_effect_+%") : 0)
-        + (types.Totem ? get("totem_skill_area_of_effect_+%") : 0) + (types.Trap ? get("trap_skill_area_of_effect_+%") : 0)
-        + (types.Mine ? get("mine_area_of_effect_+%") : 0) + (types.Trap || types.Mine ? get("trap_and_mine_area_of_effect_+%") : 0);
+    public static int TypedIncrease(Func<uint, int> get, Types types) =>
+        (types.Melee ? get(Stat.MeleeSkillsAreaOfEffectPlusPct) : 0) + (types.Attack ? get(Stat.AttackAreaOfEffectPlusPct) : 0)
+        + (types.Warcry ? get(Stat.WarcrySkillAreaOfEffectPlusPct) : 0) + (types.Vaal ? get(Stat.VaalSkillsAreaOfEffectPlusPct) : 0)
+        + (types.Totem ? get(Stat.TotemSkillAreaOfEffectPlusPct) : 0) + (types.Trap ? get(Stat.TrapSkillAreaOfEffectPlusPct) : 0)
+        + (types.Mine ? get(Stat.MineAreaOfEffectPlusPct) : 0) + (types.Trap || types.Mine ? get(Stat.TrapAndMineAreaOfEffectPlusPct) : 0);
 
     /// <summary>The panel total of increased area, where <see cref="TypedIncrease"/> is added for a skill.</summary>
-    public const string Increase = "skill_area_of_effect_+%";
+    public const uint Increase = Stat.SkillAreaOfEffectPlusPct;
 
     /// <summary>The radius in cells for <paramref name="baseRadius"/> (the skill's base when it has none of its own).</summary>
-    public static int Radius(int baseRadius, Func<string, int> get, bool spell)
+    public static int Radius(int baseRadius, Func<uint, int> get, bool spell)
     {
-        int radius = baseRadius + get("active_skill_base_radius_+");
+        int radius = baseRadius + get(Stat.ActiveSkillBaseRadiusPlus);
         double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell))) / 100;
-        scaled *= Math.Max(0, 1 + get("active_skill_area_of_effect_radius_+%_final") / 100.0);
+        scaled *= Math.Max(0, 1 + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0);
         return Math.Max(0, (int)Math.Floor(scaled));
     }
 }
@@ -165,8 +168,8 @@ public static class GroundSlamWave
     /// <summary>The half angle in degrees this use sends: the estimate above, grown by the skill's own
     /// <c>ground_slam_angle_+%</c> (Ground Slam's alternate-quality form holds a flat 100), capped at a right angle so an
     /// increased angle never reaches behind the player.</summary>
-    public static double HalfAngle(Func<string, int> get) =>
-        Math.Clamp(HalfAngleDegrees * (1 + get("ground_slam_angle_+%") / 100.0), 0, 90);
+    public static double HalfAngle(Func<uint, int> get) =>
+        Math.Clamp(HalfAngleDegrees * (1 + get(Stat.GroundSlamAnglePlusPct) / 100.0), 0, 90);
 
     /// <summary>Seconds after the slam's contact the front reaches a monster <paramref name="distance"/> cells away.</summary>
     public static double AdvanceSeconds(double distance) => Math.Max(0, distance) / CellsPerSecond;

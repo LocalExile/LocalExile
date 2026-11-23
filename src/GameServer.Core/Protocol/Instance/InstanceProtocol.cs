@@ -109,97 +109,8 @@ public static class InstanceProtocol
     /// 100–500 ms in state 3 by 0x14214f1d0) and 0x7d area generated (two u32 hashes; 10 in all).</summary>
     public const ushort UseSkillAtLocationId = 0x25, ActionStartedId = 0x1ab;
 
-    /// <summary>Encrypted C→S messages whose length is known (live captures 2026-10-16): 0x1b tick, 0x7d area generated,
-    /// 0x25 use skill at location (16), 0x015a and 0x01ef (id only). 0x0099 is 4 bytes (class 0x1435cac90, write
-    /// 0x141f9bc30: two u8, meaning unknown), sent after entering an area together with the chat channel joins
-    /// (<see cref="InstanceChat.JoinChannelId"/>) and 0x0129 (id only); the 20 bytes once taken for 0x0099 were all four.</summary>
-    public static int? KnownClientLength(ushort id) => id switch
-    {
-        InstanceDivination.TurnInId => InstanceDivination.TurnInLength,
-        InstanceDivination.MoveId => InstanceDivination.MoveLength,
-        InstanceDelve.UpgradesRequestId => 2, InstanceDelve.ChartRequestId => 2, InstanceDelve.UpgradeId => 4, InstanceDelve.PurchaseId => 4,
-        InstanceMonsterStatue.CreateId => InstanceMonsterStatue.CreateLength,
-        InstanceItems.CurrencyApplicationForesightRequestId => InstanceItems.CurrencyApplicationForesightRequestLength,
-        InstanceStash.ColourTabId => InstanceStash.ColourTabLength,
-        TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
-        InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
-        InstanceChat.LinkAnotherId => InstanceChat.LinkAnotherLength,
-        // Primary 3.29.3c writers: 0x140e27920 (u16 + u8), 0x141f99e90 (u16 + 4/2/2/4/1/1 bytes).
-        0x020a => 3, 0x0059 => 16, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
-        InstanceSocial.TradeRequestAcceptId => InstanceSocial.TradeRequestAcceptLength,
-        InstanceSocial.PartyAcceptId => InstanceSocial.PartyAcceptLength,
-        InstanceSocial.PartyLeaveId => InstanceSocial.PartyLeaveLength,
-        InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength, InstancePantheon.ChooseGodId => InstancePantheon.ChooseGodLength,
-        InstanceWaypoints.VisitDelveHubId => InstanceWaypoints.VisitDelveHubLength, InstanceWaypoints.VisitSanctumId => InstanceWaypoints.VisitSanctumLength,
-        InstanceWaypoints.VisitKingsmarchId => InstanceWaypoints.VisitKingsmarchLength, InstanceWaypoints.VisitHeistHubId => InstanceWaypoints.VisitHeistHubLength,
-        InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength, InstanceWaypoints.VisitDeepwaterHubId => InstanceWaypoints.VisitDeepwaterHubLength,
-        InstanceTransfer.UseSkillOnObjectId => 12, InstanceTransfer.ChooseInstanceId => 3, ResurrectId => 3, InstanceItems.DropItemId => 2,
-        InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
-        // Ctrl + click with the map device open: a map sends one of these, never 0xe8 (that is the Atlas Idol path).
-        InstanceMapDevice.MoveIntoDeviceId => InstanceMapDevice.MoveItemLength,
-        InstanceMapDevice.MoveOutOfDeviceId => InstanceMapDevice.MoveItemLength,
-        InstanceItems.MissionSlotMoveId or InstanceItems.CraftingSlotMoveId or InstanceItems.LockerMoveId
-            or InstanceItems.ExtractionMoveId or InstanceItems.SocketStorageMoveId => InstanceItems.LeagueWindowMoveLength,
-        InstanceItems.CollectionTakeId => InstanceItems.CollectionTakeLength,
-        InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseItemOnObjectId => InstanceItems.UseItemOnObjectLength, InstanceItems.UseItemOnPassiveId => InstanceItems.UseItemOnPassiveLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
-        InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
-        InstanceItems.UnsocketGemId => 17, BindSkillId => 5, AttackInPlaceId => 4, SlotMask52Id => 4, ExitToCharacterSelectId => 2,
-        InstanceItems.LevelUpGemId => 14, InstanceItems.LevelUpAllGemsId => InstanceItems.LevelUpAllGemsLength, InstanceItems.LockGemId => InstanceItems.LockGemLength,
-        InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
-        InstanceEntities.CancelBuffId => InstanceEntities.CancelBuffLength,
-        InstanceNpcs.VoteAnswerId => InstanceNpcs.VoteAnswerLength,
-        InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TakeAllRewardsId => InstanceNpcs.TakeAllRewardsLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.DeleteFolderId => InstanceStash.DeleteFolderLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
-        InstanceEntities.AtlasTreeTabId or InstanceEntities.AtlasRefundAllId or InstanceEntities.AtlasTreeWidgetId => InstanceEntities.AtlasTreeTabLength,
-        SwapWeaponsId => 3, RetargetActionId => RetargetActionLength, ChannelUpdateId => 10, ChannelUpdateAltId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
-        UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
-        InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
-        InstanceWaypoints.LabyrinthChosenId => InstanceWaypoints.LabyrinthChosenLength,
-        InstanceWaypoints.AscendancyChosenId => InstanceWaypoints.AscendancyChosenLength,
-        InstanceWaypoints.DescendancyChosenId => InstanceWaypoints.DescendancyChosenLength,
-        InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
-        InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
-        InstanceSkinTransfers.BindId => InstanceSkinTransfers.BindLength,
-        InstanceSkinTransfers.ReclaimId => InstanceSkinTransfers.ReclaimLength,
-        InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
-        InstanceHideoutEditing.MoveId => InstanceHideoutEditing.MoveLength,
-        InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength,
-        InstanceCurrencyExchange.RequestOrdersId => InstanceCurrencyExchange.RequestOrdersLength, InstanceCurrencyExchange.PlaceOrderId => InstanceCurrencyExchange.PlaceOrderLength,
-        InstanceCurrencyExchange.CloseOrderId => InstanceCurrencyExchange.CloseOrderLength, InstanceCurrencyExchange.ClaimId => InstanceCurrencyExchange.ClaimLength,
-        InstanceCurrencyExchange.RequestMarketId => InstanceCurrencyExchange.RequestMarketLength, InstanceCurrencyExchange.RequestPartnersId => InstanceCurrencyExchange.RequestPartnersLength,
-        InstanceCurrencyExchange.RequestFeeId => InstanceCurrencyExchange.RequestFeeLength,
-        // Remaining exact fixed-length C→S instance opcodes from 3.29.3c (Agents/docs/protocol/c2s.json), excluding
-        // plaintext opening 0x000e/0x000f.
-        0x0038 or 0x011a or 0x012e or 0x013c or 0x013e or 0x0159 or 0x0168 or 0x0169 or 0x016a or 0x016c or 0x0171
-            or 0x0186 or 0x018a or 0x018d or 0x019b or 0x020e or 0x021e or 0x0224 or 0x0243 or 0x024c or 0x0257
-            or 0x025d or 0x0260 or 0x0264 or 0x027e or 0x0296 or 0x02a6 or 0x02ac or 0x02ce or 0x02d5 => 2,
-        0x001a or 0x005e or 0x0083 or 0x00ac or 0x00d9 or 0x00da or 0x0156 or 0x0187 or 0x01f7 or 0x01f8
-            or 0x0245 or 0x024f or 0x0297 or 0x0298 or 0x02a3 or 0x02a4 => 3,
-        0x011d or 0x0142 or 0x0143 or 0x016b or 0x01fd or 0x021d or 0x0221 or 0x0222 or 0x0247 or 0x0255 or 0x02b1
-            or 0x02d0 or 0x02d1 => 4,
-        0x0249 or 0x027d => 5,
-        0x005c or 0x005d or 0x0066 or 0x0069 or 0x00a2 or 0x00d0 or 0x01fc or 0x0206 or 0x020b
-            or 0x020f or 0x0217 or 0x0218 or 0x0259 or 0x026b or 0x0275 or 0x027a or 0x0284 or 0x0288 or 0x0289
-            or 0x02a1 or 0x02fd => 6,
-        0x002e or 0x0065 or 0x0068 or 0x0107 or 0x0152 or 0x017c or 0x017f or 0x0180 or 0x0185 or 0x01da
-            or 0x01dc or 0x01e0 or 0x01fb or 0x01fe or 0x0216 or 0x028e or 0x02d6 => 7,
-        0x0062 or 0x00ef or 0x00f0 or 0x00f1 or 0x00f2 or 0x00f8 or 0x00fa or 0x00fb or 0x00fc or 0x00ff or 0x0100
-            or 0x0102 or 0x0104 or 0x0105 or 0x0108 or 0x0109 or 0x010d or 0x01ec => 8,
-        0x00e2 or 0x00f4 or 0x00fd or 0x0106 or 0x010a or 0x010b or 0x010c => 9,
-        0x0061 or 0x00f9 or 0x013a or 0x01a7 or 0x01d8 or 0x01d9 or 0x0265 or 0x029b or 0x02d3 => 10,
-        0x0057 or 0x0060 or 0x0063 or 0x0064 or 0x0177 => 11,
-        0x005f or 0x0075 or 0x00b4 or 0x00f5 or 0x00f7 or 0x00fe or 0x0101 or 0x0110 or 0x02b0 => 12,
-        0x002c => 13,
-        0x0067 or 0x00cf => 14,
-        0x005a or 0x0114 => 16,
-        0x0076 or 0x0078 => 17,
-        0x0079 or 0x0283 or 0x0294 or 0x0299 => 18,
-        0x0089 => 20,
-        0x002b => 21,
-        0x029f => 25,
-        0x0073 or 0x0116 => 26,
-        0x029e => 28,
-        _ => null,
-    };
+    /// <summary>The fixed length of a C→S message (<see cref="ClientPackets"/>), null for one read from the message or not listed.</summary>
+    public static int? KnownClientLength(ushort id) => ClientPackets.Find(id)?.FixedLength;
 
     /// <summary>
     /// C→S 0x190 (12 bytes): use an instant skill at a ground point, without an action sequence.
@@ -551,6 +462,12 @@ public static class InstanceProtocol
         new LoginWriter().U16(0x1b9).U32(objectId).U32(0).U16(0)
             .U32(BitConverter.SingleToUInt32Bits(radians)).U8(locked ? (byte)1 : (byte)0).ToArray();
 
+    public const ushort SetTeamId = 0x1be;
+
+    /// <summary>S→C 0x1be (Positioned, read 0x141fe65f0): object header, u16 team (0 = player, 1 = hostile).</summary>
+    public static byte[] SetTeam(uint objectId, ushort team) =>
+        new LoginWriter().U16(SetTeamId).U32(objectId).U32(0).U16(0).U16(team).ToArray();
+
     public const ushort DeathScreenId = 0x55, ResurrectId = 0x54;
 
     /// <summary>
@@ -571,11 +488,38 @@ public static class InstanceProtocol
 
     /// <summary>C→S 0x153 (id only): Esc → "Exit to Character Selection" (0x140cf1a20) and the hardcore death screen's
     /// Exit (0x140291180); the client skips it while its instance connection is already down (state +0xc3a0 = 1). The
-    /// server answers by closing the instance connection. Disconnected in game (instance at app+0x348), the client's
-    /// frame update 0x140d551f0 empties the state stack and pushes the login state (id 7, 0x140d0c8f0) without deleting
-    /// the login object; that state's enter (0x140d0d1c0) sees the login connection still logged in (login+0xde8 = 3)
-    /// and pushes character select (id 9, 0x140d12170), which asks for the list again with login 0x18.</summary>
+    /// server answers with S→C 0x26 (code 0x2d2, empty message) and closes the instance connection while keeping the
+    /// login connection open. Disconnected in game (instance at app+0x348), the client's frame update 0x140d551f0 empties
+    /// the state stack and pushes the login state (id 7, 0x140d0c8f0) without deleting the login object; that state's
+    /// enter (0x140d0d1c0) sees the login connection still logged in (login+0xde8 = 3) and pushes character select
+    /// (id 9, 0x140d12170), which asks for the list again with login 0x18.</summary>
     public const ushort ExitToCharacterSelectId = 0x153;
+    /// <summary>WorldAreas row 1 (CharacterSelect, "Character Select"): sent via S→C 0x02b4 before clean disconnect
+    /// on C→S 0x0153 so the client displays "Entering Character Select" and replies with C→S 0x02cd.</summary>
+    public const ushort CharacterSelectAreaHash = 0x4884;
+
+    /// <summary>C→S 0x020a (3 bytes, vtable 0x14346cd00, writer 0x140e27920): a tutorial step or Help Panel article
+    /// completed or dismissed; payload byte is the Tutorial.dat row index (0..18 tutorials, 17 = AllTutorials,
+    /// 23..76 Help Panel articles, 77 = HidePopups).</summary>
+    public const ushort TutorialCompleteId = 0x020a;
+    public const int TutorialCompleteLength = 3;
+    public const byte TutorialSkipAll = 0x11;
+    public static byte ReadTutorialComplete(ReadOnlySpan<byte> m) => m[2];
+
+    /// <summary>C→S 0x1a (u16 id, u8 reason = 0; 3 bytes): Esc → "Exit to Log In Screen" (0x142168fe0(instance, 0)) and
+    /// "Exit Path of Exile" (0x140cf1ab0), sent right after C→S 0x2cd before the client shuts down the instance socket.
+    /// The server tells Auth to close the account's login connection so the login state lands on the log in screen
+    /// instead of pushing character selection.</summary>
+    public const ushort ExitToLoginId = 0x1a;
+
+    /// <summary>S→C 0x26 (u16 code, wstr message; handler 0x1421505f0): clean instance disconnect. Code 0x2d2 with an
+    /// empty message is handled specially by 0x140d52ce0 to produce an empty reason string (no "Abnormal disconnect" log
+    /// or popup).</summary>
+    public const ushort DisconnectId = 0x26;
+    public const ushort DisconnectCleanCode = 0x2d2;
+
+    public static byte[] Disconnect(ushort code = DisconnectCleanCode, string message = "") =>
+        new LoginWriter().U16(DisconnectId).U16(code).WStr(message).ToArray();
 
     /// <summary>C→S 0x54 (class 0x1435ca9d8, write 0x141f99ba0), sent by the death screen's buttons (0x140291180):
     /// u8 flags, bit0 set by the "Resurrect in Town" button, clear for the checkpoint one.</summary>
@@ -586,6 +530,18 @@ public static class InstanceProtocol
     /// selects terrain and ignores worldZ; any other marker pins the object at that world z. The default was once 0,
     /// which pinned every teleported player at z = 0: under the ground wherever the ground is raised (/tp, arena gates,
     /// Resurrect at Checkpoint).</summary>
+    public const ushort FadeMoveId = 0xcb;
+
+    /// <summary>S→C 0xcb (class 0x1435e7860, dispatcher case 0x3d, read 0x1421ab370; no object header): u32 object id,
+    /// i32 x, i32 y, f32 seconds, u32, f32, f32 (all big-endian), u8 flags (bit0 fade, bit1, bit2 → one u8 more). The case
+    /// calls the world's slot +0x350 (0x141659e10), which hands the object, the seconds and the cell to 0x14218ba10 and,
+    /// when the object is the local player and bit0 is set, darkens the screen over 0.8 × seconds (the UI fade
+    /// 0x1410c3720 that ClientGameWorld::FadeToBlack uses too). Both floats above 0 schedule another step (not traced),
+    /// so they stay 0. The u32 is not traced either.</summary>
+    public static byte[] FadeMove(uint objectId, int x, int y, float seconds, bool fade = true) =>
+        new LoginWriter().U16(FadeMoveId).U32(objectId).U32((uint)x).U32((uint)y).U32(BitConverter.SingleToUInt32Bits(seconds))
+            .U32(0).U32(0).U32(0).U8((byte)(fade ? 1 : 0)).ToArray();
+
     public static byte[] Teleport(uint objectId, int x, int y, uint height = FollowTerrain, float worldZ = 0) =>
         new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
             .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
@@ -632,10 +588,10 @@ public static class InstanceProtocol
     }
 
     /// <summary>
-    /// Splits decrypted C→S bytes into messages of known length (fixed or variable). Stops at the first unknown id or
-    /// malformed variable-length field (there is no length prefix, so the rest cannot be framed) and returns it as
-    /// <paramref name="unknown"/>; a known message cut off at the end is returned as <paramref name="partial"/> to
-    /// prepend to the next chunk. Never throws on malformed wire fields.
+    /// Splits decrypted C→S bytes into the messages <see cref="ClientPackets"/> and <see cref="TryClientMessageLength"/> frame (fixed or variable length).
+    /// Stops at the first unknown id or malformed variable-length field (there is no length prefix, so the rest cannot be framed)
+    /// and returns it as <paramref name="unknown"/>; a known message cut off at the end is returned as <paramref name="partial"/>
+    /// to prepend to the next chunk. Never throws on malformed wire fields.
     /// </summary>
     public static List<(ushort Id, byte[] Bytes)> SplitClientMessages(ReadOnlySpan<byte> data, out byte[] partial, out byte[] unknown)
     {

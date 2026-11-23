@@ -48,6 +48,25 @@ public sealed class RageState
     double regenProgress;
     Inputs previous;
 
+    /// <summary>A gain, payment, enemy hit or clear changed the bar or when it next changes (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
+    /// <summary>When the bar next changes by itself (a point lost or regenerated), as of the last advance; null when it
+    /// holds.</summary>
+    public double? NextChangeAt()
+    {
+        if (advancedAt is not double last) return null;
+        double? next = null;
+        if (!previous.NoInherentLoss && current > 0 && activityAt is double active && previous.LossPerSecond > 0)
+            next = Math.Max(last, active + previous.LossDelaySeconds) + Math.Max(0, 1 - lossProgress) / previous.LossPerSecond;
+        if (previous.RegenerationPerMinute > 0 && !previous.CannotGain && current < previous.Maximum)
+        {
+            double regen = last + Math.Max(0, 1 - regenProgress) * 60 / previous.RegenerationPerMinute;
+            next = next is double n ? Math.Min(n, regen) : regen;
+        }
+        return next;
+    }
+
     public Value Read(double now, Inputs inputs)
     {
         Advance(now, inputs);
@@ -66,6 +85,7 @@ public sealed class RageState
         if (added <= 0) return false;
         current += added;
         Activity(now);
+        Changed?.Invoke();
         return true;
     }
 
@@ -85,6 +105,8 @@ public sealed class RageState
     {
         now = Advance(now, inputs);
         Activity(now);
+        // The hit postpones the loss: only a bar with Rage to lose changes when it next changes.
+        if (current > 0) Changed?.Invoke();
         return GainFromHit(inputs.GainWhenHit, now, inputs, maximumChanceRoll, soulGainPrevention);
     }
 
@@ -113,6 +135,7 @@ public sealed class RageState
         Advance(now, inputs);
         if (current < amount) return false;
         current -= amount;
+        if (amount > 0) Changed?.Invoke();
         return true;
     }
 
@@ -165,11 +188,13 @@ public sealed class RageState
 
     public void Clear()
     {
+        bool had = current != 0 || activityAt is not null;
         current = 0;
         advancedAt = activityAt = hitGainAt = null;
         lossProgress = 0;
         regenProgress = 0;
         previous = default;
+        if (had) Changed?.Invoke();
     }
 
     public Carried Carry(double now, Inputs inputs)
@@ -191,5 +216,6 @@ public sealed class RageState
         regenProgress = carried.RegenProgress;
         previous = carried.Previous;
         advancedAt = now;
+        Changed?.Invoke();
     }
 }

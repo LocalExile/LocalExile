@@ -8,45 +8,46 @@ public static partial class Game
     /// <summary>Releases a player minion's catalogue projectile at its rig contact toward the hostile target captured
     /// by the accepted swing. The shared runtime owns flight, walls and moving-target contact; this payload only names
     /// the source-owned minion, and the existing minion damage/outcome pipeline owns every contact.</summary>
-    public static bool ReleaseMinionProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, PlayerMinions.Attack attack, SkillCatalog.MonsterProjectileInfo projectile, double now)
+    public static bool ReleaseMinionProjectile(Player player, PlayerMinions.Attack attack, SkillCatalog.MonsterProjectileInfo projectile, double now)
     {
-        if (!MinionProjectileAttackCurrent(conn, attack)) return false;
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        if (!MinionProjectileAttackCurrent(player, attack)) return false;
+        var session = ProjectilesFor(player);
         session.Advance();
         ProjectileUse? released = null;
-        session.Schedule(session.Runtime.Now, () => MinionProjectileAttackCurrent(conn, attack), () =>
+        session.Schedule(session.Runtime.Now, () => MinionProjectileAttackCurrent(player, attack), () =>
         {
             released = MinionProjectileUse(session, attack, projectile, now);
-            conn.Minions.Attacks.Remove(attack.Id);
+            player.Minions.Attacks.Remove(attack.Id);
             return released;
         });
         session.Advance();
         return released is not null;
     }
 
-    static bool MinionProjectileAttackCurrent(ClientState conn, PlayerMinions.Attack attack)
+    static bool MinionProjectileAttackCurrent(Player player, PlayerMinions.Attack attack)
     {
         var (id, m, _, targetId, targetMonster, _, _) = attack;
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-            || !conn.Minions.Fights(id) || !conn.Minions.Owns(id, m)
-            || !conn.Minions.Attacks.TryGetValue(id, out var accepted) || !ReferenceEquals(accepted, attack)
-            || m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var held) || !ReferenceEquals(held, m)
+        if (!CurrentGameWork || player.Closed || player.LeavingArea
+            || !player.Minions.Attacks.TryGetValue(id, out var accepted) || !ReferenceEquals(accepted, attack)
+            || m.Dead || m.Life == 0 || !player.Area.Monsters.TryGetValue(id, out var held) || !ReferenceEquals(held, m)
             || targetMonster.Dead || targetMonster.Life == 0 || !targetMonster.Hostile
-            || !conn.Monsters.TryGetValue(targetId, out var target) || !ReferenceEquals(target, targetMonster)
-            || conn.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, m)
-            || !ReferenceEquals(active.Area, conn.Instance) || !ReferenceEquals(active.Lifetime, CombatLifetime))
+            || !player.Area.Monsters.TryGetValue(targetId, out var target) || !ReferenceEquals(target, targetMonster))
             return false;
-        ReconcileBeastCompanionsLocked(conn);
-        return conn.Beasts.Active is { } current && ReferenceEquals(current, active)
-            && BeastSourceGenerationCurrentLocked(conn, current.Source);
+        if (attack.TemporaryAllyUntil is not null) return TemporaryAllyAttackCurrent(attack, AreaTime(player));
+        if (player.PlayerLife == 0 || !player.Minions.Fights(id) || !player.Minions.Owns(id, m)
+            || player.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, m)
+            || !ReferenceEquals(active.Area, player.Instance) || !ReferenceEquals(active.Lifetime, CombatLifetime))
+            return false;
+        ReconcileBeastCompanionsLocked(player);
+        return player.Beasts.Active is { } current && ReferenceEquals(current, active)
+            && BeastSourceGenerationCurrentLocked(player, current.Source);
     }
 
     static ProjectileUse MinionProjectileUse(ProjectileSession session, PlayerMinions.Attack attack,
         SkillCatalog.MonsterProjectileInfo projectile, double now)
     {
         var (id, m, _, _, targetMonster, _, _) = attack;
-        var conn = session.Conn;
+        var player = session.Player;
         var from = ProjectileSession.Vector(m.Walk.Position(now));
         var aim = ProjectileSession.Vector(targetMonster.Walk.Position(now));
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
@@ -69,47 +70,56 @@ public static partial class Game
         };
         var owner = session.ActorKey(id, m);
         double flightCells = (aim - origin).Length;
-        var presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(projectile.Metadata), flightCells / speed);
+        var presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(projectile.Metadata), flightCells / speed);
         if (release?.Point is { } launch)
             presentation = (presentation ?? new ProjectilePresentation()) with { LaunchHeight = launch.HeightSteps };
         int accuracy = m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
         return new ProjectileUse(profile, owner, owner, 1, origin, aim)
         {
             Payload = new MinionProjectileOffense(id, m, m.Attack!, accuracy, $"{m.Label} {projectile.Metadata}")
-                { Presentation = presentation },
+                { Presentation = presentation, TemporaryAllyUntil = attack.TemporaryAllyUntil },
         };
     }
 
     public static ProjectileHitResult MinionProjectileHit(ProjectileSession session, ProjectileDamage contact,
         MinionProjectileOffense shot)
     {
-        var conn = session.Conn;
-        if (!HasSourceValidBeastMinion(conn) || conn.Beasts.Active is not { } active
-            || active.Id != shot.MinionId || !ReferenceEquals(active.Monster, shot.Monster)
-            || !conn.Monsters.TryGetValue(contact.Target.Id, out var target))
+        var player = session.Player;
+        if (!player.Area.Monsters.TryGetValue(contact.Target.Id, out var target)
+            || session.ActorKey(contact.Target.Id, target) != contact.Target)
             return ProjectileHitResult.Miss;
-        if (session.ActorKey(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond,
-            conn.Clock.Elapsed.TotalSeconds);
-        var landed = MinionHitTargetLocked(conn, shot.MinionId, shot.Monster, contact.Target.Id, target, now,
+            AreaTime(player));
+        if (shot.TemporaryAllyUntil is double until)
+        {
+            if (now >= until || shot.Monster.TemporaryAllyUntil != until
+                || !player.Area.Monsters.TryGetValue(shot.MinionId, out var converted)
+                || !ReferenceEquals(converted, shot.Monster)) return ProjectileHitResult.Miss;
+        }
+        else if (!HasSourceValidBeastMinion(player) || player.Beasts.Active is not { } active
+            || active.Id != shot.MinionId || !ReferenceEquals(active.Monster, shot.Monster))
+            return ProjectileHitResult.Miss;
+        var landed = MinionHitTargetLocked(player, shot.MinionId, shot.Monster, contact.Target.Id, target, now,
             contact.Projectile.RandomSource, checkReach: false, shot.Attack, shot.Accuracy);
         if (landed is not { } accepted) return ProjectileHitResult.Miss;
         var hit = accepted.Hit;
         if (hit.StageStarts)
         {
-            CommitBossStage(session.remote, session.stream, session.ciphers, conn, contact.Target.Id, target, now);
+            CommitBossStage(player, contact.Target.Id, target, now);
             hit = hit with { StageStarts = false };
         }
         var to = target.Walk.Position(now);
         int fromX = (int)Math.Round(contact.Position.X), fromY = (int)Math.Round(contact.Position.Y);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
-        conn.Minions.OutputQueue.Add(new(MinionActionHit(shot.MinionId, contact.Target.Id, accepted.HitCode,
+        player.Minions.OutputQueue.Add(new(MinionActionHit(shot.MinionId, contact.Target.Id, accepted.HitCode,
                 HitAngle(to.X - fromX, to.Y - fromY)),
             $"0x01af minion 0x{shot.MinionId:x} projectile hit on monster 0x{contact.Target.Id:x}",
             contact.Target.Id, target, WorldId: shot.MinionId));
-        CommitMinionHitLocked(conn, contact.Target.Id, target, hit, accepted.Damage, now,
-            $"minion 0x{shot.MinionId:x} ({shot.Monster.Label})");
-        session.Enqueue(() => PublishMinionOutcomesFor(session.remote, session.stream, session.ciphers, conn,
+        var skill = player.Beasts.Active is { } source && ReferenceEquals(source.Monster, shot.Monster)
+            ? source.SkillStats : null;
+        CommitMinionHitLocked(player, contact.Target.Id, target, hit, accepted.Damage, now,
+            $"minion 0x{shot.MinionId:x} ({shot.Monster.Label})", source: shot.Monster, skill: skill);
+        session.Enqueue(() => PublishMinionOutcomesFor(player,
             CombatLifetime));
         return ProjectileHitResult.Hit;
     }
@@ -121,4 +131,5 @@ public sealed record MinionProjectileOffense(uint MinionId, SpawnedMonster Monst
     string Label)
 {
     public Game.ProjectilePresentation? Presentation { get; init; }
+    public double? TemporaryAllyUntil { get; init; }
 }

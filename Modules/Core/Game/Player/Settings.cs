@@ -18,12 +18,20 @@ using GameServer.Core.Diagnostics;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadSettingsData()
+    {
+        Npcs = NpcCatalog.Load();
+        GemSkillIdPool = [.. Skills.SkillIds().Skip(1).Where(Skills.IsGemSkill)];
+        MapDevices = MapDevice.Load("data", row => Items.Row(row)?.Hash, Items);
+    }
+
     // Game_LEAGUE=hardcore treats every character as hardcore; otherwise the character's league decides (Auth's resolve).
     public static readonly bool ForceHardcore = Environment.GetEnvironmentVariable("Game_LEAGUE")?.ToLowerInvariant() == "hardcore";
     // S→C 0x55 flags (11-skills.md §8): standard = bit2 (Resurrect at Checkpoint) + bit3 (Resurrect in Town); hardcore =
     // bit0 (a single Exit button, "Exit to the character selection screen", which sends C→S 0x153). Before the character
     // has a town (The Twilight Strand) only bit2, as in the real game.
-    public static byte DeathScreenFlags(ClientState conn) => ForceHardcore || conn.Hardcore ? (byte)0x01 : conn.LastTown == 0 ? (byte)0x04 : (byte)0x0c;
+    public static byte DeathScreenFlags(Player player) => ForceHardcore || player.Character.Hardcore ? (byte)0x01 : player.Character.LastTown == 0 ? (byte)0x04 : (byte)0x0c;
     // PoB's "recently": the last 4 seconds.
     public const double RecentlySeconds = 4;
     // The Positioned size (object_size − 1) of area transitions and waypoints (AreaTransition.ot, Waypoint.ot
@@ -49,26 +57,26 @@ public static partial class Game
     // "tolerance 1" used a size 1 item.
     public const double PickupReach = 20;
 
-    public static int PickupToleranceOf(ClientState conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.GroundSize ?? 1;
-    // How close (cells, centre to centre) gold on the ground is picked up by itself (RunPlayerTick): our own number, a
+    public static int PickupToleranceOf(Player player, Item item) => ItemsFor(player).ByHash(item.TypeHash)?.GroundSize ?? 1;
+    // How close (cells, centre to centre) gold on the ground is picked up by itself (a nearby presentation): our own number, a
     // little inside a click's PickupReach.
     // A monster's second skill, after its attack (SkillCatalog.FirstSkillId): a boss's stage skill (BossFights). 0x0103
     // is free in 3.29.3b and 3.29.3c (SkillCatalog.SkillIds).
     public const ushort StageSkillId = 0x0103;
     // NPCs.dat with the NPC types' components; loaded with the first town.
-    public static readonly Lazy<NpcCatalog> Npcs = new(() => NpcCatalog.Load());
+    public static NpcCatalog Npcs = default!;
     // Shared by every connection; loaded on the first /spawn_mob.
-    public static readonly MonsterCatalog Monsters = new();
+    public static MonsterCatalog Monsters = null!;
     // MonsterPacks per area (MonsterPacks.cs); loaded with the first area that has monsters.
-    public static readonly PackCatalog Packs = new();
+    public static PackCatalog Packs = null!;
     // The shop's portal effects the server can apply itself (/cosmetic): the visual of the player's own portals.
-    public static readonly CosmeticCatalog Cosmetics = new();
+    public static CosmeticCatalog Cosmetics = null!;
     // Every MtxTypes row as an owned microtransaction (23-microtransactions.md); loaded with the first 0x1f2.
-    public static readonly MtxCatalog Mtx = new();
+    public static MtxCatalog Mtx = null!;
     // What worn cosmetics do on the model and in the stats (ItemisedVisualEffect); loaded with the first equipment sent.
-    public static readonly CosmeticEffects MtxEffects = new();
+    public static CosmeticEffects MtxEffects = null!;
     // What a worn skill effect's skill_art_variation draws (MiscAnimated and BuffVisuals art variations).
-    public static readonly SkillArt Art = new();
+    public static SkillArt Art = null!;
     // The Cosmetics tab's Portrait slot (MicrotransactionSlot 16).
     public const byte PortraitSlot = 16;
     // The Cosmetics tab's Social Frame slot (MicrotransactionSlot 17): the portrait frames.
@@ -76,14 +84,14 @@ public static partial class Game
     // Per character: the ids of worn items whose requirements are not met (CharacterStatSources).
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = CharacterEquipmentState.Inactive;
     // The character panel's Spell Suppression chance stats (the client reads the final value).
-    public static readonly uint[] SuppressionChanceKeys = [.. new[] { "spell_suppression_chance_%",
-        "base_spell_suppression_chance_%", "combined_spell_suppression_chance_%" }.Select(n => Stats.Key(n)).OfType<uint>()];
+    public static readonly uint[] SuppressionChanceKeys = [.. new[] { Stat.SpellSuppressionChancePct,
+        Stat.BaseSpellSuppressionChancePct, Stat.CombinedSpellSuppressionChancePct }.Select(n => (n)).OfType<uint>()];
     // Per character: the skill ids of the socketed gems (GemSkillIds), and the ids gem skills may use (after the default
     // attack, the ids below FirstSkillId + 64 that no basic action uses: SkillCatalog.IsGemSkill; 55 in 3.29.3c).
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> GemSkillIdsOf = GemSkillIds.ByCharacter;
-    public static readonly Lazy<ushort[]> GemSkillIdPool = new(() => [.. Skills.SkillIds().Skip(1).Where(Skills.IsGemSkill)]);
+    public static ushort[] GemSkillIdPool = default!;
     // Maps.dat: which area each map opens (MapDevice.cs); loaded with the first Activate.
-    public static readonly Lazy<MapDevice> MapDevices = new(() => MapDevice.Load("data", row => Items.Row(row)?.Hash, Items));
+    public static MapDevice MapDevices = default!;
     // The map device's portals are MultiplexPortals of the player type (1): the map device type (3) is only drawn after an
     // open transition, which hung or crashed the client (21-hideouts.md §5). Game_MAP_PORTAL_TYPE overrides it.
     public static readonly byte MapPortalType = byte.TryParse(Environment.GetEnvironmentVariable("Game_MAP_PORTAL_TYPE"), out byte t) ? t : MapPortalObject.PlayerPortal;
@@ -95,17 +103,17 @@ public static partial class Game
         MapPortalRelistMs = EnvMs("Game_MAP_PORTAL_RELIST_MS", 600);
     public static int EnvMs(string name, int fallback) => int.TryParse(Environment.GetEnvironmentVariable(name), out int ms) && ms >= 0 ? ms : fallback;
     // Unique items the server can create (names/art from the client data, mods curated: UniqueCatalog).
-    public static readonly UniqueCatalog Uniques = new(Items);
-    public static readonly EssenceCrafting Essences = new(Items, Rolls);
-    public static readonly ItemDrops Drops = new(Items, Rolls, maps: MapDevices.Value.Atlas, uniques: Uniques);
+    public static UniqueCatalog Uniques = null!;
+    public static EssenceCrafting Essences = null!;
+    public static ItemDrops Drops = null!;
     // The Atlas passive tree's atlas_* nodes (PassiveSkills.dat), used by the three S→C 0x3d presets.
-    public static readonly AtlasPassives AtlasPassiveNodes = new();
-    public static readonly TimelessJewelEngine TimelessJewels = new();
-    public static readonly OrdinaryPassiveRules OrdinaryPassives = new();
-    public static readonly AscendancyCatalog Ascendancies = new();
+    public static AtlasPassives AtlasPassiveNodes = null!;
+    public static TimelessJewelEngine TimelessJewels = null!;
+    public static OrdinaryPassiveRules OrdinaryPassives = null!;
+    public static AscendancyCatalog Ascendancies = null!;
     // The Descendancy.dat rows (Affliction's Wildwood and 3.29's Bloodline second ascendancy layer).
-    public static readonly DescendancyCatalog Descendancies = new();
-    public static readonly AscendancyRules AscendancyRules = new(Ascendancies);
+    public static DescendancyCatalog Descendancies = null!;
+    public static AscendancyRules AscendancyRules = null!;
     // How close (cells) the player must be to a dying monster to gain its experience. Game_XP_RANGE overrides it.
     public const int GodRegenPerSecond = 10_000;
     // /god regenerates 100% of maximum life per second (more than Righteous Fire's 90% burn).
@@ -113,7 +121,7 @@ public static partial class Game
     // S→C 0x1b1's pool byte for mana (0 life, 1 mana, 2 energy shield).
     public const byte ManaPool = 1;
     // When a spell's projectile leaves (the class's spell animation's contact keyframe).
-    public static readonly AnimationContacts Animations = new();
+    public static AnimationContacts Animations = null!;
     // BuffDefinitions rows: righteous_fire (on the caster) and righteous_fire_aura (on the enemies it burns).
     public const ushort RighteousFireBuffRow = 12, RighteousFireAuraBuffRow = 13;
     // The flask buffs' BuffDefinitions rows (flask_effect_life "Healing", flask_effect_mana "Regenerating Mana": invisible,
@@ -123,8 +131,6 @@ public static partial class Game
     public const string SkillBook = "Book of Skill";
     /// <summary>The quest books that give two passive refund points (BaseItemTypes Name; Acts 1, 6, 9 and 10).</summary>
     public const string RegretBook = "Book of Regrets";
-    /// <summary>Continuous pool recovery's target cadence; amounts use elapsed game time, not this nominal delay.</summary>
-    public const int RecoveryStepMs = 16;
     public static bool FlaskBuffs => Environment.GetEnvironmentVariable("Game_FLASK_BUFFS") != "0";
     // MiscAnimated RighteousFireRing: the big burning circle around a Righteous Fire caster.
     public const string RighteousFireRingAo = "Metadata/Effects/Spells/ri_fire/rifire.ao";
@@ -132,14 +138,14 @@ public static partial class Game
     public const string DefaultProjectileImpactAo = "Metadata/Effects/Spells/fireball/explode_new2.ao";
     // Secondary KB explosion: kinetic_blast_small, distinct from the unscaled main-impact kinetic_blast_large art.
     public const string KineticBlastExplosionAo = "Metadata/Effects/Spells/cluster_burst/mini.ao";
-    // The player's own tick (RunPlayerTick): regeneration and damage over time.
+    // The presentations check's cadence (Game_PRESENT_VERIFY=1, a debug tool).
     public const int PlayerTickMs = 250;
-    public static readonly (string Stat, int Value)[] GodStats =
+    public static readonly (uint Stat, int Value)[] GodStats =
     [
-        ("attack_speed_+%", 1000), ("base_cast_speed_+%", 1000), ("cast_speed_+%", 1000),
-        ("life_regeneration_rate_per_minute_%", GodLifeRegenPctPerSecond * 60),
-        ("base_mana_regeneration_rate_per_minute", GodRegenPerSecond * 60), ("mana_regeneration_rate_per_minute", GodRegenPerSecond * 60),
-        ("base_skill_area_of_effect_+%", 200),
+        (Stat.AttackSpeedPlusPct, 1000), (Stat.BaseCastSpeedPlusPct, 1000), (Stat.CastSpeedPlusPct, 1000),
+        (Stat.LifeRegenerationRatePerMinutePct, GodLifeRegenPctPerSecond * 60),
+        (Stat.BaseManaRegenerationRatePerMinute, GodRegenPerSecond * 60), (Stat.Of("mana_regeneration_rate_per_minute"), GodRegenPerSecond * 60),
+        (Stat.BaseSkillAreaOfEffectPlusPct, 200),
     ];
 
     public static readonly double ExperienceRange =

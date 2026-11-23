@@ -20,6 +20,7 @@ public sealed class GolemState
         public object? SourceIdentity;
         public Dictionary<uint, int> RetainedSkillStats = [];
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
+        public double FreshMeatUntil;
         public double Regeneration;
         public readonly EnergyShield ShieldPool = new();
         public uint Shield => ShieldPool.Current;
@@ -32,14 +33,15 @@ public sealed class GolemState
         public double WrathUntil, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
-        public Dictionary<string, int> Auras = [], Utility = [];
+        public Dictionary<uint, int> Auras = [], Utility = [];
         public readonly Dictionary<ushort, ushort> UtilityBuffs = [];
         public double RecallUntil, RecallRate, BlockedAt = double.NegativeInfinity;
         public Dictionary<byte, Item> Equipment = [];
-        public Dictionary<string, int> Gear = [];
+        public Dictionary<uint, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;
         public double HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
+        public Charges.State? CombatCharges;
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];
         public Action? Pending;
@@ -93,7 +95,7 @@ public sealed class GolemState
         : All.Values.Where(g => !g.Monster.Dead).OrderBy(g => g.Definition.Kind == kind ? 0 : 1).ThenBy(g => g.SummonedAt).FirstOrDefault();
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     GolemState? golems;
     public GolemState Golems => System.Threading.LazyInitializer.EnsureInitialized(ref golems);

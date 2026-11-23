@@ -50,28 +50,31 @@ public sealed class RetargetActionTests : IDisposable
     {
         var (serverStream, _, serverCiphers, clientCiphers, cleanup) = Loopback();
         using var _ = cleanup;
-        var conn = new ClientState(new(1, "retarget-framing", 400, 400, 100, 100, null, []), 1, 1);
-        var inbox = new ClientInbox(conn.Performance);
+        var conn = new Player(new(1, "retarget-framing", 400, 400, 100, 100, null, []), 1, 1)
+        {
+            Connection = { Session = new("retarget-test", serverStream, serverCiphers) },
+        };
+        var inbox = new ClientInbox(conn.Connection.Performance);
 
         for (int i = 0; i < ClientInbox.LostAfterUnframedReads + 5; i++)
         {
             byte[] wire = RetargetPacket(0x3000u + (uint)i);
             clientCiphers.Send.Process(wire);
             await Program.OnClientData("retarget-test", serverStream, serverCiphers, wire, conn, inbox, readAt: 0);
-            Assert.Equal(0, conn.UnframedRun);
-            Assert.Null(conn.CloseReason);
+            Assert.Equal(0, conn.Connection.Session.UnframedRun);
+            Assert.Null(conn.Connection.CloseReason);
         }
 
         // Coalesced 0x0193 + 0x0197 in a single read preserves both framed packets.
         byte[] coalesced = [.. RetargetPacket(0x3042), .. new LoginWriter().U16(InstanceProtocol.ChannelUpdateId).U32(150).U32(120).ToArray()];
         clientCiphers.Send.Process(coalesced);
         await Program.OnClientData("retarget-test", serverStream, serverCiphers, coalesced, conn, inbox, readAt: 0);
-        Assert.Equal(0, conn.UnframedRun);
-        Assert.Null(conn.CloseReason);
+        Assert.Equal(0, conn.Connection.Session.UnframedRun);
+        Assert.Null(conn.Connection.CloseReason);
 
         inbox.Complete();
         var batches = new List<ClientInbox.Batch>();
-        await foreach (var batch in inbox.ReadAllAsync()) batches.Add(batch);
+        while (inbox.TryTake(out var batch)) batches.Add(batch);
         Assert.Equal(ClientInbox.LostAfterUnframedReads + 6, batches.Count);
         Assert.All(batches, b => Assert.Empty(b.Unknown));
         var last = batches[^1];
@@ -81,20 +84,68 @@ public sealed class RetargetActionTests : IDisposable
     }
 
     [Fact]
+    public void Channel_aim_updates_keep_the_mode_selected_by_the_action_start()
+    {
+        foreach (var (start, lockstep) in new[]
+        {
+            (InstanceProtocol.UseSkillAtLocationId, false), (InstanceProtocol.LockstepMoveStartId, true)
+        })
+        {
+            var player = new Player(new(1, "channel-mode", 400, 400, 100, 100, null, []), 1, 1);
+            var connection = player.Connection;
+            Assert.Null(connection.NotePacket("channel-mode", start));
+            Assert.Null(connection.NotePacket("channel-mode", InstanceProtocol.ChannelUpdateId));
+            Assert.Null(connection.NotePacket("channel-mode", InstanceProtocol.ChannelUpdateAltId));
+            if (!lockstep) Assert.Null(connection.NotePacket("channel-mode", InstanceProtocol.ChannelEndId));
+            Assert.Equal(lockstep, connection.LockstepClient);
+        }
+    }
+
+    [Fact]
+    public async Task Network_mode_diagnostic_sends_six_independently_encrypted_chat_messages()
+    {
+        var (server, client, serverCiphers, clientCiphers, cleanup) = Loopback();
+        using var _ = cleanup;
+        var player = new Player(new(1, "mixed-mode", 400, 400, 100, 100, null, []), 1, 1)
+        {
+            Connection = { Session = new("mixed-mode", server, serverCiphers) },
+        };
+        var inbox = new ClientInbox(player.Connection.Performance);
+        Assert.Null(player.Connection.NotePacket("mixed-mode", InstanceProtocol.UseSkillAtLocationId));
+        byte[] holdRelease = new LoginWriter().U16(InstanceProtocol.LockstepMoveStopId).ToArray();
+        clientCiphers.Send.Process(holdRelease);
+        await Program.OnClientData("mixed-mode", server, serverCiphers, holdRelease, player, inbox, readAt: 0);
+
+        const string diagnostic = "Network mode error: this area received both Predictive-only (0x0025) and Lockstep-only " +
+            "(0x0195) client messages. Please report this to the developers with these packet ids.";
+        byte[] expected = InstanceChat.ChatLine(diagnostic);
+        byte[] received = new byte[6 * expected.Length];
+        using var readTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await client.ReadExactlyAsync(received, readTimeout.Token);
+        clientCiphers.Receive.Process(received);
+        for (int i = 0; i < 6; i++)
+            Assert.True(expected.AsSpan().SequenceEqual(received.AsSpan(i * expected.Length, expected.Length)),
+                $"Diagnostic message {i + 1} does not match the expected plaintext.");
+    }
+
+    [Fact]
     public async Task Predictive_channel_retargets_toward_living_monster_position_and_refreshes_activity()
     {
         var (serverStream, _, serverCiphers, _, cleanup) = Loopback();
         using var _ = cleanup;
-        var conn = new ClientState(new(1, "retarget-predictive", 400, 400, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "retarget-predictive", 400, 400, 100, 100, null, []), 1, 1)
+        {
+            Connection = { LockstepClient = false, Session = new("retarget-pred", serverStream, serverCiphers) },
+        };
         conn.ChannelSkill = 0x010c;
         conn.ChannelMovement = (0x010c, -28);
         conn.LastChannelUpdateAt = -10;
-        conn.Monsters[0x3001] = new SpawnedMonster("target", new PlayerWalk(145, 112, 0), 0, 0, 1000) { Hostile = true };
+        conn.Area.Monsters[0x3001] = new SpawnedMonster("target", new PlayerWalk(145, 112, 0), 0, 0, 1000) { Hostile = true };
 
         byte[] packet = RetargetPacket(0x3001);
-        await Game.OnClientMessages("retarget-pred", serverStream, serverCiphers, [(InstanceProtocol.RetargetActionId, packet)], [], conn);
+        await Game.OnClientMessages([(InstanceProtocol.RetargetActionId, packet)], [], conn);
 
-        Assert.False(conn.LockstepClient);
+        Assert.False(conn.Connection.LockstepClient);
         // Living monster collision keeps the walk destination just outside the target's body footprint.
         Assert.Equal((141, 112), conn.Walk.Destination);
         Assert.True(conn.LastChannelUpdateAt >= 0);
@@ -105,9 +156,9 @@ public sealed class RetargetActionTests : IDisposable
     {
         var (serverStream, clientStream, serverCiphers, clientCiphers, cleanup) = Loopback();
         using var _ = cleanup;
-        var conn = new ClientState(new(1, "retarget-lockstep", 400, 400, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "retarget-lockstep", 400, 400, 100, 100, null, []), 1, 1)
         {
-            LockstepClient = true,
+            Connection = { LockstepClient = true, Session = new("retarget-ls", serverStream, serverCiphers) },
             ChannelSkill = 0x0200,
             ChannelSkillSequence = 0x8001,
             ChannelMovement = (0x0200, -28),
@@ -115,17 +166,17 @@ public sealed class RetargetActionTests : IDisposable
         };
         conn.LockstepSkill.Press((105, 100), null, 0x0200, 0x0401, repeats: false);
         conn.LockstepSkill.Channelling(0x8001);
-        conn.Monsters[0x3005] = new SpawnedMonster("boss", new PlayerWalk(132, 118, 0), 0, 0, 1000) { Hostile = true };
+        conn.Area.Monsters[0x3005] = new SpawnedMonster("boss", new PlayerWalk(132, 118, 0), 0, 0, 1000) { Hostile = true };
 
         byte[] packet = RetargetPacket(0x3005);
-        await Game.OnClientMessages("retarget-ls", serverStream, serverCiphers, [(InstanceProtocol.RetargetActionId, packet)], [], conn);
+        await Game.OnClientMessages([(InstanceProtocol.RetargetActionId, packet)], [], conn);
 
         Assert.Equal((132, 118), conn.LockstepSkill.Aim);
         Assert.Equal(0x3005u, conn.LockstepSkill.Target);
         Assert.Equal((128, 118), conn.Walk.Destination);
         Assert.True(conn.LastChannelUpdateAt >= 0);
 
-        byte[] expected = InstanceProtocol.ActionTarget(Program.PlayerId, 0x8001, 132, 118);
+        byte[] expected = InstanceProtocol.ActionTarget(conn.Id, 0x8001, 132, 118);
         byte[] received = new byte[expected.Length];
         using var readTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await clientStream.ReadExactlyAsync(received, readTimeout.Token);
@@ -138,22 +189,22 @@ public sealed class RetargetActionTests : IDisposable
     {
         var (serverStream, _, serverCiphers, _, cleanup) = Loopback();
         using var _ = cleanup;
-        var conn = new ClientState(new(1, "retarget-held", 400, 400, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "retarget-held", 400, 400, 100, 100, null, []), 1, 1)
         {
-            LockstepClient = true,
+            Connection = { LockstepClient = true, Session = new("retarget-held", serverStream, serverCiphers) },
         };
         conn.LockstepSkill.Press((105, 100), null, 0x0102, 0x0401, repeats: true);
-        conn.Monsters[0x3009] = new SpawnedMonster("mob", new PlayerWalk(122, 95, 0), 0, 0, 500) { Hostile = true };
+        conn.Area.Monsters[0x3009] = new SpawnedMonster("mob", new PlayerWalk(122, 95, 0), 0, 0, 500) { Hostile = true };
 
-        await Game.OnClientMessages("retarget-held", serverStream, serverCiphers,
+        await Game.OnClientMessages(
             [(InstanceProtocol.RetargetActionId, RetargetPacket(0x3009))], [], conn);
 
         Assert.Equal((122, 95), conn.LockstepSkill.Aim);
         Assert.Equal(0x3009u, conn.LockstepSkill.Target);
 
         // Retargeting onto a non-monster (self) clears the stale monster target while updating aim.
-        await Game.OnClientMessages("retarget-self", serverStream, serverCiphers,
-            [(InstanceProtocol.RetargetActionId, RetargetPacket(Program.PlayerId))], [], conn);
+        await Game.OnClientMessages(
+            [(InstanceProtocol.RetargetActionId, RetargetPacket(conn.Id))], [], conn);
         Assert.Equal((100, 100), conn.LockstepSkill.Aim);
         Assert.Null(conn.LockstepSkill.Target);
 
@@ -161,7 +212,7 @@ public sealed class RetargetActionTests : IDisposable
         conn.LockstepHold.Press((105, 100), 0x2909, 0x0400);
         Assert.Equal((105, 100), conn.LockstepHold.Due(walking: true, here: (100, 100)));
 
-        await Game.OnClientMessages("retarget-move", serverStream, serverCiphers,
+        await Game.OnClientMessages(
             [(InstanceProtocol.RetargetActionId, RetargetPacket(0x3009))], [], conn);
 
         Assert.Equal((122, 95), conn.LockstepHold.Due(walking: true, here: (100, 100)));
@@ -172,32 +223,35 @@ public sealed class RetargetActionTests : IDisposable
     {
         var (serverStream, _, serverCiphers, _, cleanup) = Loopback();
         using var _ = cleanup;
-        var conn = new ClientState(new(1, "retarget-ignore", 400, 400, 100, 100, null, []), 1, 1);
-        conn.Monsters[0x3010] = new SpawnedMonster("alive", new PlayerWalk(140, 140, 0), 0, 0, 500) { Hostile = true };
-        conn.Monsters[0x3011] = new SpawnedMonster("dead", new PlayerWalk(160, 160, 0), 0, 0, 500) { Hostile = true, Life = 0, Dead = true };
+        var conn = new Player(new(1, "retarget-ignore", 400, 400, 100, 100, null, []), 1, 1)
+        {
+            Connection = { Session = new("retarget-idle", serverStream, serverCiphers) },
+        };
+        conn.Area.Monsters[0x3010] = new SpawnedMonster("alive", new PlayerWalk(140, 140, 0), 0, 0, 500) { Hostile = true };
+        conn.Area.Monsters[0x3011] = new SpawnedMonster("dead", new PlayerWalk(160, 160, 0), 0, 0, 500) { Hostile = true, Life = 0, Dead = true };
 
         // Idle player with living target: no movement or channel activity change.
         conn.LastChannelUpdateAt = -10;
-        await Game.OnClientMessages("retarget-idle", serverStream, serverCiphers,
+        await Game.OnClientMessages(
             [(InstanceProtocol.RetargetActionId, RetargetPacket(0x3010))], [], conn);
         Assert.Equal((100, 100), conn.Walk.Destination);
         Assert.Equal(-10, conn.LastChannelUpdateAt);
-        Assert.Null(conn.CloseReason);
+        Assert.Null(conn.Connection.CloseReason);
 
         // Active channel with unknown target id: ignored safely.
         conn.ChannelSkill = 0x010c;
         conn.ChannelMovement = (0x010c, -28);
-        await Game.OnClientMessages("retarget-unknown", serverStream, serverCiphers,
+        await Game.OnClientMessages(
             [(InstanceProtocol.RetargetActionId, RetargetPacket(0x9999))], [], conn);
         Assert.Equal((100, 100), conn.Walk.Destination);
         Assert.Equal(-10, conn.LastChannelUpdateAt);
-        Assert.Null(conn.CloseReason);
+        Assert.Null(conn.Connection.CloseReason);
 
         // Active channel with dead target: ignored safely.
-        await Game.OnClientMessages("retarget-dead", serverStream, serverCiphers,
+        await Game.OnClientMessages(
             [(InstanceProtocol.RetargetActionId, RetargetPacket(0x3011))], [], conn);
         Assert.Equal((100, 100), conn.Walk.Destination);
         Assert.Equal(-10, conn.LastChannelUpdateAt);
-        Assert.Null(conn.CloseReason);
+        Assert.Null(conn.Connection.CloseReason);
     }
 }

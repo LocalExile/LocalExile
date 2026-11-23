@@ -14,51 +14,49 @@ sealed class MonsterAuraEffect : IShrineEffect
     public Task OnNearbyMonsterEnter(ShrineContext ctx, ShrineInstance shrine, uint monster)
     {
         if (shrine.Definition.Monster is not { } buff) return Task.CompletedTask;
-        lock (ctx.Conn.Monsters)
-        {
-            if (affected.ContainsKey(monster) || !ctx.Conn.Monsters.TryGetValue(monster, out var m) || m.Dead)
-                return Task.CompletedTask;
-            affected[monster] = m;
-            var owners = Owners.GetOrCreateValue(m);
-            if (!owners.TryGetValue(buff.BuffRow, out var sources)) owners[buff.BuffRow] = sources = [];
-            sources.Add(this);
-            if (sources.Count > 1) return Task.CompletedTask;
-            var stats = buff.Stats.Where(s => s.Key >= 1 && s.Key <= Stats.Names.Count)
-                .GroupBy(s => Stats.Name(s.Key)).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));
-            Change(ctx.Conn, monster, m, () => m.TemporaryStats[Key(buff.BuffRow)] = stats);
-        }
+        if (affected.ContainsKey(monster) || !ctx.Player.Area.Monsters.TryGetValue(monster, out var m) || m.Dead)
+            return Task.CompletedTask;
+        affected[monster] = m;
+        var owners = Owners.GetOrCreateValue(m);
+        if (!owners.TryGetValue(buff.BuffRow, out var sources)) owners[buff.BuffRow] = sources = [];
+        sources.Add(this);
+        if (sources.Count > 1) return Task.CompletedTask;
+        var stats = buff.Stats.Where(s => s.Key >= 1 && s.Key <= Stats.Names.Count)
+            .GroupBy(s => s.Key).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));
+        Change(ctx.Player, monster, m, () => m.SetTemporaryStats(Key(buff.BuffRow), stats));
         return Task.CompletedTask;
     }
 
     public Task OnNearbyMonsterLeave(ShrineContext ctx, ShrineInstance shrine, uint monster)
     {
-        lock (ctx.Conn.Monsters)
-            if (affected.Remove(monster, out var m) && shrine.Definition.Monster is { } buff
-                && Owners.TryGetValue(m, out var owners) && owners.TryGetValue(buff.BuffRow, out var sources))
+        if (affected.Remove(monster, out var m) && shrine.Definition.Monster is { } buff
+            && Owners.TryGetValue(m, out var owners) && owners.TryGetValue(buff.BuffRow, out var sources))
+        {
+            sources.Remove(this);
+            if (sources.Count == 0)
             {
-                sources.Remove(this);
-                if (sources.Count == 0)
-                {
-                    owners.Remove(buff.BuffRow);
-                    Change(ctx.Conn, monster, m, () => m.TemporaryStats.Remove(Key(buff.BuffRow)));
-                }
+                owners.Remove(buff.BuffRow);
+                Change(ctx.Player, monster, m, () => m.RemoveTemporaryStats(Key(buff.BuffRow)));
             }
+        }
         return Task.CompletedTask;
     }
 
-    static void Change(ClientState conn, uint id, SpawnedMonster monster, Action change)
+    // Its maximum life follows the aura's stats from the frame they are built in (SpawnedMonster.AfterStatsRebuild).
+    static void Change(Player player, uint id, SpawnedMonster monster, Action change)
     {
-        int before = monster.Effects.MaxLife(100000);
-        uint oldLife = monster.MaxLife;
         change();
-        var effects = monster.Effects;
-        uint maximum = (uint)Math.Clamp((long)oldLife * effects.MaxLife(100000) / before, 1, uint.MaxValue);
-        monster.MaxLife = maximum;
-        monster.Life = (uint)Math.Clamp(Math.Ceiling(monster.Life * (double)maximum / Math.Max(1, oldLife)), 0, maximum);
-        var stats = new List<(uint, int)> { (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, maximum)) };
-        if (Stats.Key("actor_scale_+%") is uint scale) stats.Add((scale, effects.ActorScalePct));
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, stats), null));
-        if (maximum != oldLife) conn.Minions.OutputQueue.Add(new(InstanceProtocol.LifeUpdate(id, monster.Life), null));
+        monster.AfterStatsRebuild((was, effects) =>
+        {
+            int before = was.MaxLife(100000);
+            uint oldLife = monster.MaxLife;
+            uint maximum = (uint)Math.Clamp((long)oldLife * effects.MaxLife(100000) / Math.Max(1, before), 1, uint.MaxValue);
+            monster.MaxLife = maximum;
+            monster.Life = (uint)Math.Clamp(Math.Ceiling(monster.Life * (double)maximum / Math.Max(1, oldLife)), 0, maximum);
+            var stats = new List<(uint, int)> { (Stat.MaximumLife, (int)Math.Min(int.MaxValue, maximum)) };
+            if (Stat.ActorScalePlusPct is var scale) stats.Add((scale, effects.ActorScalePct));
+            SetStats(player, id, stats);
+        });
     }
 
     public async Task OnActivation(ShrineContext ctx, ShrineInstance shrine)

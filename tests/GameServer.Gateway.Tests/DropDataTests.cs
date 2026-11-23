@@ -39,9 +39,9 @@ public sealed class DropDataTests
     public void HardMode_drops_include_atlas_maps()
     {
         var ruthless = new League("Ruthless", "Standard", false, false) { DataSet = "HardMode" };
-        var conn = new ClientState(new(1, "ruthless-drops-test", 100, 100, 10, 10, null, []), 1, 1)
+        var conn = new Player(new(1, "ruthless-drops-test", 100, 100, 10, 10, null, []), 1, 1)
         {
-            League = ruthless.Name,
+            Character = { League = ruthless.Name },
             LeagueModule = new(ruthless, new HashSet<string>(["Game"])),
         };
         var drops = Game.DropsFor(conn);
@@ -50,10 +50,10 @@ public sealed class DropDataTests
         Assert.Null(drops.Map(1, MonsterRarity.Normal, 0, rng, chanceFactor: 1000));
         var first = drops.Map(58, MonsterRarity.Normal, 0, rng, chanceFactor: 1000);
         Assert.NotNull(first);
-        Assert.Equal(1, Game.HardModeAtlas.Value.TierOf(first.Item.TypeHash));
+        Assert.Equal(1, Game.HardModeAtlas.TierOf(first.Item.TypeHash));
         var map = drops.Map(72, MonsterRarity.Unique, 5, rng, chanceFactor: 1000);
         Assert.NotNull(map);
         Assert.True(map.Type.Supported);
-        Assert.Equal(5, Game.HardModeAtlas.Value.TierOf(map.Item.TypeHash));
+        Assert.Equal(5, Game.HardModeAtlas.TierOf(map.Item.TypeHash));
     }
 }

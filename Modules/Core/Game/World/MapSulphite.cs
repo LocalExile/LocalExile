@@ -1,33 +1,115 @@
-using System.Text.Json;
+using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
+using GameServer.Data.Terrain.Generation;
 
 /// <summary>The native sulphite resource curve and the map-owner scarab modifier, separate from player item quantity.</summary>
 public static class MapSulphite
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadMapSulphiteData()
+    {
+        Resources = LoadResources();
+        _areas = LoadAreas();
+    }
+
     public const string Vein = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralVein";
     public const string Chest = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralChest";
-    public const string EnragedQuantity = "from_league_item_quantity_+%_permyriad";
+    public const uint EnragedQuantity = Stat.FromLeagueItemQuantityPlusPctPermyriad;
     public const int FumesQuantity = 5000;
     // The native daemon supplies no radius in its exported skill rows. Keep the server's encounter radius explicit.
     public const int FumesRadius = 60;
 
-    static readonly Lazy<Dictionary<int, int>> Resources = new(() =>
+    static Dictionary<int, int> Resources = default!;
+
+    static Dictionary<int, int> LoadResources()
     {
         return ClientTables.Table("DelveResourcePerLevel").ToDictionary(r => r.Int("AreaLevel"), r => r.Int("Sulphite"));
-    });
+    }
 
-    public static bool Present(MapMods mods) => mods.Get("map_delve_league") > 0;
-    public static bool Fumes(MapMods mods) => mods.Get("map_enraging_sulphite") > 0;
+    const int DelveLeagueRow = 13;
+    sealed record Placement(bool Present);
+    static readonly Placement PresentTrue = new(true), PresentFalse = new(false);
+    static readonly ConditionalWeakTable<InstanceState, Placement> Placements = new();
+    sealed record AreaFlags(bool IsMapArea, bool RandomnessDisabled, bool HasLeagueChance, bool HasHardModeLeagueChance);
+    static Dictionary<string, AreaFlags>? _areas;
+
+    static Dictionary<string, AreaFlags> LoadAreas()
+    {
+        var areas = new Dictionary<string, AreaFlags>(StringComparer.Ordinal);
+        if (!ClientTables.Has("WorldAreas")) return areas;
+        foreach (var row in ClientTables.Table("WorldAreas"))
+        {
+            if (row.Text("Id") is not { Length: > 0 } id) continue;
+            areas.TryAdd(id, new(
+                row.Bool("IsMapArea"),
+                row.Bool("IsHideout") || row.Bool("IsTown"),
+                row.IntOrNull("LeagueChance1") is >= 0,
+                row.IntOrNull("LeagueChance2") is >= 0));
+        }
+        return areas;
+    }
+
+    static bool Excluded(MapMods mods) =>
+        (mods.Get(Stat.MapDisableLeagues) & (1 << DelveLeagueRow)) != 0
+        || mods.Get(Stat.MapDisableMissions) != 0
+        || mods.Get(Stat.AtlasKeystoneNoExtraContent) != 0
+        || mods.Get(Stat.MapNukeEverything) != 0
+        || mods.Get(Stat.MapAreaUnderlevelled) != 0;
+
+    public static bool Present(MapMods mods) => !Excluded(mods) && mods.Get(Stat.MapDelveLeague) > 0;
+
+    public static bool Present(Player player, MapDevice.MapArea map, MapMods mods)
+    {
+        if (player.Instance is { } cachedInstance && Placements.TryGetValue(cachedInstance, out var cached))
+            return cached.Present;
+        if (Excluded(mods))
+        {
+            if (player.Instance is { KeptAreaStats: not null } excludedInstance)
+                Placements.AddOrUpdate(excludedInstance, PresentFalse);
+            return false;
+        }
+        if (Present(mods))
+        {
+            if (player.Instance is { KeptAreaStats: not null } forcedInstance)
+                Placements.AddOrUpdate(forcedInstance, PresentTrue);
+            return true;
+        }
+        if (player.Instance is not { KeptAreaStats: not null } instance) return false;
+        bool present = RollNatural(player, map, mods);
+        Placements.AddOrUpdate(instance, present ? PresentTrue : PresentFalse);
+        return present;
+    }
+
+    static bool RollNatural(Player player, MapDevice.MapArea map, MapMods mods)
+    {
+        var areas = _areas ??= LoadAreas();
+        if (!areas.TryGetValue(map.Id, out var area) || !area.IsMapArea || area.RandomnessDisabled)
+            return false;
+        bool hardMode = Program.LeagueFor(player).HardMode;
+        if (!(hardMode ? area.HasHardModeLeagueChance : area.HasLeagueChance))
+            return false;
+        int baseChance = mods.Get(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0
+            ? 0
+            : LeagueChances.Current.ChanceOf(map.Id, DelveLeagueRow, alternate: hardMode).Chance;
+        long chance = baseChance * Math.Max(0L, 100L + mods.Get(Stat.MapLeagueBaseChancePlusPctFinal)) / 100
+            + mods.Get(Stat.MapLeagueContentAdditionalChancePct)
+            + mods.Get(Stat.MapMasterMissionNikoPctChance);
+        chance = Math.Max(0L, chance) * Math.Max(0L, 100L + mods.Get(Stat.MapMasterMissionNikoChancePlusPct)) / 100;
+        // Sulphite is placed after terrain generation, using its own roll for the map's seed.
+        return chance >= 100 || (chance > 0 && new LevelRandom(player.Seed, false).Next(100u) < (uint)chance);
+    }
+
+    public static bool Fumes(MapMods mods) => mods.Get(Stat.MapEnragingSulphite) > 0;
 
     public static int Yield(int level, MapMods mods, bool owner, int nearbyPlayers = 1)
     {
         int count = Math.Max(1, nearbyPlayers);
         decimal party = (100 + 50L * (count - 1)) / (100m * count);
-        decimal bonus = owner ? Math.Max(0, 100L + mods.Get("map_owner_sulphite_gained_+%")) / 100m : 1;
-        decimal mined = Math.Max(0, 100L + mods.Get("map_sulphite_mined_+%")) / 100m;
+        decimal bonus = owner ? Math.Max(0, 100L + mods.Get(Stat.MapOwnerSulphiteGainedPlusPct)) / 100m : 1;
+        decimal mined = Math.Max(0, 100L + mods.Get(Stat.MapSulphiteMinedPlusPct)) / 100m;
         decimal quantity = Math.Max(0, 100L + mods.Quantity) / 100m;
-        return (int)Math.Clamp(decimal.Floor(Resources.Value.GetValueOrDefault(level) * quantity * party * bonus * mined), 0, int.MaxValue);
+        return (int)Math.Clamp(decimal.Floor(Resources.GetValueOrDefault(level) * quantity * party * bonus * mined), 0, int.MaxValue);
     }
 
     public static ushort Credit(int current, int gain, int capacity) =>
@@ -42,9 +124,8 @@ public static class MapSulphite
     public static byte[] Blob(int x, int y, float? height, bool mined, bool fumes)
     {
         var w = new BlobWriter();
-        w.U8(0).U8(0).I32(x).I32(y).F32(0).U16(0).U8((byte)(height is null ? 0 : 4)).U8(2);
-        if (height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
-        w.U8(0).U8(1).U8(0).U8(0).U8((byte)(mined ? 6 : 0));
+        w.U8(0).U8(0).Positioned(x, y, fixedHeight: height is float z ? BlobWriter.FixedHeight(z) : null);
+        w.U8(0).U8(0).U8((byte)(mined ? 6 : 0));
         States(mined, fumes).Write(w);
         return w.U8(0).ToArray();
     }

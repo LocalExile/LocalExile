@@ -612,7 +612,7 @@ No generator output changes are needed: the multiplier is already extracted.
    `TargetAccuracy.AgainstTarget` at the target's own rarity and position at that moment (§4). Ordinary attacks now
    use the defender's entropy and independent critical confirmation ([20 §2h](20-damage.md#2h-ordinary-attack-evasion-and-critical-confirmation)). A miss is logged and
    sends no life update; spells do not roll accuracy and always hit.
-4. Any later player action (0x25 move, another 0x24) cancels pending contact/release (`ClientState.ActionCount`).
+4. Any later player action (0x25 move, another 0x24) cancels pending contact/release (`Player.ActionCount`).
    A ranged projectile already created keeps its own area lifetime and can still collide after the player moves.
 5. Pacing: one swing per attack time. While the button is held the client sends one 0x24 per swing; a swing may
    arrive up to a quarter of an attack early (jitter) and the schedule stays on the client's cadence. When the server
@@ -953,7 +953,7 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   path reads the virtual base when the action starts. (The King crash first put down to this, `0xc0000005` at
   `0x19e37bf`, is `GeometryChannelBase::StartChannelling` reading a missing GeometryChannel row:
   [king-in-the-mists](../game/king-in-the-mists.md).)
-- **AI** (`RunMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
+- **AI** (`StartMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
   A late wake runs one decision and schedules the next from the current time; it never replays missed steps.
   Pause freezes game time, and disabled AI or a dead player does not accumulate work to replay afterward.
   Hostile monsters neither chase nor swing while the entry grace period still protects the player.
@@ -1109,7 +1109,7 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   Whether the client's swing animation follows them is unverified: the swing time is read through the action's stat
   provider (`FUN_141c09560`: 0x221a over 1 + 0x126 / 100, via `FUN_141940aa0`), which may be the skill's own stats in
   the Actor component; those keep the unslowed time.
-- **Player life** (`ClientState.PlayerLife`, from the level/class/passive pools). At 0 the client plays the death
+- **Player life** (`Player.PlayerLife`, from the level/class/passive pools). At 0 the client plays the death
   animation and blocks moving. `/heal` sends full life: 0x1b1 from 0 runs the client's revive. The overhead life bar is
   hidden at 0 (`hide_mini_life_bar`, as for monsters) and shown again on revive.
 
@@ -1645,7 +1645,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   which the client divides by 60 — so the panel shows the regeneration the tick applies. An **attack** also waits for
   the shared attack timer (`AttackTiming`): the client re-aims a held attack every 50 ms, so before 2026-10-25 every
   use was a swing (Holy Strike: twelve a second, 6 mana each). Attack gem skills and the default attack share
-  `ClientState.NextAttackAt`, a use may arrive a quarter of an attack early, and a use that arrives sooner is ignored:
+  `Player.NextAttackAt`, a use may arrive a quarter of an attack early, and a use that arrives sooner is ignored:
   no cost, no swing, no 0x1b1. The client does not deduct the cost itself (a live trace of its Life pool showed the
   mana change at the server's 0x1b1), so no "cost back" update is needed.
 - **Ground attack in dual wield crashes the client: the off hand's weapon stats were missing (issue #167, fixed
@@ -1849,16 +1849,18 @@ session client; every integer draw replayed with `AnimationVariantSelector.Nativ
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
 2026-10-23). A channelled spell that stands still sends the same 10 bytes as **C→S 0x198** instead (Winter Orb, live
 2026-11-09: same class and handler, and unregistered it was dropped as an unknown message, so the silence below ended
-the channel one second in); both forms refresh the channel's liveness. 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms
+the channel one second in); both forms refresh the channel's liveness. The updates do not identify the network mode:
+a native Predictive Cyclone sends 0x25 followed by 0x197 (3.29.3c). The 0x197 cell is where the channel is aimed now
+(the cursor), not the player's cell: the first one, ~90 ms
 after the start, is already at the 0x1ab target 45–60 cells away, then it drifts as the cursor and camera move
 (live 2026-11-08). Taken as the player's cell it put Cyclone's sweeps around the cursor. Cyclone's player walks toward
 it, an order re-aimed on each update, at the movement speed with the gem's `cyclone_movement_speed_+%_final`
-(`ChannelAimedAt`, `ClientState.ChannelMovement`); a channel that stands ignores it. 0x197 does not come at the attack rate.
+(`ChannelAimedAt`, `Player.ChannelMovement`); a channel that stands ignores it. 0x197 does not come at the attack rate.
 The hits run on the server's own timer (`RunChannel`, started with the channel): the first sweep lands as the channel
 starts, then one sweep around the player's current cell every `SupportedAttackSeconds` (the skill's own speed, its
 supports and the player's attack speed, as the tooltip shows), paying the cost each time, until 0x199, any other action,
 running out of mana, death or travel, or when the client's 0x197 updates stop for a second
-(`LastChannelUpdateAt`, `ClientState.ChannelSkill`, `NextChannelHitAt`). One sweep resolves its damage
+(`LastChannelUpdateAt`, `Player.ChannelSkill`, `NextChannelHitAt`). One sweep resolves its damage
 and multiplier once and rolls them per monster; every monster gets its hit, life update and death packet before the
 sweep's deaths run their loot, experience and quest work (`AreaSkillHit`). Before, a sweep recalculated the whole skill
 per monster and handled each death inline, spreading one sweep over up to 1.4 s in a crowd.
@@ -2725,7 +2727,7 @@ The totem base type (`Metadata/Monsters/Totems/Totem`) reads only components the
 Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement and give
 it `monster_inherent_damage_taken_+%_final` -80.
 
-The server (`Totems.Rules.cs`) keeps the player's totems in `ClientState.Totems`, never in `Monsters`: area hits,
+The server (`Totems.Rules.cs`) keeps the player's totems in `Player.Totems`, never in `Monsters`: area hits,
 monster AI, loot, experience and the instance save read only `Monsters`, so none of them sees a totem.
 - Placement: the gem's use pays its mana, then waits the GrantedEffects CastTime (0.6 s) over
   `1 + summon_totem_cast_speed_+% / 100` and the action speed (the wiki's Totem page: cast speed does not apply).
@@ -2804,7 +2806,7 @@ The module publishes a paired normal-skill proxy with that id and a parent refer
 GE `SkillID` supplies `skill_behaviour_variation`: zero selects Absolution and one selects Dominance in this action.
 Native verification covered Absolution and Dominance upgrades and full-cap refreshes with no ordinary sentinel remaining.
 
-A player minion is a monster on the player's team kept in `ClientState.Monsters` and listed in `ClientState.Minions`
+A player minion is a monster on the player's team kept in `Player.Monsters` and listed in `Player.Minions`
 (`PlayerMinions.cs`).
 The Spirit chieftains are the first (section 10f).
 - Spawn: `SpawnMonster` with `friendly: true` (Positioned team 0) and the stats `is_player_minion` and
@@ -2814,7 +2816,7 @@ The Spirit chieftains are the first (section 10f).
   and `minion_movement_speed_+%` become its own damage, attack speed and movement mods at the summon.
 - Kept apart: the instance save (`InstanceMonsters`), the player's area hits and default attack, and the on-kill
   charges skip it; an area change or logout drops it with the connection.
-- AI (`RunMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
+- AI (`StartMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
   A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
   not one lurking unrisen.
   In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
@@ -2905,7 +2907,7 @@ hostiles' power; which code consumes the list was not traced, so the server's re
   radius explodes once.
   A corpse is a dead monster at zero Life whose Life type allows corpse use (`MonsterLifeData.IsUsableAsCorpse`) and
   that no explosion has consumed (`SpawnedMonster.CorpseConsumed`).
-  The corpse is removed (S→C 0x2bd) and leaves `ClientState.Monsters`, so no later removal sends it again.
+  The corpse is removed (S→C 0x2bd) and leaves `Player.Monsters`, so no later removal sends it again.
   The explosion hits living hostile monsters within 22 cells of it (PoB `EnemyExplode`, grown by area of effect) for
   the percentage of the corpse's maximum Life as physical damage, scaled by the player's `damage_+%`,
   `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage (poewiki Explode).
@@ -3201,7 +3203,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   (`GrantedEffectsPerLevelHardmode` in Ruthless; for Devout of Abberath both name the same row) is a
   GrantedEffectsPerLevel row, which names the GrantedEffects row and its level. Only effects whose trigger runs on the server act; the others do nothing, and none
   joins the client's skill list. `RepeatingShockwave` (Abberath's Fury, Devout of Abberath's 45556: level 20, no cost,
-  no cooldown) is triggered by footsteps: `RunFootstepSkills` (a 50 ms poll per connection, stopped while paused) runs
+  no cooldown) is triggered by footsteps: `WakeFootsteps` (a 50 ms poll per connection, stopped while paused) runs
   a run-animation clock while the walk lasts (`Walk.ArrivesAt`), at `Walk.Speed` over the base walking speed, and
   restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
   footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
@@ -3521,8 +3523,8 @@ Tests replace `PlayerMinions.Random`.
 **Owned minions** (`PlayerMinions`, `PlayerMinions.cs`). A minion is a monster made by `SpawnMonster` with
 `friendly: true` (Positioned team 0) and the stats `is_player_minion` and `is_semantic_minion` 1 on its Stats component.
 The client reads these two to know the player's minion (the link-target filter 0x141bfaf20).
-`ClientState.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
-lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
+`Player.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
+lock. `StartPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
 - A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) a second later.
 - The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the

@@ -4,13 +4,13 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SupportHitDamageTests
 {
-    static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
-        stats.ToDictionary(s => Program.Stats.Key(s.Name)!.Value, s => s.Value);
+    static Dictionary<uint, int> With(params (uint Name, int Value)[] stats) =>
+        stats.ToDictionary(s => s.Name, s => s.Value);
 
-    static Func<string, int> Get(params (string Name, int Value)[] stats) =>
+    static Func<uint, int> Get(params (uint Name, int Value)[] stats) =>
         name => stats.FirstOrDefault(s => s.Name == name).Value;
 
-    static Func<string, int> Flags(params string[] flags) => name => flags.Contains(name) ? 1 : 0;
+    static Func<uint, int> Flags(params string[] flags) => name => flags.Contains(Program.Stats.Name(name)) ? 1 : 0;
 
     // Hypothermia, Behead, Damage on Full Life, Awakened Increased Area of Effect, double damage, the six supports' more,
     // Point Blank, the melee proximity supports and Ruthless: each multiplies a hit only when its condition holds.
@@ -37,8 +37,8 @@ public sealed class SupportHitDamageTests
                 Assert.Equal(3, applied.Count);
                 var gmp = Assert.Single(applied, s => s.Gem.Effect == multiple);
                 Assert.Contains(applied, s => s.Gem.Effect == faster);
-                Assert.Equal(4, gmp.Stats.Single(s => s.Key == Program.Stats.Key("number_of_additional_projectiles")).Value);
-                var stats = applied.SelectMany(s => s.Stats).Select(s => (Name: Program.Stats.Name(s.Key)!, s.Value)).ToArray();
+                Assert.Equal(4, gmp.Stats.Single(s => s.Key == Stat.NumberOfAdditionalProjectiles).Value);
+                var stats = applied.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToArray();
                 Assert.Equal(1d, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, stats,
                     new HashSet<int> { 0, 19 }).GeneralOrPhysical);
                 Assert.Equal(.74, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, stats,
@@ -57,9 +57,9 @@ public sealed class SupportHitDamageTests
         Assert.Equal(-99, SkillAttackTiming.FinalSpeedPercent(0, 0));
         // Each support condition multiplies only when it holds.
         {
-            var skill = With(("support_hypothermia_damage_+%_vs_chilled_enemies_final", 29),
-                ("support_executioner_damage_vs_enemies_on_low_life_+%_final", 49),
-                ("support_damage_while_on_full_life_+%_final", 34));
+            var skill = With((Stat.SupportHypothermiaDamagePlusPctVsChilledEnemiesFinal, 29),
+                (Stat.SupportExecutionerDamageVsEnemiesOnLowLifePlusPctFinal, 49),
+                (Stat.SupportDamageWhileOnFullLifePlusPctFinal, 34));
             Assert.Equal(1, Game.ConditionalSupportMore(skill, attack: true, chilled: false, lowLife: false, fullLife: false, lifetap: false));
             Assert.Equal(1.29, Game.ConditionalSupportMore(skill, attack: true, chilled: true, lowLife: false, fullLife: false, lifetap: false), 9);
             Assert.Equal(1.49, Game.ConditionalSupportMore(skill, attack: false, chilled: false, lowLife: true, fullLife: false, lifetap: false), 9);
@@ -67,28 +67,28 @@ public sealed class SupportHitDamageTests
             Assert.Equal(1, Game.ConditionalSupportMore(skill, attack: false, chilled: false, lowLife: false, fullLife: true, lifetap: false));
             Assert.Equal(1.29 * 1.49 * 1.34, Game.ConditionalSupportMore(skill, true, true, true, true, false), 9);
             // Awakened Increased Area of Effect: more damage for area skills only.
-            var awakened = new[] { ("inc_aoe_plus_more_area_damage_+%_final", 24) };
+            var awakened = new[] { (Stat.IncAoePlusMoreAreaDamagePlusPctFinal, 24) };
             Assert.Equal(1.24, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, awakened, new HashSet<int> { 0, 7 }).GeneralOrPhysical, 9);
             Assert.Equal(1, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, awakened, new HashSet<int> { 0 }).GeneralOrPhysical);
         }
 
         // A hit on a low-life enemy gets Behead's more damage.
         {
-            var conn = new ClientState(new(1, "behead", 300, 300, 100, 100, null, []), 1, 1)
+            var player = new Player(new(1, "behead", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };
-            var skill = With(("support_executioner_damage_vs_enemies_on_low_life_+%_final", 30),
-                ("support_damage_while_on_full_life_+%_final", 20));
+            var skill = With((Stat.SupportExecutionerDamageVsEnemiesOnLowLifePlusPctFinal, 30),
+                (Stat.SupportDamageWhileOnFullLifePlusPctFinal, 20));
             var hit = DamagePacket.Of(DamageType.Physical, 100, 100);
             var low = new SpawnedMonster("low", new(100, 100, 0), 0, 0, 1000) { Life = 500 };
             var healthy = new SpawnedMonster("healthy", new(100, 100, 0), 0, 0, 1000) { Life = 501 };
-            Assert.Equal(130, Game.WithConditionalSupportDamageLocked(conn, skill, true, low, hit, 0).MinTotal, 9);
-            Assert.Equal(900u, conn.PlayerLife);
-            Assert.Equal(1000u, conn.PlayerMaxLife);
-            Assert.Equal(100, Game.WithConditionalSupportDamageLocked(conn, skill, true, healthy, hit, 0).MinTotal, 9);
-            conn.PlayerLife = 1000;   // full Life: Damage on Full Life joins in
-            Assert.Equal(120, Game.WithConditionalSupportDamageLocked(conn, skill, true, healthy, hit, 0).MinTotal, 9);
+            Assert.Equal(130, Game.WithConditionalSupportDamageLocked(player, skill, true, low, hit, 0).MinTotal, 9);
+            Assert.Equal(900u, player.PlayerLife);
+            Assert.Equal(1000u, player.PlayerMaxLife);
+            Assert.Equal(100, Game.WithConditionalSupportDamageLocked(player, skill, true, healthy, hit, 0).MinTotal, 9);
+            player.PlayerLife = 1000;   // full Life: Damage on Full Life joins in
+            Assert.Equal(120, Game.WithConditionalSupportDamageLocked(player, skill, true, healthy, hit, 0).MinTotal, 9);
         }
 
         // Double damage: the player's chance on every hit, a spell's chance on spells, the skill's own (Heavy Strike);
@@ -99,17 +99,17 @@ public sealed class SupportHitDamageTests
             double Dealt(GamblerModifiers gambler) => gambler.RollOutgoingHit(hit, random).MinTotal;
 
             Assert.Equal(100, Dealt(GamblerModifiers.From(Get())));
-            Assert.Equal(200, Dealt(GamblerModifiers.From(Get(("chance_to_deal_double_damage_%", 100)))));
+            Assert.Equal(200, Dealt(GamblerModifiers.From(Get((Stat.ChanceToDealDoubleDamagePct, 100)))));
             Assert.Equal(300, Dealt(GamblerModifiers.From(
-                Get(("chance_to_deal_double_damage_%", 100), ("base_chance_to_deal_triple_damage_%", 100)))));
-            var spells = GamblerModifiers.From(Get(("spell_chance_to_deal_double_damage_%", 100)));
+                Get((Stat.ChanceToDealDoubleDamagePct, 100), (Stat.BaseChanceToDealTripleDamagePct, 100)))));
+            var spells = GamblerModifiers.From(Get((Stat.SpellChanceToDealDoubleDamagePct, 100)));
             Assert.Equal(100, Dealt(spells));
             Assert.Equal(100, Dealt(spells.ForSkill(Get(), spell: false)));
             Assert.Equal(200, Dealt(spells.ForSkill(Get(), spell: true)));
-            Assert.Equal(200, Dealt(GamblerModifiers.From(Get()).ForSkill(Get(("chance_to_deal_double_damage_%", 100)), spell: false)));
+            Assert.Equal(200, Dealt(GamblerModifiers.From(Get()).ForSkill(Get((Stat.ChanceToDealDoubleDamagePct, 100)), spell: false)));
 
             // Half triple and half double: a quarter of the hits are doubled, not half.
-            var both = GamblerModifiers.From(Get(("chance_to_deal_double_damage_%", 50), ("base_chance_to_deal_triple_damage_%", 50)));
+            var both = GamblerModifiers.From(Get((Stat.ChanceToDealDoubleDamagePct, 50), (Stat.BaseChanceToDealTripleDamagePct, 50)));
             var counts = Enumerable.Range(0, 20000).Select(_ => Dealt(both)).GroupBy(d => d).ToDictionary(g => g.Key, g => g.Count());
             Assert.InRange(counts[300], 9600, 10400);
             Assert.InRange(counts[200], 4700, 5300);
@@ -119,9 +119,9 @@ public sealed class SupportHitDamageTests
         // Overcharge, Bonechill, Deadly Ailments, Ancestral Call, Infused Channelling and Bloodthirst: each support's more
         // multiplies a hit once, and Bonechill's counts only for a hit with cold damage, in the elemental group.
         {
-            (string, int)[] stats = [("support_pure_shock_damage_+%_final", -25), ("support_bonechill_cold_damage_+%_final", 22),
-                ("support_better_ailments_hit_damage_+%_final", -80), ("support_spirit_strike_damage_+%_final", 20),
-                ("support_storm_barrier_damage_+%_final", 37), ("support_blood_thirst_damage_+%_final", 17)];
+            (uint, int)[] stats = [(Stat.SupportPureShockDamagePlusPctFinal, -25), (Stat.SupportBonechillColdDamagePlusPctFinal, 22),
+                (Stat.SupportBetterAilmentsHitDamagePlusPctFinal, -80), (Stat.SupportSpiritStrikeDamagePlusPctFinal, 20),
+                (Stat.SupportStormBarrierDamagePlusPctFinal, 37), (Stat.SupportBloodThirstDamagePlusPctFinal, 17)];
             HashSet<int> spell = [1];
             var (general, typed) = GemSupportDamage.Multipliers(DamageTypeHistory.Cold, stats, spell);
             Assert.Equal(.75 * .2 * 1.2 * 1.37 * 1.17, general, 9);
@@ -134,13 +134,13 @@ public sealed class SupportHitDamageTests
             DamageTypeHistory.Lightning, DamageTypeHistory.Chaos })
         {
             HashSet<int> types = [1];
-            var baseline = GemSupportDamage.Multipliers(history, [("support_echo_damage_+%_final", -10)], types);
+            var baseline = GemSupportDamage.Multipliers(history, [(Stat.SupportEchoDamagePlusPctFinal, -10)], types);
             var affected = GemSupportDamage.Multipliers(history,
-                [("support_echo_damage_+%_final", -10), ("doedre_aura_damage_+%_final", -70)], types);
+                [(Stat.SupportEchoDamagePlusPctFinal, -10), (Stat.DoedreAuraDamagePlusPctFinal, -70)], types);
             Assert.Equal(baseline.GeneralOrPhysical * .3, affected.GeneralOrPhysical, 8);
             Assert.Equal(baseline.ElementalOrChaos, affected.ElementalOrChaos);
             Assert.Equal(baseline, GemSupportDamage.Multipliers(history,
-                [("support_echo_damage_+%_final", -10), ("doedre_aura_damage_+%_final", 0)], types));
+                [(Stat.SupportEchoDamagePlusPctFinal, -10), (Stat.DoedreAuraDamagePlusPctFinal, 0)], types));
         }
 
         // Point Blank ramps from 30% more near to 30% less far.
@@ -158,16 +158,16 @@ public sealed class SupportHitDamageTests
         // Impact, Close Combat and Shield Crush: "up to X% more Melee Damage, based on proximity", whole up to 15 units,
         // linear to none at 40 (PoB MeleeProximity), each its own multiplier.
         {
-            static int Impact(string name) => name == "slayer_damage_+%_final_from_distance" ? 15 : 0;
+            static int Impact(uint name) => name == Stat.SlayerDamagePlusPctFinalFromDistance ? 15 : 0;
             Assert.Equal(1.15, Game.MeleeProximityMore(Impact, 0), 9);
             Assert.Equal(1.15, Game.MeleeProximityMore(Impact, 15), 9);
             Assert.Equal(1.075, Game.MeleeProximityMore(Impact, 27.5), 9);
             Assert.Equal(1, Game.MeleeProximityMore(Impact, 40));
             Assert.Equal(1, Game.MeleeProximityMore(Impact, 60));
-            static int Both(string name) => name switch
+            static int Both(uint name) => name switch
             {
-                "slayer_damage_+%_final_from_distance" => 15,
-                "support_slashing_damage_+%_final_from_distance" => 39,
+                Stat.SlayerDamagePlusPctFinalFromDistance => 15,
+                Stat.SupportSlashingDamagePlusPctFinalFromDistance => 39,
                 _ => 0,
             };
             Assert.Equal(1.15 * 1.39, Game.MeleeProximityMore(Both, 10), 9);
@@ -177,15 +177,15 @@ public sealed class SupportHitDamageTests
         // Ruthless: every third use of a supported skill is a Ruthless Blow with 98% more melee damage at level 20; each
         // skill keeps its own count, and a use without the support does not count.
         {
-            static int Ruthless(string name) => name switch
+            static int Ruthless(uint name) => name switch
             {
-                "support_ruthless_big_hit_max_count" => 3,
-                "support_ruthless_big_hit_damage_+%_final" => 98,
+                Stat.SupportRuthlessBigHitMaxCount => 3,
+                Stat.SupportRuthlessBigHitDamagePlusPctFinal => 98,
                 _ => 0,
             };
-            static int Plain(string _) => 0;
+            static int Plain(uint _) => 0;
             var counts = new Dictionary<ushort, int>();
-            double Use(ushort skill, Func<string, int> stats) => Game.RuthlessBlowMore(counts, skill, stats);
+            double Use(ushort skill, Func<uint, int> stats) => Game.RuthlessBlowMore(counts, skill, stats);
 
             Assert.Equal(1, Use(1, Ruthless));
             Assert.Equal(1, Use(1, Ruthless));
@@ -200,16 +200,21 @@ public sealed class SupportHitDamageTests
         }
         // Trap and mine throwing: 0.6 s and 0.3 s over the summed throwing speed and each support's more.
         Assert.Equal(.6, Game.PlacedThrowSeconds(Get(), mine: false), 9);
-        Assert.Equal(.5, Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 19), ("trap_and_mine_throwing_speed_+%", 1)), mine: false), 9);
-        Assert.Equal(.6 / (1.2 * .9), Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 20),
-            ("support_trap_and_mine_damage_trap_throwing_speed_+%_final", -10)), mine: false), 9);
-        Assert.Equal(.3 / (1.5 * .45), Game.PlacedThrowSeconds(Get(("mine_laying_speed_+%", 50),
-            ("support_minefield_mine_throwing_speed_+%_final", -55)), mine: true), 9);
-        Assert.Equal(15, Game.TrapTriggerRadius(Get(("trap_trigger_radius_+%", 50))), 9);
-        Assert.Equal(.6 / 1.5, Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 20),
-            ("trap_throwing_speed_+%_per_frenzy_charge", 10)), mine: false, frenzyCharges: 3), 9);
+        Assert.Equal(.5, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 19), (Stat.TrapAndMineThrowingSpeedPlusPct, 1)), mine: false), 9);
+        Assert.Equal(.6 / (1.2 * .9), Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
+            (Stat.SupportTrapAndMineDamageTrapThrowingSpeedPlusPctFinal, -10)), mine: false), 9);
+        Assert.Equal(.3 / (1.5 * .45), Game.PlacedThrowSeconds(Get((Stat.MineLayingSpeedPlusPct, 50),
+            (Stat.SupportMinefieldMineThrowingSpeedPlusPctFinal, -55)), mine: true), 9);
+        Assert.Equal(15, Game.TrapTriggerRadius(Get((Stat.TrapTriggerRadiusPlusPct, 50))), 9);
+        Assert.Equal(.6 / 1.5, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
+            (Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge, 10)), mine: false, frenzyCharges: 3), 9);
         // Swift Assembly's three chances are rolled separately and their extra throws add up.
-        static string Swift(int extra) => $"support_additional_trap_mine_%_chance_for_{extra}_additional_trap_mine";
+        static uint Swift(int extra) => extra switch
+        {
+            1 => Stat.SupportAdditionalTrapMinePctChanceFor1AdditionalTrapMine,
+            2 => Stat.SupportAdditionalTrapMinePctChanceFor2AdditionalTrapMine,
+            _ => Stat.SupportAdditionalTrapMinePctChanceFor3AdditionalTrapMine,
+        };
         Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
         Assert.Equal(6, Game.SwiftAssemblyExtra(Get((Swift(1), 100), (Swift(2), 100), (Swift(3), 100)), new Random(1)));
         Assert.Equal(4, Game.SwiftAssemblyExtra(Get((Swift(1), 100), (Swift(2), 0), (Swift(3), 100)), new Random(1)));
@@ -231,8 +236,8 @@ public sealed class SupportHitDamageTests
         Assert.Equal(new[] { .25, .25 / 1.1, .25 / 1.5, .1 }, new[] { Game.MineSequenceGap(250, 0),
             Game.MineSequenceGap(0, 1), Game.MineSequenceGap(250, 5), Game.MineSequenceGap(200, 10) });
         Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
-        Assert.Equal(3, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_3_additional_trap_mine", 100)), new Random(1)));
-        Assert.Equal(1, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_1_additional_trap_mine", 100)), new Random(1)));
+        Assert.Equal(3, Game.SwiftAssemblyExtra(Get((Stat.SupportAdditionalTrapMinePctChanceFor3AdditionalTrapMine, 100)), new Random(1)));
+        Assert.Equal(1, Game.SwiftAssemblyExtra(Get((Stat.SupportAdditionalTrapMinePctChanceFor1AdditionalTrapMine, 100)), new Random(1)));
         // A trap or mine fires at the nearest enemy that is not on it, else straight away from the player.
         Assert.Equal((110, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(100, 100), (130, 100), (110, 100), (300, 100)]));
         Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)]));
@@ -252,13 +257,13 @@ public sealed class SupportHitDamageTests
         Assert.Equal(new[] { (100, 100) }, Game.TotemSpots((90, 100), (100, 100), 1, 2));
         Assert.Equal(new[] { (100, 97), (100, 103) }, Game.TotemSpots((90, 100), (100, 100), 2, 2));
         // The trap, mine and totem supports' own more/less damage multiplies the supported hit (level 1 values).
-        foreach (var (name, value) in new[] { ("support_trap_damage_+%_final", -20),
-            ("support_trap_and_mine_damage_+%_final", 30), ("support_clustertrap_damage_+%_final", -61),
-            ("support_multithrow_damage_+%_final", -58), ("support_gem_mine_damage_+%_final", -60),
-            ("support_remote_mine_2_damage_+%_final", -60), ("support_locus_mine_damage_+%_final", -30),
-            ("support_additional_totem_damage_+%_final", -40), ("support_focused_ballista_totem_damage_+%_final", 9) })
+        foreach (var (stat, value) in new[] { (Stat.SupportTrapDamagePlusPctFinal, -20),
+            (Stat.SupportTrapAndMineDamagePlusPctFinal, 30), (Stat.SupportClustertrapDamagePlusPctFinal, -61),
+            (Stat.SupportMultithrowDamagePlusPctFinal, -58), (Stat.SupportGemMineDamagePlusPctFinal, -60),
+            (Stat.SupportRemoteMine2DamagePlusPctFinal, -60), (Stat.SupportLocusMineDamagePlusPctFinal, -30),
+            (Stat.SupportAdditionalTotemDamagePlusPctFinal, -40), (Stat.SupportFocusedBallistaTotemDamagePlusPctFinal, 9) })
         {
-            var (general, typed) = GemSupportDamage.Multipliers(DamageTypeHistory.Fire, [(name, value)], new HashSet<int> { 1 });
+            var (general, typed) = GemSupportDamage.Multipliers(DamageTypeHistory.Fire, [(stat, value)], new HashSet<int> { 1 });
             Assert.Equal(1 + value / 100.0, general, 9);
             Assert.Equal(1, typed);
         }
@@ -284,7 +289,7 @@ public sealed class SupportHitDamageTests
 
         // Elemental Focus stops a critical hit's chill, freeze and shock.
         {
-            static List<MonsterElementalAilments.Effect> Hit(Func<string, int> attacker) =>
+            static List<MonsterElementalAilments.Effect> Hit(Func<uint, int> attacker) =>
                 new MonsterElementalAilments().Inflict(DamagePacket.Of(DamageType.Cold, 500, 500).Add(DamageType.Lightning,
                     new DamageRange(500, 500)), critical: true, threshold: 1000, now: 0, attacker, _ => 0, new Random(1));
             Assert.Equal(3, Hit(Flags()).Count);
@@ -295,12 +300,12 @@ public sealed class SupportHitDamageTests
         // A lightning crit of 1% of the threshold shocks for 18% instead of 7%; a cold crit of 3% chills for 16% instead of
         // 12% and freezes for 0.36 s instead of being discarded under 0.3 s; the chance to shock is unchanged.
         {
-            static int None(string _) => 0;
-            static List<MonsterElementalAilments.Effect> Hit(double cold, double lightning, bool critical, Func<string, int> attacker) =>
+            static int None(uint _) => 0;
+            static List<MonsterElementalAilments.Effect> Hit(double cold, double lightning, bool critical, Func<uint, int> attacker) =>
                 new MonsterElementalAilments().Inflict(DamagePacket.Of(DamageType.Cold, cold, cold).Add(DamageType.Lightning,
                     new DamageRange(lightning, lightning)), critical, 100, 0, attacker, None, new Random(1));
-            Func<string, int> overcharge = s => s == "support_pure_shock_shock_as_though_damage_+%_final" ? 690 : 0;
-            Func<string, int> ailments = s => s == "non_damaging_ailments_as_though_damage_+%_final" ? 100 : 0;
+            Func<uint, int> overcharge = s => s == Stat.SupportPureShockShockAsThoughDamagePlusPctFinal ? 690 : 0;
+            Func<uint, int> ailments = s => s == Stat.NonDamagingAilmentsAsThoughDamagePlusPctFinal ? 100 : 0;
 
             Assert.Equal(7, Assert.Single(Hit(0, 1, true, None)).Magnitude);
             Assert.Equal(18, Assert.Single(Hit(0, 1, true, overcharge)).Magnitude);

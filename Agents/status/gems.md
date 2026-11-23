@@ -68,15 +68,21 @@ Nothing yet.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
   Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
-  The trap, mine and totem supports' own more or less damage scales the supported hit.
+  Nightblade grants Elusive on a supported attack's critical strike. Its supported attacks gain base critical chance
+  during Elusive, and Nightblade's own Elusive adds a critical multiplier that decays with the buff.
+  The trap, mine and totem supports' own more or less damage scales the supported hit. Traps and mines take their
+  scoped critical multiplier. Herald passives apply to their secondary AoE and damage, and skill timing reads its
+  curse, mark, link and retaliation speed bonuses.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
-  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
-  Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
+  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
+  Flight and arming times and the native multi-throw patterns remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
+  Trinity and Unholy Trinity keep separate timed counters for eligible owner hits, with damage and resistance
+  bonuses from the lowest counter ([25](../docs/protocol/25-gem-supports.md)).
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
@@ -97,8 +103,14 @@ Nothing yet.
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
   the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
-  Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
+  Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
+  Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.
+  Cast when Stunned releases eligible linked spells from committed player stuns through the incoming-hit trigger queue
+  ([25](../docs/protocol/25-gem-supports.md)).
+  Intensify and Pinpoint gain Intensity on supported casts, lose it while moving or teleporting, and project their area
+  and projectile modifiers from the cast's starting stack count ([25](../docs/protocol/25-gem-supports.md)).
+  Momentum uses paid attacks or channel time, loses stacks on movement, and spends the cap on timed Swiftness.
   Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
@@ -116,7 +128,8 @@ Nothing yet.
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); checked with the real client (2026-11-04).
   Unleash stores seals per linked spell and spends them on extra projectile, area and summon releases.
   Greater Spell Echo scales repeated area and projectile hits. Focused Channelling scales channelled area hits by elapsed whole seconds.
-  Meat Shield reduces damage taken by supported minions, and Elemental Army scales their elemental damage paths.
+  Meat Shield reduces damage taken by supported minions and lets targetable minions taunt on hit.
+  Elemental Army scales supported minions' elemental damage and applies Exposure on hit.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and
   Awakened `support_spell_cascade_sideways`, so the aimed centre still lands the main hit; captured from the 3.29.3b
   client (2026-11-04): Reap's five Awakened areas were 28-29 cells apart at a 28.5 effective radius.

@@ -20,19 +20,19 @@ public static class DeepwaterCursedDucats
 
     /// <summary>Module-defined monster stat for <c>map_monster_difficulty_tankiness_+%</c> (+50/100/150% toughness),
     /// handed over to <see cref="MonsterModEffects.HandOverMore"/> in <c>DeepwaterModule.Load</c>.</summary>
-    public const string CursedMoreLife = "deepwater_cursed_ducat_toughness_life_+%_final";
+    public static readonly uint CursedMoreLife = Stat.Of("deepwater_cursed_ducat_toughness_life_+%_final");
 
-    // Exact Stats.dat Ids (client.db verified).
-    public const string EnabledStat = "map_cursed_ducat_enabled";
-    public const string LeagueRarityStat = "map_monster_from_league_item_rarity_+%_permyriad";
-    public const string LeagueQuantityStat = "map_monster_from_league_item_quantity_+%_permyriad";
-    public const string TankinessStat = "map_monster_difficulty_tankiness_+%";
-    public const string SpeedStat = "map_monster_attack_cast_and_movement_speed_+%";
-    public const string DamageStat = "map_monsters_damage_+%";
-    public const string RandomElementStat = "map_monsters_physical_damage_%_to_add_as_random_element";
-    public const string CritChanceStat = "map_monsters_critical_strike_chance_+%";
-    public const string CritMultiplierStat = "map_monsters_critical_strike_multiplier_+";
-    public const string PenetrationStat = "map_monsters_penetrate_elemental_resistances_%";
+    // Exact Stats.dat keys (client.db verified).
+    public const uint EnabledStat = Stat.MapCursedDucatEnabled;
+    public const uint LeagueRarityStat = Stat.MapMonsterFromLeagueItemRarityPlusPctPermyriad;
+    public const uint LeagueQuantityStat = Stat.MapMonsterFromLeagueItemQuantityPlusPctPermyriad;
+    public const uint TankinessStat = Stat.MapMonsterDifficultyTankinessPlusPct;
+    public const uint SpeedStat = Stat.MapMonsterAttackCastAndMovementSpeedPlusPct;
+    public const uint DamageStat = Stat.MapMonstersDamagePlusPct;
+    public const uint RandomElementStat = Stat.MapMonstersPhysicalDamagePctToAddAsRandomElement;
+    public const uint CritChanceStat = Stat.MapMonstersCriticalStrikeChancePlusPct;
+    public const uint CritMultiplierStat = Stat.MapMonstersCriticalStrikeMultiplierPlus;
+    public const uint PenetrationStat = Stat.MapMonstersPenetrateElementalResistancesPct;
 
     /// <summary>LQF 1899–1901 (<c>DeepwaterTotalDucatsSocketed1..3</c>): distinct Cursed Ducats socketed in row 115.</summary>
     public static readonly int[] TotalSocketedLeagueFlags = [1899, 1900, 1901];
@@ -61,14 +61,14 @@ public static class DeepwaterCursedDucats
     // Fallback unlock LQFs by DeepwaterCursedDucats.Id (0..5), matching QuestRewards#1349..1354.__col13.
     static readonly int[] DefaultUnlockFlags = [1905, 1906, 1886, 1907, 1908, 1909];
 
-    static readonly string[] RandomElementTargets =
+    static readonly uint[] RandomElementTargets =
     [
-        "physical_damage_%_to_add_as_fire",
-        "physical_damage_%_to_add_as_cold",
-        "physical_damage_%_to_add_as_lightning",
+        Stat.PhysicalDamagePctToAddAsFire,
+        Stat.PhysicalDamagePctToAddAsCold,
+        Stat.PhysicalDamagePctToAddAsLightning,
     ];
 
-    static readonly Dictionary<string, int> EmptyStats = new(StringComparer.Ordinal);
+    static readonly Dictionary<uint, int> EmptyStats = [];
 
     /// <summary>One Cursed Ducat definition loaded from <c>DeepwaterCursedDucats</c>, joined with
     /// <c>BaseItemTypes</c>, <c>QuestItems</c>/<c>QuestFlags</c>, and <c>QuestRewards</c> (offer 139).</summary>
@@ -89,12 +89,12 @@ public static class DeepwaterCursedDucats
     public readonly record struct RunEffects(
         double QuantityFactor,
         double RarityFactor,
-        IReadOnlyDictionary<string, int> MonsterStats,
+        IReadOnlyDictionary<uint, int> MonsterStats,
         int Tankiness,
         int Speed,
         int Damage,
         int ExtraElementPercent,
-        string? ExtraElementStat,
+        uint? ExtraElementStat,
         int CritChancePercent,
         int CritMultiplierBonus,
         int ElementalPenetration)
@@ -111,7 +111,9 @@ public static class DeepwaterCursedDucats
         Dictionary<int, DucatInfo> ById,
         Dictionary<int, CountScaling> PerCount);
 
-    static readonly Lazy<Catalog> Data = new(LoadCatalog);
+    static Catalog Data = new([], [], [], []);
+
+    public static void LoadGameData() => Data = LoadCatalog();
 
     static Catalog LoadCatalog()
     {
@@ -184,23 +186,23 @@ public static class DeepwaterCursedDucats
     }
 
     /// <summary>All 6 Cursed Ducat definitions from <c>DeepwaterCursedDucats</c>, ordered by <c>Id</c> (0..5).</summary>
-    public static IReadOnlyList<DucatInfo> All => Data.Value.All;
+    public static IReadOnlyList<DucatInfo> All => Data.All;
 
-    public static DucatInfo? ByHash(uint typeHash) => Data.Value.ByHash.GetValueOrDefault(typeHash);
+    public static DucatInfo? ByHash(uint typeHash) => Data.ByHash.GetValueOrDefault(typeHash);
 
-    public static DucatInfo? ById(int id) => Data.Value.ById.GetValueOrDefault(id);
+    public static DucatInfo? ById(int id) => Data.ById.GetValueOrDefault(id);
 
-    public static bool IsCursedDucat(uint typeHash) => Data.Value.ByHash.ContainsKey(typeHash);
+    public static bool IsCursedDucat(uint typeHash) => Data.ByHash.ContainsKey(typeHash);
 
     public static bool IsCursedDucat(Item item) => IsCursedDucat(item.TypeHash);
 
     /// <summary><c>DeepwaterStatsPerCursedDucat</c> row for <paramref name="count"/> distinct socketed Cursed Ducats (1..3).</summary>
-    public static CountScaling? StatsForCount(int count) => Data.Value.PerCount.GetValueOrDefault(count);
+    public static CountScaling? StatsForCount(int count) => Data.PerCount.GetValueOrDefault(count);
 
     // ---- Inventories 115 / 116 validation & C→S 0x0115 quick-move ----
 
     /// <summary><c>GameEvents.InventoryRefusal</c> for rows <c>115</c> and <c>116</c>: only Cursed Ducats are accepted.</summary>
-    public static string? Refusal(ClientState conn, byte row, Item item) => row is ActiveRow or StorageRow
+    public static string? Refusal(Player player, byte row, Item item) => row is ActiveRow or StorageRow
         ? (IsCursedDucat(item.TypeHash) ? null : "only a Cursed Ducat goes into the Cursed Ducat slots")
         : null;
 
@@ -208,33 +210,33 @@ public static class DeepwaterCursedDucats
     /// <c>x = DeepwaterCursedDucats.Id</c>, <c>y = 0</c> in storage (<c>116</c>, client rule <c>0x141d65f80</c>),
     /// bounds <c>0..2</c> and no duplicate Cursed Ducat base types in active sockets (<c>115</c>). Returns <c>true</c>
     /// when refused (handled, nothing changes), <c>false</c> to let the Game module place/swap normally.</summary>
-    public static bool RefusedPlace(IModuleContext module, ClientState conn, InstanceItems.PlaceItem place)
+    public static bool RefusedPlace(IModuleContext module, Player player, InstanceItems.PlaceItem place)
     {
         bool isStorage = place.InventoryId == PlayerInventories.InventoryId(StorageRow);
         bool isActive = !isStorage && place.InventoryId == PlayerInventories.InventoryId(ActiveRow);
         if (!isStorage && !isActive) return false;
 
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         if (items.Items(PlayerInventories.Cursor).FirstOrDefault() is not { } held) return false;
         if (ByHash(held.Item.TypeHash) is not { } info)
         {
-            module.Log($"{PlayerOf(conn).Character} <= 0x002a place item {held.Id} in Cursed Ducats {(isStorage ? "storage" : "sockets")} at ({place.X}, {place.Y}): refused (not a Cursed Ducat)");
+            module.Log($"{PlayerOf(player).Character} <= 0x002a place item {held.Id} in Cursed Ducats {(isStorage ? "storage" : "sockets")} at ({place.X}, {place.Y}): refused (not a Cursed Ducat)");
             return true;
         }
         if (isStorage)
         {
             if (info.Id >= 0 && place.X == (uint)info.Id && place.Y == 0) return false;
-            module.Log($"{PlayerOf(conn).Character} <= 0x002a place item {held.Id} ({info.Name}) in Cursed Ducats storage at ({place.X}, {place.Y}): refused (belongs in fixed slot ({info.Id}, 0))");
+            module.Log($"{PlayerOf(player).Character} <= 0x002a place item {held.Id} ({info.Name}) in Cursed Ducats storage at ({place.X}, {place.Y}): refused (belongs in fixed slot ({info.Id}, 0))");
             return true;
         }
         if (place.X >= ActiveSlots || place.Y != 0)
         {
-            module.Log($"{PlayerOf(conn).Character} <= 0x002a place item {held.Id} ({info.Name}) in Cursed Ducats sockets at ({place.X}, {place.Y}): refused (out of bounds)");
+            module.Log($"{PlayerOf(player).Character} <= 0x002a place item {held.Id} ({info.Name}) in Cursed Ducats sockets at ({place.X}, {place.Y}): refused (out of bounds)");
             return true;
         }
         if (items.Items(ActiveRow).Any(i => i.X != place.X && i.Item.TypeHash == held.Item.TypeHash))
         {
-            module.Log($"{PlayerOf(conn).Character} <= 0x002a place item {held.Id} ({info.Name}) in Cursed Ducats sockets at ({place.X}, {place.Y}): refused (duplicate Cursed Ducat)");
+            module.Log($"{PlayerOf(player).Character} <= 0x002a place item {held.Id} ({info.Name}) in Cursed Ducats sockets at ({place.X}, {place.Y}): refused (duplicate Cursed Ducat)");
             return true;
         }
         return false;
@@ -251,10 +253,10 @@ public static class DeepwaterCursedDucats
     /// <c>115</c> if not duplicate, else first free cell in <c>MainInventory (0)</c>.</item>
     /// </list>
     /// Syncs <c>LQF 1899–1904</c> and <c>QF 3629–3634</c> after moving.</summary>
-    public static async Task QuickMove(IModuleContext module, ClientState conn, InstanceItems.LeagueWindowMove move)
+    public static async Task QuickMove(IModuleContext module, Player player, InstanceItems.LeagueWindowMove move)
     {
-        var player = PlayerOf(conn);
-        var items = ItemsOf(conn);
+        var modPlayer = PlayerOf(player);
+        var items = ItemsOf(player);
         string what = $"0x0115 Ctrl + click Cursed Ducat {move.ItemId} ({(move.FromExpanded ? 1 : 0)}, {(move.Into ? 1 : 0)})";
 
         byte fromRow;
@@ -263,24 +265,24 @@ public static class DeepwaterCursedDucats
         else if (!move.FromExpanded && !move.Into) fromRow = StorageRow;
         else
         {
-            module.Log($"{player.Character} <= {what}: refused (unexpected flags)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (unexpected flags)");
             return;
         }
 
         var it = items.Items(fromRow).FirstOrDefault(i => i.Id == move.ItemId);
         if (it is null)
         {
-            module.Log($"{player.Character} <= {what}: refused (not in row {fromRow})");
+            module.Log($"{modPlayer.Character} <= {what}: refused (not in row {fromRow})");
             return;
         }
         if (ByHash(it.Item.TypeHash) is not { } info)
         {
-            module.Log($"{player.Character} <= {what}: refused (not a Cursed Ducat)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (not a Cursed Ducat)");
             return;
         }
         if (fromRow == PlayerInventories.MainInventory && DeepwaterDredge.Dredged(it.Item))
         {
-            module.Log($"{player.Character} <= {what}: refused (Dredge item)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (Dredge item)");
             return;
         }
 
@@ -317,16 +319,16 @@ public static class DeepwaterCursedDucats
 
         if (placed is null)
         {
-            module.Log($"{player.Character} <= {what}: refused ({refusal ?? "no room"})");
+            module.Log($"{modPlayer.Character} <= {what}: refused ({refusal ?? "no room"})");
             return;
         }
 
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(fromRow), items.NextRevision(fromRow), [placed.Id], []),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(fromRow), items.NextRevision(fromRow), [placed.Id], []),
             $"0x00bf inventory {PlayerInventories.InventoryId(fromRow)}: remove Cursed Ducat {placed.Id}");
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(toRow), items.NextRevision(toRow), [], [placed]),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(toRow), items.NextRevision(toRow), [], [placed]),
             $"0x00bf inventory {PlayerInventories.InventoryId(toRow)}: add Cursed Ducat {placed.Id} ({info.Name}) at ({placed.X}, {placed.Y})");
-        module.Log($"{player.Character} <= {what}: moved {info.Name} from row {fromRow} to row {toRow} ({placed.X}, {placed.Y})");
-        await SyncFlags(conn);
+        module.Log($"{modPlayer.Character} <= {what}: moved {info.Name} from row {fromRow} to row {toRow} ({placed.X}, {placed.Y})");
+        await SyncFlags(player);
     }
 
     static (byte Row, byte X, byte Y)? FreeStorageSlot(PlayerInventories items, DucatInfo info)
@@ -360,11 +362,11 @@ public static class DeepwaterCursedDucats
         StorageRow,
     ];
 
-    /// <summary>Whether <paramref name="conn"/> holds a Cursed Ducat with <paramref name="typeHash"/> in any carried,
+    /// <summary>Whether <paramref name="player"/> holds a Cursed Ducat with <paramref name="typeHash"/> in any carried,
     /// collection, active-socket, or storage row.</summary>
-    public static bool Carries(ClientState conn, uint typeHash)
+    public static bool Carries(Player player, uint typeHash)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         for (int r = 0; r < CarriedRows.Length; r++)
         {
             var rowItems = items.Items(CarriedRows[r]);
@@ -377,13 +379,13 @@ public static class DeepwaterCursedDucats
     /// <summary>Syncs <c>LQF 1899–1901</c> (<c>DeepwaterTotalDucatsSocketed1..3</c>), <c>LQF 1902–1904</c>
     /// (<c>DeepwaterSocketedDucat1..3</c>), and <c>QF 3629–3634</c> (<c>HaveDeepwaterQuestDucat1..6</c>) to the player's
     /// current inventories. Sends nothing when all flags already match.</summary>
-    public static async Task SyncFlags(ClientState conn)
+    public static async Task SyncFlags(Player player)
     {
-        if (conn.Closed || conn.LeavingArea) return;
+        if (player.Closed || player.LeavingArea) return;
         var all = All;
         if (all.Count == 0) return;
 
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var active = items.Items(ActiveRow);
         uint distinctMask = 0;
         int distinctCount = 0;
@@ -402,24 +404,21 @@ public static class DeepwaterCursedDucats
         if (distinctCount > ActiveSlots) distinctCount = ActiveSlots;
 
         List<int>? lqfSet = null, lqfClear = null;
-        lock (conn.Monsters)
+        for (int i = 0; i < TotalSocketedLeagueFlags.Length; i++)
         {
-            for (int i = 0; i < TotalSocketedLeagueFlags.Length; i++)
-            {
-                int flag = TotalSocketedLeagueFlags[i];
-                bool want = distinctCount >= i + 1;
-                bool has = conn.LeagueQuestFlags.Contains(flag);
-                if (want && !has) (lqfSet ??= []).Add(flag);
-                else if (!want && has) (lqfClear ??= []).Add(flag);
-            }
-            for (int i = 0; i < SlotSocketedLeagueFlags.Length; i++)
-            {
-                int flag = SlotSocketedLeagueFlags[i];
-                bool want = (slotMask & (1 << i)) != 0;
-                bool has = conn.LeagueQuestFlags.Contains(flag);
-                if (want && !has) (lqfSet ??= []).Add(flag);
-                else if (!want && has) (lqfClear ??= []).Add(flag);
-            }
+            int flag = TotalSocketedLeagueFlags[i];
+            bool want = distinctCount >= i + 1;
+            bool has = player.Character.LeagueQuestFlags.Contains(flag);
+            if (want && !has) (lqfSet ??= []).Add(flag);
+            else if (!want && has) (lqfClear ??= []).Add(flag);
+        }
+        for (int i = 0; i < SlotSocketedLeagueFlags.Length; i++)
+        {
+            int flag = SlotSocketedLeagueFlags[i];
+            bool want = (slotMask & (1 << i)) != 0;
+            bool has = player.Character.LeagueQuestFlags.Contains(flag);
+            if (want && !has) (lqfSet ??= []).Add(flag);
+            else if (!want && has) (lqfClear ??= []).Add(flag);
         }
 
         uint carriedMask = 0;
@@ -439,25 +438,24 @@ public static class DeepwaterCursedDucats
             var info = all[i];
             if (info.QuestFlag is not { Length: > 0 } qf || info.Id is < 0 or >= 32) continue;
             bool want = (carriedMask & (1u << info.Id)) != 0;
-            bool has = conn.HasQuestFlag(qf);
+            bool has = player.Character.HasQuestFlag(qf);
             if (want && !has) (qfSet ??= []).Add(qf);
             else if (!want && has) (qfClear ??= []).Add(qf);
         }
 
         if (lqfSet is null && lqfClear is null && qfSet is null && qfClear is null) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (lqfSet is not null) await SetLeagueQuestFlags(remote, stream, ciphers, conn, lqfSet, on: true);
-        if (lqfClear is not null) await SetLeagueQuestFlags(remote, stream, ciphers, conn, lqfClear, on: false);
-        if (qfSet is not null) await SetQuestFlags(remote, stream, ciphers, conn, qfSet, on: true);
-        if (qfClear is not null) await SetQuestFlags(remote, stream, ciphers, conn, qfClear, on: false);
+        if (lqfSet is not null) await SetLeagueQuestFlags(player, lqfSet, on: true);
+        if (lqfClear is not null) await SetLeagueQuestFlags(player, lqfClear, on: false);
+        if (qfSet is not null) await SetQuestFlags(player, qfSet, on: true);
+        if (qfClear is not null) await SetQuestFlags(player, qfClear, on: false);
     }
 
     /// <summary><c>GameEvents.MessagesHandled</c>: syncs Cursed Ducat flags only when an item-moving, reward-claim,
     /// or command opcode was handled (0-alloc no-op on ordinary ticks/combat).</summary>
-    public static Task OnMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)
+    public static Task OnMessagesHandled(Player player, IReadOnlyList<ushort> ids)
     {
         for (int i = 0; i < ids.Count; i++)
-            if (MayChangeCursedDucats(ids[i])) return SyncFlags(conn);
+            if (MayChangeCursedDucats(ids[i])) return SyncFlags(player);
         return Task.CompletedTask;
     }
 
@@ -481,13 +479,13 @@ public static class DeepwaterCursedDucats
     /// (<c>Mods#40212–40217</c>), <c>map_cursed_ducat_enabled</c> clamped to <c>1</c>, and the matching
     /// <c>DeepwaterStatsPerCursedDucat</c> row (+40/80/120% IIR, +20/40/60% IIQ, +50/100/150% toughness). Returns the
     /// number of distinct socketed Cursed Ducats applied (0..3).</summary>
-    public static int InjectPlanStats(ClientState conn, Dictionary<uint, int> global)
+    public static int InjectPlanStats(Player player, Dictionary<uint, int> global)
     {
-        var active = ItemsOf(conn).Items(ActiveRow);
+        var active = ItemsOf(player).Items(ActiveRow);
         if (active.Count == 0) return 0;
         var items = new List<Item>(Math.Min(active.Count, ActiveSlots));
         for (int i = 0; i < active.Count; i++) items.Add(active[i].Item);
-        return InjectStats(items, ItemsFor(conn).Mods, global);
+        return InjectStats(items, ItemsFor(player).Mods, global);
     }
 
     /// <summary>Pure stat-injection core for <see cref="InjectPlanStats"/> (also callable directly in tests).</summary>
@@ -516,8 +514,11 @@ public static class DeepwaterCursedDucats
                     for (int s = 0; s < statCount; s++)
                     {
                         int value = itemMod.Values[s];
-                        if (value != 0 && Program.Stats.Key(def.Stats[s].Id) is uint key)
+                        if (value != 0)
+                        {
+                            uint key = def.Stats[s].Id;
                             global[key] = global.GetValueOrDefault(key) + value;
+                        }
                     }
                 }
             }
@@ -526,16 +527,18 @@ public static class DeepwaterCursedDucats
                 for (int s = 0; s < fallbackMod.Stats.Count; s++)
                 {
                     int value = fallbackMod.RangeAt(s).Min;
-                    if (value != 0 && Program.Stats.Key(fallbackMod.Stats[s].Id) is uint key)
+                    if (value != 0)
+                    {
+                        uint key = fallbackMod.Stats[s].Id;
                         global[key] = global.GetValueOrDefault(key) + value;
+                    }
                 }
             }
         }
 
         if (count == 0) return 0;
 
-        if (Program.Stats.Key(EnabledStat) is uint enabledKey)
-            global[enabledKey] = 1;
+        global[EnabledStat] = 1;
 
         if (StatsForCount(count) is { } scaling)
         {
@@ -551,12 +554,12 @@ public static class DeepwaterCursedDucats
 
     // ---- Precomputed combat & loot effects (0-alloc per kill / per spawn) ----
 
-    /// <summary>Computes the Cursed Ducat IIQ and IIR drop multipliers from a run's global named stats
+    /// <summary>Computes the Cursed Ducat IIQ and IIR drop multipliers from a run's global stats
     /// (<c>1.0 + permyriad / 10000.0</c>, clamped ≥ 0): <c>(1.0, 1.0)</c> when no Cursed Ducats are active.</summary>
-    public static (double Quantity, double Rarity) DropFactors(IReadOnlyDictionary<string, int> globalNamed)
+    public static (double Quantity, double Rarity) DropFactors(IReadOnlyDictionary<uint, int> global)
     {
-        int qty = globalNamed.GetValueOrDefault(LeagueQuantityStat);
-        int rar = globalNamed.GetValueOrDefault(LeagueRarityStat);
+        int qty = global.GetValueOrDefault(LeagueQuantityStat);
+        int rar = global.GetValueOrDefault(LeagueRarityStat);
         return (Math.Max(0.0, 1.0 + qty / 10000.0), Math.Max(0.0, 1.0 + rar / 10000.0));
     }
 
@@ -566,39 +569,40 @@ public static class DeepwaterCursedDucats
     /// <c>base_movement_velocity_+%</c>, and <c>map_monsters_physical_damage_%_to_add_as_random_element</c> → a random
     /// element chosen once per run. (<c>map_monsters_damage_+%</c> is omitted here because
     /// <see cref="MapMods.MonsterEffectStats"/> already applies it via <c>MapModsOf</c>.)</summary>
-    public static IReadOnlyDictionary<string, int> MonsterStats(IReadOnlyDictionary<string, int> globalNamed, Random? random = null) =>
-        EffectsFor(globalNamed, random).MonsterStats;
+    public static IReadOnlyDictionary<uint, int> MonsterStats(IReadOnlyDictionary<uint, int> global, Random? random = null) =>
+        EffectsFor(global, random).MonsterStats;
 
-    /// <summary>Precomputes all Cursed Ducat combat and drop effects once from a plan's global named stats.</summary>
-    public static RunEffects EffectsFor(IReadOnlyDictionary<string, int> globalNamed, Random? random = null)
+    /// <summary>Precomputes all Cursed Ducat combat and drop effects once from client-keyed global stats
+    /// (<c>DeepwaterPlan.Global</c>).</summary>
+    public static RunEffects EffectsFor(IReadOnlyDictionary<uint, int> global, Random? random = null)
     {
-        if (globalNamed.Count == 0) return RunEffects.None;
+        if (global.Count == 0) return RunEffects.None;
 
-        var (qty, rar) = DropFactors(globalNamed);
-        int tankiness = Math.Max(0, globalNamed.GetValueOrDefault(TankinessStat));
-        int speed = globalNamed.GetValueOrDefault(SpeedStat);
-        int damage = globalNamed.GetValueOrDefault(DamageStat);
-        int extraElem = Math.Max(0, globalNamed.GetValueOrDefault(RandomElementStat));
-        int critChance = Math.Max(0, globalNamed.GetValueOrDefault(CritChanceStat));
-        int critMult = Math.Max(0, globalNamed.GetValueOrDefault(CritMultiplierStat));
-        int pen = Math.Max(0, globalNamed.GetValueOrDefault(PenetrationStat));
+        var (qty, rar) = DropFactors(global);
+        int tankiness = Math.Max(0, global.GetValueOrDefault(TankinessStat));
+        int speed = global.GetValueOrDefault(SpeedStat);
+        int damage = global.GetValueOrDefault(DamageStat);
+        int extraElem = Math.Max(0, global.GetValueOrDefault(RandomElementStat));
+        int critChance = Math.Max(0, global.GetValueOrDefault(CritChanceStat));
+        int critMult = Math.Max(0, global.GetValueOrDefault(CritMultiplierStat));
+        int pen = Math.Max(0, global.GetValueOrDefault(PenetrationStat));
 
-        string? elemStat = null;
-        Dictionary<string, int>? monsterStats = null;
+        uint? elemStat = null;
+        Dictionary<uint, int>? monsterStats = null;
         if (tankiness > 0)
-            (monsterStats ??= new(StringComparer.Ordinal))[CursedMoreLife] = tankiness;
+            (monsterStats ??= [])[CursedMoreLife] = tankiness;
         if (speed != 0)
         {
-            monsterStats ??= new(StringComparer.Ordinal);
-            monsterStats["attack_speed_+%"] = speed;
-            monsterStats["base_cast_speed_+%"] = speed;
-            monsterStats["base_movement_velocity_+%"] = speed;
+            monsterStats ??= [];
+            monsterStats[Stat.AttackSpeedPlusPct] = speed;
+            monsterStats[Stat.BaseCastSpeedPlusPct] = speed;
+            monsterStats[Stat.BaseMovementVelocityPlusPct] = speed;
         }
         if (extraElem > 0)
         {
             // G: roll the random element once per run so every monster in the run shares the same elemental gain.
             elemStat = RandomElementTargets[(random ?? Random.Shared).Next(RandomElementTargets.Length)];
-            (monsterStats ??= new(StringComparer.Ordinal))[elemStat] = extraElem;
+            (monsterStats ??= [])[elemStat.Value] = extraElem;
         }
 
         if (qty == 1.0 && rar == 1.0 && monsterStats is null && damage == 0 && critChance == 0 && critMult == 0 && pen == 0)
@@ -607,26 +611,14 @@ public static class DeepwaterCursedDucats
         return new RunEffects(qty, rar, monsterStats ?? EmptyStats, tankiness, speed, damage, extraElem, elemStat, critChance, critMult, pen);
     }
 
-    /// <summary>Precomputes all Cursed Ducat combat and drop effects directly from client-keyed global stats
-    /// (<c>DeepwaterPlan.Global</c>).</summary>
-    public static RunEffects EffectsFor(IReadOnlyDictionary<uint, int> global, Random? random = null)
-    {
-        if (global.Count == 0) return RunEffects.None;
-        var named = new Dictionary<string, int>(global.Count, StringComparer.Ordinal);
-        foreach (var (key, value) in global)
-            if (value != 0 && Program.Stats.Name(key) is { Length: > 0 } name)
-                named[name] = named.GetValueOrDefault(name) + value;
-        return EffectsFor(named, random);
-    }
-
     /// <summary>Merges precomputed <paramref name="cursedStats"/> onto a cell's monster stats (0-alloc when either
     /// side is empty).</summary>
-    public static IReadOnlyDictionary<string, int>? MergeMonsterStats(
-        IReadOnlyDictionary<string, int>? cellStats, IReadOnlyDictionary<string, int>? cursedStats)
+    public static IReadOnlyDictionary<uint, int>? MergeMonsterStats(
+        IReadOnlyDictionary<uint, int>? cellStats, IReadOnlyDictionary<uint, int>? cursedStats)
     {
         if (cursedStats is null || cursedStats.Count == 0) return cellStats;
         if (cellStats is null || cellStats.Count == 0) return cursedStats;
-        var merged = new Dictionary<string, int>(cellStats, StringComparer.Ordinal);
+        var merged = new Dictionary<uint, int>(cellStats);
         foreach (var (id, value) in cursedStats)
             if (value != 0) merged[id] = merged.GetValueOrDefault(id) + value;
         return merged;
@@ -643,11 +635,8 @@ public static class DeepwaterCursedDucats
     // ---- Drop logic for the 5 non-Velka Cursed Ducats + immediate LQF 1905–1909 unlock ----
 
     /// <summary>Whether this connection's league has already unlocked the given Cursed Ducat flag.</summary>
-    public static bool HasUnlocked(ClientState conn, int unlockLeagueFlag)
-    {
-        if (unlockLeagueFlag <= 0) return false;
-        lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(unlockLeagueFlag);
-    }
+    public static bool HasUnlocked(Player player, int unlockLeagueFlag) =>
+        unlockLeagueFlag > 0 && player.Character.LeagueQuestFlags.Contains(unlockLeagueFlag);
 
     /// <summary>Returns the <c>DeepwaterCursedDucats.Id</c> dropped by this monster variety and rarity, or <c>-1</c> if
     /// none (0-alloc hot-path filter):
@@ -679,43 +668,36 @@ public static class DeepwaterCursedDucats
         if (id < 0) return;
         if (ById(id) is not { UnlockLeagueFlag: > 0 } info) return;
 
-        var conn = roll.Conn;
-        if (HasUnlocked(conn, info.UnlockLeagueFlag)) return;
+        var player = roll.Player;
+        if (HasUnlocked(player, info.UnlockLeagueFlag)) return;
 
         // G: minibosses (Filthscrabble / Captainsbane) default to 100%, rare pack monsters (Infested Horror / Hungry Maw) default to 25%.
         int chance = id is 0 or 4
             ? ChanceSetting(MinibossDropChanceSetting, 100)
             : ChanceSetting(RareDropChanceSetting, 25);
-        if (chance <= 0 || (chance < 100 && Random.Shared.Next(100) >= chance)) return;
+        if (chance <= 0 || (chance < 100 && AreaRng(player).Next(100) >= chance)) return;
 
-        bool unlocked = false;
-        lock (conn.Monsters)
-        {
-            if (!HardcoreProgressBlocked(conn))
-                unlocked = conn.LeagueQuestFlags.Add(info.UnlockLeagueFlag);
-        }
-        if (!unlocked) return;
+        if (HardcoreProgressBlocked(player) || !player.Character.LeagueQuestFlags.Add(info.UnlockLeagueFlag)) return;
 
-        PersonalStashOf(conn).ChangeLeagueQuestFlags([info.UnlockLeagueFlag], true);
+        PersonalStashOf(player).ChangeLeagueQuestFlags([info.UnlockLeagueFlag], true);
         roll.Items.Add(info.ItemId);
-        module.Log($"{CharacterName(conn)}: {roll.Monster.Name} drops {info.Name} (unlocked LQF {info.UnlockLeagueFlag})");
+        module.Log($"{CharacterName(player)}: {roll.Monster.Name} drops {info.Name} (unlocked LQF {info.UnlockLeagueFlag})");
 
-        if (!conn.Closed && !conn.LeavingArea && conn.PlayerSent)
+        if (!player.Closed && !player.LeavingArea && player.Connection.PlayerSent)
         {
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    List<int> all;
-                    lock (conn.Monsters) all = [.. conn.LeagueQuestFlags.Order()];
-                    if (!conn.Closed && !conn.LeavingArea && conn.PlayerSent)
-                        await global::Game.SendWorldRecord(PlayerOf(conn), PlayerId,
-                            InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
+                    List<int> all = [.. player.Character.LeagueQuestFlags.Order()];
+                    if (!player.Closed && !player.LeavingArea && player.Connection.PlayerSent)
+                        await global::Game.SendWorldRecord(player, player.Id,
+                            InstanceEntities.PlayerLeagueQuestFlagsUpdate(player.Id, Quests.League.Bits(all)),
                             $"0x02bc player league quest flags: {string.Join(", ", all)}");
                 }
                 catch (Exception ex)
                 {
-                    module.Log($"{CharacterName(conn)}: Cursed Ducat unlock LQF {info.UnlockLeagueFlag} send failed: {ex.Message}");
+                    module.Log($"{CharacterName(player)}: Cursed Ducat unlock LQF {info.UnlockLeagueFlag} send failed: {ex.Message}");
                 }
             });
         }
@@ -725,21 +707,20 @@ public static class DeepwaterCursedDucats
     /// <c>Ducat of the Undead Sea</c> (Id 3, <c>BaseItemTypes#5434</c>, <c>LQF 1907</c>), unlocks <c>LQF 1907</c>
     /// immediately and returns the Cursed Ducat drop; returns <c>null</c> once already unlocked so the caller can fall
     /// back to a random crafting Ducat.</summary>
-    public static async Task<ItemDrops.Drop?> DropFromOffering(IModuleContext module, ClientState conn, int level)
+    public static async Task<ItemDrops.Drop?> DropFromOffering(IModuleContext module, Player player, int level)
     {
         if (ById(3) is not { UnlockLeagueFlag: > 0 } info) return null;
-        if (HasUnlocked(conn, info.UnlockLeagueFlag)) return null;
-        lock (conn.Monsters) if (HardcoreProgressBlocked(conn)) return null;
+        if (HasUnlocked(player, info.UnlockLeagueFlag)) return null;
+        if (HardcoreProgressBlocked(player)) return null;
 
-        if (ItemsFor(conn).Find(info.ItemId) is not { Supported: true } type)
+        if (ItemsFor(player).Find(info.ItemId) is not { Supported: true } type)
         {
-            module.Log($"{CharacterName(conn)}: {info.ItemId} is not supported; Offering of the Drowned cannot drop {info.Name}");
+            module.Log($"{CharacterName(player)}: {info.ItemId} is not supported; Offering of the Drowned cannot drop {info.Name}");
             return null;
         }
 
-        var (remote, stream, ciphers) = conn.Wire;
-        await SetLeagueQuestFlags(remote, stream, ciphers, conn, [info.UnlockLeagueFlag], on: true);
-        module.Log($"{CharacterName(conn)}: Offering of the Drowned drops {info.Name} (unlocked LQF {info.UnlockLeagueFlag})");
+        await SetLeagueQuestFlags(player, [info.UnlockLeagueFlag], on: true);
+        module.Log($"{CharacterName(player)}: Offering of the Drowned drops {info.Name} (unlocked LQF {info.UnlockLeagueFlag})");
         return new ItemDrops.Drop(ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(level, 1, 100) }, type);
     }
 

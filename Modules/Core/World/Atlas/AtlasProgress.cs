@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Modding;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
 namespace GameServer.Modules.Atlas;
@@ -13,22 +14,28 @@ namespace GameServer.Modules.Atlas;
 /// </summary>
 public static class AtlasProgress
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadAtlasProgressData()
+    {
+        Loaded = Load("data");
+    }
+
     public sealed record Node(int Row, string Id, ushort Hash16, string Name, IReadOnlySet<string> Areas, IReadOnlySet<string> Bosses,
         IReadOnlySet<string> FinalBosses);
 
-    const string CompletedKey = "completed";
+    const string CompletedKey = "completed", BonusKey = "atlas.bonusCompleted";
 
     /// <summary>The masks' rows: the client reads 22 bytes and keeps rows below 170 (the Atlas's maps; later rows are
     /// RandomContent nodes).</summary>
     const int MaskRows = 170, MaskBytes = 22;
 
-    static readonly Lazy<(IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas)> Loaded = new(() => Load("data"));
+    static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Loaded = default!;
 
-    public static IReadOnlyList<Node> Maps => Loaded.Value.Maps;
+    public static IReadOnlyList<Node> Maps => Loaded.Maps;
 
     /// <summary>Every AtlasNode row the client draws (NotOnAtlas false, row &lt; 170), including voidstone
     /// sockets and pinnacle bosses. The first 0x1a3 mask uses this so the bottom citadels stay on screen.</summary>
-    public static IReadOnlySet<int> OnAtlasRows => Loaded.Value.OnAtlas;
+    public static IReadOnlySet<int> OnAtlasRows => Loaded.OnAtlas;
 
     public static Node? Find(string idOrName) => Maps.FirstOrDefault(n =>
         n.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase) || n.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
@@ -40,19 +47,63 @@ public static class AtlasProgress
     public static bool CompletesMap(Node node, MonsterInfo monster) =>
         node.FinalBosses.Contains(monster.VarietyId);
 
-    public static IReadOnlySet<string> Completed(ISavedData data) =>
-        (data.Get(CompletedKey) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+    static HashSet<string> ReadIds(string? value) =>
+        (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+
+    public static IReadOnlySet<string> Completed(ISavedData data) => ReadIds(data.Get(CompletedKey));
+
+    // Characters from before bonus objectives already received credit for their completions.
+    public static IReadOnlySet<string> BonusCompleted(ISavedData data) =>
+        ReadIds(data.Get(BonusKey) ?? data.Get(CompletedKey));
+
+    static void PreserveExistingCredit(ISavedData data)
+    {
+        if (data.Get(BonusKey) is not null) return;
+        string completed = data.Get(CompletedKey) ?? "";
+        data.Change(BonusKey, old => old is null ? completed : null);
+    }
+
+    public static bool MeetsBonusObjective(MapDevice.Run map)
+    {
+        var mods = map.Mods;
+        if (mods.MapRarity == ItemRarity.Unique) return true;
+        return map.Area.Tier switch
+        {
+            >= 1 and <= 5 => mods.MapRarity >= ItemRarity.Magic,
+            >= 6 and <= 10 => mods.MapRarity >= ItemRarity.Rare,
+            >= 11 and <= 16 => mods.MapRarity >= ItemRarity.Rare && mods.Corrupted,
+            _ => false,
+        };
+    }
 
     /// <summary>Saves the nodes as completed; false when they all were.</summary>
-    public static bool Complete(ISavedData data, IEnumerable<Node> nodes) => data.Change(CompletedKey, old =>
+    public static bool Complete(ISavedData data, IEnumerable<Node> nodes)
     {
-        var ids = (old ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+        PreserveExistingCredit(data);
+        return Add(data, CompletedKey, nodes);
+    }
+
+    public static bool CompleteBonus(ISavedData data, IEnumerable<Node> nodes)
+    {
+        PreserveExistingCredit(data);
+        return Add(data, BonusKey, nodes);
+    }
+
+    static bool Add(ISavedData data, string key, IEnumerable<Node> nodes) => data.Change(key, old =>
+    {
+        var ids = ReadIds(old);
         int before = ids.Count;
         ids.UnionWith(nodes.Select(n => n.Id));
         return ids.Count == before ? null : string.Join(',', ids.Order(StringComparer.Ordinal));
     });
 
-    public static bool Reset(ISavedData data) => data.Change(CompletedKey, old => string.IsNullOrEmpty(old) ? null : "");
+    public static bool Reset(ISavedData data)
+    {
+        PreserveExistingCredit(data);
+        bool clearedMaps = data.Change(CompletedKey, old => string.IsNullOrEmpty(old) ? null : "");
+        bool clearedBonuses = data.Change(BonusKey, old => string.IsNullOrEmpty(old) ? null : "");
+        return clearedMaps || clearedBonuses;
+    }
 
     /// <summary>S→C 0x1a3 +0x70 bit for a Voidstone slot: the client tests AtlasNode.Region, not AtlasVoidstoneSlots
     /// order. Maven (slot 0) sits in region 2, Elder (1) in 1, Tangled (2) in 3, Cleansing Fire (3) in 0. Sending

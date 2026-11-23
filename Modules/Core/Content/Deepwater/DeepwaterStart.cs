@@ -27,18 +27,15 @@ internal sealed class DeepwaterPlan
     /// <summary>The run's end was handled (DeepwaterModule.Finish).</summary>
     public bool Finished { get; set; }
 
-    /// <summary>Stats by client key as stats by name (the Stats Id).</summary>
-    public static Dictionary<string, int> Named(IEnumerable<KeyValuePair<uint, int>> stats)
-    {
-        var named = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var (key, value) in stats)
-            if (value != 0 && Program.Stats.Name(key) is { Length: > 0 } name) named[name] = named.GetValueOrDefault(name) + value;
-        return named;
-    }
-
     /// <summary>A cell's own stats with the Voyage-wide ones (what the cell's packs are planned with).</summary>
-    public Dictionary<string, int> Effective(int cell) =>
-        Named(cell >= 0 && cell < CellStats.Count ? CellStats[cell].Concat(Global) : Global);
+    public Dictionary<uint, int> Effective(int cell)
+    {
+        var combined = new Dictionary<uint, int>();
+        var source = cell >= 0 && cell < CellStats.Count ? CellStats[cell].Concat(Global) : Global;
+        foreach (var (key, value) in source)
+            if (value != 0) combined[key] = combined.GetValueOrDefault(key) + value;
+        return combined;
+    }
 }
 
 // Starting a run from the deck (ruleset 172 ops 0, 1 and 8): the chart device's Descend and the Voyage planner's Set Forth
@@ -56,39 +53,39 @@ public sealed partial class DeepwaterModule
 
     DeepwaterPlan? PlanOf(MapDevice.Run? run) => run is not null && _plans.TryGetValue(run, out var plan) ? plan : null;
 
-    static Task SendRow(ClientState conn, byte row, IReadOnlyList<uint> removed, IReadOnlyList<InventoryItem> added, string what) =>
-        PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), ItemsOf(conn).NextRevision(row), removed, added),
+    static Task SendRow(Player player, byte row, IReadOnlyList<uint> removed, IReadOnlyList<InventoryItem> added, string what) =>
+        PlayerOf(player).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), ItemsOf(player).NextRevision(row), removed, added),
             $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
 
     /// <summary>Why the deck cannot start a run now, or null: on The Sovereign, as its map owner, with no run armed.</summary>
-    string? DeckRefusal(ClientState conn, State state) =>
-        PlayerOf(conn).AreaId != HubId ? "not on The Sovereign"
-        : !HubOwner(conn) ? "not the deck's map owner"
+    string? DeckRefusal(Player player, State state) =>
+        PlayerOf(player).AreaId != HubId ? "not on The Sovereign"
+        : !HubOwner(player) ? "not the deck's map owner"
         : state.Armed is not null ? "a run is waiting at the Bathysphere already" : null;
 
     /// <summary>The collection (114) is not empty: the HUD asks first (mode 2) and the start waits for op 8.</summary>
-    async Task<bool> AskFirst(IModuleContext module, ClientState conn, State state, Func<Task> start)
+    async Task<bool> AskFirst(IModuleContext module, Player player, State state, Func<Task> start)
     {
-        if (ItemsOf(conn).Items(DeepwaterExtraction.CollectionRow).Count == 0) return false;
+        if (ItemsOf(player).Items(DeepwaterExtraction.CollectionRow).Count == 0) return false;
         state.Confirm = start;
         if (DeepwaterHubRuleset.ConfirmEnter() is { } ask)
-            await PlayerOf(conn).Send(ask, "0x02c9 DeepwaterHubRules mode 2: the collection will be emptied (ClientStrings 8445)");
-        module.Log($"{PlayerOf(conn).Character}: the collection holds items; the start waits for the confirmation (op 8)");
+            await PlayerOf(player).Send(ask, "0x02c9 DeepwaterHubRules mode 2: the collection will be emptied (ClientStrings 8445)");
+        module.Log($"{PlayerOf(player).Character}: the collection holds items; the start waits for the confirmation (op 8)");
         return true;
     }
 
     /// <summary>Op 8: the player said yes. The collection's items go to the main inventory (G: 8445 says "remove"; what
     /// does not fit stays in 114), then the start goes on.</summary>
-    async Task ConfirmStart(IModuleContext module, ClientState conn)
+    async Task ConfirmStart(IModuleContext module, Player player)
     {
-        var state = _states.GetOrCreateValue(PlayerOf(conn));
+        var state = _states.GetOrCreateValue(PlayerOf(player));
         if (state.Confirm is not { } start)
         {
-            module.Log($"{PlayerOf(conn).Character} <= 0x02ca DeepwaterHubRules ConfirmEnterMission: nothing waits for it");
+            module.Log($"{PlayerOf(player).Character} <= 0x02ca DeepwaterHubRules ConfirmEnterMission: nothing waits for it");
             return;
         }
         state.Confirm = null;
-        await DeepwaterExtraction.TakeFromCollection(module, conn, null, requireWindow: false);
+        await DeepwaterExtraction.TakeFromCollection(module, player, null, requireWindow: false);
         await start();
     }
 
@@ -96,15 +93,15 @@ public sealed partial class DeepwaterModule
 
     /// <summary>Op 1 (the Chart window's Descend): an identified chart in 103 and a free cell in 104 for it once charted
     /// (the client's own checks, <c>0x1403ff0a0</c>). The chart moves to 109 and the Bathysphere opens.</summary>
-    async Task StartChart(IModuleContext module, ClientState conn, bool asked = false)
+    async Task StartChart(IModuleContext module, Player player, bool asked = false)
     {
-        var player = PlayerOf(conn);
-        var state = _states.GetOrCreateValue(player);
-        var items = ItemsOf(conn);
-        var catalog = ItemsFor(conn);
-        string what = $"{player.Character} <= 0x02ca DeepwaterHubRules Open1x1Mission";
+        var modPlayer = PlayerOf(player);
+        var state = _states.GetOrCreateValue(modPlayer);
+        var items = ItemsOf(player);
+        var catalog = ItemsFor(player);
+        string what = $"{modPlayer.Character} <= 0x02ca DeepwaterHubRules Open1x1Mission";
         var chart = items.Items(DeepwaterLocker.UnchartedRow).FirstOrDefault();
-        string? why = DeckRefusal(conn, state)
+        string? why = DeckRefusal(player, state)
             ?? (chart is null || !DeepwaterCharts.IsChart(catalog, chart.Item) ? "no chart in the device"
             : !chart.Item.Identified ? "the chart is unidentified"
             : chart.Item.Chart is null ? "the chart has no room"
@@ -115,7 +112,7 @@ public sealed partial class DeepwaterModule
             module.Log($"{what}: refused ({why})");
             return;
         }
-        if (!asked && await AskFirst(module, conn, state, () => StartChart(module, conn, asked: true))) return;
+        if (!asked && await AskFirst(module, player, state, () => StartChart(module, player, asked: true))) return;
         InventoryItem? active = null;
         Saves.Atomically(() =>
         {
@@ -127,19 +124,19 @@ public sealed partial class DeepwaterModule
             module.Log($"{what}: refused (the chart could not be moved)");
             return;
         }
-        await SendRow(conn, DeepwaterLocker.UnchartedRow, [active.Id], [], $"remove item {active.Id} (the chart descends)");
-        await SendRow(conn, DeepwaterLocker.ActiveRow, [], [active], $"add item {active.Id} (the active chart)");
+        await SendRow(player, DeepwaterLocker.UnchartedRow, [active.Id], [], $"remove item {active.Id} (the chart descends)");
+        await SendRow(player, DeepwaterLocker.ActiveRow, [], [active], $"add item {active.Id} (the active chart)");
         var cell = new DeepwaterBoardRules.Cell(active.Item.Chart!.Value, active.Item.Mods);
         DeepwaterBoardRules.Cell?[] cells = [cell];
         var mods = catalog.Mods;
         var global = DeepwaterBoardRules.GlobalStats(mods, cells);
-        int cursed = DeepwaterCursedDucats.InjectPlanStats(conn, global);
-        int upgrades = DeepwaterUpgrades.InjectPlanStats(conn, global);
+        int cursed = DeepwaterCursedDucats.InjectPlanStats(player, global);
+        int upgrades = DeepwaterUpgrades.InjectPlanStats(player, global);
         var plan = new DeepwaterPlan
         {
-            Voyage = false, Owner = player.Character, Size = 1, Cells = cells,
+            Voyage = false, Owner = modPlayer.Character, Size = 1, Cells = cells,
             Level = Math.Clamp((int)cell.Chart.AreaLevel, 1, 100),
-            LanternTotal = DeepwaterLanterns.Total(conn, voyage: false),
+            LanternTotal = DeepwaterLanterns.Total(player, voyage: false),
             CellStats = [DeepwaterBoardRules.CellStats(mods, cells, 1, 0, [])],
             Global = global,
             ChartItem = active.Id,
@@ -148,9 +145,8 @@ public sealed partial class DeepwaterModule
             + (cursed > 0 ? $", {cursed} Cursed Ducats" : "")
             + (upgrades > 0 ? $", {upgrades} ship upgrades" : ""));
         // The tracker's "enter the Bathysphere" (QuestFlags 3568, G: set by the accepted Descend).
-        var (remote, stream, ciphers) = conn.Wire;
-        await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart]);
-        await Arm(module, conn, state, plan, active.Item.Rarity);
+        await SetQuestFlags(player, [DeepwaterConstants.EnterTheChart]);
+        await Arm(module, player, state, plan, active.Item.Rarity);
     }
 
     // ---- op 0: a Voyage ----
@@ -159,14 +155,14 @@ public sealed partial class DeepwaterModule
     /// 2 × 2 before the 3 × 3 board is open (slots 0, 1, 3, 4, or n = 4 in board order) and 3 × 3 after it (G for the 2 × 2
     /// wire form). The client's validator decides; the level and the border mods carried into the run. The charts stay in
     /// 104 until the Bathysphere's entry (TakeCharts), so a run that is never entered costs nothing.</summary>
-    async Task StartVoyage(IModuleContext module, ClientState conn, byte[] args, bool asked = false)
+    async Task StartVoyage(IModuleContext module, Player player, byte[] args, bool asked = false)
     {
-        var player = PlayerOf(conn);
-        var state = _states.GetOrCreateValue(player);
-        var items = ItemsOf(conn);
-        var catalog = ItemsFor(conn);
-        string what = $"{player.Character} <= 0x02ca DeepwaterHubRules OpenMission ({Convert.ToHexString(args)})";
-        int n = DeepwaterPlanner.Board3x3(conn) ? 3 : 2;
+        var modPlayer = PlayerOf(player);
+        var state = _states.GetOrCreateValue(modPlayer);
+        var items = ItemsOf(player);
+        var catalog = ItemsFor(player);
+        string what = $"{modPlayer.Character} <= 0x02ca DeepwaterHubRules OpenMission ({Convert.ToHexString(args)})";
+        int n = DeepwaterPlanner.Board3x3(player) ? 3 : 2;
         int count = args.Length > 0 ? args[0] : 0;
         byte[] slots = args.Length >= 1 + count ? args[1..(1 + count)] : [];
         byte[]? board = (slots.Length, n) switch
@@ -176,7 +172,7 @@ public sealed partial class DeepwaterModule
             (4, 2) => slots,
             _ => null,
         };
-        string? why = DeckRefusal(conn, state) ?? (board is null ? $"{count} slots for a {n} × {n} board" : null);
+        string? why = DeckRefusal(player, state) ?? (board is null ? $"{count} slots for a {n} × {n} board" : null);
         var stored = items.Items(DeepwaterLocker.ChartedRow);
         var picked = new InventoryItem?[board?.Length ?? 0];
         for (int i = 0; why is null && i < picked.Length; i++)
@@ -193,11 +189,11 @@ public sealed partial class DeepwaterModule
             module.Log($"{what}: refused ({why})");
             return;
         }
-        if (!asked && await AskFirst(module, conn, state, () => StartVoyage(module, conn, args, asked: true))) return;
+        if (!asked && await AskFirst(module, player, state, () => StartVoyage(module, player, args, asked: true))) return;
         var mods = catalog.Mods;
         int level = DeepwaterBoardRules.Level(cells);
         bool velkaArena = false;
-        if (DeepwaterVelka.CanEnterArena(conn, level))
+        if (DeepwaterVelka.CanEnterArena(player, level))
         {
             for (int i = 0; i < cells.Length; i++)
             {
@@ -208,15 +204,15 @@ public sealed partial class DeepwaterModule
                 }
             }
         }
-        var border = n == 3 ? DeepwaterPlanner.Current(conn).Border : [];
+        var border = n == 3 ? DeepwaterPlanner.Current(player).Border : [];
         var global = DeepwaterBoardRules.GlobalStats(mods, cells);
-        int cursed = DeepwaterCursedDucats.InjectPlanStats(conn, global);
-        int upgrades = DeepwaterUpgrades.InjectPlanStats(conn, global);
+        int cursed = DeepwaterCursedDucats.InjectPlanStats(player, global);
+        int upgrades = DeepwaterUpgrades.InjectPlanStats(player, global);
         var plan = new DeepwaterPlan
         {
-            Voyage = true, Owner = player.Character, Size = n, Cells = cells, Border = border,
+            Voyage = true, Owner = modPlayer.Character, Size = n, Cells = cells, Border = border,
             Level = level,
-            LanternTotal = DeepwaterLanterns.Total(conn, voyage: true),
+            LanternTotal = DeepwaterLanterns.Total(player, voyage: true),
             CellStats = [.. Enumerable.Range(0, cells.Length).Select(i => DeepwaterBoardRules.CellStats(mods, cells, n, i, border))],
             Global = global,
             Picked = picked,
@@ -225,53 +221,52 @@ public sealed partial class DeepwaterModule
             + (cursed > 0 ? $", {cursed} Cursed Ducats" : "")
             + (upgrades > 0 ? $", {upgrades} ship upgrades" : "")
             + (velkaArena ? ", Kishara's Rest -> Boss Arena (#30)" : ""));
-        await Arm(module, conn, state, plan, ItemRarity.Normal);
+        await Arm(module, player, state, plan, ItemRarity.Normal);
     }
 
     // ---- the Bathysphere ----
 
     /// <summary>The plan becomes a map run of the encounter area (not an Atlas map: only its own stats apply) and the
     /// deck's Bathysphere opens for it. Without a Bathysphere on the deck the owner goes straight in (G).</summary>
-    async Task Arm(IModuleContext module, ClientState conn, State state, DeepwaterPlan plan, ItemRarity rarity)
+    async Task Arm(IModuleContext module, Player player, State state, DeepwaterPlan plan, ItemRarity rarity)
     {
         string id = plan.Voyage ? DeepwaterConstants.VoyageArea : DeepwaterConstants.ChartArea;
         if (DeepwaterGrid.AreaOf(id) is not { } area)
         {
             module.Log($"{plan.Owner}: no WorldAreas row {id}; the run is not started");
-            await Restore(module, conn, plan, "no area");
+            await Restore(module, player, plan, "no area");
             return;
         }
         // A Chart's own stats and its global implicits are the area's; a Voyage's area gets the global stats and each cell
         // adds its own (DeepwaterRun.CellMods and the drop factors).
-        var stats = plan.Voyage ? plan.Global : plan.CellStats[0].Concat(plan.Global).GroupBy(s => s.Key).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));
-        var mapMods = new MapMods(DeepwaterPlan.Named(stats)) { MapRarity = rarity };
+        var stats = plan.Voyage ? plan.Global : plan.Effective(0);
+        var mapMods = new MapMods(stats) { MapRarity = rarity };
         var at = state.PortalAt;
         var run = new MapDevice.Run(plan.Owner, area with { Level = plan.Level }, mapMods, 0,
-            new MapDevice.Origin(conn.Layout.Hash, conn.InstanceNumber, at.X, at.Y)) { Atlas = false };
+            new MapDevice.Origin(player.Layout.Hash, player.InstanceNumber, at.X, at.Y)) { Atlas = false };
         _plans.AddOrUpdate(run, plan);
         state.Armed = run;
         state.ArmedPlan = plan;
         if (state.Portal == 0)
         {
             module.Log($"{plan.Owner}: the deck has no Bathysphere; going straight in (G)");
-            await Enter(module, conn, state);
+            await Enter(module, player, state);
             return;
         }
-        state.PortalOpenAt = conn.Clock.Elapsed.TotalSeconds + PortalOpening;
-        await SetPortalReady(conn, 1);
+        state.PortalOpenAt = AreaTime(player) + PortalOpening;
+        await SetPortalReady(player, 1);
     }
 
     /// <summary>The one entry: the owner goes into a new instance of the run's area, and the Bathysphere closes. A refused
     /// transfer gives the chart or the board's charts back.</summary>
-    async Task Enter(IModuleContext module, ClientState conn, State state)
+    async Task Enter(IModuleContext module, Player player, State state)
     {
         if (state.Armed is not { } run || state.ArmedPlan is not { } plan) return;
         (state.Armed, state.ArmedPlan, state.PortalOpenAt) = (null, null, 0);
-        await SetPortalReady(conn, 0);
-        if (plan.Voyage && !await TakeCharts(module, conn, plan)) return;
+        await SetPortalReady(player, 0);
+        if (plan.Voyage && !await TakeCharts(module, player, plan)) return;
         // The Chart's chart is in its run from here: a run left by a crash or a relog loses it (ReturnActive).
         if (!plan.Voyage) CharacterSaves.ChangeModuleData(plan.Owner, EnteredChartKey, _ => plan.ChartItem.ToString());
-        var (remote, stream, ciphers) = conn.Wire;
         module.Log($"{plan.Owner}: Allflame {(plan.Voyage ? "Voyage" : "Chart")} enters {run.Area.Id} at level {plan.Level}");
         var transfer = new PendingTransfer(run.Area.Hash16, 0, New: true)
         {
@@ -281,12 +276,12 @@ public sealed partial class DeepwaterModule
                 if (r.Ok) return;
                 _ = Task.Run(async () =>
                 {
-                    try { await Restore(module, conn, plan, r.Error ?? "the transfer was refused"); }
+                    try { await Restore(module, player, plan, r.Error ?? "the transfer was refused"); }
                     catch (Exception ex) { module.Log($"{plan.Owner}: failed to restore Allflame run after transfer refusal: {ex.Message}"); }
                 });
             },
         };
-        await ChangeArea(remote, stream, ciphers, conn, transfer, "Allflame Bathysphere");
+        await ChangeArea(player, transfer, "Allflame Bathysphere");
     }
 
     /// <summary>Character module data: the id of the chart whose run was entered, until the run ends ("" for none).</summary>
@@ -295,10 +290,10 @@ public sealed partial class DeepwaterModule
     /// <summary>A Voyage's entry: its board's charts must still be in 104 as planned. Each leaves 104 unless its border
     /// mods' keep chance succeeds (G: rolled at the entry; the wiki's "chance to not consume" gives no timing), and the
     /// planner gets new border modifiers and no rerolls. False (nothing taken) when a chart moved, turned or left.</summary>
-    async Task<bool> TakeCharts(IModuleContext module, ClientState conn, DeepwaterPlan plan)
+    async Task<bool> TakeCharts(IModuleContext module, Player player, DeepwaterPlan plan)
     {
-        var items = ItemsOf(conn);
-        var mods = ItemsFor(conn).Mods;
+        var items = ItemsOf(player);
+        var mods = ItemsFor(player).Mods;
         var stored = items.Items(DeepwaterLocker.ChartedRow);
         if (plan.Picked.OfType<InventoryItem>().FirstOrDefault(p => !stored.Any(s => s.Id == p.Id && s.Item.Chart == p.Item.Chart)) is { } gone)
         {
@@ -307,11 +302,12 @@ public sealed partial class DeepwaterModule
         }
         var consumed = new List<InventoryItem>();
         var kept = new List<string>();
+        var rng = AreaRng(player);
         for (int i = 0; i < plan.Picked.Count; i++)
         {
             if (plan.Picked[i] is not { } chart) continue;
             int keep = DeepwaterBoardRules.KeepChance(mods, i, plan.Size, plan.Border);
-            if (keep > 0 && Random.Shared.Next(100) < keep) kept.Add($"cell {i} ({keep}%)");
+            if (keep > 0 && rng.Next(100) < keep) kept.Add($"cell {i} ({keep}%)");
             else consumed.Add(chart);
         }
         var removed = new List<uint>();
@@ -321,12 +317,12 @@ public sealed partial class DeepwaterModule
                 if (items.Remove(DeepwaterLocker.ChartedRow, it.Id) is not null) removed.Add(it.Id);
         });
         plan.Consumed = [.. consumed.Where(c => removed.Contains(c.Id))];
-        if (removed.Count > 0) await SendRow(conn, DeepwaterLocker.ChartedRow, removed, [], $"{removed.Count} charts taken by the Voyage");
+        if (removed.Count > 0) await SendRow(player, DeepwaterLocker.ChartedRow, removed, [], $"{removed.Count} charts taken by the Voyage");
         // New border modifiers for the next Voyage, and no rerolls made on them.
         if (plan.Size == 3)
         {
-            plan.PreviousBorder = DeepwaterPlanner.Current(conn);
-            await DeepwaterPlanner.Send(conn, DeepwaterPlanner.Renew(conn));
+            plan.PreviousBorder = DeepwaterPlanner.Current(player);
+            await DeepwaterPlanner.Send(player, DeepwaterPlanner.Renew(player));
         }
         module.Log($"{plan.Owner}: the Voyage takes {removed.Count} charts" + (kept.Count > 0 ? $", kept {string.Join(", ", kept)}" : ""));
         return true;
@@ -334,18 +330,15 @@ public sealed partial class DeepwaterModule
 
     /// <summary>A run that did not start: a Chart's chart goes back from 109 to 103, a Voyage's charts back to 104 with the
     /// border it had.</summary>
-    async Task Restore(IModuleContext module, ClientState conn, DeepwaterPlan plan, string reason)
+    async Task Restore(IModuleContext module, Player player, DeepwaterPlan plan, string reason)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         if (!plan.Voyage)
         {
             CharacterSaves.ChangeModuleData(plan.Owner, EnteredChartKey, _ => "");
-            if (!conn.Closed && conn.HasQuestFlag(DeepwaterConstants.EnterTheChart))
-            {
-                var (remote, stream, ciphers) = conn.Wire;
-                await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart], on: false);
-            }
-            await ReturnActive(module, conn, $"the run did not start: {reason}", forceSend: true);
+            if (!player.Closed && player.Character.HasQuestFlag(DeepwaterConstants.EnterTheChart))
+                await SetQuestFlags(player, [DeepwaterConstants.EnterTheChart], on: false);
+            await ReturnActive(module, player, $"the run did not start: {reason}", forceSend: true);
             return;
         }
         var back = new List<InventoryItem>();
@@ -359,22 +352,22 @@ public sealed partial class DeepwaterModule
             }
         });
         module.Log($"{plan.Owner}: the Voyage did not start ({reason}); {back.Count}/{plan.Consumed.Count} charts back in the charted inventory");
-        if (back.Count > 0 && !conn.Closed) await SendRow(conn, DeepwaterLocker.ChartedRow, [], back, "the Voyage's charts back");
+        if (back.Count > 0 && !player.Closed) await SendRow(player, DeepwaterLocker.ChartedRow, [], back, "the Voyage's charts back");
         if (plan.PreviousBorder is { } previous)
         {
-            DeepwaterPlanner.Put(conn, previous);
-            if (!conn.Closed) await DeepwaterPlanner.Send(conn, previous);
+            DeepwaterPlanner.Put(player, previous);
+            if (!player.Closed) await DeepwaterPlanner.Send(player, previous);
         }
     }
 
     /// <summary>The chart in 109 goes back to 103 (or the main inventory when 103 is taken) when its run never started
     /// (G). One whose run was entered and left by a crash, a relog or a death is lost, as a failed Chart (the research's
     /// "Failure → lost"), and counts as the tutorial's failed first Chart.</summary>
-    async Task ReturnActive(IModuleContext module, ClientState conn, string reason, bool forceSend = false)
+    async Task ReturnActive(IModuleContext module, Player player, string reason, bool forceSend = false)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var left = items.Items(DeepwaterLocker.ActiveRow).ToList();
-        string me = CharacterName(conn);
+        string me = CharacterName(player);
         string entered = CharacterSaves.ModuleData(me, EnteredChartKey) ?? "";
         foreach (var it in left)
         {
@@ -384,11 +377,11 @@ public sealed partial class DeepwaterModule
                 if (RunningChart(me, it.Id)) continue;
                 CharacterSaves.ChangeModuleData(me, EnteredChartKey, _ => "");
                 if (items.Remove(DeepwaterLocker.ActiveRow, it.Id) is null) continue;
-                module.Log($"{CharacterName(conn)}: the active chart {it.Id}'s run was left unfinished; the chart is lost (G)");
-                bool live = !conn.Closed && (forceSend || !conn.LeavingArea);
-                if (!HasLeagueFlag(conn, DeepwaterConstants.FirstChartLeagueFlag))
-                    await SetTutorialFlags(module, conn, live, DeepwaterConstants.FailedFirstChartLeagueFlag);
-                if (live) await SendRow(conn, DeepwaterLocker.ActiveRow, [it.Id], [], $"remove item {it.Id} (the chart is lost)");
+                module.Log($"{CharacterName(player)}: the active chart {it.Id}'s run was left unfinished; the chart is lost (G)");
+                bool live = !player.Closed && (forceSend || !player.LeavingArea);
+                if (!HasLeagueFlag(player, DeepwaterConstants.FirstChartLeagueFlag))
+                    await SetTutorialFlags(module, player, live, DeepwaterConstants.FailedFirstChartLeagueFlag);
+                if (live) await SendRow(player, DeepwaterLocker.ActiveRow, [it.Id], [], $"remove item {it.Id} (the chart is lost)");
                 continue;
             }
             InventoryItem? placed = null;
@@ -400,10 +393,10 @@ public sealed partial class DeepwaterModule
                     : items.FreeCell(row = PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf);
                 if (cell is { } c && items.Remove(DeepwaterLocker.ActiveRow, it.Id) is { } taken) placed = items.Put(row, taken with { X = c.X, Y = c.Y });
             });
-            module.Log($"{CharacterName(conn)}: the active chart {it.Id} {(placed is null ? "stays in 109 (no room)" : $"goes back to row {row}")} ({reason})");
-            if (placed is null || conn.Closed || (!forceSend && conn.LeavingArea)) continue;
-            await SendRow(conn, DeepwaterLocker.ActiveRow, [it.Id], [], $"remove item {it.Id}");
-            await SendRow(conn, row, [], [placed], $"add item {placed.Id} (the chart back)");
+            module.Log($"{CharacterName(player)}: the active chart {it.Id} {(placed is null ? "stays in 109 (no room)" : $"goes back to row {row}")} ({reason})");
+            if (placed is null || player.Closed || (!forceSend && player.LeavingArea)) continue;
+            await SendRow(player, DeepwaterLocker.ActiveRow, [it.Id], [], $"remove item {it.Id}");
+            await SendRow(player, row, [], [placed], $"add item {placed.Id} (the chart back)");
         }
     }
 
@@ -420,7 +413,7 @@ public sealed partial class DeepwaterModule
     /// <summary>A planned run's end: a Chart's success charts its chart (109 → 104 with a rolled implicit), its failure
     /// loses it (G); a Voyage took its charts at its entry. The owner must be among the players it ended for; otherwise
     /// the chart waits in 109 and is lost at the owner's next entry (ReturnActive).</summary>
-    async Task Finish(IModuleContext module, DeepwaterPlan plan, IReadOnlyList<ClientState> members, bool success)
+    async Task Finish(IModuleContext module, DeepwaterPlan plan, IReadOnlyList<Player> members, bool success)
     {
         plan.Finished = true;
         var owner = members.FirstOrDefault(m => CharacterName(m).Equals(plan.Owner, StringComparison.OrdinalIgnoreCase));
@@ -456,7 +449,7 @@ public sealed partial class DeepwaterModule
             return;
         }
         var catalog = ItemsFor(owner);
-        var charted = DeepwaterCharts.Charted(catalog, active.Item, Random.Shared) ?? active.Item;
+        var charted = DeepwaterCharts.Charted(catalog, active.Item, AreaRng(owner)) ?? active.Item;
         InventoryItem? placed = null;
         Saves.Atomically(() =>
         {
@@ -478,59 +471,56 @@ public sealed partial class DeepwaterModule
         await DeepwaterUpgrades.TryGrantRunCompletionPiece(module, owner, voyage: false, live);
     }
 
-    static bool HasLeagueFlag(ClientState conn, int flag)
-    {
-        lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(flag);
-    }
+    static bool HasLeagueFlag(Player player, int flag) =>
+        player.Character.LeagueQuestFlags.Contains(flag);
 
     /// <summary>Sets the Maiden Voyage's league quest flags the character lacks; for a closed connection only in its save.</summary>
-    static async Task SetTutorialFlags(IModuleContext module, ClientState conn, bool live, params int[] flags)
+    static async Task SetTutorialFlags(IModuleContext module, Player player, bool live, params int[] flags)
     {
-        var missing = flags.Where(f => !HasLeagueFlag(conn, f)).ToList();
+        var missing = flags.Where(f => !HasLeagueFlag(player, f)).ToList();
         if (missing.Count == 0) return;
-        module.Log($"{CharacterName(conn)}: the Maiden Voyage's league quest flag(s) {string.Join(", ", missing)}");
+        module.Log($"{CharacterName(player)}: the Maiden Voyage's league quest flag(s) {string.Join(", ", missing)}");
         if (live)
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SetLeagueQuestFlags(remote, stream, ciphers, conn, missing);
+            await SetLeagueQuestFlags(player, missing);
             return;
         }
-        PersonalStashOf(conn).ChangeLeagueQuestFlags(missing, true);
-        lock (conn.Monsters) conn.LeagueQuestFlags.UnionWith(missing);
+        PersonalStashOf(player).ChangeLeagueQuestFlags(missing, true);
+        player.Character.LeagueQuestFlags.UnionWith(missing);
     }
 
     /// <summary>League quest flag 1822 (the tracker's "plot a Voyage", Valerie's "Plan Voyage"): the charted inventory holds
     /// the tutorial Voyage's 4 charts (G: the count, R1 §6). Checked after each charting and at each entry of the deck, which
     /// covers the pity path and charts charted before this check existed.</summary>
-    static Task FourCharts(IModuleContext module, ClientState conn, bool live) =>
-        !HasLeagueFlag(conn, DeepwaterConstants.FourChartsLeagueFlag)
-        && ItemsOf(conn).Items(DeepwaterLocker.ChartedRow).Count >= DeepwaterConstants.ChartsForFirstVoyage
-            ? SetTutorialFlags(module, conn, live, DeepwaterConstants.FourChartsLeagueFlag) : Task.CompletedTask;
+    static Task FourCharts(IModuleContext module, Player player, bool live) =>
+        !HasLeagueFlag(player, DeepwaterConstants.FourChartsLeagueFlag)
+        && ItemsOf(player).Items(DeepwaterLocker.ChartedRow).Count >= DeepwaterConstants.ChartsForFirstVoyage
+            ? SetTutorialFlags(module, player, live, DeepwaterConstants.FourChartsLeagueFlag) : Task.CompletedTask;
 
     /// <summary>A click on the deck's Bathysphere: the armed run's one entry, for the owner, once it is open.</summary>
-    async Task<bool> UsePortal(IModuleContext module, ClientState conn, State state, double at)
+    async Task<bool> UsePortal(IModuleContext module, Player player, State state, double at)
     {
-        var player = PlayerOf(conn);
+        var modPlayer = PlayerOf(player);
         if (state.Armed is null)
         {
-            module.Log($"{player.Character} <= 0x0024 the deck's Bathysphere 0x{state.Portal:x}: no chart run is armed");
+            module.Log($"{modPlayer.Character} <= 0x0024 the deck's Bathysphere 0x{state.Portal:x}: no chart run is armed");
             return true;
         }
         if (state.PortalOpenAt > 0)
         {
-            module.Log($"{player.Character} <= 0x0024 the deck's Bathysphere 0x{state.Portal:x}: still opening");
+            module.Log($"{modPlayer.Character} <= 0x0024 the deck's Bathysphere 0x{state.Portal:x}: still opening");
             return true;
         }
-        if (!await WorldOf(conn).WalkUpTo(state.PortalAt.X, state.PortalAt.Y, state.PortalReach, at)) return true;
-        await Enter(module, conn, state);
+        if (!await WorldOf(player).WalkUpTo(state.PortalAt.X, state.PortalAt.Y, state.PortalReach, at)) return true;
+        await Enter(module, player, state);
         return true;
     }
 
     /// <summary>The Bathysphere's opening ends: ready 2 (G: the use of 2).</summary>
-    async Task TickPortal(ClientState conn, State state)
+    async Task TickPortal(Player player, State state)
     {
-        if (state.PortalOpenAt <= 0 || conn.Clock.Elapsed.TotalSeconds < state.PortalOpenAt) return;
+        if (state.PortalOpenAt <= 0 || AreaTime(player) < state.PortalOpenAt) return;
         state.PortalOpenAt = 0;
-        await SetPortalReady(conn, 2);
+        await SetPortalReady(player, 2);
     }
 }

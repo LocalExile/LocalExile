@@ -65,14 +65,14 @@ public static class StrongboxLoot
     /// corrupted where they can be (poewiki, Strongbox: "Corrupted strongboxes (e.g. from using a Vaal Orb) will cause all of the
     /// strongbox's contents to also be corrupted, if possible"). Only the flag: no corruption outcome is rolled.</param>
     /// <param name="boxStat">A stat of the box's own mods (its implicits and rolled explicits).</param>
-    public static List<ItemDrops.Drop> Roll(ClientState conn, Definition box, Func<string, int> boxStat, int level,
+    public static List<ItemDrops.Drop> Roll(Player player, Definition box, Func<string, int> boxStat, int level,
         MapMods stats, Random rng, bool corrupted = false)
     {
-        int Stat(string name) => stats.Get(name);
-        var catalog = ItemsFor(conn);
-        var drops = DropsFor(conn);
-        var rolls = RollsFor(conn);
-        var rules = LeagueFor(conn).Rules;
+        int Stat(string name) => Stats.Key(name) is uint key ? stats.Get(key) : 0;
+        var catalog = ItemsFor(player);
+        var drops = DropsFor(player);
+        var rolls = RollsFor(player);
+        var rules = LeagueFor(player).Rules;
         level = Math.Clamp(level + Math.Max(0, boxStat("chest_dropped_item_level_+")), 1, 100);
         double quantity = box.Items * Math.Max(0, 100 + Stat("map_strongbox_item_quantity_+%") + boxStat("chest_item_quantity_+%") + boxStat("chest_hidden_item_quantity_+%")) / 100.0
             * Math.Max(0, rules.ItemDropMultiplier);
@@ -225,8 +225,9 @@ public static class StrongboxLoot
                 case Contents.Card: return drops.Card(rng, level);
                 case Contents.Scarab:
                 {
+                    if (ScarabsDisabled(stats)) return null;
                     if (sameScarab is not null) return new(ItemCatalog.Create(sameScarab) with { StackSize = 1 }, sameScarab);
-                    var drop = drops.Scarab(rng, level);
+                    var drop = drops.Scarab(rng, level, stats);
                     if (drop is not null && boxStat("chest_all_dropped_scarabs_are_same_content_type") != 0) sameScarab = drop.Type;
                     return drop;
                 }
@@ -265,7 +266,7 @@ public static class StrongboxLoot
         // so PickUnique may decline: then one of the pool at random).
         ItemDrops.Drop? Unique(Func<ItemCatalog.BaseType, bool> kind, Func<UniqueCatalog.Definition, bool>? named = null)
         {
-            var uniqueCatalog = UniquesFor(conn);
+            var uniqueCatalog = UniquesFor(player);
             var pool = uniqueCatalog.All.Where(u => (named is null ? !u.EncounterOnly : named(u)) && catalog.Find(u.BaseTypeId) is { } t
                 && (named is not null || t.DropLevel <= level) && ItemDrops.Droppable(t) && kind(t)).ToArray();
             if (pool.Length == 0) return null;
@@ -299,6 +300,7 @@ public static class StrongboxLoot
 
         ItemDrops.Drop? Scarab(string family)
         {
+            if (ScarabsDisabled(stats)) return null;
             string prefix = "Metadata/Items/Scarabs/Scarab" + family;
             // The current scarabs, not the retired Rusted / Polished / Gilded / Winged tiers.
             var pool = catalog.All.Where(t => t.Supported && t.DropLevel <= level && t.Id.StartsWith(prefix, StringComparison.Ordinal)
@@ -314,8 +316,8 @@ public static class StrongboxLoot
         // A generic map key of the open map's tier (the area level's in the campaign: level 68 is tier 1).
         ItemDrops.Drop? Map()
         {
-            int tier = MapRunOf(conn)?.Area.Tier is int open and > 0 ? open : Math.Clamp(level - 67, 1, 16);
-            if (MapDevices.Value.Atlas?.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
+            int tier = MapRunOf(player)?.Area.Tier is int open and > 0 ? open : Math.Clamp(level - 67, 1, 16);
+            if (MapDevices.Atlas?.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
             return new(ItemCatalog.Create(type) with { ItemLevel = (byte)level }, type);
         }
     }

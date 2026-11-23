@@ -14,6 +14,12 @@ using LeagueCategory = GameServer.Core.World.LeagueCategory;
 /// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
 public static class ServerLevels
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Levels = LoadLevels();
+    }
+
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
 
     /// <summary>A generated layout: Width × Height cells, one walk value (0 … 5, walkable from 2) and one ground height
@@ -100,6 +106,7 @@ public static class ServerLevels
     // The terrain plugin states an (area, seed) is played with (0x1d extra data, InstanceEvents.TerrainPluginStates): the
     // client's plugin builds its part of the level from them. Part of the cache key (StatsKey).
     static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<ushort, byte[]>> PlayedPluginStates = new();
+    static readonly ConcurrentDictionary<(string Area, uint Seed), string> PlayedStatsKeys = new();
     static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats, int Category, string States)> PlayedContexts = new();
     static readonly ConcurrentDictionary<uint, byte[]> DelveTerrains = new();
 
@@ -128,13 +135,21 @@ public static class ServerLevels
     /// (LabyrinthDay), so the day's seed is part of it and a new day generates the room again.</summary>
     static string CacheArea(string areaId, LabyrinthNodeKey? node) => node is null ? areaId : $"{areaId}@lab{node.Seed}";
 
-    /// <summary>The cache key's part for the area stats and league category (area, seed) is played with: none without
-    /// stats and at category 60.</summary>
-    static string StatsKey(string areaId, uint seed) =>
-        (PlayedStats.TryGetValue((areaId, seed), out var stats) && stats.Count > 0
-            ? "#" + string.Join(",", stats.OrderBy(s => s.Key).Select(s => $"{s.Key}={s.Value}")) : "")
-        + (CategoryOf(areaId, seed) is var category and not LeagueCategory.None ? $"@c{category}" : "")
-        + (PluginStatesOf(areaId, seed) is { } states ? "~p" + StatesKey(states) : "");
+    /// <summary>The cache key's part for the area stats, league category and terrain plugin states (area, seed) is
+    /// played with: precomputed when the seed is reserved or updated so <see cref="For(string, uint, int)"/> does not
+    /// re-sort stats or re-hash plugin states on every lookup.</summary>
+    static string StatsKey(string areaId, uint seed) => PlayedStatsKeys.GetValueOrDefault((areaId, seed), "");
+
+    static string FormatStatsKey(string statsKey, int category, string statesKey) =>
+        (statsKey.Length > 0 ? "#" + statsKey : "")
+        + (category != LeagueCategory.None ? $"@c{category}" : "")
+        + (statesKey.Length > 0 ? "~p" + statesKey : "");
+
+    static void StoreStatsKey(string areaId, uint seed, string fullKey)
+    {
+        if (fullKey.Length > 0) PlayedStatsKeys[(areaId, seed)] = fullKey;
+        else PlayedStatsKeys.TryRemove((areaId, seed), out _);
+    }
 
     /// <summary>The terrain plugin states (area, seed) is played with, null for none.</summary>
     public static IReadOnlyDictionary<ushort, byte[]>? PluginStatesOf(string areaId, uint seed) =>
@@ -152,7 +167,25 @@ public static class ServerLevels
         lock (Gate)
         {
             PlayedPluginStates.TryRemove((areaId, seed), out _);
-            if (PlayedContexts.TryGetValue((areaId, seed), out var played)) PlayedContexts[(areaId, seed)] = played with { States = "" };
+            if (PlayedContexts.TryGetValue((areaId, seed), out var played))
+            {
+                PlayedContexts[(areaId, seed)] = played with { States = "" };
+                StoreStatsKey(areaId, seed, FormatStatsKey(played.Stats, played.Category, ""));
+            }
+            else PlayedStatsKeys.TryRemove((areaId, seed), out _);
+        }
+    }
+
+    /// <summary>(area, seed) is played at <paramref name="areaLevel"/> (a module's AreaHeader.Level override):
+    /// updates the recorded level so <see cref="For(string, uint)"/> matches what 0x1d sends.</summary>
+    public static void PlayAtLevel(string areaId, uint seed, int areaLevel)
+    {
+        if (areaLevel <= 0) return;
+        lock (Gate)
+        {
+            PlayedLevels[(areaId, seed)] = areaLevel;
+            if (PlayedContexts.TryGetValue((areaId, seed), out var played))
+                PlayedContexts[(areaId, seed)] = played with { Level = areaLevel };
         }
     }
 
@@ -328,6 +361,7 @@ public static class ServerLevels
                 PlayedCategories[(areaId, candidate)] = category;
                 PlayedLevels[(areaId, candidate)] = level;
                 PlayedStats[(areaId, candidate)] = snapshot;
+                StoreStatsKey(areaId, candidate, FormatStatsKey(statsKey, category, statesKey));
                 return candidate;
             }
             seed = Reserve(seed);
@@ -424,9 +458,21 @@ public static class ServerLevels
     // Opened on the first generation and kept.
     static TerrainCache Files() => _files ??= new TerrainCache(Read);
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DoodadHull?> ModelHulls = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The cells a model's Hull (its .ao, or the .ao it extends) closes to the player where the object stands, as
+    /// the client stamps it (a static object's at its creation, a TriggerableBlockage's when it blocks): the stamped cells
+    /// and the ring a stamp gives a value under the player's 2 (<see cref="Walkability.ClosedTo"/>); empty when the model
+    /// has none.</summary>
+    public static HashSet<(int X, int Y)> ModelWalkCells(string model, int x, int y, float angle, float scale = 1, bool mirrored = false) =>
+        ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
+            ? Walkability.ClosedTo(Walkability.WalkCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored))) : [];
+
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 
-    static readonly Lazy<Dictionary<string, int>> Levels = new(() =>
+    static Dictionary<string, int> Levels = default!;
+
+    static Dictionary<string, int> LoadLevels()
     {
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
@@ -436,8 +482,8 @@ public static class ServerLevels
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
         return levels;
-    });
+    }
 
     // The WorldAreas row's area level (the generator's AreaInfo reads level-dependent rows); 1 without the table.
-    public static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
+    public static int AreaLevel(string areaId) => Math.Max(1, Levels.GetValueOrDefault(areaId, 1));
 }

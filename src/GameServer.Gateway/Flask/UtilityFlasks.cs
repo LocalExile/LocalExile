@@ -16,7 +16,7 @@ public static class UtilityFlasks
     /// <summary>One base type's use: its buff (BuffDefinitions row and Id), the buff's stats with their values, how long
     /// it lasts, and its charges. <paramref name="Extra"/>: a second buff the flask grants with its own stats (the Silver
     /// Flask's Onslaught).</summary>
-    public sealed record Utility(int BaseRow, ushort BuffRow, string BuffId, IReadOnlyList<(string Stat, int Value)> Stats,
+    public sealed record Utility(int BaseRow, ushort BuffRow, string BuffId, IReadOnlyList<(uint Stat, int Value)> Stats,
         double Seconds, int ChargesPerUse, int MaxCharges, ExtraBuff? Extra = null)
     {
         /// <summary>The charges as <see cref="Flasks"/> spends and refills them.</summary>
@@ -24,7 +24,7 @@ public static class UtilityFlasks
 
         /// <summary>The stats this flask's buffs grant (its own and the extra buff's) that a use carries: all but the
         /// unsupported ones (<see cref="SupportOf"/>).</summary>
-        public IEnumerable<(string Stat, int Value)> Applied =>
+        public IEnumerable<(uint Stat, int Value)> Applied =>
             Stats.Concat(Extra?.Stats ?? []).Where(s => SupportOf(s.Stat) != Support.Unsupported);
     }
 
@@ -42,99 +42,99 @@ public static class UtilityFlasks
     }
 
     /// <summary>The stats only the character panel reads (<see cref="Support.PanelOnly"/>).</summary>
-    static readonly IReadOnlySet<string> PanelOnly = new HashSet<string>(StringComparer.Ordinal)
+    static readonly IReadOnlySet<uint> PanelOnly = new HashSet<uint>()
     {
-        "stun_threshold_+%",
-        "base_avoid_stun_%",
-        "base_stun_recovery_+%",
-        "curse_effect_on_self_+%", "chance_to_freeze_shock_ignite_%",
-        "immune_to_poison", "immune_to_bleeding",
-        "light_radius_+%",   // the client draws the light radius from the stat it gets
+        Stat.StunThresholdPlusPct,
+        Stat.BaseAvoidStunPct,
+        Stat.BaseStunRecoveryPlusPct,
+        Stat.CurseEffectOnSelfPlusPct, Stat.ChanceToFreezeShockIgnitePct,
+        Stat.ImmuneToPoison, Stat.ImmuneToBleeding,
+        Stat.LightRadiusPlusPct,   // the client draws the light radius from the stat it gets
     };
 
-    static readonly IReadOnlySet<string> ElementalAilmentInputs = new HashSet<string>(StringComparer.Ordinal)
+    static readonly IReadOnlySet<uint> ElementalAilmentInputs = new HashSet<uint>()
     {
-        "base_frozen_effect_on_self_+%", "base_avoid_chill_%", "base_avoid_freeze_%", "base_avoid_ignite_%",
-        "base_avoid_shock_%", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%", "shocked_effect_on_self_+%",
-        "base_immune_to_freeze", "base_immune_to_chill", "base_immune_to_shock", "base_immune_to_ignite",
+        Stat.BaseFrozenEffectOnSelfPlusPct, Stat.BaseAvoidChillPct, Stat.BaseAvoidFreezePct, Stat.BaseAvoidIgnitePct,
+        Stat.BaseAvoidShockPct, Stat.ChillEffectivenessOnSelfPlusPct, Stat.BaseSelfFreezeDurationMinusPct, Stat.ShockedEffectOnSelfPlusPct,
+        Stat.BaseImmuneToFreeze, Stat.BaseImmuneToChill, Stat.BaseImmuneToShock, Stat.BaseImmuneToIgnite,
     };
 
     /// <summary>How a flask effect's stat counts here.</summary>
-    public static Support SupportOf(string stat) =>
+    public static Support SupportOf(uint stat) =>
         ActorScale.IsInput(stat) || Modelled.Contains(stat) || ElementalAilmentInputs.Contains(stat) || HandedFlag(stat)
             ? Support.Modelled
         : PanelOnly.Contains(stat) ? Support.PanelOnly
-        : stat is "base_ward" or "ward_+%" ? Support.Ward
+        : stat is Stat.BaseWard or Stat.WardPlusPct ? Support.Ward
         : Support.Unsupported;
 
     /// <summary>A flask's "during effect" mods (suffixes, utility flasks only in 3.29): the flask's local stat, the
     /// character stat it grants while the effect runs, its sign, and whether it is a flag (not scaled by increased effect).
     /// Each is its own effect (poewiki: "different suffixes … stack"; two flasks with the same suffix: the strongest).</summary>
-    public static readonly IReadOnlyList<(string Local, string Stat, int Sign, bool Flag)> DuringEffect =
+    public static readonly IReadOnlyList<(uint Local, uint Stat, int Sign, bool Flag)> DuringEffect =
     [
-        ("local_flask_armour_+%_while_healing", "physical_damage_reduction_rating_+%", 1, false),
-        ("local_flask_evasion_+%_while_healing", "evasion_rating_+%", 1, false),
-        ("local_flask_movement_speed_+%_while_healing", "base_movement_velocity_+%", 1, false),
-        ("local_flask_resistances_+%_while_healing", "base_resist_all_elements_%", 1, false),
-        ("local_flask_critical_strike_chance_+%_during_flask_effect", "critical_strike_chance_+%", 1, false),
-        ("local_flask_ward_+%_during_effect", "ward_+%", 1, false),
-        ("local_flask_stun_recovery_+%_while_healing", "base_stun_recovery_+%", 1, false),
-        ("local_flask_avoid_stun_chance_%_during_flask_effect", "base_avoid_stun_%", 1, false),
-        ("local_avoid_chill_%_during_flask_effect", "base_avoid_chill_%", 1, false),
-        ("local_avoid_freeze_%_during_flask_effect", "base_avoid_freeze_%", 1, false),
-        ("local_avoid_ignite_%_during_flask_effect", "base_avoid_ignite_%", 1, false),
-        ("local_avoid_shock_%_during_flask_effect", "base_avoid_shock_%", 1, false),
-        ("local_self_chill_effect_+%_during_flask_effect", "chill_effectiveness_on_self_+%", 1, false),
-        ("local_self_freeze_duration_+%_during_flask_effect", "base_self_freeze_duration_-%", -1, false),
-        ("local_self_shock_effect_+%_during_flask_effect", "shocked_effect_on_self_+%", 1, false),
-        ("local_self_curse_effect_+%_during_flask_effect", "curse_effect_on_self_+%", 1, false),
-        ("local_flask_chance_to_freeze_shock_ignite_%_while_healing", "chance_to_freeze_shock_ignite_%", 1, false),
-        ("local_flask_immune_to_freeze_and_chill_during_flask_effect", "base_immune_to_freeze", 1, true),
-        ("local_flask_immune_to_freeze_and_chill_during_flask_effect", "base_immune_to_chill", 1, true),
-        ("local_flask_immune_to_shock_during_flask_effect", "base_immune_to_shock", 1, true),
-        ("local_flask_dispels_burning_and_ignite_immunity_during_effect", "base_immune_to_ignite", 1, true),
-        ("local_flask_immune_to_poison_during_flask_effect", "immune_to_poison", 1, true),
-        ("local_flask_immune_to_bleeding_and_corrupted_blood_during_flask_effect", "immune_to_bleeding", 1, true),
-        ("local_flask_immune_to_bleeding_and_corrupted_blood_during_flask_effect", "immune_to_corrupted_blood", 1, true),
+        (Stat.LocalFlaskArmourPlusPctWhileHealing, Stat.PhysicalDamageReductionRatingPlusPct, 1, false),
+        (Stat.LocalFlaskEvasionPlusPctWhileHealing, Stat.EvasionRatingPlusPct, 1, false),
+        (Stat.LocalFlaskMovementSpeedPlusPctWhileHealing, Stat.BaseMovementVelocityPlusPct, 1, false),
+        (Stat.LocalFlaskResistancesPlusPctWhileHealing, Stat.BaseResistAllElementsPct, 1, false),
+        (Stat.LocalFlaskCriticalStrikeChancePlusPctDuringFlaskEffect, Stat.CriticalStrikeChancePlusPct, 1, false),
+        (Stat.LocalFlaskWardPlusPctDuringEffect, Stat.WardPlusPct, 1, false),
+        (Stat.LocalFlaskStunRecoveryPlusPctWhileHealing, Stat.BaseStunRecoveryPlusPct, 1, false),
+        (Stat.LocalFlaskAvoidStunChancePctDuringFlaskEffect, Stat.BaseAvoidStunPct, 1, false),
+        (Stat.LocalAvoidChillPctDuringFlaskEffect, Stat.BaseAvoidChillPct, 1, false),
+        (Stat.LocalAvoidFreezePctDuringFlaskEffect, Stat.BaseAvoidFreezePct, 1, false),
+        (Stat.LocalAvoidIgnitePctDuringFlaskEffect, Stat.BaseAvoidIgnitePct, 1, false),
+        (Stat.LocalAvoidShockPctDuringFlaskEffect, Stat.BaseAvoidShockPct, 1, false),
+        (Stat.LocalSelfChillEffectPlusPctDuringFlaskEffect, Stat.ChillEffectivenessOnSelfPlusPct, 1, false),
+        (Stat.LocalSelfFreezeDurationPlusPctDuringFlaskEffect, Stat.BaseSelfFreezeDurationMinusPct, -1, false),
+        (Stat.LocalSelfShockEffectPlusPctDuringFlaskEffect, Stat.ShockedEffectOnSelfPlusPct, 1, false),
+        (Stat.LocalSelfCurseEffectPlusPctDuringFlaskEffect, Stat.CurseEffectOnSelfPlusPct, 1, false),
+        (Stat.LocalFlaskChanceToFreezeShockIgnitePctWhileHealing, Stat.ChanceToFreezeShockIgnitePct, 1, false),
+        (Stat.LocalFlaskImmuneToFreezeAndChillDuringFlaskEffect, Stat.BaseImmuneToFreeze, 1, true),
+        (Stat.LocalFlaskImmuneToFreezeAndChillDuringFlaskEffect, Stat.BaseImmuneToChill, 1, true),
+        (Stat.LocalFlaskImmuneToShockDuringFlaskEffect, Stat.BaseImmuneToShock, 1, true),
+        (Stat.LocalFlaskDispelsBurningAndIgniteImmunityDuringEffect, Stat.BaseImmuneToIgnite, 1, true),
+        (Stat.LocalFlaskImmuneToPoisonDuringFlaskEffect, Stat.ImmuneToPoison, 1, true),
+        (Stat.LocalFlaskImmuneToBleedingAndCorruptedBloodDuringFlaskEffect, Stat.ImmuneToBleeding, 1, true),
+        (Stat.LocalFlaskImmuneToBleedingAndCorruptedBloodDuringFlaskEffect, Stat.ImmuneToCorruptedBlood, 1, true),
         // Dying Sun: "(10-20)% increased Area of Effect during Effect", "Skills fire 2 additional Projectiles during
         // Effect". Both scale with increased flask effect, rounded down (2 x 1.5 = 3 projectiles).
-        ("local_flask_area_of_effect_+%_during_flask_effect", "base_skill_area_of_effect_+%", 1, false),
-        ("local_flask_number_of_additional_projectiles_during_flask_effect", "number_of_additional_projectiles", 1, false),
+        (Stat.LocalFlaskAreaOfEffectPlusPctDuringFlaskEffect, Stat.BaseSkillAreaOfEffectPlusPct, 1, false),
+        (Stat.LocalFlaskNumberOfAdditionalProjectilesDuringFlaskEffect, Stat.NumberOfAdditionalProjectiles, 1, false),
         // Oriath's End: the kill explosion's chance (KillExplosions), scaled by flask effect.
-        ("local_unique_flask_explode_enemies_for_10%_life_as_random_element_on_kill_chance_%_during_flask_effect",
-            "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%", 1, false),
+        (Stat.LocalUniqueFlaskExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePctDuringFlaskEffect,
+            Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct, 1, false),
         // Divination Distillate (a hybrid flask: RecoveryDuringEffects keeps these while its recovery runs).
-        ("local_unique_flask_item_rarity_+%_while_healing", "base_item_found_rarity_+%", 1, false),
-        ("local_unique_flask_item_quantity_+%_while_healing", "base_item_found_quantity_+%", 1, false),
-        ("local_unique_flask_light_radius_+%_while_healing", "light_radius_+%", 1, false),
-        ("local_unique_flask_resist_all_elements_%_during_flask_effect", "base_resist_all_elements_%", 1, false),
+        (Stat.LocalUniqueFlaskItemRarityPlusPctWhileHealing, Stat.BaseItemFoundRarityPlusPct, 1, false),
+        (Stat.LocalUniqueFlaskItemQuantityPlusPctWhileHealing, Stat.BaseItemFoundQuantityPlusPct, 1, false),
+        (Stat.LocalUniqueFlaskLightRadiusPlusPctWhileHealing, Stat.LightRadiusPlusPct, 1, false),
+        (Stat.LocalUniqueFlaskResistAllElementsPctDuringFlaskEffect, Stat.BaseResistAllElementsPct, 1, false),
         // Bottled Faith: increased critical strike chance against enemies on consecrated ground (Game.CriticalChanceOn),
         // and the increased damage taken that consecrated ground created during the effect applies (FlaskGrounds).
-        ("local_unique_flask_critical_strike_chance_+%_vs_enemies_on_consecrated_ground_during_flask_effect",
+        (Stat.LocalUniqueFlaskCriticalStrikeChancePlusPctVsEnemiesOnConsecratedGroundDuringFlaskEffect,
             FlaskGrounds.VsConsecratedCriticalStat, 1, false),
-        ("local_flask_during_effect_enemy_damage_taken_+%_on_consecrated_ground", FlaskGrounds.EnemyDamageTakenStat, 1, false),
+        (Stat.LocalFlaskDuringEffectEnemyDamageTakenPlusPctOnConsecratedGround, FlaskGrounds.EnemyDamageTakenStat, 1, false),
         // Cinderswallow Urn: recovery on kill (KillRecovery.From reads the merged player stats), and the increased damage
         // taken retained by each ignite applied during the effect (MonsterIgnites).
-        ("local_flask_recover_%_maximum_life_on_kill_during_flask_effect", "recover_%_maximum_life_on_kill", 1, false),
-        ("local_flask_recover_%_maximum_mana_on_kill_during_flask_effect", "recover_%_maximum_mana_on_kill", 1, false),
-        ("local_flask_recover_%_maximum_energy_shield_on_kill_during_flask_effect", "recover_energy_shield_%_on_kill", 1, false),
-        ("local_flask_enemies_ignited_during_flask_effect_damage_taken_+%", IgnitedDuringEffectTakenStat, 1, false),
+        (Stat.LocalFlaskRecoverPctMaximumLifeOnKillDuringFlaskEffect, Stat.RecoverPctMaximumLifeOnKill, 1, false),
+        (Stat.LocalFlaskRecoverPctMaximumManaOnKillDuringFlaskEffect, Stat.RecoverPctMaximumManaOnKill, 1, false),
+        (Stat.LocalFlaskRecoverPctMaximumEnergyShieldOnKillDuringFlaskEffect, Stat.RecoverEnergyShieldPctOnKill, 1, false),
+        (Stat.LocalFlaskEnemiesIgnitedDuringFlaskEffectDamageTakenPlusPct, IgnitedDuringEffectTakenStat, 1, false),
         // Rumi's Concoction and its Replica: additional chance to block attack and spell damage (the buff's own stats,
         // BuffDefinitions unique_flask_rumis_concoction), added to the pools' block before its increases (Apply).
-        ("local_unique_flask_block_%_while_healing", "monster_base_block_%", 1, false),
-        ("local_unique_flask_spell_block_%_while_healing", "base_spell_block_%", 1, false),
+        (Stat.LocalUniqueFlaskBlockPctWhileHealing, Stat.MonsterBaseBlockPct, 1, false),
+        (Stat.LocalUniqueFlaskSpellBlockPctWhileHealing, Stat.BaseSpellBlockPct, 1, false),
         // Stormblood (and its cold sibling): all damage from critical strikes can shock (chill, freeze) during the effect
         // (MonsterElementalAilments.Inflicting). Sap and Brittle are not modelled.
-        ("local_unique_flask_all_damage_from_critical_strikes_can_shock_during_effect", "all_damage_from_critical_strikes_can_shock", 1, true),
-        ("local_unique_flask_all_damage_from_critical_strikes_can_chill_during_effect", "all_damage_from_critical_strikes_can_chill", 1, true),
-        ("local_unique_flask_all_damage_from_critical_strikes_can_freeze_during_effect", "all_damage_from_critical_strikes_can_freeze", 1, true),
+        (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanShockDuringEffect, Stat.AllDamageFromCriticalStrikesCanShock, 1, true),
+        (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanChillDuringEffect, Stat.AllDamageFromCriticalStrikesCanChill, 1, true),
+        (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanFreezeDuringEffect, Stat.AllDamageFromCriticalStrikesCanFreeze, 1, true),
     ];
 
     // The "during effect" flags modules handed over (HandOverDuringEffectFlags), in the order they were handed over.
-    static volatile (string Local, string Stat)[] _handedFlags = [];
+    static volatile (uint Local, uint Stat)[] _handedFlags = [];
     static readonly object HandedFlagsLock = new();
 
-    static bool HandedFlag(string stat)
+    static bool HandedFlag(uint stat)
     {
         foreach (var flag in _handedFlags) if (flag.Stat == stat) return true;
         return false;
@@ -143,9 +143,9 @@ public static class UtilityFlasks
     /// <summary>A hand-over for modules: each pair is a flask's local "during effect" flag and the character stat it
     /// sets to 1 while the effect runs, as a <see cref="DuringEffect"/> flag row, put in the raw stats the rules read.
     /// The framework names none; disposing the result (the module's lifetime) takes back the pairs it added.</summary>
-    public static IDisposable HandOverDuringEffectFlags(IReadOnlyCollection<(string Local, string Stat)> flags)
+    public static IDisposable HandOverDuringEffectFlags(IReadOnlyCollection<(uint Local, uint Stat)> flags)
     {
-        (string, string)[] added;
+        (uint, uint)[] added;
         lock (HandedFlagsLock)
         {
             added = [.. flags.Distinct().Except(_handedFlags)];
@@ -154,7 +154,7 @@ public static class UtilityFlasks
         return new FlagsHandOver(added);
     }
 
-    sealed class FlagsHandOver((string, string)[] added) : IDisposable
+    sealed class FlagsHandOver((uint, uint)[] added) : IDisposable
     {
         int _disposed;
 
@@ -166,36 +166,37 @@ public static class UtilityFlasks
     }
 
     /// <summary>A buff a flask grants besides its own (BuffDefinitions row, with its stats).</summary>
-    public sealed record ExtraBuff(ushort BuffRow, string BuffId, IReadOnlyList<(string Stat, int Value)> Stats);
+    public sealed record ExtraBuff(ushort BuffRow, string BuffId, IReadOnlyList<(uint Stat, int Value)> Stats);
 
     /// <summary>The buff stats the server applies to the character, and where: the pools (<see cref="Apply"/>) or the raw
     /// stats (<see cref="RawStats"/>), or both.</summary>
-    public static readonly IReadOnlySet<string> Modelled = new HashSet<string>(StringComparer.Ordinal)
+    public static readonly IReadOnlySet<uint> Modelled = new HashSet<uint>()
     {
-        "base_fire_damage_resistance_%", "base_cold_damage_resistance_%", "base_lightning_damage_resistance_%",
-        "base_chaos_damage_resistance_%", "base_resist_all_elements_%",
-        "base_maximum_fire_damage_resistance_%", "base_maximum_cold_damage_resistance_%",
-        "base_maximum_lightning_damage_resistance_%", "base_maximum_chaos_damage_resistance_%",
-        "base_physical_damage_reduction_rating", "base_evasion_rating",
-        "basalt_flask_armour_+%_final", "stibnite_flask_evasion_rating_+%_final",
-        "base_movement_velocity_+%", "attack_speed_+%", "base_cast_speed_+%",
-        "critical_strike_chance_+%", "base_spell_suppression_chance_%", "damage_+%",
-        "physical_damage_reduction_rating_+%", "evasion_rating_+%", "base_item_found_rarity_+%", "phase_through_objects",
-        "base_skill_area_of_effect_+%", "number_of_additional_projectiles",
-        "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%",
-        "immune_to_corrupted_blood",
-        "base_item_found_quantity_+%",   // ItemQuantityFactor
+        Stat.BaseFireDamageResistancePct, Stat.BaseColdDamageResistancePct, Stat.BaseLightningDamageResistancePct,
+        Stat.BaseChaosDamageResistancePct, Stat.BaseResistAllElementsPct,
+        Stat.BaseMaximumFireDamageResistancePct, Stat.BaseMaximumColdDamageResistancePct,
+        Stat.BaseMaximumLightningDamageResistancePct, Stat.BaseMaximumChaosDamageResistancePct,
+        Stat.BasePhysicalDamageReductionRating, Stat.BaseEvasionRating,
+        Stat.BasaltFlaskArmourPlusPctFinal, Stat.StibniteFlaskEvasionRatingPlusPctFinal,
+        Stat.BaseMovementVelocityPlusPct, Stat.AttackSpeedPlusPct, Stat.BaseCastSpeedPlusPct,
+        Stat.CriticalStrikeChancePlusPct, Stat.BaseSpellSuppressionChancePct, Stat.DamagePlusPct,
+        Stat.PhysicalDamageReductionRatingPlusPct, Stat.EvasionRatingPlusPct, Stat.BaseItemFoundRarityPlusPct, Stat.PhaseThroughObjects,
+        Stat.BaseSkillAreaOfEffectPlusPct, Stat.NumberOfAdditionalProjectiles,
+        Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct,
+        Stat.ImmuneToCorruptedBlood,
+        Stat.BaseItemFoundQuantityPlusPct,   // ItemQuantityFactor
         FlaskGrounds.VsConsecratedCriticalStat, FlaskGrounds.EnemyDamageTakenStat,   // Bottled Faith
-        "recover_%_maximum_life_on_kill", "recover_%_maximum_mana_on_kill", "recover_energy_shield_%_on_kill",
+        Stat.RecoverPctMaximumLifeOnKill, Stat.RecoverPctMaximumManaOnKill, Stat.RecoverEnergyShieldPctOnKill,
         IgnitedDuringEffectTakenStat,   // Cinderswallow Urn
-        "monster_base_block_%", "base_spell_block_%",   // Rumi's Concoction (Apply)
-        "all_damage_from_critical_strikes_can_shock", "all_damage_from_critical_strikes_can_chill",
-        "all_damage_from_critical_strikes_can_freeze",   // Stormblood
+        Stat.MonsterBaseBlockPct, Stat.BaseSpellBlockPct,   // Rumi's Concoction (Apply)
+        Stat.AllDamageFromCriticalStrikesCanShock, Stat.AllDamageFromCriticalStrikesCanChill,
+        Stat.AllDamageFromCriticalStrikesCanFreeze,   // Stormblood
     };
 
     /// <summary>The flask buff flag that stands for Onslaught (the Silver Flask's flask_utility_haste has no stats of its
     /// own), and the BuffTemplates row with the player's Onslaught values (20% attack, cast and movement speed).</summary>
-    const string OnslaughtFlag = "silver_flask_display_onslaught", OnslaughtBuff = "onslaught", OnslaughtTemplate = "MapModPlayerOnslaught";
+    const uint OnslaughtFlag = Stat.SilverFlaskDisplayOnslaught;
+    const string OnslaughtBuff = "onslaught", OnslaughtTemplate = "MapModPlayerOnslaught";
 
     /// <summary>The utility flasks by BaseItemTypes row, from the client tables Flasks, BuffDefinitions, BuffTemplates,
     /// ComponentCharges and Stats: every one, whatever its stats do here (<see cref="SupportOf"/>).</summary>
@@ -204,7 +205,7 @@ public static class UtilityFlasks
         var result = new Dictionary<int, Utility>();
         if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !ClientTables.Has(t))) return result;
         var stats = new StatCatalog();
-        string StatName(int key) => stats.Name((uint)key + 1);
+        static uint StatId(int key) => (uint)key + 1;
 
         var charges = new Dictionary<string, (int Max, int PerUse)>();
         foreach (var r in ClientTables.Table("ComponentCharges"))
@@ -218,7 +219,7 @@ public static class UtilityFlasks
                 if (t.Text("Id") == OnslaughtTemplate + (hardMode ? "HardMode" : "")
                     && t.IntOrNull("BuffDefinitionsKey") is int k && k == onslaught)
                     onslaughtBuff = new((ushort)onslaught, OnslaughtBuff,
-                        [.. buffRows[onslaught].Ints("StatsKeys").Select(StatName)
+                        [.. buffRows[onslaught].Ints("StatsKeys").Select(StatId)
                             .Zip(t.Ints("Buff_StatValues"))]);
         }
 
@@ -232,9 +233,9 @@ public static class UtilityFlasks
             var buff = buffRows[bk];
             // BuffStatValues has one value per StatsKeys entry (Ruby Flask: base_fire_damage_resistance_% 40,
             // base_maximum_fire_damage_resistance_% 5).
-            List<(string, int)> values = [.. buff.Ints("StatsKeys").Select(StatName)
+            List<(uint, int)> values = [.. buff.Ints("StatsKeys").Select(StatId)
                 .Zip(f.Ints(hardMode && !f.IsNull("BuffStatValues2") ? "BuffStatValues2" : "BuffStatValues"))];
-            bool grantsOnslaught = buff.Ints("GrantedFlags").Any(s => StatName(s) == OnslaughtFlag);
+            bool grantsOnslaught = buff.Ints("GrantedFlags").Any(s => StatId(s) == OnslaughtFlag);
             // RecoveryTime is in tenths of a second, as for life flasks (Quicksilver Flask: 60, 6 s; Path of Building and
             // RePoE 3.29 agree). RecoveryTime2 is the HardMode duration (Quicksilver 20, 2 s).
             result.TryAdd(b, new Utility(b, (ushort)bk, buff.Text("Id") ?? "", values,
@@ -251,25 +252,25 @@ public static class UtilityFlasks
     /// base × (1 + local increased) × (1 + global increased) × (1 + quality) × (1 + local more), quality multiplying the other increases; effect
     /// = 1 + the local and the character's increased effect.</summary>
     public static (IReadOnlyList<Source> Stats, double Seconds) For(Utility u, Item flask,
-        IReadOnlyDictionary<string, int> local, Func<string, int> character, int playerLevel = 1)
+        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int playerLevel = 1, double finalMultiplier = 1)
     {
-        int Get(string name) => local.GetValueOrDefault(name);
+        int Get(uint name) => local.GetValueOrDefault(name);
         double durationInc = PanelStats.FlaskDurationIncrease(character, playerLevel);
         // PoB Item.lua2421-2447 applies local duration/quality first; global FlaskDuration multiplies that result.
-        double seconds = u.Seconds * (100.0 + Get("local_flask_duration_+%")) / 100.0
+        double seconds = u.Seconds * (100.0 + Get(Stat.LocalFlaskDurationPlusPct)) / 100.0
             * (100.0 + durationInc) / 100.0 * (100.0 + flask.Quality) / 100.0
-            * (100.0 + Get("local_flask_duration_+%_final")) / 100.0;
-        double effect = FlaskEffectScaling.Multiplier(character, playerLevel, Get("local_flask_effect_+%"),
-            flask.Rarity == ItemRarity.Magic ? character("magic_utility_flask_effect_+%") : 0);
-        bool Applies(string stat) => SupportOf(stat) != Support.Unsupported;
+            * (100.0 + Get(Stat.LocalFlaskDurationPlusPctFinal)) / 100.0;
+        double effect = FlaskEffectScaling.Multiplier(character, playerLevel, Get(Stat.LocalFlaskEffectPlusPct),
+            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0, finalMultiplier);
+        bool Applies(uint stat) => SupportOf(stat) != Support.Unsupported;
         List<Source> stats = [.. u.Stats.Where(s => Applies(s.Stat))
-            .Select(s => new Source($"buff {u.BuffRow}", s.Stat, s.Stat == "phase_through_objects" ? s.Value
+            .Select(s => new Source($"buff {u.BuffRow}", s.Stat, s.Stat == Stat.PhaseThroughObjects ? s.Value
                 : ActorScale.IsInput(s.Stat)
                     ? (int)Math.Clamp(Math.Truncate(Math.Round(s.Value * effect, 2)), int.MinValue, int.MaxValue)
                     : Scale(s.Value, effect)))];
         // A flask's Onslaught scales with the flask's effect modifiers (wiki Silver Flask, Onslaught: since 3.20 Onslaught is
         // a buff and flask effect applies when a flask grants it), added to the character's increased Onslaught effect.
-        double onslaughtEffect = effect + character("onslaught_effect_+%") / 100.0;
+        double onslaughtEffect = effect + character(Stat.OnslaughtEffectPlusPct) / 100.0;
         if (u.Extra is { } x) stats.AddRange(OnslaughtSources(x, onslaughtEffect));
         // The flask's "during effect" mods, scaled by increased effect too (poewiki, Quality: increased flask effect
         // improves "any of the mods that the flask has rolled"); flags stay as they are.
@@ -279,11 +280,11 @@ public static class UtilityFlasks
 
     /// <summary>Cinderswallow Urn's "Enemies Ignited by you during Effect take X% increased Damage", as a running
     /// effect's stat (no client stat carries it; the server reads it from the running flasks).</summary>
-    public const string IgnitedDuringEffectTakenStat = "local_flask_enemies_ignited_during_flask_effect_damage_taken_+%";
+    public const uint IgnitedDuringEffectTakenStat = Stat.LocalFlaskEnemiesIgnitedDuringFlaskEffectDamageTakenPlusPct;
 
     /// <summary>A flask's "during effect" mods at <paramref name="effect"/> (its increased effect): utility flasks through
     /// <see cref="For"/>, life, mana and hybrid flasks through <see cref="RecoveryDuringEffects"/>.</summary>
-    public static List<Source> DuringEffectSources(IReadOnlyDictionary<string, int> local, double effect)
+    public static List<Source> DuringEffectSources(IReadOnlyDictionary<uint, int> local, double effect)
     {
         List<Source> stats = [];
         foreach (var (localStat, stat, sign, flag) in DuringEffect.Concat(_handedFlags.Select(f => (f.Local, f.Stat, 1, true))))
@@ -341,7 +342,7 @@ public static class UtilityFlasks
 
     /// <summary>One stat an effect applies: the effect it belongs to (its buff, "buff 121", or a flask mod's stat), the
     /// stat and its value.</summary>
-    public readonly record struct Source(string Effect, string Stat, int Value);
+    public readonly record struct Source(string Effect, uint Stat, int Value);
 
     /// <summary>A utility flask's effect under way: the flask (item id and flask-bar cell), its buffs on the player, what it
     /// applies, and when it started and ends (connection clock seconds, which stop while the game is paused).</summary>
@@ -349,6 +350,7 @@ public static class UtilityFlasks
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
         public long Activation { get; set; }
+        public int SelfChaosDamageLifePctPerMinute { get; init; }
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
     }
@@ -368,12 +370,30 @@ public static class UtilityFlasks
     /// a pending End edge from any subsequent accepted use of the same item.</summary>
     public sealed class Effects
     {
+        public sealed class DamageProgress
+        {
+            public double Through = double.NaN;
+            public double Pending, TakenCarry, BypassCarry;
+        }
+
         readonly List<Active> _active = [];
         readonly Lock _lock = new();
         int _ticker, _lastTicket;
         long _activation;
         readonly Dictionary<uint, long> _latest = [];
         double expiryRate = 1;
+        public DamageProgress SelfDamage { get; } = new();
+
+        public bool HasSelfDamage
+        {
+            get { lock (_lock) return _active.Any(a => a.SelfChaosDamageLifePctPerMinute > 0); }
+        }
+
+        public IReadOnlyList<Active> SelfDamageEffects()
+        {
+            lock (_lock) return [.. _active.Where(a => a.SelfChaosDamageLifePctPerMinute > 0)];
+        }
+
         public void SetExpiryRate(double now, double rate)
         {
             lock (_lock)
@@ -447,7 +467,7 @@ public static class UtilityFlasks
         }
 
         /// <summary>What the running effects apply: of the same effect, only the strongest (<see cref="Strongest"/>).</summary>
-        public IReadOnlyList<(string Stat, int Value)> Stats()
+        public IReadOnlyList<(uint Stat, int Value)> Stats()
         {
             lock (_lock) return Strongest(_active.SelectMany(a => a.Stats));
         }
@@ -460,7 +480,7 @@ public static class UtilityFlasks
         }
 
         /// <summary>The strongest positive value of one stat without allocating a source snapshot.</summary>
-        public int MaximumStat(string stat)
+        public int MaximumStat(uint stat)
         {
             lock (_lock)
             {
@@ -494,46 +514,46 @@ public static class UtilityFlasks
     /// effect has an independent duration, and only the strongest applies"; different effects stack. Path of Building
     /// merges flask buffs the same way (CalcPerform mergeBuff: per effect, the highest value of each stat). So per
     /// (effect, stat) the value with the largest size wins, a bonus over an equal penalty.</summary>
-    public static IReadOnlyList<(string Stat, int Value)> Strongest(IEnumerable<Source> sources) =>
+    public static IReadOnlyList<(uint Stat, int Value)> Strongest(IEnumerable<Source> sources) =>
         [.. sources.GroupBy(s => (s.Effect, s.Stat))
             .Select(g => (g.Key.Stat, g.OrderByDescending(s => Math.Abs((long)s.Value)).ThenByDescending(s => s.Value).First().Value))];
 
     /// <summary>The character's pool bonuses with the running flasks' stats: resistances and their maxima, armour and
     /// evasion (flat, and the Basalt / Stibnite more multipliers on top of any others), movement and attack speed,
     /// critical strike chance and spell suppression.</summary>
-    public static CharacterStats.Bonus Apply(CharacterStats.Bonus b, IEnumerable<(string Stat, int Value)> stats)
+    public static CharacterStats.Bonus Apply(CharacterStats.Bonus b, IEnumerable<(uint Stat, int Value)> stats)
     {
-        var s = new Dictionary<string, int>(StringComparer.Ordinal);
+        var s = new Dictionary<uint, int>();
         foreach (var (stat, value) in stats) s[stat] = s.GetValueOrDefault(stat) + value;
         if (s.Count == 0) return b;
-        int Get(string name) => s.GetValueOrDefault(name);
-        int all = Get("base_resist_all_elements_%");
+        int Get(uint name) => s.GetValueOrDefault(name);
+        int all = Get(Stat.BaseResistAllElementsPct);
         // Preserve the complete product until the final defence rating is rounded.
         static decimal More(decimal a, int c) => (100m + a) * (100m + c) / 100m - 100m;
         return b with
         {
-            FireResistance = b.FireResistance + all + Get("base_fire_damage_resistance_%"),
-            ColdResistance = b.ColdResistance + all + Get("base_cold_damage_resistance_%"),
-            LightningResistance = b.LightningResistance + all + Get("base_lightning_damage_resistance_%"),
-            ChaosResistance = b.ChaosResistance + Get("base_chaos_damage_resistance_%"),
-            FireMaxResistance = b.FireMaxResistance + Get("base_maximum_fire_damage_resistance_%"),
-            ColdMaxResistance = b.ColdMaxResistance + Get("base_maximum_cold_damage_resistance_%"),
-            LightningMaxResistance = b.LightningMaxResistance + Get("base_maximum_lightning_damage_resistance_%"),
-            ChaosMaxResistance = b.ChaosMaxResistance + Get("base_maximum_chaos_damage_resistance_%"),
-            Armour = b.Armour + Get("base_physical_damage_reduction_rating"),
-            Ward = b.Ward + Get("base_ward"), WardPct = b.WardPct + Get("ward_+%"),
-            Evasion = b.Evasion + Get("base_evasion_rating"),
-            ArmourPct = b.ArmourPct + Get("physical_damage_reduction_rating_+%"),
-            EvasionPct = b.EvasionPct + Get("evasion_rating_+%"),
-            ArmourMorePct = More(b.ArmourMorePct, Get("basalt_flask_armour_+%_final")),
-            EvasionMorePct = More(b.EvasionMorePct, Get("stibnite_flask_evasion_rating_+%_final")),
-            MovementVelocityPct = b.MovementVelocityPct + Get("base_movement_velocity_+%"),
-            AttackSpeedPct = b.AttackSpeedPct + Get("attack_speed_+%"),
-            CriticalStrikeChancePct = b.CriticalStrikeChancePct + Get("critical_strike_chance_+%"),
-            SpellCriticalStrikeChancePct = b.SpellCriticalStrikeChancePct + Get("critical_strike_chance_+%"),
-            SpellSuppressionChance = b.SpellSuppressionChance + Get("base_spell_suppression_chance_%"),
-            BlockChance = b.BlockChance + Get("monster_base_block_%"),
-            SpellBlockChance = b.SpellBlockChance + Get("base_spell_block_%"),
+            FireResistance = b.FireResistance + all + Get(Stat.BaseFireDamageResistancePct),
+            ColdResistance = b.ColdResistance + all + Get(Stat.BaseColdDamageResistancePct),
+            LightningResistance = b.LightningResistance + all + Get(Stat.BaseLightningDamageResistancePct),
+            ChaosResistance = b.ChaosResistance + Get(Stat.BaseChaosDamageResistancePct),
+            FireMaxResistance = b.FireMaxResistance + Get(Stat.BaseMaximumFireDamageResistancePct),
+            ColdMaxResistance = b.ColdMaxResistance + Get(Stat.BaseMaximumColdDamageResistancePct),
+            LightningMaxResistance = b.LightningMaxResistance + Get(Stat.BaseMaximumLightningDamageResistancePct),
+            ChaosMaxResistance = b.ChaosMaxResistance + Get(Stat.BaseMaximumChaosDamageResistancePct),
+            Armour = b.Armour + Get(Stat.BasePhysicalDamageReductionRating),
+            Ward = b.Ward + Get(Stat.BaseWard), WardPct = b.WardPct + Get(Stat.WardPlusPct),
+            Evasion = b.Evasion + Get(Stat.BaseEvasionRating),
+            ArmourPct = b.ArmourPct + Get(Stat.PhysicalDamageReductionRatingPlusPct),
+            EvasionPct = b.EvasionPct + Get(Stat.EvasionRatingPlusPct),
+            ArmourMorePct = More(b.ArmourMorePct, Get(Stat.BasaltFlaskArmourPlusPctFinal)),
+            EvasionMorePct = More(b.EvasionMorePct, Get(Stat.StibniteFlaskEvasionRatingPlusPctFinal)),
+            MovementVelocityPct = b.MovementVelocityPct + Get(Stat.BaseMovementVelocityPlusPct),
+            AttackSpeedPct = b.AttackSpeedPct + Get(Stat.AttackSpeedPlusPct),
+            CriticalStrikeChancePct = b.CriticalStrikeChancePct + Get(Stat.CriticalStrikeChancePlusPct),
+            SpellCriticalStrikeChancePct = b.SpellCriticalStrikeChancePct + Get(Stat.CriticalStrikeChancePlusPct),
+            SpellSuppressionChance = b.SpellSuppressionChance + Get(Stat.BaseSpellSuppressionChancePct),
+            BlockChance = b.BlockChance + Get(Stat.MonsterBaseBlockPct),
+            SpellBlockChance = b.SpellBlockChance + Get(Stat.BaseSpellBlockPct),
         };
     }
 
@@ -542,60 +562,60 @@ public static class UtilityFlasks
     /// tooltips, spell crits), increased damage (Sulphur), cast speed (Onslaught), increased item rarity (Gold: the drops
     /// and the panel read it) and the panel-only stats
     /// (<see cref="Support.PanelOnly"/>), by client stat key.</summary>
-    public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<(string Stat, int Value)> stats, StatCatalog catalog)
+    public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<(uint Stat, int Value)> stats, StatCatalog catalog)
     {
         var result = new Dictionary<uint, int>();
         foreach (var (stat, value) in stats)
         {
-            string? name = stat switch
+            uint? name = stat switch
             {
-                "base_maximum_fire_damage_resistance_%" or "base_maximum_cold_damage_resistance_%"
-                    or "base_maximum_lightning_damage_resistance_%" or "base_maximum_chaos_damage_resistance_%"
-                    or "critical_strike_chance_+%" or "damage_+%" or "base_item_found_rarity_+%" => stat,
+                Stat.BaseMaximumFireDamageResistancePct or Stat.BaseMaximumColdDamageResistancePct
+                    or Stat.BaseMaximumLightningDamageResistancePct or Stat.BaseMaximumChaosDamageResistancePct
+                    or Stat.CriticalStrikeChancePlusPct or Stat.DamagePlusPct or Stat.BaseItemFoundRarityPlusPct => stat,
                 // Dying Sun: the skill area and projectile count read these from the merged player stats
                 // (SkillArea.Increased, GatewayProjectileModifiers.Resolve); the client predicts its spell
                 // projectiles from the same stat.
-                "base_skill_area_of_effect_+%" or "number_of_additional_projectiles" => stat,
+                Stat.BaseSkillAreaOfEffectPlusPct or Stat.NumberOfAdditionalProjectiles => stat,
                 // Oriath's End: KillExplosions.ExplodeOnKill reads it from the merged player stats.
-                "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%" => stat,
-                "base_item_found_quantity_+%" => stat,   // ItemQuantityFactor reads the merged player stats
+                Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct => stat,
+                Stat.BaseItemFoundQuantityPlusPct => stat,   // ItemQuantityFactor reads the merged player stats
                 // Cinderswallow Urn: KillRecovery.From reads these from the merged player stats.
-                "recover_%_maximum_life_on_kill" or "recover_%_maximum_mana_on_kill" or "recover_energy_shield_%_on_kill" => stat,
+                Stat.RecoverPctMaximumLifeOnKill or Stat.RecoverPctMaximumManaOnKill or Stat.RecoverEnergyShieldPctOnKill => stat,
                 // Stormblood: the hit's ailments read these from the merged player stats.
-                "all_damage_from_critical_strikes_can_shock" or "all_damage_from_critical_strikes_can_chill"
-                    or "all_damage_from_critical_strikes_can_freeze" => stat,
-                "base_cast_speed_+%" => "cast_speed_+%",
+                Stat.AllDamageFromCriticalStrikesCanShock or Stat.AllDamageFromCriticalStrikesCanChill
+                    or Stat.AllDamageFromCriticalStrikesCanFreeze => stat,
+                Stat.BaseCastSpeedPlusPct => Stat.CastSpeedPlusPct,
                 // Onslaught's attack speed is PoB's Speed INC (Attack): the attack-speed stat itself, not only the
                 // pools' timing bucket. The pools already add it through Apply, and PassiveBonus reads the passives'
                 // own sources, so the stat does not count it twice.
-                "attack_speed_+%" => "attack_speed_+%",
-                "life_regeneration_rate_per_minute_%" => stat,   // consecrated ground (FlaskGrounds)
+                Stat.AttackSpeedPlusPct => Stat.AttackSpeedPlusPct,
+                Stat.LifeRegenerationRatePerMinutePct => stat,   // consecrated ground (FlaskGrounds)
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e81e6c).
-                "phase_through_objects" => "virtual_phase_through_objects",
+                Stat.PhaseThroughObjects => Stat.VirtualPhaseThroughObjects,
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
                     || HandedFlag(stat) => stat,
                 _ => null,
             };
-            if (name is not null && catalog.Key(name) is uint key)
+            if (name is uint key)
                 result[key] = ActorScale.Add(key, result.GetValueOrDefault(key), value);
         }
         return result.Select(kv => (kv.Key, kv.Value));
     }
 
     /// <summary>Whether the running flasks make the player phase (Quartz Flask: phase_through_objects): monsters do not
-    /// block the walk (ClientState.Blockers), as the client's pathfinder with its phasing flag. NPCs and stashes still do
+    /// block the walk (Player.Blockers), as the client's pathfinder with its phasing flag. NPCs and stashes still do
     /// (which objects the client's phasing filter lets through is not traced).</summary>
-    public static bool Phasing(IEnumerable<(string Stat, int Value)> stats) => stats.Any(s => s.Stat == "phase_through_objects" && s.Value > 0);
+    public static bool Phasing(IEnumerable<(uint Stat, int Value)> stats) => stats.Any(s => s.Stat == Stat.PhaseThroughObjects && s.Value > 0);
 
     /// <summary>Ward bonuses use the authoritative Ward pool (base_ward and ward_+%).</summary>
-    public static (int Flat, int Increased) Ward(IEnumerable<(string Stat, int Value)> stats) =>
-        (stats.Where(s => s.Stat == "base_ward").Sum(s => s.Value), stats.Where(s => s.Stat == "ward_+%").Sum(s => s.Value));
+    public static (int Flat, int Increased) Ward(IEnumerable<(uint Stat, int Value)> stats) =>
+        (stats.Where(s => s.Stat == Stat.BaseWard).Sum(s => s.Value), stats.Where(s => s.Stat == Stat.WardPlusPct).Sum(s => s.Value));
 
     // Call only after the normal flask-use admission/payment and effect start, never from a stat projection.
-    public static bool RestoreWardAfterPaidUse(WardState ward, Func<string, int> local, double now)
+    public static bool RestoreWardAfterPaidUse(WardState ward, Func<uint, int> local, double now)
     {
-        if (local("local_flask_restore_ward") <= 0) return false;
+        if (local(Stat.LocalFlaskRestoreWard) <= 0) return false;
         ward.Advance(now);
         bool wasBroken = ward.Broken;
         ward.Restore();
@@ -603,7 +623,7 @@ public static class UtilityFlasks
     }
 
     /// <summary>Adds the running flasks' <see cref="RawStats"/> to the character's stats (Program.CharacterPlayerStats).</summary>
-    public static void AddRawStats(Dictionary<uint, int> stats, IEnumerable<(string Stat, int Value)> running, StatCatalog catalog)
+    public static void AddRawStats(StatMap stats, IEnumerable<(uint Stat, int Value)> running, StatCatalog catalog)
     {
         foreach (var (k, v) in RawStats(running, catalog)) stats[k] = ActorScale.Add(k, stats.GetValueOrDefault(k), v);
     }
@@ -616,42 +636,37 @@ public static class UtilityFlasks
         : null;
 
     /// <summary>Starts an effect and recomputes the character (<paramref name="recompute"/>: the pools and the walk
-    /// speed) under the connection's Monsters lock, which every pools writer takes, so no writer keeps a stale total.</summary>
-    public static int? Start(ClientState conn, Active effect, Action recompute)
+    /// speed) in the area's frame, which every pools writer takes, so no writer keeps a stale total.</summary>
+    public static int? Start(Player player, Active effect, Action recompute)
     {
-        lock (conn.Monsters)
-        {
-            var started = conn.UtilityFlaskEffects.Start(effect);
-            recompute();
-            return started;
-        }
+        var started = player.UtilityFlaskEffects.Start(effect);
+        recompute();
+        return started;
     }
 
     /// <summary>Ends the effects that are due (<see cref="Effects.End"/>) and recomputes the character in the same locked
     /// block, when any ended.</summary>
-    public static List<Active> EndDue(ClientState conn, double now, bool dead, Func<Active, bool>? gone, Action recompute, out bool stop)
+    public static List<Active> EndDue(Player player, double now, bool dead, Func<Active, bool>? gone, Action recompute, out bool stop)
     {
-        lock (conn.Monsters)
-        {
-            var ended = conn.UtilityFlaskEffects.End(now, dead, out stop, gone);
-            if (ended.Count > 0) recompute();
-            return ended;
-        }
+        var ended = player.UtilityFlaskEffects.End(now, dead, out stop, gone);
+        if (ended.Count > 0) recompute();
+        return ended;
     }
 
     /// <summary>S→C 0x1c1 for an effect: the flask's buff (<see cref="Flasks.Buff"/>: duration and flask-bar cell) and the
     /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
-    public static IEnumerable<byte[]> StartPackets(Active e, uint player)
+    public static void ShowBuffs(Active e, Player player)
     {
-        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, (e.Ends - e.Started) * e.ExpiryRate);
+        double seconds = (e.Ends - e.Started) * e.ExpiryRate;
+        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds));
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
-            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player, u68: BitConverter.SingleToUInt32Bits((float)((e.Ends - e.Started) * e.ExpiryRate)));
+            player.Area.Buffs.Set(player.Id, new(x.BuffRow, player.Id, U68: global::Buff.Seconds(seconds), Tag: extra));
     }
 
-    /// <summary>S→C 0x1c2 for an effect that ends: its buff and the extra buff.</summary>
-    public static IEnumerable<byte[]> EndPackets(Active e, uint player)
+    /// <summary>An effect that ends: its buff and the extra buff.</summary>
+    public static void EndBuffs(Active e, Player player)
     {
-        yield return InstanceEntities.RemoveBuff(player, e.Buff);
-        if (e.ExtraBuff is ushort extra) yield return InstanceEntities.RemoveBuff(player, extra);
+        player.Area.Buffs.Clear(player.Id, e.Flask.BuffRow, player.Id, tag: e.Buff);
+        if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra) player.Area.Buffs.Clear(player.Id, x.BuffRow, player.Id, tag: extra);
     }
 }

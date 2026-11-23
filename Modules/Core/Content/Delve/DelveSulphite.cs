@@ -23,19 +23,18 @@ public sealed partial class DelveModule
         public int NikoAt = -1;
         public double GaugeAt = double.NegativeInfinity;
     }
-    readonly ConditionalWeakTable<ClientState, SulphiteEncounter> _sulphite = new();
+    readonly ConditionalWeakTable<Player, SulphiteEncounter> _sulphite = new();
 
     void RegisterSulphite(IModuleContext module)
     {
         GameEvents.MapOpening.Add(module.Manifest.Id, request => request.HandledContent.Add(MapScarabContent.Sulphite));
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => EnsureSulphite(module, PlayerOf(conn)));
-        GameEvents.Tick.Add(module.Manifest.Id, async (connection, _) =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, player => EnsureSulphite(module, PlayerOf(player)));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, _) =>
         {
-            var p = PlayerOf(connection);
+            var p = PlayerOf(player);
             await EnsureSulphite(module, p);
-            var conn = ConnOf(p);
-            if (!_sulphite.TryGetValue(conn, out var encounter)) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            if (!_sulphite.TryGetValue(player, out var encounter)) return;
+            double now = AreaTime(player);
             if (now >= encounter.GaugeAt)
             {
                 // Outside a mine the native HUD times out its transient resource bar. A loss-side UI event refreshes
@@ -45,36 +44,35 @@ public sealed partial class DelveModule
                 encounter.GaugeAt = now + 3;
             }
             foreach (var deposit in encounter.Deposits)
-                if (conn.Instance.HasState(MinedKey(deposit.Index)) && encounter.Depleted.Add(deposit.Id))
+                if (player.Instance.HasState(MinedKey(deposit.Index)) && encounter.Depleted.Add(deposit.Id))
                 {
                     await ShowDeposit(module, p, encounter, deposit, replace: true);
                     await MoveNiko(module, p, encounter, deposit);
                 }
             // Shared monsters keep their encounter stats across a Delve module reload and a new observer joining.
             List<(uint Id, ushort Buff)> shown = [];
-            lock (conn.Monsters)
-                foreach (uint id in conn.AwakeMonsters)
-                    if (conn.Monsters.TryGetValue(id, out var m) && m.Life > 0
-                        && m.EncounterStats?.GetValueOrDefault(MapSulphite.EnragedQuantity) >= MapSulphite.FumesQuantity
-                        && encounter.Enraged.Add(id)) shown.Add((id, conn.NextBuff++));
+            foreach (uint id in player.Area.Monsters.Where(e => !e.Value.Dead && !e.Value.Asleep).Select(e => e.Key))
+                if (player.Area.Monsters.TryGetValue(id, out var m) && m.Life > 0
+                    && m.EncounterStats?.GetValueOrDefault(MapSulphite.EnragedQuantity) >= MapSulphite.FumesQuantity
+                    && encounter.Enraged.Add(id)) shown.Add((id, 1));
             foreach (var (id, buff) in shown)
-                await global::Game.SendWorldRecord(p, id, InstanceEntities.AddBuff(id, buff, 2420), "Sulphite Madness");
-        });
-        GameEvents.ObjectUse.Add(module.Manifest.Id, (conn, use, at) => MineSulphite(module, conn, use.TargetId, at));
-        module.Lifetime.Own(GameEvents.StateBuilding.Add(module.Manifest.Id, (conn, json) =>
+                player.Area.Buffs.Set(id, new(2420));
+        }));
+        GameEvents.ObjectUse.Add(module.Manifest.Id, (player, use, at) => MineSulphite(module, player, use.TargetId, at));
+        module.Lifetime.Own(GameEvents.StateBuilding.Add(module.Manifest.Id, (player, json) =>
         {
-            if (!_sulphite.TryGetValue(conn, out var encounter)) return;
+            if (!_sulphite.TryGetValue(player, out var encounter)) return;
             json["sulphite"] = new JsonObject
             {
-                ["amount"] = Sulphite(WorldOf(PlayerOf(conn)).CharacterData),
-                ["capacity"] = Capacity(WorldOf(PlayerOf(conn))),
+                ["amount"] = Sulphite(WorldOf(PlayerOf(player)).CharacterData),
+                ["capacity"] = Capacity(WorldOf(PlayerOf(player))),
                 ["owner"] = encounter.Owner,
-                ["yield"] = MapSulphite.Yield(encounter.Map.Area.Level, encounter.Mods, CharacterName(conn).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase)),
+                ["yield"] = MapSulphite.Yield(encounter.Map.Area.Level, encounter.Mods, CharacterName(player).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase)),
                 ["fumes"] = MapSulphite.Fumes(encounter.Mods),
                 ["deposits"] = new JsonArray(encounter.Deposits.Select(d => (JsonNode)new JsonObject
                 {
                     ["id"] = d.Id, ["x"] = d.X, ["y"] = d.Y, ["type"] = d.Type,
-                    ["mined"] = conn.Instance.HasState(MinedKey(d.Index)),
+                    ["mined"] = player.Instance.HasState(MinedKey(d.Index)),
                 }).ToArray()),
             };
         }));
@@ -83,130 +81,127 @@ public sealed partial class DelveModule
     static int Capacity(IPlayerWorld world) => Math.Clamp(DelveEquipment.Value(Equipment(world.AccountData), 0), 0, ushort.MaxValue);
     static string MinedKey(int index) => $"delve.sulphite.mined.{index}";
 
-    async Task EnsureSulphite(IModuleContext module, IPlayer player)
+    async Task EnsureSulphite(IModuleContext module, IPlayer modPlayer)
     {
-        var conn = ConnOf(player);
-        if (_sulphite.TryGetValue(conn, out _) || !conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
-        var opened = global::Game.MapRunOf(conn);
-        if (opened is null || !MapSulphite.Present(global::Game.MapModsOf(conn) ?? opened.Mods)) return;
+        var player = PlayerOf(modPlayer);
+        if (_sulphite.TryGetValue(player, out _) || !player.Connection.PlayerSent || player.Closed || player.LeavingArea || player.Instance is null) return;
+        var opened = global::Game.MapRunOf(player);
+        if (opened is null) return;
+        var mods = global::Game.MapModsOf(player) ?? opened.Mods;
+        if (!MapSulphite.Present(player, opened.Area, mods)) return;
         if (!ClientTables.Has("DelveResourcePerLevel") || !ClientTables.Has("DelveUpgrades")) return;
-        var positions = MapSulphite.Positions(conn.Layout, conn.Seed);
+        var positions = MapSulphite.Positions(player.Layout, player.Seed);
         var encounter = new SulphiteEncounter
         {
-            Map = opened, Owner = opened.Owner, Mods = global::Game.MapModsOf(conn) ?? opened.Mods,
-            Deposits = positions.Select((p, i) => new Deposit(MineralFirstId + (uint)i, i, p.X, p.Y, (conn.Seed + i) % 3 == 0 ? MapSulphite.Chest : MapSulphite.Vein)).ToArray(),
+            Map = opened, Owner = opened.Owner, Mods = mods,
+            Deposits = positions.Select((p, i) => new Deposit(MineralFirstId + (uint)i, i, p.X, p.Y, (player.Seed + i) % 3 == 0 ? MapSulphite.Chest : MapSulphite.Vein)).ToArray(),
         };
         // Generated/tick hooks for one connection are sequential. Publish before sending so a later tick cannot duplicate it.
-        _sulphite.Add(conn, encounter);
+        _sulphite.Add(player, encounter);
         foreach (var deposit in encounter.Deposits)
         {
-            await ShowDeposit(module, player, encounter, deposit, replace: true);
-            if (conn.Instance.HasState(MinedKey(deposit.Index))) encounter.Depleted.Add(deposit.Id);
-            if (MapSulphite.Fumes(encounter.Mods) && !conn.Instance.HasState(MinedKey(deposit.Index))
-                && conn.Instance.SetState($"delve.sulphite.guards.{deposit.Index}"))
-                await SulphiteGuards(conn, encounter, deposit);
+            await ShowDeposit(module, modPlayer, encounter, deposit, replace: true);
+            if (player.Instance.HasState(MinedKey(deposit.Index))) encounter.Depleted.Add(deposit.Id);
+            if (MapSulphite.Fumes(encounter.Mods) && !player.Instance.HasState(MinedKey(deposit.Index))
+                && player.Instance.SetState($"delve.sulphite.guards.{deposit.Index}"))
+                await SulphiteGuards(player, encounter, deposit);
         }
-        if (encounter.Deposits.Length > 0) await MoveNiko(module, player, encounter, encounter.Deposits[0]);
-        await player.Send(DelveData(WorldOf(player)), "Map sulphite and equipment");
-        module.Log($"Sulphite: {encounter.Deposits.Length} deposits in {conn.Layout.Id}/{conn.Seed}, owner {encounter.Owner}, level {encounter.Map.Area.Level}, quantity {encounter.Mods.Quantity}%, owner bonus {encounter.Mods.Get("map_owner_sulphite_gained_+%")}%");
+        if (encounter.Deposits.Length > 0) await MoveNiko(module, modPlayer, encounter, encounter.Deposits[0]);
+        await modPlayer.Send(DelveData(WorldOf(modPlayer)), "Map sulphite and equipment");
+        module.Log($"Sulphite: {encounter.Deposits.Length} deposits in {player.Layout.Id}/{player.Seed}, owner {encounter.Owner}, level {encounter.Map.Area.Level}, quantity {encounter.Mods.Quantity}%, owner bonus {encounter.Mods.Get(Stat.MapOwnerSulphiteGainedPlusPct)}%");
     }
 
-    static async Task ShowDeposit(IModuleContext module, IPlayer player, SulphiteEncounter encounter, Deposit deposit, bool replace)
+    static async Task ShowDeposit(IModuleContext module, IPlayer modPlayer, SulphiteEncounter encounter, Deposit deposit, bool replace)
     {
-        var conn = ConnOf(player); var world = WorldOf(player);
-        if (replace) await RemoveSceneObject(player, deposit.Id);
-        bool mined = conn.Instance.HasState(MinedKey(deposit.Index));
-        await global::Game.SendWorldCreate(player, deposit.Id, InstanceEntities.CreateObject(deposit.Id, InstanceEntities.ObjectTypeHash(deposit.Type),
-            MapSulphite.Blob(deposit.X, deposit.Y, conn.Layout.GroundHeight(deposit.X, deposit.Y), mined, MapSulphite.Fumes(encounter.Mods))),
+        var player = PlayerOf(modPlayer); var world = WorldOf(modPlayer);
+        if (replace) await RemoveSceneObject(modPlayer, deposit.Id);
+        bool mined = player.Instance.HasState(MinedKey(deposit.Index));
+        await global::Game.SendWorldCreate(modPlayer, deposit.Id, InstanceEntities.CreateObject(deposit.Id, InstanceEntities.ObjectTypeHash(deposit.Type),
+            MapSulphite.Blob(deposit.X, deposit.Y, player.Layout.GroundHeight(deposit.X, deposit.Y), mined, MapSulphite.Fumes(encounter.Mods))),
             $"Sulphite deposit {deposit.Index + 1} ({deposit.X}, {deposit.Y}), mined={mined}");
-        await global::Game.SendWorldRecord(player, deposit.Id, InstanceProtocol.EnterWakeZone(deposit.Id));
+        await global::Game.SendWorldRecord(modPlayer, deposit.Id, InstanceProtocol.EnterWakeZone(deposit.Id));
         world.SetBlocker(deposit.Id, deposit.X, deposit.Y, 4);
     }
 
-    static async Task MoveNiko(IModuleContext module, IPlayer player, SulphiteEncounter encounter, Deposit deposit)
+    static async Task MoveNiko(IModuleContext module, IPlayer modPlayer, SulphiteEncounter encounter, Deposit deposit)
     {
         if (encounter.NikoAt == deposit.Index) return;
-        var conn = ConnOf(player); var world = WorldOf(player);
+        var player = PlayerOf(modPlayer); var world = WorldOf(modPlayer);
         string type = "Metadata/NPC/League/Delve/DelveMinerWild" + (deposit.Type == MapSulphite.Chest ? "Chest" : "Vein");
-        if (Npcs.Value.Find(type) is not { Supported: true } npc) return;
-        var at = conn.Layout.Near((deposit.X + 9, deposit.Y));
+        if (Npcs.Find(type) is not { Supported: true } npc) return;
+        var at = player.Layout.Near((deposit.X + 9, deposit.Y));
         float rotation = MathF.Atan2(deposit.X - at.X, -(deposit.Y - at.Y));
-        await RemoveSceneObject(player, WildNikoId);
+        await RemoveSceneObject(modPlayer, WildNikoId);
         world.RemoveBlocker(WildNikoId);
         // Let Positioned follow the client's ground, as town NPCs do; a fixed Z pins Wild Niko above uneven terrain.
         var obj = new NpcObject(at.X, at.Y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model);
-        await global::Game.SendWorldCreate(player, WildNikoId, InstanceEntities.CreateObject(WildNikoId, InstanceEntities.ObjectTypeHash(type), obj.Blob()), "Niko at sulphite deposit");
-        await global::Game.SendWorldRecord(player, WildNikoId, InstanceProtocol.EnterWakeZone(WildNikoId));
-        lock (conn.Npcs) conn.Npcs[WildNikoId] = new SpawnedNpc(npc, at.X, at.Y);
+        await global::Game.SendWorldCreate(modPlayer, WildNikoId, InstanceEntities.CreateObject(WildNikoId, InstanceEntities.ObjectTypeHash(type), obj.Blob()), "Niko at sulphite deposit");
+        await global::Game.SendWorldRecord(modPlayer, WildNikoId, InstanceProtocol.EnterWakeZone(WildNikoId));
+        lock (player.Npcs) player.Npcs[WildNikoId] = new SpawnedNpc(npc, at.X, at.Y);
         world.SetBlocker(WildNikoId, at.X, at.Y, 2);
         encounter.NikoAt = deposit.Index;
     }
 
-    async Task<bool> MineSulphite(IModuleContext module, ClientState conn, uint objectId, double requestedAt)
+    async Task<bool> MineSulphite(IModuleContext module, Player player, uint objectId, double requestedAt)
     {
-        if (!_sulphite.TryGetValue(conn, out var encounter) || encounter.Deposits.FirstOrDefault(d => d.Id == objectId) is not { } deposit) return false;
-        if (conn.PlayerLife == 0 || conn.LeavingArea || conn.Closed || !module.Lifetime.IsActive) return true;
-        var world = WorldOf(PlayerOf(conn));
+        if (!_sulphite.TryGetValue(player, out var encounter) || encounter.Deposits.FirstOrDefault(d => d.Id == objectId) is not { } deposit) return false;
+        if (player.PlayerLife == 0 || player.LeavingArea || player.Closed || !module.Lifetime.IsActive) return true;
+        var world = WorldOf(PlayerOf(player));
         if (!await world.WalkUpTo(deposit.X, deposit.Y, 4, requestedAt)) return true;
-        var recipients = InGame.Keys.Where(p => ReferenceEquals(p.Instance, conn.Instance) && p.PlayerSent && !p.LeavingArea && !p.Closed && p.PlayerLife > 0
-            && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(p.Clock.Elapsed.TotalSeconds), (deposit.X, deposit.Y)) <= 150).ToList();
-        if (!recipients.Contains(conn)) recipients.Add(conn);
-        List<(ClientState Conn, ushort Before, ushort After)> awards = [];
+        var recipients = InGame.Keys.Where(p => ReferenceEquals(p.Instance, player.Instance) && p.Connection.PlayerSent && !p.LeavingArea && !p.Closed && p.PlayerLife > 0
+            && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(AreaTime(p)), (deposit.X, deposit.Y)) <= 150).ToList();
+        if (!recipients.Contains(player)) recipients.Add(player);
+        List<(Player Player, ushort Before, ushort After)> awards = [];
         // The instance lock serializes simultaneous clicks, claims and the durable resource credit. No network awaits here.
-        lock (conn.Monsters)
+        if (!module.Lifetime.IsActive || player.Closed || player.LeavingArea || player.PlayerLife == 0 || player.Instance.HasState(MinedKey(deposit.Index))) return true;
+        Saves.Atomically(() =>
         {
-            if (!module.Lifetime.IsActive || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Instance.HasState(MinedKey(deposit.Index))) return true;
-            Saves.Atomically(() =>
+            foreach (var recipient in recipients)
             {
-                foreach (var recipient in recipients)
+                var recipientWorld = WorldOf(PlayerOf(recipient));
+                int gain = MapSulphite.Yield(encounter.Map.Area.Level, encounter.Mods,
+                    CharacterName(recipient).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase), recipients.Count);
+                ushort before = 0, after = 0;
+                recipientWorld.CharacterData.Change(SulphiteKey, old =>
                 {
-                    var recipientWorld = WorldOf(PlayerOf(recipient));
-                    int gain = MapSulphite.Yield(encounter.Map.Area.Level, encounter.Mods,
-                        CharacterName(recipient).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase), recipients.Count);
-                    ushort before = 0, after = 0;
-                    recipientWorld.CharacterData.Change(SulphiteKey, old =>
-                    {
-                        before = ushort.TryParse(old, out var n) ? n : (ushort)0;
-                        after = MapSulphite.Credit(before, gain, Capacity(recipientWorld));
-                        return after.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                    });
-                    awards.Add((recipient, before, after));
-                }
-                return true;
-            });
-            conn.Instance.SetState(MinedKey(deposit.Index));
-            if (MapSulphite.Fumes(encounter.Mods))
-                foreach (var monster in conn.Monsters.Values.Where(m => m.Hostile && m.Life > 0 && MapSulphite.Distance(m.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (deposit.X, deposit.Y)) <= MapSulphite.FumesRadius))
-                {
-                    var stats = monster.EncounterStats is null ? new Dictionary<string, int>() : new Dictionary<string, int>(monster.EncounterStats);
-                    stats[MapSulphite.EnragedQuantity] = Math.Max(MapSulphite.FumesQuantity, stats.GetValueOrDefault(MapSulphite.EnragedQuantity));
-                    monster.EncounterStats = stats;
-                }
-        }
+                    before = ushort.TryParse(old, out var n) ? n : (ushort)0;
+                    after = MapSulphite.Credit(before, gain, Capacity(recipientWorld));
+                    return after.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                });
+                awards.Add((recipient, before, after));
+            }
+            return true;
+        });
+        player.Instance.SetState(MinedKey(deposit.Index));
+        if (MapSulphite.Fumes(encounter.Mods))
+            foreach (var monster in player.Area.Monsters.Values.Where(m => m.Hostile && m.Life > 0 && MapSulphite.Distance(m.Walk.Position(AreaTime(player)), (deposit.X, deposit.Y)) <= MapSulphite.FumesRadius))
+            {
+                var stats = monster.EncounterStats is null ? new Dictionary<uint, int>() : new Dictionary<uint, int>(monster.EncounterStats);
+                stats[MapSulphite.EnragedQuantity] = Math.Max(MapSulphite.FumesQuantity, stats.GetValueOrDefault(MapSulphite.EnragedQuantity));
+                monster.EncounterStats = stats;
+            }
         foreach (var (recipient, before, after) in awards)
         {
             var p = PlayerOf(recipient);
             await p.Send(InstanceDelve.SulphiteChanged(before, after), $"Sulphite mined: {before} -> {after} (deposit {deposit.Index + 1})");
-            var wire = recipient.Wire;
-            await SetQuestFlags(wire.Remote, wire.Stream, wire.Ciphers, recipient, ["NikoHaveMinedSulphite"]);
+            await SetQuestFlags(recipient, ["NikoHaveMinedSulphite"]);
         }
-        await global::Game.SendWorldRecord(PlayerOf(conn), deposit.Id, InstanceEntities.StateMachineUpdate(deposit.Id, 5, MapSulphite.States(true, MapSulphite.Fumes(encounter.Mods))), "Mine sulphite deposit");
-        await MoveNiko(module, PlayerOf(conn), encounter, deposit);
-        await global::Game.SendWorldRecord(PlayerOf(conn), WildNikoId, InstanceProtocol.AnimationUpdate(WildNikoId, 0, deposit.Type == MapSulphite.Chest ? 7u : 2u, 1), "Niko mines the sulphite");
+        await global::Game.SendWorldRecord(PlayerOf(player), deposit.Id, InstanceEntities.StateMachineUpdate(deposit.Id, 5, MapSulphite.States(true, MapSulphite.Fumes(encounter.Mods))), "Mine sulphite deposit");
+        await MoveNiko(module, PlayerOf(player), encounter, deposit);
+        await global::Game.SendWorldRecord(PlayerOf(player), WildNikoId, InstanceProtocol.AnimationUpdate(WildNikoId, 0, deposit.Type == MapSulphite.Chest ? 7u : 2u, 1), "Niko mines the sulphite");
         return true;
     }
 
-    static async Task SulphiteGuards(ClientState conn, SulphiteEncounter encounter, Deposit deposit)
+    static async Task SulphiteGuards(Player player, SulphiteEncounter encounter, Deposit deposit)
     {
         // Authored mine inhabitants, not ordinary packs from the surrounding map.
         string[] varieties = ["Metadata/Monsters/Spiders/DelveSpiderPacks", "Metadata/Monsters/Spiders/DelveSpiderPacksMedium"];
-        var (remote, stream, ciphers) = conn.Wire;
-        for (int i = 0; i < 8 && !conn.Closed && !conn.LeavingArea; i++)
+        for (int i = 0; i < 8 && !player.Closed && !player.LeavingArea; i++)
             if (Monsters.Find(varieties[(i + deposit.Index) % varieties.Length]) is { Supported: true } variety)
             {
                 double angle = i * Math.Tau / 8;
-                var at = conn.Layout.Near((deposit.X + (int)(22 * Math.Cos(angle)), deposit.Y + (int)(22 * Math.Sin(angle))));
-                await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)encounter.Map.Area.Level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, at.X, at.Y);
+                var at = player.Layout.Near((deposit.X + (int)(22 * Math.Cos(angle)), deposit.Y + (int)(22 * Math.Sin(angle))));
+                await SpawnMonster(player, variety, (byte)encounter.Map.Area.Level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, at.X, at.Y);
             }
     }
 }

@@ -15,6 +15,7 @@ public sealed class PlacedSkills
         int Flat, int Percent, bool ReservesLife, int Efficiency)
     {
         public DamageSnapshot? Offense { get; init; }
+        public double EffectDurationSeconds { get; init; }
         public double DetonateAt = double.PositiveInfinity;
         public bool SkitterTriggered;
         public int Chain;
@@ -44,7 +45,7 @@ public sealed class PlacedSkills
                 p.Flat, p.Percent, ReservationEfficiencyPct: p.Efficiency)));
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     PlacedSkills? placedSkills;
     public PlacedSkills Placed => System.Threading.LazyInitializer.EnsureInitialized(ref placedSkills);

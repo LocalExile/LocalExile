@@ -51,12 +51,12 @@ public static class LeapSlam
 
 public static partial class Game
 {
-    public static bool IsLeapSlam(ClientState conn, int effect) => SkillsFor(conn).ActionHash(effect) == LeapSlam.Action;
+    public static bool IsLeapSlam(Player player, int effect) => SkillsFor(player).ActionHash(effect) == LeapSlam.Action;
 
-    public static LeapSlam.Phases LeapSlamTiming(ClientState conn, ushort skillId, int effect, double seconds)
+    public static LeapSlam.Phases LeapSlamTiming(Player player, ushort skillId, int effect, double seconds)
     {
-        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var weapon = AnimationWeaponProfileFor(conn);
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
+        var weapon = AnimationWeaponProfileFor(player);
         var leave = Animations.SkillAnimationEventBounds(ao, weapon, "leapslam", "leave_ground");
         var hit = Animations.SkillAnimationEventBounds(ao, weapon, "leapslam", "hit_ground");
         if (leave is null || hit is null || leave.Value.Name != hit.Value.Name)
@@ -64,58 +64,58 @@ public static partial class Game
         // Character.ot enables animation skipping. This server does not grant instant_movement_skill_delay;
         // without that buff the native action skips startup on every eligible use, not on a guessed cooldown.
         return LeapSlam.Timing(leave.Value.Name, leave.Value.LengthMs, leave.Value.EarliestMs,
-            hit.Value.EarliestMs, seconds, skipStartup: SkillsFor(conn).BehaviourVariation(effect) != 2);
+            hit.Value.EarliestMs, seconds, skipStartup: SkillsFor(player).BehaviourVariation(effect) != 2);
     }
 
-    public static LeapSlam.Use? PlanLeapSlam(ClientState conn, ushort skillId, int effect, (int X, int Y) aim, double at)
+    public static LeapSlam.Use? PlanLeapSlam(Player player, ushort skillId, int effect, (int X, int Y) aim, double at)
     {
-        var from = conn.Walk.Position(at);
-        var landing = LeapSlam.Landing(conn.Layout, conn.Barrier, from, aim, SkillsFor(conn).BehaviourVariation(effect));
+        var from = player.Walk.Position(at);
+        var landing = LeapSlam.Landing(player.Layout, player.Barrier, from, aim, SkillsFor(player).BehaviourVariation(effect));
         LeapSlam.Phases timing;
-        try { timing = LeapSlamTiming(conn, skillId, effect, SupportedAttackSeconds(conn, skillId)); }
+        try { timing = LeapSlamTiming(player, skillId, effect, SupportedAttackSeconds(player, skillId)); }
         catch (InvalidOperationException ex)
         {
             Console.WriteLine($"[gateway] Leap Slam unavailable: {ex.Message}");
             return null;
         }
-        return new(from, landing, at, timing, conn.ActionCount + 1, conn.ActionInterruptionGeneration);
+        return new(from, landing, at, timing, player.ActionCount + 1, player.ActionInterruptionGeneration);
     }
 
-    public static void CommitLeapSlam(ClientState conn, LeapSlam.Use use)
+    public static void CommitLeapSlam(Player player, LeapSlam.Use use)
     {
-        conn.Walk.Teleport(use.Landing.X, use.Landing.Y, use.At);
-        conn.LandingUntil = Math.Max(conn.LandingUntil, use.At + use.Timing.End);
+        player.Walk.Teleport(use.Landing.X, use.Landing.Y, use.At);
+        player.LandingUntil = Math.Max(player.LandingUntil, use.At + use.Timing.End);
     }
 
-    public static Task ScheduleLeapSlam(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task ScheduleLeapSlam(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        LeapSlam.Use use, SkillCriticalRoll criticalRoll, ushort sequence, double damageMore, double radiusMore)
+        LeapSlam.Use use, SkillCriticalRoll criticalRoll, ushort sequence, double damageMore, double radiusMore,
+        bool cryExerted = false)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(player);
         session.Advance();
-        int epoch = conn.ProjectileEpoch;
-        bool Valid() => session.Active && conn.ProjectileActive(epoch) && PlayerStateAllowsAction(conn)
-            && conn.ActionInterruptionGeneration == use.InterruptionGeneration
-            && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
-        lock (conn.Monsters)
-            session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(use.At + use.Timing.Land)), () =>
-            {
-                if (!Valid()) return;
-                var own = SupportedSkill(conn, skillId).Stats;
-                LeapSlamDisplaceOccupants(conn, use.Landing,
-                    SkillRadius(conn, own, spell: false, effect: gem.Effect) * radiusMore,
-                    ProjectileWorldTime(conn), own, use.From);
-                int count = 0;
-                var hit = AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, use.Landing, use.Landing,
-                    immediate: true, sequence: sequence, criticalRoll: criticalRoll,
-                    damageMore: damageMore, radiusMore: radiusMore, triggeredCurrent: Valid,
-                    onHit: _ => count++, scheduledSession: session);
-                if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Leap Slam landing must not yield.");
-                hit.GetAwaiter().GetResult();
-                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: landed sequence=0x{sequence:x4} "
-                    + $"from=({use.From.X}, {use.From.Y}) at=({use.Landing.X}, {use.Landing.Y}), hit={count}, "
-                    + $"animation={use.Timing.Animation}, land={use.Timing.Land:0.000000}s (t={ProjectileWorldTime(conn):0.000000})");
-            });
+        int epoch = player.ProjectileEpoch;
+        bool Valid() => session.Active && player.ProjectileActive(epoch) && PlayerStateAllowsAction(player)
+            && player.ActionInterruptionGeneration == use.InterruptionGeneration
+            && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
+        session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(use.At + use.Timing.Land)), () =>
+        {
+            if (!Valid()) return;
+            var own = SupportedSkill(player, skillId).Stats;
+            LeapSlamDisplaceOccupants(player, use.Landing,
+                SkillRadius(player, own, spell: false, effect: gem.Effect) * radiusMore,
+                ProjectileWorldTime(player), own, use.From);
+            int count = 0;
+            var hit = AreaSkillHit(player, skillId, gem, use.Landing, use.Landing,
+                immediate: true, sequence: sequence, criticalRoll: criticalRoll,
+                damageMore: damageMore, radiusMore: radiusMore, triggeredCurrent: Valid,
+                onHit: _ => count++, scheduledSession: session, cryExerted: cryExerted);
+            if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Leap Slam landing must not yield.");
+            hit.GetAwaiter().GetResult();
+            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: landed sequence=0x{sequence:x4} "
+                + $"from=({use.From.X}, {use.From.Y}) at=({use.Landing.X}, {use.Landing.Y}), hit={count}, "
+                + $"animation={use.Timing.Animation}, land={use.Timing.Land:0.000000}s (t={ProjectileWorldTime(player):0.000000})");
+        });
         return Task.CompletedTask;
     }
 }
