@@ -294,12 +294,15 @@ public sealed class WorldOutput
         foreach (var target in removed) { target.Invalidated.TrySetResult(false); target.Removal.TrySetResult(true); }
     }
 
-    // Called under SendGate. Validate the complete batch before admitting any of it.
-    public IReadOnlyList<Packet> Admit(OutputBatch batch, WorldAdmission admission, bool framed)
+    public IReadOnlyList<Packet> Admit(OutputBatch batch, WorldAdmission admission, bool framed) =>
+        TryAdmit(batch, admission, framed) ?? throw new ObjectDisposedException(nameof(WorldOutput));
+
+    // Called under SendGate. Refuse a retired connection atomically with admission under the state lock.
+    internal IReadOnlyList<Packet>? TryAdmit(OutputBatch batch, WorldAdmission admission, bool framed)
     {
         lock (sync)
         {
-            ObjectDisposedException.ThrowIf(closed, this);
+            if (closed) return null;
             var births = admission.Births;
             if (births.Distinct().Count() != births.Count) throw new ArgumentException("Duplicate birth declaration.");
             foreach (var birth in births)
