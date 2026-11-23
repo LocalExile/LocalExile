@@ -61,6 +61,8 @@ public static partial class Game
         PhaseRunBuffRow = BuffRow("new_phase_run", 467);
         PhaseRunDamageBuffRow = BuffRow("new_phase_run_damage", 468);
         BloodRageBuffRow = BuffRow("blood_rage", 11);
+        // An item that triggers Blood Rage (effect_buffs.routine) runs the same routine with the item skill's numbers.
+        RegisterBuffRoutine("BloodRage", StartBloodRage);
     }
 
     // Under the Monsters lock (WithSupportGemBuffs): the running self buffs' stats, from the accepted cast on.

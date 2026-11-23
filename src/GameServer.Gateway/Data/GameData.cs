@@ -30,6 +30,9 @@ public static class GameData
     static IReadOnlyList<GameDataStore.EffectRuleRow> _effectRules = [];
     public static IReadOnlyList<GameDataStore.EffectSkillRow> EffectSkills => Volatile.Read(ref _effectSkills);
     static IReadOnlyList<GameDataStore.EffectSkillRow> _effectSkills = [];
+    /// <summary>The enabled rows of <c>effect_buffs</c>: the buffs released skills give (the game module reads them).</summary>
+    public static IReadOnlyList<GameDataStore.EffectBuffRow> EffectBuffs => Volatile.Read(ref _effectBuffs);
+    static IReadOnlyList<GameDataStore.EffectBuffRow> _effectBuffs = [];
     public static Snapshot Current => Volatile.Read(ref _snapshot);
 
     /// <summary>Open world.db (bringing it up to date from sql/) and publish its rows. Called once at Gateway startup.</summary>
@@ -58,6 +61,7 @@ public static class GameData
         Volatile.Write(ref _snapshot, Empty);
         Volatile.Write(ref _effectRules, []);
         Volatile.Write(ref _effectSkills, []);
+        Volatile.Write(ref _effectBuffs, []);
         ModRangeProvider.Default.Replace(Empty.ModRanges);
         LimitSettings.Default.Replace(Empty.Limits);
         UniqueWeightProvider.Default.Reset();
@@ -78,6 +82,7 @@ public static class GameData
         var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits);
         var effectRules = store.LoadEffectRules();
         var effectSkills = store.LoadEffectSkills();
+        var effectBuffs = store.LoadEffectBuffs();
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         GameDataCatalog.Reload(store);
@@ -88,6 +93,7 @@ public static class GameData
         LimitSettings.Default.Replace(limits);
         Volatile.Write(ref _effectRules, effectRules);
         Volatile.Write(ref _effectSkills, effectSkills);
+        Volatile.Write(ref _effectBuffs, effectBuffs);
         Volatile.Write(ref _snapshot, snapshot);
         var (uniqueWeights, uniqueWeightOverrides) = store.UniqueWeightCounts();
         var drop = store.DropCounts();
@@ -95,7 +101,7 @@ public static class GameData
             $"{limits.Count} limit override(s), {SystemSettings.Default.Values.Count} system setting(s) ({reason}); " +
             $"{uniqueWeights} unique weight(s), {uniqueWeightOverrides} unique weight override(s); " +
             $"{drop.CurrencyWeights} currency weight(s), {drop.Bosses} boss(es), {drop.BossItems} boss item(s), " +
-            $"{drop.CardAreas} card area(s), {drop.ItemWeights} item weight(s); {effectRules.Count} effect rule(s), {effectSkills.Count} effect skill(s); {GameDataCatalog.Summary}");
+            $"{drop.CardAreas} card area(s), {drop.ItemWeights} item weight(s); {effectRules.Count} effect rule(s), {effectSkills.Count} effect skill(s), {effectBuffs.Count} effect buff(s); {GameDataCatalog.Summary}");
     }
 
     public static int Limit(string key, int baseValue) =>

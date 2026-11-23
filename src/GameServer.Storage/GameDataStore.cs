@@ -96,6 +96,24 @@ public sealed class GameDataStore : IDisposable
     }
 
     /// <summary>The enabled rows of <c>effect_skills</c>.</summary>
+    /// <summary>One enabled row of <c>effect_buffs</c>: the buff a released skill gives its user.</summary>
+    public sealed record EffectBuffRow(string Effect, string? Buff, string? Routine, double? Seconds, string Stats, bool Checked);
+
+    public IReadOnlyList<EffectBuffRow> LoadEffectBuffs()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT effect, buff, routine, seconds, stats, checked FROM effect_buffs WHERE enabled = 1 ORDER BY effect");
+            using var reader = command.ExecuteReader();
+            var result = new List<EffectBuffRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetDouble(3),
+                    reader.GetString(4), reader.GetInt32(5) != 0));
+            return result;
+        }
+    }
+
     public IReadOnlyList<EffectSkillRow> LoadEffectSkills()
     {
         lock (_gate)

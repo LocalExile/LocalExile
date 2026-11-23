@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GameServer.Core.World;
 using System.Collections.Concurrent;
 using System.Net.Sockets;
@@ -174,6 +175,49 @@ public static partial class Game
                 });
             }));
 
+        // A skill that gives its user a buff (effect_buffs): the skill's own routine (Blood Rage's, with its degeneration
+        // and its refresh on kill), or a timed buff with the row's values for the skill's duration.
+        RegisterTriggeredSkillExecutor(new("buff", (_, grant) => TriggeredBuffOf(grant.EffectId) is not null,
+            (fire, grant) =>
+            {
+                var player = fire.Conn;
+                if (TriggeredBuffOf(grant.EffectId) is not { } row) return;
+                if (player.PlayerLife == 0 || player.Paused || player.Closed || player.LeavingArea || InTown(player)
+                    || ActorSkillOf(player, grant) is not var (actor, gem) || !gem.RequirementsMet
+                    || GemSkillInstanceDisabled(player, gem.Effect, actor, triggered: true) is not null) return;
+                if (!PayMana(player, actor, out uint mana, out uint life)) return;
+                var own = SupportedSkill(player, actor).Stats;
+                int Own(uint key) => GolemStat(own, key);
+                Func<Player, ushort, Task>? routine = null;
+                BuffSpec? spec = null;
+                double seconds = 0;
+                if (row.Routine is { } name)
+                {
+                    lock (TriggeredSkillGate) routine = buffRoutines.GetValueOrDefault(name);
+                    if (routine is null) return;
+                }
+                else
+                {
+                    var playerStats = CharacterPlayerStats(player);
+                    seconds = row.Seconds ?? SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), key => GolemStat(playerStats, key), Own);
+                    spec = new(row.Buff!, row.Row, [.. row.Stats.Select(s => (s.Key, s.From is uint from ? Own(from) : s.Value)).Where(s => s.Item2 != 0)]);
+                }
+                var lifetime = CombatLifetime;
+                var session = ProjectilesFor(player);
+                session.Enqueue(async () =>
+                {
+                    if (!session.Active || !CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || player.Closed
+                        || player.LeavingArea || player.PlayerLife == 0) return;
+                    if (routine is not null) await routine(player, actor);
+                    else
+                    {
+                        GainTimedBuff(player, spec!, seconds);
+                        Console.WriteLine($"[gateway] {player.Connection.Remote} {grant.EffectId} triggered by its item: {spec!.Id} for {seconds:0.##} s");
+                    }
+                    if (mana > 0 || life > 0) await SendSkillCost(player, life, $"{grant.EffectId} cost");
+                });
+            }));
+
         // One area hit of a spell, where the event's monster stands (around the player for a skill that targets
         // itself, SpellCentre): the triggered action goes to the client, which draws the skill, and the hit lands at
         // once (AreaSkillHit's immediate form, as a trigger gem's Ice Nova). Only the skills named in
@@ -309,6 +353,65 @@ public static partial class Game
     sealed record TriggeredAreaTable(int Revision, Dictionary<string, TriggeredArea> Skills);
     static TriggeredAreaTable triggeredAreas = new(-1, []);
     static Dictionary<string, TriggeredArea> addedTriggeredAreas = [];
+
+    /// <summary>A row of <c>effect_buffs</c> ready to use: the buff's BuffDefinitions row and its stats, each a fixed
+    /// value or read from one of the skill's own stats.</summary>
+    public sealed record TriggeredBuff(string? Buff, ushort Row, string? Routine, double? Seconds,
+        (uint Key, int Value, uint? From)[] Stats);
+
+    sealed record TriggeredBuffTable(int Revision, Dictionary<string, TriggeredBuff> Buffs);
+    static TriggeredBuffTable triggeredBuffs = new(-1, new());
+    static readonly Dictionary<string, Func<Player, ushort, Task>> buffRoutines = new(StringComparer.Ordinal);
+
+    /// <summary>Names a skill's own buff routine for <c>effect_buffs.routine</c>: it is given the player and the
+    /// granted skill's id, and reads the skill's numbers from that skill.</summary>
+    public static void RegisterBuffRoutine(string name, Func<Player, ushort, Task> routine)
+    {
+        lock (TriggeredSkillGate) buffRoutines[name] = routine;
+    }
+
+    /// <summary>The buff the "buff" executor gives for a released skill (world.db's <c>effect_buffs</c>), or null. A row
+    /// that names an unknown buff or stat is left out and logged.</summary>
+    public static TriggeredBuff? TriggeredBuffOf(string effectId)
+    {
+        var table = Volatile.Read(ref triggeredBuffs);
+        int revision = GameData.Current.Revision;
+        if (table.Revision != revision)
+            lock (TriggeredSkillGate)
+            {
+                var buffs = new Dictionary<string, TriggeredBuff>(StringComparer.Ordinal);
+                foreach (var row in GameData.EffectBuffs)
+                    try
+                    {
+                        ushort buffRow = 0;
+                        if (row.Buff is { } buff)
+                        {
+                            int found = -1;
+                            foreach (var definition in ClientTables.Table("BuffDefinitions"))
+                                if (definition.Text("Id") == buff) { found = definition.Index; break; }
+                            if (found < 0) throw new FormatException($"unknown buff \"{buff}\"");
+                            buffRow = (ushort)found;
+                        }
+                        List<(uint, int, uint?)> stats = [];
+                        using var json = JsonDocument.Parse(row.Stats);
+                        foreach (var stat in json.RootElement.EnumerateObject())
+                        {
+                            uint key = Program.Stats.Key(stat.Name) ?? throw new FormatException($"unknown stat \"{stat.Name}\"");
+                            if (stat.Value.ValueKind == JsonValueKind.String)
+                                stats.Add((key, 0, Program.Stats.Key(stat.Value.GetString() ?? "")
+                                    ?? throw new FormatException($"unknown stat \"{stat.Value.GetString()}\"")));
+                            else stats.Add((key, stat.Value.GetInt32(), null));
+                        }
+                        buffs[row.Effect] = new(row.Buff, buffRow, row.Routine, row.Seconds, [.. stats]);
+                    }
+                    catch (Exception e) when (e is FormatException or JsonException or InvalidOperationException)
+                    {
+                        Console.WriteLine($"[gateway] effect_buffs row \"{row.Effect}\" is left out: {e.Message}");
+                    }
+                Volatile.Write(ref triggeredBuffs, table = new(revision, buffs));
+            }
+        return table.Buffs.GetValueOrDefault(effectId);
+    }
 
     /// <summary>The skills the "area" executor releases: world.db's <c>effect_skills</c> rows with how "area" (the
     /// art of most is a best guess until its row is checked against the game), and those a module or mod added
