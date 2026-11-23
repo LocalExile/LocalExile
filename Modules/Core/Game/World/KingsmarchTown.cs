@@ -1450,7 +1450,8 @@ public static class KingsmarchTown
         int plot = jobRow is >= 11 and <= 16 ? jobRow - 11 : -1;
         lock (_lock)
         {
-            if (worker < 1 || worker > progress.Workers.Count) return;
+            if (progress.Workers.Count == 0) return;
+            worker = Math.Clamp(worker, 1, progress.Workers.Count);
             progress.Workers[worker - 1].Plot = plot;
             Persist(progress);
         }
@@ -1471,6 +1472,22 @@ public static class KingsmarchTown
         if (idle.Length == 0) return Task.FromResult("every worker already has a job");
         int worker = index >= 0 && index < idle.Length ? idle[index] : idle[^1];
         return Assign(player, worker, plotOrder);
+    }
+    /// <summary>Takes a worker out of the town for good, as the panel's release button does. The panel keeps its own list,
+    /// but the farm is what the panel is re-written from, so the worker has to leave here too -otherwise the two lists
+    /// drift apart by one and the last worker can never be placed again.</summary>
+    /// <param name="player">The player whose farm it is.</param>
+    /// <param name="worker">The worker's number in the town, counting from one.</param>
+    public static void Fire(IPlayer player, int worker)
+    {
+        Progress progress = State(player);
+        lock (_lock)
+        {
+            if (progress.Workers.Count == 0) return;
+            worker = Math.Clamp(worker, 1, progress.Workers.Count);
+            progress.Workers.RemoveAt(worker - 1);
+            Persist(progress);
+        }
     }
     static async Task SetWorkers(IPlayer player, Plot plot, int count)    {
         var states = new StateMachineData(new int[plot.States.Length], 0, plot.States).Set("num_workers", count);

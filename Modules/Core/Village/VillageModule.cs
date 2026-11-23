@@ -497,7 +497,7 @@ public sealed class VillageModule : IModule
                 0x18 => await Give(settlement, Amount(args), player),
                 0x19 => await Take(settlement, Amount(args), player),
                 0x03 => Assign(settlement, args, player),
-                0x02 => Release(settlement, args),
+                0x02 => Release(settlement, args, player),
                 0x06 => Sail(player, args),
                 0x07 => args.Length == 0 ? "abandon (no slot)" : KingsmarchPort.DropShip(who, args[0]) ? $"ship {args[0]} abandoned" : $"no ship in slot {args[0]}",
                 0x00 => await RerollRecruits(player, args.Length > 0 ? args[0] : 0),
@@ -728,13 +728,14 @@ public sealed class VillageModule : IModule
 
     /// <summary>The panel's release button (the small icon on a worker): the worker leaves the town for good, so the
     /// worker list shrinks and the panel is told about it.</summary>
-    static string Release(Settlement settlement, ReadOnlySpan<byte> args)
+    static string Release(Settlement settlement, ReadOnlySpan<byte> args, IPlayer player)
     {
         byte index = args.Length > 0 ? args[0] : (byte)0;
         var order = settlement.Assignments.OrderBy(pair => pair.Key).ToList();
         if (order.Count <= index) return $"release worker {index}: no worker to release";
         byte key = order[index].Key;
         settlement.Assignments.Remove(key);
+        KingsmarchTown.Fire(player, index + 1);
         settlement.Ranks.Remove(key);
         settlement.Workers = (byte)settlement.Assignments.Count;
         settlement.Version++;
