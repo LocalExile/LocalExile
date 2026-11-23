@@ -106,6 +106,50 @@ public sealed partial class Walkability
             }
     }
 
+    /// <summary>The cells <see cref="Stamp"/> closes to walking (the walk and projectile shapes), for an object the client
+    /// stamps when it is created (a static one: 0x141d8bd20 calls <c>0x141d8ad70</c>), which the server's walk map must
+    /// close too.</summary>
+    public static HashSet<(int X, int Y)> WalkCells(DoodadHull hull, PlacedDoodad d)
+    {
+        var cells = new HashSet<(int X, int Y)>();
+        float c = MathF.Cos(d.Angle) * d.Scale, s = MathF.Sin(d.Angle) * d.Scale;
+        float xx = d.Mirrored ? -c : c, yx = -s, xy = d.Mirrored ? -s : s, yy = c;
+        (float, float) Turn(float x, float y) => (x * xx + y * yx, x * xy + y * yy);
+        int swap = d.Mirrored ? 1 : 0;
+        foreach (int shapes in new[] { 0, 1 })
+            foreach (var section in hull.Sections)
+            {
+                foreach (var t in section.Triangles[shapes])
+                    Triangle(Turn(t[0], t[1]), Turn(t[2 + 2 * swap], t[3 + 2 * swap]), Turn(t[4 - 2 * swap], t[5 - 2 * swap]),
+                        (x, y) => cells.Add((d.X + x, d.Y + y)));
+                foreach (var (cx, cy, r) in section.Circles[shapes])
+                {
+                    var (px, py) = Turn(cx, cy);
+                    float radius = d.Scale * r;
+                    int ox = (int)MathF.Floor(px + 0.5f), oy = (int)MathF.Floor(py + 0.5f);
+                    int extent = (int)MathF.Floor(radius + 0.5f), squared = (int)MathF.Floor(radius * radius + 0.5f);
+                    for (int dy = -extent; dy <= extent; dy++)
+                        for (int dx = -extent; dx <= extent; dx++)
+                            if (dx * dx + dy * dy < squared) cells.Add((d.X + ox + dx, d.Y + oy + dy));
+                }
+            }
+        return cells;
+    }
+
+    /// <summary>The cells closed to a mover of <paramref name="moverSize"/> (Positioned object_size − 1; the player is 1)
+    /// by these stamped cells: <see cref="Block"/> gives the cells round a stamped one their Chebyshev distance, and a
+    /// mover stands only on a value ≥ size + 1 (<c>ClientPathfinder</c>), so the cells within <paramref name="moverSize"/>
+    /// of a stamped cell are closed to it as well.</summary>
+    public static HashSet<(int X, int Y)> ClosedTo(IEnumerable<(int X, int Y)> stamped, int moverSize = 1)
+    {
+        var closed = new HashSet<(int X, int Y)>();
+        foreach (var (x, y) in stamped)
+            for (int dy = -moverSize; dy <= moverSize; dy++)
+                for (int dx = -moverSize; dx <= moverSize; dx++)
+                    closed.Add((x + dx, y + dy));
+        return closed;
+    }
+
     /// <summary><c>0x141d9d430</c>: the cells a triangle covers, in 1/16 cells with a top-left rule (cell (x, y) is the
     /// sample at 16·x, 16·y), the corners put in counter-clockwise order first.</summary>
     static void Triangle((float X, float Y) p1, (float X, float Y) p2, (float X, float Y) p3, Action<int, int> cell)

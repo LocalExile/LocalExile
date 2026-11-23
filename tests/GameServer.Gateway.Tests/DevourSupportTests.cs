@@ -14,14 +14,17 @@ public sealed class DevourSupportTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "devour", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "devour", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "DevourChar", PlayerLife = 500, PlayerMana = 100, Instance = new(),
+            Character = { Name = "DevourChar" },
+            PlayerLife = 500,
+            PlayerMana = 100,
+            Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
-        conn.Clock.Stop();
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        player.Clock.Stop();
+        double now = player.Clock.Elapsed.TotalSeconds;
         try
         {
             var skill = new Dictionary<uint, int>();
@@ -41,21 +44,21 @@ public sealed class DevourSupportTests
                 Life = 0,
                 Variety = zombie,
             };
-            conn.Monsters[1] = corpse;
-            Game.DevourOnKill(conn, corpse, skill);
-            Assert.Equal(520u, conn.PlayerLife);
-            Assert.Equal(110u, conn.PlayerMana);
+            player.Area.Monsters[1] = corpse;
+            Game.DevourOnKill(player, corpse, skill);
+            Assert.Equal(520u, player.PlayerLife);
+            Assert.Equal(110u, player.PlayerMana);
             Assert.True(corpse.DevourCorpse);
-            Game.ChargesOnKill(conn, corpse);
-            Assert.Equal(1L, conn.RecentEvents.Amounts(now)[StatConditions.KilledEnemy]);
-            Assert.True(Game.ConsumeDevouredCorpseLocked(conn, 1, corpse, now));
+            Game.ChargesOnKill(player, corpse);
+            Assert.Equal(1L, player.RecentEvents.Amounts(now)[StatConditions.KilledEnemy]);
+            Assert.True(Game.ConsumeDevouredCorpseLocked(player, 1, corpse, now));
             Assert.True(corpse.CorpseConsumed);
             Assert.False(corpse.DevourCorpse);
-            Assert.False(conn.Monsters.ContainsKey(1));
-            Assert.True(conn.RecentEvents.Happened(StatConditions.ConsumedCorpse, now));
-            Assert.Equal(1L, conn.RecentEvents.Amounts(now)[StatConditions.KilledEnemy]);
-            Assert.False(Game.ConsumeDevouredCorpseLocked(conn, 1, corpse, now));
-            Assert.False(conn.RecentEvents.Happened(StatConditions.ConsumedCorpse, now + 4));
+            Assert.False(player.Area.Monsters.ContainsKey(1));
+            Assert.True(player.RecentEvents.Happened(StatConditions.ConsumedCorpse, now));
+            Assert.Equal(1L, player.RecentEvents.Amounts(now)[StatConditions.KilledEnemy]);
+            Assert.False(Game.ConsumeDevouredCorpseLocked(player, 1, corpse, now));
+            Assert.False(player.RecentEvents.Happened(StatConditions.ConsumedCorpse, now + 4));
 
             // A shattered corpse is already gone: the support's recovery still applies, but there is no object to remove.
             var shattered = new SpawnedMonster("shattered", new(0, 0, 0), 0, 0, 100)
@@ -65,15 +68,15 @@ public sealed class DevourSupportTests
                 Variety = zombie,
             };
             shattered.Ailments.Shatter();
-            conn.Monsters[2] = shattered;
-            Game.DevourOnKill(conn, shattered, skill);
+            player.Area.Monsters[2] = shattered;
+            Game.DevourOnKill(player, shattered, skill);
             Assert.False(shattered.DevourCorpse);
-            Assert.False(Game.ConsumeDevouredCorpseLocked(conn, 2, shattered, 0));
-            Assert.True(conn.Monsters.ContainsKey(2));
+            Assert.False(Game.ConsumeDevouredCorpseLocked(player, 2, shattered, 0));
+            Assert.True(player.Area.Monsters.ContainsKey(2));
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseSaves(path);
         }

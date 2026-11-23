@@ -1,0 +1,49 @@
+<Project>
+  <!-- Precompiled code: crossgen2 compiles a project's IL to machine code (ReadyToRun) right after the compiler, and that
+       assembly is what the build copies and publishes. The runtime then compiles nothing on a first call: without it the
+       JIT compiled about 11,000 methods (2 s) on a first area entry and 1,500 (200 ms) on a first Righteous Fire.
+       The same in Debug and Release. A module or mod loads into a context that keeps it (ModLoadContext), since the
+       runtime ignores precompiled code in a collectible one. Code built for this machine's OS and CPU, as the servers
+       and a release package are. -->
+  <PropertyGroup Condition="'$(Precompile)' == 'true'">
+    <_PrecompileHost>$(NETCoreSdkRuntimeIdentifier)</_PrecompileHost>
+    <_PrecompileOs Condition="$(_PrecompileHost.StartsWith('win'))">windows</_PrecompileOs>
+    <_PrecompileOs Condition="$(_PrecompileHost.StartsWith('linux'))">linux</_PrecompileOs>
+    <_PrecompileOs Condition="$(_PrecompileHost.StartsWith('osx'))">osx</_PrecompileOs>
+    <_PrecompileArch>$(_PrecompileHost.Substring($([MSBuild]::Add($(_PrecompileHost.LastIndexOf('-')), 1))))</_PrecompileArch>
+    <_PrecompileExe Condition="'$(_PrecompileOs)' == 'windows'">.exe</_PrecompileExe>
+    <Crossgen2Path>$(NuGetPackageRoot)microsoft.netcore.app.crossgen2.$(_PrecompileHost)/$(BundledNETCoreAppPackageVersion)/tools/crossgen2$(_PrecompileExe)</Crossgen2Path>
+    <_PrecompiledAssembly>$(IntermediateOutputPath)precompiled/$(TargetFileName)</_PrecompiledAssembly>
+    <_PrecompileResponse>$(IntermediateOutputPath)precompiled/crossgen2.rsp</_PrecompileResponse>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(Precompile)' == 'true'">
+    <PackageDownload Include="Microsoft.NETCore.App.Crossgen2.$(_PrecompileHost)" Version="[$(BundledNETCoreAppPackageVersion)]" />
+  </ItemGroup>
+
+  <Target Name="Precompile" AfterTargets="CoreCompile" DependsOnTargets="_Precompile" Condition="'$(Precompile)' == 'true'">
+    <ItemGroup>
+      <IntermediateAssembly Remove="@(IntermediateAssembly)" />
+      <IntermediateAssembly Include="$(_PrecompiledAssembly)" />
+      <FileWrites Include="$(_PrecompiledAssembly);$(_PrecompileResponse)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Again when the IL changes or what it is compiled against does (a reference assembly changes with its public surface). -->
+  <Target Name="_Precompile" Inputs="@(IntermediateAssembly);@(ReferencePathWithRefAssemblies)" Outputs="$(_PrecompiledAssembly)">
+    <ItemGroup>
+      <!-- The framework as it runs (the shared framework's assemblies), not the reference assemblies compiled against. -->
+      <_PrecompileFramework Include="%(ReferencePath.FrameworkReferenceName)" Condition="'%(ReferencePath.FrameworkReferenceName)' != ''" />
+      <_PrecompileReference Include="@(ReferencePath)" Condition="'%(ReferencePath.FrameworkReferenceName)' == ''" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(Crossgen2Path)')" Text="crossgen2 is missing at $(Crossgen2Path): restore the project." />
+    <Error Condition="!Exists('$(NetCoreRoot)shared/%(_PrecompileFramework.Identity)/$(BundledNETCoreAppPackageVersion)')"
+           Text="The %(_PrecompileFramework.Identity) $(BundledNETCoreAppPackageVersion) runtime is not installed in $(NetCoreRoot)shared." />
+    <PropertyGroup>
+      <_PrecompileLines>@(IntermediateAssembly->'"%(FullPath)"');-o:"$([System.IO.Path]::GetFullPath('$(_PrecompiledAssembly)'))";@(_PrecompileReference->'-r:"%(FullPath)"');@(_PrecompileFramework->'-r:"$(NetCoreRoot)shared/%(Identity)/$(BundledNETCoreAppPackageVersion)/%2A.dll"');--targetos:$(_PrecompileOs);--targetarch:$(_PrecompileArch);-O</_PrecompileLines>
+    </PropertyGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)precompiled" />
+    <WriteLinesToFile File="$(_PrecompileResponse)" Lines="$(_PrecompileLines)" Overwrite="true" />
+    <Exec Command="&quot;$(Crossgen2Path)&quot; @&quot;$(_PrecompileResponse)&quot;" StandardOutputImportance="low" />
+  </Target>
+</Project>

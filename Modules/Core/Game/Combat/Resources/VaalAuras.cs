@@ -10,13 +10,13 @@ public static partial class Game
     // BuffDefinitions 160 vaal_aura_energy_shield "Vaal Discipline Aura": energy_shield_recharge_not_delayed_by_damage,
     // which EnergyShield reads.
     // Visual: the BuffDefinitions row's BuffVisuals row, sent explicitly (bit4) as Righteous Fire's buffs do.
-    sealed record VaalAuraKind(ushort BuffRow, ushort Visual, string Stat);
+    sealed record VaalAuraKind(ushort BuffRow, ushort Visual, uint Stat);
     static readonly Dictionary<string, VaalAuraKind> VaalAuras = new()
     {
-        ["VaalDiscipline"] = new(160, 329, "energy_shield_recharge_not_delayed_by_damage"),
+        ["VaalDiscipline"] = new(160, 329, Stat.EnergyShieldRechargeNotDelayedByDamage),
     };
-    internal sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public string? Stat; }
-    internal static readonly RuleTable<ClientState, VaalAuraState> VaalAuraStates = new();
+    internal sealed class VaalAuraState { public int Token; public ushort Buff, Source, Row; public double Until; public uint? Stat; }
+    internal static readonly Store<Player, VaalAuraState> VaalAuraStates = new();
 
     // A Vaal aura's buff: buff_duration_+% and the Vaal skills' increased duration add to its increased duration
     // (kinds); its soul gain prevention takes the buff duration modifiers only (VaalUses).
@@ -24,87 +24,81 @@ public static partial class Game
         SkillDurationModifiers.Kinds kinds = SkillDurationModifiers.Kinds.Vaal | SkillDurationModifiers.Kinds.Buff) =>
         SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n), kinds);
 
-    static void WithVaalAura(ClientState conn, Dictionary<uint, int> stats)
+    static void WithVaalAura(Player player, StatMap stats)
     {
-        if (!VaalAuraStates.TryGetValue(conn, out var aura)) return;
-        lock (conn.Monsters)
-            if (conn.PlayerLife > 0 && aura.Stat is string name && aura.Until > conn.Clock.Elapsed.TotalSeconds
-                && Stats.Key(name) is uint key)
-                stats[key] = 1;
+        if (!VaalAuraStates.TryGetValue(player, out var aura)) return;
+        double now = AreaTime(player);
+        if (player.PlayerLife > 0 && aura.Stat is uint key && aura.Until > now)
+        {
+            stats[key] = 1;
+            StatsChangeIn(aura.Until - now);
+        }
     }
 
-    static async Task<bool> ActivateVaalAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> ActivateVaalAura(Player player,
         ushort skillId, Func<bool> current)
     {
-        var gem = SupportedSkill(conn, skillId);
-        string name = SkillsFor(conn).EffectId(gem.Effect) ?? "";
+        var gem = SupportedSkill(player, skillId);
+        string name = SkillsFor(player).EffectId(gem.Effect) ?? "";
         if (!VaalAuras.TryGetValue(name, out var kind)) return false;
-        double seconds = VaalAuraSeconds(GolemStat(gem.Stats, "base_skill_effect_duration"), CharacterPlayerStats(conn), gem.Stats);
+        double seconds = VaalAuraSeconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration), CharacterPlayerStats(player), gem.Stats);
         if (seconds <= 0) return false;
-        var aura = VaalAuraStates.GetOrCreateValue(conn);
+        var aura = VaalAuraStates.GetOrCreateValue(player);
         int token;
-        lock (conn.Monsters) token = ++aura.Token;
+        token = ++aura.Token;
         // Built fresh, as Flicker Strike's buff: the use's message holds a stats snapshot from before the buff.
-        using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(remote, stream, ciphers, [], $"0x01c1 {name}: {kind.Stat} for {seconds:0.##} s (buff row {kind.BuffRow})",
+        using var fresh = new PlayerStatScope(player, fresh: true);
+        await Send(player, [], $"0x01c1 {name}: {Stats.Name(kind.Stat)} for {seconds:0.##} s (buff row {kind.BuffRow})",
             still: current, atGate: () =>
             {
-                lock (conn.Monsters)
-                {
-                    if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || aura.Token != token) return null;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    var bytes = new List<byte>();
-                    // A use while the last one still runs replaces it.
-                    if (aura.Buff != 0 || aura.Source != 0)
-                    {
-                        if (aura.Buff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Buff));
-                        if (aura.Source != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Source));
-                    }
-                    aura.Source = conn.NextBuff++;
-                    aura.Buff = conn.NextBuff++;
-                    aura.Until = now + seconds;
-                    aura.Stat = kind.Stat;
-                    // As the reservation auras (AuraCatalog.StartPackets): the source draws the aura, the received buff
-                    // the HUD icon, here with its duration.
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, aura.Source, kind.BuffRow, PlayerId, skillId,
-                        auraSource: true, displayState: 0, visual: kind.Visual));
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, aura.Buff, kind.BuffRow, PlayerId, skillId,
-                        u68: BitConverter.SingleToUInt32Bits((float)seconds), visual: kind.Visual));
-                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                    return [.. bytes];
-                }
+                if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0 || aura.Token != token) return null;
+                double now = AreaTime(player);
+                var bytes = new List<byte>();
+                // A use while the last one still runs replaces it (a new countdown).
+                if (aura.Buff != 0) ClearVaalAuraBuffs(player, aura);
+                aura.Source = aura.Buff = 1;
+                aura.Row = kind.BuffRow;
+                aura.Until = now + seconds;
+                aura.Stat = kind.Stat;
+                // As the reservation auras (AuraCatalog.Buffs): the source draws the aura, the received buff the HUD icon,
+                // here with its duration.
+                player.Area.Buffs.Set(player.Id, new(kind.BuffRow, player.Id, skillId, AuraSource: true, DisplayState: 0,
+                    Visual: kind.Visual, Tag: (ushort)BuffTag.VaalAura));
+                player.Area.Buffs.Set(player.Id, new(kind.BuffRow, player.Id, skillId, U68: Buff.Seconds(seconds),
+                    Visual: kind.Visual, Tag: (ushort)BuffTag.VaalAura));
+                bytes.AddRange(PlayerStatsOffFrames(player));
+                return [.. bytes];
             });
         return true;
     }
 
-    internal static byte[]? ExpireVaalAura(ClientState conn, double now)
+    internal static byte[]? ExpireVaalAura(Player player, double now)
     {
-        lock (conn.Monsters)
-        {
-            if (!VaalAuraStates.TryGetValue(conn, out var aura) || aura.Buff == 0
-                || conn.Paused || conn.PlayerLife > 0 && now < aura.Until) return null;
-            var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, aura.Buff));
-            if (aura.Source != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Source));
-            aura.Buff = aura.Source = 0;
-            aura.Until = 0;
-            aura.Stat = null;
-            ++aura.Token;
-            return [.. bytes];
-        }
+        if (!VaalAuraStates.TryGetValue(player, out var aura) || aura.Buff == 0
+            || player.Paused || player.PlayerLife > 0 && now < aura.Until) return null;
+        ClearVaalAuraBuffs(player, aura);
+        aura.Buff = aura.Source = 0;
+        aura.Until = 0;
+        aura.Stat = null;
+        ++aura.Token;
+        return [];
     }
 
-    static async Task SendVaalAuraExpiry(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static void ClearVaalAuraBuffs(Player player, VaalAuraState aura)
     {
-        if (!VaalAuraStates.TryGetValue(conn, out var aura) || aura.Buff == 0) return;
-        using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(remote, stream, ciphers, [], "Vaal aura expired", atGate: () =>
+        player.Area.Buffs.Clear(player.Id, aura.Row, player.Id, auraSource: true, tag: (ushort)BuffTag.VaalAura);
+        player.Area.Buffs.Clear(player.Id, aura.Row, player.Id, tag: (ushort)BuffTag.VaalAura);
+    }
+
+    static async Task SendVaalAuraExpiry(Player player)
+    {
+        if (!VaalAuraStates.TryGetValue(player, out var aura) || aura.Buff == 0) return;
+        using var fresh = new PlayerStatScope(player, fresh: true);
+        await Send(player, [], "Vaal aura expired", atGate: () =>
         {
-            lock (conn.Monsters)
-            {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired
-                    || ExpireVaalAura(conn, AreaTime(conn)) is not { } bytes) return null;
-                return [.. bytes, .. PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn))];
-            }
+            if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired
+                || ExpireVaalAura(player, AreaTime(player)) is not { } bytes) return null;
+            return [.. bytes, .. PlayerStatsOffFrames(player)];
         });
     }
 }

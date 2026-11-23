@@ -23,7 +23,7 @@ public static class InstanceMonsterStatue
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                          // object flags, base data count
-        w.I32(x).I32(y).F32(rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);       // Positioned
+        w.Positioned(x, y, rotation);                                           // Positioned
         w.U8(0);                                                                // Animated: none, the task supplies the model
         new HideoutDoodad(MtxHash, variation, 0).Write(w);                      // HideoutDoodad: the statue task's variation
         w.U8(0).U8(0);                                                          // Inventories: none, no equipped items

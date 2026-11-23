@@ -36,13 +36,13 @@ public sealed class AtlasBossDriveTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
 
-            var (conn, boss) = MeleeSetup(server.GetStream(), serverCiphers);
-            var fight = new ShaperFight(BossId, boss, conn);
-            await fight.Bind(conn);
+            var (player, boss) = MeleeSetup(server.GetStream(), serverCiphers);
+            var fight = new ShaperFight(BossId, boss, player);
+            await fight.Bind(player);
 
             // The hand-set clock: Step's own `now` is what the rotation reads, so one step well past 0 is enough for
             // the melee branch (the variety's AttackRange is 12 and the player stands 5 cells away).
-            await fight.Step(conn, 5.0);
+            await fight.Step(player, 5.0);
             Assert.True(boss.ActionGeneration > 0, "the controller ordered no action at all");
 
             // The wire carries it: the 0x1ab the client needs, decrypted back to the frame the client would read.
@@ -78,17 +78,17 @@ public sealed class AtlasBossDriveTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
 
-            var (conn, boss) = MeleeSetup(server.GetStream(), serverCiphers);
+            var (player, boss) = MeleeSetup(server.GetStream(), serverCiphers);
             // Exactly what PlayerEnteredArea starts: Monsters.MonsterSwing returns before it orders anything while this
             // is up, so the live windows (every one of them inside a fresh ~60 s window) saw no swing at all.
-            conn.EntryProtection.Start(0, (100, 100), GracePeriod.BuffRow, town: false, hideout: false);
-            Assert.True(Game.InGracePeriod(conn));
-            var fight = new ShaperFight(BossId, boss, conn);
-            await fight.Bind(conn);
+            player.EntryProtection.Start(0, (100, 100), GracePeriod.BuffRow, town: false, hideout: false);
+            Assert.True(Game.InGracePeriod(player));
+            var fight = new ShaperFight(BossId, boss, player);
+            await fight.Bind(player);
 
             // The controller still drives: the same step that put 0x1ab on the wire above orders its swing here too
             // (the fight's own trace prints "swing 481 returned after 0 ms"). Only the wire is silent.
-            await fight.Step(conn, 5.0);
+            await fight.Step(player, 5.0);
             Assert.True(boss.ActionGeneration > 0, "the controller ordered no action at all");
 
             // MonsterSwing returns at its entry-protection check before its first await, so nothing is pending here:
@@ -108,14 +108,16 @@ public sealed class AtlasBossDriveTests
     // A connection whose player stands five cells from a spawned Shaper, in a real socket: the boss monster
     // SpawnMonster builds for /spawn_mob Metadata/Monsters/AtlasBosses/TheShaperBoss@83 unique (the variety's row, its
     // life, its three life thresholds), placed in the connection's own monster table under the id the live run used.
-    static (ClientState Conn, SpawnedMonster Boss) MeleeSetup(NetworkStream toClient, ConnectionCiphers serverCiphers)
+    static (Player Player, SpawnedMonster Boss) MeleeSetup(NetworkStream toClient, ConnectionCiphers serverCiphers)
     {
-        var conn = new ClientState(new(1, "boss-drive", 100, 100, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "boss-drive", 100, 100, 100, 100, null, []), 1, 1)
         {
-            PlayerLife = 1000, PlayerSent = true, Character = "BossDrive",
+            PlayerLife = 1000,
+            Connection = { PlayerSent = true },
+            Character = { Name = "BossDrive" }
         };
-        conn.Wire = ("127.0.0.1:1", toClient, serverCiphers);
-        conn.Walk.Teleport(100, 100, 0);
+        player.Connection.Session = new("127.0.0.1:1", toClient, serverCiphers);
+        player.Walk.Teleport(100, 100, 0);
         var variety = new MonsterCatalog().Find(Shaper);
         Assert.NotNull(variety);
         Assert.True(AtlasBosses.IsBoss(variety));
@@ -123,8 +125,8 @@ public sealed class AtlasBossDriveTests
         {
             Variety = variety, Level = 83, Life = 3129484, MaxLife = 3129484, LifePhases = new([75, 50, 25]),
         };
-        conn.Monsters[BossId] = boss;
-        return (conn, boss);
+        player.Area.Monsters[BossId] = boss;
+        return (player, boss);
     }
 
     static async Task<byte[]> ReadFrame(NetworkStream stream, ConnectionCiphers ciphers, int length)

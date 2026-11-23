@@ -22,21 +22,21 @@ public sealed class HarvestCropRotationTests
         Assert.Equal(0, level80.Upgrade3);
 
         // Only atlas_keystone_crop_rotation activates Crop Rotation; the map load's harvest league block stats stay ignored.
-        var leagueBlockOnly = HarvestStats.From(new MapMods(new Dictionary<string, int>
+        var leagueBlockOnly = HarvestStats.From(new MapMods(new Dictionary<uint, int>
         {
-            ["map_harvest_seeds_are_tier_1"] = 1,
-            ["map_harvest_seeds_of_other_colours_have_chance_to_upgrade_on_completing_plot"] = 1,
+            [Stat.MapHarvestSeedsAreTier1] = 1,
+            [Stat.MapHarvestSeedsOfOtherColoursHaveChanceToUpgradeOnCompletingPlot] = 1,
         }));
         Assert.False(leagueBlockOnly.CropRotation);
 
-        var cropRotation = HarvestStats.From(new MapMods(new Dictionary<string, int>
+        var cropRotation = HarvestStats.From(new MapMods(new Dictionary<uint, int>
         {
-            ["atlas_keystone_crop_rotation"] = 1,
-            ["map_harvest_always_high_tier_seeds"] = 1,
-            ["map_harvest_seeds_are_at_least_t2"] = 1,
-            ["map_harvest_seed_t2_upgrade_%_chance"] = 100,
-            ["map_harvest_seed_t3_upgrade_%_chance"] = 100,
-            ["map_harvest_plots_%_chance_to_spawn_tier4_seed"] = 100,
+            [Stat.AtlasKeystoneCropRotation] = 1,
+            [Stat.MapHarvestAlwaysHighTierSeeds] = 1,
+            [Stat.MapHarvestSeedsAreAtLeastT2] = 1,
+            [Stat.MapHarvestSeedT2UpgradePctChance] = 100,
+            [Stat.MapHarvestSeedT3UpgradePctChance] = 100,
+            [Stat.MapHarvestPlotsPctChanceToSpawnTier4Seed] = 100,
         }));
         Assert.True(cropRotation.CropRotation);
 
@@ -111,10 +111,10 @@ public sealed class HarvestCropRotationTests
         {
             Level = level,
         };
-        var mods = new MapMods(new Dictionary<string, int>
+        var mods = new MapMods(new Dictionary<uint, int>
         {
-            ["atlas_keystone_crop_rotation"] = 1,
-            ["map_harvest_num_additional_plots"] = 1,
+            [Stat.AtlasKeystoneCropRotation] = 1,
+            [Stat.MapHarvestNumAdditionalPlots] = 1,
         });
         var instance = new InstanceState();
         instance.OpenedWith(new("CropOwner", new(layout.Hash, layout.Id, "Strand", 16) { Level = 83 }, mods));
@@ -135,8 +135,8 @@ public sealed class HarvestCropRotationTests
         Assert.NotEqual(0u, chosenSeed);
 
         await using var enterWire = new CaptureWire();
-        var conn = NewConn(layout, instance, chosenSeed, enterWire);
-        await SacredGrove.Enter(conn);
+        var player = NewConn(layout, instance, chosenSeed, enterWire);
+        await SacredGrove.Enter(player);
         enterWire.CloseWriter();
         var enterPackets = ParsePackets(await enterWire.ReadAllAsync());
         Assert.Contains(enterPackets, p => p.Id == InstanceProtocol.AddRulesetId);
@@ -152,10 +152,10 @@ public sealed class HarvestCropRotationTests
         var chosenExtractor = initial.Objects[chosen.Extractor];
 
         // Stand directly at the Extractor so SacredGrove.Use starts immediately with zero walk delay.
-        conn.Walk.Teleport(chosenExtractor.X, chosenExtractor.Y, 0);
+        player.Walk.Teleport(chosenExtractor.X, chosenExtractor.Y, 0);
         await using var startWire = new CaptureWire();
-        conn.Wire = ("harvest-start", startWire.Stream, startWire.Ciphers);
-        Assert.True(await SacredGrove.Use(conn, new(chosen.Extractor, 0, 1, 0), 0));
+        player.Connection.Session = new("harvest-start", startWire.Stream, startWire.Ciphers);
+        Assert.True(await SacredGrove.Use(player, new(chosen.Extractor, 0, 1, 0), 0));
         startWire.CloseWriter();
         await startWire.ReadAllAsync();
 
@@ -175,10 +175,10 @@ public sealed class HarvestCropRotationTests
 
         // Kill all hatched monsters and complete the running crop on Tick, capturing every emitted wire packet.
         foreach (uint mid in startedCrop.Monsters)
-            if (conn.Monsters.TryGetValue(mid, out var m)) { m.Dead = true; m.Life = 0; }
+            if (player.Area.Monsters.TryGetValue(mid, out var m)) { m.Dead = true; m.Life = 0; }
         await using var tickWire = new CaptureWire();
-        conn.Wire = ("harvest-tick", tickWire.Stream, tickWire.Ciphers);
-        await SacredGrove.Tick(conn);
+        player.Connection.Session = new("harvest-tick", tickWire.Stream, tickWire.Ciphers);
+        await SacredGrove.Tick(player);
         tickWire.CloseWriter();
         var tickPackets = ParsePackets(await tickWire.ReadAllAsync());
 
@@ -258,13 +258,13 @@ public sealed class HarvestCropRotationTests
     static SacredGrove.Grove ReadGrove(InstanceState instance) =>
         JsonSerializer.Deserialize<SacredGrove.Grove>(instance.ContentState["Harvest/grove"])!;
 
-    static ClientState NewConn(AreaLayout layout, InstanceState instance, uint seed, CaptureWire wire) => new(layout, 1, seed)
+    static Player NewConn(AreaLayout layout, InstanceState instance, uint seed, CaptureWire wire) => new(layout, 1, seed)
     {
         Instance = instance,
-        Character = "CropTester",
+        Character = { Name = "CropTester" },
         PlayerLife = 1000,
         LeagueModule = new(new League("crop-test", "Standard", false, false), new HashSet<string> { "Game", "Harvest" }),
-        Wire = ("harvest-test", wire.Stream, wire.Ciphers),
+        Connection = { LockstepClient = false, Session = new("harvest-test", wire.Stream, wire.Ciphers) },
     };
 
     static ServerLevels.Level SyntheticGroveLevel(int siteCount)

@@ -21,7 +21,7 @@ internal sealed class DeepwaterLight
         public bool Killed;
     }
 
-    readonly ConditionalWeakTable<ClientState, Diver> _divers = new();
+    readonly ConditionalWeakTable<Player, Diver> _divers = new();
     // How many players have a slow: the stat source returns at once while none has (it runs on every stat lookup).
     int _slowed;
 
@@ -31,52 +31,51 @@ internal sealed class DeepwaterLight
         Volatile.Write(ref _slowed, 0);
     }
 
-    static ushort NextBuffId(ClientState conn)
+    static ushort NextBuffId(Player player)
     {
-        ushort id = conn.NextBuff++;
-        return id == 0 ? conn.NextBuff++ : id;
+        ushort id = player.NextBuff++;
+        return id == 0 ? player.NextBuff++ : id;
     }
 
-    public bool Drowning(ClientState conn, out double left)
+    public bool Drowning(Player player, out double left)
     {
         left = 0;
-        if (!_divers.TryGetValue(conn, out var d) || d.DrownBuff == 0) return false;
-        left = Math.Max(0, d.Since + DeepwaterConstants.DrowningSeconds - conn.Clock.Elapsed.TotalSeconds);
+        if (!_divers.TryGetValue(player, out var d) || d.DrownBuff == 0) return false;
+        left = Math.Max(0, d.Since + DeepwaterConstants.DrowningSeconds - AreaTime(player));
         return true;
     }
 
     /// <summary>PlayerStatSources: the Drowning slow, which grows in five steps to
     /// <see cref="DeepwaterConstants.DrowningMaximumSlow"/> % over the Drowning's 5 s (G: the buff's stat names only the
     /// maximum; linear is a guess).</summary>
-    public Dictionary<uint, int> WithSlow(ClientState conn, Dictionary<uint, int> sources)
+    public Dictionary<uint, int> WithSlow(Player player, Dictionary<uint, int> sources)
     {
-        if (Volatile.Read(ref _slowed) == 0 || !_divers.TryGetValue(conn, out var d) || d.Slow == 0) return sources;
-        if (Stats.Key(DeepwaterConstants.ActionSpeedReduction) is uint key) sources[key] = sources.GetValueOrDefault(key) + d.Slow;
+        if (Volatile.Read(ref _slowed) == 0 || !_divers.TryGetValue(player, out var d) || d.Slow == 0) return sources;
+        sources[DeepwaterConstants.ActionSpeedReduction] = sources.GetValueOrDefault(DeepwaterConstants.ActionSpeedReduction) + d.Slow;
         return sources;
     }
 
     /// <summary>One tick of a player in a run.</summary>
-    public async Task Tick(IModuleContext module, ClientState conn, DeepwaterRun run)
+    public async Task Tick(IModuleContext module, Player player, DeepwaterRun run)
     {
-        if (!conn.PlayerSent || conn.LeavingArea || conn.Closed) return;
-        var diver = _divers.GetValue(conn, _ => new());
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var at = conn.Walk.Position(now);
-        bool safe = conn.PlayerLife == 0 || run.Phase == DeepwaterRun.RunPhase.Ended || run.Board.OnDeck(at);
+        if (!player.Connection.PlayerSent || player.LeavingArea || player.Closed) return;
+        var diver = _divers.GetValue(player, _ => new());
+        double now = AreaTime(player);
+        var at = player.Walk.Position(now);
+        bool safe = player.PlayerLife == 0 || run.Phase == DeepwaterRun.RunPhase.Ended || run.Board.OnDeck(at);
         bool lit = !safe && run.InLight(at, now);
-        var player = PlayerOf(conn);
 
         if (lit != (diver.LightBuff != 0))
         {
             if (lit)
             {
-                lock (conn.Monsters) diver.LightBuff = NextBuffId(conn);
-                await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.AddBuff(PlayerId, diver.LightBuff, DeepwaterConstants.LanternBuff),
+                diver.LightBuff = NextBuffId(player);
+                await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.AddBuff(player.Id, diver.LightBuff, DeepwaterConstants.LanternBuff),
                     $"0x01c1 deepwater_lantern_buff at ({at.X}, {at.Y})");
             }
             else
             {
-                await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.RemoveBuff(PlayerId, diver.LightBuff),
+                await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.RemoveBuff(player.Id, diver.LightBuff),
                     $"0x01c2 deepwater_lantern_buff ends at ({at.X}, {at.Y})");
                 diver.LightBuff = 0;
             }
@@ -85,67 +84,59 @@ internal sealed class DeepwaterLight
         bool dark = !safe && !lit;
         if (dark && diver.DrownBuff == 0)
         {
-            lock (conn.Monsters) diver.DrownBuff = NextBuffId(conn);
+            diver.DrownBuff = NextBuffId(player);
             diver.Since = now;
             diver.Killed = false;
-            await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.AddBuff(PlayerId, diver.DrownBuff, DeepwaterConstants.DrowningBuff,
+            await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.AddBuff(player.Id, diver.DrownBuff, DeepwaterConstants.DrowningBuff,
                 u68: BitConverter.SingleToUInt32Bits((float)DeepwaterConstants.DrowningSeconds)), $"0x01c1 deepwater_drowning: out of light at ({at.X}, {at.Y})");
         }
         else if (!dark && diver.DrownBuff != 0)
         {
-            await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.RemoveBuff(PlayerId, diver.DrownBuff),
-                $"0x01c2 deepwater_drowning ends ({(conn.PlayerLife == 0 ? "dead" : safe ? "safe" : "back in light")} at ({at.X}, {at.Y}))");
+            await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.RemoveBuff(player.Id, diver.DrownBuff),
+                $"0x01c2 deepwater_drowning ends ({(player.PlayerLife == 0 ? "dead" : safe ? "safe" : "back in light")} at ({at.X}, {at.Y}))");
             diver.DrownBuff = 0;
         }
 
         double elapsed = now - diver.Since;
         int slow = diver.DrownBuff == 0 ? 0
             : DeepwaterConstants.DrowningMaximumSlow * Math.Clamp((int)(elapsed / DeepwaterConstants.DrowningSeconds * 5) + 1, 1, 5) / 5;
-        if (slow != diver.Slow) await SetSlow(conn, diver, slow);
+        if (slow != diver.Slow) await SetSlow(player, diver, slow);
 
         if (diver.DrownBuff != 0 && !diver.Killed && elapsed >= DeepwaterConstants.DrowningSeconds)
         {
             diver.Killed = true;
-            module.Log($"{player.Character} drowned at ({at.X}, {at.Y}) after {elapsed:0.0} s out of light");
-            await Drown(conn);
+            module.Log($"{player.Character.Name} drowned at ({at.X}, {at.Y}) after {elapsed:0.0} s out of light");
+            await Drown(player);
         }
     }
 
     /// <summary>The player left the area: its buffs went with it.</summary>
-    public void Forget(ClientState conn)
+    public void Forget(Player player)
     {
-        if (!_divers.TryGetValue(conn, out var d)) return;
+        if (!_divers.TryGetValue(player, out var d)) return;
         if (d.Slow != 0) Interlocked.Decrement(ref _slowed);
-        _divers.Remove(conn);
+        _divers.Remove(player);
     }
 
-    async Task SetSlow(ClientState conn, Diver diver, int slow)
+    async Task SetSlow(Player player, Diver diver, int slow)
     {
         if ((diver.Slow == 0) != (slow == 0)) Interlocked.Add(ref _slowed, slow == 0 ? -1 : 1);
         diver.Slow = slow;
-        lock (conn.Monsters)
-        {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            conn.ApplyMovementSpeed();
-        }
-        var w = conn.Wire;
-        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
             $"0x01b3 player stats (Drowning slow {slow}%)");
     }
 
     // An execute, not damage (the wiki: "will die soon"): life to 0, then the ordinary death.
-    static async Task Drown(ClientState conn)
+    static async Task Drown(Player player)
     {
-        uint reserved;
-        lock (conn.Monsters)
-        {
-            if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return;
-            conn.PlayerLife = 0;
-            conn.EnergyShield.Empty();
-            reserved = conn.PlayerReservedLife;
-        }
-        var w = conn.Wire;
-        await global::Game.SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, 0, reserved), "player life 0 (drowned)");
-        await PlayerDied(w.Remote, w.Stream, w.Ciphers, conn, "drowned in the Fathomless Depths");
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return;
+        player.PlayerLife = 0;
+        player.EnergyShield.Empty();
+        uint reserved = player.PlayerReservedLife;
+        await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.LifeUpdate(player.Id, 0, reserved), "player life 0 (drowned)");
+        await PlayerDied(player, "drowned in the Fathomless Depths");
     }
 }

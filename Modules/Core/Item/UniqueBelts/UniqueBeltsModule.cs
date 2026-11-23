@@ -18,10 +18,10 @@ public sealed class UniqueBeltsModule : IModule
         {
             // "When you Kill": the wearer's own kills and their minions', totems', traps' and mines' (the Headhunter
             // exception to "you"), never another player's.
-            if (global::Game.KilledByPlayerOrOwned(kill)) StealMonsterMods(kill.Conn, kill.Monster);
+            if (global::Game.KilledByPlayerOrOwned(kill)) StealMonsterMods(kill.Player, kill.Monster);
         });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithStolenMods);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, (_, player, monster, rolled) => WithDamageVsRarity(player, monster, rolled));
-        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => StepUniqueBeltEffects(conn));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => StepUniqueBeltEffects(player)));
     }
 }

@@ -21,46 +21,46 @@ public sealed class TriggeredSummonTests
         {
             using var f = new Fixture();
             ushort source = f.Equip((name, 20), ("Cast when Damage Taken Support", 20), ("Spell Echo Support", 20)).First();
-            var gem = Game.SupportedSkill(f.Conn, source);
-            Assert.True(Game.TriggerPayloadAvailable(f.Conn, gem));
+            var gem = Game.SupportedSkill(f.Player, source);
+            Assert.True(Game.TriggerPayloadAvailable(f.Player, gem));
             if (name == "Raise Zombie")
             {
                 var variety = new MonsterCatalog().Find("Metadata/Monsters/Zombies/Zombie")!;
-                var at = f.Conn.Walk.Position(0);
-                f.Conn.Monsters[900] = new("corpse", new(at.X+20,at.Y,1),100,8,1000)
+                var at = f.Player.Walk.Position(0);
+                f.Player.Area.Monsters[900] = new("corpse", new(at.X+20,at.Y,1),100,8,1000)
                     { Hostile = true, Dead = true, Life = 0, Variety = variety, Level = 70 };
             }
-            int threshold = gem.Stats[Program.Stats.Key("cast_on_damage_taken_threshold")!.Value];
-            uint cost = (uint)Game.SupportedStats(f.Conn, source)[Program.Stats.Key("mana_cost")!.Value];
-            int action = f.Conn.ActionCount;
-            Game.RecordDamageTakenTriggers(f.Conn, threshold, 1000);
-            uint before = f.Conn.PlayerMana;
-            Game.ReleaseDamageTakenTriggers(f.Conn, f.Session);
-            Assert.Equal(before - cost, f.Conn.PlayerMana);
+            int threshold = gem.Stats[Stat.CastOnDamageTakenThreshold];
+            uint cost = (uint)Game.SupportedStats(f.Player, source)[Stat.ManaCost];
+            int action = f.Player.ActionCount;
+            Game.RecordDamageTakenTriggers(f.Player, threshold, 1000);
+            uint before = f.Player.PlayerMana;
+            Game.ReleaseDamageTakenTriggers(f.Player, f.Session);
+            Assert.Equal(before - cost, f.Player.PlayerMana);
             await Drain(f.Session);
-            Assert.Equal(action, f.Conn.ActionCount);
+            Assert.Equal(action, f.Player.ActionCount);
             int expected = name == "Summon Skeletons" ? 3 : name == "Desecrate" ? 0 : 1;
-            Assert.True(expected == f.Conn.Summons.Fighters.Count + f.Conn.Golems.All.Count, name);
-            if (name == "Raise Zombie") Assert.True(f.Conn.Monsters[900].CorpseConsumed);
-            if (name == "Desecrate") Assert.Equal(5, f.Conn.Summons.Corpses.Count);
-            f.Conn.PlayerMana = 0;
-            Game.RecordDamageTakenTriggers(f.Conn, threshold, 2000);
-            Game.ReleaseDamageTakenTriggers(f.Conn, f.Session); await Drain(f.Session);
-            Assert.True(expected == f.Conn.Summons.Fighters.Count + f.Conn.Golems.All.Count, name);
-            Assert.Equal(0u, f.Conn.PlayerMana);
-            f.Conn.PlayerMana = before;
-            Game.RecordDamageTakenTriggers(f.Conn, threshold, 3000);
+            Assert.True(expected == f.Player.Summons.Fighters.Count + f.Player.Golems.All.Count, name);
+            if (name == "Raise Zombie") Assert.True(f.Player.Area.Monsters[900].CorpseConsumed);
+            if (name == "Desecrate") Assert.Equal(5, f.Player.Summons.Corpses.Count);
+            f.Player.PlayerMana = 0;
+            Game.RecordDamageTakenTriggers(f.Player, threshold, 2000);
+            Game.ReleaseDamageTakenTriggers(f.Player, f.Session); await Drain(f.Session);
+            Assert.True(expected == f.Player.Summons.Fighters.Count + f.Player.Golems.All.Count, name);
+            Assert.Equal(0u, f.Player.PlayerMana);
+            f.Player.PlayerMana = before;
+            Game.RecordDamageTakenTriggers(f.Player, threshold, 3000);
             f.Equip((name, 20), ("Cast when Damage Taken Support", 20));
-            Game.ReleaseDamageTakenTriggers(f.Conn, f.Session); await Drain(f.Session);
-            Assert.Equal(before, f.Conn.PlayerMana);
-            Assert.True(expected == f.Conn.Summons.Fighters.Count + f.Conn.Golems.All.Count, name);
+            Game.ReleaseDamageTakenTriggers(f.Player, f.Session); await Drain(f.Session);
+            Assert.Equal(before, f.Player.PlayerMana);
+            Assert.True(expected == f.Player.Summons.Fighters.Count + f.Player.Golems.All.Count, name);
             if (name == "Raise Zombie")
             {
-                var zombie = Assert.Single(f.Conn.Summons.Fighters).Value;
-                uint restored = await Game.SummonFighter("restore", f.Stream, f.Ciphers, f.Conn, source,
+                var zombie = Assert.Single(f.Player.Summons.Fighters).Value;
+                uint restored = await Game.SummonFighter(f.Player, source,
                     Game.SummonData.Find("RaiseZombie")!, (100,100), restoredVariety: zombie.Monster.Variety!.Id, life: .5);
                 Assert.NotEqual(0u, restored); // Restoring a persistent triggered minion is not a manual cast.
-                Assert.InRange(f.Conn.Summons.Fighters[restored].Monster.Life / (double)zombie.Monster.MaxLife, .49, .51);
+                Assert.InRange(f.Player.Summons.Fighters[restored].Monster.Life / (double)zombie.Monster.MaxLife, .49, .51);
             }
         }
     }
@@ -73,44 +73,44 @@ public sealed class TriggeredSummonTests
             using var f = new Fixture();
             var ids = f.Equip(("Cyclone",20), ("Summon Skeletons",20),
                 (channel ? "Cast while Channelling Support" : "Cast On Critical Strike Support",20), ("Spell Echo Support",20));
-            var driver = Game.GemSkillEffects(f.Conn).Single(s => s.Id == ids[0]);
-            var gem = Game.SupportedSkill(f.Conn, ids[1]);
-            uint cost = (uint)Game.SupportedStats(f.Conn, ids[1])[Program.Stats.Key("mana_cost")!.Value];
-            uint mana = f.Conn.PlayerMana; int action = f.Conn.ActionCount;
+            var driver = Game.GemSkillEffects(f.Player).Single(s => s.Id == ids[0]);
+            var gem = Game.SupportedSkill(f.Player, ids[1]);
+            uint cost = (uint)Game.SupportedStats(f.Player, ids[1])[Stat.ManaCost];
+            uint mana = f.Player.PlayerMana; int action = f.Player.ActionCount;
             if (channel)
             {
-                f.Conn.ChannelSkill = driver.Id; f.Conn.ChannelGeneration = 1; f.Conn.LastChannelUpdateAt = 10000;
-                f.Conn.PaidChannel = new(driver.Id, driver.Effect, action, 1, Game.CombatLifetime!);
-                Game.BeginChannelTriggers(f.Conn, f.Session, driver.Id, action, 1, (20,0), 10);
-                double interval = Game.SupportedSkill(f.Conn, driver.Id).Stats[Program.Stats.Key("cast_while_channelling_time_ms")!.Value] / 1000d;
-                Game.TickChannelTriggers(f.Conn, f.Session, 10 + interval - .001);
-                Assert.Equal(mana, f.Conn.PlayerMana);
-                Game.TickChannelTriggers(f.Conn, f.Session, 10 + interval + .001);
+                f.Player.ChannelSkill = driver.Id; f.Player.ChannelGeneration = 1; f.Player.LastChannelUpdateAt = 10000;
+                f.Player.PaidChannel = new(driver.Id, driver.Effect, action, 1, Game.CombatLifetime!);
+                Game.BeginChannelTriggers(f.Player, f.Session, driver.Id, action, 1, (20,0), 10);
+                double interval = Game.SupportedSkill(f.Player, driver.Id).Stats[Stat.CastWhileChannellingTimeMs] / 1000d;
+                Game.TickChannelTriggers(f.Player, f.Session, 10 + interval - .001);
+                Assert.Equal(mana, f.Player.PlayerMana);
+                Game.TickChannelTriggers(f.Player, f.Session, 10 + interval + .001);
             }
             else
             {
-                var captured = Assert.IsType<Game.LinkedTriggerSource>(Game.CaptureCriticalTriggerSource(f.Conn, driver.Id));
-                Assert.False(Game.ReleaseCriticalTrigger(f.Conn,f.Session,captured,false,true,(20,0),10));
-                Assert.False(Game.ReleaseCriticalTrigger(f.Conn,f.Session,captured,true,false,(20,0),10));
-                Assert.Equal(mana, f.Conn.PlayerMana);
-                Assert.True(Game.ReleaseCriticalTrigger(f.Conn,f.Session,captured,true,true,(20,0),10));
+                var captured = Assert.IsType<Game.LinkedTriggerSource>(Game.CaptureCriticalTriggerSource(f.Player, driver.Id));
+                Assert.False(Game.ReleaseCriticalTrigger(f.Player,f.Session,captured,false,true,(20,0),10));
+                Assert.False(Game.ReleaseCriticalTrigger(f.Player,f.Session,captured,true,false,(20,0),10));
+                Assert.Equal(mana, f.Player.PlayerMana);
+                Assert.True(Game.ReleaseCriticalTrigger(f.Player,f.Session,captured,true,true,(20,0),10));
             }
-            Assert.Equal(mana-cost, f.Conn.PlayerMana); await Drain(f.Session);
-            Assert.Equal(3, f.Conn.Summons.Fighters.Count); Assert.Equal(action, f.Conn.ActionCount);
+            Assert.Equal(mana-cost, f.Player.PlayerMana); await Drain(f.Session);
+            Assert.Equal(3, f.Player.Summons.Fighters.Count); Assert.Equal(action, f.Player.ActionCount);
 
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             f.Session.Enqueue(async () => { entered.SetResult(); await resume.Task; }); await entered.Task;
             try
             {
-                if (channel) Game.TickChannelTriggers(f.Conn, f.Session, 11);
-                else Game.ReleaseCriticalTrigger(f.Conn,f.Session,Game.CaptureCriticalTriggerSource(f.Conn,driver.Id),true,true,(20,0),11);
+                if (channel) Game.TickChannelTriggers(f.Player, f.Session, 11);
+                else Game.ReleaseCriticalTrigger(f.Player,f.Session,Game.CaptureCriticalTriggerSource(f.Player,driver.Id),true,true,(20,0),11);
                 f.Equip(("Cyclone",20), ("Summon Skeletons",20),
                     (channel ? "Cast while Channelling Support" : "Cast On Critical Strike Support",20));
             }
             finally { resume.SetResult(); }
             await Drain(f.Session);
-            Assert.Equal(3, f.Conn.Summons.Fighters.Count); Assert.Equal(action, f.Conn.ActionCount);
+            Assert.Equal(3, f.Player.Summons.Fighters.Count); Assert.Equal(action, f.Player.ActionCount);
         }
     }
 
@@ -120,21 +120,22 @@ public sealed class TriggeredSummonTests
         using var f = new Fixture();
         ushort source = f.Equip(("Desecrate", 20)).First();
         var wire = new ConnectionCiphers(new byte[64], false);
+        f.Player.Connection.LockstepClient = false;
+        f.Player.Connection.Session = new("test", f.Stream, wire);
         var packets = new List<byte[]>();
         var outgoing = Program.Outgoing;
-        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, wire)) packets.Add(bytes.ToArray()); };
+        Program.Outgoing = (player, bytes) => { if (ReferenceEquals(player.Connection.Session.Ciphers, wire)) packets.Add(bytes.ToArray()); };
         try
         {
-            Assert.True(await Game.Desecrate("test", f.Stream, wire, f.Conn, source, (100, 100), () => true, triggered: true));
-            Assert.Equal(5, f.Conn.Summons.Corpses.Count);
-            foreach (uint id in f.Conn.Summons.Corpses)
+            Assert.True(await Game.Desecrate(f.Player, source, (100, 100), () => true, triggered: true));
+            Assert.Equal(5, f.Player.Summons.Corpses.Count);
+            foreach (uint id in f.Player.Summons.Corpses)
             {
-                var corpse = f.Conn.Monsters[id];
-                var origin = f.Conn.Instance.World.MonsterOrigins[id];
+                var corpse = f.Player.Area.Monsters[id];
+                var origin = f.Player.Instance.World.MonsterOrigins[id];
                 Assert.True(corpse.Dead);
                 Assert.Equal(0u, corpse.Life);
                 Assert.Equal(1u, origin.Object.Life);
-                Assert.Equal(0u, f.Conn.MonsterViews[id].Life);
                 byte[] expected =
                 [
                     .. InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob()),
@@ -146,13 +147,12 @@ public sealed class TriggeredSummonTests
 
             // Guard in SpawnMonster: an owned spawn with damagedLife: 0 still puts life 1 in 0x02bb and zeroes it after.
             var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
-            uint guarded = await Game.SpawnMonster("test", f.Stream, wire, f.Conn, zombie, 1, MonsterRarity.Normal,
+            uint guarded = await Game.SpawnMonster(f.Player, zombie, 1, MonsterRarity.Normal,
                 100, 100, damagedLife: 0, mods: MonsterModSet.None, unrisen: false,
                 owned: (_, m) => { m.Dead = true; m.Life = 0; m.NoRewards = true; });
             Assert.NotEqual(0u, guarded);
-            var guardedOrigin = f.Conn.Instance.World.MonsterOrigins[guarded];
+            var guardedOrigin = f.Player.Instance.World.MonsterOrigins[guarded];
             Assert.Equal(1u, guardedOrigin.Object.Life);
-            Assert.Equal(0u, f.Conn.MonsterViews[guarded].Life);
             byte[] guardedExpected =
             [
                 .. InstanceEntities.CreateObject(guarded, guardedOrigin.Type, guardedOrigin.Object.Blob()),
@@ -162,43 +162,54 @@ public sealed class TriggeredSummonTests
             Assert.Contains(packets, p => p.SequenceEqual(guardedExpected));
 
             // A lockstep party member first sees these actors after the caster has already created the corpses.
-            var peer = new ClientState(f.Conn.Layout, 1, 2)
+            using var joining = Game.InstallJoining();
+            var peer = new Player(f.Player.Layout, 1, 2)
             {
-                Instance = f.Conn.Instance, PlayerLife = 100, PlayerSent = true,
-                LockstepClient = true, Wire = ("peer", f.Stream, wire),
+                Instance = f.Player.Instance, PlayerLife = 100,
+                Connection = { PlayerSent = true, LockstepClient = true, Session = new("peer", f.Stream, wire) },
             };
             await Program.BeginWorldFrames(peer, .033);
             packets.Clear();
-            var sync = Game.SyncInstanceMonsters("peer", f.Stream, wire, peer, reveal: false);
-            await Program.EndWorldFrame(peer, (.033, .066));
-            await sync;
-            foreach (uint id in f.Conn.Summons.Corpses)
+            peer.Area.Defer(_ => Program.Joining?.Invoke(peer));
+            peer.Area.Step(1, .033);
+            await Program.EndWorldFrame(peer, (.033, .066), peer.Area.Delta.Take());
+            foreach (uint id in f.Player.Summons.Corpses)
             {
                 var origin = peer.Instance.World.MonsterOrigins[id];
                 var create = InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob(), headerU32: uint.MaxValue);
                 Assert.Contains(packets, p => p.SequenceEqual(create));
                 Assert.DoesNotContain(packets, p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0)));
             }
-            Assert.DoesNotContain(guarded, peer.MonsterViews.Keys);
+            Assert.DoesNotContain(packets, p => p.Length >= 6 && p[0] == 2 && p[1] == 0xbb
+                && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(2)) == guarded);
             packets.Clear();
-            await Program.EndWorldFrame(peer, (.066, .099));
-            foreach (uint id in f.Conn.Summons.Corpses)
+            peer.Area.Step(2, .066);
+            await Program.EndWorldFrame(peer, (.066, .099), peer.Area.Delta.Take());
+            foreach (uint id in f.Player.Summons.Corpses)
             {
                 int wake = packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.EnterWakeZone(id)));
                 Assert.True(wake >= 0 && packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0))) > wake);
             }
-            packets.Clear();
-            uint consumed = f.Conn.Summons.Corpses.Peek();
-            uint expired = f.Conn.Summons.Corpses.Skip(1).First();
-            peer.Monsters[consumed].CorpseConsumed = true;
-            peer.Monsters.Remove(expired);
+
+            // Consumed or expired corpses are not replicated to a subsequent joining party member.
+            uint consumed = f.Player.Summons.Corpses.Peek();
+            uint expired = f.Player.Summons.Corpses.Skip(1).First();
+            peer.Area.Monsters[consumed].CorpseConsumed = true;
+            peer.Area.Monsters.Remove(expired);
             peer.Instance.World.MonsterOrigins.TryRemove(expired, out _);
-            await Game.SyncInstanceMonsters("peer", f.Stream, wire, peer, reveal: false);
-            await Program.EndWorldFrame(peer, (.099, .132));
+            var latePeer = new Player(f.Player.Layout, 1, 3)
+            {
+                Instance = f.Player.Instance, PlayerLife = 100,
+                Connection = { PlayerSent = true, LockstepClient = true, Session = new("late-peer", f.Stream, wire) },
+            };
+            await Program.BeginWorldFrames(latePeer, .099);
+            packets.Clear();
+            latePeer.Area.Defer(_ => Program.Joining?.Invoke(latePeer));
+            latePeer.Area.Step(3, .099);
+            await Program.EndWorldFrame(latePeer, (.099, .132), latePeer.Area.Delta.Take());
             foreach (uint removed in new[] { consumed, expired })
             {
-                Assert.DoesNotContain(removed, peer.MonsterViews.Keys);
-                Assert.Single(packets, p => p.Length == 12 && p[0] == 2 && p[1] == 0xbd
+                Assert.DoesNotContain(packets, p => p.Length >= 6 && p[0] == 2 && p[1] == 0xbb
                     && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(2)) == removed);
             }
         }
@@ -220,10 +231,13 @@ public sealed class TriggeredSummonTests
         internal readonly Game.ProjectileSession Session;
         internal readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         internal NetworkStream Stream => writer.GetStream();
-        internal readonly ClientState Conn = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
+        internal readonly Player Player = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "Animate" + Guid.NewGuid().ToString("N"), Instance = new(), PlayerLife = 10000,
-            PlayerMana = 10000, PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = "Animate" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
+            Instance = new(),
+            PlayerLife = 10000,
+            PlayerMana = 10000,
+            Connection = { PlayerSent = true },
             Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("animate-test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
@@ -231,9 +245,8 @@ public sealed class TriggeredSummonTests
         {
             Saves.Open(save); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
-            Conn.Clock.Start(); Conn.Summons.Restored = Conn.Golems.Restored = true;
-            foreach (string s in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
-                Conn.PlayerStats[Program.Stats.Key(s)!.Value] = 1000;
+            Player.Clock.Start(); Player.Summons.Restored = Player.Golems.Restored = true;
+            TestRequirements.Waive(Player);
             Item Gem(string name)
             {
                 var type = Program.Items.FindGem(name)!.Value;
@@ -245,18 +258,19 @@ public sealed class TriggeredSummonTests
                 Sockets = new[] { "Animate Weapon", "Animate Guardian", "Animate Weapon of Ranged Arms" }
                     .Select(n => new ItemSocket(SocketColour.White, Gem(n))).ToArray(), Links = [1, 1, 1]
             };
-            Game.ItemsOf(Conn).Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
+            Game.ItemsOf(Player).Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
             listener.Start(); var accept = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accept.GetAwaiter().GetResult();
+            Player.Connection.Session = new("test", Stream, Ciphers);
             drain = Task.Run(async () => { try { var bytes = new byte[65536]; while (await reader.GetStream().ReadAsync(bytes) > 0) { } }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { } });
-            Session = new("trigger-summon", Stream, Ciphers, Conn);
+            Session = new(Player);
         }
         internal Task<uint> Summon(string effect, uint target)
         {
-            ushort source = Game.GemSkillEffects(Conn).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
-            return Game.SummonFighter("test", Stream, Ciphers, Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
+            ushort source = Game.GemSkillEffects(Player).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
+            return Game.SummonFighter(Player, source, Game.SummonData.Find(effect)!, (100, 100), target);
         }
         internal ushort[] Equip(params (string Name, int Level)[] gems)
         {
@@ -266,17 +280,17 @@ public sealed class TriggeredSummonTests
                 return ItemCatalog.Create(type.Type) with { GemVariant = type.Variant.Index,
                     GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(gem.Level) };
             }
-            uint id = Game.ItemsOf(Conn).Items(PlayerInventories.Weapon1).Single().Id;
-            Game.ItemsOf(Conn).Change(PlayerInventories.Weapon1, id, item => item with
+            uint id = Game.ItemsOf(Player).Items(PlayerInventories.Weapon1).Single().Id;
+            Game.ItemsOf(Player).Change(PlayerInventories.Weapon1, id, item => item with
             { Sockets = gems.Select(g => new ItemSocket(SocketColour.White, Gem(g))).ToArray(),
                 Links = [(byte)gems.Length] });
-            return Game.GemSkillEffects(Conn).Select(g => g.Id).ToArray();
+            return Game.GemSkillEffects(Player).Select(g => g.Id).ToArray();
         }
         public void Dispose()
         {
             Session.Invalidate(); Session.OutputCompleted.GetAwaiter().GetResult();
-            Conn.Closed = true; lifetime.Stop(_ => { });
-            PlayerInventories.Forget(Conn.Character!); Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previous!);
+            Player.Closed = true; lifetime.Stop(_ => { });
+            PlayerInventories.Forget(Player.Character.Name!); Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previous!);
             reader.Dispose(); writer.Dispose(); listener.Stop(); drain.GetAwaiter().GetResult(); TestEnvironment.ReleaseSaves(save);
         }
     }

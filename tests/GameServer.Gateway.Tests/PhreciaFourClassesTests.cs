@@ -38,8 +38,8 @@ public sealed class PhreciaFourClassesTests
     [Fact]
     public void A_reversed_chill_and_the_characters_action_speed_share_one_bucket()
     {
-        Func<string, int> Stats(params (string Name, int Value)[] stats) =>
-            name => stats.FirstOrDefault(s => s.Name == name).Value;
+        Func<uint, int> Stats(params (string Name, int Value)[] stats) =>
+            name => stats.FirstOrDefault(s => Stat.Of(s.Name) == name).Value;
         double Factor(params (string, int)[] stats)
         {
             var ailments = new PlayerElementalAilments();

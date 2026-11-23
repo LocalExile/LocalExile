@@ -4,8 +4,8 @@ namespace GameServer.Gateway.Tests;
 
 public class PlayerDamageTakenTests
 {
-    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
-        name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
+    static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 
     static DamagePacket Hit(params (DamageType Type, int Amount)[] parts) =>
         parts.Aggregate(DamagePacket.Empty, (hit, p) => hit.Add(p.Type, new DamageRange(p.Amount, p.Amount)));
@@ -24,7 +24,7 @@ public class PlayerDamageTakenTests
     [Fact]
     public void A_hit_shifts_once_then_avoids_and_takes_flat_increased_blocked_and_mana_damage()
     {
-        Assert.All(PlayerDamageTaken.StatNames, name => Assert.NotNull(Program.Stats.Key(name)));
+        Assert.All(PlayerDamageTaken.StatNames, name => Assert.True(StatCatalog.IsClientId(name)));
 
         var physical = Hit((DamageType.Physical, 100));
         Assert.Same(physical, PlayerDamageTaken.Shift(physical, With()));
@@ -124,8 +124,8 @@ public class PlayerDamageTakenTests
 
         // With no ward or energy shield, the hit pool takes Mind Over Matter's 40 of a 100 hit from mana. The pool only takes
         // hits while the game's rules are active and the player lives.
-        var conn = new ClientState(new(1, "mana-before-life", 100, 100, 100, 100, null, []), 0, 1) { PlayerLife = 100 };
-        var stats = new Dictionary<uint, int> { [Program.Stats.Key("keystone_mana_shield")!.Value] = 1 };
+        var player = new Player(new(1, "mana-before-life", 100, 100, 100, 100, null, []), 0, 1) { PlayerLife = 100 };
+        var stats = new Dictionary<uint, int> { [Stat.KeystoneManaShield] = 1 };
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = global::Game.CombatLifetime;
         var lifetime = new ModuleLifetime("Game");
@@ -133,13 +133,10 @@ public class PlayerDamageTakenTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
-            lock (conn.Monsters)
-            {
-                conn.PlayerMana = 100;
-                Assert.Equal(60, global::Game.DamagePlayerHit(conn, 100, 0, conn.Clock.Elapsed.TotalSeconds, stats,
-                    Hit((DamageType.Physical, 100))));
-                Assert.Equal(60u, conn.PlayerMana);
-            }
+            player.PlayerMana = 100;
+            Assert.Equal(60, global::Game.DamagePlayerHit(player, 100, 0, player.Clock.Elapsed.TotalSeconds, stats,
+                Hit((DamageType.Physical, 100))));
+            Assert.Equal(60u, player.PlayerMana);
         }
         finally
         {
@@ -155,31 +152,31 @@ public class PlayerDamageTakenTests
     [Fact]
     public void Ailments_read_the_shifted_damage_taken_but_ignite_reads_the_damage_dealt_that_lands()
     {
-        var conn = new ClientState(new(1, "taken-as", 100, 100, 100, 100, null, []), 0, 1);
-        lock (conn.Monsters) { conn.Pools = conn.Pools with { Life = 1000 }; conn.PlayerLife = 1000; }
+        var player = new Player(new(1, "taken-as", 100, 100, 100, 100, null, []), 0, 1);
+        player.Pools = player.Pools with { Life = 1000 }; player.PlayerLife = 1000;
         var stats = new Dictionary<uint, int>();
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = player.Clock.Elapsed.TotalSeconds;
 
         var physical = Hit((DamageType.Physical, 100));
-        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, physical, physical, false, false, now, stats);
-        Assert.Equal(0, conn.ElementalAilments.Snapshot(now).Chill);
+        global::Game.ApplyPlayerAilmentsLocked(player, physical, physical, false, false, now, stats);
+        Assert.Equal(0, player.ElementalAilments.Snapshot(now).Chill);
         var asCold = Hit((DamageType.Physical, 50), (DamageType.Cold, 50));
-        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, physical, asCold, false, false, now, stats);
-        Assert.Equal(15, conn.ElementalAilments.Snapshot(now).Chill);   // floor(50 × 0.05^0.4)
+        global::Game.ApplyPlayerAilmentsLocked(player, physical, asCold, false, false, now, stats);
+        Assert.Equal(15, player.ElementalAilments.Snapshot(now).Chill);   // floor(50 × 0.05^0.4)
 
-        conn.ElementalAilments.Clear();
+        player.ElementalAilments.Clear();
         var fire = Hit((DamageType.Fire, 100));
-        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, fire, Hit((DamageType.Physical, 100)), true, false, now, stats);
-        var ailments = conn.ElementalAilments.Snapshot(now);
+        global::Game.ApplyPlayerAilmentsLocked(player, fire, Hit((DamageType.Physical, 100)), true, false, now, stats);
+        var ailments = player.ElementalAilments.Snapshot(now);
         Assert.True(ailments.Ignite);
         Assert.Equal(0, ailments.Chill);
         Assert.False(ailments.Freeze);
 
-        conn.ElementalAilments.Clear();
+        player.ElementalAilments.Clear();
         var cold = Hit((DamageType.Cold, 50));
         var landed = PlayerDamageTaken.Landed(Hit((DamageType.Fire, 100), (DamageType.Cold, 50)), With(), [DamageType.Fire]);
-        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, landed, cold, true, false, now, stats);
-        Assert.False(conn.ElementalAilments.Snapshot(now).Ignite);
-        Assert.True(conn.ElementalAilments.Snapshot(now).Chill > 0);
+        global::Game.ApplyPlayerAilmentsLocked(player, landed, cold, true, false, now, stats);
+        Assert.False(player.ElementalAilments.Snapshot(now).Ignite);
+        Assert.True(player.ElementalAilments.Snapshot(now).Chill > 0);
     }
 }

@@ -13,7 +13,7 @@ public sealed class ConnectionWorker(string key)
     bool running;
     IDisposable? ownerHandle, sourceHandle;
 
-    public bool Bind(ClientState conn, IModuleLifetime rules, IModuleLifetime? provider,
+    public bool Bind(Player player, IModuleLifetime rules, IModuleLifetime? provider,
         object runtime, out long started)
     {
         started = generation;
@@ -23,15 +23,15 @@ public sealed class ConnectionWorker(string key)
         Retire();
         owner = rules; source = provider; state = runtime; started = ++generation;
         // Both resources are Gateway objects. The lifetime owns cleanup, not a closure into the old rule assembly.
-        ownerHandle = rules.Own(new Retirement(conn, this, started));
-        if (provider is not null) sourceHandle = provider.Own(new Retirement(conn, this, started));
+        ownerHandle = rules.Own(new Retirement(player, this, started));
+        if (provider is not null) sourceHandle = provider.Own(new Retirement(player, this, started));
         return Current(rules, provider, runtime, started);
     }
 
-    public bool TryStart(ClientState conn, IModuleLifetime rules, IModuleLifetime? provider,
+    public bool TryStart(Player player, IModuleLifetime rules, IModuleLifetime? provider,
         object runtime, out long started)
     {
-        if (!Bind(conn, rules, provider, runtime, out started) || running) return false;
+        if (!Bind(player, rules, provider, runtime, out started) || running) return false;
         running = true;
         return true;
     }
@@ -53,20 +53,17 @@ public sealed class ConnectionWorker(string key)
             && ReferenceEquals(state, runtime)) running = false;
     }
 
-    sealed class Retirement(ClientState conn, ConnectionWorker worker, long started) : IDisposable
+    sealed class Retirement(Player player, ConnectionWorker worker, long started) : IDisposable
     {
         public void Dispose()
         {
-            lock (conn.Monsters)
+            if (worker.generation != started) return;
+            if (ReferenceEquals(worker, player.ResourceEffectsLease)) player.RetireResourceEffects();
+            else if (ReferenceEquals(worker, player.PlayerUpdatesWorker)) player.RetirePlayerUpdates();
+            else
             {
-                if (worker.generation != started) return;
-                if (ReferenceEquals(worker, conn.ResourceEffectsLease)) conn.RetireResourceEffects();
-                else if (ReferenceEquals(worker, conn.PlayerUpdatesWorker)) conn.RetirePlayerUpdates();
-                else
-                {
-                    conn.Rampage.Clear();
-                    conn.RetireOwnedCombat();
-                }
+                player.Rampage.Clear();
+                player.RetireOwnedCombat();
             }
         }
     }

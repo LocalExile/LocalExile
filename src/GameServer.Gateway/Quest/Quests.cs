@@ -32,6 +32,13 @@ using GameServer.Core;
 /// </summary>
 public static partial class Quests
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        TableRows = LoadTableRows();
+        Tutorials = LoadTutorials();
+    }
+
     /// <summary>A rule of a quest's table. Area and object/variety Ids are WorldAreas, MonsterVarieties, NPCs, Chests or
     /// .ot type Ids, as the data names them.</summary>
     public abstract record Rule;
@@ -651,13 +658,13 @@ public static partial class Quests
 
     /// <summary>
     /// Of <see cref="EveryCharacter"/>, the flags given for the endgame only, until the character earns them (Kitava's
-    /// end sets EndGameAvailable; ClientState.UnearnedQuestFlags). The client needs EndGameAvailable to activate an Atlas
+    /// end sets EndGameAvailable; Player.UnearnedQuestFlags). The client needs EndGameAvailable to activate an Atlas
     /// map at the map device (live 2026-10-29) and to enter a map area (every map's WorldAreas EndQuestFlags), and every
     /// character here may run maps from its hideout. But the same flag is Kitava's Act 10 penalty (QuestStaticRewards 39,
     /// which the client applies from the flags it has), the Epilogue's gate (Karui Shores' and Oriath's EndQuestFlags) and
     /// the condition of Act 10's last rows (Lilly's "Set Sail from Oriath" 1433, Lani's "Kitava" and "Kitava Reward"
     /// 1415/1416) and exits (Sin's portal home). So an unearned one is not among the character's flags
-    /// (ClientState.QuestFlags): the client gets it only in a hideout or a map area (Game.PlayerQuestFlags, as
+    /// (Player.QuestFlags): the client gets it only in a hideout or a map area (Game.PlayerQuestFlags, as
     /// ThisIsMyHideout only in a hideout), and every server gate reads the flags the client has, so the campaign's gates
     /// stay shut until Kitava. In a hideout or a map before Kitava the client's character panel shows the second −30%;
     /// the server's resistances (Game.ResistancePenalty) count it only once earned.
@@ -732,15 +739,17 @@ public static partial class Quests
         return rows;
     }
 
-    static readonly Lazy<Dictionary<string, int>> TableRows = new(() =>
+    static Dictionary<string, int> TableRows = default!;
+
+    static Dictionary<string, int> LoadTableRows()
     {
         try { return FlagRows(ClientTables.TableOrNull("QuestFlags")); }
         catch (Exception ex) when (ex is IOException or Microsoft.Data.Sqlite.SqliteException) { Console.WriteLine($"[gateway] QuestFlags: {ex.Message}"); return []; }
-    });
+    }
 
     /// <summary>The QuestFlags rows of these flag Ids, ascending; unknown Ids are skipped.</summary>
     public static IReadOnlyList<int> Rows(IEnumerable<string> ids, IReadOnlyDictionary<string, int>? rows = null) =>
-        [.. ids.Select(id => (rows ?? TableRows.Value).TryGetValue(id, out int r) ? r : -1).Where(r => r >= 0).Order()];
+        [.. ids.Select(id => (rows ?? TableRows).TryGetValue(id, out int r) ? r : -1).Where(r => r >= 0).Order()];
 
     /// <summary>Whether the client has a quest flag: the character's own, or among the rows the client gets (the
     /// player's flag set also carries the World panel's access flags: an activated waypoint's area, 16-waypoints.md §4).
@@ -756,18 +765,20 @@ public static partial class Quests
     public static IReadOnlySet<string> Names(IEnumerable<int> rows)
     {
         var wanted = rows.ToHashSet();
-        return TableRows.Value.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
+        return TableRows.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
     }
 
     sealed record TutorialCatalog(IReadOnlyDictionary<byte, string> ByRow, IReadOnlyList<string> AllFlags);
 
-    static readonly Lazy<TutorialCatalog> Tutorials = new(() =>
+    static TutorialCatalog Tutorials = default!;
+
+    static TutorialCatalog LoadTutorials()
     {
         try
         {
             var table = ClientTables.TableOrNull("Tutorial");
             if (table is null) return new(new Dictionary<byte, string>(), [CompletedAllTutorials, TutorialPanelHideArticlePopups]);
-            var flagNames = TableRows.Value.ToDictionary(kv => kv.Value, kv => kv.Key);
+            var flagNames = TableRows.ToDictionary(kv => kv.Value, kv => kv.Key);
             var byRow = new Dictionary<byte, string>();
             var allFlags = new List<string>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -790,14 +801,14 @@ public static partial class Quests
             Console.WriteLine($"[gateway] Tutorial: {ex.Message}");
             return new(new Dictionary<byte, string>(), [CompletedAllTutorials, TutorialPanelHideArticlePopups]);
         }
-    });
+    }
 
     /// <summary>The QuestFlags.dat Id of a Tutorial.dat row's QuestFlagComplete column, or null when the row is out of
     /// range (such as the client's null-article sentinel 0x4e at 0x140a91c4f) or has no completion flag.</summary>
-    public static string? TutorialFlag(byte row) => Tutorials.Value.ByRow.GetValueOrDefault(row);
+    public static string? TutorialFlag(byte row) => Tutorials.ByRow.GetValueOrDefault(row);
 
     /// <summary>Every tutorial completion flag from Tutorial.dat (rows 0..18, including CompletedSkillGemTutorial and
     /// CompletedAllTutorials) plus TutorialPanelHideArticlePopups (row 77): set together when skipping or disabling all
     /// tutorials (C→S 0x020a row 17 AllTutorials).</summary>
-    public static IReadOnlyList<string> AllTutorialFlags => Tutorials.Value.AllFlags;
+    public static IReadOnlyList<string> AllTutorialFlags => Tutorials.AllFlags;
 }
