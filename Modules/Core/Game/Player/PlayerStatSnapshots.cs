@@ -9,7 +9,7 @@ public static partial class Game
     public static List<(uint, int)> ClientStats(Player player, List<(uint Key, int Value)> stats)
     {
         if (player.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(player) || ChargeDegenerationActive(player)
-            || HerEmbraceOf(player).Until > ResourceEffectsTime(player))
+            || HerEmbraceOf(player).Until > ResourceEffectsTime(player) || FlameTouchedActive(player))
             for (int i = 0; i < stats.Count; i++)
                 if (stats[i].Key == Stat.LifeRecoveryPerMinute || stats[i].Key == Stat.EnergyShieldRecoveryPerMinute)
                     stats[i] = (stats[i].Key, 0);
