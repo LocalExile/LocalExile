@@ -473,8 +473,9 @@ public class LockstepTests : IDisposable
     [Fact]
     public void Close_range_held_move_continues_smoothly_and_nimis_randomizes_attack_volleys()
     {
-        // Close-range held Move (4 cells left) must project from here when LockstepClientCell lags behind or the
-        // short walk is about to finish within 2 frames, and stop cleanly once released or held on feet.
+        // Close-range held Move (4 cells left): never fabricates moves from a stale offset while walking, projects
+        // here + offset when a lagged 0x192 lands within 2 cells of or behind here (preventing backwards oscillation),
+        // never drops a real 0x192 whose target matches the previous target while offset is held, and stops on feet/release.
         var player = new Player(new(1, "close-hold", 300, 300, 100, 100, null, []), 1, 1)
         {
             Connection = { LockstepClient = true }
@@ -482,18 +483,22 @@ public class LockstepTests : IDisposable
         player.LockstepHold.Press((96, 100), 0x2909, 0x0400, (-4, 0));
         Assert.Equal((96, 100), Game.LockstepMoveDue(player, 0));
         player.Walk.Order(96, 100, 0);
-        // 66 ms in: walk finishes at ~108 ms (within 2 frames of 66 ms) -> seamlessly projects (-4, 0) from here.
-        var extended = Game.LockstepMoveDue(player, 0.066);
-        Assert.NotNull(extended);
+        // Without a fresh 0x192 while walking, no stale-offset move is fabricated.
+        Assert.Null(Game.LockstepMoveDue(player, 0.066));
         var here = player.Walk.Position(0.066);
-        Assert.Equal((here.X - 4, here.Y), extended.Value);
-        // Lagged 0x192 whose target (98, 100) lands within 2 cells of here still projects (-4, 0) from here.
+        // A lagged 0x192 whose target lands within 2 cells of here projects (-4, 0) forward from here.
         player.LockstepHold.Update((here.X - 1, here.Y), (-4, 0));
+        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
+        // A lagged 0x192 whose target lands behind here (dot <= 0) projects forward instead of walking backwards.
+        player.LockstepHold.Update((here.X + 2, here.Y), (-4, 0));
+        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
+        // A repeated 0x192 at the same target cell is NOT dropped while an offset is held.
+        player.LockstepHold.Update((here.X - 4, here.Y), (-4, 0));
         Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
         // Cursor moved directly onto feet (< 3 cells) stops cleanly.
         player.LockstepHold.Update((here.X - 1, here.Y), (-1, 0));
         Assert.Null(Game.LockstepMoveDue(player, 0.066));
-        // Releasing clears offset and stops cleanly.
+        // Releasing clears offset and issues the final target at most once.
         player.LockstepHold.Update((here.X - 4, here.Y), (-4, 0));
         player.LockstepHold.Release();
         Assert.Null(player.LockstepHold.Offset);

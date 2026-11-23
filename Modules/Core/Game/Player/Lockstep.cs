@@ -1,5 +1,4 @@
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -20,11 +19,10 @@ public static partial class Game
     // swing comes with u8 3, and is served like any other.
     public static void OnLockstepRequest(Player player, ushort id, byte[] bytes)
     {
-        var here = LockstepClientCell(player, AreaTime(player));
+        var here = LockstepClientCell(player, player.Connection.LockstepFrame?.End ?? AreaTime(player));
         if (id == InstanceProtocol.LockstepMoveStartId)
         {
             var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
-            if (!PressAfterUse(player, click.Flags)) return;
             (int X, int Y) aim = (here.X + click.Dx, here.Y + click.Dy);
             player.LockstepUse = null;
             if (SkillsFor(player).ActionName(click.SkillId) == "Move")
@@ -77,35 +75,19 @@ public static partial class Game
             }
             else
             {
-                player.LockstepUse = new(target, skill, 0, flags);
-                UsePressConsumed.AddOrUpdate(player, new StrongBox<bool>(true));
+                bool npcRepeat;
+                lock (player.Npcs)
+                    npcRepeat = skill == 0x266 && (flags & InstanceTransfer.InitialPressFlag) == 0 && player.Npcs.ContainsKey(target);
+                if (!npcRepeat) player.LockstepUse = new(target, skill, 0, flags);
             }
         }
     }
-
-    // A use on an object (0x18f with a skill that is not a gem's: a pickup, a chest, a door, an NPC) uses up the button
-    // press. The client sends its own 0x195 right after the 0x18f (0x140128980 → 0x140123d60). Once the object under
-    // the cursor is gone, its held path (0x14011d730 → 0x14011ecb0, arg press 0) changes the latched kind at +0x120 from
-    // 2 to 1 and asks for a Move without 0x400. Live 2026-11-16, 3 of 3 pickups with LMB held: 0x18e skill 0x2909 flags
-    // 0x8, 77–81 ms after the 0x18f, then 0x192 every 70 ms until the release. On the client, such a Move cannot replace
-    // the use's Interaction: the gate 0x141e941a0 lets an action in over the current one only with 0x400 or when the
-    // current action can be cancelled. So the Move waits in the queue, and when the completion starts it (0x141e95f10),
-    // 0x141e9b860 discards its path. The player stands. Only a new press (0x400) asks again.
-    static readonly ConditionalWeakTable<Player, StrongBox<bool>> UsePressConsumed = new();
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
     // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
     static bool LockstepRepeats(Player player, ushort skill) =>
         !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
             && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
-
-    static bool PressAfterUse(Player player, ushort flags)
-    {
-        if (!UsePressConsumed.TryGetValue(player, out var consumed) || !consumed.Value) return true;
-        if ((flags & 0x400) == 0) return false;
-        consumed.Value = false;
-        return true;
-    }
 
     static ushort NextLockstepSequence(Player player)
     {
@@ -297,28 +279,26 @@ public static partial class Game
     }
 
     /// <summary>
-    /// Chooses the lockstep Move target due at <paramref name="frameStart"/>. When the move button is held close to
-    /// the character, <see cref="LockstepClientCell"/> lags behind <see cref="Player.Walk"/> by RTT + 2 frames, which
-    /// could put <c>clientCell + offset</c> within 2 cells of (or behind) the character or let the short walk finish
-    /// and stop dead before the next 0x192 arrives. Projecting the held cursor offset from <c>here</c> whenever the
-    /// lagged cell falls short or the walk would finish within two frames keeps close-range held movement continuous.
+    /// Chooses the lockstep Move target due at <paramref name="frameStart"/>. Only emits a Move when a new request or
+    /// blocked-walk retry is due (never fabricating moves without a client 0x192). While held, rejects moves when the
+    /// cursor is within 2 cells of the character and projects <c>here + offset</c> when lagged
+    /// <see cref="LockstepClientCell"/> places <c>clientCell + offset</c> within 2 cells of or behind <c>here</c>.
     /// </summary>
     public static (int X, int Y)? LockstepMoveDue(Player player, double frameStart)
     {
         var here = player.Walk.Position(frameStart);
         bool walking = player.Walk.Moving(frameStart);
-        if (player.LockstepHold.Due(walking, here) is { } due)
+        if (player.LockstepHold.Due(walking, here) is not { } due) return null;
+        if (player.LockstepHold.Held && player.LockstepHold.Offset is { } off)
         {
-            if (LockstepTakesMove(here, due)) return due;
-            if (player.LockstepHold.Held && player.LockstepHold.Offset is { } off && LockstepTakesMove((0, 0), off))
-                return (here.X + off.Dx, here.Y + off.Dy);
-            return null;
+            if (!LockstepTakesMove((0, 0), off)) return null;
+            long dot = (long)(due.X - here.X) * off.Dx + (long)(due.Y - here.Y) * off.Dy;
+            if (dot > 0 && LockstepTakesMove(here, due)) return due;
+            var projected = (here.X + off.Dx, here.Y + off.Dy);
+            player.LockstepHold.SetTarget(projected);
+            return projected;
         }
-        if (player.LockstepHold.Held && player.LockstepHold.Offset is { } heldOffset
-            && LockstepTakesMove((0, 0), heldOffset)
-            && !player.Walk.Moving(frameStart + 2d * FrameMs / 1000d))
-            return (here.X + heldOffset.Dx, here.Y + heldOffset.Dy);
-        return null;
+        return LockstepTakesMove(here, due) ? due : null;
     }
 
     // A skill asked on a monster: GGG answers the request with the action's start in the next frame, from the player's

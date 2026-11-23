@@ -757,10 +757,8 @@ attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
 Pickup arrival also starts Interaction's default 0.1 s completion (`0x1419478b0`).
 A Move queued inside it starts in `0x141e95f10`, then `0x141e9b860` discards its new path.
 The Gateway holds subsequent lockstep input through that completion, only after arrival; walking up stays interruptible.
-A use on an object uses up the press: the client sends its own 0x195 right after the 0x18f (`0x140123d60`). With the
-button still held, once the object is gone its held path asks for a Move without 0x400. Live 2026-11-16: 3 of 3 pickups,
-77–81 ms later. That Move cannot replace the Interaction (`0x141e941a0`) and loses its path when it starts, so only a
-new press walks again.
+Once the held pickup's object disappears, the client's held path sends a Move `0x18e` without `0x400`, which the Gateway
+accepts and starts once the post-pickup hold finishes (+4 frames) so holding LMB through a ground pickup keeps moving.
 Readiness uses the client frame start: live, a Move at arrival +3 frames (99 ms) lost its path, while +4 frames
 preserved it. The projectile clock can already exceed 100 ms during that third frame and must not release the hold.
 

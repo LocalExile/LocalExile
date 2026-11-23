@@ -71,10 +71,12 @@ public static partial class Game
         double lowest = player.Connection.LockstepLatency.Lowest;
         double when = now - ((double.IsNaN(lowest) ? 0 : lowest / 1000) + 2d * FrameMs / 1000);
         (int X, int Y)? cell = null;
+        double best = double.PositiveInfinity;
         foreach (var (at, past) in player.Connection.LockstepTrail)
         {
-            if (at > when) break;
-            cell = past;
+            double diff = Math.Abs(at - when);
+            if (diff <= best) (best, cell) = (diff, past);
+            else if (at > when) break;
         }
         return cell ?? player.Walk.Position(now);
     }
