@@ -1473,6 +1473,16 @@ public static partial class Game
         return result;
     }
 
+    /// <summary>"Unaffected by Burning/Chilled/Shocked Ground": the player's, not their minions'. Burning ground is a
+    /// zone's fire damage over time, chilled and shocked ground its chill and shock.</summary>
+    public static (bool Burning, bool Chilled, bool Shocked) UnaffectedByGround(Player player)
+    {
+        bool Has(uint stat, uint virtualStat) => PlayerStat(player, stat) != 0 || PlayerStat(player, virtualStat) != 0;
+        return (Has(Stat.UnaffectedByBurningGround, Stat.VirtualUnaffectedByBurningGround),
+            Has(Stat.UnaffectedByChilledGround, Stat.VirtualUnaffectedByChilledGround),
+            Has(Stat.UnaffectedByShockedGround, Stat.VirtualUnaffectedByShockedGround));
+    }
+
     // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
