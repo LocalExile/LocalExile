@@ -10,18 +10,24 @@ using GameServer.Core;
 /// </summary>
 public static class ImpossibleEscapeCatalogue
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Entries = Load();
+    }
+
     const string ModId = "JewelUniqueAllocateDisconnectedPassivesAroundKeystone";
-    const string KeystoneStat = "local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash";
-    const string RadiusStat = "local_jewel_effect_base_radius";
+    const uint KeystoneStat = Stat.LocalUniqueJewelDisconnectedPassivesCanBeAllocatedAroundKeystoneHash;
+    const uint RadiusStat = Stat.LocalJewelEffectBaseRadius;
     // Path of Building 3_16's Small radius is 960 (the client's PassiveJewelRadii row is the 800 display/base
     // value). Impossible Escape's keystone ring follows the 3_16 effect radius.
     const int Radius = 960;
 
     public sealed record Keystone(int Row, ushort GraphId, string Name);
 
-    static readonly Lazy<List<Keystone>> Entries = new(Load);
+    static List<Keystone> Entries = default!;
 
-    public static IReadOnlyList<Keystone> All => Entries.Value;
+    public static IReadOnlyList<Keystone> All => Entries;
 
     // Current items store a graph ID; older items stored the row of the same Maven keystone.
     public static Keystone? ForStoredValue(int value)

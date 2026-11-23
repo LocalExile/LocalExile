@@ -13,17 +13,17 @@ public static class ItemWeaponStats
     {
         // Keep signed sources wide until the completed item value is bounded. Multiple native mod sections can
         // contribute to the same local key, including opposing values that cancel before scaling.
-        var local = new Dictionary<string, long>();
+        var local = new Dictionary<uint, long>();
         foreach (var (name, value) in ItemModStats.Values(item, mods, local: true))
             local[name] = local.GetValueOrDefault(name) + value;
         return Calculate(basis, name => local.GetValueOrDefault(name), item.Quality);
     }
 
     public static Result Calculate((int AttackMs, int Min, int Max, int Range) basis,
-        Func<string, long> Get, int itemQuality)
+        Func<uint, long> Get, int itemQuality)
     {
-        long quality = Get("local_quality_does_not_increase_physical_damage") != 0 ? 0
-            : Math.Max(0L, itemQuality + Get("local_item_quality_+"));
+        long quality = Get(Stat.LocalQualityDoesNotIncreasePhysicalDamage) != 0 ? 0
+            : Math.Max(0L, itemQuality + Get(Stat.LocalItemQualityPlus));
 
         int Bound(long value, long increased, long quality = 0)
         {
@@ -40,13 +40,13 @@ public static class ItemWeaponStats
         var hit = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
         {
-            if (type == DamageType.Physical && Get("local_weapon_no_physical_damage") != 0) continue;
+            if (type == DamageType.Physical && Get(Stat.LocalWeaponNoPhysicalDamage) != 0) continue;
             string slug = type.ToString().ToLowerInvariant();
-            long minimum = (type == DamageType.Physical ? basis.Min : 0L) + Get($"local_minimum_added_{slug}_damage");
-            long maximum = (type == DamageType.Physical ? basis.Max : 0L) + Get($"local_maximum_added_{slug}_damage");
-            long increased = type == DamageType.Physical ? Get("local_physical_damage_+%")
-                : DamageTypes.IsElemental(type) ? Get("local_elemental_damage_+%")
-                    + Get("local_attacks_with_this_weapon_elemental_damage_+%") : 0;
+            long minimum = (type == DamageType.Physical ? basis.Min : 0L) + Get(Stat.Of($"local_minimum_added_{slug}_damage"));
+            long maximum = (type == DamageType.Physical ? basis.Max : 0L) + Get(Stat.Of($"local_maximum_added_{slug}_damage"));
+            long increased = type == DamageType.Physical ? Get(Stat.LocalPhysicalDamagePlusPct)
+                : DamageTypes.IsElemental(type) ? Get(Stat.LocalElementalDamagePlusPct)
+                    + Get(Stat.LocalAttacksWithThisWeaponElementalDamagePlusPct) : 0;
             int lo = Bound(minimum, increased, type == DamageType.Physical ? quality : 0);
             int hi = Bound(maximum, increased, type == DamageType.Physical ? quality : 0);
             hit = hit.Add(type, new DamageRange(lo, Math.Max(lo, hi)));
@@ -55,7 +55,7 @@ public static class ItemWeaponStats
         // Local attack speed belongs to the item duration and must not be multiplied into the character's
         // increased-speed bucket again. Preserve the existing integer-ms convention and its one-ms floor.
         // The positive denominator guard is numeric protection, not a measured official minimum attack rate.
-        decimal duration = Math.Max(1, basis.AttackMs) * 100m / Math.Max(1m, 100m + Get("local_attack_speed_+%"));
+        decimal duration = Math.Max(1, basis.AttackMs) * 100m / Math.Max(1m, 100m + Get(Stat.LocalAttackSpeedPlusPct));
         int attackMs = (int)Math.Clamp(Math.Round(duration), 1, int.MaxValue);
         return new(hit, attackMs);
     }

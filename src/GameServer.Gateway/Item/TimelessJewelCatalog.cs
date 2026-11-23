@@ -10,6 +10,12 @@ using GameServer.Core;
 /// </summary>
 public static class TimelessJewelCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        NameWords = LoadNameWords("data");
+    }
+
     public const string BaseId = "Metadata/Items/Jewels/JewelTimeless";
 
     public sealed record Conqueror(string Name, int Index, int Version);
@@ -115,20 +121,20 @@ public static class TimelessJewelCatalog
         foreach (var mod in item.Mods)
         {
             if (mods.ByHash(mod.Hash) is not { } row) continue;
-            int? Value(string id)
+            int? Value(uint id)
             {
                 for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
                     if (row.Stats[i].Id == id) return mod.Values[i];
                 return null;
             }
 
-            if (Value("local_unique_jewel_alternate_tree_version") is not int version
-                || Value("local_unique_jewel_alternate_tree_seed") is not int seed
-                || Value("local_unique_jewel_alternate_tree_keystone") is not int keystone
-                || Value("local_jewel_effect_base_radius") is not int radius) continue;
+            if (Value(Stat.LocalUniqueJewelAlternateTreeVersion) is not int version
+                || Value(Stat.LocalUniqueJewelAlternateTreeSeed) is not int seed
+                || Value(Stat.LocalUniqueJewelAlternateTreeKeystone) is not int keystone
+                || Value(Stat.LocalJewelEffectBaseRadius) is not int radius) continue;
             if (ForTreeVersion(version) is not { } entry || seed < entry.MinSeed || seed > entry.MaxSeed
                 || entry.Conquerors.FirstOrDefault(c => c.Index == keystone) is not { } conqueror) continue;
-            int revision = Value("local_unique_jewel_alternate_tree_internal_revision") ?? 1;
+            int revision = Value(Stat.LocalUniqueJewelAlternateTreeInternalRevision) ?? 1;
             string name = revision == 0 ? LegacyName(entry, keystone) ?? conqueror.Name : conqueror.Name;
             return new TimelessSpec(entry.Name, version, entry.Faction, seed, seed * entry.DisplayMultiplier,
                 keystone, name, revision == 0 ? 0 : conqueror.Version, RadiusJewelCatalogue.EffectRadius(radius));
@@ -148,10 +154,10 @@ public static class TimelessJewelCatalog
         _ => null,
     };
 
-    static readonly Lazy<Dictionary<string, uint>> NameWords = new(() => LoadNameWords("data"));
+    static Dictionary<string, uint> NameWords = default!;
 
     static uint? WordHash(string name, string folder) =>
-        folder == "data" ? NameWords.Value.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
+        folder == "data" ? NameWords.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
 
     static Dictionary<string, uint> LoadNameWords(string folder)
     {
