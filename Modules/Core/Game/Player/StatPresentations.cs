@@ -222,8 +222,11 @@ public static partial class Game
     static void RunStatPresentations(Player player)
     {
         var presenting = PresentingOf.GetOrCreateValue(player);
+        double now = AreaTime(player);
+        CheckIntensityPresentation(player, now);
+        CheckMomentumPresentation(player, now);
         lock (presenting)
-            if (AreaTime(player) >= presenting.NextAt)
+            if (now >= presenting.NextAt)
             {
                 presenting.NextAt = double.PositiveInfinity;
                 presenting.Pending = true;

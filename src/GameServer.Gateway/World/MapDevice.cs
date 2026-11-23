@@ -34,6 +34,9 @@ public sealed class MapDevice
         /// <summary>The area level: the WorldAreas level for old area-named maps, or the map tier's level for generic
         /// maps. 0 leaves the client's own WorldAreas level in place.</summary>
         public int Level { get; init; }
+
+        /// <summary>Whether a map device run for this area uses the owner's Atlas stats.</summary>
+        public bool UsesAtlas { get; init; } = true;
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
@@ -223,7 +226,8 @@ public sealed class MapDevice
     /// last portal is taken or the owner opens another map, and guests see the same one.</summary>
     public sealed record Run(string Owner, MapArea Area, MapMods Mods, int ItemRow = 0, Origin? ReturnTo = null)
     {
-        public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo);
+        public static Run Of(string owner, OpenMap map) =>
+            new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo) { Atlas = map.Area.UsesAtlas };
 
         /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
         /// module starts with its own mods (only those mods' stats apply).</summary>
