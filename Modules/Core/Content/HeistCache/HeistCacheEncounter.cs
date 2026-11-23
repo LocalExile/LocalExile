@@ -91,7 +91,7 @@ public sealed class HeistCacheEncounter
         {
             if (state.Placed) return;
             state.Placed = true;
-            var stats = AreaLeagueStats(player);
+            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
             int S(uint name) => stats.GetValueOrDefault(name);
             if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0 || S(Stat.MapNukeEverything) > 0
                 || S(Stat.MapAreaUnderlevelled) > 0 || S(Stat.MapDisableHeistFromChance) > 0)
@@ -99,9 +99,10 @@ public sealed class HeistCacheEncounter
             // The encounter's own draws, apart from the packs' (the same instance gets the same caches). When the map
             // zeroes the base chance, only the added chance rolls: the base is scaled to nothing, not the whole roll.
             var rng = new Random(area.Seed ^ 0x48656973);
-            int count = LeagueChances.Current.Count(layout.Id, LeagueChances.Heist, rng,
+            int count = LeagueChances.Current.Count(layout.Id, LeagueChances.Heist, rng, alternate: false,
                 increased: S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? -100 : S(Stat.MapLeagueBaseChancePlusPctFinal),
-                added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapHeistSmugglersCacheEncounterChancePlusPct));
+                added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapSmugglersCacheAdditionalChancePct),
+                encounterIncrease: S(Stat.MapHeistSmugglersCacheEncounterChancePlusPct));
             state.Why = $"league roll Heist {count}";
             if (count <= 0) return;
             await PlaceBoxes(player, area.Level, area.Taken, count, rng, state);

@@ -24,13 +24,27 @@ public class HeistCacheTests
     /// cache at cell (942, 806)). An opened cache differs only at byte 19. A player who enters afterwards, also with
     /// the module reloaded (a new encounter reads the instance's saved text), is given nothing twice.
     /// </summary>
-    [Fact]
-    public async Task Placing_a_cache_creates_the_measured_create_and_a_late_joiner_is_given_it()
+    [Theory]
+    [InlineData(1234, 0, true)]    // draw 27, below the flat 30%
+    [InlineData(1236, 100, true)]  // draw 41, below the doubled 60%
+    [InlineData(1235, 100, false)] // draw 75, above 60%
+    public async Task Placing_a_cache_creates_the_measured_create_and_a_late_joiner_is_given_it(int seed, int increase, bool placed)
     {
         using var world = new Fixture();
         var encounter = new HeistCacheEncounter();
         var state = encounter.For(world.First);
-        await encounter.PlaceBoxes(world.First, 70, [], 1, new Random(1234), state);
+        world.First.Instance.AreaStats(() => new Dictionary<uint, int>
+        {
+            [Stat.MapExtraContentHasNoBaseChanceToSpawn] = 1,
+            [Stat.MapSmugglersCacheAdditionalChancePct] = 30, // Secret Stash
+            [Stat.MapHeistSmugglersCacheEncounterChancePlusPct] = increase,
+        });
+        await encounter.OnAreaPopulated(new AreaPopulated(world.First, 70, seed, []));
+        if (!placed)
+        {
+            Assert.Empty(state.Boxes);
+            return;
+        }
         Assert.Single(state.Boxes);
         var box = state.Boxes[0];
         Assert.Equal("closed", box.Stage);
@@ -118,7 +132,7 @@ public class HeistCacheTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             listener.Start();
-            var layout = new AreaLayout(0x1234, "MapWorldsReef", 600, 600, 300, 300, (_, _) => true, []);
+            var layout = new AreaLayout(0xd2d5, "MapWorldsReef", 600, 600, 300, 300, (_, _) => true, []);
             var instance = new InstanceState();
             First = Make(layout, instance);
             Second = Make(layout, instance);
