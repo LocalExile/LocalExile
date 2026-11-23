@@ -172,9 +172,8 @@ public static partial class MapEssences
                 .Where(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })
                 .Select(e => (e.Variety, e.Weight)).ToArray()) ?? [];
             monolith = monolith with { Minis = MakeMinis(player, monolith, weights, new Random(unchecked((int)player.Seed ^ spawn.X * 31 ^ spawn.Y))) };
-            // Keep the returned record: it carries the encased previews' ids, which the release removes. (The feature
-            // branch also sent the imprisoned monster's id at the monolith's +0x104 so the client built the essence
-            // panel from it; this branch's MonolithObject has no such field yet.)
+            // Keep the returned record: it carries the encased previews' ids, which the release removes and whose rare
+            // the monolith's +0x104 links to for the client's essence panel.
             monolith = await SpawnEncasedPreviews(player, monolith);
             monoliths.Add(monolith);
             Keep(player, area);
@@ -347,9 +346,10 @@ public static partial class MapEssences
         uint[] hashes = [.. monolith.Essences.Select(MapEssenceCatalog.Find).OfType<MapEssenceCatalog.Essence>().Select(e => e.Hash)];
         if (!area.Shown.TryGetValue(monolith.Id, out var was))
         {
-            // The imprisoned monster's object id at +0x104 (the panel's name and mod lines) and the corrupted bit are
-            // not fields of this branch's MonolithObject, so the crystal carries the essences and the pack variety only.
-            var obj = new MonolithObject(monolith.X, monolith.Y, variety.Hash16, hashes, monolith.Stage);
+            // The imprisoned monster's object id at +0x104: the client builds the monolith's panel (the rare's name and
+            // mod lines, then the essences and the helper text) from that object's ObjectMagicProperties.
+            uint linked = monolith.Preview != 0 && player.Area.Monsters.ContainsKey(monolith.Preview) ? monolith.Preview : 0;
+            var obj = new MonolithObject(monolith.X, monolith.Y, variety.Hash16, hashes, monolith.Stage, linked, monolith.Corrupted);
             await SendWorldCreate(player, monolith.Id,
                 InstanceEntities.CreateObject(monolith.Id, InstanceEntities.ObjectTypeHash(Type), obj.Blob()),
                 $"essence monolith 0x{monolith.Id:x} stage={monolith.Stage} essences={monolith.Essences.Count} at ({monolith.X}, {monolith.Y})");
@@ -361,9 +361,9 @@ public static partial class MapEssences
                 if (Monsters.Find(mini.Variety) is not { } mv || !area.ShownMinis.Add(mini.Id)) continue;
                 // A mini crystal holds a magic monster with no essence list and no linked entity: the main monolith's
                 // panel is the only one the client builds.
-                var mobj = new MiniCrystalObject(mini.X, mini.Y, mv.Hash16, mini.Stage);
+                var mobj = new MiniMonolithObject(mini.X, mini.Y, mv.Hash16, [], mini.Stage);
                 await SendWorldCreate(player, mini.Id,
-                    InstanceEntities.CreateObject(mini.Id, InstanceEntities.ObjectTypeHash(MiniCrystalObject.TypePath), mobj.Blob()),
+                    InstanceEntities.CreateObject(mini.Id, InstanceEntities.ObjectTypeHash(MiniMonolithObject.TypePath), mobj.Blob()),
                     $"essence mini monolith 0x{mini.Id:x} stage={mini.Stage} at ({mini.X}, {mini.Y})");
                 await SendWorldRecord(player, mini.Id, InstanceProtocol.EnterWakeZone(mini.Id), null);
             }
@@ -390,29 +390,6 @@ public static partial class MapEssences
             else player.RemoveBlocker(mini.Id);
         }
         shown.Add(monolith.Id);
-    }
-
-    /// <summary>
-    /// The pack's small crystal (Metadata/MiscellaneousObjects/MiniMonolith), whose .ot reads Positioned (object_size 2),
-    /// Animated (rig_small.ao), Transitionable, Monolith and BaseEvents, and sets is_mini_monolith. The feature branch
-    /// carries it as <c>MiniMonolithObject</c> in Protocol/Instance; this branch's protocol has no such record yet, so its
-    /// verified layout lives here until it does (Transitionable: 1 intact, 2 broken).
-    /// </summary>
-    sealed record MiniCrystalObject(int X, int Y, ushort Monster, byte Stage = 1)
-    {
-        public const string TypePath = "Metadata/MiscellaneousObjects/MiniMonolith";
-        public byte[] Blob()
-        {
-            if (Stage is < 1 or > 2) throw new ArgumentOutOfRangeException(nameof(Stage));
-            var w = new BlobWriter();
-            w.U8(0).U8(0); // base data
-            w.I32(X).I32(Y).F32(0).U16(0).U8(0).U8(2).U8(0).U8(1); // Positioned
-            w.U8(0); // Animated (own model)
-            w.U8(Stage); // Transitionable: intact 1, broken 2
-            w.U8(1).U16(Monster).U8(0); // Monolith: is_mini_monolith, no essence list
-            w.U32(0); // Monolith +0x104: the mini holds no linked entity
-            return w.U8(0).ToArray(); // BaseEvents
-        }
     }
 
     public static async Task<bool> Use(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)

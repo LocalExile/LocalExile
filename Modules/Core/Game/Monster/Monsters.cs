@@ -487,12 +487,18 @@ public static partial class Game
         // its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
             : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
-        // A caller's extra specials (a summon's own usable kit, BossKits.SummonKit) append to the built kit.
+        // A caller's extra specials (a summon's own usable kit, BossKits.SummonKit) append to the built kit. They do not
+        // become the monster's default attack: from an extra-only kit the first entry is a cooldown spell, so an essence
+        // rare walked nowhere and cast from where it stood (its attack was the kit's first spell, and BossKits.Choose had
+        // no chase swing between cooldowns). The monster keeps its own attack and plays the extras from the kit.
+        var ownKit = kit;
         kit = BossKits.WithExtra(kit, extraKit);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
-        // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
+        // list, not a second copy of the default attack under the hash-derived id. A kit from extras only has no such
+        // entry: the monster's own attack stays its default and its skill joins the list. The stage skill stays: 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
-            : kit.Count > 0 ? [.. BossKits.SkillsOf(player, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
+            : kit.Count > 0 ? [.. ownKit.Count == 0 && skill is not null ? new List<GrantedSkill> { skill } : [],
+                .. BossKits.SkillsOf(player, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = Yugul.AddSkills(player, variety, level, skills);
@@ -626,7 +632,7 @@ public static partial class Game
             {
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,
-                Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
+Attack = skill is null && kit.Count == 0 ? null : ownKit.Count > 0 ? ownKit[0].Attack : attack,
                 Kit = kit, SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking,

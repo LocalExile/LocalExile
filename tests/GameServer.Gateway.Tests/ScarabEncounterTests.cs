@@ -167,6 +167,11 @@ public sealed class ScarabEncounterTests
             Assert.True(await MapStrongboxes.Use(boxOwner.Player, new(firstBox.Id, 0, 1, 0), 0));
             var active = Boxes()[0];
             Assert.Equal(1, active.Phase);
+            // The guards wait for the box's opening clip, a real-time wait tests never take: release the wave now.
+            Assert.Empty(active.Guards);
+            Assert.Contains(active.Waves, w => w.Spawns.Count > 0);
+            await MapStrongboxes.SpawnWavesNow(boxOwner.Player);
+            active = Boxes()[0];
             Assert.NotEmpty(active.Guards);
             Assert.Empty(active.Pending);
             int guardCount = boxOwner.Player.Area.Monsters.Count;

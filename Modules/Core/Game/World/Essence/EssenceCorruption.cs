@@ -63,18 +63,27 @@ public static partial class MapEssences
     {
         if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area)
             || area.Monoliths?.FirstOrDefault(m => m.Id == use.TargetObjectId) is not { } target) return false;
-        string Log(string text) => $"[map-content] essence 0x{use.TargetObjectId:x}: {text}";
+        string Log(string text) => $"[map-content] essence 0x{use.TargetObjectId:x} <= 0x0074 item {use.ItemId} (inventory {use.InventoryId}): {text}";
         var items = ItemsOf(player);
         await area.Gate.WaitAsync();
         try
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
                 || !PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (target.X, target.Y), 20)) return true;
-            if (items.RowOf(use.ItemId) is not byte row || PlayerInventories.InventoryId(row) != use.InventoryId
-                || items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } used
-                || ItemsFor(player).ByHash(used.Item.TypeHash)?.Id != CurrencyEffects.VaalOrb)
+            // The orb may sit in a character inventory, the cursor or the open stash / currency tab: the client sends 0x74
+            // with that inventory's id either way (live: a currency-tab orb clicked on a box). Resolve the source.
+            byte row = 0; bool fromChar = false; InventoryItem? used = null;
+            if (items.RowOf(use.ItemId) is byte r && PlayerInventories.InventoryId(r) == use.InventoryId
+                && items.Items(r).FirstOrDefault(i => i.Id == use.ItemId) is { } ci) { row = r; fromChar = true; used = ci; }
+            else if (PlayerInventories.InventoryId(PlayerInventories.Cursor) == use.InventoryId
+                && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
+            { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
+            AccountStash? stash = null;
+            if (used is null && StashOf(player) is { } s && s.TabOf(use.InventoryId) is int t
+                && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; used = si; }
+            if (used is null || ItemsFor(player).ByHash(used.Item.TypeHash)?.Id != CurrencyEffects.VaalOrb)
             {
-                Console.WriteLine(Log("requires a Vaal Orb in the named character inventory; nothing consumed"));
+                Console.WriteLine(Log("requires a Vaal Orb in the inventory, the cursor or the open stash; nothing consumed"));
                 return true;
             }
             var monolith = area.Monoliths![target.Index];
@@ -85,14 +94,25 @@ public static partial class MapEssences
                 Console.WriteLine(Log("already corrupted or released; nothing consumed"));
                 return true;
             }
-            if (!CurrentGameWork || items.ConsumeOne(row, used.Id) is not { } taken) return true;
+            // Consume one orb from whichever source holds it; only then commit the monolith.
+            Func<Task> notify;
+            if (fromChar)
+            {
+                if (!CurrentGameWork || items.ConsumeOne(row, used.Id) is not { } taken) return true;
+                uint inventory = PlayerInventories.InventoryId(row);
+                notify = () => Send(player, InstanceItems.InventoryChange(inventory, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
+                    $"0x00bf inventory {inventory}: Vaal Orb used on essence monolith 0x{monolith.Id:x}");
+            }
+            else
+            {
+                if (!CurrentGameWork || stash!.Pay(used.Item.TypeHash, 1) is not { } paid) return true;
+                notify = () => SendStashPayment(player, stash, paid);
+            }
             monolith = result.Monolith;
             area.Monoliths[monolith.Index] = monolith;
             area.Dirty.Add(monolith.Index);
             Keep(player, area); // commit shared state before any output or another player's request
-            await Send(player,
-                InstanceItems.InventoryChange(use.InventoryId, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
-                $"0x00bf Vaal Orb used on essence monolith 0x{monolith.Id:x}");
+            await notify();
             Console.WriteLine(Log($"corrupted outcome={result.Outcome} essences=[{string.Join(',', monolith.Essences)}]"));
             // Show the corrupted essences first, so a forced release breaks the new list rather than recreating after it.
             await PresentDirty(player, area);

@@ -9,7 +9,7 @@ using static Program;
 /// The essence spells the hit kit cannot represent, cast on their own timer while the released rare lives, independent of
 /// its AI. Their daemon effects carry no hit damage, summon or projectile, so <see cref="EssenceKit"/> drops them; a non-hit
 /// kit special also fights the auto-attack and stalls the rare. This file holds the shared machinery — the periodic caster,
-/// the pulse daemon, the spell effect objects and the player debuff plumbing. Each essence's own behaviour lives apart so a
+/// the instant pulse effects, the spell effect objects and the player debuff plumbing. Each essence's own behaviour lives apart so a
 /// change to one cannot disturb the others:
 /// <list type="bullet">
 /// <item>the resistance novas (Hatred cold / Anger fire / Wrath lightning) and their debuff — <c>EssenceNova.cs</c>;</item>
@@ -239,10 +239,11 @@ public static partial class MapEssences
             // keeps fighting between the queue and the cast, and a stale origin reads as the cast coming from somewhere the
             // monster no longer is (a client/server position desync).
             at = monster.Walk.Position(AreaTime(conn));
-            // The rare stops to cast: hold its AI for the wind-up and the release so the pulsation and the nova stay
-            // where it stands; it resumes fighting once the projectiles are out, not for the whole daemon linger.
-            monster.BusyUntil = Math.Max(monster.BusyUntil, AreaTime(conn) + 2.3);
-            uint daemon = await ShowPulseDaemon(conn, spell, at, monster.ObjectId);
+            // Its AI is not held: an essence spell is cast alongside the rare's own fighting, not instead of it. A hold
+            // for the wind-up left the rare standing through every pulse and nova, which read as a frozen monster (live
+            // 2026-11-23); a walking rare's nova still fires from where it is when the projectiles leave (FireNova), and
+            // the pulse is a one-shot effect object at its live cell, so the cast never stops it.
+            ShowPulse(conn, spell, at);
             if (spell.Kind == "chaos")
             {
                 // Misery's pulse triggers its 5 s proximity shield (GE 2842, cast_when_triggered_by_other_skill_% = 100).
@@ -255,31 +256,33 @@ public static partial class MapEssences
                 int pulses = Math.Max(1, (int)Math.Round(spell.Cast / gap));
                 for (int i = 0; i < pulses && !conn.Closed && !conn.LeavingArea; i++)
                 {
-                    ChaosDegen(conn, at, PulseRadius, spell);
+                    // The aura follows the rare: with its AI no longer held it may walk through the pulse window.
+                    ChaosDegen(conn, monster.Walk.Position(AreaTime(conn)), PulseRadius, spell);
                     if (i + 1 < pulses)
                     {
                         await Task.Delay(TimeSpan.FromSeconds(gap));
-                        await PlayPulse(conn, daemon, at, spell);
+                        PlayPulse(conn, monster.Walk.Position(AreaTime(conn)), spell);
                     }
                 }
-                RemoveDaemon(conn, daemon);
                 Console.WriteLine($"[map-content] essence chaos aura by 0x{monster.ObjectId:x} at ({at.X}, {at.Y}): {pulses} pulses every {gap:0.##}s");
                 return;
             }
             if (spell.Kind is "cold" or "fire" or "lightning")
             {
                 // The pulsation wind-up: accelerating pulses (1.25 / 0.5 / 0.25 s), then the nova bursts its projectiles.
+                // Each pulse is a one-shot effect at the rare's live cell: the AI is not held, so it may be walking.
                 await Task.Delay(TimeSpan.FromSeconds(1.25));
-                await PlayPulse(conn, daemon, at, spell);
+                PlayPulse(conn, monster.Walk.Position(AreaTime(conn)), spell);
                 await Task.Delay(TimeSpan.FromSeconds(0.5));
-                await PlayPulse(conn, daemon, at, spell);
+                PlayPulse(conn, monster.Walk.Position(AreaTime(conn)), spell);
                 await Task.Delay(TimeSpan.FromSeconds(0.25));
                 FireNova(conn, monster, spell);
             }
             await Task.Delay(TimeSpan.FromSeconds(0.5));
-            if (!conn.Closed && !conn.LeavingArea) await ResDebuff(conn, at, PulseRadius, spell);
+            // The resistance debuff is the rare's own aura: applied where it stands when the release lands, not where the
+            // cast began (the AI is not held, so it may have walked).
+            if (!conn.Closed && !conn.LeavingArea) await ResDebuff(conn, monster.Walk.Position(AreaTime(conn)), PulseRadius, spell);
             await Task.Delay(TimeSpan.FromSeconds(0.4));
-            RemoveDaemon(conn, daemon);
             Console.WriteLine($"[map-content] essence {spell.Kind} pulse by 0x{monster.ObjectId:x} at ({at.X}, {at.Y})");
         }
         catch (Exception ex)
@@ -306,64 +309,27 @@ public static partial class MapEssences
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
     }
 
-    /// <summary>The pulsation wind-up: the essence's daemon at the rare plays a pulse nova action, so the native client
-    /// selects, scales and animates it (the shrine nova pattern — a standalone pulse effect object draws nothing). The
-    /// RepeatedPulse action is element-agnostic (one skill id for cold/fire/lightning, so it always drew the frost pulse);
-    /// Wrath therefore plays the shrine's ShockNova, a lightning nova, on the same Daemon rig. The pulse is self-centred and
-    /// rides the shrine circle (26); the nova's projectiles are fired separately (<c>EssenceNova.cs</c>) after the wind-up.
-    /// The daemon is friendly, invulnerable and out of the AI, removed when the pulse ends. The grab uses effect objects
-    /// instead (its demon_grasp art is a ground trap, not a caster nova).</summary>
-    static int PulseVisualEffect(Player conn, SpecialSpell spell) => spell.Pulse;
-
-    static async Task<uint> ShowPulseDaemon(Player conn, SpecialSpell spell, (int X, int Y) at, uint summoner)
+    /// <summary>The pulse is the essence's own instant aura: a one-shot effect object (the MiscAnimated element pulse art) at
+    /// the rare's live cell, played at once. It is not a daemon's cast — the cast must not stop or hold the rare, and a
+    /// daemon actor left the pulsation behind a walking monster (live 2026-11-23). The damaging part is applied by the
+    /// caster (pulse radius, resistance debuff, or the nova's projectiles, <c>EssenceNova.cs</c>); the grab keeps its own
+    /// effect objects (its demon_grasp art is a ground trap, not a caster nova).</summary>
+    static void ShowPulse(Player conn, SpecialSpell spell, (int X, int Y) at)
     {
-        var catalog = SkillsFor(conn);
-        // The RepeatedPulse action is element-agnostic: it always draws the frost pulse. Only Hatred (cold) wants that, so
-        // the other elements do not create the daemon or play its action at all — their own pulse art is the whole visual.
-        // Playing the action under an overlay left an ice pulsation in front of Misery's chaos aura and Anger's fire one.
-        if (spell.Kind != "cold")
-        {
-            uint pulse = SpawnEffect(conn, at, PulseArt(spell.Kind));
-            _ = RemovePulseLater(conn, pulse, 2.0);
-            Console.WriteLine($"[map-content] essence {spell.Kind} pulse art at ({at.X}, {at.Y})");
-            return 0;
-        }
-        int visual = PulseVisualEffect(conn, spell);
-        if (Monsters.Find(spell.Daemon) is not { Supported: true } variety || catalog.ActionHash(visual) is not ushort hash) return 0;
-        ushort skillId = (ushort)(hash & 0x3fff);
-        var stats = catalog.EffectStats(visual, catalog.MaxLevelAt(visual, (byte)AreaLevel(conn))).ToDictionary(s => s.Item1, s => s.Item2);
-        int GetKey(uint key) => stats.GetValueOrDefault(key);
-        // The pulse is self-centred with no radius stat of its own; it uses the action's own reach (PulseRadius), not the
-        // shrine circle's 26 it used to ride. The nova's projectiles are fired separately (FireNova).
-        int radius = Math.Max(1, SkillArea.Radius(PulseRadius, GetKey, true));
-        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(visual) / 1000.0), radius, DamagePacket.Empty) { Spell = true };
-        foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
-        // The client reads the final area radius explicitly (the shrine nova sets it).
-        stats[Stat.ActiveSkillAreaOfEffectRadius] = radius;
-        stats[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(GetKey, true);
-        if (catalog.FindByRow(skillId, visual, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
-        // PositionedBlocking false: the daemon's body must not block the rare's own walk (a monster AI walk is stopped by
-        // living bodies, unlike the client-driven player walk); it still renders and plays the nova.
-        var caster = variety with { PositionedBlocking = false };
-        uint id = await SpawnMonster(conn, caster, (byte)AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y,
-            friendly: true, log: false, alone: false, scripted: true, ownedSkills: [skill], placement: MonsterPlacement.Established,
-            owned: (_, m) =>
-            {
-                m.NoRewards = true; m.Attack = null; m.SummonerId = summoner;
-                m.EncounterStats = new Dictionary<uint, int> { [Stat.BaseCannotBeDamaged] = 1 };
-            });
-        if (id == 0) return 0;
-        await PlayPulse(conn, id, at, spell);
-        Console.WriteLine($"[map-content] essence pulse daemon {spell.Daemon} {spell.Kind}, radius {radius}");
-        return id;
+        if (conn.Closed || conn.LeavingArea) return;
+        uint pulse = SpawnEffect(conn, at, PulseArt(spell.Kind));
+        _ = RemovePulseLater(conn, pulse, 2.0);
+        Console.WriteLine($"[map-content] essence {spell.Kind} pulse art at ({at.X}, {at.Y})");
     }
 
+    const string IcePulseArt = "Metadata/Effects/Spells/pulses/icepulse.ao";
     const string FirePulseArt = "Metadata/Effects/Spells/pulses/firepulse.ao";
     const string ChaosPulseArt = "Metadata/Effects/Spells/pulses/chaospulse.ao";
     const string LightningPulseArt = "Metadata/Effects/Spells/pulses/lightningpulse.ao";
 
     static string PulseArt(string kind) => kind switch
     {
+        "cold" => IcePulseArt,
         "fire" => FirePulseArt,
         "lightning" => LightningPulseArt,
         _ => ChaosPulseArt,
@@ -375,26 +341,12 @@ public static partial class MapEssences
         RemoveEffect(conn, id);
     }
 
-    /// <summary>One pulsation of the wind-up: re-plays the daemon's pulse nova action in place.</summary>
-    static async Task PlayPulse(Player conn, uint daemonId, (int X, int Y) at, SpecialSpell spell)
+    /// <summary>One pulsation of the wind-up: the same one-shot art again, on the rare's live cell.</summary>
+    static void PlayPulse(Player conn, (int X, int Y) at, SpecialSpell spell)
     {
-        if (daemonId == 0 || conn.Closed || conn.LeavingArea) return;
-        if (SkillsFor(conn).ActionHash(PulseVisualEffect(conn, spell)) is not ushort hash) return;
-        ushort skillId = (ushort)(hash & 0x3fff);
-        await SendWorldRecord(conn, daemonId,
-            [.. InstanceProtocol.ActionStarted(daemonId, at.X, at.Y, at.X, at.Y, skillId, 0xffff, conn.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(daemonId)],
-            null);
-    }
-
-    static void RemoveDaemon(Player conn, uint id)
-    {
-        if (id == 0) return;
-        if (conn.Area.Monsters.Remove(id, out var monster))
-        {
-            monster.Dead = true; monster.Life = 0; monster.ActionGeneration++;
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "essence pulse daemon ends", id, monster,
-                PlayerMinions.OutputKind.Remove, WorldId: id, RemovesObject: true));
-        }
+        if (conn.Closed || conn.LeavingArea) return;
+        uint pulse = SpawnEffect(conn, at, PulseArt(spell.Kind));
+        _ = RemovePulseLater(conn, pulse, 1.0);
     }
 
     static IEnumerable<Player> PlayersNear(Player conn, (int X, int Y) at, double radius) => Members(conn)

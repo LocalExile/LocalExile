@@ -122,10 +122,23 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
-  Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
-- Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
-  rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
-  [14](../docs/protocol/14-monster-packs.md) §5).
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
+  the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
+  the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
+  Resonance boss inheritance) and all released rare/daemon behaviours in `Monster/Mods/`: Hatred/Anger/Wrath novas with
+  −10% res debuffs and Hatred's chilling trail, Misery's chaos aura (extra stacks on hit) and triggered proximity shield,
+  Envy's degen aura and grab, Rage's TrapFireRune mines, Suffering's Frost Bomb (−30% exposure) and on-death Arctic Golem,
+  Anguish's Meteor Firestorm and fracturing Fiery Rubble, Dread's chaos Firestorm and Guardian Golem, Greed's blood-orb
+  Corrupted Blood bombs, Torment's Ball Lightning, Sorrow's Vortex totems, Spite's Arc and shocked-ground totem, Doubt's
+  Flicker/Viper Strike spiders, Woe's Energy Locus, Fear's Charging Corsairs, Contempt's invulnerable chasing Karui
+  spirits, Zeal/Loathing/Scorn alternating buffs, Insanity's Storm Call beacons and invulnerable Spectral Spirits,
+  Hysteria's Flameblast, 8-Fireball burst, Meteor Golem and burning ground, Horror's 9-circle ice-explosion cascade,
+  chilled-ground Maelströms and periodic Endurance/Frenzy/Power charges, Delirium's piercing caustic chaos projectile,
+  Explosive Crawlers and on-death insect, Desolation's poison flesh boulder and Remnant of Corruption's slow/physical
+  aura and on-death Fleshmonsters.
+  Not right yet: crystal/statue visuals (`rig.ao` state-1 shards) and Adaptation's per-essence scaling (#505, #1206).
+- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
+  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
 - Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
