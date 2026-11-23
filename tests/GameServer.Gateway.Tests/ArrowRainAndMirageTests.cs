@@ -132,6 +132,240 @@ public class ArrowRainAndMirageTests
         }
     }
 
+    [Fact]
+    public async Task Explosive_and_ensnaring_arrow_lifecycle_radius_quality_death_detonation_and_bleed()
+    {
+        static ProjectileUse CaptureSkill(Battle battle, string name)
+        {
+            var gem = Game.GemSkillEffects(battle.Player).Single(g => g.Name == name);
+            return Game.CaptureGemProjectile(battle.Player, battle.Session, gem.Id, gem, (180, 100),
+                Game.CaptureSkillCriticalRoll(battle.Player, gem.Id));
+        }
+
+        // 1. Uncreated-tether eviction never sends 0x02bd RemoveObject; Session.Invalidate() clears buffs, state and objects.
+        using (var b = new Battle("Ensnaring Arrow"))
+        {
+            var packets = new List<byte[]>();
+            var previousOutgoing = Program.Outgoing;
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Program.Outgoing = (player, bytes) =>
+            {
+                if (ReferenceEquals(player, b.Player)) lock (packets) packets.Add(bytes.ToArray());
+            };
+            try
+            {
+                b.Session.Enqueue(() => gate.Task);
+
+                var use = CaptureSkill(b, "Ensnaring Arrow");
+                var runtime = b.Session.Runtime;
+                var beforeIds = new HashSet<uint>(b.Player.ProjectileObjects);
+                runtime.Release(use);
+                runtime.AdvanceTo(ProjectileRuntime.Time(.2));
+                var firstIds = b.Player.ProjectileObjects.Except(beforeIds).ToArray();
+                Assert.True(firstIds.Length >= 2);
+                // Fire 3 more hits before RunOutput processes the 1st tether's Create, evicting the uncreated 1st tether.
+                for (int i = 2; i <= 4; i++)
+                {
+                    runtime.Release(use);
+                    runtime.AdvanceTo(ProjectileRuntime.Time(i * .2));
+                }
+                var flushed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                b.Session.Enqueue(() => { flushed.SetResult(); return Task.CompletedTask; });
+                b.Player.Clock.Start();
+                gate.SetResult();
+                await Task.WhenAny(flushed.Task, b.Session.OutputCompleted);
+                Assert.True(flushed.Task.IsCompleted, "RunOutput exited before flushing queued intents.");
+                byte[][] sent;
+                lock (packets) sent = [.. packets];
+                Assert.NotEmpty(sent);
+                foreach (uint id in firstIds)
+                {
+                    byte[] remove = InstanceProtocol.RemoveObject(id);
+                    Assert.DoesNotContain(sent, p => p.AsSpan().IndexOf(remove) >= 0);
+                }
+
+                ushort tetheredRow = BuffRows.Find("tethered_debuff");
+                Assert.True(tetheredRow != 0 && b.Player.Area.Buffs.HasRow(200, tetheredRow));
+                Assert.True(Game.IsEnsnared(b.Enemy, .8));
+                b.Session.Invalidate();
+                await b.Session.OutputCompleted;
+                Assert.False(Game.IsEnsnared(b.Enemy, .8));
+                Assert.Equal(1, Game.EnsnaredWalkFactor(b.Enemy, .8));
+                Assert.Equal(0, Game.EnsnaredProjectileAttackTaken(b.Enemy, .8));
+                Assert.False(b.Player.Area.Buffs.HasRow(200, tetheredRow));
+                Assert.Empty(b.Player.ProjectileObjects);
+            }
+            finally
+            {
+                gate.TrySetResult();
+                Program.Outgoing = previousOutgoing;
+            }
+        }
+
+        // 2. Terrain fuse, FuseArrow metadata, ExplosiveArrowRadiusPlusPct as increased AoE, ActiveSkillBaseRadiusPlus,
+        //    Ignite Proliferation spread, no double-evasion, and lethal 2nd-fuse / DoT death detonation.
+        using (var b = new Battle("Explosive Arrow", "Ignite Proliferation Support"))
+        {
+            var baseUse = CaptureSkill(b, "Explosive Arrow");
+            Assert.Equal("Metadata/Projectiles/FuseArrow", baseUse.Profile.Id);
+            var baseFuse = Assert.IsType<Game.ExplosiveFuseSpec>(Assert.IsType<ProjectileOffense>(baseUse.Payload).ExplosiveFuse);
+            Assert.Equal(15, baseFuse.BaseRadius);
+            Assert.Equal(1d, baseFuse.RadiusScale, 6);
+            Assert.True(baseFuse.Damage.Ignite.Spread > 0);
+            foreach (string variant in new[] { "ExplosiveArrow", "ExplosiveArrowAltX", "ExplosiveArrowAltY", "ExplosiveArrowRoyale" })
+                Assert.Equal("Metadata/Projectiles/FuseArrow", Game.ProjectileDefinition(variant)?.Metadata);
+
+            b.StatOverrides[Stat.ExplosiveArrowRadiusPlusPct] = 100;
+            b.StatOverrides[Stat.ActiveSkillBaseRadiusPlus] = 4;
+            var scaledFuse = Assert.IsType<Game.ExplosiveFuseSpec>(
+                Assert.IsType<ProjectileOffense>(CaptureSkill(b, "Explosive Arrow").Payload).ExplosiveFuse);
+            Assert.Equal(19, scaledFuse.BaseRadius);
+            // 100% increased AoE scales radius by floor(100 * sqrt(2)) / 100 = 1.41, not 2.0 MORE radius.
+            Assert.Equal(1.41, scaledFuse.RadiusScale, 6);
+            b.StatOverrides.Remove(Stat.ExplosiveArrowRadiusPlusPct);
+            b.StatOverrides.Remove(Stat.ActiveSkillBaseRadiusPlus);
+
+            // Terrain fuse sticks in a wall and detonates after its fuse duration, even without evasion re-roll.
+            b.StatOverrides.Remove(Stat.GlobalAlwaysHit);
+            b.Player.ProjectileWalls.Add((115, 100));
+            b.Enemy.Walk.Teleport(160, 100, 0);
+            var evasiveWitness = new SpawnedMonster("evasive witness", new(115, 110, 0), 0, 0, 100000)
+            {
+                Hostile = true,
+                EncounterStats = new Dictionary<uint, int> { [Stat.EvasionRating] = 1_000_000 }
+            };
+            b.Player.Area.Monsters[202] = evasiveWitness;
+            var terrainUse = CaptureSkill(b, "Explosive Arrow");
+            b.Session.Runtime.Release(terrainUse);
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(.5));
+            Assert.Equal(100000u, evasiveWitness.Life);
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(1.3));
+            Assert.True(evasiveWitness.Life < 100000u);
+            b.Player.ProjectileWalls.Clear();
+            b.StatOverrides[Stat.GlobalAlwaysHit] = 1;
+
+            // Lethal 2nd fuse (below the 20-stack cap) detonates immediately on death rather than waiting 1 s.
+            b.Enemy.Walk.Teleport(120, 100, 1.3);
+            var nearWitness = new SpawnedMonster("near witness", new(120, 108, 0), 0, 0, 100000) { Hostile = true };
+            b.Player.Area.Monsters[203] = nearWitness;
+            b.StatOverrides[Stat.GlobalCannotCrit] = 1;
+            var use = CaptureSkill(b, "Explosive Arrow");
+            b.Session.Runtime.Release(use);
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(1.5));
+            uint firstHitDamage = b.Enemy.MaxLife - b.Enemy.Life;
+            Assert.True(firstHitDamage > 0);
+            Assert.Equal(100000u, nearWitness.Life);
+            // Leave enemy alive with less than one arrow hit so the 2nd arrow kills it.
+            b.Enemy.Life = Math.Max(1u, firstHitDamage / 2);
+            b.Session.Runtime.Release(use);
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(1.7));
+            Assert.True(b.Enemy.Dead);
+            Assert.True(nearWitness.Life < 100000u);
+            uint afterSecondDeath = nearWitness.Life;
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(2.8));
+            Assert.Equal(afterSecondDeath, nearWitness.Life);
+
+            // External DoT death (bleed) immediately detonates an active fuse on the dying monster.
+            var bleedVictim = new SpawnedMonster("bleed victim", new(120, 100, 0), 0, 0, 100000) { Hostile = true };
+            b.Player.Area.Monsters[204] = bleedVictim;
+            b.Session.Runtime.Release(use);
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(3.0));
+            Assert.Equal(afterSecondDeath, nearWitness.Life);
+            bleedVictim.Life = 50;
+            Assert.True(bleedVictim.Bleeds.Add(3.0, 200, 5));
+            b.Player.Area.ActiveBleedMonsters.Add(204);
+            b.Session.AdvanceTo(ProjectileRuntime.Time(3.4));
+            await Game.BleedMonsters(b.Player);
+            Assert.True(bleedVictim.Dead);
+            Assert.True(nearWitness.Life < afterSecondDeath);
+            uint afterDotDetonation = nearWitness.Life;
+            b.Session.AdvanceTo(ProjectileRuntime.Time(4.5));
+            Assert.Equal(afterDotDetonation, nearWitness.Life);
+            Assert.Equal(100000u, b.Ally.Life);
+        }
+
+        // 3. Ensnaring Arrow quality (skill_buff_effect_+%), EnsnaringArrowAreaOfEffectPlusPct,
+        //    projectile-attack-only gate (Rain of Arrows excluded, Split Arrow included), and moving-Bleed synergy.
+        using (var b = new Battle("Ensnaring Arrow", "Rain of Arrows", "Split Arrow"))
+        {
+            var items = Game.ItemsOf(b.Player);
+            var host = items.Items(PlayerInventories.Weapon1).Single();
+            var baseSpec = Assert.IsType<Game.EnsnareSpec>(
+                Assert.IsType<ProjectileOffense>(CaptureSkill(b, "Ensnaring Arrow").Payload).Ensnare);
+            Assert.Equal(28, baseSpec.Radius);
+            Assert.Equal(15, baseSpec.AttackTaken);
+            Assert.Equal(-40, baseSpec.NormalSlow);
+
+            // 20% gem quality grants +20% skill_buff_effect_+% (scaling slow and attack projectile damage taken).
+            items.Change(PlayerInventories.Weapon1, host.Id, item => item with
+            {
+                Sockets = [item.Sockets[0] with { Gem = item.Sockets[0].Gem! with { Quality = 20 } }, item.Sockets[1], item.Sockets[2]]
+            });
+            b.StatOverrides[Stat.EnsnaringArrowAreaOfEffectPlusPct] = 100;
+            var qualitySpec = Assert.IsType<Game.EnsnareSpec>(
+                Assert.IsType<ProjectileOffense>(CaptureSkill(b, "Ensnaring Arrow").Payload).Ensnare);
+            Assert.Equal(39, qualitySpec.Radius);
+            Assert.Equal(18, qualitySpec.AttackTaken);
+            Assert.Equal(-48, qualitySpec.NormalSlow);
+            b.StatOverrides.Remove(Stat.EnsnaringArrowAreaOfEffectPlusPct);
+
+            // Fixed flat physical damage + no crit so hit deltas are exact.
+            b.StatOverrides[Stat.GlobalCannotCrit] = 1;
+            b.StatOverrides[Stat.AttackMinimumAddedPhysicalDamage] = 1000;
+            b.StatOverrides[Stat.AttackMaximumAddedPhysicalDamage] = 1000;
+            b.StatOverrides[Stat.NumberOfAdditionalProjectiles] = -1000;
+
+            var control = new SpawnedMonster("untethered", new(120, 100, 0), 0, 0, 100000) { Hostile = true };
+            var tethered = new SpawnedMonster("tethered", new(140, 100, 0), 0, 0, 100000) { Hostile = true };
+            b.Player.Area.Monsters.Clear();
+            b.Player.Area.Monsters[210] = tethered;
+
+            // Tether the stationary victim with 20% quality Ensnaring Arrow (+18% projectile attack damage taken).
+            var snareUse = CaptureSkill(b, "Ensnaring Arrow");
+            b.Session.Runtime.Release(snareUse);
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(.4));
+            Assert.True(Game.IsEnsnared(tethered, .4));
+            Assert.Equal(18, Game.EnsnaredProjectileAttackTaken(tethered, .4));
+
+            // Rain of Arrows (non-projectile area attack) gets NO Ensnaring Arrow bonus.
+            b.Player.Area.Monsters[209] = control;
+            var fixedHit = DamagePacket.Of(DamageType.Physical, 1000, 1000);
+            var rainUse = CaptureSkill(b, "Rain of Arrows");
+            rainUse = rainUse with { Payload = Assert.IsType<ProjectileOffense>(rainUse.Payload) with { Hit = fixedHit, AreaHit = fixedHit } };
+            uint controlBefore = control.Life, tetheredBefore = tethered.Life;
+            b.Session.Runtime.Impact(rainUse, new(120, 100), new("RainOfArrows", 5));
+            b.Session.Runtime.Impact(rainUse, new(140, 100), new("RainOfArrows", 5));
+            Assert.Equal(1000u, controlBefore - control.Life);
+            Assert.Equal(1000u, tetheredBefore - tethered.Life);
+
+            // Split Arrow (projectile attack) DOES get the +18% Ensnaring Arrow bonus.
+            var splitUse = CaptureSkill(b, "Split Arrow");
+            splitUse = splitUse with
+            {
+                Payload = Assert.IsType<ProjectileOffense>(splitUse.Payload) with { Hit = fixedHit },
+                Profile = splitUse.Profile with { Pierce = 1 }
+            };
+            controlBefore = control.Life;
+            tetheredBefore = tethered.Life;
+            b.Session.Runtime.Release(splitUse);
+            b.Session.Runtime.AdvanceTo(ProjectileRuntime.Time(.8));
+            Assert.Equal(1000u, controlBefore - control.Life);
+            Assert.Equal(1180u, tetheredBefore - tethered.Life);
+
+            // Moving-Bleed synergy: stationary ensnared monster takes 3x bleed damage and does not stack with Aggravate.
+            Assert.Equal(1d, Game.BleedTaken(control, .8), 6);
+            Assert.Equal(2d, Game.AggravatedExtra(control, .8), 6);
+            Assert.Equal(3d, Game.BleedTaken(tethered, .8), 6);
+            Assert.Equal(0d, Game.AggravatedExtra(tethered, .8), 6);
+            Assert.True(tethered.Bleeds.Add(.8, 100, 5));
+            b.Player.Area.ActiveBleedMonsters.Add(210);
+            uint beforeBleed = tethered.Life;
+            b.Session.AdvanceTo(ProjectileRuntime.Time(1.8));
+            await Game.BleedMonsters(b.Player);
+            Assert.Equal(300u, beforeBleed - tethered.Life);
+        }
+    }
+
     sealed class Battle : IDisposable
     {
         readonly IGameLogic? previous = Program.GameLogicOrNull;

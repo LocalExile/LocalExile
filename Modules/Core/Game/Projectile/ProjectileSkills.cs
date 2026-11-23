@@ -9,8 +9,9 @@ public static partial class Game
             if (Skills.ProjectileFor(Skills.EffectRow(effect)) is { } projectile)
                 definitions.Add(effect, SkillProjectileDefinition(effect, projectile.Id,
                     SkillProjectileParameters(effect, projectile.Id)));
-        definitions["ExplosiveArrow"] = SkillProjectileDefinition("ExplosiveArrow", OrdinaryRangedAttack.Arrow,
-            SkillProjectileParameters("ExplosiveArrow", OrdinaryRangedAttack.Arrow));
+        foreach (string effect in new[] { "ExplosiveArrow", "ExplosiveArrowAltX", "ExplosiveArrowAltY", "ExplosiveArrowRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, FuseArrowProjectile,
+                SkillProjectileParameters(effect, FuseArrowProjectile));
         const string tetheringArrow = "Metadata/Projectiles/TetheringArrow";
         foreach (string effect in new[] { "EnsnaringArrow", "EnsnaringArrowAltX", "EnsnaringArrowAltY", "EnsnaringArrowRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, tetheringArrow, SkillProjectileParameters(effect, tetheringArrow));

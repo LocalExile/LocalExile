@@ -12,6 +12,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     int CriticalMultiplier, string Label)
 {
     public bool WeaponAttack { get; init; }
+    /// <summary>Whether an attack hit counts as a projectile attack (false for non-projectile rains and secondary explosions).</summary>
+    public bool? ProjectileAttack { get; init; }
     public Game.TinctureKillBonus? TinctureKill { get; init; }
     public bool NoExtraCriticalDamage { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>

@@ -388,6 +388,7 @@ public static partial class Game
             SupportedCriticalMultiplier(player, skillId), gem.Name)
         {
             WeaponAttack = weaponAttack,
+            ProjectileAttack = !spell && SkillsFor(player).IsProjectile(gem.Effect),
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(player, playerStats, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(playerStats, own),
             // Child stages and release specialization can introduce areas after this root is resolved.
@@ -502,8 +503,8 @@ public static partial class Game
         var use = new ProjectileUse(profile, new(emitter, player.ProjectileEpoch), new(emitter, player.ProjectileEpoch), 1, origin, target)
             { Payload = shot, ReturnAnchor = new(emitter, player.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own);
-        if (SkillsFor(player).EffectId(gem.Effect) == "ExplosiveArrow" && areaHitInputs is not null)
-            use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, hand, local) } };
+        if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
+            use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }
 }

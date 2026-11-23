@@ -160,6 +160,7 @@ public static partial class Game
                 if (!Active) { Invalidate(); return; }
                 if (!Player.Paused)
                 {
+                    DrainPendingExplosiveDetonations();
                     TickChannelTriggers(Player, this, AreaTime(Player));
                     Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
                     FlushPendingGemExperience();
@@ -172,6 +173,7 @@ public static partial class Game
             lock (LevelUpdatesFor(Player).Gate)
             {
                 if (!Active) { Invalidate(); return; }
+                DrainPendingExplosiveDetonations();
                 Runtime.AdvanceTo(at);
                 FlushPendingGemExperience();
             }
@@ -217,6 +219,8 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearCausticClouds();
+            ClearEnsnares();
+            ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
@@ -685,7 +689,9 @@ public static partial class Game
             bool critical = RollCriticalStrike(Player, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, playerStats: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
-            int additionalTaken = shot.Spell ? 0 : EnsnaredProjectileAttackTaken(target, at);
+            bool projectileAttack = !shot.Spell
+                && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
+            int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
                 shot.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine,
                 additionalTakenPct: additionalTaken);

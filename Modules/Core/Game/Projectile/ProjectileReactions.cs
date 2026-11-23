@@ -138,6 +138,7 @@ public static partial class Game
         destroyCorpse = playerKill && TakeUnhingedHitKillLocked(player, monster);
         if (playerKill) QueueMadnessExplosionLocked(player, id, monster);
         StopCorpseBlocking(player, id, monster);
+        DetonateExplosiveFusesOnDeath(monster, session);
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");

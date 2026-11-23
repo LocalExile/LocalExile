@@ -3428,6 +3428,7 @@ public static partial class Game
         QueueEssenceDeathSpawnLocked(player, id, m);
         if (playerKill) QueueMadnessExplosionLocked(player, id, m);
         StopCorpseBlocking(player, id, m);
+        DetonateExplosiveFusesOnDeath(m);
         if (SpreadContagion(player, id, m) is { } contagion)
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);
