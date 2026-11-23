@@ -96,15 +96,20 @@ public sealed class MapDevice
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
+    private readonly Dictionary<uint, MapArea> _uniqueByWord;
     private readonly AtlasCatalog? _atlas;
     private readonly MapRunCatalog _runs;
     private readonly List<MapArea?> _worldAreas;
     private readonly HashSet<ushort> _recipeAreas;
 
+    /// <param name="uniqueByWord">The legendary maps (UniqueMaps) by their name's Words HASH32: the area a unique map
+    /// opens. 3.29 builds most of them on the generic tier-1 base, so the base alone names no area of its own.</param>
     public MapDevice(IReadOnlyDictionary<uint, MapArea> byItemType, AtlasCatalog? atlas = null,
-        MapRunCatalog? runs = null, IReadOnlyList<MapArea?>? worldAreas = null)
+        MapRunCatalog? runs = null, IReadOnlyList<MapArea?>? worldAreas = null,
+        IReadOnlyDictionary<uint, MapArea>? uniqueByWord = null)
     {
         _byItemType = new(byItemType);
+        _uniqueByWord = uniqueByWord is null ? [] : new(uniqueByWord);
         _atlas = atlas;
         _runs = runs ?? new MapRunCatalog(new Dictionary<int, MapRunCatalog.Fragment>(), []);
         _worldAreas = worldAreas is null ? [] : [.. worldAreas];
@@ -138,7 +143,43 @@ public sealed class MapDevice
         }
         var worldAreas = LoadWorldAreas(folder);
         return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder),
-            MapRunCatalog.Load(folder), worldAreas);
+            MapRunCatalog.Load(folder), worldAreas, LoadUniqueMaps());
+    }
+
+    /// <summary>UniqueMaps: each legendary map's name word (Words HASH32) to its WorldAreasKey. The level is the tier of
+    /// the Maps row whose Unique_WorldAreasKey is that area (Rewritten Distant Memory: tier 15, level 82, where its
+    /// WorldAreas level is 68), else the WorldAreas level. Names on more than one row (The Beachhead) keep the first.</summary>
+    static Dictionary<uint, MapArea> LoadUniqueMaps()
+    {
+        var byWord = new Dictionary<uint, MapArea>();
+        if (!ClientTables.Has("UniqueMaps") || !ClientTables.Has("Words") || !ClientTables.Has("WorldAreas")) return byWord;
+        var words = ClientTables.Table("Words");
+        var areas = ClientTables.Table("WorldAreas");
+        var tierOf = new Dictionary<int, int>();
+        if (ClientTables.Has("Maps"))
+            foreach (var row in ClientTables.Table("Maps"))
+                if (row.IntOrNull("Unique_WorldAreasKey") is int ua) tierOf.TryAdd(ua, row.Int("Tier"));
+        foreach (var unique in ClientTables.Table("UniqueMaps"))
+        {
+            if (unique.IntOrNull("WordsKey") is not int w || w < 0 || w >= words.Count
+                || unique.IntOrNull("WorldAreasKey") is not int area || area < 0 || area >= areas.Count) continue;
+            var wa = areas[area];
+            int tier = tierOf.GetValueOrDefault(area);
+            byWord.TryAdd(words[w].UInt("HASH32"), new MapArea((ushort)wa.Int("HASH16"), wa.Text("Id") ?? "",
+                unique.Text("Name") ?? wa.Text("Name") ?? "", tier)
+            {
+                Level = tier > 0 ? MapLevel(tier) : wa.Int("AreaLevel"),
+            });
+        }
+        return byWord;
+    }
+
+    /// <summary>The area a unique map with these name words opens, or null when none is a legendary map's.</summary>
+    public MapArea? UniqueAreaOf(IReadOnlyList<uint> nameWords)
+    {
+        foreach (uint word in nameWords)
+            if (_uniqueByWord.TryGetValue(word, out var area)) return area;
+        return null;
     }
 
     static List<MapArea?> LoadWorldAreas(string folder)
@@ -170,6 +211,7 @@ public sealed class MapDevice
 
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
     public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16)
+        || _uniqueByWord.Values.Any(a => a.Hash16 == hash16)
         || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true || _recipeAreas.Contains(hash16);
 
     /// <summary>One item in the slots: its type, class, BaseItemTypes row, rolled mods and quality.</summary>
@@ -186,6 +228,9 @@ public sealed class MapDevice
         public ItemRarity Rarity { get; init; }
         public bool Corrupted { get; init; }
         public string BaseId { get; init; } = "";
+
+        /// <summary>The item's name words (Words HASH32): a unique map's name, which picks its legendary area.</summary>
+        public IReadOnlyList<uint> NameWords { get; init; } = [];
 
         public bool IsMap =>
             Class is MapClass or MapKeyClass
@@ -241,7 +286,10 @@ public sealed class MapDevice
         if (maps.Count > 1) { why = "Only one map can be activated at a time."; return null; }
         if (maps.Count == 1)
         {
-            MapArea? area = AreaOf(maps[0].TypeHash);
+            // A legendary map opens its own area, whatever base it is built on (the tier-1 key, or a MapWorlds base
+            // whose regular area is the ordinary map's).
+            MapArea? area = maps[0].Rarity == ItemRarity.Unique ? UniqueAreaOf(maps[0].NameWords) : null;
+            area ??= AreaOf(maps[0].TypeHash);
             if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
             {
                 if (_atlas.Selected(character) is { } layout)
