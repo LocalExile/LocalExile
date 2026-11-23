@@ -30,6 +30,9 @@ public static class EffectRules
     /// a triggered skill does not trigger another). Off: every event fires, whatever caused it.</summary>
     public static volatile bool LoopGuard = true;
 
+    /// <summary>Every rule's chance is multiplied by this (1 = as its row says): a test turns rare triggers up.</summary>
+    public static double ChanceScale = 1;
+
     /// <summary>A rule fired (its roll passed): for tools that show it. Text is built only while someone listens.</summary>
     public static readonly GameEvent<Action<Player, string>> Fired = new();
 
@@ -400,7 +403,7 @@ public static class EffectRules
             if (rule.Rule.Who is { } who && who != e.Who) continue;
             if (rule.Rule.Chains && e.Depth > rule.Rule.MaxDepth && LoopGuard) continue;
             if (!Passes(rule.Rule, e, player)) continue;
-            if (rule.Chance < 100 && Game.AreaRng(player).NextDouble() * 100 >= rule.Chance) continue;
+            if (rule.Chance * ChanceScale < 100 && Game.AreaRng(player).NextDouble() * 100 >= rule.Chance * ChanceScale) continue;
             if (rule.Cooldown > 0)
                 lock (live)
                     if (!live.TakeUse(rule, now)) continue;
