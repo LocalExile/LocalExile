@@ -71,8 +71,10 @@ def writer(fa):
                " ", t or "", flags=re.S)
     if not t or "{" not in t: return None
     body = t.split("{", 1)[1]
-    sizes = re.findall(r"\bFUN_140dfa000\s*\([^,;]+,[^,;]+,\s*(0x[0-9a-f]+|\d+)\s*\)", body)
-    fixed = sum(int(n, 0) for n in sizes)
+    writes = re.findall(r"\bFUN_140dfa000\s*\(([^,;]+,[^,;]+),\s*(0x[0-9a-f]+|\d+)\s*\)", body)
+    # A comma inside a nested argument can make its literal look like the outer call's size.
+    sizes = [int(n, 0) for prefix, n in writes if prefix.count("(") == prefix.count(")")]
+    fixed = sum(sizes)
     all_fixed = len(sizes) == len(re.findall(r"\bFUN_140dfa000\s*\(", body))
     calls = set(re.findall(r"(FUN_1[0-9a-f]{8})\([^;]*param_2", body)) - {"FUN_140dfa000"}
     branch = re.search(r"\b(if|for|while|do|switch)\b|\?", body)
