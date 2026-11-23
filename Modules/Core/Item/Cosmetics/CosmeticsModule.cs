@@ -16,6 +16,12 @@ public sealed class CosmeticsModule : IModule
         {
             return CosmeticsFeature.SpawnPets(player);
         });
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) =>
+        {
+            // A transfer request can fail. Remove the old area's pets once the connection actually closes.
+            if (player.Closed) CosmeticsFeature.RemoveDepartedPets(player);
+            return Task.CompletedTask;
+        });
         GameEvents.LocalGateUsed.Add(module.Manifest.Id, CosmeticsFeature.FollowThroughGate);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => CosmeticsFeature.StepPetFollow(player)));
         GameEvents.Packet(InstanceMicrotransactions.RequestId).Add(module.Manifest.Id, async (player, bytes) =>
@@ -159,9 +165,7 @@ public static class CosmeticsFeature
     // old ones first. StepPetFollow walks them after the player.
     internal static async Task SpawnPets(Player player)
     {
-        List<uint> old;
-        lock (player.Pets) { old = [.. player.Pets.Keys]; player.Pets.Clear(); }
-        foreach (uint id in old)
+        foreach (uint id in TakePetIds(player))
             await global::Game.SendWorldRemoval(player, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
         double now = AreaTime(player);
         var (px, py) = player.Walk.Position(now);
@@ -176,10 +180,30 @@ public static class CosmeticsFeature
             var (x, y) = PetSpot(player, (px, py), worn.Slot == 18 ? 1 : -1);
             uint id = player.TakeObjectId();
             var pet = new PetObject(x, y, player.Id, fx.PetComponents, fx.PetStates);
-            await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
-                $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");
-            await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
+            if (!await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
+                $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})")) continue;
             lock (player.Pets) player.Pets[id] = new SpawnedPet(player.NewWalk(x, y, player.Walk.Speed), worn.Slot == 18 ? 1 : -1);
+            await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
+        }
+    }
+
+    static uint[] TakePetIds(Player player)
+    {
+        lock (player.Pets)
+        {
+            uint[] ids = [.. player.Pets.Keys];
+            player.Pets.Clear();
+            return ids;
+        }
+    }
+
+    internal static void RemoveDepartedPets(Player player)
+    {
+        foreach (uint id in TakePetIds(player))
+        {
+            var remove = InstanceProtocol.RemoveObject(id);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+            player.Area.Delta.RemoveSharedObject(id, remove, $"0x02bd remove pet 0x{id:x} (owner left the area)");
         }
     }
 

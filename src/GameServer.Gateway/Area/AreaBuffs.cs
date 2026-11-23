@@ -38,8 +38,9 @@ public sealed class AreaBuffs(GameArea area)
     // (flags bit0) or the buff it gives.
     readonly record struct Key(uint Entity, ushort Row, uint Source, bool AuraSource, ushort Tag);
 
-    // What the area wrote, with when its countdown runs out on the client (which then ends it itself).
+    // What the area wrote, with the server clock's expiry. The client can still show the icon at zero.
     readonly Dictionary<Key, (ushort Instance, Buff Buff, double Ends)> written = [];
+    readonly PriorityQueue<(Key Key, ushort Instance), double> expiries = new();
     readonly Dictionary<Key, Buff?> pending = [];
     readonly Lock gate = new();
     ushort next = 1;
@@ -115,8 +116,15 @@ public sealed class AreaBuffs(GameArea area)
     {
         area.AssertOwner();
         lock (gate)
+        {
+            double now = area.Time;
             foreach (var (key, (instance, buff, ends)) in written)
-                if (ends > area.Time) area.Delta.Add(key.Entity, buff.Add(key.Entity, instance), null, only: player);
+            {
+                if (ends <= now) continue;
+                var current = double.IsFinite(ends) ? buff with { U68 = Buff.Seconds((ends - now) * CountdownRate(buff)) } : buff;
+                area.Delta.Add(key.Entity, current.Add(key.Entity, instance), null, only: player);
+            }
+        }
     }
 
     /// <summary>The entity's buffs of one kind (<paramref name="group"/>: a player's own auras, say) are these now, kept as
@@ -168,19 +176,28 @@ public sealed class AreaBuffs(GameArea area)
         }
     }
 
+    static double CountdownRate(Buff buff) => buff.F6c is > 0 and var rate ? rate : 1;
+
     public void Publish()
     {
         area.AssertOwner();
         lock (gate)
         {
-            if (pending.Count == 0) return;
+            if (pending.Count == 0 && expiries.Count == 0) return;
             double now = area.Time;
+            // A refresh or explicit removal may have superseded a queued deadline.
+            while (expiries.TryPeek(out var expired, out double deadline) && deadline <= now)
+            {
+                expiries.Dequeue();
+                if (!written.TryGetValue(expired.Key, out var current)
+                    || current.Instance != expired.Instance || current.Ends != deadline) continue;
+                written.Remove(expired.Key);
+                area.Delta.Add(expired.Key.Entity, InstanceEntities.RemoveBuff(expired.Key.Entity, expired.Instance));
+            }
             foreach (var (key, buff) in pending)
             {
                 uint entity = key.Entity;
                 bool had = written.TryGetValue(key, out var was);
-                // A countdown that ran out ended the buff on the client already.
-                if (had && was.Ends <= now) { written.Remove(key); had = false; }
                 if (buff is null)
                 {
                     if (!had) continue;
@@ -196,9 +213,10 @@ public sealed class AreaBuffs(GameArea area)
                     had = false;
                 }
                 ushort instance = had ? was.Instance : Take();
-                double ends = buff.U68 is uint u68 ? now + BitConverter.UInt32BitsToSingle(u68) / (buff.F6c is > 0 and var rate ? rate : 1)
+                double ends = buff.U68 is uint u68 ? now + BitConverter.UInt32BitsToSingle(u68) / CountdownRate(buff)
                     : double.PositiveInfinity;
                 written[key] = (instance, buff, ends);
+                if (double.IsFinite(ends)) expiries.Enqueue((key, instance), ends);
                 area.Delta.Add(entity, buff.Add(entity, instance));
             }
             pending.Clear();
