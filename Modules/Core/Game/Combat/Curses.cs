@@ -183,16 +183,28 @@ public static partial class Game
                     || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
                     || GemSkillInstanceDisabled(player, currentGem.Effect, skill) is not null) return false;
                 RecordCompletedCurseCast(player, effect, AreaTime(player));
-                int radius = CurseRadius(player, skill, false, currentGem, playerStats);
-                foreach (var (id, m) in player.Area.Monsters)
-                    if (CurseCatalog.All[effect].Mark ? id == target : Dist(m.Walk.Position(now), aim) <= radius)
-                        ApplyCurseLocked(player, m, skill, now, false, currentGem, playerStats);
+                ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats);
                 break;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
         await EnemyDebuffsTick(player, AreaTime(player));
         return true;
+    }
+
+    static void ApplyCurseTargetsLocked(Player player, ushort skill, SupportedGem gem, CurseCatalog.Definition curse,
+        (int X, int Y) aim, uint target, double now, IReadOnlyDictionary<uint, int> playerStats)
+    {
+        if (curse.Mark)
+        {
+            if (player.Area.Monsters.GetValueOrDefault(target) is { } marked)
+                ApplyCurseLocked(player, marked, skill, now, false, gem, playerStats);
+            return;
+        }
+        int radius = CurseRadius(player, skill, false, gem, playerStats);
+        foreach (var monster in player.Area.Monsters.Values)
+            if (Dist(monster.Walk.Position(now), aim) <= radius)
+                ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
     }
 
     static bool WitchbaneImmunityActive(Player player, double now) =>
