@@ -278,27 +278,44 @@ public static partial class Game
         return LockstepTakesMove(here, target) ? player.Walk.Order(target.X, target.Y, at) : null;
     }
 
+    static readonly double LockstepHoldLookaheadSeconds = 2 * FrameMs / 1000.0 + 0.002;
+
     /// <summary>
-    /// Chooses the lockstep Move target due at <paramref name="frameStart"/>. Only emits a Move when a new request or
-    /// blocked-walk retry is due (never fabricating moves without a client 0x192). While held, rejects moves when the
-    /// cursor is within 2 cells of the character and projects <c>here + offset</c> when lagged
-    /// <see cref="LockstepClientCell"/> places <c>clientCell + offset</c> within 2 cells of or behind <c>here</c>.
+    /// Chooses the lockstep Move target due at <paramref name="frameStart"/>. While held, rejects moves when the cursor
+    /// is within 2 cells of the character, projects <c>here + offset</c> when lagged <see cref="LockstepClientCell"/>
+    /// places <c>clientCell + offset</c> shorter than <c>|offset|</c> or behind <c>here</c> (preventing backwards
+    /// oscillation), and seamlessly extends a short walk within 2 frames of arrival so 3–5 cell held moves do not
+    /// stutter between 69–99 ms <c>0x0192</c> updates.
     /// </summary>
     public static (int X, int Y)? LockstepMoveDue(Player player, double frameStart)
     {
         var here = player.Walk.Position(frameStart);
         bool walking = player.Walk.Moving(frameStart);
-        if (player.LockstepHold.Due(walking, here) is not { } due) return null;
-        if (player.LockstepHold.Held && player.LockstepHold.Offset is { } off)
+        if (player.LockstepHold.Due(walking, here) is { } due)
         {
-            if (!LockstepTakesMove((0, 0), off)) return null;
-            long dot = (long)(due.X - here.X) * off.Dx + (long)(due.Y - here.Y) * off.Dy;
-            if (dot > 0 && LockstepTakesMove(here, due)) return due;
-            var projected = (here.X + off.Dx, here.Y + off.Dy);
+            if (player.LockstepHold.Held && player.LockstepHold.Offset is { } off)
+            {
+                if (!LockstepTakesMove((0, 0), off)) return null;
+                long dx = due.X - here.X, dy = due.Y - here.Y;
+                long dot = dx * off.Dx + dy * off.Dy;
+                long dueDist2 = dx * dx + dy * dy;
+                long offDist2 = (long)off.Dx * off.Dx + (long)off.Dy * off.Dy;
+                if (dot > 0 && LockstepTakesMove(here, due) && dueDist2 >= offDist2) return due;
+                var projected = (here.X + off.Dx, here.Y + off.Dy);
+                player.LockstepHold.SetTarget(projected);
+                return projected;
+            }
+            return LockstepTakesMove(here, due) ? due : null;
+        }
+        if (walking && player.LockstepHold.Held && player.LockstepHold.Offset is { } heldOff
+            && LockstepTakesMove((0, 0), heldOff)
+            && player.Walk.ArrivesAt - frameStart <= LockstepHoldLookaheadSeconds)
+        {
+            var projected = (here.X + heldOff.Dx, here.Y + heldOff.Dy);
             player.LockstepHold.SetTarget(projected);
             return projected;
         }
-        return LockstepTakesMove(here, due) ? due : null;
+        return null;
     }
 
     // A skill asked on a monster: GGG answers the request with the action's start in the next frame, from the player's

@@ -473,9 +473,9 @@ public class LockstepTests : IDisposable
     [Fact]
     public void Close_range_held_move_continues_smoothly_and_nimis_randomizes_attack_volleys()
     {
-        // Close-range held Move (4 cells left): never fabricates moves from a stale offset while walking, projects
-        // here + offset when a lagged 0x192 lands within 2 cells of or behind here (preventing backwards oscillation),
-        // never drops a real 0x192 whose target matches the previous target while offset is held, and stops on feet/release.
+        // Close-range held Move (4 cells left): seamlessly extends within 2 frames of arrival so 3-5 cell walks do not
+        // stutter between 69-99 ms 0x0192 updates, projects here + offset when lagged 0x192 lands shorter or behind
+        // here (preventing backwards oscillation), never drops repeated 0x192 while offset is held, and stops on feet/release.
         var player = new Player(new(1, "close-hold", 300, 300, 100, 100, null, []), 1, 1)
         {
             Connection = { LockstepClient = true }
@@ -483,9 +483,9 @@ public class LockstepTests : IDisposable
         player.LockstepHold.Press((96, 100), 0x2909, 0x0400, (-4, 0));
         Assert.Equal((96, 100), Game.LockstepMoveDue(player, 0));
         player.Walk.Order(96, 100, 0);
-        // Without a fresh 0x192 while walking, no stale-offset move is fabricated.
-        Assert.Null(Game.LockstepMoveDue(player, 0.066));
+        // 66 ms in: walk finishes at ~105 ms (within 2 frames of 66 ms) -> seamlessly extends (-4, 0) from here.
         var here = player.Walk.Position(0.066);
+        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
         // A lagged 0x192 whose target lands within 2 cells of here projects (-4, 0) forward from here.
         player.LockstepHold.Update((here.X - 1, here.Y), (-4, 0));
         Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
