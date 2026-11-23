@@ -93,10 +93,12 @@ public readonly record struct DamageConversionPath(DamageType Type, DamageTypeHi
 public sealed class DamagePacket
 {
     private readonly DamageRange[] _ranges;
+    private readonly DamageRange[]? _physicalOrigin;
 
     public static DamagePacket Empty { get; } = new(new DamageRange[5]);
 
-    internal DamagePacket(DamageRange[] ranges) => _ranges = ranges;
+    internal DamagePacket(DamageRange[] ranges, DamageRange[]? physicalOrigin = null) =>
+        (_ranges, _physicalOrigin) = (ranges, physicalOrigin);
 
     private static int Index(DamageType type) => (int)type;
 
@@ -135,14 +137,27 @@ public sealed class DamagePacket
         var ranges = new DamageRange[5];
         for (int i = 0; i < ranges.Length; i++)
             ranges[i] = _ranges[i].Add(other._ranges[i]);
-        return new DamagePacket(ranges);
+        if (_physicalOrigin is not { } left || other._physicalOrigin is not { } right)
+            return new DamagePacket(ranges, _physicalOrigin ?? other._physicalOrigin);
+        var physicalOrigin = new DamageRange[5];
+        for (int i = 0; i < physicalOrigin.Length; i++)
+            physicalOrigin[i] = left[i].Add(right[i]);
+        return new DamagePacket(ranges, physicalOrigin);
     }
 
-    public DamagePacket Add(DamageType type, DamageRange range)
+    public DamagePacket Add(DamageType type, DamageRange range) => Add(type, range, physicalOrigin: false);
+
+    /// <summary>Keeps a physical-origin portion identifiable after conversion, until a target-dependent modifier is applied.</summary>
+    public DamagePacket Add(DamageType type, DamageRange range, bool physicalOrigin)
     {
+        range = range.Normalized.NonNegative;
         var ranges = (DamageRange[])_ranges.Clone();
-        ranges[Index(type)] = ranges[Index(type)].Add(range.Normalized.NonNegative);
-        return new DamagePacket(ranges);
+        int i = Index(type);
+        ranges[i] = ranges[i].Add(range);
+        if (!physicalOrigin || range.IsZero) return new DamagePacket(ranges, _physicalOrigin);
+        var physical = _physicalOrigin is null ? new DamageRange[5] : (DamageRange[])_physicalOrigin.Clone();
+        physical[i] = physical[i].Add(range);
+        return new DamagePacket(ranges, physical);
     }
 
     public DamagePacket Scale(double factor)
@@ -150,6 +165,20 @@ public sealed class DamagePacket
         if (factor <= 0) return Empty;
         var ranges = new DamageRange[5];
         for (int i = 0; i < ranges.Length; i++) ranges[i] = _ranges[i].Scale(factor);
+        if (_physicalOrigin is not { } physical) return new DamagePacket(ranges);
+        var scaled = new DamageRange[5];
+        for (int i = 0; i < scaled.Length; i++) scaled[i] = physical[i].Scale(factor);
+        return new DamagePacket(ranges, scaled);
+    }
+
+    public DamagePacket ScalePhysicalOrigin(double factor)
+    {
+        if (_physicalOrigin is not { } physical || factor == 1) return this;
+        var ranges = new DamageRange[5];
+        double change = Math.Max(0, factor) - 1;
+        for (int i = 0; i < ranges.Length; i++)
+            ranges[i] = new DamageRange(_ranges[i].Min + physical[i].Min * change,
+                _ranges[i].Max + physical[i].Max * change).Normalized.NonNegative;
         return new DamagePacket(ranges);
     }
 
@@ -162,18 +191,34 @@ public sealed class DamagePacket
         var ranges = new DamageRange[5];
         for (int i = 0; i < ranges.Length; i++)
             ranges[i] = change((DamageType)i, _ranges[i]).Normalized.NonNegative;
-        return new DamagePacket(ranges);
+        if (_physicalOrigin is not { } physical) return new DamagePacket(ranges);
+        var scaled = new DamageRange[5];
+        static double Share(double portion, double total, double changed) => total > 0 ? portion / total * changed : 0;
+        for (int i = 0; i < scaled.Length; i++)
+            scaled[i] = new(Share(physical[i].Min, _ranges[i].Min, ranges[i].Min), Share(physical[i].Max, _ranges[i].Max, ranges[i].Max));
+        return new DamagePacket(ranges, scaled);
     }
 
     public DamagePacket Round() =>
         Select((_, range) => range.Round());
 
-    public DamagePacket Roll(Random random, int extraRolls = 0) =>
-        Select((_, range) =>
+    public DamagePacket Roll(Random random, int extraRolls = 0)
+    {
+        var ranges = new DamageRange[5];
+        var physicalOrigin = _physicalOrigin is null ? null : new DamageRange[5];
+        for (int i = 0; i < ranges.Length; i++)
         {
+            var range = _ranges[i];
             int roll = range.Roll(random, extraRolls);
-            return new DamageRange(roll, roll);
-        });
+            ranges[i] = new(roll, roll);
+            if (physicalOrigin is null || _physicalOrigin![i].IsZero) continue;
+            var physical = _physicalOrigin[i];
+            double position = range.Max > range.Min ? Math.Clamp((roll - range.Min) / (range.Max - range.Min), 0, 1) : 0;
+            double portion = Math.Clamp(physical.Min + (physical.Max - physical.Min) * position, 0, roll);
+            physicalOrigin[i] = new(portion, portion);
+        }
+        return new DamagePacket(ranges, physicalOrigin);
+    }
 
     public int RollTotal(Random random)
     {

@@ -16,7 +16,7 @@ public static class PlayerHitDamage
         bool spell, bool melee = false, bool area = false, bool projectile = false,
         IEnumerable<(uint Id, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
         bool secondary = false, bool wieldingWand = false, bool retaliation = false, long additionalIncreased = 0, bool wieldingBow = false,
-        HitIncreases additional = default)
+        HitIncreases additional = default, bool trackPhysicalOrigin = false)
     {
         // Secondary damage (Bear Trap, Herald of Ice's shatter) is neither an attack nor a spell: only the generic,
         // area and projectile buckets apply, and no attack/spell support classification.
@@ -97,7 +97,7 @@ public static class PlayerHitDamage
             // its history, as the other elemental buckets are.
             if ((path.History & DamageTypeHistory.Elemental) != 0)
                 range = range.Scale(Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
-            result = result.Add(path.Type, range);
+            result = result.Add(path.Type, range, trackPhysicalOrigin && (path.History & DamageTypeHistory.Physical) != 0);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
         // their existing aura/charge factor grouping before support scaling; attack packets receive the common
