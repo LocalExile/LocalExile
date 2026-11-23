@@ -125,6 +125,7 @@ public sealed class ResonanceSupportTests
             return copy;
         });
         var bowTarget = mirage.AddTarget((110, 100));
+        mirage.AdvanceOutput(0.25); // an output callback overtakes the test schedule, without waiting on wall time
         Assert.True(mirage.FireBow((110, 100)));
         Assert.True(mirage.AdvanceUntilHit(bowTarget, 1.0) > 0);
         Game.ClearResonance(mirage.Player);
@@ -169,7 +170,7 @@ public sealed class ResonanceSupportTests
         {
             await Task.Yield();
             stopping.ThrowIfCancellationRequested();
-            Now += milliseconds / 1000d;
+            MoveClock(milliseconds / 1000d, advanceProjectiles: false);
         }
 
         public Fixture(string support, DamageType dominant, bool bow = false)
@@ -247,10 +248,21 @@ public sealed class ResonanceSupportTests
         public int Stat(uint key) => Game.PlayerStatValues(Player).GetValueOrDefault(key);
         public (int, int, int) Elemental() => (Stat(global::Stat.FireResonance), Stat(global::Stat.ColdResonance),
             Stat(global::Stat.LightningResonance));
-        public void Advance(double seconds)
+        public void Advance(double seconds) => MoveClock(seconds, advanceProjectiles: true);
+        public void AdvanceOutput(double seconds)
         {
-            Now += seconds;
-            fixture.Session.AdvanceTo(ProjectileRuntime.Time(Now));
+            using (Game.ProjectileMutation(Player, advance: false))
+                fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(Now))
+                    + ProjectileRuntime.Time(seconds));
+        }
+        void MoveClock(double seconds, bool advanceProjectiles)
+        {
+            using (Game.ProjectileMutation(Player, advance: false))
+            {
+                // Output callbacks can advance the session too; both drivers share its gate and monotonic time.
+                Now = Math.Max(Now, fixture.Session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond) + seconds;
+                if (advanceProjectiles) fixture.Session.AdvanceTo(ProjectileRuntime.Time(Now));
+            }
         }
         public void Dispose()
         {
