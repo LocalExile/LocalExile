@@ -397,6 +397,32 @@ public static partial class Game
         if (releaseTemporal) await ReleasePlayerDebuff(player, exp.TemporalHolder);
     }
 
+    /// <summary>Enables or clears an encounter-owned proximity shield (e.g. Dominus Ascendant Blood Rain safe bubble)
+    /// without applying the Temporal Bubble action-speed slow to players inside the bubble.</summary>
+    public static void SetEncounterProximityShield(GameArea area, SpawnedMonster m, int radius)
+    {
+        const string key = "encounter_proximity_shield";
+        var state = MonsterAuraStates.GetValue(m, _ => new MonsterAuraState());
+        if (radius > 0)
+        {
+            m.SetTemporaryStats(key, new Dictionary<uint, int> { [Stat.CannotBeDamagedByThingsOutsideRadius] = radius });
+            if (!state.HasTemporalShield)
+            {
+                state.HasTemporalShield = true;
+                AreaTemporalShieldCounts.GetValue(area, _ => new AreaTemporalCounter()).Count++;
+            }
+        }
+        else
+        {
+            m.RemoveTemporaryStats(key);
+            if (state.HasTemporalShield && (state.CarrierFlags & MonsterAuraFlags.Temporal) == 0)
+            {
+                state.HasTemporalShield = false;
+                if (AreaTemporalShieldCounts.TryGetValue(area, out var c) && c.Count > 0) c.Count--;
+            }
+        }
+    }
+
     /// <summary>Cleans up temporal proximity shield counter for <paramref name="area"/> when a monster dies.</summary>
     public static void ClearMonsterAuraCarrier(GameArea area, SpawnedMonster m)
     {

@@ -262,6 +262,32 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActFive.Area, global::KitavaActFive.Tick));
         module.Lifetime.Own(global::KitavaActFive.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::KitavaActFive.Leaving(player));
+        // Act 1-5 signature campaign boss encounter controllers.
+        GameEvents.AreaTick.Add(id, GameEvents.InArea(global::MalachaiEncounter.Area, global::MalachaiEncounter.Tick));
+        module.Lifetime.Own(global::MalachaiEncounter.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::MalachaiEncounter.Leaving(player));
+        GameEvents.AreaGenerated.Add(id, global::DominusEncounter.OnAreaGenerated);
+        GameEvents.PlayerEntered.Add(id, global::DominusEncounter.OnPlayerEntered);
+        GameEvents.ObjectUse.Add(id, global::DominusEncounter.Use);
+        GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DominusEncounter.Area, global::DominusEncounter.Tick));
+        module.Lifetime.Own(global::DominusEncounter.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::DominusEncounter.Leaving(player));
+        GameEvents.AreaTick.Add(id, GameEvents.InArea(global::PietyLunarisEncounter.Area, global::PietyLunarisEncounter.Tick));
+        module.Lifetime.Own(global::PietyLunarisEncounter.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::PietyLunarisEncounter.Leaving(player));
+        GameEvents.AreaTick.Add(id, GameEvents.InArea(global::InnocenceEncounter.Area, global::InnocenceEncounter.Tick));
+        module.Lifetime.Own(global::InnocenceEncounter.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::InnocenceEncounter.Leaving(player));
+        GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DaressoKaomEncounters.KaomsStronghold, global::DaressoKaomEncounters.Tick));
+        GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DaressoKaomEncounters.DaressosDream, global::DaressoKaomEncounters.Tick));
+        GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DaressoKaomEncounters.GrandArena, global::DaressoKaomEncounters.Tick));
+        module.Lifetime.Own(global::DaressoKaomEncounters.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::DaressoKaomEncounters.Leaving(player));
+        foreach (string earlyArea in global::EarlyActBossPolish.Areas)
+            GameEvents.AreaTick.Add(id, GameEvents.InArea(earlyArea, global::EarlyActBossPolish.Tick));
+        GameEvents.MonsterKilled.Add(id, global::EarlyActBossPolish.OnMonsterKilled);
+        module.Lifetime.Own(global::EarlyActBossPolish.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::EarlyActBossPolish.Leaving(player));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActTen.Area, global::KitavaActTen.Tick));
         module.Lifetime.Own(global::KitavaActTen.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::KitavaActTen.Leaving(player));
