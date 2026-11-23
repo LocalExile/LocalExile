@@ -134,7 +134,8 @@ public static partial class Game
     // The off-hand weapon of a dual-wielded attack (the active set's Offhand1), with the same values WeaponIn gives the main
     // hand. Null when there is nothing to swing with there (empty, a shield, a quiver) or the main hand holds no weapon.
     public static SkillCatalog.Unarmed? OffhandWeaponFor(Player player) =>
-        WeaponIn(player, ActiveMainHand(player)) is null ? null : WeaponIn(player, ActiveOffHand(player));
+        WeaponIn(player, ActiveMainHand(player)) is not null && WeaponIn(player, ActiveOffHand(player)) is { } off
+            ? off with { OffHand = true } : null;
 
     public static (Dictionary<uint, int> Main, Dictionary<uint, int> Off) HandLocalStats(Player player)
     {

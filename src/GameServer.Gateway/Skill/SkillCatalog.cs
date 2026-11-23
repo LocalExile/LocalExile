@@ -1592,6 +1592,7 @@ public sealed class SkillCatalog
         /// <summary>The weapon's own added elemental/chaos damage (its local added damage mods, ItemWeapons), added to
         /// every hit it makes; empty for unarmed and for weapons without such mods.</summary>
         public DamagePacket LocalAdded { get; init; } = DamagePacket.Empty;
+        public bool OffHand { get; init; }
         public bool WieldingWand { get; init; }
         /// <summary>An ordinary bow: its attacks also take the items' "with Bows" added damage stats.</summary>
         public bool Bow { get; init; }
