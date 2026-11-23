@@ -1,9 +1,12 @@
 # Settlers of Kalguur: Kingsmarch
 
 What the 3.29.3c client does with the Settlers hub (`KalguuranSettlersLeague`, HASH16 `0x8f53`), and what the server has
-to send because the client will not build it itself. The league's village UI is **dead code in this build**, which shapes
-everything below: the panels are opened by a server message, but the client never creates the windows behind it, so the
-hub is driven by objects and chat commands instead.
+to send because the client will not build it itself. The league's village UI is **live in this build**: the panels are
+opened by a server message, and the server now fills them (workers, recruits, the treasury). The hub is still driven by
+server-owned objects for the parts the client cannot build.
+
+Claims below are marked **confirmed** (seen in the client), **candidate** (read off the binary, not seen) or **unknown**;
+each *confirmed* claim was checked against the running client on 2026-11-22/23.
 
 ## The town is client-side data, with one exception
 
@@ -48,7 +51,7 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
   within a few seconds. `num_workers` is the same StateMachine.
 - **Stash and guild stash** stand on the room's own cells (420, 611) and (420, 641).
 
-## The village UI opens, with empty numbers
+## The village UI opens, and the server fills it
 
 - The panel is the client's own window: the HUD creates it at init (`0x140dad910`) — the town map is `[hud+0xa00]`
   (0x540 bytes, ctor `0x1405235c0`, Show `0x140529450`) — and the game's "Toggle Town Map" button opens it. The
@@ -65,17 +68,27 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
   sends them with the area's own messages (`GameEvents.BeforeEnterMessages`), before `0x21`; sending them from the tick
   is about 300 ms too late and the panel never opens (live 2026-11-22).
 - `ClientVillage` is created by the client in the area-load function (`0x140d57380`, 0xe208 bytes, vtable `0x14346cc18`),
-  and **no message writes its state**: the treasury gold field `+0xc40c` is only ever zeroed by its constructor
-  (`0x14214dada`), the other 43 references read it. The record the server builds is empty, so the panel opens with
-  zeroes (population 0/90, gold 0); the message that fills the record's rows (`+0x160`) and its gold is not known yet.
+  and **no message writes its own state**: the treasury gold field `+0xc40c` is only ever zeroed by its constructor
+  (`0x14214dada`), the other 43 references read it. The settlement record the server builds is a shell; what fills it
+  is the village channel `0x2c9` (see below), whose sub-tags write the record's worker vector (`+0x160`), its recruit
+  list (`+0x178`) and the panel's counters (`+0x190`..`+0x22f`).
   S→C `0x2c9` is stored as a list of handles (reader `0x141fa7ca0`) and
   is not in the instance dispatcher's table at all; the village action channel C→S `0x2ca` is what the panels send
-  (`0x18`/`0x19` give/take treasury gold, `0x01` hire, `0x04` assign farm, `0x05` upgrade), which the server can answer.
-- Net: the panel opens and draws, but its numbers are empty; the hub is driven by objects and commands until the
-  message that fills the settlement record is known.
+  (`0x00`/`0x01` reroll and hire, `0x02` release, `0x03` assign, `0x18`/`0x19` give/take treasury gold, `0x04` assign
+  farm, `0x05` upgrade), which the server answers.
+- **confirmed**: with the record, the workers, the recruits and the treasury sent, the panels show them — the
+  recruitment panel lists the workers with their job, level and wage, the candidate cards carry their price, the
+  reroll costs 2,000 gold (the high-quality reroll 16,000 and never rolls below rank 3), the hire takes the price out
+  of the treasury, and giving the treasury gold takes it out of the player's stash (live 2026-11-23). **unknown**: the
+  21 resource and 15 production counters still arrive as zero, and the town panel's total wage line stays empty — the
+  client's wage model sums the workers per production row's job key, and that key is not in the table we have.
 
-## What the server implements instead
+## What the server implements
 
+- `Modules/Core/Village/VillageModule.cs`: the village panels' own channel — the settlement (the treasury, the workers
+  and their ranks, the recruits), `0x2c9` frames for the worker list, the recruit list and the counters, the `0x2ca`
+  actions (reroll, hire, release, assign, give and take treasury gold) and the wage table the worker rows carry
+  (`Modules/Core/Village/VillageWages.cs`, `Modules/Core/Village/VillageWorkers.cs`).
 - `Modules/Core/Game/World/KingsmarchTown.cs`: the town's server objects (farm plots, then optionally the noticeboards),
   crop growth per plot, workers, wages, the treasury, and a click on a plot to plant or harvest.
 - `Modules/Core/Game/World/KingsmarchPort.cs`: the harbour — the seven ports of `VillageShippingPorts`, cargo value from
@@ -93,26 +106,44 @@ spawner walks; it is not committed, `scripts/dev/extract-data.ps1` writes it.
 
 ## The village state channel (S→C `0x2c9`)
 
-Every number a Kingsmarch panel draws that is not a record comes from `0x2c9`: a frame is
+Every number a Kingsmarch panel draws comes from `0x2c9`: a frame is
 `u16 0x2c9 | u8 kind | compact-int length | blob`, where `kind` is the ruleset record kind (`0x9b` = the town record) and
 the blob is one sub-tag byte plus its payload. `ClientVillage` hands the blob to its vtable slot 8 (`0x141767f60`), which
-compares that byte against 1…13 in a chain (`1→5→6→7→4→2→3→9→10→11→12→13→8`) and **never resynchronises**: one frame it
-cannot parse ends the connection. The server had no `0x2c9` sender at all, which is why every panel opened with the
-client's own defaults (population 0/90, no quotas).
+compares that byte against 0…13 in a chain (`0→1→2→3→4→5→6→7→8→9→10→11→12→13`) and **never resynchronises**: one frame it
+cannot parse ends the connection. The server had no `0x2c9` sender at all before, which is why every panel opened with
+the client's own defaults (population 0/90, no quotas).
 
-The sub-tags, with the offsets they write (full table in `Tools/re/tmp/kmre/KALGUUR_SHIPPING_FRAMEWORK.md` §4):
+The sub-tags, with the offsets they write. **confirmed** = sent and seen in the client, **candidate** = read off the
+binary (full table in `Tools/re/tmp/kmre/KALGUUR_SHIPPING_FRAMEWORK.md` §4):
 
-| sub-tag | payload | writes |
-|---|---|---|
-| 1 | `u8 n` | resizes the 176-byte record vector at `+0x178` to `n` |
-| 2 | `u8 slot, u8 port row, u8 failure row, 16 × u32` | one dock slot (`+0x2c0 + 96·slot`), the 16 u32 indexed by `VillageExports` row |
-| 3 | `u8 idx, 3 × u64` | `+0x3e0 + 24·idx` |
-| 4 | timer payload + `u64 sentTime` | `+400 += now − sentTime` |
-| 5 / 6 / 7 | one 184-byte worker record / `u8 idx` / `u8 idx, u8 job row` | append, remove, re-job the worker vector at `+0x160` |
-| 8 | `u8 slot` | the selected dock slot (`+0x5a0`, `+0x5a1`) |
-| 9 / 10 | `u8 port row, u8 n, n × u32` | the port's 6-number quota |
-| 11 / 12 | `3 × u8` | two hash containers keyed by 3 bytes |
-| 13 | `u8 idx, string` | `+0x470 + 32·idx` |
+| sub-tag | payload | writes | |
+|---|---|---|---|
+| 0 | `u8 count`, then `count` worker rows | replaces the whole worker vector at `+0x160` (0xb8 stride) | confirmed |
+| 1 | `u8 A`, `u8 count`, then `count` recruits | the recruit list at `+0x178` | confirmed |
+| 2 | `u8 slot, u8 port row, u8 failure row, 16 × u32` | one dock slot (`+0x2c0 + 96·slot`), the 16 u32 indexed by `VillageExports` row | candidate |
+| 3 | `u8 idx, 3 × u64` | `+0x3e0 + 24·idx` | candidate |
+| 4 | the 245-byte state block, then `u64 sentTime` | the counters at `+0x190`…`+0x22f` and the clock at `+0x190` | confirmed |
+| 5 | one worker row | appends to the worker vector at `+0x160` | confirmed |
+| 6 | `u8 idx` | erases the worker at that index | candidate |
+| 7 | `u8 idx, u8 nameKey` | selects the worker row | candidate |
+| 8 | `u8 slot` | the selected dock slot (`+0x5a0`, `+0x5a1`) | candidate |
+| 9 / 10 | `u8 port row, u8 n, n × u32` | the port's 6-number quota | candidate |
+| 11 / 12 | `3 × u8` | two hash containers keyed by 3 bytes | candidate |
+| 13 | `u8 idx, string` | `+0x470 + 32·idx` | candidate |
+
+The **worker row** is 13 bytes plus one job byte: `u32 name1 | u32 name2 | u16 wage | u8 pairCount | pairCount ×
+(u8 jobType, u8 skill)` and then the `VillageJobs` row index. The name hashes resolve to the row's display name; the
+pair's job type and the row's job index must agree or the client draws the row blank. **confirmed**.
+
+The **recruit element** is the same 13 bytes plus a `u32` **hire price** (the price is the card's "Cost:" line). The
+count byte is read twice — once by the handler, once by the reader — so the frame carries it twice; a frame that
+carries it once makes the reader run past the blob and the client throws. **confirmed** (the throw is what the earlier
+"the client crashes on the recruit list" reports were).
+
+The **state block** (sub-tag 4) is 245 bytes: 21 resource counters, 15 production counters, the treasury gold, a spare
+word, 6 flag bytes, three counter pairs, three small blocks, the clock, two packed bytes, the clock again, four packed
+bytes, and the timestamp the client advances the town by. All little-endian; the clock must be whole Unix seconds (a
+zero makes the client log "advancing village state to a time in the past" and crash). **confirmed**.
 
 **Sub-tag 9 takes the client down** (three times, 2026-11-22). The payload format is right; the crash is an embedded
 widget built by `0x1402d0a90` (its own vtable `0x143062e68`) whose constructor looks an id up in a keyed table at
@@ -120,6 +151,6 @@ widget built by `0x1402d0a90` (its own vtable `0x143062e68`) whose constructor l
 (`c0000005` at `0x1402d1029`). The table that would key it is encrypted on disk, so this one cannot be finished from the
 executable alone.
 
-`Modules/Core/Village/VillageModule.cs` sends these by hand (`StateFrame`), driven by `data/kingsmarch-state.txt`, so a
-frame can be tried against a live client without a rebuild. Sub-tag 9 stays commented out there until the missing table
-is understood.
+`Modules/Core/Village/VillageModule.cs` builds these frames (`StateFrame`) from the settlement it keeps in memory, and
+`data/kingsmarch-state.txt` still lets a hand-written frame be tried against a live client without a rebuild. Sub-tag 9
+stays unused until the missing table is understood.
