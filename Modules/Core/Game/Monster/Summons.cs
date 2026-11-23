@@ -92,6 +92,9 @@ public static partial class Game
         return (int)Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
     }
 
+    static bool PermanentSkeletonWarriors(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> owner) =>
+        definition.Id == "SummonSkeletons" && GolemStat(owner, Stat.SkeletonsArePermanentMinions) != 0;
+
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
     {
         IReadOnlyDictionary<uint, int>? playerStats = null;
@@ -149,9 +152,14 @@ public static partial class Game
         {
             var gem = SupportedSkill(player, source);
             int count = SummonCount(definition, gem, AreaRng(player));
-            if (definition.Family == "Skeleton" && GolemStat(gem.Stats, Stat.NumberOfMeleeSkeletonsToSummon) > 0
-                && GolemStat(CharacterPlayerStats(player), Stat.SummonSkeletonsNumAdditionalWarriorSkeletons) is int extra and not 0)
-                count = Math.Min(Math.Max(1, ActorScale.Add(Stat.NumberOfMeleeSkeletonsToSummon, count, extra)), SummonLimit(player, definition, gem));
+            if (definition.Family == "Skeleton" && GolemStat(gem.Stats, Stat.NumberOfMeleeSkeletonsToSummon) > 0)
+            {
+                var owner = CharacterPlayerStats(player);
+                if (PermanentSkeletonWarriors(definition, owner))
+                    count = 1;
+                else if (GolemStat(owner, Stat.SummonSkeletonsNumAdditionalWarriorSkeletons) is int extra and not 0)
+                    count = Math.Min(Math.Max(1, ActorScale.Add(Stat.NumberOfMeleeSkeletonsToSummon, count, extra)), SummonLimit(player, definition, gem));
+            }
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
@@ -219,6 +227,8 @@ public static partial class Game
         if (!gem.RequirementsMet || gemSource is null || replacingOld is null && fresh is null
             || SkillsFor(player).EffectId(gem.Effect) != definition.Id
             || !CanHaveMinion(playerStats, SummonFamily(definition.Family))) return 0;
+        if (PermanentSkeletonWarriors(definition, playerStats))
+            definition = definition with { Persistent = true, Follows = true };
         if (definition.Family == "Phantasm") gem = PhantasmGem(player, gem);
         inheritedMods ??= replacingOld?.InheritedMods;
         if (replacingOld is not null) rarity = replacingOld.Monster.Rarity;
@@ -401,7 +411,8 @@ public static partial class Game
                 try { restore = JsonSerializer.Deserialize<SummonedMinions.Saved[]>(saved) ?? []; }
                 catch (JsonException) { restore = []; }
                 foreach (var old in restore)
-                    if (SummonData.Find(old.Effect) is { Persistent: true } definition)
+                    if (SummonData.Find(old.Effect) is { } definition && (definition.Persistent
+                        || definition.Id == "SummonSkeletons" && PermanentSkeletonWarriors(definition, CharacterPlayerStats(player))))
                     {
                         ushort source = RestoredSummonSource(player, old);
                         if (source != 0) await SummonFighter(player, source, definition,
@@ -431,6 +442,9 @@ public static partial class Game
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }
                 if (playerStats is null) { GolemStepLocked(player, fighter, now); continue; }
+                if (state.Definitions[fighter.Id] is { Id: "SummonSkeletons", Persistent: true } definition
+                    && !PermanentSkeletonWarriors(definition, playerStats))
+                { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
                 var gem = SupportedSkill(player, fighter.Source);
                 if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(player, gem);
                 if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, Stat.BaseNumberOfSupportGhostsAllowed) <= 0)

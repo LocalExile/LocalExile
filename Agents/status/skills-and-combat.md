@@ -259,6 +259,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Minion equipment applies Blind, Poison, Withered, and skeleton or zombie Ash on hit. Speaker's Wreath keeps
   unignited enemies alive on minion hits. Queen's Escape increases the live skeleton limit. Foulborn Severed in Sleep
   adds minion base critical chance, and Foulborn United in Dream raises active Minion gem quality (verified offline).
+- Mutewind Seal and Redblade Band apply their modifiers to golems socketed in the ring. Triad Grip converts minion
+  physical damage from its socket contents. Alberon's Warpath summons one permanent following warrior per cast
+  (verified offline).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
