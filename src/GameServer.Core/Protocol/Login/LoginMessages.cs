@@ -149,7 +149,7 @@ public sealed record List15(IReadOnlyList<ListEntry15> Entries, byte B28, byte B
 /// <item>Flags0 (+0xe0): bit 0 private (password box), bit 1 hardcore (confirmation, hardcore banner), bit 4 shown only
 /// while +0xc8 is in the future, bit 7 main league (gets a card). Flags1 (+0xe1): bit 1 variant (no card of its own),
 /// bit 5 hidden on some platforms, bit 6 ruthless (confirmation). Flags2 (+0xe2): bit 0 counted into login+0xe58.</item>
-/// <item>StartStateSet (+0xc0): CharacterStartStateSet row for new characters. C1 (+0xc1): 1 scrolls to the league's card.</item>
+/// <item>StartStateSet (+0xc0): CharacterStartStateSet row for new characters. C1 (+0xc1): LeagueCategory id (compared against ActiveSettings.Current = 59 at 0x140d1800b for the current challenge league launch plaque).</item>
 /// </list>
 /// Description (+0x40, view +0x30): the card text, a ClientStrings-style key when it starts with '#'; empty crashes the
 /// client ("invalid string position", 0x140cc9370). The times (+0xd0, +0xd8, +0xc8, little-endian) are unconfirmed;
@@ -386,6 +386,15 @@ public sealed record TwoWStringsBool(string A, string B, bool Flag) : ILoginMess
     internal static TwoWStringsBool Read(ushort id, ref LoginReader r) => new(r.WStr(), r.WStr(), r.Bool());
 }
 
+/// <summary>C→S 0x45 (sender 0x1400f5380, inline): u16 BE length + payload bytes. The same sender emits instance 0x2fc when connected to an instance.</summary>
+public sealed record ClientBlob45(byte[] Data) : ILoginMessage
+{
+    public const ushort Id = 0x45;
+    public ushort MessageId => Id;
+    public void WriteFields(LoginWriter w) => w.Blob(Data);
+    internal static ClientBlob45 Read(ushort id, ref LoginReader r) => new(r.Blob());
+}
+
 public enum LoginDirection { ServerToClient, ClientToServer }
 
 /// <summary>Id → layout tables for both directions and a framing-free stream decoder.</summary>
@@ -420,7 +429,7 @@ public static class LoginCodec
         [0x18] = ReadEmpty, [0x19] = ReadEmpty, [0x1c] = TwoU16.Read, [0x21] = ReadEmpty, [0x22] = HexCode.Read,
         [0x23] = ReadEmpty, [0x2a] = WStringU8Message.Read, [0x2b] = WStringU8Message.Read, [0x2c] = EpicLogin.Read,
         [0x39] = ReadEmpty, [0x3a] = U8Message.Read, [0x3d] = TwoWStringsBool.Read,
-        [0x3f] = WStringMessage.Read, [0x40] = WStringMessage.Read, [0x42] = U8Message.Read, [0x46] = U32Message.Read,
+        [0x3f] = WStringMessage.Read, [0x40] = WStringMessage.Read, [0x42] = U8Message.Read, [0x45] = ClientBlob45.Read, [0x46] = U32Message.Read,
     };
 
     public static bool IsKnown(LoginDirection dir, ushort id) => Table(dir).ContainsKey(id);

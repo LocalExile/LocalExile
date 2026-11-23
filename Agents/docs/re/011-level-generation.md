@@ -69,6 +69,8 @@ Checked: the first draw of Lioneye's Watch seed 1 is 1791095845 in the client tr
 `0x14204d4b0`: stat 0xc1f forces topology N (1-based), stat 0xc20 an orientation (else 8 = random). Otherwise
 `0x14202e270(area, world +0xd0)` lists the area's Topologies (WorldAreas in-memory +0x68 count / +0x70 rows) whose
 Topologies +0x2c equals world +0xd0, else those with 60 (the default; 59 = Deepwater variants), else retries with 1.
+World +0xd0 is S→C 0x1d's u8 at +0x28 (setter `0x142149550`), a LeagueCategoryToDisplayName id (59 = Deepwater, the
+Allflame leagues) or 60 for none; the Gateway sends `InstanceEvents.LeagueCategory` and generates with it.
 `0x14204d2c0` picks one (`PickIndexAndOrientation`, mask from Topologies +0x1c, a list of codes, 8 = all; every row
 lists `[0]` in 3.29.3b and 3.29.3c, so the orientation is 0). `0x14204cb90` then loads the graph (`0x141fffb90`: .dgr sets
 flag 1, .tgr not) and `0x14204c040` adds it as a subgraph: its master file (`0x1420429e0`: the area's TSI override at
@@ -134,8 +136,11 @@ row (`0x141f2f390`: by id; the Vaal side area flag, the discoverable hideout and
 into the pool in roll order (`0x141d8e4d0`: count copies at the end of +0x48, the row's `.tdt` / `.tst` tiles into the
 pool's own tile store +0x90, then the linked row +0x49 as many times). The Shrine row is capped by the shrine count
 +0x148: with the Shrine rows already waiting or injected (`0x141d8e370`) at most that many go in, and with none the
-linked row is not added either. Row layout (0x66 bytes): id +0, rooms +8 (.arm), tiles +0x18, a bool +0x28, a string list
-+0x29, room orientations +0x39 (8 = any), linked row +0x49 (8 bytes), WorldAreas +0x51, oversize flag +0x61 (rooms
+linked row is not added either. Row layout (0x66 bytes): id +0, rooms +8 (.arm), tiles +0x18, a bool +0x28, the
+injected room's descriptions +0x29 (VaalSideArea `sidearea`, LabyrinthTrial `maptrial`, ProphecyCrystalBoss
+`telepad5` `teleport6` …; `link` on HarvestEncounter, BetrayalLaboratory, SynthesisEncounter, the Sanctum rows and
+BrequelSkyHiveEncounter: the room pairs with the `link` node of the sub-area its world area adds, a gate each way within
+the area, which the server makes up as `teleport9xx` / `telepad9xx` in `AreaExits.Links`), room orientations +0x39 (8 = any), linked row +0x49 (8 bytes), WorldAreas +0x51, oversize flag +0x61 (rooms
 for telepad injectors, `0x142108750`), an i32 +0x62. Before the records (`0x142050560`), with rows in the pool,
 +0x140 = `0x1420527f0` of the top graph: the sum of its subgraphs' masters' +0x152 (taken to be ExtraFeatureWeight,
 default 0: no trace drew the roll below; its "graph" nodes recurse, `0x142052d70`, a FileGroups group standing for the group's
@@ -146,7 +151,11 @@ after its Vaal side area pick, so a VaalSideArea row added there is shared too) 
 (that pick again, rows or not: ZanaGauntlet's and the Shaper's Realm's gauntlet records draw `Next(6)` after their own
 `Next(7)`) and then its share (`0x141d8f230`, +0x144): all rows when +0x140 is 0, else rows × weight / +0x140 plus one when
 `Next(+0x140)` falls below the remainder, and +0x140 drops by the weight. The layout's mission rooms take the rows
-(§3c2 "Mission rooms"); `0x141d8e950` removes a row (and counts the share down).
+(§3c2 "Mission rooms"); `0x141d8e950` removes a row (and counts the share down). In a `.tgr` subgraph
+(`0x1420460e0`) the share is spread after the preparation and only the area unique rooms take rows (`0x14211bc90`,
+parent record 0 only, the share as given; the special nodes take none; the shrines `0x14211c5c0` go by +0x148 for any
+record); after the layout a VaalSideArea row that graph added leaves uncounted, and +0xa is cleared when that row is
+among the placed rooms (+0x60).
 
 ## 3c. Fixed layouts: one room (`LevelGenerator.cs`, `DungeonTiler`)
 
@@ -679,9 +688,67 @@ entries, tile hash 1294234863, all 4 134 draws up to the doodads, every room of 
   `_glacier_vertical_01.tgr`, 36 × 57) generates tile for tile: tile hash 3320701478 and all 4 778 draws up to the
   doodads** (with the Village row in `mission_4_1.arm`, §3c2). One view vertex differs at the fill (18, 45): flag 2 in
   the client, not in the port; heights and tiles are equal.
+- **DeepwaterHub** (The Sovereign, `hub.dgr` 2 × 3 units of 12, OuterBufferSize `0 12 0 0`): its "graph" node at
+  (0, 0) places `hub_interior.dgr` (below deck, 2 × 1) as record 1 above the deck. Seed 1 matches its trace (tile hash
+  4068164930, all 588 draws, both grids, 128 doodads, heights). The transitions check differed by 2: the waypoint
+  record `DeepwaterHubBoat_waypoint` names its own `Deepwater/Waypoint/waypoint.ao`, and the port gave it the virtual
+  `.ao`, which is no file (one missing and one extra object at (347, 485); fixed, [08](../protocol/08-area-transitions.md)
+  §5). Its two boat gates (`Deepwater/Boat_AreaTransition_Animate`) are room lines, which the recorder's tile-object
+  hook (`0x142047e30`) never sees.
+- **Category 59** (the Deepwater topologies): The Coast's tile hash matched the client's at seed 1560159699. The Ship
+  Graveyard and its Cave are not compared yet, nor The Coast's grids, doodads and transitions; The Ship Graveyard's
+  seed 1 at 59 stops on mismatching ground types, so a replacement seed is played.
 - Not ported: turned subgraphs (orientation ≠ 0), the pool's
   rows in a `.tgr` subgraph's special nodes, sub-area records beside a `.tgr` primary (§3), and the rest of
   `0x14204c040` (oversize-feature / telepad-injector records).
+
+## 3c4. Deepwater encounters: the DeepwaterPlugin (`DeepwaterGeneration.cs`)
+
+DeepwaterEncounter and DeepwaterEncounterVoyage (WorldAreas `TerrainPlugin` = DeepwaterPlugin, `__col1` 11572; topology
+`Deepwater_01.dgr`, one node no room has) are an N × N grid the server sends as the plugin's state in 0x1d's extra
+data ([03](../protocol/03-area-and-world.md) §1). At the generator's start `0x141eca930` creates one plugin per sent
+state, then the area's own plugin with an empty state unless one was sent (`0x141ecb130`): without a state the
+DeepwaterPlugin (`0x141d93260` → `0x141f32690`) builds a fixed 2 × 2 grid (ThermalVentsCross1 turned 1, SandyCross1 2,
+CoralReefCross1 0, CoralForestCross1 0). Both seed-1 traces of the gate are that grid. State (`0x141f35280`, LE):
+u8 N; per cell, index N·y + x (`0x141f350c0`): u8 DeepwaterRooms row (`0x141f565f0`, no range check), u8 orientation,
+u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods HASH16, a compact int per stat,
+`0x141e4c7e0`). Generation reads neither the stats nor the mods.
+The Gateway sends as a cell's stats the planner's cell stats (M, `0x141fbe9d0`: its chart's mods, the neighbours'
+adjacent ones, its border mods, the per-connection conversions), and the mods are the 12 border mods in segment order
+([03](../protocol/03-area-and-world.md) §8, mode 1); the orientation is the chart's rotation
+([13](../protocol/13-items.md) §2). The plugin's vtable hooks:
+
+- **+0x20** `0x141f32870`: record 0 is N × N room units (master.tsi 30, buffer 3: 30N + 6), and DeepwaterHub is added as
+  a sub-area (`0x14204d8e0`: `Next(count)`, `Next(840)`); record 1 is the boat, its interior the last record.
+- **+0x30** `0x141f32a70` (after a record's graph is read, only for a record whose world area is of type 52): record 0
+  becomes N × N "graph" nodes at (23x, 23y), each `[biome .dgr, "1", "1"]` (a `Next(1)` per cell over the room's world
+  area's topologies: DeepwaterRooms +0x3c, else its biome's +8). Records 2 … N² + 1 are the cells in node order: one
+  node with the room's `.arm` tag at the cell's orientation, cell 0 also `default` and `killzone=3`. Cell 0's
+  `default` marks the start; the boat's node (record 1) also says `default`.
+- **Board** (as the client draws it, `0x140420dc0`): cell N·y + x at column x from the left, row y from the bottom;
+  cell 0, the start, is bottom-left. Mask bits 1/2/4/8 = Left/Up/Right/Down (DeepwaterConnectionStrings); orientation
+  o turns a room o quarter turns counter-clockwise (Right → Up, as a node's orientation code o).
+- **+0x28** `0x141f331e0` → `0x141f34ee0` (where the port calls Delve's join): ground checks off (map +0x10), then per
+  cell, y then x, with the room's mask (+0x10) turned right by the orientation in 4 bits: bit 4 joins the cell to x + 1
+  along the record's right edge (`0x141f33de0`, x = right − 3, every 3 rows), bit 2 to y + 1 along its bottom
+  (`0x141f34900`). Only the lower / left cell's mask is read. A pair of 3 × 3 tiles (tile data +0x60 / +0x61) is turned
+  (`0x141d83b10`, the tile's own key: grounds left out of keys included), the far tile's side runs through both
+  (`0x141f33c90` merges the two cross sides; no Deepwater master has an EdgeCombination, so two edges become none and
+  the edge point 9), and both are picked again with the cell's master (`0x141f33560`): an untagged tile whose key is a
+  plain fill takes a 3 × 3 fill tile of its ground (`0x141f33340`: one `Next(total)` over every FillTiles list, always
+  drawn, then `Next(8)`), else nine 1 × 1 (each `Next(8)`), else the TileSet's tiles of the old tag
+  (`0x141d85600`, `Next(total)`); with nothing, the grounds left out of keys go and it tries again, then "Cannot find
+  matching tile key to connect Deepwater cell". The fill lists go in file order: `0x141ff6ba0` visits the `"default"`
+  list (+0x100, rooms +0x120) before the named lists, which for the Deepwater `.gft` files is file order.
+  For no ground or a ground with flag 4 a fill tile also needs flags
+  0x40 | 0x80 (+0x16c) and no bit 8 in its first slot's F (+0x90 → +0x30). The vertical seam is
+  first trimmed from both ends (`0x141f34200`) to the first column where both tiles are plain fills or neither has an
+  edge on the far side. Equal edges at a trimmed end go through the master's EdgeCombination with no null check
+  (`0x141f34200` → `0x1401297c0`); no Deepwater master has one, so the client crashes and the port refuses the level.
+
+A sent one-room chart and a 3 × 3 Voyage were traced and captured live (3.29.3d, [world](../../status/world.md)).
+Open: the record WorldArea switch to the biome's (+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20,
+and `killzone=3`, which the client never parses (guess: a server rule, a monster-free radius at the start).
 
 ## 3d. Tile graphs (`.tgr`): first stages (`TileGraph.cs`, `FortuneVoronoi.cs`, `VoronoiCells.cs`)
 

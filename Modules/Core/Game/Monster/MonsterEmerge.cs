@@ -22,9 +22,11 @@ public enum EmergeKind
 /// Striders …; Agents/docs/protocol/10-chat-and-commands.md §5 "Emerge monsters"). Their type has the basic action
 /// <c>Emerge</c> (ActionTypes 16641 = 0x4101, skill id 0x0101) and a Transitionable without <c>num_states</c> (2 states)
 /// whose client script <c>create_untransitioned</c> plays the emerge clip and pauses it. A type whose client Targetable
-/// says <c>targetable = false</c> (or whose create_untransitioned runs DisableTargetable) is <see cref="EmergeKind.Buried"/>,
-/// the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state, except campaign Yugul: his paused
-/// entrance must rise before generic AI can fight, or his native Targetable stays disabled until an instance rebind.
+/// says <c>targetable = false</c> (or whose create_untransitioned runs DisableTargetable or DisableRendering) is
+/// <see cref="EmergeKind.Buried"/>, the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state
+/// when <see cref="EmergeKind.Lurking"/> (scripted bosses that start targetable), whereas <see cref="EmergeKind.Buried"/>
+/// unique bosses (except scripted encounter actors such as the Goddess of Justice) rise through this system so they
+/// become visible and targetable before generic AI fights them.
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
 /// Transitionable → 2 (0x2bc; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
@@ -32,8 +34,18 @@ public enum EmergeKind
 /// (<c>basic_actions</c>, <c>client_transitionable_*</c>, <c>client_targetable</c>: scripts/re/ot_components.py),
 /// monster_takehit (<c>emerge_*</c>: the clip's length, scripts/re/monster_takehit.py) and ActionTypes.
 /// </summary>
-public sealed class MonsterEmerge(string folder = "data")
+public sealed class MonsterEmerge
 {
+    readonly string folder;
+
+    public MonsterEmerge(string folder = "data")
+    {
+        this.folder = folder;
+        _types = LoadTypes();
+        _clips = LoadClips();
+        _action = LoadAction(folder);
+    }
+
     /// <summary>How near (grid cells) the player comes before a monster rises; its aggro range when that is shorter. The
     /// official server decides it in the monster's .ais file, which the client does not have: 24 cells keeps the emerge
     /// on screen.</summary>
@@ -53,18 +65,26 @@ public sealed class MonsterEmerge(string folder = "data")
     /// <summary>The Transitionable state a monster waiting to rise is created in (untransitioned).</summary>
     public const byte UnrisenState = 1;
 
-    private readonly Lazy<Dictionary<string, EmergeKind>> _types = new(LoadTypes);
-    private readonly Lazy<Dictionary<string, (double Seconds, int Index)>> _clips = new(LoadClips);
-    private readonly Lazy<ushort?> _action = new(() => LoadAction(folder));
+    private readonly Dictionary<string, EmergeKind> _types;
+    private readonly Dictionary<string, (double Seconds, int Index)> _clips;
+    private readonly ushort? _action;
 
     /// <summary>The Emerge basic action's skill id (ActionTypes HASH16 &amp; 0x3fff: 0x0101), null without the table.</summary>
-    public ushort? SkillId => _action.Value is ushort hash ? (ushort)(hash & 0x3fff) : null;
+    public ushort? SkillId => _action is ushort hash ? (ushort)(hash & 0x3fff) : null;
 
-    /// <summary>How a monster of this variety and rarity starts (see <see cref="EmergeKind"/>).</summary>
+    /// <summary>Unique monsters whose emergence is controlled by their own encounter script rather than proximity rise.</summary>
+    static bool IsScriptedUniqueEmerge(MonsterCatalog.Variety v) =>
+        v.Id == IzaroGoddess.Variety;
+
+    /// <summary>How a monster of this variety and rarity starts (see <see cref="EmergeKind"/>). Ordinary monsters use
+    /// both <see cref="EmergeKind.Buried"/> and <see cref="EmergeKind.Lurking"/>; unique monsters use
+    /// <see cref="EmergeKind.Buried"/> (except scripted encounter actors), because buried types start untargetable or
+    /// with rendering disabled until transitioned.</summary>
     public EmergeKind Kind(MonsterCatalog.Variety v, MonsterRarity rarity = MonsterRarity.Normal) =>
-        (rarity != MonsterRarity.Unique || v.Id == "Metadata/Monsters/Frog/FrogGod/SilverFrog")
-            && v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
-            && _types.Value.TryGetValue(v.BaseType, out var kind) ? kind : EmergeKind.None;
+        v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
+            && _types.TryGetValue(v.BaseType, out var kind)
+            && (rarity != MonsterRarity.Unique || (kind == EmergeKind.Buried && !IsScriptedUniqueEmerge(v)))
+            ? kind : EmergeKind.None;
 
     /// <summary>Whether area packs may place this variety: not an "Emerge" variety that would wait for good (a
     /// Transitionable whose start the server cannot play). Emerge varieties without a Transitionable are ordinary.</summary>
@@ -74,18 +94,19 @@ public sealed class MonsterEmerge(string folder = "data")
     /// <summary>The Transitionable state of a new monster: 1 while it waits to rise, 2 for an emerge monster that has
     /// risen (kept by the instance), else the type's own (MonsterCatalog: num_states, 1 when the .ot gives none).</summary>
     public static byte CreateState(MonsterCatalog.Variety v, EmergeKind kind, bool unrisen) =>
-        kind == EmergeKind.None ? v.TransitionStates : unrisen ? UnrisenState : RisenState(v);
+        kind == EmergeKind.None ? v.TransitionStates
+            : unrisen ? UnrisenState : RisenState(v);
 
     /// <summary>The fully transitioned state: num_states, 2 when the .ot gives none.</summary>
     public static byte RisenState(MonsterCatalog.Variety v) => (byte)Math.Max(2, (int)v.TransitionStates);
 
     /// <summary>How long the variety's Emerge clip plays, in seconds (<see cref="DefaultSeconds"/> when unknown).</summary>
     public double Seconds(MonsterCatalog.Variety v) =>
-        _clips.Value.TryGetValue(v.Id, out var clip) && clip.Seconds > 0 ? clip.Seconds : DefaultSeconds;
+        _clips.TryGetValue(v.Id, out var clip) && clip.Seconds > 0 ? clip.Seconds : DefaultSeconds;
 
     /// <summary>The variety's Emerge clip's index in its rig (0x1b2 plays it), or null when unknown.</summary>
     public uint? ClipIndex(MonsterCatalog.Variety v) =>
-        _clips.Value.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
+        _clips.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
 
     /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2bc), then the Emerge action in place aimed
     /// at the monster itself, with the 0x1ac that starts its clip.</summary>
@@ -95,27 +116,28 @@ public sealed class MonsterEmerge(string folder = "data")
         InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, skill, sequence, 0x0800, id),
     ];
 
-    /// <summary>The buried monsters of a connection by object id: not in <see cref="ClientState.Monsters"/> until they
-    /// rise. Guarded by the Monsters lock.</summary>
-    public static SortedDictionary<uint, SpawnedMonster> Buried(ClientState conn) => conn.DormantMonsters;
+    /// <summary>The buried monsters of a connection by object id: not in <see cref="Player.Monsters"/> until they
+    /// rise. Owned by the area's frame.</summary>
+    public static SortedDictionary<uint, SpawnedMonster> Buried(Player player) => player.Area.DormantMonsters;
 
     /// <summary>Every monster that has not risen yet, buried or lurking (for the instance's saved state). Under the
     /// Monsters lock.</summary>
-    public static List<SpawnedMonster> Unrisen(ClientState conn)
+    public static List<SpawnedMonster> Unrisen(Player player)
     {
-        var g = conn.EmergeGround;
-        return [.. conn.DormantMonsters.Values, .. g.Lurking.Select(id => conn.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
+        var g = player.Area.EmergeGround;
+        return [.. player.Area.DormantMonsters.Values, .. g.Lurking.Select(id => player.Area.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
     }
 
     /// <summary>Registers a new monster (SpawnMonster): a buried one that has not risen goes to <see cref="Buried"/>,
     /// everything else to the connection's monsters; a lurking one that has not risen is busy until it rises. Returns
-    /// whether it waits to rise (the caller then starts the watch). Under the Monsters lock.</summary>
-    public static bool AddLocked(ClientState conn, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
+    /// whether it waits to rise (the caller then starts the watch). In the area's frame.</summary>
+    public static bool AddLocked(Player player, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
     {
-        var g = conn.EmergeGround;
+        m.ObjectId = id;
+        var g = player.Area.EmergeGround;
         bool waits = unrisen && kind != EmergeKind.None;
-        if (waits && kind == EmergeKind.Buried) { conn.DormantMonsters[id] = m; return true; }
-        conn.Monsters[id] = m;
+        if (waits && kind == EmergeKind.Buried) { player.Area.DormantMonsters[id] = m; return true; }
+        player.Area.Monsters[id] = m;
         if (waits)
         {
             m.BusyUntil = double.PositiveInfinity;
@@ -124,10 +146,10 @@ public sealed class MonsterEmerge(string folder = "data")
         return waits;
     }
 
-    /// <summary>Marks the connection's watch as running; false when it already was. Under the Monsters lock.</summary>
-    public static bool StartWatch(ClientState conn)
+    /// <summary>Marks the connection's watch as running; false when it already was. In the area's frame.</summary>
+    public static bool StartWatch(Player player)
     {
-        var g = conn.EmergeGround;
+        var g = player.Area.EmergeGround;
         if (g.Watching) return false;
         return g.Watching = true;
     }
@@ -135,30 +157,30 @@ public sealed class MonsterEmerge(string folder = "data")
     /// <summary>The monsters that rise now: within reach of the player (<see cref="Range"/>, or the aggro range if
     /// shorter), or a lurking one that has been hit. A buried one leaves <see cref="Buried"/> for the connection's
     /// monsters; each is aggroed and busy for its clip. Returns them with where they stand; the caller sends the rise.
-    /// When none is left waiting the watch ends (<paramref name="watching"/> false). Under the Monsters lock.</summary>
-    public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(ClientState conn,
-        (int X, int Y) player, double now, out bool watching)
+    /// When none is left waiting the watch ends (<paramref name="watching"/> false). In the area's frame.</summary>
+    public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(Player player,
+        (int X, int Y) playerAt, double now, out bool watching)
     {
-        var g = conn.EmergeGround;
+        var g = player.Area.EmergeGround;
         var risen = new List<(uint, SpawnedMonster, (int, int), double)>();
         bool Near(SpawnedMonster m, out (int X, int Y) at)
         {
             at = m.Walk.Position(now);
-            double d = Math.Sqrt((double)(at.X - player.X) * (at.X - player.X) + (double)(at.Y - player.Y) * (at.Y - player.Y));
-            int range = WakeRange(conn.Layout.Id, m.Variety);
+            double d = Math.Sqrt((double)(at.X - playerAt.X) * (at.X - playerAt.X) + (double)(at.Y - playerAt.Y) * (at.Y - playerAt.Y));
+            int range = WakeRange(player.Layout.Id, m.Variety);
             return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
-        foreach (var (id, m) in conn.DormantMonsters)
-            if (Near(m, out var at)) risen.Add((id, m, at, SecondsOf(m)));
+        foreach (var (id, m) in player.Area.DormantMonsters)
+            if (!m.Asleep && Near(m, out var at)) risen.Add((id, m, at, SecondsOf(m)));
         foreach (var (id, m, _, _) in risen)
         {
-            conn.DormantMonsters.Remove(id);
-            conn.Monsters[id] = m;
+            player.Area.DormantMonsters.Remove(id);
+            player.Area.Monsters[id] = m;
         }
         foreach (uint id in g.Lurking.ToList())
         {
-            if (!conn.Monsters.TryGetValue(id, out var m) || m.Dead) { g.Lurking.Remove(id); continue; }
+            if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead) { g.Lurking.Remove(id); continue; }
             if (Near(m, out var at) || m.Life < m.MaxLife)
             {
                 g.Lurking.Remove(id);
@@ -173,21 +195,21 @@ public sealed class MonsterEmerge(string folder = "data")
             // No extra idle tail follows the clip; the next AI decision may run once it ends.
             m.BusyUntil = now + seconds;
         }
-        watching = g.Watching = conn.DormantMonsters.Count + g.Lurking.Count > 0;
+        watching = g.Watching = player.Area.DormantMonsters.Count + g.Lurking.Count > 0;
         return risen;
     }
 
     /// <summary>Whether any monster still waits to rise, and none watches for it (its watcher's connection left).
-    /// Under the Monsters lock.</summary>
-    public static bool Unwatched(ClientState conn) =>
-        conn.EmergeGround is { Watching: false } g && conn.DormantMonsters.Count + g.Lurking.Count > 0;
+    /// In the area's frame.</summary>
+    public static bool Unwatched(Player player) =>
+        player.Area.EmergeGround is { Watching: false } g && player.Area.DormantMonsters.Count + g.Lurking.Count > 0;
 
-    /// <summary>The watch ended with its connection. Under the Monsters lock.</summary>
-    public static void StopWatch(ClientState conn) => conn.EmergeGround.Watching = false;
+    /// <summary>The watch ended with its connection. In the area's frame.</summary>
+    public static void StopWatch(Player player) => player.Area.EmergeGround.Watching = false;
 
     /// <summary>Whether this monster still lies in wait (buried ones are not in the instance's monsters until they rise).
-    /// Under the Monsters lock.</summary>
-    public static bool Waiting(ClientState conn, uint id) => conn.EmergeGround.Lurking.Contains(id);
+    /// In the area's frame.</summary>
+    public static bool Waiting(Player player, uint id) => player.Area.EmergeGround.Lurking.Contains(id);
 
     /// <summary>The kind of one object_types row (see <see cref="EmergeKind"/>); used by the loader and tests.</summary>
     public static EmergeKind KindOf(ClientRow t)
@@ -198,7 +220,9 @@ public sealed class MonsterEmerge(string folder = "data")
         string start = t.TextOrNull("client_transitionable_create_untransitioned") ?? "";
         // Only a type that waits in a paused clip rises: others (Hillock's sword stage) use the Transitionable otherwise.
         if (!start.Contains("PauseAnimation", StringComparison.Ordinal)) return EmergeKind.None;
-        bool untargetable = t.BoolOrNull("client_targetable") == false || start.Contains("DisableTargetable", StringComparison.Ordinal);
+        bool untargetable = t.BoolOrNull("client_targetable") == false
+            || start.Contains("DisableTargetable", StringComparison.Ordinal)
+            || start.Contains("DisableRendering", StringComparison.Ordinal);
         return untargetable ? EmergeKind.Buried : EmergeKind.Lurking;
     }
 

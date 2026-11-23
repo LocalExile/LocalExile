@@ -69,6 +69,9 @@ change.
   passive socket with a clear message or mark the affected stat as inactive. The current unconditional path is not
   acceptable.
 - Add a condition interface that `CharacterStatSources` / the hit and panel consumers can query at the point of use.
+  That point is reached hundreds of times a second: a condition there is a cheap read of state the server already
+  keeps, or an answer remembered for the inputs it was worked out from
+  ([hot paths](../docs/dev/performance.md#hot-paths)).
 - Done when each row is either fully modelled or explicitly refused, with the reason in the catalogue status.
 
 ### 4. Radius unique jewels (78 rows, 76 distinct names; attribute + damage/defence pilot done)

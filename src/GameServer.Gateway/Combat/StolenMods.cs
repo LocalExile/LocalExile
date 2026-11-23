@@ -8,14 +8,14 @@ public sealed class StolenMods
     public const ushort InspiredLearningBuffRow = 874;
 
     /// <summary>On Headhunter's GainRareMonsterModsOnKillUniqueBelt7_: having it is what steals.</summary>
-    public const string SourceStat = "gain_rare_monster_mods_on_kill_ms";
+    public const uint SourceStat = Stat.GainRareMonsterModsOnKillMs;
 
-    public const string RandomSourceStat = "gain_X_random_rare_monster_mods_on_kill";
+    public const uint RandomSourceStat = Stat.GainXRandomRareMonsterModsOnKill;
 
     /// <summary>How long each Headhunter modifier lasts.</summary>
     public const double Seconds = 60;
 
-    sealed record Stack(IReadOnlyList<(string Stat, int Value)> Stats, double BeltEnd, double JewelEnd);
+    sealed record Stack(IReadOnlyList<(uint Stat, int Value)> Stats, double BeltEnd, double JewelEnd);
     public readonly record struct Buff(int Count, double Remaining);
 
     readonly Dictionary<ushort, Stack> _stacks = [];
@@ -24,7 +24,11 @@ public sealed class StolenMods
 
     /// <summary>A slain monster's affixes: each one's stats by Stats.dat Id, by the affix's Mods.dat hash.</summary>
     public void Steal(MonsterModSet mods, ModCatalog catalog, double now) =>
-        Add(Eligible(mods, catalog), catalog, now + Seconds, belt: true);
+        Steal(mods, catalog, now, Seconds);
+
+    /// <summary>A slain monster's affixes for an explicit duration in seconds.</summary>
+    public void Steal(MonsterModSet mods, ModCatalog catalog, double now, double seconds) =>
+        Add(Eligible(mods, catalog), catalog, now + seconds, belt: true);
 
     public void StealRandom(MonsterModSet mods, ModCatalog catalog, int count, double now, Random random)
     {
@@ -55,7 +59,7 @@ public sealed class StolenMods
     }
 
     /// <summary>What the stacks add, summed.</summary>
-    public IReadOnlyDictionary<string, int> Stats()
+    public IReadOnlyDictionary<uint, int> Stats()
     {
         lock (_lock)
             return _stacks.Values.SelectMany(s => s.Stats).GroupBy(s => s.Stat).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));

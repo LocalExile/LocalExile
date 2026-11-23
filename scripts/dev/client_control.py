@@ -590,8 +590,10 @@ class ClientControl:
 
     def create(self, request):
         name, league, state = create_fields(request)
-        if self.status().get("screen") != "characters":
-            raise RuntimeError("character:create requires the character selection screen")
+        status = self.status()
+        creating = status.get("states", [])[-1:] == [8] and 9 in status.get("states", [])
+        if status.get("screen") != "characters" and not creating:
+            raise RuntimeError("character:create requires the character selection or creation screen")
         if any(c["name"].lower() == name.lower() for c in self.characters()):
             raise RuntimeError(f"Character {name} is already in the client list")
         self.rpc("create", name=name, league=league, startState=state)
@@ -708,7 +710,7 @@ class ClientControl:
                                "login result")
             if result.get("loginState") != 3:
                 raise RuntimeError(f"Local login rejected (result {result.get('lastLoginResult')})")
-            return self.wait(lambda s: s.get("screen") == "characters", "character selection")
+            return self.wait(lambda s: s.get("screen") in ("characters", "creation"), "character selection or creation")
         if command == "login:saved":
             # The client's own remembered login (Remember Password): no password goes through this bridge.
             current = self.ready()
@@ -719,10 +721,10 @@ class ClientControl:
                 self.rpc("logout")
                 self.wait(lambda s: s.get("screen") == "login" and s.get("loginState") == 0, "login screen")
             self.rpc("connectSaved", port=stack_port("login"))
-            result = self.wait(lambda s: s.get("loginState") == 3 or s.get("lastLoginResult") is not None, "login result")
+            result = self.wait(lambda s: s.get("loginState") == 3 or s.get("lastLoginResult") not in (None, 0), "login result")
             if result.get("loginState") != 3:
                 raise RuntimeError(f"Saved login rejected (result {result.get('lastLoginResult')})")
-            return self.wait(lambda s: s.get("screen") == "characters", "character selection")
+            return self.wait(lambda s: s.get("screen") in ("characters", "creation"), "character selection or creation")
         if command == "character:list":
             return self.rpc("characters")
         if command == "character:play":

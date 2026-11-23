@@ -7,11 +7,11 @@
 /// its walk-map capture of every town has every plain doodad of the room at exactly <see cref="Room.Cell"/> and
 /// <see cref="Room.Angle"/> of its line. The server objects of those lines (the NPCs) are the server's to create, so they
 /// go through the same placement. The rows below copy the .arm lines; nothing is measured by eye.
-/// <para>Which NPCs: the campaign NPCs of the room (Metadata/NPC/Act*, Epilogue). Not placed: league NPCs (Einhar, Niko,
-/// Jun, Alva, the Expedition four, Divinia, Faustus, Kurai, Cassia, Tane, Johan), the Tutorial NPC and Letters of
+/// <para>Which NPCs: the campaign NPCs of the room (Metadata/NPC/Act*, Epilogue) and the Rogue Harbour's. Not placed: other
+/// league NPCs (Einhar, Niko, Jun, Alva, the Expedition four, Divinia, Cassia, Tane, Johan), the Tutorial NPC and Letters of
 /// Exile, quest-stage variants (only the first one is placed: Lady Dialla before she withers, Lilly by her ship in act 6;
-/// a stage a quest's rules pick stands in the list with the others: Oriath Docks' BannonTown and InnocenceTown) and NPCs
-/// the Gateway cannot serialize yet (Kirac, the Karui Shores' HelenaIntro: ControlZone).</para>
+/// a stage a quest's rules pick stands in the list with the others: Oriath Docks' BannonTown and InnocenceTown) and
+/// Kirac and the Karui Shores' HelenaIntro (ControlZone types, which NpcObject writes now; not placed yet).</para>
 /// <para>Several NPCs stand on cells the client's walk map marks blocked (on stalls, platforms and piers: Hargan in
 /// both Sarn Encampments, Grigor, Highgate's Petarus and Vanja and Tasuni in both acts, Act 6's Sin and Lilly, Act 7's
 /// and Act 8's Sin) or on edge cells (Tarkleigh, Eramir, Silk, Helena, Irasha …). They are placed as the room has them;
@@ -185,7 +185,7 @@ public static class TownNpcs
             new(Npc + "Act10/Lilly", 448, 364, -0.0830655f, Model: "Metadata/NPC/Act5/Lilly.ao"),
         ]),
         // epilogue.dgr: the nodes "fountain" and "entrance_04" (both I) among generated nodes; the client placed the rooms
-        // at (299, 299) and (161, 851) (seed 1). Commander Kirac (332, 380) needs ControlZone.
+        // at (299, 299) and (161, 851) (seed 1). Commander Kirac (332, 380) is not placed yet.
         new(0xf580, "2_11_town",
         [
             new(new("Metadata/Terrain/Act11/Town/Rooms/Unique/fountain.arm", 575, 575, 0, 299, 299, Seed: 1),
@@ -204,7 +204,7 @@ public static class TownNpcs
             ]),
         ]),
         // island_camp.dgr: I. Commander Kirac (786, 675) and HelenaIntro (510, 173: the trigger by the tunnel that plays
-        // "HelenaThroughTheTunnel", then hides) need ControlZone.
+        // "HelenaThroughTheTunnel", then hides) are not placed yet.
         new(0xb4e7, "2_11_endgame_town", new("Metadata/Terrain/Act11/Camp/Rooms/camp.arm", 1679, 1058, 0, 92, 92, Seed: 1),
         [
             new(Npc + "Epilogue/Lilly", 186, 366, 0.499106f, Model: "Metadata/NPC/Act5/Lilly.ao", Z: -202.5f),
@@ -212,6 +212,28 @@ public static class TownNpcs
             new(Npc + "Epilogue/Lani", 712, 778, -0.355253f),
             // Her .ot's create_untransitioned is DisableRendering(): Transitionable state 1 left her invisible live, 2 shows her.
             new(Npc + "Epilogue/Helena", 771, 696, 0.564095f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
+        ]),
+        // The Rogue Harbour (HeistHub). Not a campaign town, but its hub room names its NPCs the same way. hub.dgr places
+        // the single node "hub" with rotation I, at (92, 92) on every seed; a version 31 room (no 0 before the angle),
+        // 19 x 19 tiles = 437 x 437 cells. The nine rogues around the planning table in ops_1.arm are
+        // Metadata/NPC/League/Heist/PlanningNPC, which NPCs.dat has no row for, so they are not placed.
+        // The official server's creates in the Rogue Harbour stand at exactly these cells and angles (8 of the 13 NPCs
+        // are in the creates it sends; the rest were out of range).
+        new(StashCatalog.HeistHub, "HeistHub", new("Metadata/Terrain/Leagues/Heist/Hub/Rooms/hub_1.arm", 437, 437, 0, 92, 92),
+        [
+            new(Npc + "League/Heist/TheBoss", 228, 264, -0.694438f),         // Kurai, the Administrator
+            new(Npc + "League/Heist/Fence", 89, 290, 0.26262f),              // Faustus, the Fence
+            new(Npc + "League/Heist/Driver", 126, 292, 1.49717f),            // Adiyah, the Wayfinder
+            new(Npc + "League/Heist/Barber", 90, 302, 0.234507f),            // Whakano, the Barber
+            new(Npc + "League/Heist/Lockpick1", 130, 405, -0.835378f),       // Karst, the Lockpick
+            new(Npc + "League/Heist/Interrogator1", 389, 323, -0.79303f),    // Niles, the Interrogator
+            new(Npc + "League/Heist/Soldier1", 292, 313, -0.296804f),        // Huck, the Soldier
+            new(Npc + "League/Heist/HeavyLifter1", 294, 298, -1.42205f),     // Tibbs, the Giant
+            new(Npc + "League/Heist/Detector1", 165, 350, -0.636915f),       // Nenet, the Scout
+            new(Npc + "League/Heist/Demolitionist1", 326, 395, -0.700871f),  // Vinderi, the Dismantler
+            new(Npc + "League/Heist/CatBurglar1", 315, 257, -0.26125f),      // Tullina, the Catburglar
+            new(Npc + "League/Heist/Illusionist1", 231, 370, -0.25517f),     // Gianna, the Master of Disguise
+            new(Npc + "League/Heist/Engineer1", 145, 359, -0.0840756f),      // Isla, the Engineer
         ]),
     ];
 

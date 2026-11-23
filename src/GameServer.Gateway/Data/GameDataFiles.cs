@@ -22,6 +22,8 @@ public static class GameDataFiles
         ("UniqueStashLayout", "unique item names and artwork"),
         ("VillageUniqueDisenchantValues", "unique drop weights"),
         ("PassiveJewelSlots", "ordinary passive tree jewel sockets"),
+        ("PassiveTreeExpansionJewels", "cluster jewel templates, passive ranges and socket layouts"),
+        ("PassiveTreeExpansionSkills", "cluster jewel small-passive themes and notable pools"),
         ("ModType", "vendor affix sale-price categories"),
         ("Essences", "essence crafting and class-specific guaranteed modifiers"),
         ("CraftingBenchOptions", "crafting bench recipes, unlocks and costs"),
@@ -43,10 +45,12 @@ public static class GameDataFiles
         ("AtlasVoidstoneSlots", "Atlas Voidstones"),
         ("Words", "item names"),
         ("ItemVisualIdentity", "unique map artwork"),
+        ("CharacterAudioEvents", "player character voice line events"),
+        ("CharacterEventTextAudio", "player character voice line class mappings"),
     ];
 
     /// <summary>The generated tables (client.db: extract-data.ps1's generators, scripts/dev/generated_tables.py) features
-    /// turn off without, by one table of each file.</summary>
+    /// turn off without, by their required tables.</summary>
     public static readonly (string Table, string Feature)[] Generated =
     [
         ("vendor_shops", "ordinary vendor roles and quest/class gem membership"),
@@ -54,16 +58,19 @@ public static class GameDataFiles
         // object-types manifest v4 combines inherited Life flags with Positioned/Animated collision metadata; v6 adds the
         // rooms' server objects (room points) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
         // QUEST_ROOM_TYPES). item-types v2: the quest items' .it Quest flags.
-        ("object_types", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
+        ("object_types", "monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
         ("item_types", "items, quest items' Quest flags"),
         ("area_transition_areas", "area transitions of fixed layouts"),
         ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
         ("hideout_layouts", "hideouts and native stationary model collision radii"),
         ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
+        ("animation_clip_events", "named animation events and the lengths of clips without a contact keyframe"),
         ("monster_takehit", "monster hit reactions (the TakeHit flinch and its sound)"),
-        ("monster_contacts", "monster projectile release timing/points and boss stage contacts"),
-        ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
-        ("passive_graphs", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
+        ("monster_contacts", "monster projectile release timing/points, every contact of a clip with several, and boss stage contacts"),
+        ("monster_melee_clocks", "ordinary monster melee clocks from the variety AO, including slow spans and ACT budgets (monster-contacts v8)"),
+        ("monster_stances", "when a weapon-stanced monster's skill lands (the Rogue Exiles' stance clips)"),
+        ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip) and the flight clip's contact, a spell mortar's landing time, also through .ao views and groups (projectile-clips v4)"),
+        ("passive_graphs", "ordinary, Phrecia and Atlas passive graph membership/connections/geometry (passive-graphs v7)"),
         ("client_constants", "the Gateway does not start without its HNC mask"),
         ("stat_descriptions", "mod wording for tools' item crafter (the crafter mode)"),
     ];
@@ -82,15 +89,16 @@ public static class GameDataFiles
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
-        ("game-pack", 4, "native Delve encounter rooms for procedural mine terrain"),
+        ("game-pack", 5, "native Delve encounter rooms (4), the terrain plugins and the Deepwater rooms (5): without the last, the Allflame encounter areas are not generated"),
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 8, "class rig animation indices, spell cancellation events and every contact frame of a clip for multi-strike skills: without them cast movement waits for the full spell and later strikes fall back to a half-attack gap"),
-        ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
+        ("animation-contacts", 10, "class rig animation indices, spell cancellation events, every contact frame, all named event times, lengths even for clips without a contact keyframe, and single-clip skill actions"),
+        ("monster-contacts", 8, "monster clip contact frames, effect-specific animation pools, Throw-stage contacts, variety AO slow spans, ACT budgets, explicit clock metadata availability and weapon-stanced monsters' skill clips (monster-stances.json): without them a Rogue Exile's skills land on its unarmed default attack's contact"),
+        ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),
-        ("object-types", 10, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker) and the monster types that phase through objects or never walk: without them they get the wrong blob or none, phasing monsters block paths and immobile ones are walked"),
+        ("object-types", 13, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker, Oshabi's soul tree, the Allflame encounters' lamp and barrels) and inherited monster Actor slow-animation policy, phasing and immobility"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older

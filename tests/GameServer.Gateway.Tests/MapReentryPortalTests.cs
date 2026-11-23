@@ -12,11 +12,14 @@ public sealed class MapReentryPortalTests
         var device = new MapDevice.Origin(0x1234, 7, 50, 50);
         using var runtime = new PartyFollowerTests.Runtime();
         using var wire = new PartyFollowerTests.Wire();
-        ClientState Player(InstanceState instance, ulong number) =>
+        Player Player(InstanceState instance, ulong number) =>
             new(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
             {
-                Character = owner, Account = owner, Instance = instance, InstanceNumber = number, PlayerSent = true,
-                PlayerLife = 100, Wire = (owner, wire.Stream, wire.Ciphers),
+                Character = { Name = owner, Account = owner },
+                Instance = instance,
+                InstanceNumber = number,
+                Connection = { PlayerSent = true, Session = new(owner, wire.Stream, wire.Ciphers) },
+                PlayerLife = 100
             };
         try
         {
@@ -26,7 +29,7 @@ public sealed class MapReentryPortalTests
             var entered = MapDevice.OpenOf(owner)!;
             var instance = new InstanceState();
             var inMap = Player(instance, 987700);
-            await PortalsFeature.OpenTownPortal("map-reentry", wire.Stream, wire.Ciphers, inMap, 120, 140, "test");
+            await PortalsFeature.OpenTownPortal(inMap, 120, 140, "test");
             var portal = (inMap.ReturnPortal!.Value.X, inMap.ReturnPortal!.Value.Y);
             // Still no extra entrance beside the device: re-entry spends the shared portals, and arrives at this one.
             Assert.False(PortalsRules.OpenPortals.ContainsKey(owner));
@@ -41,9 +44,9 @@ public sealed class MapReentryPortalTests
             // Back in that instance, the portal stands at its cell again, in place of the map's own portal back: one
             // portal per player, none by the map's start.
             var back = Player(instance, 987700);
-            await PortalsFeature.SpawnMapReturnPortal("map-reentry-back", wire.Stream, wire.Ciphers, back);
+            await PortalsFeature.SpawnMapReturnPortal(back);
             Assert.Null(back.ReturnPortal);
-            await PortalsFeature.SpawnTownPortals("map-reentry-back", wire.Stream, wire.Ciphers, back);
+            await PortalsFeature.SpawnTownPortals(back);
             Assert.Equal(portal, (back.ReturnPortal!.Value.X, back.ReturnPortal!.Value.Y));
 
             // A new run of the map is another instance: its entries start at the map's start.
@@ -52,9 +55,55 @@ public sealed class MapReentryPortalTests
             Assert.Null(PortalsFeature.MapEntrySpot(owner, MapDevice.OpenOf(owner)!));
 
             // Outside maps the checkpoint is in the area.
-            var coast = new ClientState(new(0x7ad2, "1_1_2", 300, 300, 10, 10, null, []), 0, 1)
-                { Character = owner, Instance = new InstanceState(), InstanceNumber = 5 };
+            var coast = new Player(new(0x7ad2, "1_1_2", 300, 300, 10, 10, null, []), 0, 1)
+                { Character = { Name = owner }, Instance = new InstanceState(), InstanceNumber = 5 };
             Assert.Null(Game.MapCheckpointExit(coast));
+        }
+        finally
+        {
+            MapDevice.Close(owner);
+            PortalsRules.MapTownPortals.TryRemove(owner, out _);
+            PortalsRules.OpenPortals.TryRemove(owner, out _);
+        }
+    }
+
+    // The client plays a portal's opening the first time 0x8f lists it (21-hideouts.md §5): a portal standing again on
+    // entry is listed before its create, so it shows idle; one opened now is listed only after it, so it opens.
+    [Fact]
+    public async Task A_portal_standing_on_entry_is_listed_before_its_create_and_a_new_one_after()
+    {
+        const string owner = "map-standing-portal";
+        var area = new MapDevice.MapArea(0x2a5a, "MapWorldsStrand", "Strand", 1);
+        using var runtime = new PartyFollowerTests.Runtime();
+        using var wire = new PartyFollowerTests.Wire();
+        Player Player(InstanceState instance) =>
+            new(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
+            {
+                Character = { Name = owner, Account = owner },
+                Connection = { PlayerSent = true, Session = new(owner, wire.Stream, wire.Ciphers) },
+                Instance = instance, InstanceNumber = 987710, PlayerLife = 100,
+            };
+        // Where the 0x008f listing this portal and its 0x02bb stand in what was sent.
+        (int List, int Create) Order(uint id)
+        {
+            var lines = Program.HistoryFor(wire.Ciphers).Lines();
+            string hex = id.ToString("X8");
+            return (lines.ToList().FindIndex(l => l.Contains(" 0x008f ") && l.Contains("01" + hex)),
+                lines.ToList().FindIndex(l => l.Contains(" 0x02bb ") && l.Contains("02BB" + hex)));
+        }
+        try
+        {
+            MapDevice.Entered(MapDevice.Activate(owner, area, entrance: new(0x1234, 7, 50, 50)), 987710);
+            var instance = new InstanceState();
+            var opening = Player(instance);
+            await PortalsFeature.OpenTownPortal(opening, 120, 140, "test");
+            var fresh = Order(opening.ReturnPortal!.Value.Id);
+            Assert.True(fresh.Create >= 0 && (fresh.List < 0 || fresh.List > fresh.Create));
+
+            var entering = Player(instance);
+            await PortalsFeature.SpawnTownPortals(entering);
+            var standing = Order(entering.ReturnPortal!.Value.Id);
+            Assert.True(standing.List >= 0 && standing.List < standing.Create);
         }
         finally
         {

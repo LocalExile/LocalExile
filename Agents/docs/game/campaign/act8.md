@@ -132,6 +132,25 @@ BuffDefinitions 832/833/834 carry stack counts (max 10); they are not IsRecovery
 
 ## a8q2 "Lunar Eclipse" and a8q3 "Solar Eclipse" (Quest rows 87 and 88, main)
 
+`LunarisSolarisBase.ot` defines Transitionable 1 inactive, 2 fight, 3 transforming, 4 transformed, 5 super form.
+Entry into state 2 starts the native 1.6-second timer. The bridge controller keeps one corporeal actor vulnerable,
+with the other in celestial form; the survivor uses state 5 after its sister dies. Inactive bodies are absent from
+world views, so reentry cannot expose a vulnerable duplicate of an orb. The 20-second handoff cadence remains a
+development calibration; official target selection and timing still need a reference capture.
+
+Celestial forms have separate skills: Solaris 6464 (sweeping SkyBeam with three-second burning ground) and 6477
+(SolarFlare), Lunaris 6473 (seven-second cold darkness) and 8433 (TriggerCascade driving 6472 ice contacts).
+The native SkyBeam/SolarFlare implementations are `141a49ef0`/`141a4b5e0`: a two-second, 60-cell sweep with base
+radius 18, and five expanding 32.5-degree half-angle annuli. Their native area modifiers are -40% and +40%.
+Cascade variation 3 supplies 15 spikes, 100 ms spacing, A=50, B=-12 and 15 degrees; `141c62850` computes the radial
+term from A+B*angle in radians. Exact heading/target distribution remains a calibration. Meteor AMD contact is
+999/4966 ms; matching the skill's 300 ms contact requires explicit playback speed. Ground art needs its `loop`
+clip (index 2); its fade-in alone does not start the damaging-ground particles. Dark-patch radius 12 and ice-hit
+radius 8 are development calibrations; damage, durations and minion penalties come from each granted effect.
+SolarisSkyBeamBeam is MiscBeams row 41, following the celestial actor and its moving impact object.
+SolarFlare's warning decal occupies its 3330 ms charge; the explosion AO starts afterward and its first particle
+contact is 480 ms into that animation. Starting the explosion alongside the warning makes its visible hit early.
+
 The two quests share their start, their fight and their end flag (`a8q23-…`), so they are one implementation.
 **Start:** Maramoa NPCTalk 1179 "Solaris and Lunaris". **Finish:** Solaris and Lunaris dead on The Harbour Bridge.
 **DONE flag (driver):** `a8q23-KilledBosses` for both (a8q3's Order 0; a8q2's Order 0 is `Visited-9_1`, set on
@@ -224,6 +243,24 @@ a8q3: 9 `a8q23-QuestsReceived` · 8 `a8q1-KilledBoss` · 7 `MaramoaOnSunOrb` · 
   server script.
 
 ## a8q4 "Reflection of Terror" (Quest row 89, side)
+
+`SilverFrog.ot` dispatches `reappear` when `mirror_images` becomes 0. `FrogGodHide` is the Hide action (8455),
+separate from `FrogGodSplit` (6796), a leap-style attack. Frog's native `jump_into` lasts 3166 ms and `jump_out` 1166 ms.
+The campaign controller uses the reference 66%/33% mirror intervals and ten native image-spawner positions;
+all images must die before the emergence finishes and damage resumes. The boss has no view or collision body while
+submerged; its instance state keeps the wave from being generated twice on rule reload.
+
+SilverPool is a server-only chill area, not a damage skill. TriggerSpawnersYugul1/2/3 (2976–2978) add 1, 1 and 2
+SilverPoolTurrets. YugulStormBurst (6582) has 350 ms base cast time, -40% cast speed, -60% projectile speed,
+never_freeze, +100% area damage, -10% area radius and -25% damage against minions. Its native projectile speed is
+1000; the reduced flight is 400 world units/s. MercuryTotem AMD supplies 800 ms emergence, a 166 ms channel loop
+with contact at 66 ms, and 166 ms channel-end; MonsterWait is 5000 ms. The six-shot channel and shared terminal
+burst use these timings rather than the ordinary monster attack scheduler.
+Fearful (BuffDefinitions 870, frog_orb_aura) has a stack count and cold degeneration stat, but IsRecovery=false:
+`0x141fe6090` reads no GrantedStats values for it. An extra value desynchronizes the following packet.
+Pool radius 12, pool chill 30%, Fearful radius 8, burst radius 10.8, level-scaled Fearful damage,
+orb counts/speed escalation and target choice remain
+development calibrations: the client does not contain their original server magnitudes or AI.
 
 **Start:** Sin NPCTalk 1194 (needs `Visited-8_4`, not `a8q5-DeliveredItem`) or 1195 (needs `a8q5-DeliveredItem`).
 **Finish:** Hargan's Book of Skill. **DONE flag (driver):** `a8q4-UsedRewardBook` (Order 0).

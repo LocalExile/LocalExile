@@ -127,9 +127,10 @@ static class Serve
         try
         {
             string from = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            string assembly = Path.GetFileName(typeof(Serve).Assembly.Location);
             string serveRoot = Path.Combine(Shared.Root(), "scripts", "re", "levelgen", "bin", "serve");
             string to = Path.Combine(serveRoot, Build);
-            if (!File.Exists(Path.Combine(to, "levelgen.dll")))
+            if (!File.Exists(Path.Combine(to, assembly)))
             {
                 // Older copies go (those still running stay locked and are skipped).
                 if (Directory.Exists(serveRoot))
@@ -147,7 +148,7 @@ static class Serve
             }
             // Through the shell, hidden: the server inherits none of this process's handles (a caller waiting for its
             // output to close would wait for the server too) and outlives it. It logs to bin/serve/serve.log.
-            var psi = new ProcessStartInfo("dotnet", $"\"{Path.Combine(to, "levelgen.dll")}\" serve")
+            var psi = new ProcessStartInfo("dotnet", $"\"{Path.Combine(to, assembly)}\" serve")
             {
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden,

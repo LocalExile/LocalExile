@@ -8,16 +8,16 @@ namespace GameServer.Modules.Survivors;
 static partial class SurvivorsRunRules
 {
     internal static IModuleLifetime? Lifetime;
-    static readonly ConcurrentDictionary<ClientState, byte> Active = new();
-    internal static readonly ConcurrentDictionary<ClientState, SurvivorsCarry> PendingRuns = new();
+    static readonly ConcurrentDictionary<Player, byte> Active = new();
+    internal static readonly ConcurrentDictionary<Player, SurvivorsCarry> PendingRuns = new();
 
-    internal static string? TravelRefusal(ClientState conn, PendingTransfer transfer) =>
-        StateOf(conn).Survivors is not null && !ReferenceEquals(StateOf(conn).StageTransfer, transfer)
+    internal static string? TravelRefusal(Player player, PendingTransfer transfer) =>
+        StateOf(player).Survivors is not null && !ReferenceEquals(StateOf(player).StageTransfer, transfer)
             ? "Finish the Survivors stage; the run opens the next area after its boss falls." : null;
 
-    internal static async Task TransferResolved(ClientState conn, PendingTransfer transfer, ControlResponse response)
+    internal static async Task TransferResolved(Player player, PendingTransfer transfer, ControlResponse response)
     {
-        if (!PendingRuns.TryRemove(conn, out var carry)) return;
+        if (!PendingRuns.TryRemove(player, out var carry)) return;
         if (response.Ok)
         {
             foreach (var expired in SurvivorsCarried.Where(p => DateTime.UtcNow - p.Value.At > TimeSpan.FromMinutes(5)))
@@ -27,38 +27,33 @@ static partial class SurvivorsRunRules
         else
         {
             // Re-use the retained area and run after an explicit Auth refusal, without wiping its inventory.
-            SurvivorsCarried[conn.Ticket] = carry with { Stage = Math.Max(0, carry.Stage - 1) };
-            var (remote, stream, ciphers) = conn.Wire;
-            await ResumeSurvivors(remote, stream, ciphers, conn);
+            SurvivorsCarried[player.Ticket] = carry with { Stage = Math.Max(0, carry.Stage - 1) };
+            await ResumeSurvivors(player);
         }
     }
 
-    internal static bool Enabled(ClientState conn) => Lifetime?.IsActive == true
-        && LeagueFor(conn).Modules.Contains("SurvivorsRun");
+    internal static bool Enabled(Player player) => Lifetime?.IsActive == true
+        && LeagueFor(player).Modules.Contains("SurvivorsRun");
 
-    internal static bool TryClaimAdmission(ClientState conn)
+    internal static bool TryClaimAdmission(Player player)
     {
-        if (!Enabled(conn)) return false;
-        lock (conn.Monsters)
-        {
-            if (StateOf(conn).Entered) return false;
-            StateOf(conn).Entered = true;
-            return true;
-        }
+        if (!Enabled(player)) return false;
+        if (StateOf(player).Entered) return false;
+        StateOf(player).Entered = true;
+        return true;
     }
 
-    internal static async Task EnterArea(ClientState conn)
+    internal static async Task EnterArea(Player player)
     {
-        if (!TryClaimAdmission(conn) || conn.Closed || conn.LeavingArea) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null)
+        if (!TryClaimAdmission(player) || player.Closed || player.LeavingArea) return;
+        if (InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null)
         {
             if (AreaTransitionCatalog.HashOf(SurvivorsLevels[0]) is { } first)
-                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(first, 0, false), "survivors entry");
+                await ChangeArea(player, new PendingTransfer(first, 0, false), "survivors entry");
             return;
         }
-        await ResumeSurvivors(remote, stream, ciphers, conn);
-        if (StateOf(conn).Survivors is null) await StartSurvivors(remote, stream, ciphers, conn);
+        await ResumeSurvivors(player);
+        if (StateOf(player).Survivors is null) await StartSurvivors(player);
     }
 
     /// <summary>
@@ -66,24 +61,23 @@ static partial class SurvivorsRunRules
     /// empty character and the first-skill choice. The "in town" button's own area change hands the start to the town's
     /// area hook, so no second transfer is queued.
     /// </summary>
-    internal static async Task Resurrected(ClientState conn)
+    internal static async Task Resurrected(Player player)
     {
-        if (!Enabled(conn)) return;
-        StateOf(conn).Stage = 0;
-        if (conn.PendingTransfer is not null) return;
+        if (!Enabled(player)) return;
+        StateOf(player).Stage = 0;
+        if (player.PendingTransfer is not null) return;
         if (AreaTransitionCatalog.HashOf(SurvivorsLevels[0]) is { } first)
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(first, 0, false), "survivors resurrection");
+            await ChangeArea(player, new PendingTransfer(first, 0, false), "survivors resurrection");
         }
     }
 
-    internal static void StartRunner(ClientState conn, Func<CancellationToken, Task> run)
+    internal static void StartRunner(Player player, Func<CancellationToken, Task> run)
     {
-        var state = StateOf(conn);
+        var state = StateOf(player);
         var expected = state.Survivors;
         var ownership = state.Ownership is { } existing && ReferenceEquals(existing.Run, expected)
-            ? existing : BindRun(conn, expected!);
+            ? existing : BindRun(player, expected!);
         var cancellation = ownership.Cancellation;
         state.Runner = Run();
         async Task Run()
@@ -94,7 +88,7 @@ static partial class SurvivorsRunRules
             {
                 if (ReferenceEquals(state.Cancellation, cancellation))
                 {
-                    Release(conn, expected);
+                    Release(player, expected);
                     state.Cancellation = null;
                 }
                 cancellation.Dispose();
@@ -104,97 +98,91 @@ static partial class SurvivorsRunRules
 
     /// <summary>The Game module's conn.ProjectileRuntime, read here without it: the 10.0.1xx SDKs, the ones Linux distributions ship,
     /// cannot use another assembly's internal extension member (CS0570), though newer ones can.</summary>
-    static ProjectileSession? ProjectileSessionOf(ClientState conn) => conn.ProjectileRuntimeState as ProjectileSession;
+    static ProjectileSession? ProjectileSessionOf(Player player) => player.ProjectileRuntimeState as ProjectileSession;
 
-    internal static SurvivorsOwnership BindRun(ClientState conn, SurvivorsRun run)
+    internal static SurvivorsOwnership BindRun(Player player, SurvivorsRun run)
     {
-        lock (conn.Monsters)
-        {
-            var state = StateOf(conn);
-            state.Cancellation?.Cancel();
-            if (state.Ownership is { } previous)
-                ProjectileSessionOf(conn)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
-                    && ReferenceEquals(shot.Owner, previous));
-            if (state.SurvivorsPausedByWindow) conn.Clock.Start();
-            state.SurvivorsPausedByWindow = false;
-            conn.PauseHeld = false;
-            state.SurvivorsOffer = null;
-            state.Survivors = run;
-            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Lifetime!.Stopping, SkillsStopping, RewardsStopping);
-            state.Cancellation = cancellation;
-            state.Ownership = new(conn, run, cancellation);
-            Active[conn] = 0;
-            return state.Ownership;
-        }
+        var state = StateOf(player);
+        state.Cancellation?.Cancel();
+        if (state.Ownership is { } previous)
+            ProjectileSessionOf(player)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
+                && ReferenceEquals(shot.Owner, previous));
+        if (state.SurvivorsPausedByWindow) player.Clock.Start();
+        state.SurvivorsPausedByWindow = false;
+        player.PauseHeld = false;
+        state.SurvivorsOffer = null;
+        state.Survivors = run;
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Lifetime!.Stopping, SkillsStopping, RewardsStopping);
+        state.Cancellation = cancellation;
+        state.Ownership = new(player, run, cancellation);
+        Active[player] = 0;
+        return state.Ownership;
     }
 
-    internal static void Release(ClientState conn, SurvivorsRun? expected = null)
+    internal static void Release(Player player, SurvivorsRun? expected = null)
     {
         ushort[] buffs;
         uint[] orbs;
         uint[] zones;
         bool closeWindow, wasPaused;
-        lock (conn.Monsters)
+        var state = StateOf(player);
+        if (expected is not null && !ReferenceEquals(state.Survivors, expected)) return;
+        buffs = [.. state.SurvivorsHeraldBuffs];
+        state.SurvivorsHeraldBuffs.Clear();
+        state.SurvivorsHeraldSkills.Clear();
+        orbs = [.. state.SurvivorsOrbs.Select(orb => orb.Id)];
+        state.SurvivorsOrbs.Clear();
+        zones = [.. state.SurvivorsGroundZones.Select(zone => zone.Id)];
+        state.SurvivorsGroundZones.Clear();
+        state.SurvivorsCorpses.Clear();
+        closeWindow = state.SurvivorsOffer is not null;
+        wasPaused = state.SurvivorsPausedByWindow;
+        state.Cancellation?.Cancel();
+        var retired = state.Ownership;
+        state.Ownership = null;
+        if (retired is not null)
+            ProjectileSessionOf(player)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
+                && ReferenceEquals(shot.Owner, retired));
+        state.Survivors = null;
+        state.SurvivorsCatalog = null;
+        state.SurvivorsSupports = null;
+        state.SurvivorsOffer = null;
+        state.SurvivorsOfferItems = null;
+        state.SurvivorsOfferList = null;
+        state.SurvivorsOfferNames = null;
+        state.SurvivorsItemIds.Clear();
+        if (state.SurvivorsPausedByWindow)
         {
-            var state = StateOf(conn);
-            if (expected is not null && !ReferenceEquals(state.Survivors, expected)) return;
-            buffs = [.. state.SurvivorsHeraldBuffs];
-            state.SurvivorsHeraldBuffs.Clear();
-            state.SurvivorsHeraldSkills.Clear();
-            orbs = [.. state.SurvivorsOrbs.Select(orb => orb.Id)];
-            state.SurvivorsOrbs.Clear();
-            zones = [.. state.SurvivorsGroundZones.Select(zone => zone.Id)];
-            state.SurvivorsGroundZones.Clear();
-            state.SurvivorsCorpses.Clear();
-            closeWindow = state.SurvivorsOffer is not null;
-            wasPaused = state.SurvivorsPausedByWindow;
-            state.Cancellation?.Cancel();
-            var retired = state.Ownership;
-            state.Ownership = null;
-            if (retired is not null)
-                ProjectileSessionOf(conn)?.Runtime.Discard(use => use.Payload is ProjectileOffense shot
-                    && ReferenceEquals(shot.Owner, retired));
-            state.Survivors = null;
-            state.SurvivorsCatalog = null;
-            state.SurvivorsSupports = null;
-            state.SurvivorsOffer = null;
-            state.SurvivorsOfferItems = null;
-            state.SurvivorsOfferList = null;
-            state.SurvivorsOfferNames = null;
-            state.SurvivorsItemIds.Clear();
-            if (state.SurvivorsPausedByWindow)
-            {
-                state.SurvivorsPausedByWindow = false;
-                conn.PauseHeld = false;
-                conn.Clock.Start();
-            }
-            Active.TryRemove(conn, out _);
+            state.SurvivorsPausedByWindow = false;
+            player.PauseHeld = false;
+            player.Clock.Start();
         }
-        if (!conn.Closed && !conn.LeavingArea && conn.Wire.Ciphers is not null)
+        Active.TryRemove(player, out _);
+        if (!player.Closed && !player.LeavingArea && player.Connection.Connected)
             _ = ClearPresentation();
 
         async Task ClearPresentation()
         {
             try
             {
-                var (remote, stream, ciphers) = conn.Wire;
+                await Send(player, InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Generic),
+                    "0x0163 hide mission timer Generic (survivors run ended)");
                 if (wasPaused)
-                    await Send(remote, stream, ciphers, InstancePause.State(false),
+                    await Send(player, InstancePause.State(false),
                         "0x01d3 resumed (the survivors run ended)");
-                foreach (ushort buff in buffs)
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), "survivors retired aura");
+                foreach (ushort row in buffs) ClearSurvivorsHerald(player, row);
                 foreach (uint orb in orbs)
-                    await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, orb, "survivors retired xp orb");
+                    await global::Game.SendWorldRemoval(player, orb, "survivors retired xp orb");
                 foreach (uint zone in zones)
-                    await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, zone, "survivors retired death zone");
+                    await global::Game.SendWorldRemoval(player, zone, "survivors retired death zone");
                 if (closeWindow)
-                    await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "survivors retired reward window",
-                        still: () => StateOf(conn).Survivors is null);
-                if (conn.PlayerObjectCreated && StateOf(conn).Survivors is null)
+                    await Send(player, InstanceNpcs.Talk(0), "survivors retired reward window",
+                        still: () => StateOf(player).Survivors is null);
+                if (player.Connection.PlayerObjectCreated && StateOf(player).Survivors is null)
                 {
-                    await SendCharacterStats(remote, stream, ciphers, conn, "survivors retired equipment exemptions");
-                    await SendSkills(remote, stream, ciphers, conn);
-                    await SendSkillBar(remote, stream, ciphers, conn);
+                    await SendCharacterStats(player, PlayerStatChange.Build);
+                    await SendSkills(player);
+                    await SendSkillBar(player);
                 }
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -203,7 +191,7 @@ static partial class SurvivorsRunRules
 
     internal static void ReleaseAll()
     {
-        foreach (var conn in Active.Keys) Release(conn);
+        foreach (var player in Active.Keys) Release(player);
         PendingRuns.Clear();
         SurvivorsCarried.Clear();
     }

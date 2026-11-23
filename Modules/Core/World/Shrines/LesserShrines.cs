@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using static Game;
 using static Program;
@@ -43,86 +44,117 @@ public static class LesserShrines
     {
         public readonly LesserShrineTrigger Trigger = new();
         public Stopwatch? Clock;
+        public ItemCatalog? CachedCatalog;
+        public SkillCatalog? CachedSkills;
+        public (uint Id, Item Item)[]? CachedActiveItems;
+        public Grant? CachedGrant;
     }
     sealed record Grant(string Source, int Effect, int Level);
     sealed record Request((int X, int Y) At, double Seconds, string Type);
     static readonly ConditionalWeakTable<PlayerInventories, State> States = new();
-    static readonly ConditionalWeakTable<ClientState, List<Request>> Pending = new();
+    static readonly ConditionalWeakTable<Player, List<Request>> Pending = new();
 
-    static Grant? Equipped(ClientState conn)
+    static Grant? Equipped(Player player, State state)
     {
-        var items = ItemsOf(conn);
-        var catalog = ItemsFor(conn);
-        var skills = SkillsFor(conn);
-        foreach (byte row in ItemModStats.EquipmentRows)
-        foreach (var item in items.Items(row))
+        var items = ItemsOf(player);
+        var catalog = ItemsFor(player);
+        var skills = SkillsFor(player);
+        // Fast check against the last scanned active equipment snapshot; avoids scanning every item's mods on every kill/tick.
+        lock (state)
         {
-            if (IsInactive(conn, item.Id)) continue;
-            foreach (var mod in item.Item.Mods)
-            foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
-                if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine")
-                    return new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level);
+            if (ReferenceEquals(state.CachedCatalog, catalog) && ReferenceEquals(state.CachedSkills, skills)
+                && state.CachedActiveItems is { } prev)
+            {
+                int idx = 0;
+                bool same = true;
+                foreach (byte row in ItemModStats.EquipmentRows)
+                {
+                    foreach (var item in items.Items(row))
+                    {
+                        if (IsInactive(player, item.Id)) continue;
+                        if (idx >= prev.Length || prev[idx].Id != item.Id || !ReferenceEquals(prev[idx].Item, item.Item))
+                        { same = false; break; }
+                        idx++;
+                    }
+                    if (!same) break;
+                }
+                if (same && idx == prev.Length) return state.CachedGrant;
+            }
+            var active = new List<(uint Id, Item Item)>();
+            Grant? grant = null;
+            foreach (byte row in ItemModStats.EquipmentRows)
+            foreach (var item in items.Items(row))
+            {
+                if (IsInactive(player, item.Id)) continue;
+                active.Add((item.Id, item.Item));
+                if (grant is not null) continue;
+                foreach (var mod in item.Item.Mods)
+                {
+                    foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
+                        if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine")
+                        { grant = new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level); break; }
+                    if (grant is not null) break;
+                }
+            }
+            state.CachedCatalog = catalog;
+            state.CachedSkills = skills;
+            state.CachedActiveItems = [.. active];
+            state.CachedGrant = grant;
+            return grant;
         }
-        return null;
     }
 
-    static double Cooldown(ClientState conn, Grant? grant)
+    static double Cooldown(Player player, Grant? grant)
     {
         if (grant is null) return 0;
-        var stats = CharacterPlayerStats(conn);
-        int recovery = Stats.Key("virtual_cooldown_speed_+%") is uint key ? stats.GetValueOrDefault(key) : 0;
+        var stats = PlayerStatValues(player);
+        int recovery = Stat.VirtualCooldownSpeedPlusPct is var key ? stats.GetValueOrDefault(key) : 0;
         double rate = Math.Max(0, 1 + recovery / 100.0)
-            * Math.Max(0, 1 + (MapModsOf(conn)?.Get("map_player_cooldown_speed_+%_final") ?? 0) / 100.0);
-        return rate > 0 ? SkillsFor(conn).CooldownMs(grant.Effect, grant.Level) / 1000.0 / rate : double.PositiveInfinity;
+            * Math.Max(0, 1 + (MapModsOf(player)?.Get(Stat.MapPlayerCooldownSpeedPlusPctFinal) ?? 0) / 100.0);
+        return rate > 0 ? SkillsFor(player).CooldownMs(grant.Effect, grant.Level) / 1000.0 / rate : double.PositiveInfinity;
     }
 
-    static void Observe(State state, ClientState conn, Grant? grant, double cooldown)
+    static void Observe(State state, Player player, Grant? grant, double cooldown)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        if (state.Clock is { } old && !ReferenceEquals(old, conn.Clock)) state.Trigger.Rebase(old.Elapsed.TotalSeconds, now);
-        state.Clock = conn.Clock;
+        double now = AreaTime(player);
+        if (state.Clock is { } old && !ReferenceEquals(old, player.Clock)) state.Trigger.Rebase(old.Elapsed.TotalSeconds, now);
+        state.Clock = player.Clock;
         state.Trigger.Observe(grant?.Source ?? "", now, cooldown);
     }
 
     public static void OnKill(KillContext kill)
     {
-        if (!kill.PlayerKill || kill.Conn.PlayerLife == 0) return;
-        var conn = kill.Conn;
-        lock (conn.Monsters)
+        if (!kill.PlayerKill || kill.Player.PlayerLife == 0) return;
+        var player = kill.Player;
+        var state = States.GetOrCreateValue(ItemsOf(player));
+        var grant = Equipped(player, state);
+        double cooldown = Cooldown(player, grant);
+        lock (state)
         {
-            var grant = Equipped(conn);
-            var state = States.GetOrCreateValue(ItemsOf(conn));
-            double cooldown = Cooldown(conn, grant);
-            lock (state)
-            {
-                Observe(state, conn, grant, cooldown);
-                if (grant is null || !state.Trigger.TryUse(conn.Clock.Elapsed.TotalSeconds, cooldown)) return;
-            }
-            var stats = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
-            var player = CharacterPlayerStats(conn);
-            int Own(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-            double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"),
-                name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0, Own);
-            var choices = ShrineCatalog.All.Where(s => s.Lesser && !s.PvPOnly).ToArray();
-            if (seconds <= 0 || choices.Length == 0) return;
-            // This request is committed synchronously with the kill, including atomic projectile kills.
-            // The tick publishes it through the same instance gate as generated shrines and claims.
-            Pending.GetOrCreateValue(conn).Add(new(kill.At, seconds, choices[Random.Shared.Next(choices.Length)].Id));
+            Observe(state, player, grant, cooldown);
+            if (grant is null || !state.Trigger.TryUse(AreaTime(player), cooldown)) return;
         }
+        var stats = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
+        var playerStats = PlayerStatValues(player);
+        int Own(uint key) => stats.GetValueOrDefault(key);
+        double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
+            name => playerStats.GetValueOrDefault(name), Own);
+        var choices = ShrineCatalog.All.Where(s => s.Lesser && !s.PvPOnly).ToArray();
+        if (seconds <= 0 || choices.Length == 0) return;
+        // This request is committed synchronously with the kill, including atomic projectile kills.
+        // The tick publishes it through the same instance gate as generated shrines and claims.
+        Pending.GetOrCreateValue(player).Add(new(kill.At, seconds, choices[AreaRng(player).Next(choices.Length)].Id));
     }
 
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player player)
     {
         Request[] requests;
-        lock (conn.Monsters)
-        {
-            var state = States.GetOrCreateValue(ItemsOf(conn));
-            var grant = Equipped(conn);
-            lock (state) Observe(state, conn, grant, Cooldown(conn, grant));
-            if (!Pending.TryGetValue(conn, out var pending)) return;
-            requests = [.. pending]; pending.Clear();
-        }
+        var state = States.GetOrCreateValue(ItemsOf(player));
+        var grant = Equipped(player, state);
+        lock (state) Observe(state, player, grant, Cooldown(player, grant));
+        if (!Pending.TryGetValue(player, out var pending)) return;
+        requests = [.. pending]; pending.Clear();
         foreach (var request in requests)
-            await ShrineManager.SpawnLesser(conn, request.At, request.Seconds, request.Type);
+            await ShrineManager.SpawnLesser(player, request.At, request.Seconds, request.Type);
     }
 }

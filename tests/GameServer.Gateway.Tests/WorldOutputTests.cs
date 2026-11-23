@@ -26,6 +26,46 @@ public class WorldOutputTests : IDisposable
     }
 
     [Fact]
+    public async Task Closing_a_connection_during_projection_refuses_the_unadmitted_batch()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var writer = new TcpClient();
+        var accepting = listener.AcceptTcpClientAsync();
+        await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader = await accepting;
+        var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+        var player = new Player(new(1, "world-retire", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Connection = { Session = new("world-retire", writer.GetStream(), ciphers) },
+        };
+        Assert.False(await Program.SendRecords(player, [], _ =>
+        {
+            player.Closed = true;
+            return new OutputBatch([OutputRecord.Immediate(InstanceProtocol.FrameEnd())]);
+        }));
+        Assert.Empty(Program.HistoryFor(ciphers).Lines());
+
+        var sharedPlayer = new Player(new(1, "world-retire-shared", 300, 300, 100, 100, null, []), 1, 1);
+        sharedPlayer.Connection.WorldOutput.Begin(1);
+        var previous = GameArea.Own(sharedPlayer.Area);
+        try
+        {
+            Assert.False(await Program.SendRecords(sharedPlayer, [], _ =>
+            {
+                sharedPlayer.Closed = true;
+                return new OutputBatch([OutputRecord.Immediate(InstanceProtocol.FrameEnd())]);
+            }));
+            Assert.Empty(sharedPlayer.Area.Delta.Take());
+            Assert.False(sharedPlayer.Connection.WorldOutput.TryShared(OutputBatch.Empty,
+                new WorldAdmission(sharedPlayer.Connection.WorldOutput, [])));
+            Assert.Throws<ObjectDisposedException>(() => sharedPlayer.Connection.WorldOutput.Shared(OutputBatch.Empty,
+                new WorldAdmission(sharedPlayer.Connection.WorldOutput, [])));
+        }
+        finally { GameArea.Own(previous); }
+    }
+
+    [Fact]
     public async Task Producers_publish_stable_native_order_and_release_births_only_after_the_delimiter()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -36,13 +76,13 @@ public class WorldOutputTests : IDisposable
         using var reader = await accepting;
         var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
         var receiver = new ConnectionCiphers(new byte[64], isClient: true);
-        var conn = new ClientState(new(1, "world-order", 300, 300, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "world-order", 300, 300, 100, 100, null, []), 1, 1)
         {
-            LockstepClient = true, Wire = ("world-order", writer.GetStream(), ciphers),
+            Connection = { LockstepClient = true, Session = new("world-order", writer.GetStream(), ciphers) }
         };
         try
         {
-            await Program.BeginWorldFrames(conn, .033);
+            await Program.BeginWorldFrames(player, .033);
             byte[] Record(uint id, uint key, ushort checkpoint)
             {
                 var bytes = InstanceProtocol.ActionEnded(id);
@@ -65,19 +105,19 @@ public class WorldOutputTests : IDisposable
             var highB = Record(1, 0x80000000, 0xffff);
             var global = Record(1, 0xfffffffe, 1);
             foreach (var record in new[] { highB, global, low, firstA, highA, firstB })
-                await Game.SendWorldRecord("world-order", writer.GetStream(), ciphers, conn, 1, record, null);
+                await Game.SendWorldRecord(player, 1, record, null);
             Assert.Empty(Program.HistoryFor(ciphers).Lines());
-            await Program.EndWorldFrame(conn, (.033, .066));
+            await Program.EndWorldFrame(player, (.033, .066));
             await Read(firstA, firstB, low, highA, highB, global, InstanceProtocol.FrameEnd());
 
             // A creation and its committed wake presentation are different frames. An action's factory must wait
             // outside the cipher gate, then observe state at admission rather than at the original call.
             const uint bornId = 9;
             var create = InstanceEntities.CreateObject(bornId, 0x1234, [0, 0]);
-            var creating = Game.SendWorldCreate(conn, bornId, () => create, wake: true);
+            var creating = Game.SendWorldCreate(player, bornId, () => create, wake: true);
             Assert.False(creating.IsCompleted);
             int version = 1, observed = 0;
-            var acting = Game.SendWorldRecord(conn, bornId, () =>
+            var acting = Game.SendWorldRecord(player, bornId, () =>
             {
                 observed = version;
                 return InstanceProtocol.LifeUpdate(bornId, (uint)version);
@@ -85,7 +125,7 @@ public class WorldOutputTests : IDisposable
             Assert.False(acting.IsCompleted);
             Assert.Equal(0, observed);
             version = 2;
-            await Program.EndWorldFrame(conn, (.066, .099));
+            await Program.EndWorldFrame(player, (.066, .099));
             Assert.True(await creating);
             Assert.True(await acting);
             Assert.Equal(2, observed);
@@ -93,39 +133,116 @@ public class WorldOutputTests : IDisposable
             BinaryPrimitives.WriteUInt32BigEndian(tailCreate.AsSpan(6), uint.MaxValue);
             Assert.Equal(0u, BinaryPrimitives.ReadUInt32BigEndian(create.AsSpan(6)));
             await Read(tailCreate, InstanceProtocol.FrameEnd());
-            await Program.EndWorldFrame(conn, (.099, .132));
+            await Program.EndWorldFrame(player, (.099, .132));
             await Read(InstanceProtocol.EnterWakeZone(bornId), InstanceProtocol.LifeUpdate(bornId, 2), InstanceProtocol.FrameEnd());
 
             // Predictive keeps the declared records in producer order, without waiting for a frame.
-            conn.LockstepClient = false;
-            await Game.SendWorldRecords("world-order", writer.GetStream(), ciphers, conn, 1, () => [highB, firstA]);
+            player.Connection.LockstepClient = false;
+            await Game.SendWorldRecords(player, 1, () => [highB, firstA]);
             await Read(highB, firstA);
 
             // Death updates the existing player incarnation; it must never reserve a duplicate player birth.
-            conn.LockstepClient = true;
-            var player = conn.WorldOutput.ExistingObject(Program.PlayerId);
-            conn.PlayerLife = 0;
-            await Game.SendPlayerDeathPresentation("world-order", writer.GetStream(), ciphers, conn, "death", conn.IncomingHitEpoch);
-            await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
-            await Program.EndWorldFrame(conn, (.132, .165));
-            await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
-                InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]), InstanceProtocol.FrameEnd());
-            Assert.Same(player, conn.WorldOutput.PublishedObject(Program.PlayerId));
-            conn.LockstepClient = false;
-            await Game.SendPlayerDeathPresentation("world-order", writer.GetStream(), ciphers, conn, "predictive death", conn.IncomingHitEpoch);
-            await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
-                InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
-                InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
+            player.Connection.LockstepClient = true;
+            var playerObject = player.Connection.WorldOutput.ExistingObject(player.Id);
+            player.PlayerLife = 0;
+            await Game.SendPlayerDeathPresentation(player, "death", player.IncomingHitEpoch);
+            await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(player)));
+            // The life at 0 and the hidden mini life bar are the Life and Stats components' (the area's frame end).
+            await Program.EndWorldFrame(player, (.132, .165));
+            await Read(InstanceProtocol.FrameEnd());
+            Assert.Same(playerObject, player.Connection.WorldOutput.PublishedObject(player.Id));
+            player.Connection.LockstepClient = false;
+            await Game.SendPlayerDeathPresentation(player, "predictive death", player.IncomingHitEpoch);
+            await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(player)));
 
         }
-        finally { conn.Closed = true; }
+        finally { player.Closed = true; }
+    }
+
+    [Fact]
+    public async Task Predictive_projectile_removal_keeps_the_final_update_and_removal_separate_in_the_area_frame()
+    {
+        var player = new Player(new(1, "predictive-projectile", 300, 300, 100, 100, null, []), 1, 1);
+        player.Connection.LockstepClient = false;
+        player.Connection.WorldOutput.Begin(1);
+        const uint id = 100;
+        var projectile = player.Connection.WorldOutput.ExistingObject(id);
+        var finalUpdate = InstanceProtocol.Teleport(id, 20, 30);
+        var removal = InstanceProtocol.RemoveObject(id);
+        var send = typeof(Game.ProjectileSession).GetMethod("SendWorldRecordsNow",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var session = new Game.ProjectileSession(player);
+        var previous = GameArea.Own(player.Area);
+        try
+        {
+            Func<byte[][]?> records = () => [finalUpdate, removal];
+            var projected = (Task)send.Invoke(session, [id, records, null, false, true, false])!;
+            Assert.True(projected.IsCompleted);
+            await projected;
+
+            Assert.Collection(player.Area.Delta.Take(),
+                update =>
+                {
+                    Assert.Equal(AreaDelta.Kind.World, update.Kind);
+                    Assert.Equal(finalUpdate, update.Bytes);
+                },
+                removed =>
+                {
+                    Assert.Equal(AreaDelta.Kind.Remove, removed.Kind);
+                    Assert.Equal(id, removed.Entity);
+                    Assert.Equal(WorldOrder.Last, removed.Order);
+                });
+            Assert.Equal(WorldObject.BirthState.Retired, projectile.State);
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32BigEndian(removal.AsSpan(6)));
+        }
+        finally
+        {
+            GameArea.Own(previous);
+            session.Invalidate();
+            await session.OutputCompleted;
+        }
+    }
+
+    [Fact]
+    public async Task Predictive_area_frame_completes_object_creation_and_removal()
+    {
+        var player = new Player(new(1, "predictive-object", 300, 300, 100, 100, null, []), 1, 1);
+        player.Connection.LockstepClient = false;
+        player.Connection.WorldOutput.Begin(1);
+        const uint id = 101;
+        var previous = GameArea.Own(player.Area);
+        try
+        {
+            var create = InstanceEntities.CreateObject(id, 0x1234, [0, 0]);
+            var creating = Game.SendWorldCreate(player, id, create);
+            Assert.True(creating.IsCompleted);
+            Assert.True(await creating);
+            var created = Assert.Single(player.Area.Delta.Take());
+            Assert.Equal(AreaDelta.Kind.Create, created.Kind);
+            Assert.Equal(id, created.Entity);
+
+            var target = player.Connection.WorldOutput.PublishedObject(id);
+            Assert.True(target.IsReady);
+
+            var removing = Game.SendWorldRemoval(player, id);
+            Assert.True(removing.IsCompleted);
+            await removing;
+            var removed = Assert.Single(player.Area.Delta.Take());
+            Assert.Equal(AreaDelta.Kind.Remove, removed.Kind);
+            Assert.Equal(id, removed.Entity);
+            Assert.Equal(WorldObject.BirthState.Retired, target.State);
+        }
+        finally
+        {
+            GameArea.Own(previous);
+        }
     }
 
     [Fact]
     public async Task Birth_cancellation_and_synchronous_quest_capture_preserve_incarnations_and_owned_bytes()
     {
-        var conn = new ClientState(new(1, "world-lifetime", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = true };
-        var output = conn.WorldOutput;
+        var player = new Player(new(1, "world-lifetime", 300, 300, 100, 100, null, []), 1, 1) { Connection = { LockstepClient = true } };
+        var output = player.Connection.WorldOutput;
         output.Begin(7);
         var first = output.NewObject(10);
         var second = output.NewObject(11);
@@ -138,11 +255,11 @@ public class WorldOutputTests : IDisposable
 
         var admission = new WorldAdmission(output, []);
         var bytes = InstanceProtocol.LifeUpdate(20, 5);
-        var batch = Game.CaptureQuestWorldOutput(conn, admission, async () =>
+        var batch = Game.CaptureQuestWorldOutput(player, admission, async () =>
         {
-            Assert.True(await Game.SendWorldCreate(conn, 20,
+            Assert.True(await Game.SendWorldCreate(player, 20,
                 () => InstanceEntities.CreateObject(20, 0x1234, [0, 0]), wake: true));
-            await Game.SendWorldRecord("quest", null!, null!, conn, 20, bytes, null);
+            await Game.SendWorldRecord(player, 20, bytes, null);
         });
         batch = new([.. batch.Records.Select(r => r.AsSharedView())]);
         Assert.Empty(output.Admit(batch, admission, framed: true));
@@ -183,7 +300,7 @@ public class WorldOutputTests : IDisposable
         var replacement = output.NewObject(20);
         Assert.NotSame(born, replacement);
         var closing = output.AwaitBirths([replacement]);
-        conn.Closed = true;
+        player.Closed = true;
         Assert.False(await closing);
 
         var cancelledOutput = new WorldOutput();
@@ -192,5 +309,24 @@ public class WorldOutputTests : IDisposable
         cancelled.Finish(false);
         Assert.False(await cancelledOutput.AwaitBirths([reservation]));
         Assert.NotSame(reservation, cancelledOutput.NewObject(30));
+    }
+
+    [Fact]
+    public void A_placeholder_for_an_unseen_id_yields_to_the_create_that_follows_it()
+    {
+        var output = new WorldOutput();
+        // A removal may name an ID whose create is still queued behind it: the record keeps a placeholder, not an
+        // incarnation, so the create that follows replaces it instead of failing the connection.
+        var placeholder = output.PublishedObject(40);
+        Assert.True(placeholder.Placeholder);
+        Assert.True(placeholder.IsReady);
+        var birth = output.NewObject(40);
+        Assert.NotSame(placeholder, birth);
+        Assert.False(placeholder.IsReady);
+        Assert.False(birth.IsReady);
+        // A create that really reached the client still needs its explicit removal before replacement.
+        Assert.Throws<InvalidOperationException>(() => output.NewObject(40));
+        var established = output.ExistingObject(41);
+        Assert.Throws<InvalidOperationException>(() => established.Retire());
     }
 }

@@ -6,8 +6,8 @@ public sealed class MapInstanceTests
     public void A_map_instance_keeps_the_map_it_was_opened_with()
     {
         var strand = new MapDevice.MapArea(0x1234, "MapWorldsStrand", "Strand Map", 3) { Level = 70 };
-        var first = new MapMods(new Dictionary<string, int> { ["map_monsters_life_+%"] = 40 });
-        var second = new MapMods(new Dictionary<string, int> { ["map_monsters_damage_+%"] = 25 });
+        var first = new MapMods(new Dictionary<uint, int> { [Stat.MapMonstersLifePlusPct] = 40 });
+        var second = new MapMods(new Dictionary<uint, int> { [Stat.MapMonstersDamagePlusPct] = 25 });
         var store = new InstanceStore(TimeProvider.System, TimeSpan.FromMinutes(8));
         const string owner = "MapInstanceRegressionOwner";
         try
@@ -63,16 +63,16 @@ public sealed class MapInstanceTests
                 new Dictionary<uint, int> { [1] = 7 }));
             Assert.Equal(seedB, ServerLevels.PlayableSeed("MapRuleIsolationTest", 12345, 70, areaRule));
 
-            uint life = Program.Stats.Key("map_monsters_life_+%")!.Value;
-            uint effect = Program.Stats.Key("map_mod_effect_+%_for_non_unique_maps")!.Value;
-            var explicitStats = new Dictionary<string, int> { ["map_monsters_life_+%"] = 40 };
+            uint life = Stat.MapMonstersLifePlusPct;
+            uint effect = Stat.MapModEffectPlusPctForNonUniqueMaps;
+            var explicitStats = new Dictionary<uint, int> { [Stat.MapMonstersLifePlusPct] = 40 };
             var atlas = new Dictionary<uint, int> { [effect] = 50 };
             var unique = new MapMods(explicitStats) { MapRarity = GameServer.Core.Protocol.Instance.ItemRarity.Unique,
                 ExplicitMods = [explicitStats] };
-            Assert.Equal(40, Game.ComposeMapAreaStats(unique, 3, atlas, new HashSet<string>(), 0, false)[life]);
+            Assert.Equal(40, Game.ComposeMapAreaStats(unique, 3, atlas, new HashSet<string>(), 0)[life]);
             var rare = new MapMods(explicitStats) { ExplicitMods = [explicitStats] };
-            Assert.Equal(60, Game.ComposeMapAreaStats(rare, 3, atlas, new HashSet<string>(), 0, false)[life]);
-            Assert.Equal(40, Game.ComposeMapAreaStats(first, 3, atlas, new HashSet<string>(), 0, false)[life]);
+            Assert.Equal(60, Game.ComposeMapAreaStats(rare, 3, atlas, new HashSet<string>(), 0)[life]);
+            Assert.Equal(40, Game.ComposeMapAreaStats(first, 3, atlas, new HashSet<string>(), 0)[life]);
         }
         finally { MapDevice.Close(owner); }
     }

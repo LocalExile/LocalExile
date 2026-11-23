@@ -24,6 +24,14 @@ public class AreaPopulationTests
         Assert.All(spawns, s => Assert.False(s.X >= 280, $"a pack stands beyond the wall at ({s.X}, {s.Y})"));
         Assert.Contains(notes, n => n.Contains("cannot walk", StringComparison.Ordinal));
 
+        var gated = AreaPopulation.Plan(Area(), 600, 600, Walk, (50, 50), [], [], 1, _ => true, [],
+            localTransitions: [((200, 100), (400, 100))]);
+        Assert.Contains(gated, s => s.X > 330);
+        Assert.All(gated, s => Assert.True(Walk(s.X, s.Y)));
+        var reverse = AreaPopulation.Plan(Area(), 600, 600, Walk, (50, 50), [], [], 1, _ => true, [],
+            localTransitions: [((400, 100), (200, 100)), ((-1, 100), (400, 100))]);
+        Assert.All(reverse, s => Assert.True(s.X < 280));
+
         // Pack members can scatter nine cells from the centre. A thin wall must constrain them too.
         bool ThinWall(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595 && x != 280;
         for (int seed = 1; seed <= 8; seed++)
@@ -40,5 +48,29 @@ public class AreaPopulationTests
         var extras = AreaPopulation.Plan(Area() with { Density = 0 }, 600, 600, Field, (50, 50), [], [],
             23, _ => true, [], scale: new(ExtraNormal: 3), roomPacks: rooms);
         Assert.True(extras.Count > rooms.Length * Pack.MaxCount, "The three extra packs were absorbed by the room budget.");
+    }
+
+    [Fact]
+    public void High_pack_size_scales_members_linearly_and_keeps_member_spacing()
+    {
+        bool Field(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595;
+        var baseline = AreaPopulation.Plan(Area(), 600, 600, Field, (50, 50), [], [], 42, _ => true, []);
+        var scaled = AreaPopulation.Plan(Area(), 600, 600, Field, (50, 50), [], [], 42, _ => true, [],
+            scale: new(Size: 12));
+
+        Assert.NotEmpty(baseline);
+        // Size multiplies members per pack (linear ~12x), not pack count x members (quadratic ~144x).
+        Assert.InRange(scaled.Count, baseline.Count * 10, baseline.Count * 13);
+
+        // Every placed monster stays walkable and at least MemberSpacing (3) cells apart on at least one axis.
+        var placed = new HashSet<(int, int)>();
+        foreach (var s in scaled)
+        {
+            Assert.True(Field(s.X, s.Y));
+            for (int dy = -2; dy <= 2; dy++)
+                for (int dx = -2; dx <= 2; dx++)
+                    Assert.DoesNotContain((s.X + dx, s.Y + dy), placed);
+            placed.Add((s.X, s.Y));
+        }
     }
 }

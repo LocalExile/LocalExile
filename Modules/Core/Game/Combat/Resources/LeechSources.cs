@@ -5,6 +5,12 @@ using GameServer.Core.World;
 public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket EnergyShield)
 {
     public bool Attack { get; init; }
+    // Whether the hit is melee damage: Vaal Pact's "Life Leech from Melee Damage is Instant" reads it (a bow attack is
+    // Attack but not Melee). Molten Strike's melee hit sets it; its projectiles and other ranged attacks do not.
+    public bool Melee { get; init; }
+    public bool WeaponLifeLeechInstant { get; init; }
+    public int InstantLeechPerEnemyPower { get; init; }
+    public int LifeOnBlindedHit { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
     // weapon's local "Grants X Life per Enemy Hit". Every 3.29 source is an attack's (PoB SkillStatMap maps
     // base_life_gain_per_target to LifeOnHit for attacks; the mana and energy shield mods say "with Attacks").
@@ -12,7 +18,7 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
     // "X% of Overkill Damage is Leeched as Life" (Slayer's Endless Hunger): the share of a killing hit's damage beyond
     // the target's remaining Life.
     public int OverkillLifePct { get; init; }
-    public static LeechSources From(Func<string, int> get, bool attack, Func<string, int>? local = null)
+    public static LeechSources From(Func<uint, int> get, bool attack, Func<uint, int>? local = null)
     {
         DamagePacket Pool(string pool)
         {
@@ -20,38 +26,41 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
             foreach (var type in DamageTypes.ConversionOrder)
             {
                 string name = DamageTypes.Name(type).ToLowerInvariant();
-                double coefficient = (double)get($"{pool}_leech_from_any_damage_permyriad")
-                    + get($"base_{pool}_leech_from_{name}_damage_permyriad");
+                double coefficient = (double)get(Stat.Of($"{pool}_leech_from_any_damage_permyriad"))
+                    + get(Stat.Of($"base_{pool}_leech_from_{name}_damage_permyriad"));
                 if (type is DamageType.Fire or DamageType.Cold or DamageType.Lightning)
-                    coefficient += get($"base_{pool}_leech_from_elemental_damage_permyriad");
-                if (pool == "life") coefficient += get($"horrible_ugly_life_leech_from_{name}_damage_perhundredthousand") / 10.0;
-                if (!attack) coefficient += get($"base_{pool}_leech_from_spell_damage_permyriad");
+                    coefficient += get(Stat.Of($"base_{pool}_leech_from_elemental_damage_permyriad"));
+                if (pool == "life") coefficient += get(Stat.Of($"horrible_ugly_life_leech_from_{name}_damage_perhundredthousand")) / 10.0;
+                if (!attack) coefficient += get(Stat.Of($"base_{pool}_leech_from_spell_damage_permyriad"));
                 else
                 {
-                    coefficient += get($"base_{pool}_leech_from_attack_damage_permyriad")
-                        + (local?.Invoke($"local_{pool}_leech_from_any_damage_permyriad") ?? 0);
-                    if (pool == "mana") coefficient += get("attack_skill_mana_leech_from_any_damage_permyriad");
+                    coefficient += get(Stat.Of($"base_{pool}_leech_from_attack_damage_permyriad"))
+                        + (local?.Invoke(Stat.Of($"local_{pool}_leech_from_any_damage_permyriad")) ?? 0);
+                    if (pool == "mana") coefficient += get(Stat.AttackSkillManaLeechFromAnyDamagePermyriad);
                     if (type == DamageType.Physical)
                     {
-                        coefficient += get($"{pool}_leech_from_physical_attack_damage_permyriad")
-                            + (local?.Invoke($"local_{pool}_leech_from_physical_damage_permyriad") ?? 0);
-                        if (pool != "energy_shield") coefficient += get("life_and_mana_leech_from_physical_damage_permyriad")
-                            + (local?.Invoke("local_life_and_mana_leech_from_physical_damage_permyriad") ?? 0);
+                        coefficient += get(Stat.Of($"{pool}_leech_from_physical_attack_damage_permyriad"))
+                            + (local?.Invoke(Stat.Of($"local_{pool}_leech_from_physical_damage_permyriad")) ?? 0);
+                        if (pool != "energy_shield") coefficient += get(Stat.LifeAndManaLeechFromPhysicalDamagePermyriad)
+                            + (local?.Invoke(Stat.LocalLifeAndManaLeechFromPhysicalDamagePermyriad) ?? 0);
                     }
                 }
                 result = result.Add(DamagePacket.Of(type, Math.Max(0, coefficient), Math.Max(0, coefficient)));
             }
             return result;
         }
-        int Local(string name) => local?.Invoke(name) ?? 0;
-        var gain = attack ? (Math.Max(0, get("base_life_gain_per_target") + Local("local_life_gain_per_target")
-                + Local("local_life_and_mana_gain_per_target")),
-            Math.Max(0, get("mana_gain_per_target") + Local("local_mana_gain_per_target")
-                + Local("local_life_and_mana_gain_per_target")),
-            Math.Max(0, get("energy_shield_gain_per_target"))) : default;
+        int Local(uint name) => local?.Invoke(name) ?? 0;
+        var gain = attack ? (Math.Max(0, get(Stat.BaseLifeGainPerTarget) + Local(Stat.LocalLifeGainPerTarget)
+                + Local(Stat.LocalLifeAndManaGainPerTarget)),
+            Math.Max(0, get(Stat.ManaGainPerTarget) + Local(Stat.LocalManaGainPerTarget)
+                + Local(Stat.LocalLifeAndManaGainPerTarget)),
+            Math.Max(0, get(Stat.EnergyShieldGainPerTarget))) : default;
         return new(Pool("life"), Pool("mana"), Pool("energy_shield"))
         {
-            Attack = attack, GainOnHit = gain, OverkillLifePct = Math.Max(0, get("life_leech_on_overkill_damage_%")),
+            Attack = attack, GainOnHit = gain, OverkillLifePct = Math.Max(0, get(Stat.LifeLeechOnOverkillDamagePct)),
+            WeaponLifeLeechInstant = attack && Local(Stat.LocalLifeLeechIsInstant) != 0,
+            InstantLeechPerEnemyPower = attack ? Local(Stat.HitsHaveLeechPctIsInstantPerMonsterPower) : 0,
+            LifeOnBlindedHit = attack ? Math.Max(0, Local(Stat.LocalLifeGainPerTargetVsBlindedEnemies)) : 0,
         };
     }
 

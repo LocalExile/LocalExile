@@ -10,9 +10,28 @@ using GameServer.Core;
 /// by default (jewels 3-4), at most the configured prefix/suffix caps (three/three and two/two by default), and a name
 /// from Words.dat word lists 1 (prefix) and 2 (suffix), drawn by the same tag weights.
 /// </summary>
-public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettings? settings = null)
+public sealed class ItemRolls
 {
-    readonly SystemSettings _settings = settings ?? SystemSettings.Default;
+    readonly ItemCatalog catalog;
+    readonly string folder;
+    readonly SystemSettings? settings;
+
+    public ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettings? settings = null)
+    {
+        this.catalog = catalog;
+        this.folder = folder;
+        this.settings = settings;
+        _settings = settings ?? SystemSettings.Default;
+        _words = LoadWords(folder);
+        _influenceTags = LoadInfluenceTags(folder);
+        _mirrorMapTypes = LoadMirrorMapTypes();
+        _affixesByDomain = catalog.Mods.All
+            .Where(m => m.GenerationType is Prefix or Suffix && !m.EssenceOnly)
+            .GroupBy(m => m.Domain)
+            .ToDictionary(g => g.Key, g => g.ToArray());
+    }
+
+    readonly SystemSettings _settings;
 
     public const int Prefix = 1, Suffix = 2;
 
@@ -22,12 +41,13 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// <summary>A Words.dat row: the key the client looks it up by (HASH32), its text and spawn weights.</summary>
     public sealed record Word(uint Key, string Text, int List, IReadOnlyList<(string Tag, int Weight)> SpawnWeights);
 
-    private readonly Lazy<List<Word>> _words = new(() => LoadWords(folder));
+    private readonly List<Word> _words;
 
     /// <summary>Words.dat: rare name words (lists 1 and 2) and the other lists.</summary>
-    public IReadOnlyList<Word> Words => _words.Value;
+    public IReadOnlyList<Word> Words => _words;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
-    private readonly Lazy<Dictionary<(int Class, int Influence), string>> _influenceTags = new(() => LoadInfluenceTags(folder));
+    private readonly Dictionary<(int Class, int Influence), string> _influenceTags;
+    private readonly Dictionary<int, ModCatalog.Mod[]> _affixesByDomain;
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
@@ -40,11 +60,18 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         ItemInfluence influences, string? tag) =>
         _pools.GetOrAdd((t.Row, itemLevel, influences, tag), _ =>
         {
+            if (!_affixesByDomain.TryGetValue(t.ModDomain, out var domainMods)) return [];
             var tags = TagsWith(t, influences);
             if (tag is { Length: > 0 }) tags = new HashSet<string>(tags) { tag };
-            return [.. catalog.Mods.All
-                .Where(m => m.Domain == t.ModDomain && m.GenerationType is Prefix or Suffix && m.Level <= itemLevel && !m.EssenceOnly)
-                .Select(m => (m, m.WeightFor(tags))).Where(p => p.Item2 > 0)];
+            var result = new List<(ModCatalog.Mod, int)>();
+            for (int i = 0; i < domainMods.Length; i++)
+            {
+                var m = domainMods[i];
+                if (m.Level > itemLevel) continue;
+                int weight = m.WeightFor(tags);
+                if (weight > 0) result.Add((m, weight));
+            }
+            return result;
         });
 
     /// <summary>The affixes that can roll on this item.</summary>
@@ -57,10 +84,13 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         if (influences == ItemInfluence.None) return t.Tags;
         var tags = new HashSet<string>(t.Tags);
         foreach (var influence in Enum.GetValues<ItemInfluence>().Where(i => i != ItemInfluence.None && influences.HasFlag(i)))
-            if (_influenceTags.Value.TryGetValue((t.ClassRow, System.Numerics.BitOperations.TrailingZeroCount((int)influence)), out string? tag))
+            if (_influenceTags.TryGetValue((t.ClassRow, System.Numerics.BitOperations.TrailingZeroCount((int)influence)), out string? tag))
                 tags.Add(tag);
         return tags;
     }
+
+    /// <summary>Whether the item accepts affix changes (<see cref="TryModifiable"/>).</summary>
+    public bool Modifiable(Item item) => TryModifiable(item, out _);
 
     /// <summary>The item and its base accept affix changes: the item is not corrupted or mirrored, has Mods, and its
     /// base is known, serializable, has Mods and is not unmodifiable.</summary>
@@ -109,11 +139,13 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     public Item? Augment(Item item, Random random) =>
         item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffix(item, 1, random) : null;
 
+    static bool IsMagicOnly(Item item) => item.Components.Contains("Flask") || item.Components.Contains("Tincture");
+
     /// <summary>Regal Orb's validated magic-to-rare upgrade: the magic affixes stay, one more comes from the rare
-    /// pool (at most three of each side), and a rare name is drawn. Flasks are magic-only and cannot become rare.</summary>
+    /// pool (at most three of each side), and a rare name is drawn. Flasks and tinctures are magic-only and cannot become rare.</summary>
     public Item? Regal(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Magic || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
+        if (item.Rarity != ItemRarity.Magic || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random) is not { } added ? null
             : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
@@ -129,30 +161,30 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
     }
 
-    /// <summary>Alchemy's validated normal-to-rare upgrade: 4-6 weighted affixes and a rare name. Flasks are
-    /// magic-only and cannot become rare.</summary>
+    /// <summary>Alchemy's validated normal-to-rare upgrade: 4-6 weighted affixes and a rare name. Flasks and tinctures
+    /// are magic-only and cannot become rare.</summary>
     public Item? Alchemy(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Normal || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
+        if (item.Rarity != ItemRarity.Normal || IsMagicOnly(item) || !TryModifiable(item, out var type) ||
             Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Rare, random) with { Identified = true };
     }
 
     /// <summary>Exalted Orb's validated rare addition: the affixes and name stay and one more weighted affix is
-    /// added within the base's rare limits. Flasks are magic-only and cannot be rare.</summary>
+    /// added within the base's rare limits. Flasks and tinctures are magic-only and cannot be rare.</summary>
     public Item? Exalted(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random);
     }
 
     /// <summary>Chaos Orb's validated rare reroll: every unprotected explicit affix is replaced by 4-6 new weighted
-    /// ones, a new rare name is drawn, and metamod-protected affixes stay. Flasks are magic-only and cannot be
+    /// ones, a new rare name is drawn, and metamod-protected affixes stay. Flasks and tinctures are magic-only and cannot be
     /// rare.</summary>
     public Item? Chaos(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type) ||
             Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
     }
@@ -162,7 +194,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// one suffix magic, else rare). Implicits and other lists stay.</summary>
     public Item? StripExplicits(Item item)
     {
-        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out _)) return null;
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out _)) return null;
         var fractured = item.FracturedIndexes();
         var kept = item.Mods.Where((m, i) => m.Section != ModSection.Explicit || fractured.Contains(i)).ToArray();
         var sides = fractured.Select(i => catalog.Mods.ByHash(item.Mods[i].Hash)?.GenerationType).ToArray();
@@ -173,16 +205,20 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
     /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
-    /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>
+    /// Simplex ring bases); jewel classes and Idols have their own, lower defaults. A side never goes below zero.</summary>
     (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type, Item item)
     {
-        var (prefix, suffix) = type.Class is "Jewel" or "AbyssJewel"
+        var (prefix, suffix) = SmallAffixClass(type.Class)
             ? (_settings.RareJewelMaxPrefixes, _settings.RareJewelMaxSuffixes)
             : (_settings.RareMaxPrefixes, _settings.RareMaxSuffixes);
         var local = ItemModStats.Local(item, catalog.Mods);
-        return (Math.Max(0, prefix + local.GetValueOrDefault("local_maximum_prefixes_allowed_+")),
-            Math.Max(0, suffix + local.GetValueOrDefault("local_maximum_suffixes_allowed_+")));
+        return (Math.Max(0, prefix + local.GetValueOrDefault(Stat.LocalMaximumPrefixesAllowedPlus)),
+            Math.Max(0, suffix + local.GetValueOrDefault(Stat.LocalMaximumSuffixesAllowedPlus)));
     }
+
+    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and Idols (AtlasRelic),
+    /// which share the jewels' caps.</summary>
+    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" or "AtlasRelic";
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
     public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>
@@ -200,7 +236,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     (int Count, int MaxPrefix, int MaxSuffix) RarePlan(ItemCatalog.BaseType type, Item item, Random rng)
     {
-        bool jewel = type.Class is "Jewel" or "AbyssJewel";
+        bool jewel = SmallAffixClass(type.Class);
         int weighted = jewel ? (rng.Next(20) < 13 ? 3 : 4) : rng.Next(12) switch { < 8 => 4, < 11 => 5, _ => 6 };
         var (maxPrefix, maxSuffix) = MaxAffixesPerSide(type, item);
         return (RareAffixCount(weighted, maxPrefix, maxSuffix, jewel ? 4 : 6), maxPrefix, maxSuffix);
@@ -287,28 +323,30 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return item with { Mods = mods, FracturedCount = 1 };
     }
 
-    HashSet<uint>? _mirrorMapTypes;
+    readonly HashSet<uint> _mirrorMapTypes;
+
+    /// <summary>The map bases of tiers 1-16 (atlas or map device): the maps a Mirror of Kalandra copies.</summary>
+    HashSet<uint> LoadMirrorMapTypes()
+    {
+            string mapFolder = folder;
+        var atlas = new AtlasCatalog(catalog, mapFolder);
+        var maps = MapDevice.Load(mapFolder, row => catalog.Row(row)?.Hash, catalog);
+        return [.. catalog.All.Where(t => (atlas.TierOf(t.Hash) ?? maps.AreaOf(t.Hash)?.Tier) is >= 1 and <= 16)
+            .Select(t => t.Hash)];
+    }
 
     bool MirrorTarget(ItemCatalog.BaseType type)
     {
         if (type.CanBeMirrored || type.Components.Contains("Flask")) return true;
         if (!type.Components.Contains("Map") && !type.Components.Contains("MapKey")) return false;
-        return LazyInitializer.EnsureInitialized(ref _mirrorMapTypes, () =>
-        {
-            // Older instances predate the primary-constructor field added by hot reload.
-            string mapFolder = folder ?? "data";
-            var atlas = new AtlasCatalog(catalog, mapFolder);
-            var maps = MapDevice.Load(mapFolder, row => catalog.Row(row)?.Hash, catalog);
-            return [.. catalog.All.Where(t => (atlas.TierOf(t.Hash) ?? maps.AreaOf(t.Hash)?.Tier) is >= 1 and <= 16)
-                .Select(t => t.Hash)];
-        }).Contains(type.Hash);
+        return _mirrorMapTypes.Contains(type.Hash);
     }
 
     /// <summary>Mirror of Kalandra: a mirrored copy of non-unique equipment, a flask or a tier 1-16 map, not corrupted, mirrored or
     /// unmodifiable, with every property kept (mods and their values, fractured mods, quality, sockets, links, socketed
     /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
     public Item? Mirror(Item item) =>
-        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
+        item.SkinTransferSource is null && item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
             ? item with { Mirrored = true } : null;
 
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
@@ -371,8 +409,14 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     public Item? RollAffinity(Item item, ItemRarity rarity, Random rng, int percent) =>
         rarity == ItemRarity.Rare ? RollCore(item, rarity, rng, null, null, null, false, null, percent) : null;
 
+    /// <summary>The same as <see cref="Roll(Item, ItemRarity, Random, ValueTuple{int, int}?, ModCatalog.Mod?, int?, bool)"/>,
+    /// with only the affixes <paramref name="allow"/> admits (a narrower pool, such as the better tiers of each).</summary>
+    public Item Roll(Item item, ItemRarity rarity, Random rng, Func<ModCatalog.Mod, bool> allow) =>
+        RollCore(item, rarity, rng, null, null, null, false, null, null, allow)!;
+
     Item? RollCore(Item item, ItemRarity rarity, Random rng, (int Count, int MaxEach)? shape,
-        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent)
+        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent,
+        Func<ModCatalog.Mod, bool>? allow = null)
     {
         var fractured = item.FracturedIndexes();
         var rules = new MetacraftRules(item, catalog.Mods);
@@ -395,7 +439,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
                 : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences, ClusterJewels.ThemeOf(t, item)?.Tag)
-            .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();
+            .Where(p => (!respectMetamods || generation.Allows(p.Mod)) && (allow is null || allow(p.Mod))).ToList();
         var chosen = kept.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         int keptCount = chosen.Count;
         if (guaranteed is not null) chosen.Add(guaranteed);
@@ -533,7 +577,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     {
         uint? Draw(int list)
         {
-            var words = _words.Value.Where(w => w.List == list)
+            var words = _words.Where(w => w.List == list)
                 .Select(w => (w, w.SpawnWeights.FirstOrDefault(s => t.Tags.Contains(s.Tag)).Weight)).Where(p => p.Weight > 0).ToList();
             return words.Count == 0 ? null : Pick(words, rng).Key;
         }
@@ -557,7 +601,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     public IReadOnlyList<uint> RareName(Item item, Random rng) => catalog.ByHash(item.TypeHash) is { } t ? RareName(t, rng) : [];
 
     /// <summary>"Dire Bane" from the keys (for logs and /item_mods).</summary>
-    public string NameOf(IReadOnlyList<uint> keys) => string.Concat(keys.Select(k => _words.Value.FirstOrDefault(w => w.Key == k)?.Text ?? $"[{k:x8}]"));
+    public string NameOf(IReadOnlyList<uint> keys) => string.Concat(keys.Select(k => _words.FirstOrDefault(w => w.Key == k)?.Text ?? $"[{k:x8}]"));
 
     static T Pick<T>(IReadOnlyList<(T Item, int Weight)> choices, Random rng)
     {

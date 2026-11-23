@@ -4,43 +4,51 @@ using GameServer.Core.World;
 /// Other conditional/trigger/minion mechanics require their own execution paths.</summary>
 public static class GemSupportDamage
 {
-    static readonly HashSet<string> Unconditional =
+    static readonly HashSet<uint> Unconditional =
     [
-        "support_melee_physical_damage_+%_final", "support_weapon_elemental_damage_+%_final",
-        "delve_mod_attack_damage_+%_final", "delve_mod_spell_damage_+%_final",
-        "support_area_concentrate_area_damage_+%_final", "support_multiple_projectile_damage_+%_final",
-        "support_lesser_multiple_projectile_damage_+%_final", "support_chain_hit_damage_+%_final",
-        "support_split_projectile_damage_+%_final", "support_fork_projectile_damage_+%_final",
-        "support_multiple_attack_damage_+%_final", "support_projectile_attack_physical_damage_+%_final",
-        "support_echo_damage_+%_final", "support_slower_projectiles_damage_+%_final",
-        "support_elemental_proliferation_damage_+%_final", "support_controlled_destruction_spell_damage_+%_final",
-        "support_void_manipulation_chaos_damage_+%_final", "support_reduced_duration_damage_+%_final",
-        "support_gem_elemental_damage_+%_final", "support_pierce_projectile_damage_+%_final",
-        "support_better_ailments_hit_damage_+%_final", "support_spirit_strike_damage_+%_final",
-        "support_storm_barrier_damage_+%_final", "support_pure_shock_damage_+%_final",
-        "support_bonechill_cold_damage_+%_final", "support_blood_thirst_damage_+%_final",
-        "support_attack_skills_elemental_damage_+%_final", "support_chance_to_ignite_fire_damage_+%_final",
-        "support_efficacy_spell_damage_+%_final", "support_maim_chance_physical_damage_+%_final",
-        "support_brutality_physical_damage_+%_final", "support_parallel_projectiles_damage_+%_final",
-        "support_spell_cascade_damage_+%_final", "support_greater_volley_projectile_damage_+%_final",
-        "support_pulverise_melee_area_damage_+%_final", "support_fortify_melee_damage_+%_final",
-        "support_barrage_damage_+%_final", "support_cruelty_hit_damage_+%_final",
-        "support_vicious_projectiles_physical_damage_+%_final", "support_vicious_projectiles_chaos_damage_+%_final",
-        "support_cast_while_channelling_triggered_skill_damage_+%_final", "support_cast_on_crit_spell_damage_+%_final", "cast_on_damage_taken_damage_+%_final", "inc_aoe_plus_more_area_damage_+%_final", "doedre_aura_damage_+%_final"
+        Stat.SupportMeleePhysicalDamagePlusPctFinal, Stat.SupportWeaponElementalDamagePlusPctFinal,
+        Stat.DelveModAttackDamagePlusPctFinal, Stat.DelveModSpellDamagePlusPctFinal,
+        Stat.SupportAreaConcentrateAreaDamagePlusPctFinal, Stat.SupportMultipleProjectileDamagePlusPctFinal,
+        Stat.SupportLesserMultipleProjectileDamagePlusPctFinal, Stat.SupportChainHitDamagePlusPctFinal,
+        Stat.SupportSplitProjectileDamagePlusPctFinal, Stat.SupportForkProjectileDamagePlusPctFinal,
+        Stat.SupportMultipleAttackDamagePlusPctFinal, Stat.SupportProjectileAttackPhysicalDamagePlusPctFinal,
+        Stat.SupportEchoDamagePlusPctFinal, Stat.SupportSlowerProjectilesDamagePlusPctFinal,
+        Stat.SupportElementalProliferationDamagePlusPctFinal, Stat.SupportControlledDestructionSpellDamagePlusPctFinal,
+        Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportReducedDurationDamagePlusPctFinal,
+        Stat.SupportGemElementalDamagePlusPctFinal, Stat.SupportPierceProjectileDamagePlusPctFinal,
+        Stat.SupportBetterAilmentsHitDamagePlusPctFinal, Stat.SupportSpiritStrikeDamagePlusPctFinal,
+        Stat.SupportStormBarrierDamagePlusPctFinal, Stat.SupportPureShockDamagePlusPctFinal,
+        Stat.SupportBonechillColdDamagePlusPctFinal, Stat.SupportBloodThirstDamagePlusPctFinal,
+        Stat.SupportAttackSkillsElementalDamagePlusPctFinal, Stat.SupportChanceToIgniteFireDamagePlusPctFinal,
+        Stat.SupportEfficacySpellDamagePlusPctFinal, Stat.SupportMaimChancePhysicalDamagePlusPctFinal,
+        Stat.SupportBrutalityPhysicalDamagePlusPctFinal, Stat.SupportParallelProjectilesDamagePlusPctFinal,
+        Stat.SupportSpellCascadeDamagePlusPctFinal, Stat.SupportGreaterVolleyProjectileDamagePlusPctFinal,
+        Stat.SupportPulveriseMeleeAreaDamagePlusPctFinal, Stat.SupportFortifyMeleeDamagePlusPctFinal,
+        Stat.SupportBarrageDamagePlusPctFinal, Stat.SupportCrueltyHitDamagePlusPctFinal,
+        Stat.SupportViciousProjectilesPhysicalDamagePlusPctFinal, Stat.SupportViciousProjectilesChaosDamagePlusPctFinal,
+        Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal, Stat.SupportCastOnCritSpellDamagePlusPctFinal, Stat.CastOnDamageTakenDamagePlusPctFinal, Stat.IncAoePlusMoreAreaDamagePlusPctFinal, Stat.DoedreAuraDamagePlusPctFinal, Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal,
+        Stat.SupportCastOnMeleeKillSpellDamagePlusPctFinal, Stat.SupportManaforgedArrowsDamagePlusPctFinal,
+        // The trap, mine and totem supports' own more/less damage: Trap, Trap and Mine Damage, Cluster Traps,
+        // Multiple Traps, Blastchain Mine, High-Impact Mine, Locus Mine, Multiple Totems and Focused Ballista.
+        Stat.SupportTrapDamagePlusPctFinal, Stat.SupportTrapAndMineDamagePlusPctFinal,
+        Stat.SupportClustertrapDamagePlusPctFinal, Stat.SupportMultithrowDamagePlusPctFinal,
+        Stat.SupportGemMineDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
+        Stat.SupportLocusMineDamagePlusPctFinal, Stat.SupportAdditionalTotemDamagePlusPctFinal,
+        Stat.SupportFocusedBallistaTotemDamagePlusPctFinal, Stat.SupportBrandDamagePlusPctFinal
     ];
 
     /// <summary>Each matching support modifier applies once to the portion's complete visited-type set.
     /// Retain the existing two product groups for floating projection, while qualifying both against full history.</summary>
     public static (double GeneralOrPhysical, double ElementalOrChaos) Multipliers(DamageTypeHistory history,
-        IEnumerable<(string Name, int Value)> stats,
+        IEnumerable<(uint Id, int Value)> stats,
         IReadOnlySet<int> types, bool fullEnergyShield = false, bool leechingEnergyShield = false)
     {
         double general = 1, typed = 1;
-        foreach (var (name, value) in stats)
-            if ((Unconditional.Contains(name)
-                || fullEnergyShield && name == "support_energy_shield_leech_damage_+%_on_full_energy_shield_final"
-                || leechingEnergyShield && name == "support_energy_shield_leech_damage_+%_while_leeching_energy_shield_final")
-                && Applies(name, history, types))
+        foreach (var (id, value) in stats)
+            if ((Unconditional.Contains(id)
+                || fullEnergyShield && id == Stat.SupportEnergyShieldLeechDamagePlusPctOnFullEnergyShieldFinal
+                || leechingEnergyShield && id == Stat.SupportEnergyShieldLeechDamagePlusPctWhileLeechingEnergyShieldFinal)
+                && Program.Stats.Name(id) is var name && Applies(name, history, types))
             {
                 double factor = Math.Max(0, 1 + value / 100.0);
                 if (name.Contains("elemental", StringComparison.Ordinal) || name.Contains("_chaos_", StringComparison.Ordinal)
@@ -51,8 +59,8 @@ public static class GemSupportDamage
         return (general, typed);
     }
 
-    public static bool Prohibited(DamageType finalType, IEnumerable<(string Name, int Value)> stats) =>
-        DamageStats.Prohibited(finalType, name => stats.Any(s => s.Value != 0 && s.Name == name) ? 1 : 0);
+    public static bool Prohibited(DamageType finalType, IEnumerable<(uint Id, int Value)> stats) =>
+        DamageStats.Prohibited(finalType, id => stats.Any(s => s.Value != 0 && s.Id == id) ? 1 : 0);
 
     static bool Applies(string name, DamageTypeHistory history, IReadOnlySet<int> types)
     {
@@ -62,7 +70,9 @@ public static class GemSupportDamage
         if (name.Contains("_fire_", StringComparison.Ordinal) && (history & DamageTypeHistory.Fire) == 0) return false;
         if (name.Contains("_cold_", StringComparison.Ordinal) && (history & DamageTypeHistory.Cold) == 0) return false;
         if (name.Contains("_lightning_", StringComparison.Ordinal) && (history & DamageTypeHistory.Lightning) == 0) return false;
-        if (name.Contains("melee", StringComparison.Ordinal) && !types.Contains(19)) return false;
+        // Cast on Melee Kill's more damage is the triggered spell's: "melee" names its trigger, not the hit.
+        if (name.Contains("melee", StringComparison.Ordinal) && name != "support_cast_on_melee_kill_spell_damage_+%_final"
+            && !types.Contains(19)) return false;
         if (name.Contains("spell", StringComparison.Ordinal) && !types.Contains(1)) return false;
         if (name.Contains("projectile", StringComparison.Ordinal) && !types.Contains(2)) return false;
         if (name.Contains("area", StringComparison.Ordinal) && !types.Contains(7)) return false;

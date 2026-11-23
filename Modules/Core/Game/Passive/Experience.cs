@@ -20,8 +20,8 @@ public static partial class Game
             partyMultiplier: partyMultiplier);
         uint beforePenalty = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel,
             monsterLevel, levelPenalty: false, partyMultiplier: partyMultiplier);
-        return (GameEvents.RunExperience(ConnOf(player), monster, character),
-            GameEvents.RunExperience(ConnOf(player), monster, beforePenalty));
+        return (GameEvents.RunExperience(PlayerOf(player), monster, character),
+            GameEvents.RunExperience(PlayerOf(player), monster, beforePenalty));
     }
 
     public sealed class CharacterLevelUpdates
@@ -32,87 +32,81 @@ public static partial class Game
     }
 
     public static readonly ConcurrentDictionary<string, CharacterLevelUpdates> LevelUpdates = new(StringComparer.OrdinalIgnoreCase);
-    public static CharacterLevelUpdates LevelUpdatesFor(ClientState conn) => LevelUpdates.GetOrAdd(CharacterName(conn), _ => new());
+    public static CharacterLevelUpdates LevelUpdatesFor(Player player) => LevelUpdates.GetOrAdd(CharacterName(player), _ => new());
 
     public sealed record ExperienceChange(long Revision, uint Before, uint After, bool LevelChanged, bool Reset = false);
 
     // Call while holding the connection lock; an accepted death must not gain XP or publish a later level-up heal.
-    public static bool HardcoreProgressBlocked(ClientState conn) =>
-        conn.Hardcore && (conn.PlayerLife == 0 || conn.HardcoreDeathRecorded);
+    public static bool HardcoreProgressBlocked(Player player) =>
+        player.Character.Hardcore && (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded);
 
     // All production gains/resets serialize the shared XP ledger before publishing a connection copy.
     // Lock order is character XP -> connection -> database. No monitor is held across network waits.
-    public static ExperienceChange? RecordExperienceGain(ClientState conn, uint gain)
+    public static ExperienceChange? RecordExperienceGain(Player player, uint gain)
     {
-        var updates = LevelUpdatesFor(conn);
+        var updates = LevelUpdatesFor(player);
         lock (updates.Gate)
-        lock (conn.Monsters)
         {
-            if (HardcoreProgressBlocked(conn)) return null;
-            var rules = LeagueFor(conn).Rules;
-            var (before, after) = CharacterSaves.AddExperience(CharacterName(conn), conn.Experience,
+            if (HardcoreProgressBlocked(player)) return null;
+            var rules = LeagueFor(player).Rules;
+            var (before, after) = CharacterSaves.AddExperience(CharacterName(player), player.Character.Experience,
                 // An older area may have stale pools. Scale against the shared ledger's current level, not that copy.
                 xp => Progression.AddExperience(xp, LeagueRules.Scale(gain,
                     rules.ExperienceMultiplier(Progression.LevelFor(xp, CharacterStats.LevelStarts))), CharacterStats.LevelStarts));
             if (after == before) return null;
-            bool levelChanged = Progression.LevelFor(after, CharacterStats.LevelStarts) != conn.Pools.Level;
-            if (levelChanged) CharacterSaves.SaveExperience(CharacterName(conn));
-            conn.Experience = after;
+            bool levelChanged = Progression.LevelFor(after, CharacterStats.LevelStarts) != player.Pools.Level;
+            if (levelChanged) CharacterSaves.SaveExperience(CharacterName(player));
+            player.Character.Experience = after;
             return new(++updates.Revision, before, after, levelChanged);
         }
     }
 
-    public static uint CurrentExperience(ClientState conn) =>
-        CharacterSaves.Load(CharacterName(conn))?.Experience ?? conn.Experience;
+    public static uint CurrentExperience(Player player) =>
+        CharacterSaves.Experience(CharacterName(player)) ?? player.Character.Experience;
 
-    public static async Task<bool> PublishExperienceChange(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ExperienceChange change, string why)
+    public static async Task<bool> PublishExperienceChange(Player player, ExperienceChange change, string why)
     {
-        var updates = LevelUpdatesFor(conn);
-        await Send(remote, stream, ciphers, [], $"0x02bc current player experience ({why})", atGate: () =>
+        var updates = LevelUpdatesFor(player);
+        await Send(player, [], $"0x02bc current player experience ({why})", atGate: () =>
         {
             lock (updates.Gate)
-            lock (conn.Monsters)
             {
-                if (HardcoreProgressBlocked(conn)) return null;
-                conn.Experience = CurrentExperience(conn);
-                return InstanceEntities.PlayerExperienceUpdate(PlayerId, conn.Experience);
+                if (HardcoreProgressBlocked(player)) return null;
+                player.Character.Experience = CurrentExperience(player);
+                return InstanceEntities.PlayerExperienceUpdate(player.Id, player.Character.Experience);
             }
         });
         int before, level;
         lock (updates.Gate)
-        lock (conn.Monsters)
         {
-            if (HardcoreProgressBlocked(conn)) return false;
+            if (HardcoreProgressBlocked(player)) return false;
             // Old-area gains share XP, not runtime pools. Even an obsolete event must reconcile this connection
             // from current XP; rejecting it outright could leave the live connection at an older level.
-            conn.Experience = CurrentExperience(conn);
-            level = Progression.LevelFor(conn.Experience, CharacterStats.LevelStarts);
+            player.Character.Experience = CurrentExperience(player);
+            level = Progression.LevelFor(player.Character.Experience, CharacterStats.LevelStarts);
             bool currentReset = change.Reset && change.Revision == updates.Revision;
-            if (!currentReset && level == conn.Pools.Level) return false;
-            before = CommitExperienceLevel(conn, level);
+            if (!currentReset && level == player.Pools.Level) return false;
+            before = CommitExperienceLevel(player, level);
         }
-        await PublishLevelChange(remote, stream, ciphers, conn, before, level);
+        await PublishLevelChange(player, before, level);
         return true;
     }
 
-    public static async Task CompleteExperienceGain(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ExperienceChange change, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
+    public static async Task CompleteExperienceGain(Player player, ExperienceChange change, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
-        bool applied = await PublishExperienceChange(remote, stream, ciphers, conn, change, why);
+        bool applied = await PublishExperienceChange(player, change, why);
         if (!change.LevelChanged && !applied) return;
-        lock (conn.Monsters)
-            if (HardcoreProgressBlocked(conn)) return;
-        var result = await SynchronizeAccountLevel(conn, control);
-        if (!result.Ok) Console.WriteLine($"[gateway] {remote} current level not saved to the account: {result.Error}");
+        if (HardcoreProgressBlocked(player)) return;
+        var result = await SynchronizeAccountLevel(player, control);
+        if (!result.Ok) Console.WriteLine($"[gateway] {player.Connection.Remote} current level not saved to the account: {result.Error}");
     }
 
     // Auth has unconditional set_level writes. Serialize every Gateway producer for this character, including resets
     // and login repair, and correct an in-flight request if XP changed before its answer. Answers never apply a level.
-    public static async Task<ControlResponse> SynchronizeAccountLevel(ClientState conn,
+    public static async Task<ControlResponse> SynchronizeAccountLevel(Player player,
         Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
-        var updates = LevelUpdatesFor(conn);
+        var updates = LevelUpdatesFor(player);
         await updates.Auth.WaitAsync();
         try
         {
@@ -120,16 +114,14 @@ public static partial class Game
             {
                 int level;
                 lock (updates.Gate)
-                lock (conn.Monsters)
                 {
-                    CharacterSaves.SaveExperience(CharacterName(conn));
-                    level = Progression.LevelFor(CurrentExperience(conn), CharacterStats.LevelStarts);
+                    CharacterSaves.SaveExperience(CharacterName(player));
+                    level = Progression.LevelFor(CurrentExperience(player), CharacterStats.LevelStarts);
                 }
-                var request = new ControlRequest { Op = "set_level", Ticket = conn.Ticket, Level = level };
+                var request = new ControlRequest { Op = "set_level", Ticket = player.Ticket, Level = level };
                 var result = await (control is null ? InstanceControl.CallAsync(request) : control(request));
                 lock (updates.Gate)
-                lock (conn.Monsters)
-                    if (level == Progression.LevelFor(CurrentExperience(conn), CharacterStats.LevelStarts)) return result;
+                if (level == Progression.LevelFor(CurrentExperience(player), CharacterStats.LevelStarts)) return result;
             }
         }
         finally { updates.Auth.Release(); }

@@ -1,0 +1,1333 @@
+{
+  "schema": 1,
+  "image_base": "0x140000000",
+  "scope": "Static network-contract evidence only. Original executable hashes; no runtime or whole-program equivalence claim.",
+  "limitations": [
+    "Function names are analyst labels, not recovered server source.",
+    "Structural matches normalize RIP data references and external calls. Referenced data/callees are not generally proven equivalent.",
+    "Actor/Positioned/world dispatch changed between b and c. The selected resync branch, not the entire instance dispatcher, is mapped.",
+    "Position tracking reads no absolute globals. Data references below illustrate separately retained build-specific addresses.",
+    "Position fields are static-validated; new-build runtime validation remains separate."
+  ],
+  "packet_layouts": {
+    "action_started": "u16 id; u32 object; u32 order; u16 checkpoint; u16 flags; optional u32 target if flags&0x80; four signed compact i32 (fromX,fromY,toX,toY); u16 skill; u16 sequence. Exact end required.",
+    "action_release": "u16 0x1ac; u32 object; u32 order; u16 checkpoint. Decrements pending count; Predictive server-action release, not a generic stop.",
+    "resync": "u16 0x128; unsigned compact count (native reader 0x1421ace20 calls 0x14089dc40); count*(u32 object,i32 x,i32 y). The correction handler uses the first entry for the local player. Empty/malformed is not a valid correction fixture.",
+    "teleport": "u16 0x1b7; u32 object; u32 order; u16 checkpoint; i32 x; i32 y; u32 height marker; f32 worldZ.",
+    "signed_compact_i32": "Prefixes 0xxxxxxx/10xxxxxx/110xxxxx/1110xxxx consume 1/2/3/4 bytes, sign-extend 7/14/21/28 bits. Prefix >= 0xf0 consumes four further bytes as big-endian signed i32. Native writer switches to five bytes outside [-0x4000000,0x3ffffff]; reader accepts full 28-bit four-byte values."
+  },
+  "comparisons": {
+    "actor_admit": {
+      "b": "0x141e8cf10",
+      "c": "0x141e937b0",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "actor_consume_pending": {
+      "b": "0x141e8e7e0",
+      "c": "0x141e95080",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": [
+        {
+          "b": "0x141e31800",
+          "c": "0x141e34b40",
+          "matches": true
+        }
+      ]
+    },
+    "position_teleport": {
+      "b": "0x141e31200",
+      "c": "0x141e34540",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "position_reset": {
+      "b": "0x141e31800",
+      "c": "0x141e34b40",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "position_tick": {
+      "b": "0x141e32710",
+      "c": "0x141e35a50",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "frame_update": {
+      "b": "0x142183ce0",
+      "c": "0x14218a650",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "wake_zone": {
+      "b": "0x141ec0aa0",
+      "c": "0x141ec7350",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "pathfinder": {
+      "b": "0x141e4d890",
+      "c": "0x141e50f90",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "waypoint_pruning": {
+      "b": "0x141e4ef90",
+      "c": "0x141e52690",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": [
+        {
+          "b": "0x141e4d890",
+          "c": "0x141e50f90",
+          "matches": true
+        }
+      ]
+    },
+    "move_to": {
+      "b": "0x141e7b530",
+      "c": "0x141e81c20",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": [
+        {
+          "b": "0x141e7c0b0",
+          "c": "0x141e827a0",
+          "matches": true
+        }
+      ]
+    },
+    "movement_speed": {
+      "b": "0x141e7c0b0",
+      "c": "0x141e827a0",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "collision_size": {
+      "b": "0x141e61540",
+      "c": "0x141e65ae0",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "action_hit": {
+      "b": "0x141e90f50",
+      "c": "0x141e977f0",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "action_damage": {
+      "b": "0x141e91580",
+      "c": "0x141e97e20",
+      "evidence": "structural match; see limitations",
+      "selected_callee_checks": []
+    },
+    "signed_compact_reader": {
+      "b": "0x141fa3d60",
+      "c": "0x141faa790",
+      "evidence": "Full instruction sequences match after normalizing internal branch targets and the sole stream byte-I/O callee; no claim about arbitrary callees.",
+      "selected_callee_checks": []
+    },
+    "signed_compact_writer": {
+      "b": "0x141fa3c50",
+      "c": "0x141faa680",
+      "evidence": "Full instruction sequences match after normalizing internal branch targets and the sole stream byte-I/O callee; no claim about arbitrary callees.",
+      "selected_callee_checks": []
+    },
+    "resync_reader": {
+      "b": "0x1421a64b0",
+      "c": "0x1421ace20",
+      "evidence": "Unique equal-sized indexed function with the full normalized instruction sequence. Calls and RIP operands normalized; not proof of all callees/data.",
+      "selected_callee_checks": []
+    },
+    "action_started_reader": {
+      "b": "0x141fdda70",
+      "c": "0x141fe4290",
+      "evidence": "Unique equal-sized indexed function with the full normalized instruction sequence. Calls and RIP operands normalized; not proof of all callees/data.",
+      "selected_callee_checks": []
+    },
+    "unsigned_compact_reader": {
+      "b": "0x14089cad0",
+      "c": "0x14089dc40",
+      "evidence": "Unique equal-sized indexed function with the full normalized instruction sequence. Calls and RIP operands normalized; not proof of all callees/data.",
+      "selected_callee_checks": []
+    }
+  },
+  "builds": {
+    "3.29.3b": {
+      "sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
+      "live_position_validation": "not performed by this static manifest",
+      "functions": {
+        "actor_admit": {
+          "va": "0x141e8cf10",
+          "size": 1204,
+          "sha256": "5b09fc5eef0f6b023ddc04a297014a824d87968b943d62a89c3612eb9cc4a4ad"
+        },
+        "actor_consume_pending": {
+          "va": "0x141e8e7e0",
+          "size": 585,
+          "sha256": "f7e9e5fb0e144187973538a532bafd878aaf2923815d85cbd0b12762ee387e87"
+        },
+        "position_teleport": {
+          "va": "0x141e31200",
+          "size": 1511,
+          "sha256": "48690118bb00e5741f139abbd9745945925ec558b9fd471c070f08bc77da00fc"
+        },
+        "position_reset": {
+          "va": "0x141e31800",
+          "size": 1571,
+          "sha256": "cbebd3d9ff92392c7dc94a23db715583d9974acfc85532db32a16ae56f0ba1d9"
+        },
+        "position_tick": {
+          "va": "0x141e32710",
+          "size": 1699,
+          "sha256": "1fff9205ec60497e6e56c89f9374473ea80f911007d1f67d5be7bd2c2d7c3408"
+        },
+        "frame_update": {
+          "va": "0x142183ce0",
+          "size": 2247,
+          "sha256": "db691fb5b871e2c0a604c35590c12866d7ecbb6be77a188c66be2daef13dabe3"
+        },
+        "wake_zone": {
+          "va": "0x141ec0aa0",
+          "size": 806,
+          "sha256": "e3d170bfb13464a6c30d1ddead5d9649439ceeaeba0d76b43a86d298f8e88b5a"
+        },
+        "pathfinder": {
+          "va": "0x141e4d890",
+          "size": 5630,
+          "sha256": "5253d3fca8660e94b2018e1fe1d6508171170ea0b28820d18cd6e24a17994362"
+        },
+        "waypoint_pruning": {
+          "va": "0x141e4ef90",
+          "size": 172,
+          "sha256": "23db3041083d2d505db0210f4a5107fd04c91555fa600ccfcaa27a057d634bc5"
+        },
+        "move_to": {
+          "va": "0x141e7b530",
+          "size": 447,
+          "sha256": "6c4d381dc4d380eb7d37cc4443b20230ebc3063723613446dde0353e5601827a"
+        },
+        "movement_speed": {
+          "va": "0x141e7c0b0",
+          "size": 276,
+          "sha256": "e001c2ff48e85d77aa90bb7d0cfa02f7bb840d21568585263bfb73ae9636e8ff"
+        },
+        "collision_size": {
+          "va": "0x141e61540",
+          "size": 346,
+          "sha256": "859d66af01dd37b3fba782d79fe8da9ee8eadae27a77bf1143d08c97fae81293"
+        },
+        "action_hit": {
+          "va": "0x141e90f50",
+          "size": 991,
+          "sha256": "1172acf5a6f7ba15a29445546768775f8a99ce7d8742ffab56bca0ca598dd867"
+        },
+        "action_damage": {
+          "va": "0x141e91580",
+          "size": 3457,
+          "sha256": "cf9496ee03c709383609f62980d9e6d24be600eef71df02e239d4e7e95a0086b"
+        },
+        "actor_message": {
+          "va": "0x1421940a0",
+          "size": 5847,
+          "sha256": "5e089f510e2c4d150f164d5aba4cde37abad2b16b2e9ce290dab232f18166c07"
+        },
+        "position_message": {
+          "va": "0x141e30c90",
+          "size": 989,
+          "sha256": "83eb8283c9d7e4acf60290086ab791df011f93ac554d6d47cdb4e9f13b625df7"
+        },
+        "instance_dispatch": {
+          "va": "0x14214a190",
+          "size": 43144,
+          "sha256": "3b3cc8b6b88474b10232b942da9646d31c5eab9a7547e18c871824cf0dcba208"
+        },
+        "world_message": {
+          "va": "0x142187480",
+          "size": 5604,
+          "sha256": "0a9c8f8dca528996277cd5558baac11a2cdf0bae3ba68ed34bb493e425f21677"
+        },
+        "pump": {
+          "va": "0x14299e440",
+          "size": 894,
+          "sha256": "7dd5b3622a158b71fecb157fb562f85a466d84c8ab49e5f25820a958b0d4771f"
+        },
+        "flush": {
+          "va": "0x140dfb8c0",
+          "size": 1388,
+          "sha256": "9e1a8a4a3e6ad18eee9084a111dcc70b8053f942dca3922d948cf189c722097b"
+        },
+        "signed_compact_reader": {
+          "va": "0x141fa3d60",
+          "size": 415,
+          "sha256": "3b3ee865808dd92d6df1b85cb0972fab5d16f84fbac3eeba73d52f55402052d6"
+        },
+        "signed_compact_writer": {
+          "va": "0x141fa3c50",
+          "size": 262,
+          "sha256": "26cd9e1402f679d427fce3e081a27b5eb7b6419968cf7e11226a3b03343074c8"
+        },
+        "resync_reader": {
+          "va": "0x1421a64b0",
+          "size": 326,
+          "sha256": "63c63369e66ddf17732351c9762a7cac4e709e43b80139addc940d29b3d74bc8"
+        },
+        "action_started_reader": {
+          "va": "0x141fdda70",
+          "size": 244,
+          "sha256": "f44238baac3d1ae68e8116e4a5330d9a98525e0e4f579d1202d1c24a54839dc4"
+        },
+        "unsigned_compact_reader": {
+          "va": "0x14089cad0",
+          "size": 367,
+          "sha256": "0a6e01d42830bd7520dfa144ff84b47e61c1f50fa71b93b84383a9deda1aa013"
+        }
+      },
+      "witnesses": [
+        {
+          "meaning": "parsed message kind is u16 at +8",
+          "va": "0x1421940d0",
+          "bytes": "0fb74208",
+          "instructions": [
+            "movzx eax, word ptr [rdx + 8]"
+          ]
+        },
+        {
+          "meaning": "Actor local prediction flag is byte +0x1c8",
+          "va": "0x142194179",
+          "bytes": "4438b9c8010000",
+          "instructions": [
+            "cmp byte ptr [rcx + 0x1c8], r15b"
+          ]
+        },
+        {
+          "meaning": "Actor +8 owns entity; entity +0x98 is Positioned",
+          "va": "0x142194186",
+          "bytes": "488b41084c8b8898000000",
+          "instructions": [
+            "mov rax, qword ptr [rcx + 8]",
+            "mov r9, qword ptr [rax + 0x98]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid X is i32 +0x294",
+          "va": "0x14219419b",
+          "bytes": "412b8994020000",
+          "instructions": [
+            "sub ecx, dword ptr [r9 + 0x294]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid Y is i32 +0x298",
+          "va": "0x1421941a9",
+          "bytes": "412b8198020000",
+          "instructions": [
+            "sub eax, dword ptr [r9 + 0x298]"
+          ]
+        },
+        {
+          "meaning": "local predicted acknowledgment squared distance 92*92",
+          "va": "0x1421941b8",
+          "bytes": "3d10210000",
+          "instructions": [
+            "cmp eax, 0x2110"
+          ]
+        },
+        {
+          "meaning": "parsed object identity is u32 +0x10; world lookup",
+          "va": "0x142187f24",
+          "bytes": "8b5610",
+          "instructions": [
+            "mov edx, dword ptr [rsi + 0x10]"
+          ]
+        },
+        {
+          "meaning": "world message kind is u16 +8",
+          "va": "0x1421874b9",
+          "bytes": "488d5a080fb70b",
+          "instructions": [
+            "lea rbx, [rdx + 8]",
+            "movzx ecx, word ptr [rbx]"
+          ]
+        },
+        {
+          "meaning": "Positioned movement step duration is f32 +0x240; nonzero is movement indicator",
+          "va": "0x141e3275f",
+          "bytes": "f30f108140020000",
+          "instructions": [
+            "movss xmm0, dword ptr [rcx + 0x240]"
+          ]
+        },
+        {
+          "meaning": "0x1ac pending count decrement and Predictive mode gate",
+          "va": "0x1421946f3",
+          "bytes": "0fb7862c0200006685c0740a66ffc86689862c020000488b4608488b4878488b01ff90b001000083f8010f8511100000",
+          "instructions": [
+            "movzx eax, word ptr [rsi + 0x22c]",
+            "test ax, ax",
+            "je 0x142194709",
+            "dec ax",
+            "mov word ptr [rsi + 0x22c], ax",
+            "mov rax, qword ptr [rsi + 8]",
+            "mov rcx, qword ptr [rax + 0x78]",
+            "mov rax, qword ptr [rcx]",
+            "call qword ptr [rax + 0x1b0]",
+            "cmp eax, 1",
+            "jne 0x142195734"
+          ]
+        },
+        {
+          "meaning": "pending server-action Predictive origin threshold 46*46",
+          "va": "0x141e8e89d",
+          "bytes": "81f944080000",
+          "instructions": [
+            "cmp ecx, 0x844"
+          ]
+        }
+      ],
+      "data_references": [
+        {
+          "meaning": "grid-cell centre offset (float 0.5)",
+          "instruction": "0x1421941cb",
+          "target": "0x1436a2f80",
+          "bytes": "0000003f"
+        },
+        {
+          "meaning": "grid-to-world scale (float)",
+          "instruction": "0x1421941d3",
+          "target": "0x1436a36f8",
+          "bytes": "bde92d41"
+        }
+      ],
+      "switch_routes": [
+        {
+          "meaning": "resync branch",
+          "message_id": "0x128",
+          "subtract": "0xd",
+          "target_table": "0x142154a1c",
+          "target": "0x14214ef81",
+          "size": 768,
+          "sha256": "6a6121f435d154a7e257d0ab4f7ab06c5a1b1c2b206e467ec7450b1920cb9e50",
+          "index_table": "0x142154e14"
+        },
+        {
+          "meaning": "Positioned teleport",
+          "message_id": "0x1b7",
+          "subtract": "0x1b7",
+          "target_table": "0x141e31070",
+          "target": "0x141e30da7",
+          "size": 32,
+          "sha256": "44d96a87a7060e4f64e4619cf50f1608b9b64e986d8fd63747076d871cf43497",
+          "index_table": "0x141e3109c"
+        },
+        {
+          "meaning": "world object removal",
+          "message_id": "0x2bb",
+          "subtract": "0x2ba",
+          "target_table": "0x142188ba8",
+          "target": "0x1421886cd",
+          "size": 32,
+          "sha256": "c40992733c3932df4304ef626214af6d6c66ee17c8d1599c9779ddb3a817053e"
+        }
+      ],
+      "packet_ids": {
+        "local_player": "0x22",
+        "action_started": "0x1ab",
+        "action_release": "0x1ac",
+        "resync": "0x128",
+        "teleport": "0x1b7",
+        "frame_end": "0x2b5",
+        "create": "0x2b9",
+        "remove": "0x2bb"
+      }
+    },
+    "3.29.3c": {
+      "sha256": "cc8aa38345be2a837575215d2ce142ebecf7b007345843265b335ebb8ac5964c",
+      "live_position_validation": "not performed by this static manifest",
+      "functions": {
+        "actor_admit": {
+          "va": "0x141e937b0",
+          "size": 1204,
+          "sha256": "efe395a19057c1e7425b1046194a5bf700ca9a674fb331e4cb35f754d054198e"
+        },
+        "actor_consume_pending": {
+          "va": "0x141e95080",
+          "size": 585,
+          "sha256": "07ffbe7e324945a0b42a266edb88ae87ced11e76de052d4e7d531cc372b67e50"
+        },
+        "position_teleport": {
+          "va": "0x141e34540",
+          "size": 1511,
+          "sha256": "8d3855614f32309cc3528c8c779780398dc30f6ae457bdfeffa3970dadb92fbc"
+        },
+        "position_reset": {
+          "va": "0x141e34b40",
+          "size": 1571,
+          "sha256": "2918ef980c103955900dd607e903eea1c20cfd9f1a149402583f01bdc270e139"
+        },
+        "position_tick": {
+          "va": "0x141e35a50",
+          "size": 1699,
+          "sha256": "39a6847dd7227abc3354bd7212365d651375c316e322d6f45e46017702fa947e"
+        },
+        "frame_update": {
+          "va": "0x14218a650",
+          "size": 2247,
+          "sha256": "9b2b02d046ce4ced02111095e3fafc4c4cc9b32965abbc0fbe807f4211200ece"
+        },
+        "wake_zone": {
+          "va": "0x141ec7350",
+          "size": 806,
+          "sha256": "c57e8ee369917dca8791cca6b14a1aa060d88d8b5c5fd3127f2f3858032def3c"
+        },
+        "pathfinder": {
+          "va": "0x141e50f90",
+          "size": 5630,
+          "sha256": "1e05f3ae41b29a19b9a4aa5f8dd7e423ee9870c3008b1df55052fb9e865f5c21"
+        },
+        "waypoint_pruning": {
+          "va": "0x141e52690",
+          "size": 172,
+          "sha256": "23db3041083d2d505db0210f4a5107fd04c91555fa600ccfcaa27a057d634bc5"
+        },
+        "move_to": {
+          "va": "0x141e81c20",
+          "size": 447,
+          "sha256": "e8d072e03ace44cd258d88944ead7ffe7c6bf2e74842e4b4d66503505f0a7b70"
+        },
+        "movement_speed": {
+          "va": "0x141e827a0",
+          "size": 276,
+          "sha256": "369d5b8b683985ade9eaaeaf96b1c7409afaec8fd93bc45d7d59e95ae1ed8ad7"
+        },
+        "collision_size": {
+          "va": "0x141e65ae0",
+          "size": 346,
+          "sha256": "e8546512857cfece1ab217437c55fd594d7e767b719891855f38f6a037e11457"
+        },
+        "action_hit": {
+          "va": "0x141e977f0",
+          "size": 991,
+          "sha256": "c7a0b81db2954dfb6aeae1bca7b0fee64673e923329890ef5a1ae2450e9fc413"
+        },
+        "action_damage": {
+          "va": "0x141e97e20",
+          "size": 3457,
+          "sha256": "6501468e7818241a28a5a57a1d33ca819394c0c91afcbc19eb4e413c215766da"
+        },
+        "actor_message": {
+          "va": "0x14219aa10",
+          "size": 5847,
+          "sha256": "ac117d8e61d93d219bdb295e1406f7b65c5e6280de0a8474f538269bbcf10e36"
+        },
+        "position_message": {
+          "va": "0x141e33fd0",
+          "size": 989,
+          "sha256": "94994a061fa46f233b730d8f74b4b4d8cb2e5545958a5c7485c356ed8623e10d"
+        },
+        "instance_dispatch": {
+          "va": "0x142150ae0",
+          "size": 42804,
+          "sha256": "6f85671ebf2115279f11cc3320cfb5455e614a794ab8a86f65a14561f01df0b6"
+        },
+        "world_message": {
+          "va": "0x14218ddf0",
+          "size": 5604,
+          "sha256": "959b2698732a882cc4f1f33c7f279ee5b515d4e6cae71238f234bb66be0bcc2a"
+        },
+        "pump": {
+          "va": "0x1429a77a0",
+          "size": 894,
+          "sha256": "631b25ff9210630cd18cf4bfae8f4741eddee281ef819f04c21fc3b657d0227b"
+        },
+        "flush": {
+          "va": "0x140dfa160",
+          "size": 1388,
+          "sha256": "34802e21f729b1b98a74f5578f952cb1d395975486c2afcd661710e0ceff77c2"
+        },
+        "signed_compact_reader": {
+          "va": "0x141faa790",
+          "size": 415,
+          "sha256": "07d5001432da8ccdfb108c6b42b07350e063c0e9476656c31221dfa003b59f0e"
+        },
+        "signed_compact_writer": {
+          "va": "0x141faa680",
+          "size": 262,
+          "sha256": "2bd74f625f3493ee20085bc7ddcf11d5e5f45cadb579cc3002dfab42e190211c"
+        },
+        "resync_reader": {
+          "va": "0x1421ace20",
+          "size": 326,
+          "sha256": "7ca682a660e00a1d67ee404531902d788d3514b51aaa6f61a0ad72c9e791db6a"
+        },
+        "action_started_reader": {
+          "va": "0x141fe4290",
+          "size": 244,
+          "sha256": "21ce7e8bd90c0f28f13b61c8d4f2a92bb11aad9aaf79db00c7fffbe83fde6968"
+        },
+        "unsigned_compact_reader": {
+          "va": "0x14089dc40",
+          "size": 367,
+          "sha256": "6ea93a43f9a1d41eea62c13a7587ca9458fd2f80dfa4d2c2c9cff2cdff5ff266"
+        }
+      },
+      "witnesses": [
+        {
+          "meaning": "parsed message kind is u16 at +8",
+          "va": "0x14219aa40",
+          "bytes": "0fb74208",
+          "instructions": [
+            "movzx eax, word ptr [rdx + 8]"
+          ]
+        },
+        {
+          "meaning": "Actor local prediction flag is byte +0x1c8",
+          "va": "0x14219aae9",
+          "bytes": "4438b9c8010000",
+          "instructions": [
+            "cmp byte ptr [rcx + 0x1c8], r15b"
+          ]
+        },
+        {
+          "meaning": "Actor +8 owns entity; entity +0x98 is Positioned",
+          "va": "0x14219aaf6",
+          "bytes": "488b41084c8b8898000000",
+          "instructions": [
+            "mov rax, qword ptr [rcx + 8]",
+            "mov r9, qword ptr [rax + 0x98]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid X is i32 +0x294",
+          "va": "0x14219ab0b",
+          "bytes": "412b8994020000",
+          "instructions": [
+            "sub ecx, dword ptr [r9 + 0x294]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid Y is i32 +0x298",
+          "va": "0x14219ab19",
+          "bytes": "412b8198020000",
+          "instructions": [
+            "sub eax, dword ptr [r9 + 0x298]"
+          ]
+        },
+        {
+          "meaning": "local predicted acknowledgment squared distance 92*92",
+          "va": "0x14219ab28",
+          "bytes": "3d10210000",
+          "instructions": [
+            "cmp eax, 0x2110"
+          ]
+        },
+        {
+          "meaning": "parsed object identity is u32 +0x10; world lookup",
+          "va": "0x14218e894",
+          "bytes": "8b5610",
+          "instructions": [
+            "mov edx, dword ptr [rsi + 0x10]"
+          ]
+        },
+        {
+          "meaning": "world message kind is u16 +8",
+          "va": "0x14218de29",
+          "bytes": "488d5a080fb70b",
+          "instructions": [
+            "lea rbx, [rdx + 8]",
+            "movzx ecx, word ptr [rbx]"
+          ]
+        },
+        {
+          "meaning": "Positioned movement step duration is f32 +0x240; nonzero is movement indicator",
+          "va": "0x141e35a9f",
+          "bytes": "f30f108140020000",
+          "instructions": [
+            "movss xmm0, dword ptr [rcx + 0x240]"
+          ]
+        },
+        {
+          "meaning": "0x1ac pending count decrement and Predictive mode gate",
+          "va": "0x14219b063",
+          "bytes": "0fb7862c0200006685c0740a66ffc86689862c020000488b4608488b4878488b01ff90b001000083f8010f8511100000",
+          "instructions": [
+            "movzx eax, word ptr [rsi + 0x22c]",
+            "test ax, ax",
+            "je 0x14219b079",
+            "dec ax",
+            "mov word ptr [rsi + 0x22c], ax",
+            "mov rax, qword ptr [rsi + 8]",
+            "mov rcx, qword ptr [rax + 0x78]",
+            "mov rax, qword ptr [rcx]",
+            "call qword ptr [rax + 0x1b0]",
+            "cmp eax, 1",
+            "jne 0x14219c0a4"
+          ]
+        },
+        {
+          "meaning": "pending server-action Predictive origin threshold 46*46",
+          "va": "0x141e9513d",
+          "bytes": "81f944080000",
+          "instructions": [
+            "cmp ecx, 0x844"
+          ]
+        }
+      ],
+      "data_references": [
+        {
+          "meaning": "grid-cell centre offset (float 0.5)",
+          "instruction": "0x14219ab3b",
+          "target": "0x1436add78",
+          "bytes": "0000003f"
+        },
+        {
+          "meaning": "grid-to-world scale (float)",
+          "instruction": "0x14219ab43",
+          "target": "0x1436ae4f0",
+          "bytes": "bde92d41"
+        }
+      ],
+      "switch_routes": [
+        {
+          "meaning": "resync branch",
+          "message_id": "0x128",
+          "subtract": "0xd",
+          "target_table": "0x14215b36c",
+          "target": "0x1421558d1",
+          "size": 768,
+          "sha256": "6231271cacc5d0cce5b55da44aafb52ede7957cf3e890e2a914527e139e0d261",
+          "index_table": "0x14215b764"
+        },
+        {
+          "meaning": "Positioned teleport",
+          "message_id": "0x1b7",
+          "subtract": "0x1b7",
+          "target_table": "0x141e343b0",
+          "target": "0x141e340e7",
+          "size": 32,
+          "sha256": "44d96a87a7060e4f64e4619cf50f1608b9b64e986d8fd63747076d871cf43497",
+          "index_table": "0x141e343dc"
+        },
+        {
+          "meaning": "world object removal",
+          "message_id": "0x2bd",
+          "subtract": "0x2bc",
+          "target_table": "0x14218f518",
+          "target": "0x14218f03d",
+          "size": 32,
+          "sha256": "c40992733c3932df4304ef626214af6d6c66ee17c8d1599c9779ddb3a817053e"
+        }
+      ],
+      "packet_ids": {
+        "local_player": "0x22",
+        "action_started": "0x1ab",
+        "action_release": "0x1ac",
+        "resync": "0x128",
+        "teleport": "0x1b7",
+        "frame_end": "0x2b7",
+        "create": "0x2bb",
+        "remove": "0x2bd"
+      }
+    },
+    "3.29.3c-hotfix": {
+      "sha256": "01a22facf36886b39bca74793c0d8c7295b1495f1625b4ebc7b23c2de32a70cf",
+      "live_position_validation": "not performed by this static manifest",
+      "functions": {
+        "actor_admit": {
+          "va": "0x141e937b0",
+          "size": 1204,
+          "sha256": "efe395a19057c1e7425b1046194a5bf700ca9a674fb331e4cb35f754d054198e"
+        },
+        "actor_consume_pending": {
+          "va": "0x141e95080",
+          "size": 585,
+          "sha256": "b4093ffd79edc8db038622685cae5d8b716ba5f0609335d946a23f2d9c6b388f"
+        },
+        "position_teleport": {
+          "va": "0x141e34540",
+          "size": 1511,
+          "sha256": "617c729105d30c0241ccfd57c2e584bfc0efec301feb176b3c81fd808b81fe3e"
+        },
+        "position_reset": {
+          "va": "0x141e34b40",
+          "size": 1571,
+          "sha256": "5f367cafaf5bfc5e05389a0ebf9faaaa1690732cd97fbc0e8870372eff2c12af"
+        },
+        "position_tick": {
+          "va": "0x141e35a50",
+          "size": 1699,
+          "sha256": "a1e2915c3020f0f9bdadcabf638780ad4057625367d4260369e45c4a9bce3df5"
+        },
+        "frame_update": {
+          "va": "0x14218a650",
+          "size": 2247,
+          "sha256": "9dedec711896631f35ca283f3d1103ebe06497eb67dc43671860ce7ab5145783"
+        },
+        "wake_zone": {
+          "va": "0x141ec7350",
+          "size": 806,
+          "sha256": "3b70bb108643ad95f6dc75cc6306b257cc79673bfb1ae03ca3ae332b2b7bd539"
+        },
+        "pathfinder": {
+          "va": "0x141e50f90",
+          "size": 5630,
+          "sha256": "5c4f17203b2775c74e49491bd90673f28aa4870eec4f38f0766eb83ad2917649"
+        },
+        "waypoint_pruning": {
+          "va": "0x141e52690",
+          "size": 172,
+          "sha256": "23db3041083d2d505db0210f4a5107fd04c91555fa600ccfcaa27a057d634bc5"
+        },
+        "move_to": {
+          "va": "0x141e81c20",
+          "size": 447,
+          "sha256": "e8d072e03ace44cd258d88944ead7ffe7c6bf2e74842e4b4d66503505f0a7b70"
+        },
+        "movement_speed": {
+          "va": "0x141e827a0",
+          "size": 276,
+          "sha256": "2916ff341c2bd8542e9f812e64891e065c3c343e9bc80e7c3882a4cacdfcbe3e"
+        },
+        "collision_size": {
+          "va": "0x141e65ae0",
+          "size": 346,
+          "sha256": "e8546512857cfece1ab217437c55fd594d7e767b719891855f38f6a037e11457"
+        },
+        "action_hit": {
+          "va": "0x141e977f0",
+          "size": 991,
+          "sha256": "c7a0b81db2954dfb6aeae1bca7b0fee64673e923329890ef5a1ae2450e9fc413"
+        },
+        "action_damage": {
+          "va": "0x141e97e20",
+          "size": 3457,
+          "sha256": "5ee2fe04e34977b3ffb747afe2ba4a77b79da9a49c36808bd3af4aa37202c8b3"
+        },
+        "actor_message": {
+          "va": "0x14219aa10",
+          "size": 5847,
+          "sha256": "47e34f6b3ee1e121961b99f1bb3fe0d4252168cf1e1bba17354c5d2286cd4d54"
+        },
+        "position_message": {
+          "va": "0x141e33fd0",
+          "size": 989,
+          "sha256": "5730775262381bdb0817789d6860ac850c2cfbb425c527b562584bdc7a81063a"
+        },
+        "instance_dispatch": {
+          "va": "0x142150ae0",
+          "size": 42804,
+          "sha256": "1b69bd6d728758c801fe39f77c38c18f10868511e19ea769709355bb375b5d53"
+        },
+        "world_message": {
+          "va": "0x14218ddf0",
+          "size": 5604,
+          "sha256": "a4ea10abb9d86e43f43ae105be80811b8c9d702fe2bc72da18fc756b9b82d941"
+        },
+        "pump": {
+          "va": "0x1429a77a0",
+          "size": 894,
+          "sha256": "a0b5b54f1bc059062cfc2723880f4811cf63230a717980d152696ab5563a12ad"
+        },
+        "flush": {
+          "va": "0x140dfa160",
+          "size": 1388,
+          "sha256": "5f12cae923fc680ad1a34e37137f3ebbda4204dd579c50a684a9ac66f6e4ad95"
+        },
+        "signed_compact_reader": {
+          "va": "0x141faa790",
+          "size": 415,
+          "sha256": "07d5001432da8ccdfb108c6b42b07350e063c0e9476656c31221dfa003b59f0e"
+        },
+        "signed_compact_writer": {
+          "va": "0x141faa680",
+          "size": 262,
+          "sha256": "2bd74f625f3493ee20085bc7ddcf11d5e5f45cadb579cc3002dfab42e190211c"
+        },
+        "resync_reader": {
+          "va": "0x1421ace20",
+          "size": 326,
+          "sha256": "7ca682a660e00a1d67ee404531902d788d3514b51aaa6f61a0ad72c9e791db6a"
+        },
+        "action_started_reader": {
+          "va": "0x141fe4290",
+          "size": 244,
+          "sha256": "21ce7e8bd90c0f28f13b61c8d4f2a92bb11aad9aaf79db00c7fffbe83fde6968"
+        },
+        "unsigned_compact_reader": {
+          "va": "0x14089dc40",
+          "size": 367,
+          "sha256": "6ea93a43f9a1d41eea62c13a7587ca9458fd2f80dfa4d2c2c9cff2cdff5ff266"
+        }
+      },
+      "witnesses": [
+        {
+          "meaning": "parsed message kind is u16 at +8",
+          "va": "0x14219aa40",
+          "bytes": "0fb74208",
+          "instructions": [
+            "movzx eax, word ptr [rdx + 8]"
+          ]
+        },
+        {
+          "meaning": "Actor local prediction flag is byte +0x1c8",
+          "va": "0x14219aae9",
+          "bytes": "4438b9c8010000",
+          "instructions": [
+            "cmp byte ptr [rcx + 0x1c8], r15b"
+          ]
+        },
+        {
+          "meaning": "Actor +8 owns entity; entity +0x98 is Positioned",
+          "va": "0x14219aaf6",
+          "bytes": "488b41084c8b8898000000",
+          "instructions": [
+            "mov rax, qword ptr [rcx + 8]",
+            "mov r9, qword ptr [rax + 0x98]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid X is i32 +0x294",
+          "va": "0x14219ab0b",
+          "bytes": "412b8994020000",
+          "instructions": [
+            "sub ecx, dword ptr [r9 + 0x294]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid Y is i32 +0x298",
+          "va": "0x14219ab19",
+          "bytes": "412b8198020000",
+          "instructions": [
+            "sub eax, dword ptr [r9 + 0x298]"
+          ]
+        },
+        {
+          "meaning": "local predicted acknowledgment squared distance 92*92",
+          "va": "0x14219ab28",
+          "bytes": "3d10210000",
+          "instructions": [
+            "cmp eax, 0x2110"
+          ]
+        },
+        {
+          "meaning": "parsed object identity is u32 +0x10; world lookup",
+          "va": "0x14218e894",
+          "bytes": "8b5610",
+          "instructions": [
+            "mov edx, dword ptr [rsi + 0x10]"
+          ]
+        },
+        {
+          "meaning": "world message kind is u16 +8",
+          "va": "0x14218de29",
+          "bytes": "488d5a080fb70b",
+          "instructions": [
+            "lea rbx, [rdx + 8]",
+            "movzx ecx, word ptr [rbx]"
+          ]
+        },
+        {
+          "meaning": "Positioned movement step duration is f32 +0x240; nonzero is movement indicator",
+          "va": "0x141e35a9f",
+          "bytes": "f30f108140020000",
+          "instructions": [
+            "movss xmm0, dword ptr [rcx + 0x240]"
+          ]
+        },
+        {
+          "meaning": "0x1ac pending count decrement and Predictive mode gate",
+          "va": "0x14219b063",
+          "bytes": "0fb7862c0200006685c0740a66ffc86689862c020000488b4608488b4878488b01ff90b001000083f8010f8511100000",
+          "instructions": [
+            "movzx eax, word ptr [rsi + 0x22c]",
+            "test ax, ax",
+            "je 0x14219b079",
+            "dec ax",
+            "mov word ptr [rsi + 0x22c], ax",
+            "mov rax, qword ptr [rsi + 8]",
+            "mov rcx, qword ptr [rax + 0x78]",
+            "mov rax, qword ptr [rcx]",
+            "call qword ptr [rax + 0x1b0]",
+            "cmp eax, 1",
+            "jne 0x14219c0a4"
+          ]
+        },
+        {
+          "meaning": "pending server-action Predictive origin threshold 46*46",
+          "va": "0x141e9513d",
+          "bytes": "81f944080000",
+          "instructions": [
+            "cmp ecx, 0x844"
+          ]
+        }
+      ],
+      "data_references": [
+        {
+          "meaning": "grid-cell centre offset (float 0.5)",
+          "instruction": "0x14219ab3b",
+          "target": "0x1436add48",
+          "bytes": "0000003f"
+        },
+        {
+          "meaning": "grid-to-world scale (float)",
+          "instruction": "0x14219ab43",
+          "target": "0x1436ae4c0",
+          "bytes": "bde92d41"
+        }
+      ],
+      "switch_routes": [
+        {
+          "meaning": "resync branch",
+          "message_id": "0x128",
+          "subtract": "0xd",
+          "target_table": "0x14215b36c",
+          "target": "0x1421558d1",
+          "size": 768,
+          "sha256": "50730394731f0572bea73d364379a26550236996cb8c9ebd3f5c3c1411f6fa6c",
+          "index_table": "0x14215b764"
+        },
+        {
+          "meaning": "Positioned teleport",
+          "message_id": "0x1b7",
+          "subtract": "0x1b7",
+          "target_table": "0x141e343b0",
+          "target": "0x141e340e7",
+          "size": 32,
+          "sha256": "44d96a87a7060e4f64e4619cf50f1608b9b64e986d8fd63747076d871cf43497",
+          "index_table": "0x141e343dc"
+        },
+        {
+          "meaning": "world object removal",
+          "message_id": "0x2bd",
+          "subtract": "0x2bc",
+          "target_table": "0x14218f518",
+          "target": "0x14218f03d",
+          "size": 32,
+          "sha256": "c40992733c3932df4304ef626214af6d6c66ee17c8d1599c9779ddb3a817053e"
+        }
+      ],
+      "packet_ids": {
+        "local_player": "0x22",
+        "action_started": "0x1ab",
+        "action_release": "0x1ac",
+        "resync": "0x128",
+        "teleport": "0x1b7",
+        "frame_end": "0x2b7",
+        "create": "0x2bb",
+        "remove": "0x2bd"
+      }
+    },
+    "3.29.3d": {
+      "sha256": "e9ba3d31c4d922e1826ef01d02fd22178a001b29e17264b68fc2446efd41f53d",
+      "live_position_validation": "not performed by this static manifest",
+      "functions": {
+        "actor_admit": {
+          "va": "0x141e937b0",
+          "size": 1204,
+          "sha256": "efe395a19057c1e7425b1046194a5bf700ca9a674fb331e4cb35f754d054198e"
+        },
+        "actor_consume_pending": {
+          "va": "0x141e95080",
+          "size": 585,
+          "sha256": "5b84068d36d51653ae24e4acec723f3604f151238ffcf04382cc576394a2ffe3"
+        },
+        "position_teleport": {
+          "va": "0x141e34540",
+          "size": 1511,
+          "sha256": "8d3afc252ab4320d87fc8e30efc81b7967455be6146529e5357b992daabb5116"
+        },
+        "position_reset": {
+          "va": "0x141e34b40",
+          "size": 1571,
+          "sha256": "7ca1839c8ed06560197bf60ce7b99f8941394406f44ab37cecd07b85bd329da2"
+        },
+        "position_tick": {
+          "va": "0x141e35a50",
+          "size": 1699,
+          "sha256": "96bbf90861191202640a1c3b48184f2ab318553d6474bbd4094d878b0bcf0a60"
+        },
+        "frame_update": {
+          "va": "0x14218a650",
+          "size": 2247,
+          "sha256": "0dc6fb476f76739eed3a0befa1cf86fe5b84dcca2783eeca37bca622eb389459"
+        },
+        "wake_zone": {
+          "va": "0x141ec7350",
+          "size": 806,
+          "sha256": "7afb76a40e6cf33b54aa89935cd4396c6a9689aee4eedaaa0149315be0f4300c"
+        },
+        "pathfinder": {
+          "va": "0x141e50f90",
+          "size": 5630,
+          "sha256": "97ed5da76d9ddfb95b20695f003d541e100026e89774f13f895f7590825022ff"
+        },
+        "waypoint_pruning": {
+          "va": "0x141e52690",
+          "size": 172,
+          "sha256": "23db3041083d2d505db0210f4a5107fd04c91555fa600ccfcaa27a057d634bc5"
+        },
+        "move_to": {
+          "va": "0x141e81c20",
+          "size": 447,
+          "sha256": "e8d072e03ace44cd258d88944ead7ffe7c6bf2e74842e4b4d66503505f0a7b70"
+        },
+        "movement_speed": {
+          "va": "0x141e827a0",
+          "size": 276,
+          "sha256": "3d3e862586b0510aab88d6927de6a1e552db205a2344340aee949d0d4415f745"
+        },
+        "collision_size": {
+          "va": "0x141e65ae0",
+          "size": 346,
+          "sha256": "e8546512857cfece1ab217437c55fd594d7e767b719891855f38f6a037e11457"
+        },
+        "action_hit": {
+          "va": "0x141e977f0",
+          "size": 991,
+          "sha256": "c7a0b81db2954dfb6aeae1bca7b0fee64673e923329890ef5a1ae2450e9fc413"
+        },
+        "action_damage": {
+          "va": "0x141e97e20",
+          "size": 3457,
+          "sha256": "b1e3c0e96f3e6f1c42af38e4928ae6e885fa41568452a755df0cf9b3ecf2ebb7"
+        },
+        "actor_message": {
+          "va": "0x14219aa10",
+          "size": 5847,
+          "sha256": "b456ad5cd74a6a30d0f6e1cb9d0153aded7205531c632338c96dc2dc883ab196"
+        },
+        "position_message": {
+          "va": "0x141e33fd0",
+          "size": 989,
+          "sha256": "7e8f689e75dad285bd2b0d0ab2e83e23087902eea245f80e6143f5c540cf4cdc"
+        },
+        "instance_dispatch": {
+          "va": "0x142150ae0",
+          "size": 42804,
+          "sha256": "50ed83a23e9b1c58feab9d1b1b764e9a53de796b91414b04cb1cc32cc436ed06"
+        },
+        "world_message": {
+          "va": "0x14218ddf0",
+          "size": 5604,
+          "sha256": "7261570e24a9f9896a402572ddd8a3d9c343fcfaa7fc1d064c14e06f11c57583"
+        },
+        "pump": {
+          "va": "0x1429a77a0",
+          "size": 894,
+          "sha256": "0b36b1a076a5b5d7c92824e1bf4a7d1c01542f1f28142f1f5e675d5fb3c5f716"
+        },
+        "flush": {
+          "va": "0x140dfa160",
+          "size": 1388,
+          "sha256": "2c4f9ff8e01dcdb3f98ea4a077c7150de3c288c4f4425aa98f347098a1685a19"
+        },
+        "signed_compact_reader": {
+          "va": "0x141faa790",
+          "size": 415,
+          "sha256": "07d5001432da8ccdfb108c6b42b07350e063c0e9476656c31221dfa003b59f0e"
+        },
+        "signed_compact_writer": {
+          "va": "0x141faa680",
+          "size": 262,
+          "sha256": "2bd74f625f3493ee20085bc7ddcf11d5e5f45cadb579cc3002dfab42e190211c"
+        },
+        "resync_reader": {
+          "va": "0x1421ace20",
+          "size": 326,
+          "sha256": "7ca682a660e00a1d67ee404531902d788d3514b51aaa6f61a0ad72c9e791db6a"
+        },
+        "action_started_reader": {
+          "va": "0x141fe4290",
+          "size": 244,
+          "sha256": "21ce7e8bd90c0f28f13b61c8d4f2a92bb11aad9aaf79db00c7fffbe83fde6968"
+        },
+        "unsigned_compact_reader": {
+          "va": "0x14089dc40",
+          "size": 367,
+          "sha256": "6ea93a43f9a1d41eea62c13a7587ca9458fd2f80dfa4d2c2c9cff2cdff5ff266"
+        }
+      },
+      "witnesses": [
+        {
+          "meaning": "parsed message kind is u16 at +8",
+          "va": "0x14219aa40",
+          "bytes": "0fb74208",
+          "instructions": [
+            "movzx eax, word ptr [rdx + 8]"
+          ]
+        },
+        {
+          "meaning": "Actor local prediction flag is byte +0x1c8",
+          "va": "0x14219aae9",
+          "bytes": "4438b9c8010000",
+          "instructions": [
+            "cmp byte ptr [rcx + 0x1c8], r15b"
+          ]
+        },
+        {
+          "meaning": "Actor +8 owns entity; entity +0x98 is Positioned",
+          "va": "0x14219aaf6",
+          "bytes": "488b41084c8b8898000000",
+          "instructions": [
+            "mov rax, qword ptr [rcx + 8]",
+            "mov r9, qword ptr [rax + 0x98]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid X is i32 +0x294",
+          "va": "0x14219ab0b",
+          "bytes": "412b8994020000",
+          "instructions": [
+            "sub ecx, dword ptr [r9 + 0x294]"
+          ]
+        },
+        {
+          "meaning": "Positioned grid Y is i32 +0x298",
+          "va": "0x14219ab19",
+          "bytes": "412b8198020000",
+          "instructions": [
+            "sub eax, dword ptr [r9 + 0x298]"
+          ]
+        },
+        {
+          "meaning": "local predicted acknowledgment squared distance 92*92",
+          "va": "0x14219ab28",
+          "bytes": "3d10210000",
+          "instructions": [
+            "cmp eax, 0x2110"
+          ]
+        },
+        {
+          "meaning": "parsed object identity is u32 +0x10; world lookup",
+          "va": "0x14218e894",
+          "bytes": "8b5610",
+          "instructions": [
+            "mov edx, dword ptr [rsi + 0x10]"
+          ]
+        },
+        {
+          "meaning": "world message kind is u16 +8",
+          "va": "0x14218de29",
+          "bytes": "488d5a080fb70b",
+          "instructions": [
+            "lea rbx, [rdx + 8]",
+            "movzx ecx, word ptr [rbx]"
+          ]
+        },
+        {
+          "meaning": "Positioned movement step duration is f32 +0x240; nonzero is movement indicator",
+          "va": "0x141e35a9f",
+          "bytes": "f30f108140020000",
+          "instructions": [
+            "movss xmm0, dword ptr [rcx + 0x240]"
+          ]
+        },
+        {
+          "meaning": "0x1ac pending count decrement and Predictive mode gate",
+          "va": "0x14219b063",
+          "bytes": "0fb7862c0200006685c0740a66ffc86689862c020000488b4608488b4878488b01ff90b001000083f8010f8511100000",
+          "instructions": [
+            "movzx eax, word ptr [rsi + 0x22c]",
+            "test ax, ax",
+            "je 0x14219b079",
+            "dec ax",
+            "mov word ptr [rsi + 0x22c], ax",
+            "mov rax, qword ptr [rsi + 8]",
+            "mov rcx, qword ptr [rax + 0x78]",
+            "mov rax, qword ptr [rcx]",
+            "call qword ptr [rax + 0x1b0]",
+            "cmp eax, 1",
+            "jne 0x14219c0a4"
+          ]
+        },
+        {
+          "meaning": "pending server-action Predictive origin threshold 46*46",
+          "va": "0x141e9513d",
+          "bytes": "81f944080000",
+          "instructions": [
+            "cmp ecx, 0x844"
+          ]
+        }
+      ],
+      "data_references": [
+        {
+          "meaning": "grid-cell centre offset (float 0.5)",
+          "instruction": "0x14219ab3b",
+          "target": "0x1436adcc8",
+          "bytes": "0000003f"
+        },
+        {
+          "meaning": "grid-to-world scale (float)",
+          "instruction": "0x14219ab43",
+          "target": "0x1436ae440",
+          "bytes": "bde92d41"
+        }
+      ],
+      "switch_routes": [
+        {
+          "meaning": "resync branch",
+          "message_id": "0x128",
+          "subtract": "0xd",
+          "target_table": "0x14215b36c",
+          "target": "0x1421558d1",
+          "size": 768,
+          "sha256": "5a6626d8f40768d3c59bff526af143dcccd54c2405966ba93964614e2af2d38d",
+          "index_table": "0x14215b764"
+        },
+        {
+          "meaning": "Positioned teleport",
+          "message_id": "0x1b7",
+          "subtract": "0x1b7",
+          "target_table": "0x141e343b0",
+          "target": "0x141e340e7",
+          "size": 32,
+          "sha256": "44d96a87a7060e4f64e4619cf50f1608b9b64e986d8fd63747076d871cf43497",
+          "index_table": "0x141e343dc"
+        },
+        {
+          "meaning": "world object removal",
+          "message_id": "0x2bd",
+          "subtract": "0x2bc",
+          "target_table": "0x14218f518",
+          "target": "0x14218f03d",
+          "size": 32,
+          "sha256": "c40992733c3932df4304ef626214af6d6c66ee17c8d1599c9779ddb3a817053e"
+        }
+      ],
+      "packet_ids": {
+        "local_player": "0x22",
+        "action_started": "0x1ab",
+        "action_release": "0x1ac",
+        "resync": "0x128",
+        "teleport": "0x1b7",
+        "frame_end": "0x2b7",
+        "create": "0x2bb",
+        "remove": "0x2bd"
+      }
+    }
+  },
+  "comparator_exceptions": {
+    "3.29.3c-to-hotfix": {
+      "status": "unresolved: not evidence of whole-program equivalence",
+      "changed_immediates": [
+        "0x140e61a01: 0xa18 -> 0x9a4",
+        "0x14182f300: 0xa1c -> 0xa18",
+        "0x142e15d25: 0xa18 -> 0x9a4",
+        "0x142e15d49: 0xa18 -> 0x9a4"
+      ],
+      "outside_pdata_changed_fields": [
+        "0x1420f4065",
+        "0x1420f4071"
+      ]
+    },
+    "hotfix-to-3.29.3d": {
+      "status": "unresolved TLS-state equivalence: observed offsets 0x6f0 and 0x6f8 exchange; no synchronization-rule claim",
+      "changed_immediates": [
+        "0x140ead440",
+        "0x140ead44c"
+      ],
+      "outside_pdata_changed_fields": [
+        "0x140ead804",
+        "0x140ead80d"
+      ]
+    }
+  }
+}

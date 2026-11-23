@@ -1,16 +1,18 @@
 /// <summary>Recipient-owned curse slots. No module callbacks or catalogue mutations survive a reload.</summary>
-public sealed class MonsterCurses
+public sealed class MonsterCurses(Action? changed = null)
 {
     public sealed record Curse(uint Caster, string Effect, ushort Skill, ushort Row, ushort Buff,
-        double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<string, int> Stats);
+        double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<uint, int> Stats)
+    {
+        public bool RemainsOnDeath { get; init; }
+    }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
-    public readonly HashSet<string> PresentedStats = [];
+    public readonly HashSet<uint> PresentedStats = [];
     public int Version, PresentedVersion;
-    Dictionary<string, int> stats = [];
-    MonsterModEffects? basis, cached;
-    public int this[string name] => stats.GetValueOrDefault(name);
-    public IReadOnlyDictionary<string, int> Stats => stats;
+    Dictionary<uint, int> stats = [];
+    public int this[uint stat] => stats.GetValueOrDefault(stat);
+    public IReadOnlyDictionary<uint, int> Stats => stats;
 
     public void Put(Curse curse, int limit)
     {
@@ -43,16 +45,8 @@ public sealed class MonsterCurses
         foreach (var family in All.Values.GroupBy(c => c.Effect))
             foreach (var (key, value) in family.MaxBy(c => c.Stats.Sum(p => Math.Abs((long)p.Value)))!.Stats)
                 stats[key] = stats.GetValueOrDefault(key) + value;
-        basis = cached = null;
         Version++;
-    }
-
-    public MonsterModEffects Effects(MonsterModEffects original)
-    {
-        if (stats.Count == 0) return original;
-        if (!ReferenceEquals(basis, original) || cached is null)
-        { basis = original; cached = original.Combine(stats); }
-        return cached;
+        changed?.Invoke();
     }
 }
 

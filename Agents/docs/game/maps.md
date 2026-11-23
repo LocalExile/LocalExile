@@ -40,6 +40,32 @@ from earlier versions: 3.29 doesn't drop them. Don't build new features on them.
 - The player starts in the centre of the Atlas, where the first maps (area level 68) are.
 - 16 standard tiers, each tier one area level (table above).
 
+### The Atlas tree's stats in a map
+
+The client shows, and its level generator reads, only the area stats of 0x1d, so the server composes the tree's own rules
+into that list (`AtlasStats`, `Game.MapAreaStats`) from the active preset:
+- **Small** nodes are the ones that are not Notable, Keystone or Gateway (`IsAtlasWormhole`), the client's own
+  definition (ReminderTextSmallAtlasPassives). Gateways are never scaled or dropped.
+- `small_atlas_passive_effect_+%` (Wandering Path, 100) scales every Small node's values, truncated per value;
+  `map_atlas_extra_content_small_node_effect_+%` (Unfettered Concentration) adds for **Extra Content** nodes: the id
+  families (`atlas_<family>_`, matching the AtlasPassiveSkillTreeGroupType of their group's mastery) of the leagues
+  ReminderTextAtlasExtraContent lists. `delve`, `jun`, `alva`, `bestiary` and `masters` count as the missions,
+  `domination` as Shrines, `harvest` as the Sacred Grove, `heist` as Smuggler's Caches, `anarchy` as Rogue Exiles,
+  `settlers` as Ore Deposits. Tempests and Wildwood Wisps have no nodes.
+- `display_notable_…_grant_nothing` and `display_small_…_grant_nothing` drop those nodes' stats; they still count as
+  allocated, so `map_pack_size_+%_per_atlas_notable_passive_allocated` (Grand Design) adds pack size per allocated Notable.
+- The explicit mods' effect is `map_mod_effect_+%_for_non_unique_maps` (not on unique maps) + `_per_mod` × explicit mods
+  + `_per_fragment_used` × fragments; only the first id names unique maps.
+- `map_contains_x_additional_<r>_packs_if_<r>` (no area text) becomes the plain count on a map of that rarity and is
+  dropped otherwise. Meticulous Appraiser moves the three quantity stats into `map_item_drop_rarity_+%` at 300%.
+- The vital and deadly keystones' `map_monster_{life,damage}_+%_final_from_{vital,deadly}_atlas` stay in the list as
+  they are; the Game module copies each to the monster stat without `map_`, a more modifier on the monster's life or hit
+  (`MonsterModEffects.HandOverMore`).
+- A HardMode league uses the HardMode vectors: Wandering Path keeps only its first stat, Grand Design only its first.
+- `atlas_keystone_no_extra_content` (Back to Basics) needs nothing more: the level generator already rolls no league
+  content with it. Its 0–80% more mod effect, Growing Hordes, Eye of the Djinn's per-empty-slot scarab effect and the
+  device gates (Unwavering Vision) are not applied.
+
 ## Drops
 
 - The lowest tier drops during the campaign; inside a map, higher tiers start dropping.

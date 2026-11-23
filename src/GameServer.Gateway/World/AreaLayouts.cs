@@ -8,6 +8,8 @@ using SaveFiles = GameServer.Core.Saves.SaveFiles;
 public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int SpawnX, int SpawnY,
     Func<int, int, bool>? Walkable, (uint Id, AreaTransitionObject Transition)[] AreaTransitions)
 {
+    /// <summary>The layout's own spawn: an arrival's <c>with { SpawnX = … }</c> copy keeps it (the town portal's anchor).</summary>
+    public (int X, int Y) Anchor { get; init; } = (SpawnX, SpawnY);
     public float SpawnRotation { get; init; }
     /// <summary>The area's waypoint (WaypointCatalog), if it has one and its place is known.</summary>
     public WaypointObject? Waypoint { get; init; }
@@ -55,13 +57,14 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
 
     /// <summary>Where a player entering this area appears: next to the exit leading back to <paramref name="cameFrom"/>
     /// (the area they left through an exit), else the spawn (logins, Resurrect in Town, no exit back).</summary>
-    public (int X, int Y) Arrival(ushort? cameFrom)
+    public (int X, int Y) Arrival(ushort? cameFrom, int? entrance = null)
     {
         if (cameFrom is not { } from) return (SpawnX, SpawnY);
         if (OneWayArrivals.TryGetValue((Hash, from), out var point)) return point;
         foreach (var (_, t) in AreaTransitions)
-            if (t.DestinationHash16 == from && t.TeleportTo is null) return Near((t.GridX, t.GridY));
-        if (EntranceFrom?.Invoke(from) is { } entrance) return Near(entrance);
+            if (t.DestinationHash16 == from && t.TeleportTo is null
+                && (entrance is null || t.Entrance == entrance)) return Near((t.GridX, t.GridY));
+        if (EntranceFrom?.Invoke(from) is { } pointEntrance) return Near(pointEntrance);
         return (SpawnX, SpawnY);
     }
 
@@ -92,6 +95,7 @@ public static class AreaLayouts
     /// <summary>The area each transfer's destination ticket left through an exit; the new connection arrives next to the
     /// exit back (<see cref="AreaLayout.Arrival"/>). In memory: a Gateway restart drops the client to the login anyway.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, ushort> CameFrom = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, int> ArrivalEntrances = new();
 
     // Lioneye's Watch is one room, Metadata/Terrain/Act1/Town/Rooms/beach_town_unique_normal.arm (18 x 30 tiles), placed
     // R270 by Graphs/beachtown.dgr ("default" "entrance2" "entrance1disabled"). Spawn (197, 261): the walkable cell farthest
@@ -109,7 +113,7 @@ public static class AreaLayouts
 
     const string Folder = "data/walkability";
 
-    static string IdOf(ushort hash) =>
+    internal static string IdOf(ushort hash) =>
         Ids.GetValueOrDefault(hash) ?? AreaTransitionCatalog.IdOf(hash) ?? HideoutCatalog.ByArea(hash)?.AreaId ?? $"0x{hash:x4}";
 
     /// <summary>The seed the instance's layout is generated and played at (<see cref="ServerLevels.PlayableSeed"/>).</summary>
@@ -121,6 +125,15 @@ public static class AreaLayouts
     /// <inheritdoc cref="PlayableSeed(ushort, uint)"/>
     public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats) =>
         ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats);
+
+    /// <inheritdoc cref="ServerLevels.PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats, category);
+
+    /// <inheritdoc cref="ServerLevels.PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int, IReadOnlyList{ValueTuple{ushort, byte[]}}?)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category,
+        IReadOnlyList<(ushort Plugin, byte[] State)>? pluginStates) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats, category, pluginStates);
 
     public static AreaLayout For(ushort hash, uint seed)
     {
@@ -140,7 +153,7 @@ public static class AreaLayouts
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
             return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
-                SightOf(generated.Projectile, generated.Width, generated.Height)) with
+                SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start) with
             {
                 CellHeights = generated.Heights,
                 EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from),
@@ -150,13 +163,16 @@ public static class AreaLayouts
         return WithCells(hash, id, seed, cells, w, h, LoadSight(id, seed));
     }
 
-    static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight)
+    static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight,
+        (int X, int Y, float Angle)? start = null)
     {
-        var layout = WithTransitions(hash, id, seed, cells, w, h);
+        var layout = WithTransitions(hash, id, seed, cells, w, h, start);
         return layout with { Effects = AreaTransitionCatalog.Effects(id, seed), Sight = sight };
     }
 
-    static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h)
+    /// <param name="start">The start a terrain plugin marks (<see cref="ServerLevels.Level.Start"/>): the spawn, without
+    /// the room fit.</param>
+    static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h, (int X, int Y, float Angle)? start = null)
     {
         var notes = new List<string>();
         var transitions = AreaTransitionCatalog.For(hash, id, seed, notes);
@@ -170,13 +186,16 @@ public static class AreaLayouts
             return new AreaLayout(hash, id, 690, 414, 197, 261, fits ? Walkable(cells!, w, h) : null, transitions)
             { Clearance = fits ? Clearance(cells!, w, h) : null };
         }
+        if (cells is not null && start is { } s)
+            return new AreaLayout(hash, id, w, h, s.X, s.Y, Walkable(cells, w, h), transitions)
+                { Clearance = Clearance(cells, w, h), SpawnRotation = s.Angle };
         if (cells is not null)
         {
             // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the deepest cell.
-            var start = AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default");
-            var (sx, sy) = start is null ? DeepestCell(cells, w, h) : (start.X, start.Y);
+            var point = AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default");
+            var (sx, sy) = point is null ? DeepestCell(cells, w, h) : (point.X, point.Y);
             return new AreaLayout(hash, id, w, h, sx, sy, Walkable(cells, w, h), transitions)
-                { Clearance = Clearance(cells, w, h), SpawnRotation = start?.Angle ?? 0 };
+                { Clearance = Clearance(cells, w, h), SpawnRotation = point?.Angle ?? 0 };
         }
         // No walk map yet: a position inside any grid; the client may place the player on unwalkable ground.
         return new AreaLayout(hash, id, 0, 0, 197, 261, null, transitions);
@@ -200,6 +219,8 @@ public static class AreaLayouts
             {
                 id = layout.Id, seed, hash = layout.Hash, written = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 nonce = Guid.NewGuid().ToString("N"),
+                // The terrain plugin states of the load, for the trace: levelgen generates with them.
+                pluginStates = ServerLevels.PluginStatesOf(layout.Id, seed)?.ToDictionary(p => p.Key.ToString(), p => Convert.ToHexString(p.Value)),
             });
             SaveFiles.Write($"{Folder}/current.json", json);
         }
@@ -225,7 +246,9 @@ public static class AreaLayouts
     });
 
     /// <summary>When the client reports the area generated (0x7d): the walk map scripts/walkmaps saved meanwhile, if
-    /// any. Waits up to 2 s for the file.</summary>
+    /// any. Waits up to 2 s for the file while the recorder runs (<see cref="Recording"/>); without it nothing writes
+    /// the file, so it looks once and does not wait: the player is already past the loading screen, and the wait held
+    /// every arrival in an area without a walk map for 2 s (2026-11-17).</summary>
     public static async Task<AreaLayout?> WaitFor(AreaLayout layout, uint seed)
     {
         string bin = $"{Folder}/{layout.Id}_seed{seed}.bin";
@@ -236,46 +259,34 @@ public static class AreaLayouts
                 var better = For(layout.Hash, seed);
                 return better.Walkable is null ? null : better;
             }
+            if (!Recording) return null;
             await Task.Delay(100);
         }
         return null;
     }
 
     /// <summary>When the client reports the area generated (0x7d) and the layout has no area transitions yet: the ones
-    /// scripts/walkmaps captured meanwhile, if any. Waits up to 1 s for the file.</summary>
+    /// scripts/walkmaps captured meanwhile, if any. Waits up to 1 s for the file while the recorder runs
+    /// (<see cref="Recording"/>); without it it looks once and does not wait. A hideout has no area transitions, so the
+    /// wait held every arrival in one for a second (2026-11-17).</summary>
     public static async Task<AreaLayout?> WaitForTransitions(AreaLayout layout, uint seed)
     {
         for (int i = 0; i < 10; i++)
         {
             if (AreaTransitionCatalog.Captured(layout.Id, seed))
             {
-                await Task.Delay(200);   // the capture is rewritten per object; let the last ones land
+                if (Recording) await Task.Delay(200);   // the capture is rewritten per object; let the last ones land
                 var better = For(layout.Hash, seed);
                 return better.AreaTransitions.Length > 0 || better.Waypoint is not null ? better : null;
             }
+            if (!Recording) return null;
             await Task.Delay(100);
         }
         return null;
     }
 
-    // data/walkability/<id>_seed<seed>.bin (1 byte per cell) + .json {"w":..,"h":..}, written by scripts/walkmaps.
-    static byte[]? LoadCells(string id, uint seed, out int w, out int h)
-    {
-        (w, h) = (0, 0);
-        string bin = $"{Folder}/{id}_seed{seed}.bin", meta = Path.ChangeExtension(bin, ".json");
-        if (!File.Exists(bin) || !File.Exists(meta)) return null;
-        try
-        {
-            var m = JsonDocument.Parse(File.ReadAllText(meta)).RootElement;
-            (w, h) = (m.GetProperty("w").GetInt32(), m.GetProperty("h").GetInt32());
-            byte[] cells = File.ReadAllBytes(bin);
-            return cells.Length == w * h ? cells : null;
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
+    static byte[]? LoadCells(string id, uint seed, out int w, out int h) =>
+        GameServer.Core.World.WalkMapCapture.Load(id, seed, out w, out h);
 
     /// <summary>The capture's projectile grid beside its walk map (scripts/walkmaps: <c>&lt;id&gt;_seed&lt;seed&gt;.projectile.bin</c>,
     /// one byte per cell, sized by the walk map's .json), or null without one.</summary>
@@ -307,27 +318,31 @@ public static class AreaLayouts
     static Func<int, int, bool> Walkable(byte[] cells, int w, int h) =>
         (x, y) => x >= 0 && y >= 0 && x < w && y < h && cells[y * w + x] >= 2;
 
-    static readonly (int Dx, int Dy)[] Neighbours = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
     /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells).</summary>
     static (int X, int Y) DeepestCell(byte[] cells, int w, int h)
     {
-        var dist = new int[w * h];
-        var q = new Queue<int>();
+        // Run for every connection to an area without a start point, a hideout's five million cells among them: plain
+        // arrays (a cell is queued once, when its distance is set) instead of a Queue, a tuple loop and LINQ per cell.
+        int n = w * h;
+        var dist = new int[n];
+        var queue = new int[n];
+        int head = 0, tail = 0;
         for (int i = 0; i < cells.Length; i++)
-            if (cells[i] < 2) { dist[i] = 0; q.Enqueue(i); } else dist[i] = int.MaxValue;
-        while (q.Count > 0)
+            if (cells[i] < 2) queue[tail++] = i; else dist[i] = int.MaxValue;
+        while (head < tail)
         {
-            int i = q.Dequeue(), x = i % w, y = i / w;
-            foreach (var (dx, dy) in Neighbours)
-            {
-                int nx = x + dx, ny = y + dy;
-                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                int j = ny * w + nx;
-                if (dist[j] > dist[i] + 1) { dist[j] = dist[i] + 1; q.Enqueue(j); }
-            }
+            int i = queue[head++], x = i % w, next = dist[i] + 1;
+            if (x + 1 < w && dist[i + 1] > next) { dist[i + 1] = next; queue[tail++] = i + 1; }
+            if (x > 0 && dist[i - 1] > next) { dist[i - 1] = next; queue[tail++] = i - 1; }
+            if (i + w < n && dist[i + w] > next) { dist[i + w] = next; queue[tail++] = i + w; }
+            if (i >= w && dist[i - w] > next) { dist[i - w] = next; queue[tail++] = i - w; }
         }
-        int best = Array.IndexOf(dist, dist.Where(d => d != int.MaxValue).Max());
+        // The first cell with the greatest distance; a grid without a blocked cell has none, as before.
+        int best = -1, deepest = -1;
+        for (int i = 0; i < n; i++)
+            if (dist[i] != int.MaxValue && dist[i] > deepest) { deepest = dist[i]; best = i; }
+        if (best < 0) throw new InvalidOperationException("Sequence contains no elements");
         return (best % w, best / w);
     }
 

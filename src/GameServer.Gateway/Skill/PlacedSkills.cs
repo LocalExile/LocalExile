@@ -2,15 +2,27 @@ using GameServer.Core.World;
 
 public sealed class PlacedSkills
 {
+    public sealed record DamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+        MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+    public sealed record DamageSnapshot(DamageProfile Normal, DamageProfile Blinded,
+        IReadOnlyDictionary<uint, int> Caster, bool Spell)
+    {
+        public SpiderDamageSource? Spider { get; init; }
+    }
+
     public sealed record Placed(uint Id, ushort Skill, int Effect, (int X, int Y) At, bool Mine,
         double Armed, double Until, DamagePacket Damage, IReadOnlyDictionary<uint, int> Own,
         int Flat, int Percent, bool ReservesLife, int Efficiency)
     {
+        public DamageSnapshot? Offense { get; init; }
+        public double EffectDurationSeconds { get; init; }
         public double DetonateAt = double.PositiveInfinity;
         public bool SkitterTriggered;
         public int Chain;
         public double LandAt;
         public bool Landed = true;
+        // How near a hostile monster sets a trap off, in cells (the Game module's TrapTriggerRadius).
+        public double TriggerRadius = 10;
     }
     public readonly Dictionary<uint, Placed> All = [];
     public sealed record Ground(uint Object, ushort Source, (int X, int Y) At, double Radius,
@@ -20,6 +32,8 @@ public sealed class PlacedSkills
         public readonly Dictionary<uint, double> Carry = [];
     }
     public readonly List<Ground> Grounds = [];
+    // Traps and mines that have gone off, until their object is removed (the Game module's RetirePlacedLocked).
+    public readonly List<(uint Object, double At)> Leaving = [];
     public double NextSkitter;
     public double NextChain;
     public int Chain;
@@ -31,7 +45,7 @@ public sealed class PlacedSkills
                 p.Flat, p.Percent, ReservationEfficiencyPct: p.Efficiency)));
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     PlacedSkills? placedSkills;
     public PlacedSkills Placed => System.Threading.LazyInitializer.EnsureInitialized(ref placedSkills);

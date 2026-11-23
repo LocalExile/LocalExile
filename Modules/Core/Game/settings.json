@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "settings": {
+    "legacySourceCharacter": {
+      "type": "text",
+      "default": "",
+      "label": "Legacy hideout source",
+      "description": "For an account without a shared hideout, copy this character's selected hideout and layout once. Leave empty to use the first character with a selected hideout.",
+      "applies": "restart"
+    }
+  }
+}

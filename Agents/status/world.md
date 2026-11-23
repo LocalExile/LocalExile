@@ -49,6 +49,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The offline audit `scripts/re/exits` checks every generated area at several seeds (`--quests`: with the act tables,
   so the gated disabled exits too);
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
+  Repeated connections between the same two areas retain the selected entrance in both directions.
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
   Native requirement removal/restoration, four town/Coast transfers, spell payment, ES recovery and relog controls pass.
@@ -95,6 +96,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Variable-length C→S 0x0130, 0x0138, 0x0279, 0x027f, 0x02a5 and the length-prefixed 0xF7E0 mod envelope are framed
+  without dropping trailing messages; C→S 0x0E verifies its SipHash-2-4 digest against per-ticket `Data8`, and C→S 0x7d
+  compares client tile hashes against server-generated `TileHash` (not yet checked live).
+  Docs: [02](../docs/protocol/02-instance-connection.md), [03](../docs/protocol/03-area-and-world.md).
+- HUD mission timers (S→C 0x163) and countdown timers (S→C 0x162): protocol encoders implemented and wired into
+  Allflame lantern collapse (`Deepwater`) and Survivors stage countdowns (`Generic`); not yet checked live.
 - Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
   the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
@@ -107,6 +114,35 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
   a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
   before payment because the Conqueror apparition skills are not implemented.
+
+- Lockstep is the default way of playing (no server setting; the log notes it to a predictive client). Each
+  area takes its mode from its first mode-only C→S message (`ClientPackets`), and one with messages of both modes
+  tells the player in chat to report it ([07](../docs/protocol/07-latency-visibility-movement.md) §6); before that input every client but a server-controlled one is
+  served in lockstep. The
+- Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats (the Ambush scarabs
+  add to it), the type a Strongboxes row by weight and the area and atlas stats (live: The Crossroads, The Riverways,
+  a Geode map, Acts 8-10). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods, or are
+  unique (UniqueChests by weight, our 0.6% from the 2016 sample, with the area's unique chance; live: Strange Barrel,
+  Redblade Cache, Ashes of the Condemned, Deshret's Storm); a non-normal box has its rarity's hidden quantity and rarity.
+  The content, item and guard mods act; warband caches bring their warband. The daemon mods act when the box opens
+  (each daemon sends its skill; the server applies its hit, ailment or ground at the area level; live: Ice Nova,
+  Firestorm, Lightning Storm, a curse, corpse detonation, the torment and sandstorm streams): the summons arrive in
+  waves and guard the box, Revive raises the dead near it. An opening plays as the game's (live 2026-11-22): the
+  model's own `open` clip with its lid sounds, the rarity's `ChestEffects` glow while closed and its open effect, the
+  box shown opened once the clip is over, then the guards' dust columns with the spawn sounds (their wave waits for the
+  clip, as the daemons do). The spell daemons' hits act, but their falling projectiles are not right yet: Firestorm and
+  Lightning Storm show only the client's first meteor/bolt, and Putrifying's single delayed corpse explosion finds
+  nothing unless corpses already lie within 21 cells (the "Strongbox daemon spells" issue). Gems with experience drop at a random level up to 20;
+  Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
+  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
+  "Vaal Vessels"). Currency changes a closed
+  box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
+  unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). The orb is
+  consumed from the character inventory or the open stash / currency tab (live: an orb right-clicked in the currency tab
+  and clicked on the box), the source's stack updated. Our own:
+  `__col2` as the item count, Jumbled Abundance's one-in-four, the freeze's one second, stand-ins for the summons the
+  tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
+  [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
@@ -156,7 +192,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
   Predictive Leap Slam acknowledges without the old source-cell echo; the Delve follow-up live check is pending.
-  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
+  Code: `LivingCollision.cs`, `Player.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
   ids; every client is shown them, any player's hits hurt the same ones and each monster targets the nearest player.
@@ -179,6 +215,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   at, not its WorldAreas level (2026-11-01). Before, a tier-16 Chateau (WorldAreas 71) took another topology than the
   client's, so the player spawned outside the client's layout (a black screen), and seeds the client cannot build
   were played.
+  The Allflame leagues play every area in league category 59 ([011](../docs/re/011-level-generation.md) §3): The Coast,
+  The Ship Graveyard and its Cave are generated in their Deepwater topologies.
 - **Level generator port.** `GameServer.Data/Terrain/Generation` reproduces the client's level generator: the tile
   grid, the walkability and projectile grids, the doodads, every cell's ground height (`CellHeights.cs`) and the area
   transitions and waypoints (`AreaObjects.cs`: the tiles' objects, and a room's `Waypoint` line where no tile places
@@ -188,10 +226,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   loads the client itself failed to generate, the port fails 112 the same way (115 expected once the gate reruns:
   the Sanctum Cellar, Nave and Vaults now fail as the client does). The 34 areas the client cannot
   generate at seed 1 (and that need no server data) were toured at random seeds the port generates: all 73 loads match.
+  The Allflame encounter areas (DeepwaterEncounter, DeepwaterEncounterVoyage) are built from the terrain plugin state
+  0x1d sends, or the client's default 2 × 2 grid without one ([011](../docs/re/011-level-generation.md) §3c4).
+  Verified live (3.29.3d, 2026-11-18): the client's tile hash equals the port's for a one-room chart and a 3 × 3
+  Voyage grid.
+  The Gateway generates them (`server_level_areas`); a live capture of each (2026-11-19, a one-room chart and a 3 × 3
+  Voyage) matches the port in walk and projectile grids, cell heights and doodads
+  (`levelgen walk`, `heights`, `doodads`).
   An unattended tour of every WorldAreas row with a topology (2026-10-27, `scripts/re/levelgen/tourloop.py`, which
   restarts and logs in the client by itself) left 234 of the 1932 rows with no client-side level to match: 17 without a
   topology, 202 that need data from the server (Incursion temples, Delve cells and biomes, Heist contracts, Synthesis
-  memories, the Sanctum floors, the Deepwater biome grid; they come with each league's server side, see the
+  memories, the Sanctum floors, the Deepwater grid; they come with each league's server side, see the
   [roadmap](../roadmap/world.md)), and 15 the client cannot generate at any seed tried (the
   list is written to data/areas-unavailable.txt). The port matches a load of every other row.
   A tour of 3 random seeds per matching area: all 519 match. Every traced load at another seed of that tour (1215,
@@ -229,7 +274,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   client.
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
-- **A Labyrinth run (Normal).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
+- **A Labyrinth run (Normal and Cruel).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
   done, then opens the statue for good and the way to the plaza behind it (`/trials off` shuts it). At the plaza the
   device opens the select window (0x7b kind 0x10); choosing Normal (C→S 0x212 = 1) opens the door with its animation
   and shows the way into the day's first room; the portal goes back to town. Each room is its own instance (the run
@@ -240,6 +285,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   In the last room's Ascendancy Chamber the font gives the tier's two ascendancy points and opens the class selector
   (0x7b kind 0x0a; the choice, C→S 0x39, is saved and reloads the same instance at the font), and its portal goes back to town.
   Checked live 2026-11-03: the class chosen there stays after a relog.
+  Cruel (C→S 0x212 = 2) requires level 40, Normal completion and the three Act 6–7 trials. The door and destination
+  are per player, and the run keeps the selected day. In both, defeating Izaro in the last arena unlocks the font and its two points.
+  Checked live 2026-11-19: the three plaques, all three fights, the return portal and the points after a relog.
   Izaro's three Aspirant's Trials: the corridor's gate opens when used (his prefight line), he rises on the elevator
   with the day's weapon as the player comes into the arena (the mechanic's line) and the arena's doors shut; his life
   bar goes in thirds from trial to trial: in the first two he leaves at the next third (his line, a walk to the
@@ -263,7 +311,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   mortars her Guardians' circles open under, casts the gargoyles' awakening beam from her hands, goes down with him and
   flies up when he dies. Checked live 2026-11-12. Code: `GoddessOfJustice.cs`, `Rules.IzaroGoddess.cs`.
   Not yet: his chests, the room's craft recipe, the enchanting bench,
-  Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
+  Merciless and Eternal, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
   `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`, `Rules.IzaroPortals.cs`,
   `Rules.IzaroChronos.cs`, `Rules.IzaroLieutenants.cs`), Game `IzaroIdols.cs`, `Act3.cs`, `Act8.cs`.
@@ -279,8 +327,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   What an instance opened stays open; an opened trial Locked Door (bars) is removed, a room's gate stays open.
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
-  over a stretched Emerge animation (0x1d1), hit a player on their tile for LbRetractableTrap's share of life and energy
-  shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
+  over a stretched Emerge animation (0x1d1), hit a player or monster on their tile for LbRetractableTrap's share of life
+  and energy shield, bleed and pin them for a second and wall their tile while they show, with the Hull's ring as the
+  client closes it; matched by eye against the original game. The trial's static objects (levers, switches, the
+  plaque, the turrets, the rails) close their Hull and its ring on the server, as the client stamps them. Objects whose
+  type does not block (the trial's return portal, waypoints, area transitions) are no longer sent as client bodies, which
+  made a player walking over them drift (`BlobWriter.Positioned`, [04](../docs/protocol/04-player-entity.md)).
   The Imperial Gardens' 14 dart turrets fire together every 1.5 s, four poison darts each a quarter turn apart, through
   the projectile world, stopping at walls and at the turrets' Hull; a dart hits for LbArrowTrap's share and adds a 2 s
   poison stack reckoned from the hit's life share, less armour, and slows movement by 60% for 2 s. Being checked live.
@@ -332,7 +384,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   An "entranceN" with no object of its own (the portal to Highgate after Malachai, Weylam's boat) is an exit without a
   model at its point, there from the start.
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
-  its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
+  its animation ([12](../docs/protocol/12-quests.md) §6); the Doorman and opening tutorial force walls 1/2 are now created.
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
 - Waypoint travel to a generated area without a `-Walkmaps` capture for its seed, and whose generated layout places no
   waypoint either, puts the player at an arbitrary cell; every act area has a seed-1 capture, so this is what any other

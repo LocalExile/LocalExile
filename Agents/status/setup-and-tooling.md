@@ -16,7 +16,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Only the builds listed in `ClientBuilds.cs` run, each recognized by its
   executable's hash; any other is refused (the launcher's `check`, Auth's `keygen` and `patch` and the constants
   extraction on real 3.29.3.5, 3.29.3d and 3.29.3b executables, 2026-11-11).
-  Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
+  Port tools: `scripts/re/port`, `PortMap.java`; the hash-pinned network manifest reproduces selected branches and
+  field/data references across 3.29.3b/c/hotfix/d, with whole-program comparator exceptions explicitly unresolved.
+  Docs: [tooling](../docs/re/tooling.md) §11 and its network contract evidence.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` regenerates each data file that is
   missing or whose manifest version changed (stamps in `data/extract-stamps.json`); `live.ps1` runs its `-Servers`
   entries (`game-files.zip`, the GGPK root hash) on every start (`-NoExtract` to skip), the full manifest is the
@@ -42,7 +44,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GameServer.Patch`, `GgpkMaintenance.RepairRootHash`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
 - Dev account service: register, log in, create characters, list every account (JSON-lines over TCP).
-  Code: `GameServer.Host`, `GameServer.DevClient`.
+  Waypoint's Accounts tab uses it to register accounts and create characters. Code: `GameServer.Host`.
   Docs: [dev-server.md](../docs/dev-server.md).
 - Hooks for outside tools such as the desktop launcher: `live.ps1 -Stop` (also with `-Only` or `-NoClient`),
   `live.ps1 -ClientOnly -Walkmaps` (the client and its walk-map recorder against running servers), the
@@ -50,22 +52,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   its `crafter` mode with `/item_give` (an item crafter's bases, mod pools and English stat descriptions, and the item
   it composed: [item-crafter.md](../docs/dev/item-crafter.md)), its `labyrinth [yyyy-mm-dd | seed]` mode (a day's four
   Labyrinths: rooms with their map positions, connections and secrets, `LabyrinthDay.Listing`), and the dev host's `accounts`.
-  Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
+  Checked on a real setup: `-Stop` ending the servers, every argument kind's values, and
   the account list from the real save database.
   Code: `scripts/dev/live.ps1`, `Modules/Core/Game/Player/Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 10, [10](../docs/protocol/10-chat-and-commands.md) §4,
   [dev-server.md](../docs/dev-server.md).
-- Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
-  which applies saved code edits to the running server; `HotReload.cs` logs each applied edit and tells players in
-  chat when a save starts a reload, when it is applied, when it fails to compile (first three errors, from
-  `dotnet watch`'s output), when it changes nothing, and when the edit needs a restart.
-  Live, with the client in game and no disconnect: Gateway edits applied in 9-18 s (the Burning Arrow fix among
-  them), a Core edit in 0.08 s, two files saved together as one reload, a broken save kept the old code and listed its
-  errors (5 shown as 3 + "2 more"), and the fix applied.
-  A removed member restarted the Gateway as expected; switching to and from `-NoHotReload` stops a Gateway that is
-  still loading.
-  Code: `scripts/dev/live.ps1`, `HotReload.cs`.
-  Docs: [GettingStarted](../GettingStarted.md) step 10 (hot reload), [live testing](../docs/dev/live-testing.md).
+- No compiling in game, and hot reload for modules and mods only: every build precompiles the servers, modules and mods
+  to machine code (crossgen2 after the compiler, Debug and Release alike, `Directory.Build.targets`), and each module or
+  mod version loads into a context that keeps it (precompiled code is used only there) with every method compiled
+  before its `Load`. The servers restart instead of hot reloading (`live.ps1` no longer runs `dotnet watch`).
+  Bench (200 monsters): run-time compiles on an area entry 10,966 to 1,851 and on a first Righteous Fire 1,500 to 307;
+  what is left is the framework's generic code used with framework types only. A reloaded version stays in memory until
+  a restart.
+  Code: `Directory.Build.targets`, `ModLoadContext.cs`, `scripts/dev/live.ps1`.
+  Docs: [live testing](../docs/dev/live-testing.md) ("hot reload").
 - Client control distinguishes explicit password login from a remembered native form submission.
   Password replacement clears the outgoing saved-credential flag and retains the Remember Password preference.
   A remembered-form regression reaches character selection through normal Auth; saved-login preservation is mocked.
@@ -73,6 +73,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [client control](../docs/dev/client-control.md).
 
 ## Partly working
+
+- One owner for an area's state, its frame (`AreaFrames`, `GameArea`): sessions only read and queue messages, and the
+  frame's input phase handles them; every continuation of game code runs in the frame (its SynchronizationContext), so
+  the monsters (`GameArea.Monsters`, no longer reached through a player) have no lock, only a Debug owner check. The
+  frame's records about its entities are made once (`AreaDelta`) and written to every client with the frame's end: one
+  id per entity on every client, the players' own actions included. Life, stats and buffs are components of the area
+  (`AreaLife`, `AreaStats`, `AreaBuffs`): systems set them, the frame writes what changed since the frame before. The area
+  is generated once (`GameEvents.AreaGenerated`) and each player enters it (`GameEvents.PlayerEntered`): its shared
+  objects are written once and given to a later client as they are (`AreaObjectRecords`), a player's quest view (NPCs,
+  quest objects and blockers, portals) is theirs alone (`Program.ViewOf`). Each skill keeps a stat graph over the
+  player's stats (`SkillGraph`). Hit targeting, the monster AI pass, damage auras and ground-item pickups query the area
+  grid (`GameArea.MonstersNear`, `InstanceGround.Within`). Not yet checked with the real client; services that reach
+  into an area from another one's frame (party, trade) still do.
 
 - Databases from SQL in git ([#734](https://github.com/LocalExile/LocalExile/issues/734),
   [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 941 tables, 97 MB of
@@ -85,8 +98,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   migrated and played on. Not yet: the generated tables
   read from `client.db` in a real-client session.
   Every reader takes the client tables by name as typed rows (`ClientTable`), the servers, the tools and the Python
-  scripts (`scripts/dev/clientdb.py`) alike; no `data/tables/` path is read. Not yet checked in a real-client session.
-  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Tables/ClientTable.cs`, `GameServer.Core/Config/ServerConfig.cs`.
+  scripts (`scripts/dev/clientdb.py`) alike; no `data/tables/` path is read. The Gateway holds every client table in
+  memory and builds every catalog in a fixed, logged order before it listens (`WorldLoader`, each module's
+  `LoadData`), so no game action reads SQLite or loads data on first use
+  ([performance](../docs/dev/performance.md), "Game data in memory"). Not yet checked in a real-client session.
+  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Tables/ClientTable.cs`, `GameServer.Gateway/World/WorldLoader.cs`, `GameServer.Core/Config/ServerConfig.cs`.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
@@ -95,7 +111,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   the Strand matches in tile hash, both grids, cell heights, doodads and transitions.
   Code: `scripts/dev/platform-linux.ps1`, `scripts/walkmaps/proton.py`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
-  collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
+  load context of its own per version and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
   applies that file when a launcher rewrites it).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
@@ -122,13 +138,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
-  dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
-  context being freed.
-  Live (2026-11-12, #822): a rebuild of the Game module with a player in The Twilight Strand reloaded the 24 modules and
-  freed every old one, seven times in a row: at rest, in a fight, and after a death and a new entry into the same
+  dependency arriving later and reloading its dependent, a failed load leaving no hook, and the watcher.
+  Live (2026-11-12, #822): a rebuild of the Game module with a player in The Twilight Strand reloaded the 24 modules
+  seven times in a row: at rest, in a fight, and after a death and a new entry into the same
   instance; movement went on and a buried monster rose for the new rules afterwards.
-  Assemblies load from a private temporary disk copy rather than collectible memory streams; original build outputs
-  remain free, and collected contexts release their copied files.
+  Assemblies load from a private temporary disk copy; original build outputs remain free, and a later start removes
+  the copies.
   Unit-tested: the copies' cleanup (`ModCopyTests`), user settings over the declared defaults (`ModSettingsTests`), a
   user's module changes over the leagues' lists, and a module lifetime's stop releasing what it owns (`ModuleLifetimeTests`).
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).

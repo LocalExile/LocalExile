@@ -306,8 +306,17 @@ Its `stance2` is ACT ordinal 1 (base is 0); `0x141e9d3f0` ignores ordinal 2, whi
 `VaalSpiderGod/rig.amd` clip 10 is `phase_01_transition_silk_01` (6333 ms); changing to stance2 attaches `SilkHead.ao`.
 The Tendrils granted effects select art variations 1/2/3; without `skill_art_variation` their action chooses
 `CastFast`, absent from this actor. The campaign now gates the phase at 50%, plays Silk's clip and resumes at 60%.
-These HP values are provisional reference calibration; arena corner travel and turret laser patterns remain missing.
+These HP values are provisional reference calibration; arena corner travel remains missing.
 The live object's stance is part of its creation snapshot and is reconciled when an existing observer wakes it.
+
+
+The arena places 13 A rails, 13 B rails and 26 opposite display turrets at seed 1.
+Their `next` script variable is an entity reference to the opposite display, not a StateMachine value.
+The native turret `fire` clip lasts 3333 ms, with `effect` at 66 ms and the damage contact at 1999 ms;
+`activate` lasts 533 ms. Transition 2 invokes `MakeBeam(SpiderGodLaserBeam, next)` on a source turret.
+The rail controller supplies those links and uses the native timeline; the three-lane selection and 3-cell collision
+band are development calibration, not recovered official AI weights.
+Generic AI still excludes the unsafe `SpiderGodActivateLaser*` actions; the controller drives the linked rails directly.
 
 
 **Start:** YeenaTown "Silk" (cat 4, sets the quest). **Finish:** enter The Sarn Ramparts.

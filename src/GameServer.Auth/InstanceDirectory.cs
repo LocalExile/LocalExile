@@ -23,19 +23,37 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
     private readonly ConcurrentDictionary<uint, TicketInfo> _tickets = new();
     // Each character's latest ticket: a connection closing after its character re-entered the same instance (Instance
     // Manager) must not take it out of that instance.
-    private readonly ConcurrentDictionary<string, uint> _latest = new();
+    private readonly ConcurrentDictionary<string, uint> _latest = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, LoginLink> _links = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>True when <paramref name="character"/> currently has an active login link or live instance presence.</summary>
+    public bool IsCharacterActive(string character)
+    {
+        if (_links.ContainsKey(character)) return true;
+        if (_latest.TryGetValue(character, out uint ticket)
+            && _tickets.TryGetValue(ticket, out var info)
+            && registry.Get(info.Instance) is { } inst
+            && inst.Players.Contains(character))
+            return true;
+        return false;
+    }
 
     public sealed record TicketInfo(string Character, ulong Instance, ushort Area, League? League, CharacterClass Class,
         int Level, Guid? CharacterId, ushort PortraitFrame = 0);
 
     /// <summary>A logged-in client's login connection. Writes go through <see cref="SendAsync"/> (the reply loop and the
     /// control server both write).</summary>
-    public sealed class LoginLink(NetworkStream stream, ConnectionCiphers ciphers, LoginServerSession session, string peer)
+    public sealed class LoginLink(NetworkStream stream, ConnectionCiphers ciphers, LoginServerSession session, string peer, Action? close = null)
     {
         private readonly SemaphoreSlim _lock = new(1, 1);
         public LoginServerSession Session => session;
         public string Peer => peer;
+
+        public void Close()
+        {
+            try { close?.Invoke(); } catch { }
+            try { stream.Close(); } catch { }
+        }
 
         public async Task SendAsync(ILoginMessage message)
         {
@@ -125,7 +143,7 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
             return new ControlResponse { Ok = false, Error = $"unknown ticket 0x{req.Ticket:x8}" };
         // Dead/migrated characters retain old ticket records only so disconnect cleanup can leave the old instance.
         // Resolve and transfer must use the current committed account record, never a cached login or ticket snapshot.
-        if (req.Op != "leave" && accounts is not null)
+        if (req.Op is not ("leave" or "logout") && accounts is not null)
         {
             var canonical = accounts.FindCharacter(info.Character);
             if (canonical is null || !HardcoreDeathRules.TicketMatches(canonical, info.CharacterId, info.League?.Name))
@@ -170,6 +188,10 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 AreaInstanceState? inst = req.Instance != 0
                     ? registry.EnterExisting(req.Instance, info.Character, info.League?.Name, info.League?.Ssf ?? false,
                         req.Area, info.CharacterId?.ToString("N"))
+                    : !string.IsNullOrWhiteSpace(req.Owner)
+                        && !string.Equals(req.Owner, info.Character, StringComparison.OrdinalIgnoreCase)
+                        ? registry.EnterPersonal(req.Area, info.Character, req.Owner, info.League?.Name, info.League?.Ssf ?? false,
+                            info.CharacterId?.ToString("N"))
                     : req.New ? registry.EnterNew(req.Area, info.Character, info.League?.Name, info.League?.Ssf ?? false,
                         info.CharacterId?.ToString("N"), req.Seed)
                     : registry.Enter(req.Area, info.Character, info.League?.Name, info.League?.Ssf ?? false,
@@ -179,7 +201,8 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 uint ticket = NewTicket(link.Session, info.Character, inst);
                 return new ControlResponse
                 {
-                    Ok = true, Area = inst.AreaHash, Instance = inst.Id, Seed = inst.Seed, IsTown = inst.IsTown, Ticket = ticket,
+                    Ok = true, Area = inst.AreaHash, Instance = inst.Id, Created = inst.Created.ToUnixTimeMilliseconds(),
+                    Seed = inst.Seed, IsTown = inst.IsTown, Ticket = ticket,
                 };
             }
             case "set_level":
@@ -215,6 +238,13 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                     && _tickets.TryGetValue(latest, out var now) && now.Instance == info.Instance)
                     return new ControlResponse { Ok = true };
                 registry.Leave(info.Instance, info.Character);
+                return new ControlResponse { Ok = true };
+            case "logout":
+                if (_links.TryRemove(info.Character, out var logoutLink))
+                {
+                    Console.WriteLine($"[auth] {info.Character}: logout requested by instance; closing login connection {logoutLink.Peer}");
+                    logoutLink.Close();
+                }
                 return new ControlResponse { Ok = true };
             default:
                 return new ControlResponse { Ok = false, Error = $"unknown op {req.Op}" };

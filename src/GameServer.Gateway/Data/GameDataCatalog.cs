@@ -16,7 +16,7 @@ public static class GameDataCatalog
     static UniqueJewelCatalogue.Entry[] _globals = [];
     static UniqueJewelCatalogue.Entry[] _specials = [];
     static TimelessJewelCatalog.Entry[] _timeless = [];
-    static IReadOnlyDictionary<string, (string Stat, int Value)[]> _tattoos = Empty<(string, int)[]>();
+    static IReadOnlyDictionary<string, (uint Stat, int Value)[]> _tattoos = Empty<(uint, int)[]>();
     static IReadOnlyDictionary<string, ushort> _visuals = Empty<ushort>();
 
     public static UniqueCatalog.Definition[] Uniques => Volatile.Read(ref _uniques);
@@ -25,7 +25,7 @@ public static class GameDataCatalog
     public static UniqueJewelCatalogue.Entry[] UniqueJewelGlobals => Volatile.Read(ref _globals);
     public static UniqueJewelCatalogue.Entry[] UniqueJewelSpecials => Volatile.Read(ref _specials);
     public static TimelessJewelCatalog.Entry[] TimelessJewels => Volatile.Read(ref _timeless);
-    public static IReadOnlyDictionary<string, (string Stat, int Value)[]> TattooEffects => Volatile.Read(ref _tattoos);
+    public static IReadOnlyDictionary<string, (uint Stat, int Value)[]> TattooEffects => Volatile.Read(ref _tattoos);
     public static IReadOnlyDictionary<string, ushort> JewelVisuals => Volatile.Read(ref _visuals);
 
     public static string Summary =>
@@ -42,7 +42,7 @@ public static class GameDataCatalog
         Volatile.Write(ref _globals, []);
         Volatile.Write(ref _specials, []);
         Volatile.Write(ref _timeless, []);
-        Volatile.Write(ref _tattoos, Empty<(string, int)[]>());
+        Volatile.Write(ref _tattoos, Empty<(uint, int)[]>());
         Volatile.Write(ref _visuals, Empty<ushort>());
     }
 
@@ -73,6 +73,8 @@ public static class GameDataCatalog
         var ranges = Children(store, "unique_item_ranges", "name, base_type, ord", "name", "base_type");
         var groups = Children(store, "unique_item_roll_groups", "name, base_type, grp", "name", "base_type");
         var options = Children(store, "unique_item_roll_options", "name, base_type, grp, ord", "name", "base_type", "grp");
+        var variants = Children(store, "unique_item_variants", "name, base_type, variant", "name", "base_type");
+        var variantMods = Children(store, "unique_item_variant_mods", "name, base_type, variant, ord", "name", "base_type", "variant");
         var identities = store.LoadRows("unique_item_identities", "name, base_type")
             .ToDictionary(r => Key(r, "name", "base_type"), r => Text(r, "visual_identity"));
         return [.. Enabled(store.LoadRows("unique_items", "name, base_type")).Select(row =>
@@ -90,7 +92,11 @@ public static class GameDataCatalog
                     IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count"),
                     [.. options[Key(g, "name", "base_type", "grp")].Select(o => o.ContainsKey("weight") ? (int)Int(o, "weight") : 1)]))] : null,
                 (int)Int(row, "jewel_limit")) { EncounterItemLevelBonus = IntOrNull(row, "encounter_item_level_bonus"),
-                    VisualIdentityId = identities.GetValueOrDefault(key) };
+                    VisualIdentityId = identities.GetValueOrDefault(key),
+                    Variants = variants[key].Any() ? [.. variants[key].Select(v => new UniqueCatalog.Variant(
+                        Text(v, "variant"), v["variant_base_type"] as string,
+                        [.. variantMods[Key(v, "name", "base_type", "variant")].Select(m => Text(m, "mod"))],
+                        (int)Int(v, "weight")))] : null };
         })];
     }
 
@@ -138,11 +144,11 @@ public static class GameDataCatalog
                 (int)Int(c, "conqueror_index"), (int)Int(c, "version")))]))];
     }
 
-    static IReadOnlyDictionary<string, (string Stat, int Value)[]> LoadTattoos(GameDataStore store)
+    static IReadOnlyDictionary<string, (uint Stat, int Value)[]> LoadTattoos(GameDataStore store)
     {
         var stats = Children(store, "tattoo_effect_stats", "tattoo, ord", "tattoo");
         return Enabled(store.LoadRows("tattoo_effects", "name")).ToDictionary(row => Text(row, "name"),
-            row => stats[Text(row, "name")].Select(s => (Text(s, "stat"), (int)Int(s, "value"))).ToArray(), StringComparer.Ordinal);
+            row => stats[Text(row, "name")].Select(s => (Stat.Of(Text(s, "stat")), (int)Int(s, "value"))).ToArray(), StringComparer.Ordinal);
     }
 
     /// <summary>A child table's rows by their parent's key (its key columns joined with '|'), in the given order.</summary>

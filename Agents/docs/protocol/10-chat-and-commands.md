@@ -18,6 +18,14 @@ rows with `SendsGenericCommandPacket` never arrive as chat: the client sends C�
 (`/destroy` 9, `/hideout` 45: [21](21-hideouts.md) §3), so our commands must not reuse those words. `InstanceChat.Length` frames it
 (the length depends on the text), and `SplitClientMessages` uses it for id 0x15.
 
+`/played` is `ShowTimePlayed`, Commands row 1: **C→S 0x16, u8 2, empty wstr** (`00 16 02 00 00`).
+The Commands module answers with a chat line and saves online seconds in character module data.
+The counter starts when this support is installed; earlier playtime cannot be reconstructed from existing saves.
+Other retail `C→S 0x16` commands handled by `Modules/Core/Player/Commands/`: `/age` (3), `/remaining` (4),
+`/deaths` (5, distinct death epochs persisted in character module data), `/whois` (10), `/afk` / `/autoreply` (35,
+preserving the lockstep probe when active), and `/dnd` / `/donotdisturb` (37, 38).
+`/invite <name>` sends `C→S 0x93` (`PartyInviteId`, [28](28-player-trade.md) §1), and `Commands` also registers `/invite` for chat (`0x15`) via `GameEvents.PartyInvite`.
+
 The prefixes are `#` global, `$` trade, `%` party, `&` guild and `@` whisper; local has none (live 2026-10-25, typed in
 the chat box: `hello local`, `#hello global`, `$hello trade`).
 After a trade line the chat box opens with `$` already typed, so the next line goes to trade too.
@@ -25,8 +33,10 @@ The client's sender is `0x142164740` (instance, text, linked items): it runs the
 (`0x142162d20`, Commands.dat), then sends the rest as 0x15: wstr, u8 n, n × u32.
 Those u32s are items linked with Ctrl+Alt+click: each is the place of the `_` the client writes for one in the text, counting
 the prefix (`#_` is 1). Before the 0x15 the client sends one message per link (`0x14018faa0`, n the index in the line):
-0x12 for an item in an inventory (u8 index, u32 inventory, u32 item, u8; `Chat` keeps the item for the line), 0x13
-(u32, u8 index, u8) and 0x14 (u32, u8 index) for two other kinds, framed but not mapped, so their `_` stays text.
+0x12 for an item in an inventory (u8 index, u32 inventory, u32 item, u8 manager: 0 player/stash, 1 shop/sale/trade;
+`Chat` keeps the item for the line), 0x13 (u32 MTX id = `MtxTypes.dat` row + 1, u8 index, u8; expanded as `[Name]` in
+text with subsequent link offsets adjusted), and 0x14 (u32 ground `WorldItem` object id, u8 index; resolved from
+`player.Instance.Ground`).
 A plain line reaches its listeners, the player too, as a 0x17 chat line (the Chat module): sender
 `Name` for local, `#Name` for global and `$Name` for trade, the text without its prefix.
 Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name green, `#OfflineWitch: hello global`
@@ -65,8 +75,11 @@ in the text does not colour the line (live 2026-10-21). But with an empty sender
 green like a local speaker's name and the rest white (live 2026-10-21: `/com accuracy` was green up to `default:`); the
 `/commands` header ends with `:` for that. Sender prefixes (live 2026-10-21, `/raw`): `#Test` shows `#Test: line` in
 the global colour (red), `$Test` `$Test: line` in trade orange, `@Test` `@From Test: line` in whisper purple, the whole
-line coloured; bit 2 of the flags' first byte (u16 0x0400) turns the `@` line into the sender's copy (ClientStrings `ChatBoxTo` for `ChatBoxFrom`, no
-`WhisperArrived` sound or window flash; `0x14017a670`), bit 6 adds the `AutoReplyPrefix`; u16 0x0004 reddens the text. `0x14017a670` takes the prefix off the sender and writes it back before the name, so `#` and `$` always show; only flag bit 7 keeps it off, and that makes the line local. `%` and `&` show nothing without a party or guild. A sender of the prefix alone (`$`, `#`) prints the
+line coloured. `LoginWriter.U16` writes big-endian while `0x140e0afb0` reads raw byte `+0x78` (high) and `+0x79` (low);
+named `InstanceChat` masks from `0x14017a670` are: high byte `0x0100` staff/dev, `0x0200` system bypass, `0x0400`
+whisper sent (`ChatBoxTo`, no whisper sound/flash), `0x0800` moderator, `0x1000` trade whisper, `0x4000` auto-reply
+(`AutoReplyPrefix`, used by `/afk` and `/dnd`), `0x8000` forced local; low byte `0x0001` `+0xd78` listener route,
+`0x0004` red text, `0x0008` trailing `0x14083f460` extra field. `0x14017a670` takes the prefix off the sender and writes it back before the name, so `#` and `$` always show; only flag `0x8000` keeps it off, and that makes the line local. `%` and `&` show nothing without a party or guild. A sender of the prefix alone (`$`, `#`) prints the
 text white with no name, like an empty sender. So a coloured line always shows its sender and a colon. With an empty sender, `0x14017a670` wraps the text in a colour
 looked up by `0x14242d9d0(byte & 0x1f)` (the byte at +0x158 of the object at instance +0xc810) and runs it through the
 markup parser `0x14018fef0`; `ChatColours.dat` has rows Default, Red, Green, Blue, ChayulaMessage. Per-line colour: open.
@@ -310,8 +323,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
   DiesAfterTime, StateMachine or Transitionable. The blob also writes MinimapIcon (u8), DiesAfterTime (no data: its
   live vtable is the factory's `0x1435a7888`, slot 17 `ret`), Preload, Functions, PlayerClass (no data), Transitionable
   and StateMachine (below), NPC (`00 ff`, [17](17-npcs.md)), InteractionAction (u8 flags 0, `0x141e218a0`: Act 2's
-  bandit lords Kraityn, Alira and Oak) and Timer (no data: its only vtable `0x1435ab790` has slot 17 `ret`; Solaris and
-  Lunaris on The Harbour Bridge). The rest have ControlZone, BlightTower, Mercenary, LimitedLifespan … components and
+  bandit lords Kraityn, Alira and Oak), Timer (no data: its only vtable `0x1435ab790` has slot 17 `ret`; Solaris and
+  Lunaris on The Harbour Bridge) and TriggerableBlockage (`0x141e47880`: u8 blocked, then only while blocked a u8 section
+  count; Oshabi's Root Wall, sent unblocked, not yet seen live). The rest have ControlZone, BlightTower, Mercenary, LimitedLifespan … components and
   are refused with a message box. The type is the variety's own Id when an
   `.ot` exists under it, else its `BaseMonsterTypeIndex`: `KitavaBoss/KitavaFinal`'s base column names `Kitava1`, but
   the client builds it from `kitavafinal.ot`, which has no Transitionable; sent with Kitava1's list, the extra byte was
@@ -395,7 +409,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
   animation, along the client's own path around walls, on the terrain height**. Alternatives: **0x1ba** (Positioned
   move) only slides it in a straight line through walls, at `duration = cell distance / value` (value ≈ cells per
   second; `0x141e33fd0` → `0x141e37460`), keeping the old height; **0x1b7** teleports it.
-- **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
+- **AI** (Gateway, `StartMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
   its MonsterVarieties `MaxAgroRange` (taken as grid cells: 60 for Hungry Corpse, 105 for most) of the server's estimate
   of the player starts chasing: a Move action (0x1ab, 0x2909) to its own cell around the player, re-sent when that cell
   moves by 3+ cells; beyond twice the range it gives up: an S→C 0x1ac ends the client's chase action (925 of 1166
@@ -438,7 +452,7 @@ another server with `ChatRoutes.Use(id, host, port)`, at once and until it unloa
 `Failed to connect to host:port chat channel, switching back to local chat server.` in chat when that server fails or the
 connection drops, each reason once, and tries again at an area change after 60 s.
 
-To host one: `dotnet run -c Release --project src/GameServer.Chat` (solution `GameServer.Chat.slnx`), with
+To host one: `dotnet run -c Release --project src/GameServer.Chat`, with
 `Chat.BindAddress` and `Chat.Port` in `localexile.conf` (or `Game_CHAT_BIND`, `Game_CHAT_PORT`; default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
 Nothing is encrypted, stored or authenticated. Separate Gateways can have characters of one name, so a later one gets the
 first free `Name_n` for that connection; `@Name_n` whispers to it. Not `Name[n]`: the client drew `#Build[1]: hey` all

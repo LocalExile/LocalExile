@@ -174,7 +174,7 @@ function status() {
   const states = Array.from({length: count}, (_, n) => begin.add(n * 16).readPointer().add(0x209).readU8());
   const loginState = l.isNull() ? 0 : l.add(0xde8).readU32();
   const instanceState = i.isNull() ? 0 : i.add(0xc3a0).readU32();
-  return {pid: Process.id, build: BUILD, states, screen: ({4:'game',6:'login',7:'login',9:'characters',11:'loading'})[states.at(-1)] || 'other',
+  return {pid: Process.id, build: BUILD, states, screen: ({4:'game',6:'login',7:'login',8:'creation',9:'characters',11:'loading'})[states.at(-1)] || 'other',
     loginState, instanceState,
     account: loginState === 3 ? text(l.add(0xe10)) : null,
     character: instanceState !== 3 ? null : text(l.add(0xdf0)),
@@ -242,8 +242,9 @@ function execute(request) {
     }
     case 'create': {
       // The client's own 0x12 sender, without the create screen's state 11 push: no auto-Play follows the result.
-      if (current.screen !== 'characters' || current.loginState !== 3)
-        throw new Error('Create requires character selection');
+      // An account without characters opens on the creation screen (state 8 over selection's 9): that is fine too.
+      if (!(current.screen === 'characters' || current.states.at(-1) === 8 && current.states.includes(9)) || current.loginState !== 3)
+        throw new Error('Create requires character selection or creation');
       const name = loginText(request.name, 'character name'), league = loginText(request.league, 'league');
       const startState = loginText(request.startState, 'start state');
       loginSocket(); lastCreateResult = null; createdAwaitingPlay = false; createSent = true;
@@ -278,7 +279,7 @@ function execute(request) {
     case 'interaction': {
       if (current.screen !== 'game' || current.instanceState !== 3) throw new Error('Interaction requires an active area');
       const b=request.bytes, id=Array.isArray(b) && b.length>=2 ? b[0]*256+b[1] : -1;
-      const lengths={0x24:12,0x54:3,0x1d4:3,0x18e:15,0x18f:11,0x192:10,0x195:2,0x196:4,0x25:16,0x28:13,0x29:2,0x2a:18,0x30:16,0x4d:9,0x4e:5,0x58:10,0x70:6,0x82:3,0x85:2,0x88:15,0xe0:20,0x1ee:3};
+      const lengths={0x24:12,0x54:3,0x1d4:3,0x18e:15,0x18f:11,0x192:10,0x195:2,0x196:4,0x25:16,0x28:13,0x29:2,0x2a:18,0x2f:17,0x30:16,0x4d:9,0x4e:5,0x58:10,0x70:6,0x82:3,0x85:2,0x88:15,0xe0:20,0x1ee:3,0x122:10,0x207:22};
       if (!lengths[id] || b.length!==lengths[id])
         throw new Error('Unsupported interaction message');
       sendPacket(b,'instance'); return {submitted:true};

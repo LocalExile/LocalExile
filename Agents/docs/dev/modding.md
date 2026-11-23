@@ -162,10 +162,15 @@ in the leagues that list it; a mod's run in every league, after the modules'.
 | `AreaGenerated` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
 | `ObjectUse` | a click on an object the Gateway's own objects did not take | `true`: it was this owner's |
 | `MonsterKilled` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
-| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
+| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them), `Stacks` (stackable items with a count, split at the item's stack size), `Made` (extra items, already made and rolled) |
+| `Gambles` | a gamble window as it opens (an NPC whose shop is the black market, window kind 10), with `CharacterLevel` and `PriceLevel` | `Offers` (add, remove or reprice offers) |
+| `FeatureFilled` | asked with an `ExtraTerrainFeatures` row's Id when a map links that row's sub-area to it (the Sacred Grove) | `true`: this owner fills it; without one the gates into it are not shown |
+| `InventorySlot` | each of the player's inventories as it is registered with the client on entering an area (S→C 0xc0) | another kind or flags for the row; the first answer wins |
+| `InventoryRefusal`, `InventoryPlacementRefusal` | the held item about to go into an inventory row (C→S 0x2a, 0x4a); `InventoryPlacementRefusal` also carries `Replaced`, the single item swapped onto the cursor if any | a reason refuses it; the first one wins |
 | `Experience` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `Stats` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like the `gm-commands` mod's `/god`: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
-| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area, the area header, a picked NPC option | |
+| `CharacterAtRest` | the character has left the game (a logout or a disconnect, not an area change) and its save is written; a login of it waits for the subscribers | the character's save, which nothing of the ended connection writes again |
+| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `BeforeEnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area (after 0x21, or before it for what the client's UI reads as it attaches to the area), the area header, a picked NPC option | |
 
 The other `GameEvents` entries (kills, damage, skills, items, travel, …) are the game module's hand-overs to the other
 modules; a mod subscribes to them the same way.
@@ -180,7 +185,7 @@ Switches are plain Gateway members, held under the owner's id until it unloads:
 | `GameEventOwners.Own(id, disposable)` | anything else the owner wants released when it unloads |
 | `CharacterBuildApi.For(mod).Capture(player)` / `Prepare(player, json)` | capture the admitted record or validate a version-1 native build; the disposable plan expires after five minutes; `plan.Confirm()` accepts once, then the server drains the old connection and atomically replaces build-owned data; unload cancels unaccepted plans |
 
-A connection (`ClientState`) is one player in one area; `Program.PlayerOf(conn)` is its `IPlayer` and `Program.WorldOf(conn)`
+A connection (`Player`) is one player in one area; `Program.PlayerOf(conn)` is its `IPlayer` and `Program.WorldOf(conn)`
 its `IPlayerWorld`, both the Gateway's (character, account,
 league, level, area, position, `Tell`, `Send`). An area change is a new connection.
 A subscriber that throws is logged as `[events] <owner> <event> failed (skipped)` with its stack trace; a failed command
@@ -198,22 +203,18 @@ Gateway's log does with `[mods]`.
 
 - A reload starts the mod's state over: its fields and statics are new. What it saved (its settings, its own files) stays.
 - The assemblies and symbols load from a private disk copy under the system temporary directory, so a build can
-  overwrite the originals while the mod runs. Path-backed loading avoids the loader/finalizer failure reproduced
-  with collectible `LoadFromStream` assemblies on Windows .NET 10. The copy is removed after its context is collected;
-  a retained context or a failed file removal is logged. No client files are involved.
+  overwrite the originals while the mod runs. Each version loads into a load context that is never unloaded: the runtime
+  ignores precompiled code in a collectible one, so an unloaded version stays in memory, inert, until the Gateway
+  restarts (its copy is removed at a later start). Before its entries' `Load` runs, every method of a version is compiled
+  (`[mods] <id>: n methods compiled in x ms`), so nothing of it compiles on a first call in game; a mod built in
+  `Mods/Source/` is precompiled at build time as the modules are (`Directory.Build.targets`). No client files are involved.
 - `/mod` lists the loaded mods first, with their version, kind and hook count, then why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across
   restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
   Gateway also applies that file when another program (a launcher) rewrites it.
-- After an unload the Gateway checks that the mod's load context was freed, and logs
-  `an unloaded mod (<id>) is still in memory` when its collections stopped freeing anything: a thread, timer or task of the mod still runs, or
-  something outside the mod holds one of its objects. Stop what the mod started in `Dispose`. Work per connection
-  belongs on `GameEvents.Tick` or waits on `Lifetime.Stopping`, and a `ConditionalWeakTable` keyed by a connection or an
-  instance holds the mod until its key goes: empty it in `Dispose`. To find what holds one, take `dotnet-gcdump collect`
-  of the Gateway after the line and look for objects whose type's module is the old private copy
-  (`localexile-mod-copy\<folder>`); `dotnet-dump`'s `gcroot` misses the compiler's collection classes and lists the
-  runtime's weak handles for statics as roots. Attaching either while modules unload crashed the runtime here.
+- An unloaded version gets no more calls from the server (its hooks go with it), but what it started itself keeps
+  running: stop it in `Dispose`. Work per connection belongs on `GameEvents.Tick` or waits on `Lifetime.Stopping`.
 
 Suggestions while working on a mod with the client in game: `dotnet build Mods\Source\<Name>` and watch the chat line;
 `live.ps1` builds every mod in `Mods\Source\` before it starts the Gateway (one that fails to build is left out with a

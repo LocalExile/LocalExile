@@ -12,7 +12,7 @@ public static class InstanceDelve
     public const ushort MineArea = 64840;
     public const ushort UpgradesRequestId = 0x23e, UpgradeId = 0x229, PurchaseId = 0x22a;
     public const byte UpgradesUi = 0x1d;
-    public const ushort RouteId = 0x241;
+    public const ushort RouteId = 0x241, ReturnToWorldId = 0x186;
 
     /// <summary>S→C 0x226: previous and current sulphite, both u16 BE. Unlike the full state packet,
     /// this event refreshes the native gauge's fill fraction, including an unchanged-value refresh.</summary>
@@ -188,7 +188,7 @@ public sealed record DelveRobotObject(int GridX, int GridY, float Rotation)
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                                    // object flags, base data entries
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);         // Positioned (shown)
+        w.Positioned(GridX, GridY, Rotation);                                            // Positioned
         w.U8(1).WStr32(Model);                                                            // Animated
         w.U8(1);                                                                          // Transitionable: state 1
         w.Stats([]).U32(0).U32(0).U8(0);                                                  // Stats

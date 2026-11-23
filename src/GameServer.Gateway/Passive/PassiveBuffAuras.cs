@@ -26,6 +26,13 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// </summary>
 public static class PassiveBuffAuras
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        normal = Load("data", ruthless: false);
+        ruthlessAuras = Load("data", ruthless: true);
+    }
+
     /// <summary>A passive's buff: its BuffTemplates row and Id, BuffDefinitions row, radius (cells, 0 on the player),
     /// whom it affects (<c>__col4</c>) and its stats.</summary>
     public sealed record Aura(int Row, string Template, ushort Definition, int Radius, IReadOnlyList<int> Targets,
@@ -61,12 +68,27 @@ public static class PassiveBuffAuras
         "CustomAscendancyIllegalFisherman", // Surfcaster Ghost of the Deep: BuffDefinitions 2550 Torment Touched
     ];
 
-    static readonly Lazy<Dictionary<ushort, Aura[]>> normal = new(() => Load("data", ruthless: false));
-    static readonly Lazy<Dictionary<ushort, Aura[]>> ruthlessAuras = new(() => Load("data", ruthless: true));
+    static Dictionary<ushort, Aura[]> normal = default!;
+    static Dictionary<ushort, Aura[]> ruthlessAuras = default!;
 
     /// <summary>Every buff of these nodes (PassiveSkillGraphIds), one per template however many nodes grant it.</summary>
-    public static IReadOnlyList<Aura> For(IEnumerable<ushort> nodes, bool ruthless = false) =>
-        [.. nodes.SelectMany(n => (ruthless ? ruthlessAuras : normal).Value.GetValueOrDefault(n) ?? []).DistinctBy(a => a.Template)];
+    public static IReadOnlyList<Aura> For(IEnumerable<ushort> nodes, bool ruthless = false)
+    {
+        if (nodes is ICollection<ushort> { Count: 0 }) return [];
+        using var e = nodes.GetEnumerator();
+        if (!e.MoveNext()) return [];
+        var map = ruthless ? ruthlessAuras : normal;
+        List<Aura>? found = null;
+        HashSet<string>? seen = null;
+        do
+        {
+            if (!map.TryGetValue(e.Current, out var auras)) continue;
+            foreach (var aura in auras)
+                if ((seen ??= []).Add(aura.Template)) (found ??= []).Add(aura);
+        }
+        while (e.MoveNext());
+        return found is null ? [] : found;
+    }
 
     /// <summary>The enemy auras of these nodes the server applies.</summary>
     public static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>
@@ -98,24 +120,23 @@ public static class PassiveBuffAuras
 
     /// <summary>The 0x1c1/0x1c2 that bring the player's published self buffs to the allocated ones, or null. Run at the
     /// send gate; a new area's connection starts with none, so area entry publishes them again.</summary>
-    public static byte[]? Presentation(ClientState conn)
+    public static byte[]? Presentation(Player player)
     {
-        lock (conn.Monsters)
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return null;
+        var wanted = SelfBuffsFor([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated], Program.LeagueFor(player).HardMode)
+            .Select(b => b.Definition).ToHashSet();
+        var bytes = new List<byte>();
+        foreach (var (definition, _) in player.PassiveBuffs.Where(b => !wanted.Contains(b.Key)).ToArray())
         {
-            if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return null;
-            var wanted = SelfBuffsFor([.. conn.Passives, .. conn.MainAscendancy.Allocated], Program.LeagueFor(conn).HardMode)
-                .Select(b => b.Definition).ToHashSet();
-            var bytes = new List<byte>();
-            foreach (var (definition, instance) in conn.PassiveBuffs.Where(b => !wanted.Contains(b.Key)).ToArray())
-            {
-                bytes.AddRange(InstanceEntities.RemoveBuff(Program.PlayerId, instance));
-                conn.PassiveBuffs.Remove(definition);
-            }
-            foreach (ushort definition in wanted.Where(d => !conn.PassiveBuffs.ContainsKey(d)))
-                bytes.AddRange(InstanceEntities.AddBuff(Program.PlayerId, conn.PassiveBuffs[definition] = conn.NextBuff++,
-                    definition, Program.PlayerId));
-            return bytes.Count == 0 ? null : [.. bytes];
+            player.Area.Buffs.Clear(player.Id, definition, player.Id);
+            player.PassiveBuffs.Remove(definition);
         }
+        foreach (ushort definition in wanted.Where(d => !player.PassiveBuffs.ContainsKey(d)))
+        {
+            player.PassiveBuffs[definition] = 1;
+            player.Area.Buffs.Set(player.Id, new(definition, player.Id));
+        }
+        return bytes.Count == 0 ? null : [.. bytes];
     }
 
     static Dictionary<ushort, Aura[]> Load(string folder, bool ruthless)
@@ -157,20 +178,25 @@ public static class PassiveBuffAuras
     }
 
     /// <summary>One connection's monsters blinded by the player's passive blind aura, with the ids of the buffs that show
-    /// it. Its own lock, so a hit can ask without the Monsters lock; the Monsters lock may be held when it is taken, never
+    /// it. Its own lock, so a hit can ask without the area's frame; the area's frame may be held when it is taken, never
     /// the other way round.</summary>
     public sealed class BlindState
     {
         readonly Dictionary<uint, ushort> _blinded = [];
         readonly Lock _lock = new();
 
+        public bool Any
+        {
+            get { lock (_lock) return _blinded.Count > 0; }
+        }
+
         public bool Blinded(uint monster)
         {
-            lock (_lock) return _blinded.ContainsKey(monster);
+            lock (_lock) return _blinded.Count > 0 && _blinded.ContainsKey(monster);
         }
 
         /// <summary>The buffs to add and to remove so that exactly <paramref name="inside"/> are blinded. A monster that
-        /// is gone (<paramref name="exists"/> false) is forgotten without a message. Call under the Monsters lock, which
+        /// is gone (<paramref name="exists"/> false) is forgotten without a message. Call in the area's frame, which
         /// <paramref name="next"/> needs.</summary>
         public List<(uint Monster, ushort Buff, bool Added)> Reconcile(IReadOnlySet<uint> inside, Func<uint, bool> exists, Func<ushort> next)
         {

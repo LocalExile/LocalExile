@@ -1,7 +1,7 @@
 using GameServer.Core;
 
 /// <summary>
-/// The client's two passive skill graphs (the PSG files of the normal and Phrecia trees), as client.db's passive_graphs,
+/// The client's passive skill graphs (the PSG files of the normal and Phrecia trees and the Atlas tree), as client.db's passive_graphs,
 /// passive_graph_nodes, passive_graph_groups, passive_graph_group_nodes and passive_graphs_info (data/
 /// passive-skill-graphs.json from scripts/re/passive-graphs).
 /// </summary>
@@ -19,23 +19,31 @@ public static class PassiveGraphs
     }
 
     /// <summary>The family's row in passive_graphs, or null.</summary>
-    public static ClientRow? Graph(AscendancyFamily family)
+    public static ClientRow? Graph(AscendancyFamily family) => Graph(family == AscendancyFamily.Normal ? "normal" : "phrecia");
+
+    /// <summary>The named graph's row in passive_graphs ("normal", "phrecia" or "atlas"), or null.</summary>
+    public static ClientRow? Graph(string name)
     {
-        string name = family == AscendancyFamily.Normal ? "normal" : "phrecia";
         foreach (var g in ClientTables.TableOrEmpty("passive_graphs"))
             if (g.Text("graph") == name) return g;
         return null;
     }
 
     /// <summary>The family's nodes in graph order.</summary>
-    public static IEnumerable<ClientRow> Nodes(AscendancyFamily family) =>
-        Graph(family) is { } g ? ClientTables.Table("passive_graph_nodes").By("graph")[g.Index] : [];
+    public static IEnumerable<ClientRow> Nodes(AscendancyFamily family) => Nodes(family == AscendancyFamily.Normal ? "normal" : "phrecia");
+
+    /// <summary>The named graph's nodes in graph order.</summary>
+    public static IEnumerable<ClientRow> Nodes(string name) =>
+        Graph(name) is { } g ? ClientTables.Table("passive_graph_nodes").By("graph")[g.Index] : [];
 
     /// <summary>Each node's links, undirected: the PSG stores a drawing edge in either direction.</summary>
-    public static Dictionary<ushort, HashSet<ushort>> Links(AscendancyFamily family)
+    public static Dictionary<ushort, HashSet<ushort>> Links(AscendancyFamily family) => Links(family == AscendancyFamily.Normal ? "normal" : "phrecia");
+
+    /// <summary>The named graph's links, undirected.</summary>
+    public static Dictionary<ushort, HashSet<ushort>> Links(string name)
     {
         var result = new Dictionary<ushort, HashSet<ushort>>();
-        foreach (var node in Nodes(family))
+        foreach (var node in Nodes(name))
         {
             ushort id = checked((ushort)node.Int("id"));
             if (!result.TryAdd(id, node.Ints("adjacent").Select(n => checked((ushort)n)).ToHashSet()))

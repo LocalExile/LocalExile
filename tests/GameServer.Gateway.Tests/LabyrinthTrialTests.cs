@@ -36,11 +36,11 @@ public sealed class LabyrinthTrialTests
         byte[] closed = LabyrinthTrials.Blob(LabyrinthTrials.IntroDoor, model, 160, 57, 0, 1, LabyrinthTrials.Closed);
         byte[] open = LabyrinthTrials.Blob(LabyrinthTrials.IntroDoor, model, 160, 57, 0, 1, LabyrinthTrials.Open);
 
-        // Positioned (19: flags1 0x20 no static position, 0x08 blocks no walker with its u8), Animated (1 + u32 count +
+        // Positioned (17: flags1 0x20 no static position, 0x08 blocks no walker with its u8), Animated (1 + u32 count +
         // UTF-16), InteractionAction, Transitionable, TriggerableBlockage, tasks.
-        int animated = 2 + 19, after = animated + 1 + 4 + model.Length * 2;
+        int animated = 2 + 17, after = animated + 1 + 4 + model.Length * 2;
         Assert.Equal(160, BitConverter.ToInt32(closed, 2));
-        Assert.Equal(new byte[] { 0, 0x2a, 0, 1, 1 }, closed[16..21]);
+        Assert.Equal(new byte[] { 0, 0x28, 1 }, closed[16..19]);
         Assert.Equal(1, closed[animated]);
         Assert.Equal(model.Length, BitConverter.ToInt32(closed, animated + 1));
         Assert.Equal(new byte[] { 0, LabyrinthTrials.Closed, 1, 0, 0 }, closed[after..]);
@@ -51,13 +51,13 @@ public sealed class LabyrinthTrialTests
         // 0x1c6: id, world header, u8 0 (unblocked: no sections follow).
         Assert.Equal(new byte[] { 0x01, 0xc6, 0, 0, 0x30, 0x05, 0, 0, 0, 0, 0, 0, 0 }, InstanceEntities.BlockageUpdate(0x3005, false));
 
-        // The Crematorium's hot plate: Positioned (f0 0x04: its fixed height, 125 below, after flags1; 26), Animated,
+        // The Crematorium's hot plate: Positioned (f0 0x04: its fixed height, 125 below, after flags1; 24), Animated,
         // Transitionable, Buffs (u16 count), tasks. A 1x3 lies three tiles along its angle.
         const string plate = "Metadata/Terrain/Doodads/Traps/hotplate1_3.ao";
         byte[] lava = LabyrinthTrials.Blob(LabyrinthTrials.Lava1x3, plate, 57, 103, 0, 1, LabyrinthTrials.Open, 125);
-        Assert.Equal(new byte[] { 0x04, 0x02, 16, 0, 0, 0 }, lava[16..22]);
+        Assert.Equal(new byte[] { 0x04, 0, 0xf0, 0xff, 0xff, 0xff }, lava[16..22]);
         Assert.Equal(125f, BitConverter.ToSingle(lava, 22));
-        Assert.Equal(new byte[] { LabyrinthTrials.Open, 0, 0, 0 }, lava[(2 + 26 + 1 + 4 + plate.Length * 2)..]);
+        Assert.Equal(new byte[] { LabyrinthTrials.Open, 0, 0, 0 }, lava[(2 + 24 + 1 + 4 + plate.Length * 2)..]);
         Assert.Equal(3, LabyrinthTrials.TransitionableIndex(LabyrinthTrials.Lava1x3));
         Assert.True(LabyrinthTrials.OnPlate(LabyrinthTrials.Lava1x3, 57, 103, 0, (90, 110)));
         Assert.False(LabyrinthTrials.OnPlate(LabyrinthTrials.Lava1x3, 57, 103, 0, (57, 120)));
@@ -114,8 +114,8 @@ public sealed class LabyrinthTrialTests
         byte[] blob = LabyrinthTrials.ArrowTrapBlob(195, 138, 0.785397f, model);
         Assert.Equal(0.785397f, BitConverter.ToSingle(blob, 10));
         Assert.Equal(14, BitConverter.ToUInt16(blob, 14));
-        Assert.Equal(new byte[] { 1, 1 }, blob[20..22]);
-        Assert.Equal(model.Length, BitConverter.ToInt32(blob, 22));
+        Assert.Equal(new byte[] { 1, 1 }, blob[18..20]);
+        Assert.Equal(model.Length, BitConverter.ToInt32(blob, 20));
     }
 
     [Fact]

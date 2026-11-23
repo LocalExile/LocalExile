@@ -89,6 +89,17 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x14218f630` | Fn | registers the world group on the instance pump |
 | `0x142189fe0` | Fn | world activation (world vtable +0x1c8): replay queue |
 | `0x141d87640` → `0x141d7fb50` | Fn | spatial index insert (23×23 buckets, no bounds check) |
+| `0x142149550` | Fn | 0x1d +0x28 → world `+0xd0` league category ([03](03-area-and-world.md), [re/011](../re/011-level-generation.md) §3) |
+| `0x1415a6800` | Fn | S→C 0x1f add ruleset (dispatcher case 8, slot 8): builds the Rulesets row's ruleset unless held ([03](03-area-and-world.md) §8) |
+| `0x1416851b0` / `0x141685030` | Fn | DeepwaterRules (row 171) per-frame update / DeepwaterPlugin lookup (0x28 when missing, no null check) |
+| `0x141f32870` | Fn | DeepwaterPlugin +0x20: main record N × N, The Sovereign (area type 53) as a sub-area inside an encounter ([re/011](../re/011-level-generation.md) §3c4) |
+| `0x141ecdad0` / `0x141eca930` → `0x141ecab90`, `0x141ecb130` | Fn | 0x1d extra-data decoder / terrain plugins created at generation start: each sent state, then the area's own ([03](03-area-and-world.md) §1) |
+| `0x141d93260` → `0x141f32690` → `0x141f35280` (`0x141f350c0`, `0x141f565f0`) | Fn | DeepwaterPlugin factory / ctor / state parser (cell, room row) |
+| `0x142436e50` / `0x141e4c7e0` | Fn | a mod record (u16 Mods HASH16, compact ints) / the compact signed int reader |
+| `0x141f32a70` | Fn | DeepwaterPlugin +0x30: the main graph's cells and each cell's room node |
+| `0x141f331e0` → `0x141f34ee0` | Fn | DeepwaterPlugin +0x28: the seams; `0x141f33de0` across, `0x141f34900` down (ends trimmed by `0x141f34200`, `0x141f33260` plain fill), `0x141f33c90` edge merge, `0x141f33560` re-pick, `0x141f33340` fill pick |
+| `0x1416850c0` | Fn | DeepwaterRules: region r ≥ 2 → plugin cell r − 2 |
+| `0x14041b5d0` | Fn | The Sovereign's C→S 0x2ca ruleset action opcodes 0-7 |
 
 ## Objects and components
 | Address | Kind | What |
@@ -234,6 +245,12 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x1421f2b40` / `0x1421f2980` | Fn | item write (u16 length + data) / data |
 | `0x1421f2c30` / `0x1421f2d00` | Fn | item read (length) / data: type hash → ItemTypeRegister, flags, components (slot 5) |
 | `0x141fabcc0` | Fn | ItemTypeRegister lookup by HASH32 |
+| `0x142401e00` | Fn | item description builder (tooltip and header): the bytes the name symbol is picked from ([13](13-items.md) §2f) |
+| `0x140c99de7` / `0x1416d10d8` | code | name-symbol selection in the tooltip / item header ([13](13-items.md) §2f) |
+| `0x140c9a7e5` / `0x1416d11b5` | call site | resolve the selected sprite name through `0x1400f2c70` in the tooltip / item header |
+| `0x1400f2c70` | Fn | sprite from a UI image name (`art/uiimages1.txt`) |
+| `0x1416edcb0` | Fn | item description copy, field by field |
+| `0x14013fb60` | Fn | look up the Mods component on an entity |
 | `0x1421f2800` | Fn | the four type hashes with a trailing u16 |
 | `0x1421ed330`, `0x1421e6050`, `0x1421e9790`, `0x1424b5720`, `0x1424a3f80`, `0x1423fb5f0`, `0x1424755d0` | Fn | item component reads: Base, Mods, Sockets, Quality, Charges, Stack, SkillGem |
 | `0x1421edee0`, `0x1421e7b00` | Fn | debug dumps of the Base and Mods components: each field's name ([13](13-items.md) §2f) |
@@ -306,6 +323,8 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x142169dd0` | Fn | 0x7b's switch over UI kinds; kind 0 → listeners at instance +0xff8 |
 | `0x140dcae00` | Fn | in-game UI: open the World panel in travel mode (`0x140aafe50` → `0x140aa2b10`, panel +0x522) |
 | `0x140aa6d60` | Fn | World panel pin click → C→S 0x4d |
+| `0x140aa3880` | Fn | special pin click: switch on SpecialMapPins row → 0x17a-0x185, 0x4d (12 Deepwater → 0x183); u8 1 with Ctrl |
+| `0x140aa76f0` | Fn | special pin "already there": current area type equals the row's `__col15` |
 | `0x141fe37b0` | Fn | is an area's waypoint bit set (bit = index among HasWaypoint rows with +0x1e4 in {1, 2, 5, 11}) |
 | `0x14214b340` | Fn | waypoint look of the current area (0 idle, 1 inactive, 2 activation), from 0x4c |
 | `0x140aaed40` | Fn | pin widget update: revealed (+0x329) and waypoint (+0x32a) states |
@@ -316,6 +335,12 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x141e89be0` | Fn | flag set reader (u16 n × (u8 block, u64 bits)); Player +0x1b8 quest flags, +0x1d0 |
 | `0x14012ae40` | Fn | flag set test `(set, bit)` |
 | `0x141e85520` | Fn | Player component update reader (0x2bc): u16 flags, 0x02 quest flags, 0x08 league quest flags, 0x10 Hideouts keys, 0x200 9 bytes, 0x01 experience |
+| `0x140108c80` | Fn | `CharacterAudioController` area-entry baseline: checks `WorldAreas.StartQuestFlags` against `0x2bb` Player flags and snapshots the bitset (`+0xe1`) |
+| `0x14010bd30` | Fn | `CharacterAudioController` QuestFlags update listener (vtable `0x143027020` +0x10): diffs `0x2bc` quest flags against `+0xe1` and plays the first matching `CharacterAudioEvents` row |
+| `0x14010c960` / `0x14010cad0` | Fn | `CharacterAudioController::PlayEvent` by UTF-16 `Id` (client-local triggers) / by `CharacterAudioEvents` row (applies `+0x18` delay ms, `+0x1c` cooldown ms via `0x140145d10`) |
+| `0x14012b660` | Fn | `Data/CharacterAudioEvents.dat` table getter (0x52-byte rows) |
+| `0x140d52f70` / `0x14015f040` | Fn | `InGameState` vtable `0x1431f66b0` `+0xf8` / `+0x100`: forward to `CharacterAudioController` (`+0x268`) `0x14010cad0` / `0x14010c960` |
+| `0x140d5b2f0` | Fn | `InGameState::OnPlayerLevelUp` (vtable `0x1431f6458` +0x08): formats `"LevelUp" + level` and plays matching `CharacterAudioEvents` row |
 | `0x141e1fbb0` | Fn | HideoutDoodad reader: u32 MTX hash, u8 variation, u8 flag, only when the object's data +0x14e is set (in hideouts) |
 
 ## Hideouts ([21](21-hideouts.md))
@@ -606,3 +631,23 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x140d60630` | Fn | 0xb8 listener on the UI state: flags bit 0 → +0x984 = other party, +0x988 = 1 (the active trade) |
 | `0x14030e970` | Fn | Ctrl + click on an inventory item: with +0x988 set sends 0xb2 x = y = 0xff (`0x14216d010`), else the other panels' checks |
 | `0x140dc5fe0` | Fn | S→C 0x7b kind 0x5f: the character's passive tree (UI +0x650); u32 ≠ 0 → mode 2 (`0x1409df890`) |
+
+## HUD signals, timers, PvP queue, and votes ([30](30-hud-signals-and-timers.md))
+
+| Address | Kind | What |
+|---|---|---|
+| `0x1435e6968` (write `0x1421acac0`, read `0x1421acb70`) | Cls | S→C 0x126 achievement/challenge per-set bitset (case `0x4e` at `0x142155774` → instance `+0x7cf8`) |
+| `0x1435ca200` (write `0x141f99160`, read `0x141f991c0`) | Cls | S→C 0x124 / 0x125 / 0x127 achievement completed / item completed / item failed (cases `0x4c` / `0x4d` / `0x4f` at `0x1421557f1`, `0x142155794`, `0x14215584e` → instance `+0x7df8` / `+0x7d78` / `+0x7e78`) |
+| `0x142361330` / `0x14223f970` | Fn | 0-based `Achievements.dat` (stride `0x4a`) / `AchievementItems.dat` (stride `0x30`) row lookup used by 0x124 / 0x125 / 0x127 |
+| `0x140dd2d70` / `0x140d835a0` → `0x1402a4320` | Fn | PC / Console `+0x7df8` listeners → `HUDNotificationDisplay::AchievementCompleteNotification` (HUD `+0x5b8` vtable `+0x398`; Console also `0x1402afa00`) |
+| `0x140dd29a0` / `0x140dd2dd0` | Fn | PC `+0x7d78` / `+0x7e78` listeners (item complete + `AchievementItemRewards` `0x14024d5d0`; item failed; Console `0x140d832d0` / `0x140d83660`) |
+| `0x1435ca870` (write `0x141f99580`, read `0x141fa67c0`) | Cls | S→C 0x163 mission timer: u8 1-based `MissionTimerTypes` + u32 BE seconds (case `0x6a` at `0x142156ba8` → `+0x91f8`, or pre-`0x21` queue `instance +0xce80` drained at `0x14215dcf0`) |
+| `0x140dce320` / `0x140d7fc60` → `0x1402296e0` | Fn | PC / Console `+0x91f8` listeners: id 8 → Heist lockdown `0x1404c3ad0`, else `MissionTimerManager::Start` (PC `HUD +0x4e0`, Console `+0x880`); Ultimatum id 9 also handled by `0x14069f510` → `0x14069f730` |
+| `0x1435cae30` (write `0x141f9a710`, read `0x141f9a790`) | Cls | S→C 0x162 countdown timer: u32 BE count + u32 LE 1-based `CountdownTimers` row (case `0x69` at `0x142156bfa` → `+0x9278`) |
+| `0x140dabd9c` → `0x140dd9120` / `0x140d8e080` → `0x14071e470` | Fn | `+0x9278` virtual thunk (`jmp [vt+0xbf8]`) → PC `HUD +0x508` / Console `HUD +0x878` → `CountdownTimers::Start` |
+| `0x1435e7120` (write `0x1421ac250`, read `0x1421ac320`) | Cls | S→C 0x118 PvP queue status (case `0x45` at `0x14215551a` → `+0x8cf8` → PC `0x140dccbc0` / Console `0x140d7e400` → `0x140abcc50`, `HUD +0x4b0`) |
+| `0x1431768d8` (write `0x140911160`) | Cls | S→C 0x119 PvP queue cancelled (case `0x46` at `0x142155612` → `+0x8d78` → `0x140dccce0`); C→S 0x11a Leave Queue (`0x140ac1750`, `0x1408e7070`) and C→S 0x18d Withdraw (`0x140ac1700`) |
+| `0x1435e6d40` (write `0x1421a9f80`, read `0x1421aa0d0` → `0x141fe35f0`) | Cls | S→C 0xbe party/solo bandit vote (case `0x33` at `0x142153f84` → `+0x82f8` → `0x14026fdb0` → `0x14026e690`, `HUD +0x4e8` `0x14026e170`) |
+| `0x1435ca088` (write `0x140e27920`) | Cls | C→S 0xbd bandit vote cast (`0x14026ff10`: u8 1 Help / 0 Kill) |
+| `0x140723fa0` / `0x1407354f0` | Fn | PC / Console `NPCTalk` option click handler (divides `NPCTalkCategory` by 9; only 1-based `0x06`/`0x1a`/`0x27` local, all others send C→S `0x82`) |
+| `0x141e7bb90` | Fn | `NPCTalk` availability filter (checks `+0x124`/`+0x138` vs `world +0xd0`, 64-entry `NPCTalkCategory` switch `0x141e7cf18`) |

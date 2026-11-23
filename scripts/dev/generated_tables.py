@@ -11,7 +11,8 @@ import json
 
 # The generated files and the tables made from each. client-constants.json keeps only the HNC mask: the GGPK root hash
 # describes the local Content.ggpk (the Patch server writes it to the local data/client-constants.json).
-FILES = ["area-transitions.json", "room-points.json", "object-types.json", "monster-contacts.json", "monster-takehit.json",
+FILES = ["area-transitions.json", "room-points.json", "object-types.json", "monster-contacts.json", "monster-stances.json",
+         "monster-takehit.json",
          "item-types.json", "vendor-stock.json", "hideouts.json", "animation-contacts.json", "projectile-clips.json",
          "passive-skill-graphs.json", "delve-paths.json", "client-constants.json", "stat-descriptions.txt"]
 
@@ -85,12 +86,26 @@ def item_types(doc):
 
 
 def monster_contacts(doc):
-    monsters, clips = [], []
+    monsters, clips, frames, clocks = [], [], [], []
     for m, (variety, value) in enumerate(doc.items()):
-        monsters.append({"variety": variety, **flat(value, skip=("pools",))})
+        monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks"))})
+        clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
         for pool, entries in value["pools"].items():
-            clips += [{"monster": m, "pool": pool, **child("monster", m, i, c)} for i, c in enumerate(entries)]
-    return {"monster_contacts": monsters, "monster_contact_clips": clips}
+            for i, c in enumerate(entries):
+                clip = len(clips)
+                clips.append({"monster": m, "pool": pool, **child("monster", m, i, c, skip=("contacts",))})
+                frames += [{"clip": clip, "ord": k, "ms": f[0], "position": f[1]} for k, f in enumerate(c.get("contacts") or [])]
+    return {"monster_contacts": monsters, "monster_contact_clips": clips, "monster_contact_clip_frames": frames,
+            "monster_melee_clocks": clocks}
+
+
+def monster_stances(doc):
+    acts, clips = [], []
+    for a, (act, value) in enumerate(doc.items()):
+        acts.append({"act": act, **flat(value, skip=("pools",))})
+        for pool, entries in value["pools"].items():
+            clips += [{"stance_act": a, "pool": pool, **child("stance_act", a, i, c)} for i, c in enumerate(entries)]
+    return {"monster_stances": acts, "monster_stance_clips": clips}
 
 
 def monster_takehit(doc):
@@ -119,29 +134,38 @@ def hideouts(doc):
 def animation_contacts(doc):
     """Per rig (.ao) its clips: animations[name] = [length ms, earliest contact ms], positions[name] = the contact point,
     cancels[name] = the lock_cancelling time (a null cancel is still listed: cancel_listed), contacts[name] = every
-    contact frame [ms, point], indices[name] = the clip's index in the rig; and the default attack's stance pools."""
-    rigs, clips, frames, attacks = [], [], [], []
+    contact frame [ms, point], indices[name] = the clip's index in the rig; and the default attack's stance pools.
+    clips[name] adds every clip's length, even without a contact, and its named events as ordered ms lists."""
+    rigs, clips, frames, events, attacks, skill_clips = [], [], [], [], [], []
     for r, (ao, value) in enumerate(doc.items()):
         rigs.append({"ao": ao, "amd": value.get("amd"), "act": value.get("act")})
-        known = set(value) - {"amd", "act", "animations", "positions", "cancels", "contacts", "indices", "defaultAttack"}
+        known = set(value) - {"amd", "act", "animations", "positions", "cancels", "contacts", "indices", "clips", "defaultAttack", "singleSkillClips"}
         if known:
             raise ValueError(f"animation-contacts {ao}: unknown keys {sorted(known)}")
         names = list(dict.fromkeys([*value.get("animations", {}), *value.get("positions", {}), *value.get("cancels", {}),
-                                    *value.get("contacts", {}), *value.get("indices", {})]))
+                                    *value.get("contacts", {}), *value.get("indices", {}), *value.get("clips", {})]))
         for name in names:
             animation = value.get("animations", {}).get(name)
+            full = value.get("clips", {}).get(name)
             clip = len(clips)
             clips.append({"rig": r, "name": name,
-                          "length": animation[0] if animation else None, "contact": animation[1] if animation else None,
+                          "length": full["length"] if full else animation[0] if animation else None,
+                          "contact": animation[1] if animation else None,
                           "position": value.get("positions", {}).get(name),
                           "cancel_listed": name in value.get("cancels", {}), "cancel": value.get("cancels", {}).get(name),
                           "rig_index": value.get("indices", {}).get(name)})
             frames += [{"clip": clip, "ord": i, "ms": f[0], "position": f[1]}
                        for i, f in enumerate(value.get("contacts", {}).get(name) or [])]
+            events += [{"clip": clip, "name": event, "ord": i, "ms": ms}
+                       for event, times in (full or {}).get("events", {}).items() for i, ms in enumerate(times)]
         for stance, entries in value.get("defaultAttack", {}).items():
             attacks += [{"rig": r, "stance": stance, "ord": i, **flat(a)} for i, a in enumerate(entries)]
-    return {"animation_rigs": rigs, "animation_clips": clips, "animation_clip_contacts": frames,
-            "animation_default_attacks": attacks}
+        skill_clips.extend({"rig": r, **a} for a in value.get("singleSkillClips", []))
+    result = {"animation_rigs": rigs, "animation_clips": clips, "animation_clip_contacts": frames,
+              "animation_clip_events": events, "animation_default_attacks": attacks}
+    if skill_clips:
+        result["animation_skill_clips"] = skill_clips
+    return result
 
 
 def projectile_clips(doc):
@@ -150,7 +174,7 @@ def projectile_clips(doc):
 
 def passive_skill_graphs(doc):
     graphs, nodes, groups, members = [], [], [], []
-    for name in ("normal", "phrecia"):
+    for name in ("normal", "phrecia", "atlas"):
         if name not in doc:
             continue
         g = len(graphs)
@@ -195,7 +219,8 @@ def stat_descriptions(text):
 
 TABLES = {
     "area-transitions.json": area_transitions, "room-points.json": room_points, "object-types.json": object_types,
-    "monster-contacts.json": monster_contacts, "monster-takehit.json": monster_takehit, "item-types.json": item_types,
+    "monster-contacts.json": monster_contacts, "monster-stances.json": monster_stances,
+    "monster-takehit.json": monster_takehit, "item-types.json": item_types,
     "vendor-stock.json": vendor_stock, "hideouts.json": hideouts, "animation-contacts.json": animation_contacts,
     "projectile-clips.json": projectile_clips, "passive-skill-graphs.json": passive_skill_graphs,
     "delve-paths.json": delve_paths, "client-constants.json": client_constants, "stat-descriptions.txt": stat_descriptions,

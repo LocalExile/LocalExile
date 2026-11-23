@@ -63,6 +63,22 @@ public class BossModsTests
                  ])
             Assert.True(BossMods.KnockbackImmune(Variety(id)), id);
 
+        // ImmuneToKnockback is only one of the 8 Mods rows that state cannot_be_knocked_back: MonsterCannotBeKnockedBack
+        // is on 78 MonsterVarieties rows (77 without ImmuneToKnockback), so the stat decides, not the id. It is on Piety's
+        // Malachai ally, the Insect Spawner parasite boss, the Talisman Wolf King's wolf form and Doedre's pillars —
+        // all hostile and all hit by an ordinary attack with Knockback Support, which shoved every one of them.
+        foreach (string id in (string[])
+                 [
+                     "Metadata/Monsters/Axis/PietyMalachaiAlly",
+                     "Metadata/Monsters/InsectSpawner/InsectSpawnerParasiteBoss",
+                     "Metadata/Monsters/Talisman/TalismanWolfKingWolfForm",
+                     "Metadata/Monsters/DoedreStonePillar/DoedreStonePillarVulnerability",
+                 ])
+        {
+            Assert.False(BossMods.Has(Variety(id), BossMods.ImmuneToKnockback), id);
+            Assert.True(BossMods.KnockbackImmune(Variety(id)), id);
+        }
+
         // A campaign boss with no such mod is still shoved, and so is a plain monster.
         Assert.False(BossMods.KnockbackImmune(Variety("Metadata/Monsters/Brute/BossBrute")));
     }

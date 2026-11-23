@@ -7,7 +7,7 @@
 $ErrorActionPreference = 'Continue'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $out = Join-Path $PSScriptRoot 'bin\lg'
-$dll = Join-Path $out 'levelgen.dll'
+$dll = Join-Path $out 'LevelGen.dll'
 
 $sources = @(Get-ChildItem -Path $PSScriptRoot -File -Filter '*.cs') + @(Get-ChildItem -Path $PSScriptRoot -File -Filter '*.csproj') +
     @(Get-ChildItem -Path (Join-Path $root 'src\GameServer.Data') -Recurse -File -Include '*.cs', '*.csproj' |

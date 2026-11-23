@@ -11,18 +11,20 @@ using GameServer.Core;
 /// (0x1408e1550 → 0x142228b00), and a hash that is not there leaves a null the row build faults on (live 2026-10-23:
 /// all 8411 MtxTypes rows crashed the client; 690 of them have no MtxTypeGameSpecific row), so only rows with one are
 /// sent. Names stay empty: the client names a record from its catalogue.
-/// Game data, loaded on first use; without the client tables the list is empty.
+/// Game data, loaded when the catalog is made; without the client tables the list is empty.
 /// </summary>
 public sealed class MtxCatalog
 {
-    private readonly Lazy<List<InstanceMicrotransactions.Record>> _owned = new(Load);
-    private Dictionary<uint, InstanceMicrotransactions.Record>? _byId;
+    private readonly List<InstanceMicrotransactions.Record> _owned = Load();
+    private readonly Dictionary<uint, InstanceMicrotransactions.Record> _byId;
 
-    public IReadOnlyList<InstanceMicrotransactions.Record> Owned => _owned.Value;
+    public MtxCatalog() => _byId = _owned.ToDictionary(r => r.Id);
+
+    public IReadOnlyList<InstanceMicrotransactions.Record> Owned => _owned;
 
     /// <summary>The owned record with this id (what 0x1f9 picks), or null.</summary>
     public InstanceMicrotransactions.Record? Find(uint id) =>
-        (_byId ??= Owned.ToDictionary(r => r.Id)).GetValueOrDefault(id);
+        _byId.GetValueOrDefault(id);
 
     /// <summary>The owned record of a MtxTypes HASH32, or null.</summary>
     public InstanceMicrotransactions.Record? ByHash(uint hash) => Owned.FirstOrDefault(r => r.MtxTypeHash == hash);
@@ -73,7 +75,7 @@ public sealed class MtxCatalog
 /// Cosmetics tab slot dresses: the Inventories component's slot numbers (Weapon1 0 … Amulet1 11) and the slots only
 /// cosmetics use (armour attachment 3, character effect 12, footprints 13, helmet attachments 14 and 15, hip 16);
 /// 17 is none.
-/// Game data, loaded on first use; without the client tables nothing applies.
+/// Game data, loaded when the catalog is made; without the client tables nothing applies.
 /// </summary>
 public sealed class CosmeticEffects(string folder = "data")
 {
@@ -124,13 +126,13 @@ public sealed class CosmeticEffects(string folder = "data")
     /// <summary>Model slots no item fills: they only ever show a cosmetic, and are sent empty when none is worn.</summary>
     public static readonly byte[] CosmeticOnlySlots = [3, 12, 13, 14, 15, 16];
 
-    readonly Lazy<(Dictionary<uint, Effect> Effects, Dictionary<byte, Slot> Slots)> _data = new(() => Load(folder));
+    readonly (Dictionary<uint, Effect> Effects, Dictionary<byte, Slot> Slots) _data = Load(folder);
 
     /// <summary>The effect of the cosmetic with this MtxTypeGameSpecific HASH32, or null.</summary>
-    public Effect? Of(uint hash) => _data.Value.Effects.GetValueOrDefault(hash);
+    public Effect? Of(uint hash) => _data.Effects.GetValueOrDefault(hash);
 
     /// <summary>The Cosmetics tab slot with this MicrotransactionSlot Id, or null.</summary>
-    public Slot? SlotOf(byte id) => _data.Value.Slots.GetValueOrDefault(id);
+    public Slot? SlotOf(byte id) => _data.Slots.GetValueOrDefault(id);
 
     static (Dictionary<uint, Effect>, Dictionary<byte, Slot>) Load(string folder)
     {
@@ -220,15 +222,15 @@ public sealed class CosmeticEffects(string folder = "data")
 /// </summary>
 public sealed class SkillArt
 {
-    readonly Lazy<(Dictionary<(string, int), string> Animated, Dictionary<(string, int), ushort> BuffVisuals,
-        Dictionary<(string, int), string> Projectiles)> _data = new(Load);
-    readonly Lazy<Dictionary<string, int>> _radii = new(Radii);
-    readonly Lazy<Dictionary<string, int>> _miscRows = new(() => Rows("MiscAnimated")
+    readonly (Dictionary<(string, int), string> Animated, Dictionary<(string, int), ushort> BuffVisuals,
+        Dictionary<(string, int), string> Projectiles) _data = Load();
+    readonly Dictionary<string, int> _radii = Radii();
+    readonly Dictionary<string, int> _miscRows = Rows("MiscAnimated")
         .Select(row => (Id: row.TextOrNull("Id"), Row: row.Index))
-        .Where(r => r.Id is { Length: > 0 }).GroupBy(r => r.Id!).ToDictionary(g => g.Key, g => g.First().Row));
+        .Where(r => r.Id is { Length: > 0 }).GroupBy(r => r.Id!).ToDictionary(g => g.Key, g => g.First().Row);
 
     /// <summary>The MiscAnimated row of this Id, or null: what an Animated component sends in place of an .ao path.</summary>
-    public int? MiscAnimatedRow(string id) => _miscRows.Value.TryGetValue(id, out int row) ? row : null;
+    public int? MiscAnimatedRow(string id) => _miscRows.TryGetValue(id, out int row) ? row : null;
 
     /// <summary>
     /// The radius an area art is drawn at, at scale 1, in world units: MiscAnimated <c>__col4</c> of the rows drawing
@@ -236,7 +238,7 @@ public sealed class SkillArt
     /// 500; 0 for art that is not scaled to an area), or null. It matches the meshes: rifire.sm's BoundingBox is
     /// ±463 with its flames at 380, rifire_white.sm's half that.
     /// </summary>
-    public int? ArtRadius(string ao) => _radii.Value.TryGetValue(ao, out int r) ? r : null;
+    public int? ArtRadius(string ao) => _radii.TryGetValue(ao, out int r) ? r : null;
 
     static Dictionary<string, int> Radii()
     {
@@ -249,11 +251,11 @@ public sealed class SkillArt
 
     /// <summary>The .ao this MiscAnimatedArtVariations Id draws for the variation, or null when it has no row (the
     /// variation draws nothing there, e.g. Righteous Fire's NoRing).</summary>
-    public string? Animated(string id, int variation) => _data.Value.Animated.GetValueOrDefault((id, variation));
+    public string? Animated(string id, int variation) => _data.Animated.GetValueOrDefault((id, variation));
 
     /// <summary>The BuffVisuals row this BuffVisualsArtVariations Id shows for the variation, or null for the buff's own.</summary>
     public ushort? BuffVisual(string id, int variation) =>
-        _data.Value.BuffVisuals.TryGetValue((id, variation), out ushort row) ? row : null;
+        _data.BuffVisuals.TryGetValue((id, variation), out ushort row) ? row : null;
 
     /// <summary>The projectile object a variation flies in place of <paramref name="projectile"/> (a Projectiles.dat Id):
     /// the ProjectilesArtVariations Id whose variant 0 is that projectile, at the variation; the projectile itself when
@@ -261,7 +263,7 @@ public sealed class SkillArt
     public string Projectile(string projectile, int variation)
     {
         if (variation == 0) return projectile;
-        var all = _data.Value.Projectiles;
+        var all = _data.Projectiles;
         foreach (var ((id, v), p) in all)
             if (v == 0 && p == projectile && all.TryGetValue((id, variation), out var swapped)) return swapped;
         return projectile;
@@ -272,10 +274,30 @@ public sealed class SkillArt
     public string AnimatedInPlaceOf(string ao, int variation)
     {
         if (variation == 0) return ao;
-        var all = _data.Value.Animated;
+        var all = _data.Animated;
         foreach (var ((id, v), a) in all)
             if (v == 0 && string.Equals(a, ao, StringComparison.OrdinalIgnoreCase) && all.TryGetValue((id, variation), out var swapped)) return swapped;
         return ao;
+    }
+
+    readonly Dictionary<(string, int), string> _objectModels = ObjectModels();
+
+    /// <summary>The .ao of the object this MiscObjectsArtVariations Id places for the variation (Toxic Rain's
+    /// <c>toxic_rain_spore</c>: the pod, a lotus, a sphere …): its MiscObjects type's model, or null.</summary>
+    public string? ObjectModel(string id, int variation) => _objectModels.GetValueOrDefault((id, variation));
+
+    static Dictionary<(string, int), string> ObjectModels()
+    {
+        var models = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Rows("object_types"))
+            if (row.TextOrNull("type") is { } type && row.TextOrNull("animated_object") is { Length: > 0 } ao) models[type] = ao;
+        var objects = Rows("MiscObjects");
+        var result = new Dictionary<(string, int), string>();
+        foreach (var row in Rows("MiscObjectsArtVariations"))
+            if (Int(row, "__col3") is int v && row.Ints("MiscObject") is [int o, ..] && o >= 0 && o < objects.Count
+                && objects[o].TextOrNull("EffectVirtualPath") is { } path && models.TryGetValue(path, out var model))
+                result.TryAdd((row.Text("Id") ?? "", v), model);
+        return result;
     }
 
     static (Dictionary<(string, int), string>, Dictionary<(string, int), ushort>, Dictionary<(string, int), string>) Load()

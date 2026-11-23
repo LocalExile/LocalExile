@@ -11,13 +11,13 @@ static partial class KitavaActTen
     internal static readonly int[] Effects = [6587, 6592, 6596, 8484, 6589, 8508, 8510, 8512, 8486, 8488, 8490, 8492, 8494,
         8496, 8498, 8500, 8502, 8504, 8506, 6625, 6629, 6633, 8678, 8682, 8686, 8691, 8693, 8680, 8684, 8688];
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
-    static readonly RuleTable<ClientState, Exposure> Exposures = new();
+    static readonly Store<Player, Exposure> Exposures = new();
     sealed class Exposure { public double Dps; }
-    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(ClientState c, int effect, byte level) =>
+    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
-    static int Stat(ClientState c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
+    static int Stat(Player c, int effect, byte level, uint name) => name is var key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
-    internal static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect)
     {
         var row = Data(c, effect, level); bool spell = effect is not (6592 or 6596);
         var damage = DamagePacket.Empty;
@@ -25,15 +25,15 @@ static partial class KitavaActTen
             foreach (var type in DamageTypes.ConversionOrder)
             {
                 string slug = type.ToString().ToLowerInvariant();
-                int min = Stat(c, effect, level, $"spell_minimum_base_{slug}_damage"), max = Stat(c, effect, level, $"spell_maximum_base_{slug}_damage");
+                int min = Stat(c, effect, level, global::Stat.Of($"spell_minimum_base_{slug}_damage")), max = Stat(c, effect, level, global::Stat.Of($"spell_maximum_base_{slug}_damage"));
                 if (max > 0) damage = damage.Add(type, new(min, max));
             }
         else
         {
             var (min, max) = Monsters.BaseDamage(v, level) ?? (1, 1);
-            damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(row.Multiplier * Math.Max(0, 1 + Stat(c, effect, level, "active_skill_damage_+%_final") / 100d));
+            damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(row.Multiplier * Math.Max(0, 1 + Stat(c, effect, level, global::Stat.ActiveSkillDamagePlusPctFinal) / 100d));
         }
-        double fire = Math.Clamp(Stat(c, effect, level, "skill_physical_damage_%_to_convert_to_fire"), 0, 100) / 100d;
+        double fire = Math.Clamp(Stat(c, effect, level, global::Stat.SkillPhysicalDamagePctToConvertToFire), 0, 100) / 100d;
         if (fire > 0)
         {
             var physical = damage[DamageType.Physical];
@@ -42,10 +42,10 @@ static partial class KitavaActTen
             foreach (var type in DamageTypes.ConversionOrder.Where(t => t != DamageType.Physical)) damage = damage.Add(type, original[type]);
         }
         double seconds = Game.SkillsFor(c).CastTimeMs(effect) / 1000d;
-        seconds /= Math.Max(.01, 1 + Stat(c, effect, level, spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100d);
+        seconds /= Math.Max(.01, 1 + Stat(c, effect, level, spell ? global::Stat.ActiveSkillCastSpeedPlusPctFinal : global::Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
         return new(Skill(effect), Math.Max(.1, seconds), 170, damage) { Spell = spell, Scripted = true };
     }
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level)
     {
         if (v.Id == Body)
             return [.. Effects.Select(e => Game.SkillsFor(c).FindByRow(Skill(e), e, Data(c, e, level).Level,
@@ -96,8 +96,8 @@ static partial class KitavaActTen
         readonly List<Patch> patches = [];
         readonly List<Visual> visuals = [];
         readonly List<Orb> orbs = [];
-        readonly HashSet<(int, ClientState, uint)> struck = [];
-        readonly Dictionary<(ClientState, uint), double> carry = [];
+        readonly HashSet<(int, Player, uint)> struck = [];
+        readonly Dictionary<(Player, uint), double> carry = [];
         int rotation, group;
         double lastGround;
         readonly Dictionary<int, double> cooldowns = [];
@@ -108,7 +108,7 @@ static partial class KitavaActTen
             return (anchor.X + (int)Math.Round((x * cos - y * sin) / WorldUnits.PerCell),
                 anchor.Y + (int)Math.Round((x * sin + y * cos) / WorldUnits.PerCell));
         }
-        async Task Combat(ClientState c, double now)
+        async Task Combat(Player c, double now)
         {
             if (now < ready || InGracePeriod(c)) return;
             int[] cycle = Round switch
@@ -122,7 +122,7 @@ static partial class KitavaActTen
             var attack = Attack(c, body.Variety!, body.Level, effect); var aim = c.Walk.Position(now);
             cooldowns[effect] = now + Game.SkillsFor(c).CooldownMs(effect, Data(c, effect, body.Level).Level) / 1000d;
             int generation;
-            lock (c.Monsters) { generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .2; }
+            generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .2;
             int cast = ++group;
             await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(id)], true);
             Console.WriteLine($"[Kitava A10] interval {Round + 1}, {Game.SkillsFor(c).EffectId(effect)}");
@@ -143,7 +143,7 @@ static partial class KitavaActTen
             }
             else if (effect is 6625 or 6629 or 6633)
             {
-                double duration = Math.Max(1, Stat(c, effect, body.Level, "base_skill_effect_duration") / 1000d);
+                double duration = Math.Max(1, Stat(c, effect, body.Level, global::Stat.BaseSkillEffectDuration) / 1000d);
                 int[] sides = effect == 6633 ? [-1, 1] : [effect == 6625 ? -1 : 1];
                 foreach (int side in sides)
                 {
@@ -154,7 +154,7 @@ static partial class KitavaActTen
             }
             else if (effect is 8678 or 8682 or 8686 or 8680 or 8684 or 8688)
             {
-                double duration = Math.Max(1, Stat(c, effect, body.Level, "base_skill_effect_duration") / 1000d);
+                double duration = Math.Max(1, Stat(c, effect, body.Level, global::Stat.BaseSkillEffectDuration) / 1000d);
                 double start = now + attack.Seconds * .6;
                 var at = c.Layout.Near((aim.X + (effect is 8682 or 8684 ? -20 : effect is 8686 or 8688 ? 20 : 0), aim.Y + 12));
                 orbs.Add(new(at, effect, start + duration, start + .8));
@@ -182,7 +182,7 @@ static partial class KitavaActTen
                 }
             }
         }
-        async Task CombatMaintenance(ClientState c, double now)
+        async Task CombatMaintenance(Player c, double now)
         {
             foreach (var fx in visuals.Where(v => v.Until <= now).ToArray()) { visuals.Remove(fx); await AllRemoval(fx.Id); }
             patches.RemoveAll(p => p.Until <= now); orbs.RemoveAll(o => o.Until <= now);
@@ -212,15 +212,14 @@ static partial class KitavaActTen
             if (now < lastGround + .25) return;
             double seconds = Math.Clamp(now - lastGround, 0, 1); lastGround = now;
             foreach (var p in Present.ToArray())
-                lock (p.Monsters)
                 {
                     bool Active((int X, int Y) at, Patch g) => stage is 2 or 3 or 4 && now >= g.From && Distance(at, g.At) <= g.Radius;
-                    double Dps(Patch g) => g.Type == DamageType.Physical ? Stat(c, g.Effect, body.Level, "base_physical_damage_to_deal_per_minute") / 60d
-                        : Math.Max(0, Stat(c, g.Effect, body.Level, "base_fire_damage_to_deal_per_minute") / 60d);
+                    double Dps(Patch g) => g.Type == DamageType.Physical ? Stat(c, g.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d
+                        : Math.Max(0, Stat(c, g.Effect, body.Level, global::Stat.BaseFireDamageToDealPerMinute) / 60d);
                     var e = Exposures.GetValue(p, _ => new());
                     double dps = p.PlayerLife == 0 || p.Paused || p.Immune || InGracePeriod(p) ? 0 : patches.Where(g => Active(p.Walk.Position(now), g) && !PlayerImmunities(p).Contains(g.Type))
                         .GroupBy(g => g.Type).Sum(g => g.Max(h => Dps(h) * (h.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(Resistance(p, h.Type), MaxResistance(p, h.Type)) / 100d) : 1)));
-                    p.TrapDegenPerSecond = Math.Max(0, p.TrapDegenPerSecond - e.Dps + dps); e.Dps = dps;
+                    p.Degens[e] = dps; e.Dps = dps;
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     {
                         if (!GolemCurrent(p, g) || g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
@@ -228,45 +227,44 @@ static partial class KitavaActTen
                         {
                             var res = MonsterHitResistance(g.Monster, patch.Type, default);
                             return Dps(patch) * (patch.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) : 1)
-                                * Math.Max(0, 1 + Stat(c, patch.Effect, body.Level, "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d);
+                                * Math.Max(0, 1 + Stat(c, patch.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
                         }));
                         double raw = rate * seconds + carry.GetValueOrDefault((p, g.Id));
                         int damage = (int)Math.Min(int.MaxValue, Math.Floor(raw)); carry[(p, g.Id)] = raw - damage;
-                        int shield = Math.Min((int)g.Shield, damage); g.Shield -= shield; damage -= shield;
+                        int incoming = damage;
+                        damage = g.ShieldPool.Damage(damage, bypass: false, now);
+                        PublishEnergyShieldLocked(p, g);
                         g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                        if (damage > 0 || shield > 0) p.Minions.OutputQueue.Add(new([], "Kitava ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Kitava ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
                         if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                     }
                 }
         }
-        async Task Damage(ClientState p, Hit hit)
+        async Task Damage(Player p, Hit hit)
         {
-            var w = p.Wire; MonsterHitOutcome? outcome = null; var attack = Attack(p, body.Variety!, body.Level, hit.Effect);
+            MonsterHitOutcome? outcome = null; var attack = Attack(p, body.Variety!, body.Level, hit.Effect);
             bool Inside((int X, int Y) at) => hit.Cross ? Distance(at, hit.Aim) <= hit.Radius
                 && Math.Min(Math.Abs(at.X - hit.Aim.X - at.Y + hit.Aim.Y), Math.Abs(at.X - hit.Aim.X + at.Y - hit.Aim.Y)) <= (hit.Effect == 6589 ? 11 : 6)
                 : hit.End is { } end ? LineDistance(at, hit.Aim, end) <= hit.Radius : Distance(at, hit.Aim) <= hit.Radius;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [], null, atGate: () =>
+            await SendWorldRecord(p, id, [], null, atGate: () =>
             {
-                lock (p.Monsters)
-                {
-                    double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
-                    if (stopped || !CurrentGameWork || stage is not (2 or 3 or 4) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                    var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d)) };
-                    foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                        if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struck.Add((hit.Group, p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
-                    if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struck.Add((hit.Group, p, PlayerId))) return null;
-                    outcome = CommitMonsterHitLocked(w.Remote, p, id, body, attack, now, p.Walk.Position(now), hit.Aim, false, p.NextActionSequence());
-                    return outcome?.HitPacket;
-                }
+                double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
+                if (stopped || !CurrentGameWork || stage is not (2 or 3 or 4) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
+                var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
+                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
+                    if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struck.Add((hit.Group, p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
+                if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struck.Add((hit.Group, p, p.Id))) return null;
+                outcome = CommitMonsterHitLocked(p, id, body, attack, now, p.Walk.Position(now), hit.Aim, false, p.NextActionSequence());
+                return outcome?.HitPacket;
             });
-            if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
+            if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
-        async Task Fx(ClientState c, (int X, int Y) at, string model, double until, uint? clip = 0, float rotation = 0)
+        async Task Fx(Player c, (int X, int Y) at, string model, double until, uint? clip = 0, float rotation = 0)
         {
             var fx = new Visual(c.Instance.World.NewMonsterId(), at, model, clip ?? uint.MaxValue, until, rotation); visuals.Add(fx);
-            foreach (var p in Present.ToArray()) await CreateFx(p, fx);
+            if (Present.FirstOrDefault() is { } p) await CreateFx(p, fx);
         }
-        static async Task CreateFx(ClientState p, Visual fx)
+        static async Task CreateFx(Player p, Visual fx)
         {
             var obj = new EffectObject(fx.At.X, fx.At.Y, fx.Model) { Rotation = fx.Rotation };
             await SendWorldCreate(p, fx.Id, () => InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()));

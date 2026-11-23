@@ -46,6 +46,9 @@ public class InstanceProtocolTests
     public void Enter_area_minimal_form()
     {
         Assert.Equal("0021" + "0000" + "0000" + "0000" + "0000" + "000000" + "00" + "00", Convert.ToHexString(InstanceProtocol.EnterArea()));
+        // +0x7e carries the world frame length in ms (dispatcher case 10 -> 0x141648b50 -> world +0x11c).
+        Assert.Equal("0021" + "0000" + "0000" + "0000" + "0000" + "000000" + "21" + "00",
+            Convert.ToHexString(InstanceProtocol.EnterArea(frameMs: 33)));
     }
 
     [Fact]

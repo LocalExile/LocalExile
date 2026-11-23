@@ -6,6 +6,51 @@ namespace GameServer.Core.Protocol.Instance;
 public static class InstanceNpcs
 {
     public const ushort TalkId = 0x84;
+
+    /// <summary>S→C 0xbe (3.29.3c Cls 0x1435e6d40, write 0x1421a9f80, read 0x1421aa0d0 → 0x141fe35f0, HUD VoteDisplay
+    /// 0x14026e170): bandit vote window. Wire: u8 voteTypeId (1-based VoteType.dat row + 1; 0 closes), u8 answered,
+    /// u8 localVoter, u8 voterCount (0..255), then voterCount × (compact WStr characterName via 0x140e0b250,
+    /// u8 voteStateId 1-based VoteState.dat row + 1).</summary>
+    public const ushort VoteDisplayId = 0xbe;
+
+    /// <summary>1-based VoteState.dat row IDs (VoteDisplay 0x14026ec73 decrements before indexing stride-0x10 table).</summary>
+    public const byte VoteStateKillBandit = 1,
+        VoteStateHelpBandit = 2,
+        VoteStateWaitingForVote = 3,
+        VoteStateWaitingToEnterArea = 4;
+
+    /// <summary>One voter row in S→C 0xbe (0x28-byte entry in client memory: character name + 1-based VoteState.dat ID).</summary>
+    public sealed record VoteEntry(string CharacterName, byte VoteStateId);
+
+    // S→C 0xbe (3.29.3c writer 0x1421a9f80): VoteType row plus one (zero closes),
+    // answered flag, local voter flag, and the u8 count of (name, VoteState) entries.
+    // A solo vote has no other voters to list.
+    public static byte[] OpenVote(byte row) => new LoginWriter().U16(VoteDisplayId).U8((byte)(row + 1)).U8(0).U8(1).U8(0).ToArray();
+
+    /// <summary>Encodes S→C 0xbe with explicit answered/localVoter flags and party voter list (0..255 entries).</summary>
+    public static byte[] OpenVote(byte row, bool answered, bool localVoter, IReadOnlyList<VoteEntry> voters)
+    {
+        if (voters.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(voters), "S→C 0xbe allows at most 255 voters.");
+        var w = new LoginWriter()
+            .U16(VoteDisplayId)
+            .U8((byte)(row + 1))
+            .Bool(answered)
+            .Bool(localVoter)
+            .U8((byte)voters.Count);
+        foreach (var entry in voters)
+            w.WStr(entry.CharacterName).U8(entry.VoteStateId);
+        return w.ToArray();
+    }
+
+    public static byte[] CloseVote() => new LoginWriter().U16(VoteDisplayId).U8(0).U8(0).U8(0).U8(0).ToArray();
+
+    // C→S 0xbd (sender 0x14026ff10): one byte, 1 accepts and 0 rejects.
+    public const ushort VoteAnswerId = 0xbd;
+    public const int VoteAnswerLength = 3;
+
+    // NPC component update reader 0x141e7b780 uses the same two fields as creation.
+    public static byte[] DialogueAvailability(uint objectId, byte componentIndex, bool available) =>
+        InstanceEntities.ComponentUpdate(objectId, componentIndex, [(byte)(available ? 1 : 0), 0xff]);
     // HideoutSelectionWindow in the native screen-name table at 0x142fd89f0.
     public const byte HideoutSelectionUi = 0x22;
 
@@ -80,6 +125,13 @@ public static class InstanceNpcs
     /// <summary>The length of a C→S 0x8a at the start of <paramref name="data"/>, or null until its compact int arrived.</summary>
     public static int? CtrlBuyLength(ReadOnlySpan<byte> data) => data.Length < 9 ? null : 8 + CompactUIntLength(data[8]) + 2;
 
+    /// <summary>C→S 0x8b (3 bytes, class 0x1435cb1f0, write 0x140e27920, live 2026-11-19 on "TAKE ALL" in a multi-item
+    /// quest reward offer, QuestRewardOffers __col6 = 1): u16 BE 0x008b, u8 flag (0x00).</summary>
+    public const ushort TakeAllRewardsId = 0x8b;
+    public const int TakeAllRewardsLength = 3;
+
+    public static byte ReadTakeAllRewards(ReadOnlySpan<byte> m) => m[2];
+
     static int CompactUIntLength(byte first) => first < 0x80 ? 1 : first < 0xc0 ? 2 : first < 0xe0 ? 3 : first < 0xf0 ? 4 : 5;
 
     static uint CompactUInt(ReadOnlySpan<byte> b) => CompactUIntLength(b[0]) switch
@@ -135,19 +187,26 @@ public static class InstanceNpcs
         return new(r.U32() & 0xc01fffff, r.U32(), r.U16(), r.U8(), r.U8(), r.U16());
     }
 
-    public const ushort TradeTakeBackId = 0xb3, TradeMoveAllId = 0xb5;
-    public const int TradeTakeBackLength = 12, TradeMoveAllLength = 12;
+    public const ushort TradeTakeBackId = 0xb3, TradeCtrlMoveId = 0xb4, TradeMoveAllId = 0xb5;
+    public const int TradeTakeBackLength = 12, TradeCtrlMoveLength = 12, TradeMoveAllLength = 12;
 
     /// <summary>
-    /// C→S 0xb3 (12 bytes, sent by 0x14216d100) and 0xb5 (12 bytes, class 0x1435ca240, write 0x141f9c880, sent by
-    /// 0x14216d1e0): Shift + click and Ctrl + Shift + click on an item in a grid while a trade is open (the grid click
-    /// handler 0x1402de150). 0xb3: u32 BE item id, u32 BE the grid's inventory id, u16. 0xb5: u32 BE item id, u32 BE the
-    /// grid's inventory id, u8, u8. The item moves to the other side (inventory ↔ offer). Live 2026-10-19 a click on an
-    /// item in "Your Offer" sent 0xb3 with inventory 0.
+    /// C→S 0xb3 (12 bytes, sent by 0x14216d100), 0xb4 (12 bytes, Ctrl + right-click in 0x1403119d0, shared writer
+    /// 0x141f9c880) and 0xb5 (12 bytes, class 0x1435ca240, write 0x141f9c880, sent by 0x14216d1e0): grid quick-move
+    /// actions while a trade or vendor sale is open. Wire: u16 id, u32 BE item id (+0x10), u32 BE inventory id (+0x14,
+    /// masked with 0xc01fffff), u16 LE token (+0x18). Live 2026-10-19 a click on an item in "Your Offer" sent 0xb3 with
+    /// inventory 0.
     /// </summary>
     public static (uint ItemId, uint InventoryId) ReadTradeMove(ReadOnlySpan<byte> m) =>
         (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]),
          System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[6..]) & 0xc01fffff);
+
+    /// <summary>C→S 0xb4 (12 bytes, Ctrl + right-click, 0x1403119d0 → 0x141f9c880): item id, masked inventory id, and
+    /// two-byte token.</summary>
+    public static (uint ItemId, uint InventoryId, ushort Token) ReadTradeCtrlMove(ReadOnlySpan<byte> m) =>
+        (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]),
+         System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[6..]) & 0xc01fffff,
+         System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(m[10..]));
 
     public const ushort TradeAcceptId = 0xb6, TradeUnacceptId = 0xb7;
     public const int TradeAcceptLength = 6, TradeUnacceptLength = 4;
@@ -236,8 +295,10 @@ public static class InstanceNpcs
 /// <summary>
 /// An NPC (Agents/docs/protocol/17-npcs.md): a 0x2bb object of an NPCs.dat type such as <c>Metadata/NPC/Act1/Tarkleigh</c>.
 /// <c>Metadata/NPC/NPC</c> deserializes Positioned, Animated, BaseEvents, InteractionAction, NPC and MinimapIcon (client
-/// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable and StateMachine.
-/// <para>NPC (slot 17 0x141e7b6e0) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents reads nothing.</para>
+/// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable, StateMachine, Stats (written as a
+/// monster's), Functions or ControlZone. Brackets is not written.
+/// <para>NPC (slot 17 0x141e7b6e0) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents,
+/// Functions and ControlZone read nothing (slot 17 0x1400f1180: ret).</para>
 /// <para><paramref name="Model"/>: an .ao for Animated when the type's own is missing or not the one the town room places
 /// (Irasha's type is <c>Metadata/NPC/NPC</c>); <paramref name="Height"/>: a fixed world z (Positioned flags0 bit2), as the
 /// room's record gives it.</para>
@@ -249,7 +310,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 
-    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine"];
+    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "Stats", "Functions", "ControlZone"];
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
@@ -265,13 +326,10 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
         {
             switch (c)
             {
-                // As a monster's: x, y, rotation (+0x29c), u16 team (0: friendly), flags0, flags1 0x02 + shown.
-                // flags0 bit2: a fixed height before flags1 0x02's two bytes: i32 −z / 7.8125 and f32 z (world z points
-                // down), the live server's convention (ProjectileObject; 11-skills.md "Sign").
+                // x, y, rotation (+0x29c), u16 team (0: friendly). flags0 0x04: a fixed height, i32 −z / 7.8125 and f32
+                // z (world z points down), the live server's convention (ProjectileObject; 11-skills.md "Sign").
                 case "Positioned":
-                    w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
-                    if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
-                    w.U8(0).U8(1);
+                    w.Positioned(GridX, GridY, Rotation, fixedHeight: Height is float z ? ((int)MathF.Round(-z / 7.8125f), z) : null);
                     break;
                 // 0: the type supplies the model; bit0: a u32-counted UTF-16 .ao path.
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
@@ -281,19 +339,11 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 case "NPC": w.U8(1).U8(0xff); break;
                 case "MinimapIcon": w.U8(0); break;
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
-                case "StateMachine":
-                    var sm = StateMachine!;
-                    w.U8((byte)sm.SharedStates.Count).U8((byte)sm.SharedTimers);
-                    foreach (int v in sm.SharedStates)
-                    {
-                        var lw = new LoginWriter();
-                        InstanceProtocol.CompactInt(lw, v);
-                        foreach (byte b in lw.ToArray()) w.U8(b);
-                        w.U8(0);
-                    }
-                    for (int i = 0; i < sm.SharedTimers; i++) w.U32(0).U8(0);
-                    break;
-                // BaseEvents: no data.
+                case "StateMachine": StateMachine!.Write(w); break;
+                // As a monster's (ClientInternalStats 0x1421c98b0): compact count + pairs, u32, f32, u8. Empty: the
+                // type's own stats are the server's.
+                case "Stats": w.Stats(null).U32(0).U32(0).U8(0); break;
+                // BaseEvents, Functions, ControlZone: no data.
             }
         }
         w.U8(0);            // tasks

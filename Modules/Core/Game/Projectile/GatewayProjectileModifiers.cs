@@ -4,57 +4,59 @@ using GameServer.Core.Projectiles;
 /// <summary>Binds resolved stats to source-neutral projectile profiles and their child stages.</summary>
 public static class GatewayProjectileModifiers
 {
-    public static ProjectileProfile Resolve(ProjectileProfile profile, Func<string, int> get, bool attack,
+    public static ProjectileProfile Resolve(ProjectileProfile profile, Func<uint, int> get, bool attack,
         bool arrows = false, bool chainInputConsumed = false, bool intrinsicSplitCount = false,
         int skillExtraProjectiles = 0, int skillPierce = 0)
     {
         var p = profile;
-        int splitTargets = Math.Max(get("projectile_number_to_split"), get("projectile_number_of_targets_to_split_to"));
-        int extra = skillExtraProjectiles + get("number_of_additional_projectiles")
-            + get(attack ? "attacks_number_of_additional_projectiles" : "spells_number_of_additional_projectiles")
+        int splitTargets = Math.Max(get(Stat.ProjectileNumberToSplit), get(Stat.Of("projectile_number_of_targets_to_split_to")));
+        int extra = skillExtraProjectiles + get(Stat.NumberOfAdditionalProjectiles)
+            + get(attack ? Stat.AttacksNumberOfAdditionalProjectiles : Stat.SpellsNumberOfAdditionalProjectiles)
+            + (attack && WeaponIdentity.WieldingClawOrDagger(get)
+                ? get(Stat.AttackSkillAdditionalNumProjectilesWhileWieldingClawsDaggers) : 0)
             + (arrows ? AdditionalArrows(get) : 0);
-        int pierce = skillPierce + Math.Max(get("projectile_number_of_targets_to_pierce"), get("projectile_base_number_of_targets_to_pierce"));
-        if (attack) pierce += Math.Max(get("arrow_number_of_targets_to_pierce"), get("arrow_base_number_of_targets_to_pierce"));
-        if (get("always_pierce") != 0 || get("virtual_always_pierce") != 0
-            || attack && (get("arrows_always_pierce") != 0 || get("base_arrows_always_pierce") != 0)) pierce = -1;
-        int chains = Math.Max(get("number_of_chains"), get("virtual_number_of_chains_for_projectiles"));
+        int pierce = skillPierce + Math.Max(get(Stat.ProjectileNumberOfTargetsToPierce), get(Stat.ProjectileBaseNumberOfTargetsToPierce));
+        if (attack) pierce += Math.Max(get(Stat.ArrowNumberOfTargetsToPierce), get(Stat.ArrowBaseNumberOfTargetsToPierce));
+        if (get(Stat.AlwaysPierce) != 0 || get(Stat.VirtualAlwaysPierce) != 0
+            || attack && (get(Stat.ArrowsAlwaysPierce) != 0 || get(Stat.BaseArrowsAlwaysPierce) != 0)) pierce = -1;
+        int chains = Math.Max(get(Stat.NumberOfChains), get(Stat.VirtualNumberOfChainsForProjectiles));
         // "Supported Skills Chain X% more times" (Greater Chain): a more multiplier on the whole count. PoB keeps the
         // resulting fraction instead of rounding up, so a single chain no longer gains one from a fractional result.
-        int chainMore = get("support_chain_count_+%_final");
+        int chainMore = get(Stat.SupportChainCountPlusPctFinal);
         if (chains > 0 && chainMore > 0) chains = (int)(chains * (1 + chainMore / 100.0));
         if (chainInputConsumed) chains = 0;
-        bool forks = get("projectiles_fork") != 0 || get("virtual_projectiles_fork") != 0
-            || (attack ? get("attack_projectiles_fork") != 0 || get("arrows_fork") != 0
-                : get("projectiles_from_spells_fork") != 0);
-        int forkCount = Math.Max(get("virtual_number_of_forks_for_projectiles_final"),
-            (forks ? 1 : 0) + get("number_of_additional_forks_base")
-                + (attack ? get("attack_projectiles_fork_additional_times") : 0));
-        bool forksApplyToZigZags = get("kinetic_bolt_forks_apply_to_zig_zags") != 0;
-        int theoreticalForks = Math.Max(get("theoretical_number_of_forks"), forkCount);
-        int zigZags = Math.Max(0, get("kinetic_wand_base_number_of_zig_zags") + (forksApplyToZigZags ? theoreticalForks : 0));
+        bool forks = get(Stat.ProjectilesFork) != 0 || get(Stat.VirtualProjectilesFork) != 0
+            || (attack ? get(Stat.AttackProjectilesFork) != 0 || get(Stat.ArrowsFork) != 0
+                : get(Stat.ProjectilesFromSpellsFork) != 0);
+        int forkCount = Math.Max(get(Stat.VirtualNumberOfForksForProjectilesFinal),
+            (forks ? 1 : 0) + get(Stat.NumberOfAdditionalForksBase)
+                + (attack ? get(Stat.AttackProjectilesForkAdditionalTimes) : 0));
+        bool forksApplyToZigZags = get(Stat.KineticBoltForksApplyToZigZags) != 0;
+        int theoreticalForks = Math.Max(get(Stat.TheoreticalNumberOfForks), forkCount);
+        int zigZags = Math.Max(0, get(Stat.KineticWandBaseNumberOfZigZags) + (forksApplyToZigZags ? theoreticalForks : 0));
         var modifiers = new ProjectileModifiers
         {
             ExtraProjectiles = extra, Pierce = pierce,
             Fork = forkCount, Chain = chains,
-            ForkExtraProjectileChance = Math.Clamp(get("chance_to_fork_extra_projectile_%"), 0, 100),
-            TerrainChainChance = Math.Clamp(get("projectile_chain_from_terrain_chance_%"), 0, 100),
-            Split = Math.Max(splitTargets, get("intermediary_projectile_number_of_targets_to_split_to")),
-            Returns = get("projectiles_return") != 0 || attack && get("attack_projectiles_return") != 0
-                || get("projectile_return_%_chance") >= 100,
-            CannotPierce = get("cannot_pierce") != 0 || get("virtual_projectiles_cannot_pierce") != 0
-                || !attack && get("projectiles_from_spells_cannot_pierce") != 0,
-            CannotFork = forksApplyToZigZags || get("virtual_projectiles_cannot_fork") != 0
-                || !attack && get("projectiles_from_spells_cannot_fork") != 0,
-            CannotChain = get("virtual_projectiles_cannot_chain") != 0 || !attack && get("projectiles_from_spells_cannot_chain") != 0,
-            CannotSplit = get("projectiles_cannot_split") != 0,
-            CannotReturn = get("skill_projectiles_cannot_return") != 0
+            ForkExtraProjectileChance = Math.Clamp(get(Stat.ChanceToForkExtraProjectilePct), 0, 100),
+            TerrainChainChance = Math.Clamp(get(Stat.ProjectileChainFromTerrainChancePct), 0, 100),
+            Split = Math.Max(splitTargets, get(Stat.IntermediaryProjectileNumberOfTargetsToSplitTo)),
+            Returns = get(Stat.ProjectilesReturn) != 0 || attack && get(Stat.AttackProjectilesReturn) != 0
+                || get(Stat.ProjectileReturnPctChance) >= 100,
+            CannotPierce = get(Stat.CannotPierce) != 0 || get(Stat.VirtualProjectilesCannotPierce) != 0
+                || !attack && get(Stat.ProjectilesFromSpellsCannotPierce) != 0,
+            CannotFork = forksApplyToZigZags || get(Stat.VirtualProjectilesCannotFork) != 0
+                || !attack && get(Stat.ProjectilesFromSpellsCannotFork) != 0,
+            CannotChain = get(Stat.VirtualProjectilesCannotChain) != 0 || !attack && get(Stat.ProjectilesFromSpellsCannotChain) != 0,
+            CannotSplit = get(Stat.ProjectilesCannotSplit) != 0,
+            CannotReturn = get(Stat.SkillProjectilesCannotReturn) != 0
         };
         // A declared non-primary consumer keeps quantity when the competing split is prohibited.
         bool intrinsicCountOwnsQuantity = p.CountConsumer != ProjectileCountConsumer.Primary
             && (p.CannotSplit || modifiers.CannotSplit);
         // An intrinsic split budget owns this conversion even when the generic stat also enables it.
         if (!intrinsicSplitCount && !intrinsicCountOwnsQuantity
-            && get("modifiers_to_number_of_projectiles_instead_apply_to_splitting") != 0)
+            && get(Stat.ModifiersToNumberOfProjectilesInsteadApplyToSplitting) != 0)
         {
             if (p.CountConsumer != ProjectileCountConsumer.Primary)
                 throw new InvalidOperationException("Unresolved competing projectile count conversions: " + p.Id);
@@ -62,7 +64,7 @@ public static class GatewayProjectileModifiers
             modifiers = modifiers with { ExtraProjectiles = 0 };
         }
         if (intrinsicSplitCount) { p = p with { Split = p.Split + extra }; modifiers = modifiers with { ExtraProjectiles = 0, Split = 0 }; }
-        if (get("projectile_distance_override") is > 0 and var distance)
+        if (get(Stat.ProjectileDistanceOverride) is > 0 and var distance)
         {
             if (p.EndEmission is not null || p.Lobbed)
                 throw new InvalidOperationException("Distance override needs an explicit early-end recipe for " + p.Id);
@@ -70,13 +72,13 @@ public static class GatewayProjectileModifiers
         }
         // "Projectiles from Supported Skills have X metres maximum Direct Flight": the values are client units (10 per
         // metre), so 48 is 4.8 m. It caps rather than replaces either the baseline or a distance override.
-        if (get("projectile_maximum_range_override") is > 0 and var maximum)
+        if (get(Stat.ProjectileMaximumRangeOverride) is > 0 and var maximum)
             p = p with { Range = Math.Min(p.Range, maximum) };
         ProjectileProfile ReturnControls(ProjectileProfile target) => target with
         {
-            ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get("projectile_return_%_chance"), 0, 100)),
-            PierceAllOnReturn = target.PierceAllOnReturn || get("returning_projectiles_always_pierce") != 0,
-            ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get("returned_projectile_speed_+%") / 100d)
+            ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get(Stat.ProjectileReturnPctChance), 0, 100)),
+            PierceAllOnReturn = target.PierceAllOnReturn || get(Stat.ReturningProjectilesAlwaysPierce) != 0,
+            ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get(Stat.ReturnedProjectileSpeedPlusPct) / 100d)
         };
         p = ReturnControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers));
         // Children receive already resolved continuation grants, never another count expansion.
@@ -86,19 +88,19 @@ public static class GatewayProjectileModifiers
         if (p.TravelEmission is { } travelEmission)
             p = p with { TravelEmission = travelEmission with { Child = ReturnControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
-        if (get("projectiles_can_shotgun") != 0)
+        if (get(Stat.ProjectilesCanShotgun) != 0)
             p = p with { HitRule = new(ProjectileHitScope.Projectile) };
         return p;
     }
 
     // Native arrow alias 29cb: the generic additions above plus number_of_additional_arrows and the
-    // main-hand-accuracy condition. The Dash-recently term is not modelled yet because the server has no
-    // have_cast_dash_recently state; a profile must pass arrows = true only for a bow attack.
-    static int AdditionalArrows(Func<string, int> get)
+    // main-hand-accuracy condition. Dash-recently folds onto that plain arrow stat at its accepted-use owner.
+    // A profile passes arrows = true only for a bow attack.
+    static int AdditionalArrows(Func<uint, int> get)
     {
-        int count = get("number_of_additional_arrows");
-        if (get("main_hand_accuracy_rating") >= 3000)
-            count += get("number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more");
+        int count = get(Stat.NumberOfAdditionalArrows);
+        if (get(Stat.MainHandAccuracyRating) >= 3000)
+            count += get(Stat.NumberOfAdditionalArrowsWhileMainHandAccuracyIs3000OrMore);
         return count;
     }
 }

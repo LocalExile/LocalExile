@@ -6,10 +6,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Harvest station placement, native recipe browsing and the item-recipe execution path (targeted/affinity reforges,
-augments, modifier conversions, atomic lifeforce payment) are implemented; see Status and protocol/21-hideouts.md.
-Remaining Harvest recipes (influences, stack exchanges, divination cards, gem lenses, corrupted maps and quality
-enchants) wait for their prerequisite systems.
+Harvest, what is left: Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting; the
+client questions (the Extractor/Irrigator state sequence after a crop starts, where seeds sit and what clears a hatched seed's plant; the crop label's button sends C→S 0x0275 with the Irrigator's id, which has no handler), and Oshabi's soul tree and boss state sequence captured live (the order of the three colours after
+Sacred, random here, and whether a Root Wall's TriggerableBlockage is sent blocked); AtlasNode 158 `OshabiBoss`'s
+completion (`HarvestLeagueBoss` has no `Bosses_MonsterVarietiesKeys`, so AtlasProgress never completes it); opening
+the Atlas RandomContent nodes (MapDeviceRecipes 74-89, whose RecipeItems hold the placeholder 3920) to reach the
+Overgrown Grove; a 3.29 source for `map_harvest_%_chance_for_faridun_seed` (Mirage areas); Oshabi's Sacred Suffering
+ground and vine teleports; the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and
+enchants.
 
 ### Switching hideout templates
 
@@ -31,9 +35,18 @@ bench.
   [game/maps.md](../docs/game/maps.md).
   Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
   are implemented; see Status. The native Atlas panel/progress and the map stash are not.
-- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards) and the Atlas graph validation;
+- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
   Voidstones; the map stash tab's layout (18 A5); the official drop pools.
 - **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
+
+### Idols: what the side panel leaves out
+
+- **Known:** the `Idols` module works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
+  The client's own Idol inventories (three loadouts of up to 32 cells) have no panel in the 3.29.3 clients.
+- **Start:** the slots unlocked by Atlas objectives (`MapRelicInventoryLayout`, league quest flags `AtlasIdolSlotsUnlocked1` to `6`);
+  the Ruthless versions of two unique Idols;
+  refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
+- **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
 
 ### Hideouts: decorations, editing and the map device
 
@@ -52,9 +65,12 @@ bench.
   The dev `/statue` command creates a stone Monster Statue of any MonsterVarieties row at the player and
   saves it per character/template; C→S 0x0209 replaces a targeted hideout monster the same way. The
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
-- **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
-  data/object-types.json); the Edit mode's placement/removal and appearance messages;
-  maps: the arrival point, a return portal, fragments and device recipes and map mods;
+- **Start:** live-verify custom decoration placement/reclaim/reset (`0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout`,
+  music box (`0x255`), Item Display Case (`0x67`/`0x68`) and Horticrafting `0xf9`, plus default non-station doodads;
+  maps: remaining scarab engines, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
+  Torment spirits' and Grips' skills (#1129);
+  Harbinger follow-up: The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
+  puzzle-grid assembly and Harbinger Scroll upgrades);
   `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
   Simulacrum's native reward/fog presentation, specialised boss behaviour and full clear need verification.
   Personal template selection and login to the selected home are implemented (see Status).

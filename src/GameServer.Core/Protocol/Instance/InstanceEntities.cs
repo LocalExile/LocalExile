@@ -22,6 +22,12 @@ public static class InstanceEntities
     {
         Span<byte> b = path.Length <= 256 ? stackalloc byte[path.Length] : new byte[path.Length];
         for (int i = 0; i < path.Length; i++) b[i] = (byte)path[i];
+        return Murmur2(b);
+    }
+
+    /// <summary>MurmurHash2 (32-bit, seed 0) over bytes (0x140df6e10).</summary>
+    public static uint Murmur2(ReadOnlySpan<byte> b)
+    {
         const uint m = 0x5bd1e995;
         uint h = (uint)b.Length;
         int p = 0;
@@ -41,9 +47,12 @@ public static class InstanceEntities
         return h ^ h >> 15;
     }
 
+    /// <summary>Bit 0 of 0x33/0x3d flags: character has an unused one-off free full passive tree reset (0x14215404c / 0x142154374).</summary>
+    public const byte PassiveFreeResetFlag = 0x01;
+
     /// <summary>
     /// S→C 0x3d (dispatcher case 0x11, class 0x1435e6708, write 0x1421a54b0): the three **Atlas** passive tree presets.
-    /// u16 +0x28, u16 +0x2a, flags (bit0 +0x2c, bit1 +0x2d = no list, bits 2/3/4 → create or update preset 0/1/2 via
+    /// u16 +0x28, u16 +0x2a, flags (bit0 +0x2c free reset, bit1 +0x2d = no list, bits 2/3/4 → create or update preset 0/1/2 via
     /// 0x14215c540), then unless bit1 a vec16 of raw (little-endian) u16 node ids. Each flagged preset gets the list and
     /// the two u16 (0x141ef3040): +0x28 → +0x468, +0x2a → +0x46c, its points (0x141ef3860: "atlas passive skills
     /// allocated but only allowed"). The presets at instance+0xc2f8 (active index +0xc2f0) are read when the area UI is
@@ -57,6 +66,32 @@ public static class InstanceEntities
         return w.ToArray();
     }
 
+    /// <summary>S→C 0x3c (vtable 0x1435e72b0, write 0x1421a52c0, read 0x1421a53e0; dispatcher case 0x10):
+    /// the three Atlas passive tree preset names as narrow UTF-8 strings (u16 BE byte length + bytes, converted to UTF-16 at 0x1421542ec).</summary>
+    public const ushort AtlasTreeNamesId = 0x3c, AtlasTreeRenameId = 0x2a7;
+
+    public static byte[] AtlasTreeNames(string name0, string name1, string name2) =>
+        new LoginWriter().U16(AtlasTreeNamesId).Str(name0).Str(name1).Str(name2).ToArray();
+
+    /// <summary>C→S 0x2a7 (2 + u8 + WStr, writer 0x141fa5e60): rename one Atlas passive tree preset (0..2).</summary>
+    public static int? AtlasTreeRenameLength(ReadOnlySpan<byte> m) =>
+        m.Length >= 3 && LoginReader.TryMeasureWStr(m[3..], out int textLength) == WireMeasure.Ok ? 3 + textLength : null;
+
+    /// <summary>C→S 0x2a7 (2 + u8 + WStr, writer 0x141fa5e60): rename one Atlas passive tree preset (0..2).</summary>
+    public static (byte Preset, string Name) ReadAtlasTreeRename(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < 3 || LoginReader.TryMeasureWStr(m[3..], out _) != WireMeasure.Ok)
+            return (byte.MaxValue, "");
+        var r = new LoginReader(m[3..]);
+        return (m[2], r.WStr());
+    }
+
+    /// <summary>C→S 0x129 (2 bytes, AtlasWindow::Show 0x1407b2ea0) and S→C 0x91 (read 0x1421a77b0, dispatcher case 0x23):
+    /// CompactUInt count followed by count × (WStr, 8 raw bytes). Empty list is [0x00, 0x91, 0x00].</summary>
+    public const ushort AtlasWindowRequestId = 0x129, AtlasWindowReplyId = 0x91;
+
+    public static byte[] AtlasWindowReply() => [0x00, 0x91, 0x00];
+
     /// <summary>
     /// C→S 0x3e (7 bytes): the Atlas tree's allocate click. u8 preset index (0..2), u32 BE PassiveSkillGraphId. The
     /// client's active preset is at Atlas tree +0xc2f0 (sender 0x1403cc9a0).
@@ -67,9 +102,14 @@ public static class InstanceEntities
     public const ushort AtlasAllocateId = 0x03e, AtlasRefundId = 0x03f;
     public const int AtlasAllocateLength = 7, AtlasRefundLength = 8;
 
-    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 flag (0 seen).</summary>
+    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 gold flag (1 when gold-respec mode).</summary>
     public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
         (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
+
+    /// <summary>C→S 0x2a8 (3 bytes): an Atlas tree tab picked; u8 the tab's AtlasTrees row, the preset to make active.
+    /// C→S 0x40 (Refund All for gold) and 0x41 (one-off free Reset All) carry u8 the active preset, analogues of 0x37 and 0x38.</summary>
+    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41, AtlasResetAllId = AtlasTreeWidgetId;
+    public const int AtlasTreeTabLength = 3;
 
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
 
@@ -125,6 +165,14 @@ public static class InstanceEntities
     public static byte[] RemoveBuff(uint objectId, ushort buffInstance) =>
         new LoginWriter().U16(RemoveBuffId).U32(objectId).U32(0).U16(0).U16(buffInstance).ToArray();
 
+    /// <summary>C→S 0x4b (6 bytes, 3.29.3c class 0x1431767e8, write 0x140911210, UI right-click handler 0x1402718c0 → 0x140284470):
+    /// the player right-clicked a removable buff icon (BuffDefinitions.Removable == 1). u32 BE buff instance id (zero-extended
+    /// from the u16 buff instance sent by S→C 0x1c1 and removed by S→C 0x1c2).</summary>
+    public const ushort CancelBuffId = 0x4b;
+    public const int CancelBuffLength = 6;
+
+    public static uint ReadCancelBuff(ReadOnlySpan<byte> m) => BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+
     public const ushort CharacterPassivesId = 0x33, AllocatePassiveId = 0x34, MasteryEffectId = 0x35, PanelToggleId = 0x123;
     public const int MasteryEffectLength = 6;
 
@@ -145,7 +193,7 @@ public static class InstanceEntities
     public static (ushort Node, ushort Effect) ReadMasteryEffect(ReadOnlySpan<byte> m) =>
         ((ushort)(m[2] << 8 | m[3]), (ushort)(m[4] << 8 | m[5]));
 
-    public const ushort RefundPassiveId = 0x36, RefundAllPassivesId = 0x37;
+    public const ushort RefundPassiveId = 0x36, RefundAllPassivesId = 0x37, ResetAllPassivesId = 0x38;
     public const int RefundPassiveLength = 8;
 
     /// <summary>
@@ -175,10 +223,11 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0,
+        bool freeReset = false)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8((byte)(freeReset ? PassiveFreeResetFlag : 0)).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
@@ -243,7 +292,7 @@ public static class InstanceEntities
     /// an unsigned compact key (Stats.dat row) and a signed compact value. The world handler (0x14218ddf0) sets each on the
     /// object's Stats component (0x1424d65c0).
     /// </summary>
-    public const ushort ComponentUpdateId = 0x2bc;
+    public const ushort ComponentUpdateId = 0x2bc, BaseDataUpdateId = 0x2c1;
 
     /// <summary>
     /// S→C 0x2bc (world group, read 0x141fe6dd0): world header, then blob16 = u8 component index (in the object's
@@ -251,6 +300,37 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
+
+    /// <summary>
+    /// S→C 0x2c1 (world group, factory 0x1421cda1c, class 0x1435e81c8, read 0x141fe6dd0; world handler
+    /// 0x14218f011 → 0x141dedf80): live base-data KV update. 10-byte object header (u32 entity id, u32 order key,
+    /// u16 checkpoint) followed by blob16 of the entity base-data variables (<see cref="EntityVariable.EncodeBlob"/>).
+    /// </summary>
+    public static byte[] BaseDataUpdate(uint entityId, byte[] baseDataBlob, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(BaseDataUpdateId).U32(entityId).U32(orderKey).U16(checkpoint).Blob(baseDataBlob).ToArray();
+
+    public static byte[] BaseDataUpdate(uint entityId, IReadOnlyList<EntityVariable> variables, uint orderKey = 0, ushort checkpoint = 0) =>
+        BaseDataUpdate(entityId, EntityVariable.EncodeBlob(variables), orderKey, checkpoint);
+
+    public const ushort AddTaskId = 0x2c2, UpdateTaskId = 0x2c3, RemoveTaskId = 0x2c5;
+
+    /// <summary>
+    /// S→C 0x2c2 (world group, read 0x141fe6e90, world handler 0x14218ddf0): world header, u16 GameObjectTasks HASH16
+    /// (big-endian here, unlike the creation blob's task list), blob16 the task's own data. Entity 0 adds a task to the
+    /// world; an id the client has no factory for is fatal ("Unrecognised task serialised by server").
+    /// </summary>
+    public static byte[] AddTask(uint entityId, ushort task, byte[] data) => TaskMessage(AddTaskId, entityId, task, data);
+
+    /// <summary>S→C 0x2c3: the same layout as 0x2c2; replaces a running task's data (an unknown one logs "Client task not
+    /// found for server task update").</summary>
+    public static byte[] UpdateTask(uint entityId, ushort task, byte[] data) => TaskMessage(UpdateTaskId, entityId, task, data);
+
+    /// <summary>S→C 0x2c5: world header and the u16 task id (the message holds nothing else; byte order as 0x2c2's, M).</summary>
+    public static byte[] RemoveTask(uint entityId, ushort task) =>
+        new LoginWriter().U16(RemoveTaskId).U32(entityId).U32(0).U16(0).U16(task).ToArray();
+
+    static byte[] TaskMessage(ushort id, uint entityId, ushort task, byte[] data) =>
+        new LoginWriter().U16(id).U32(entityId).U32(0).U16(0).U16(task).Blob(data).ToArray();
 
     /// <summary>S→C 0x2bc to an object's StateMachine (reader 0x141e42a90): all its shared states and timers again
     /// (<see cref="StateMachineData.Write"/>); the client runs the events of every state whose value changed.</summary>
@@ -321,6 +401,17 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
+    /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
+    /// other entries append, so changing a source/type first requires a removal.</summary>
+    public static byte[] PlayerMinionsChange(uint playerId, IReadOnlyList<MinionOwnershipChange> changes,
+        bool canDetonateMines = false)
+    {
+        var w = new BlobWriter().U16(canDetonateMines ? (ushort)0x180 : (ushort)0x100)
+            .U16(checked((ushort)changes.Count));
+        foreach (var change in changes) w.U32(change.Id).U16(change.Source).U16(change.Type);
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
     /// <summary>Actor 0x40's cooldown trailer (0x14219e694..0x14219e948), without replacing any skill.
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
     /// The first entry retains progress; later spent uses have a full base budget and recover in sequence.
@@ -350,16 +441,29 @@ public static class InstanceEntities
     /// <summary>
     /// The player's experience (0x2bc to the Player component, reader <c>0x141e85520</c>): u16 flags, bit0 = u32 experience,
     /// which goes through the same setter as creation (<c>0x141e85da0</c>): the level is derived again from it and, when
-    /// it changed, the component's level-change handler (vtable +0x108) runs. The other flags stay off.
+    /// it changed, the component's level-change handler (vtable +0x108) runs and <c>InGameState::OnPlayerLevelUp</c>
+    /// (<c>0x140d5b2f0</c>, vtable <c>0x1431f6458</c> +0x08) automatically plays matching <c>CharacterAudioEvents</c> rows
+    /// (<c>LevelUp&lt;N&gt;</c>: 2, 3, 5, 10, 15, 20, 30, 50, 70, 90). The other flags stay off.
     /// </summary>
     public static byte[] PlayerExperienceUpdate(uint playerId, uint experience) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(1).U32(experience).ToArray());
 
     /// <summary>
-    /// The player's quest flags (0x2bc to the Player component, reader 0x141e85520): u16 flags, bit1 (0x02) = the whole
+    /// The player's quest flags (0x2bc to the Player component, reader <c>0x141e85520</c>): u16 flags, bit1 (0x02) = the whole
     /// quest-flag set again (<see cref="PlayerObject.WriteFlagSet"/>, QuestFlags.dat rows). The World panel shows an area's
-    /// pin only when the area's access flags (WorldAreas +0x54) are all set (0x14077ecf0). Bit3 (0x08) would replace the
+    /// pin only when the area's access flags (WorldAreas +0x54) are all set (<c>0x14077ecf0</c>). Bit3 (0x08) would replace the
     /// second set (+0x1d0), bit9 (0x200) the 9 raw bytes (+0x1e8).
+    /// <para>
+    /// <b>Player voice lines (3.29.3c verified):</b> there is no dedicated S→C <c>CharacterAudioEvents</c> packet (S→C
+    /// <c>0x1c7</c> is <c>NPCTextAudio</c>, S→C <c>0x1c8</c> is <c>NPCConversations</c>). Instead, updating quest flags
+    /// notifies <c>CharacterAudioController</c> (<c>0x14010bd30</c>, vtable <c>0x143027020</c> +0x10), which diffs the
+    /// bitset against the baseline snapshotted on player creation (<c>0x140108c80</c>), scans <c>Data/CharacterAudioEvents.dat</c>
+    /// (<c>0x14012b660</c>, 0x52-byte rows), and plays the <b>first</b> row whose <c>Event</c> (<c>QuestFlags</c> row)
+    /// transitioned 0 → 1 via <c>0x14010cad0</c> (using row +0x18 delay ms and +0x1c cooldown ms; skipped if
+    /// <c>IsPVPOnlyCharacter</c> HASH32 <c>0x24270667</c> is set). Because <c>0x140108c80</c> snapshots the <c>0x2bb</c>
+    /// creation flags, a new area's <c>StartQuestFlags</c> (<c>Visited-*</c>) must arrive in <c>0x2bc</c> after <c>0x2bb</c>
+    /// for <c>Enter*</c> voice lines to play.
+    /// </para>
     /// </summary>
     public static byte[] PlayerQuestFlagsUpdate(uint playerId, IEnumerable<int> questFlags)
     {
@@ -414,6 +518,18 @@ public static class InstanceEntities
         var w = new BlobWriter();
         PlayerObject.WriteInventories(w, equipped);
         return ComponentUpdate(playerId, PlayerObject.InventoriesComponentIndex, w.ToArray());
+    }
+
+    /// <summary>A monster's Inventories component again (0x2bc), or null when it wears nothing. The client picks an
+    /// actor's stance (its animation set, 0x141e9da30) when its equipment changes, never at its creation: a Rogue Exile
+    /// with a bow, created wearing it, stood and attacked in the unarmed stance with the arrow showing in its hand.</summary>
+    public static byte[]? MonsterEquipmentUpdate(uint id, MonsterObject monster)
+    {
+        int index = monster.Components.ToList().IndexOf("Inventories");
+        if (index < 0 || monster.Equipped is not { Count: > 0 } equipped) return null;
+        var w = new BlobWriter();
+        PlayerObject.WriteInventories(w, equipped);
+        return ComponentUpdate(id, (byte)index, w.ToArray());
     }
 
     public static byte[] StatsUpdate(uint entityId, IReadOnlyList<(uint Stat, int Value)> stats)
@@ -550,6 +666,10 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// open for a script to gate (Izaro's arena's ways out until he falls). Server side only.</summary>
     public bool LayoutDisabled { get; init; }
 
+    /// <summary>The ExtraTerrainFeatures row whose sub-area this gate links to its map (HarvestEncounter's Sacred Grove), or
+    /// null. Server side only.</summary>
+    public string? Feature { get; init; }
+
     /// <summary>Whether the exit stands in a town. Only then does the client read the compact int (<see cref="Index"/>)
     /// after the destination: 0x141e5fdc0 reads it when the state is 0 and the byte at +0x14 of the current area's
     /// WorldAreas row (entity +8 → world +0x78 → +0xb0) is set, which is IsTown; the server-side writer 0x141e5fcf0
@@ -565,17 +685,26 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// resolved by 0x1424fe990): a gate's "teleportN-&lt;key&gt;", e.g. BrutusAreaName "The Warden's Quarters".</summary>
     public uint? Label { get; init; }
 
+    /// <summary>Optional trailing StateMachine component (reader 0x141e42430; 00 00 for zero shared states and timers).</summary>
+    public StateMachineData? StateMachine { get; init; }
+
     /// <summary>Components that read data, in the order the client deserializes them for this type (traced live
     /// 2026-10-16: Positioned, BaseEvents (no data), Animated, AreaTransition (live vtable 0x143479f98), Stats,
     /// ObjectMagicProperties, MinimapIcon, InteractionAction, then two components the loop does not reach).</summary>
     public static readonly string[] ComponentOrder =
         ["Positioned", "Animated", "AreaTransition", "Stats", "ObjectMagicProperties", "MinimapIcon", "InteractionAction"];
 
-    /// <summary>Whether a type with these components (BaseEvents reads nothing) can use this blob: exactly
-    /// <see cref="ComponentOrder"/>. Types that add components (e.g. Transitionable) cannot: see
-    /// AreaTransitionCatalog.Resolve in the Gateway.</summary>
-    public static bool CanSerialize(IEnumerable<string> components) =>
-        components.Where(c => c != "BaseEvents").SequenceEqual(ComponentOrder);
+    /// <summary>Whether a type with these components (BaseEvents reads nothing) can use this blob:
+    /// <see cref="ComponentOrder"/> or <see cref="ComponentOrder"/> followed by a trailing <c>StateMachine</c>. Types
+    /// that add other components (e.g. Transitionable) cannot: see AreaTransitionCatalog.Resolve in the Gateway.</summary>
+    public static bool CanSerialize(IEnumerable<string> components)
+    {
+        var list = components.Where(c => c != "BaseEvents").ToArray();
+        return list.SequenceEqual(ComponentOrder)
+            || list.Length == ComponentOrder.Length + 1
+                && list[..ComponentOrder.Length].SequenceEqual(ComponentOrder)
+                && list[^1] == "StateMachine";
+    }
 
     public byte[] Blob()
     {
@@ -587,12 +716,12 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
             switch (c)
             {
                 // the float after x, y is stored at +0x29c: the object's rotation (radians), which turns its model.
-                // flags0 bit2: a fixed height, u32 +0x290 (whole steps of 7.8125; 0x7fffffff = none) and the float
+                // flags0 bit2: a fixed height, i32 +0x290 (−z / 7.8125, 0x7fffffff = none; world z points down) and the float
                 // world z +0x2b4, used instead of the terrain height (0x141e38b40). Tile objects need it: their .tmd
                 // record has its own z.
                 case "Positioned":
                     w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0);
-                    if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+                    if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
                     break;
                 // Animated (0x141e5afd0): bit0 + a u32-counted UTF-16 .ao path (anything else throws "Filename must
                 // end with .ao"): the area transition's model, the white surface highlighted on hover. For a tile object it is the
@@ -614,6 +743,7 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
                 case "InteractionAction": w.U8(0); break;
             }
         }
+        StateMachine?.Write(w);
         w.U8(0);            // tasks
         return w.ToArray();
     }
@@ -643,11 +773,16 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
+    /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
+    public uint EnergyShield { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
+    /// <summary>The Actor animation seed (0x142199562 -> +0x21c); varies unseeded clip selection across identical pack
+    /// monsters (0x141e9f579). Defaults to 0 so unconfigured fixtures keep the legacy blob.</summary>
+    public ushort AnimationSeed { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -666,6 +801,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
     public byte AttachFlags { get; init; }
 
+    /// <summary>Whether the monster blocks walkers on the client (<c>Positioned.blocking</c> in its <c>.ot</c>).
+    /// Non-blocking monsters such as Mirage Archer (<c>Mirage.ot</c>: <c>blocking = false</c>) clear the blocking byte
+    /// and set <c>flags1 0x08</c> (skip walker collision) so they do not trap the player inside a blocking footprint
+    /// where client A* favours 45-degree diagonals.</summary>
+    public bool Blocking { get; init; } = true;
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -674,9 +815,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Components a type may add after the base list that this blob can write. StateMachine (per-type state
     /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x1435a7888 and Timer's
     /// only vtable 0x1435ab790 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
-    /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e218a0), as on an NPC.</summary>
+    /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e218a0), as on an NPC;
+    /// TriggerableBlockage (Oshabi's Root Wall) is the one component registration whatever the object, read by
+    /// 0x141e47880 as <see cref="QuestObject"/> writes it.</summary>
     static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
-        "NPC", "InteractionAction", "Timer"];
+        "NPC", "InteractionAction", "Timer", "TriggerableBlockage"];
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec8df0; the Monster type parses the number after the last '@').</summary>
@@ -699,8 +842,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
             switch (c)
             {
                 // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
-                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
+                // 1 = hostile, red); blocking is the type's own unless overridden as non-blocking (flags1 0x0a).
+                case "Positioned": w.Positioned(GridX, GridY, Rotation, Team, blocking: Blocking ? null : false, blocksNoWalker: !Blocking); break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142208700, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod
@@ -712,7 +855,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     break;
                 case "Buffs": w.U16(0); break;
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
-                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
+                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, EnergyShield); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
                     w.U8((byte)((AnimatedObject is null ? 0 : 1) | (Parent != 0 ? 4 : 0)));
                     if (AnimatedObject is not null) w.WStr32(AnimatedObject);
@@ -721,9 +864,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                             .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
-                // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
+                // path, u16 animation seed (+0x21c), u8 stance (+0x21e), (life >= 1: no conditional bytes), u32, u32,
+                // then slot 20's two flag bytes.
                 case "Actor":
-                    w.WStr32("").U16(0).U8(ActorStance).U32(0).U32(0);
+                    w.WStr32("").U16(AnimationSeed).U8(ActorStance).U32(0).U32(0);
                     if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
                     else w.U8(0).U8(0);
                     break;
@@ -745,6 +889,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
+                // 0x141e47880: u8 blocked (then, only while blocked, a u8 count of sections). A monster is created
+                // unblocked: its own body is what stands in the way.
+                case "TriggerableBlockage": w.U8(0); break;
                 // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
                 // Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }
@@ -790,9 +937,9 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
         if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported pet components: {string.Join(", ", Components!)}");
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                        // object flags, base data entries
-        // Positioned: team 0 (the player's), shown, and flags1 0x08 with 1 (→ +0x1e6 bit 0x40), which the client's object
+        // Positioned: team 0 (the player's), and flags1 0x08 with 1 (→ +0x1e6 bit 0x40), which the client's object
         // collision test (0x141e65ae0) skips: walkers, the player's own included, pass through the pet.
-        w.I32(GridX).I32(GridY).U32(0).U16(0).U8(0).U8(0x0a).U8(0).U8(1).U8(1);
+        w.Positioned(GridX, GridY, blocksNoWalker: true);
         w.Stats([]).U32(0).U32(0).U8(0);                                      // Stats
         w.U16(0);                                                             // Buffs
         Pool(w, 1); Pool(w, 0); Pool(w, 0); w.U8(0);                          // Life: alive
@@ -899,8 +1046,8 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// arrow sends 3, keeping the bone's rotation so the arrow follows aux_projectile_attach.</summary>
     public byte AttachFlags { get; init; }
 
-    /// <summary>Animated flags override: bit0 the .ao path, bit2 the attachment, bit3 the native default animation
-    /// (the rain rig uses 0x09; zero computes 1, or 5 with a parent).</summary>
+    /// <summary>Additional Animated flags: bit0 (.ao path) is always set, bit2 (0x04) is set whenever
+    /// <see cref="Parent"/> is non-zero, and bit3 (0x08) writes the native default animation (the rain rig uses 0x09).</summary>
     public byte AnimatedFlags { get; init; }
 
     /// <summary>Positioned flags0 0x04's two fields: the native skill/action animation row and its time value
@@ -913,22 +1060,57 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// the up-cast instead of the landing.</summary>
     public uint AnimationId { get; init; }
 
+    /// <summary>Object flags 0x02: the create wakes the object itself (CreateInWakeZone), so no 0x1a9 follows it.</summary>
+    public bool Awake { get; init; }
+
     public byte[] Blob()
     {
         var w = new BlobWriter();
-        bool scaled = Scale != 1;
-        w.U8(0).U8(0);                                              // object flags, base data entry count
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
-        if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native animation fields
-        if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
-        w.U8(0).U8(1);
-        w.U8(AnimatedFlags != 0 ? AnimatedFlags : Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated
-        // Bit 3 makes the client read the animation's id, a second word and its speed after the path (the official
-        // rain rig's 12 bytes: id, 0, 1.0); without them the read runs past the blob and crashes the client.
-        if ((AnimatedFlags & 8) != 0) w.U32(AnimationId).U32(0).F32(1);
+        w.U8(Awake ? (byte)0x02 : (byte)0).U8(0);                   // object flags, base data entry count
+        // Positioned: on the terrain; flags0 0x04's pair carries the native animation fields.
+        w.Positioned(GridX, GridY, Rotation, scale: Scale, flags0: (byte)(Flags0 & 0x81),
+            fixedHeight: (Flags0 & 4) != 0 ? ((int)AnimationWord, AnimationValue) : null);
+        // Animated (0x141e5afd0) reads bit0 (.ao path), then bit2 (0x04 bone attachment), then bit3 (0x08 animation id/0/speed).
+        byte animatedFlags = (byte)((AnimatedFlags & ~0x04) | 0x01 | (Parent != 0 ? 0x04 : 0));
+        w.U8(animatedFlags).WStr32(AnimatedObject);
         if (Parent != 0)
             w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
                 .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
+        // Bit 3 makes the client read the animation's id, a second word and its speed after the path (the official
+        // rain rig's 12 bytes: id, 0, 1.0); without them the read runs past the blob and crashes the client.
+        if ((animatedFlags & 8) != 0) w.U32(AnimationId).U32(0).F32(1);
+        w.U8(0);                                                    // tasks
+        return w.ToArray();
+    }
+}
+
+/// <summary>
+/// A ground effect a server object makes (a skill's burning, caustic or desecrated ground):
+/// <c>Metadata/Effects/Spells/ground_effects/VisibleServerGroundEffect</c> (Positioned, BaseEvents, GroundEffect, Buffs,
+/// Animated; its .ot names GroundEffect object_type "Server"). The GroundEffect component (read 0x141e1eb60, written by
+/// the client's own 0x141e1e9e0) is a GroundEffects row (u16; 0xdb-byte rows), a state byte (+0x38) and the seconds it
+/// has left as an f32 (+0x44: infinity, the component's default 0x7f800000, for none; at zero it plays its row's
+/// EndEffect and goes). BaseEvents reads nothing, Buffs a u16 count. The art is the row's AOFile on Animated, at the
+/// ground's size through Positioned's scale (as <see cref="EffectObject.Scale"/>).
+/// </summary>
+public sealed record GroundEffectObject(int GridX, int GridY, ushort GroundEffectRow, string AnimatedObject, float Seconds)
+{
+    public const string TypePath = "Metadata/Effects/Spells/ground_effects/VisibleServerGroundEffect";
+
+    /// <summary>The art's uniform scale (Positioned flags0 0x20); 1 sends none.</summary>
+    public float Scale { get; init; } = 1;
+
+    /// <summary>The side that made it (Positioned team: 0 the player's, 1 the monsters').</summary>
+    public ushort Team { get; init; }
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                              // object flags, base data entry count
+        w.Positioned(GridX, GridY, 0, Team, scale: Scale);          // Positioned (BaseEvents reads nothing)
+        w.U16(GroundEffectRow).U8(0).F32(Seconds);                  // GroundEffect: row, state, seconds left
+        w.U16(0);                                                   // Buffs
+        w.U8(1).WStr32(AnimatedObject);                             // Animated: the row's art
         w.U8(0);                                                    // tasks
         return w.ToArray();
     }
@@ -991,8 +1173,7 @@ public sealed record RitualPillarObject(int GridX, int GridY, float Rotation, st
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                              // object flags, base data entry count
-        // Positioned: the room's static blocking object, team 0 and shown (as the hideout doodads).
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);
+        w.Positioned(GridX, GridY, Rotation);                                       // Positioned
         w.U8(1).WStr32(Model);                                                      // Animated: explicit art
         States.Write(w);                                                            // StateMachine: active_pillars
         w.Stats([]).U32(0).U32(0).U8(0);                                            // Stats: the .ot's own stat defaults
@@ -1016,10 +1197,7 @@ public sealed record BlockerObject(int GridX, int GridY, float Rotation, float S
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                              // object flags, base data entry count
-        bool scaled = Scale != 1;
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(scaled ? 0x20 : 0)).U8(0x02);
-        if (scaled) w.F32(Scale).F32(1).F32(1);                                     // uniform scale, x and y stretch
-        w.U8(0).U8(1);                                                              // shown
+        w.Positioned(GridX, GridY, Rotation, scale: Scale);                         // Positioned: the room's scale
         w.U8(0);                                                                    // Animated: the type's own
         w.U8(1).U8(0);                                                              // TriggerableBlockage: blocked
         w.U8(1);                                                                    // Transitionable: state 1
@@ -1097,6 +1275,9 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init => field = Owned.Lists(value); } = [];
 }
 
+/// <summary>One native Actor ownership update; Source zero removes the object.</summary>
+public readonly record struct MinionOwnershipChange(uint Id, ushort Source, ushort Type);
+
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
     float TotalBaseSeconds, float RecoveryRate, int SpentUses = 1);
@@ -1109,6 +1290,37 @@ public sealed class BlobWriter
 {
     private readonly List<byte> _b = [];
     public byte[] ToArray() => [.. _b];
+    /// <summary>
+    /// The Positioned component (reader 0x141e323f0), written in the reader's order: x, y, rotation, u16 team (+0x1e0), u8
+    /// flags0, u8 flags1, then flags0 0x20's uniform scale and x / y stretch, flags0 0x04's i32 and f32, flags1 0x02's
+    /// pair, flags1 0x08's u8.
+    /// <para>Blocking is the object type's own unless <paramref name="blocking"/> overrides it. The client's Positioned
+    /// constructor (0x141e31ca0) copies the type's <c>blocking</c> (.ot Positioned, type +0x16; unset is false, the type
+    /// constructor 0x141e281d0) into +0x1e5 bit 0x08 and clears +0x1e7. flags1 0x02's pair then sets +0x1e7 bit 0 and,
+    /// in its second byte, that blocking bit. So the pair is written only to override.</para>
+    /// <para><paramref name="dynamic"/>: flags1 0x20, +0x1e7 bit 1 (no static position: the walk grid gets the
+    /// object's Hull only while its TriggerableBlockage is blocked). <paramref name="blocksNoWalker"/>: flags1 0x08 with 1,
+    /// +0x1e6 bit 0x40 (the body test 0x141e65ae0 skips the object). <paramref name="flags0"/>: flags0's other bits (0x01,
+    /// 0x80); 0x04 and 0x20 follow <paramref name="fixedHeight"/> and <paramref name="scale"/>.</para>
+    /// </summary>
+    public BlobWriter Positioned(int x, int y, float rotation = 0, ushort team = 0, float scale = 1, (int I, float F)? fixedHeight = null,
+        bool? blocking = null, bool dynamic = false, bool blocksNoWalker = false, byte flags0 = 0)
+    {
+        bool scaled = scale != 1;
+        byte f0 = (byte)((flags0 & ~0x24) | (scaled ? 0x20 : 0) | (fixedHeight is null ? 0 : 0x04));
+        byte f1 = (byte)((blocking is null ? 0 : 0x02) | (blocksNoWalker ? 0x08 : 0) | (dynamic ? 0x20 : 0));
+        I32(x).I32(y).F32(rotation).U16(team).U8(f0).U8(f1);
+        if (scaled) F32(scale).F32(1).F32(1);
+        if (fixedHeight is { } h) I32(h.I).F32(h.F);
+        if (blocking is bool b) U8(0).U8((byte)(b ? 1 : 0));
+        if (blocksNoWalker) U8(1);
+        return this;
+    }
+
+    /// <summary>Positioned flags0 0x04's pair for a fixed height <paramref name="z"/> (world z, down): whole steps of
+    /// -z / 7.8125 and the z itself, as a tile record's height (<see cref="Positioned"/>).</summary>
+    public static (int I, float F) FixedHeight(float z) => ((int)MathF.Round(-z / 7.8125f), z);
+
     public BlobWriter U8(byte v) { _b.Add(v); return this; }
     public BlobWriter U16(ushort v) { _b.Add((byte)v); _b.Add((byte)(v >> 8)); return this; }
     public BlobWriter U32(uint v) { U16((ushort)v); return U16((ushort)(v >> 16)); }
@@ -1139,11 +1351,12 @@ public sealed class BlobWriter
 /// 0x1421993f0). Pathfinding and 0x1435aa590 read nothing. Comps 10/11 (0x1434730b8, 0x143476978) are still unverified.
 /// </summary>
 public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int GridY,
-    uint Life, uint Mana, uint EnergyShield = 0, uint Experience = 0, bool Shown = true, string? AnimatedObject = null,
+    uint Life, uint Mana, uint EnergyShield = 0, uint Experience = 0, string? AnimatedObject = null,
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
-    uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
+    uint ManaReserved = 0, uint LifeReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0,
+    IReadOnlyCollection<int>? LeagueQuestFlags = null,
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
     // The connection keeps its player's record: its lists are the record's own (Owned).
     public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
@@ -1207,11 +1420,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         var w = new BlobWriter();
         w.U8(0);            // object flags (0x141ec4a40: bit0 → +0x8c|0x80, bit1 → +0x8d|2)
         w.U8(0);            // base data entry count (0x141dedf80)
-        // Positioned (0x141e323f0): x, y, u32 +0x29c, u16 +0x1e0, two flag bytes. The type's +0x21 prefix (Sector) is off.
-        // flags1 0x02 adds two bytes: hidden (→ +0x1e7 bit0) and shown (→ +0x1e5 bit3); both changes call the object's
-        // vtable +0xb0 (visibility). Without "shown" the player entity exists but its model is not drawn.
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(Shown ? (byte)0x02 : (byte)0);
-        if (Shown) w.U8(0).U8(1);
+        // Positioned (BlobWriter.Positioned): the type's +0x21 prefix (Sector) is off; blocking is the character type's
+        // own (true for every class's .ot).
+        w.Positioned(GridX, GridY, Rotation);
         // comp1 = Stats (0x1421c98b0): compact-int count of (compact-int key, value) pairs, then u32 +0x28, u32 +0x2c, u8
         // +0x30. Keys are the client's stat ids (Stats.dat row + 1).
         w.Stats(Stats).U32(0).U32(0).U8(0);

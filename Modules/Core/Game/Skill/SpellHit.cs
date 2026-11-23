@@ -10,8 +10,7 @@ public static class SpellHit
     {
         // Added damage does not create a hit for a beam, aura or another spell without extracted hit damage.
         if (plan.Kind != SkillHitKind.Spell || !plan.CanHit) return DamagePacket.Empty;
-        int Get(string name) => catalog.Key(name) is uint key
-            ? own.TryGetValue(key, out int value) ? value : player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => own.TryGetValue(key, out int value) ? value : player.GetValueOrDefault(key);
         var hit = SpellDamage.Packet(plan.SpellBaseWith(Get), Get, addedEffectiveness, conversion);
         return new SkillDamageContext(plan.Kind, player).Hit(hit);
     }

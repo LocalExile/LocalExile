@@ -15,6 +15,7 @@ public static class InstanceMonsterStatue
     public const ushort TaskHash = 42230;
     public const byte StoneVariation = 5;
     public const ushort CreateId = 0x0209;
+    public const int CreateLength = 10;
     public const uint CreatorAction = 911988280;
 
     public static byte[] Blob(int x, int y, ushort monsterHash16, ushort scale = 100, byte variation = StoneVariation,
@@ -22,7 +23,7 @@ public static class InstanceMonsterStatue
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                          // object flags, base data count
-        w.I32(x).I32(y).F32(rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);       // Positioned
+        w.Positioned(x, y, rotation);                                           // Positioned
         w.U8(0);                                                                // Animated: none, the task supplies the model
         new HideoutDoodad(MtxHash, variation, 0).Write(w);                      // HideoutDoodad: the statue task's variation
         w.U8(0).U8(0);                                                          // Inventories: none, no equipped items

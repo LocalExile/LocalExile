@@ -43,7 +43,7 @@ public sealed partial class AccountStash
         for (int parent = 0; parent < _tabs.Count; parent++)
         {
             var tab = _tabs[parent].Saved;
-            if (tab.Type != StashRules.Unique || tab.UniqueCategory != 0) continue;
+            if (tab.Type != StashRules.Unique || tab.UniqueCategory != 0 || tab.Hidden) continue;
             var categories = UniqueChildren(parent).Select(i => _tabs[i].Saved.UniqueCategory).ToHashSet();
             foreach (var (key, name) in _rules.Uniques.Categories)
             {

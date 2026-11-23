@@ -27,22 +27,27 @@ public static class FlaskCharges
     /// 1 / 3.5 / 6 / 11 as poewiki gives them. Acts 6 to 10 and maps give fewer (poewiki), by an amount the tables do not
     /// have: not applied.</summary>
     public static double KillCharges(MonsterRarity rarity, ModCatalog mods) =>
-        KillBase * (100 + (rarity == MonsterRarity.Normal ? 0 : RarityIncrease(rarity, mods))) / 100.0;
+        KillCharges(rarity, mods, 0);
+
+    public static double KillCharges(MonsterRarity rarity, ModCatalog mods, int grantedPct) =>
+        KillBase * (100 + (rarity == MonsterRarity.Normal ? 0 : RarityIncrease(rarity, mods))) / 100.0
+            * Math.Max(0, 100.0 + grantedPct) / 100.0;
 
     static int RarityIncrease(MonsterRarity rarity, ModCatalog mods) =>
-        mods.ById($"Monster{rarity}6")?.Stats.FirstOrDefault(s => s.Id == "monster_slain_flask_charges_granted_+%")?.Min ?? 0;
+        mods.ById($"Monster{rarity}6")?.Stats.FirstOrDefault(s => s.Id == Stat.MonsterSlainFlaskChargesGrantedPlusPct)?.Min ?? 0;
 
     /// <summary>The native raw increased-charge source, including the current ordinary belt/passive modifiers, resolved
     /// into the virtual value the refill calculation reads. Call once on raw character sources, before final developer
     /// replacements: an explicitly set virtual zero must remain zero.</summary>
-    public static List<(string Stat, int Value)> GainStats(Func<string, int> character) =>
-        [("flask_charges_gained_+%", (int)Math.Clamp((long)character("flask_charges_gained_+%")
-            + character("charges_gained_+%"), int.MinValue, int.MaxValue))];
+    public static List<(uint Stat, int Value)> GainStats(Func<uint, int> character) =>
+        [(Stat.FlaskChargesGainedPlusPct, (int)Math.Clamp((long)character(Stat.FlaskChargesGainedPlusPct)
+            + character(Stat.ChargesGainedPlusPct), int.MinValue, int.MaxValue))];
 
     /// <summary>How much more a flask gains from any source: (1 + the character's flask_charges_gained_+%) × (1 + the
     /// flask's local_charges_added_+%, "increased Charge Recovery"); poewiki: these "stack multiplicatively".</summary>
-    public static double GainMultiplier(IReadOnlyDictionary<string, int> local, Func<string, int> character) =>
-        Math.Max(0, 100.0 + character("flask_charges_gained_+%")) / 100.0 * Math.Max(0, 100.0 + local.GetValueOrDefault("local_charges_added_+%")) / 100.0;
+    public static double GainMultiplier(IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int areaIncrease = 0) =>
+        Math.Max(0, 100.0 + character(Stat.FlaskChargesGainedPlusPct) + areaIncrease) / 100.0
+        * Math.Max(0, 100.0 + local.GetValueOrDefault(Stat.LocalChargesAddedPlusPct)) / 100.0;
 
     /// <summary>The cooldown shared by every "gain a flask charge on critical strike" effect: 0.1 s, which the game's
     /// 0.033 s server frames make 0.132 s (poewiki); not affected by cooldown recovery.</summary>
@@ -54,9 +59,9 @@ public static class FlaskCharges
     /// recharge_flasks_on_crit_while_affected_by_precision while Precision runs). Not these: gain_flask_charge_when_crit_%
     /// / _amount are for taking a critical strike (monsters do not deal critical strikes here), and
     /// gain_flask_charge_on_crit_chance_%_while_at_maximum_frenzy_charges needs frenzy charges, which do not exist here.</summary>
-    public static (int Chance, int Sure) CritSources(Func<string, int> character, bool precision) =>
-        (character("gain_flask_chance_on_crit_%"),
-         character("recharge_flasks_on_crit") + (precision ? character("recharge_flasks_on_crit_while_affected_by_precision") : 0));
+    public static (int Chance, int Sure) CritSources(Func<uint, int> character, bool precision) =>
+        (character(Stat.GainFlaskChanceOnCritPct),
+         character(Stat.RechargeFlasksOnCrit) + (precision ? character(Stat.RechargeFlasksOnCritWhileAffectedByPrecision) : 0));
 
     /// <summary>What a critical strike the player deals gives the flasks (<paramref name="flasks"/>: each flask's id, its
     /// own "#% chance to gain a Flask Charge when you deal a Critical Strike" and whether it is full): one charge to each
@@ -81,11 +86,11 @@ public static class FlaskCharges
     /// <summary>What a flask gains every 3 seconds from the character's stats: flask_charges_recovered_per_3_seconds (every
     /// flask), utility_flask_charges_recovered_per_3_seconds, life_flask_charges_recovered_per_3_seconds (and
     /// life_flask_charges_recovered_per_3_seconds_on_low_life on low life), mana_flasks_gain_X_charges_every_3_seconds.</summary>
-    public static int PerThreeSeconds(Func<string, int> character, bool life, bool mana, bool utility, bool lowLife) =>
-        character("flask_charges_recovered_per_3_seconds")
-        + (utility ? character("utility_flask_charges_recovered_per_3_seconds") : 0)
-        + (life ? character("life_flask_charges_recovered_per_3_seconds") + (lowLife ? character("life_flask_charges_recovered_per_3_seconds_on_low_life") : 0) : 0)
-        + (mana ? character("mana_flasks_gain_X_charges_every_3_seconds") : 0);
+    public static int PerThreeSeconds(Func<uint, int> character, bool life, bool mana, bool utility, bool lowLife) =>
+        character(Stat.FlaskChargesRecoveredPer3Seconds)
+        + (utility ? character(Stat.UtilityFlaskChargesRecoveredPer3Seconds) : 0)
+        + (life ? character(Stat.LifeFlaskChargesRecoveredPer3Seconds) + (lowLife ? character(Stat.LifeFlaskChargesRecoveredPer3SecondsOnLowLife) : 0) : 0)
+        + (mana ? character(Stat.ManaFlasksGainXChargesEvery3Seconds) : 0);
 
     /// <summary>The partial charges of one connection's flasks (poewiki: "tracked with at least two decimals") and when a
     /// crit last gave a charge.</summary>
@@ -137,14 +142,14 @@ public static class FlaskCharges
     /// <summary>The flask's charges per use and maximum with its local mods (<paramref name="local"/>, by Stats.dat Id)
     /// and the character's stats (<paramref name="character"/>; null: none, e.g. for refills, which only need the
     /// maximum).</summary>
-    public static Flasks.Flask Of(Flasks.Flask type, IReadOnlyDictionary<string, int> local, Func<string, int>? character = null)
+    public static Flasks.Flask Of(Flasks.Flask type, IReadOnlyDictionary<uint, int> local, Func<uint, int>? character = null)
     {
-        int perUse = (int)Math.Floor(type.ChargesPerUse * (100 + local.GetValueOrDefault("local_charges_used_+%")) / 100.0);
-        perUse = (int)Math.Floor(perUse * (100 + (character?.Invoke("flask_charges_used_+%") ?? 0)) / 100.0);
+        int perUse = (int)Math.Floor(type.ChargesPerUse * (100 + local.GetValueOrDefault(Stat.LocalChargesUsedPlusPct)) / 100.0);
+        perUse = (int)Math.Floor(perUse * (100 + (character?.Invoke(Stat.FlaskChargesUsedPlusPct) ?? 0)) / 100.0);
         return type with
         {
             ChargesPerUse = Math.Max(0, perUse),
-            MaxCharges = Math.Max(1, type.MaxCharges + local.GetValueOrDefault("local_extra_max_charges")),
+            MaxCharges = Math.Max(1, type.MaxCharges + local.GetValueOrDefault(Stat.LocalExtraMaxCharges)),
         };
     }
 }
