@@ -44,7 +44,7 @@ public static partial class Game
             StormCallImpactArtSeconds, StrikesTogether: true);
     }
 
-    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore);
+    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity);
 
     public static async Task PlaceStormCall(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at,
@@ -69,9 +69,11 @@ public static partial class Game
         StormCallMarkers.Marker marker;
         if (!TokenCurrent() || !sacrifice.Current) return;
         double now = AreaTime(player);
+        var intensity = CastingIntensity(player, skillId);
         marker = new(player.TakeObjectId(), skillId, at, now + duration, repeat, player.ProjectileEpoch,
-            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore));
+            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore, intensity));
         player.StormCall.Place(marker);
+        intensity?.Complete();
         Console.WriteLine($"[gateway] {player.Connection.Remote} storm call marker 0x{marker.Object:x} at ({at.X}, {at.Y}), repeat {repeat}, "
             + $"strikes in {duration:0.00}s, radius {radius}; skin variation {variation}: art {loop ?? "none"}");
         if (loop is not null)
@@ -128,6 +130,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} storm call marker 0x{marker.Object:x} strikes nothing (gem gone or player dead)");
             return;
         }
+        using var intensity = use.Intensity is { } cast ? new IntensityScope(cast) : null;
         int radius = SkillRadius(player, SupportedSkill(player, marker.Skill).Stats, spell: true, gem.Effect);
         var (_, impact, _) = StormCallArt(player, gem.Gem);
         if (impact is not null)
