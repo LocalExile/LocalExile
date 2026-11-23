@@ -52,8 +52,7 @@ public static class CampaignDoors
         Supported = map;
     }
 
-    static bool Enabled() =>
-        !SystemSettings.Default.Values.TryGetValue("campaign_doors_enabled", out double v) || !double.IsFinite(v) || v > 0;
+    static bool Enabled() => SystemSettings.Default.CampaignDoorsEnabled;
 
     static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
         .Prepend(player)

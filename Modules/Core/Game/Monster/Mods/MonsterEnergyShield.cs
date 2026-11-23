@@ -32,20 +32,11 @@ public static partial class Game
     static bool HasAreaMonsterEs(GameArea area) =>
         AreaMonsterEsCounts.TryGetValue(area, out var c) && c.Count > 0;
 
-    static bool MonsterEsEnabled =>
-        (SystemSettings.Default.Values.TryGetValue("monster_es_enabled", out double v) ? v : 1.0) != 0;
-
-    static bool MonsterSpeciesModsEnabled =>
-        (SystemSettings.Default.Values.TryGetValue("monster_species_mods_enabled", out double v) ? v : 1.0) != 0;
-
-    static bool MonsterArmourEnabled =>
-        (SystemSettings.Default.Values.TryGetValue("monster_armour_enabled", out double v) ? v : 1.0) != 0;
-
-    static int MonsterBaseCritChancePermyriad =>
-        Math.Clamp((int)Math.Round(SystemSettings.Default.Values.TryGetValue("monster_base_crit_chance_permyriad", out double v) ? v : 500.0), 0, 10_000);
-
-    static double MonsterAilmentThresholdScaling =>
-        SystemSettings.Default.Values.TryGetValue("monster_ailment_threshold_scaling", out double v) ? v : 1.0;
+    static bool MonsterEsEnabled => SystemSettings.Default.MonsterEsEnabled;
+    static bool MonsterSpeciesModsEnabled => SystemSettings.Default.MonsterSpeciesModsEnabled;
+    static bool MonsterArmourEnabled => SystemSettings.Default.MonsterArmourEnabled;
+    static int MonsterBaseCritChancePermyriad => SystemSettings.Default.MonsterBaseCritChancePermyriad;
+    static double MonsterAilmentThresholdScaling => SystemSettings.Default.MonsterAilmentThresholdScaling;
 
     /// <summary>Computes a hostile monster's maximum Energy Shield from its variety's base ES and its current
     /// <see cref="MonsterModEffects"/>. Returns 0 when <c>monster_es_enabled</c> is 0.</summary>

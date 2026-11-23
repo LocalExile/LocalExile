@@ -972,14 +972,10 @@ public static class AreaPopulation
         return best;
     }
 
-    static int PackSettingPct(string key, int fallback) =>
-        SystemSettings.Default.Values.TryGetValue(key, out double v) && double.IsFinite(v)
-            ? Math.Clamp((int)Math.Round(v), 0, 100) : fallback;
-
     static MonsterRarity RollRarity(int roll)
     {
-        int rare = PackSettingPct("campaign_pack_rare_chance_pct", RareChance);
-        int magic = PackSettingPct("campaign_pack_magic_chance_pct", MagicChance);
+        int rare = (int)Math.Round(SystemSettings.Default.CampaignPackRareChancePct, MidpointRounding.AwayFromZero);
+        int magic = (int)Math.Round(SystemSettings.Default.CampaignPackMagicChancePct, MidpointRounding.AwayFromZero);
         return roll < rare ? MonsterRarity.Rare : roll < rare + magic ? MonsterRarity.Magic : MonsterRarity.Normal;
     }
 

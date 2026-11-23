@@ -211,8 +211,7 @@ public static class CampaignChests
     }
 
     static double DensityMultiplier() =>
-        SystemSettings.Default.Values.TryGetValue("campaign_chest_density_multiplier", out double v) && double.IsFinite(v)
-            ? Math.Clamp(v, 0, 10) : 1.0;
+        Math.Clamp(SystemSettings.Default.CampaignChestDensityMultiplier, 0, 10);
 
     static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
         .Prepend(player)

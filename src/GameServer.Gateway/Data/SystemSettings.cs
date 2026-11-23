@@ -118,7 +118,7 @@ public sealed class SystemSettings
     public bool MonsterEsEnabled => GetIntOrDefault("monster_es_enabled", 1) != 0;
     public bool MonsterArmourEnabled => GetIntOrDefault("monster_armour_enabled", 1) != 0;
     public int MonsterBaseCritChancePermyriad => Math.Clamp(GetIntOrDefault("monster_base_crit_chance_permyriad", 500), 0, 10_000);
-    public bool MonsterAilmentThresholdScaling => GetIntOrDefault("monster_ailment_threshold_scaling", 1) != 0;
+    public double MonsterAilmentThresholdScaling => Math.Clamp(GetOrDefault("monster_ailment_threshold_scaling", 1.0), 0, 100);
     public double CampaignChestDensityMultiplier => Math.Clamp(GetOrDefault("campaign_chest_density_multiplier", 1.0), 0, 100);
     public bool CampaignDoorsEnabled => GetIntOrDefault("campaign_doors_enabled", 1) != 0;
     public double CampaignPackMagicChancePct => Math.Clamp(GetOrDefault("campaign_pack_magic_chance_pct", 12.0), 0, 100);
@@ -249,7 +249,8 @@ public sealed class SystemSettings
         }
         else if (key.Equals("drop_socket_link_scale", StringComparison.OrdinalIgnoreCase)
             || key.Equals("drop_unique_chance_multiplier", StringComparison.OrdinalIgnoreCase)
-            || key.Equals("campaign_chest_density_multiplier", StringComparison.OrdinalIgnoreCase))
+            || key.Equals("campaign_chest_density_multiplier", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("monster_ailment_threshold_scaling", StringComparison.OrdinalIgnoreCase))
         {
             if (!double.IsFinite(value) || value < 0 || value > 100)
                 error = $"{key} is a number 0..100";
@@ -259,7 +260,6 @@ public sealed class SystemSettings
             || key.Equals("monster_species_mods_enabled", StringComparison.OrdinalIgnoreCase)
             || key.Equals("monster_es_enabled", StringComparison.OrdinalIgnoreCase)
             || key.Equals("monster_armour_enabled", StringComparison.OrdinalIgnoreCase)
-            || key.Equals("monster_ailment_threshold_scaling", StringComparison.OrdinalIgnoreCase)
             || key.Equals("campaign_doors_enabled", StringComparison.OrdinalIgnoreCase))
         {
             if (value is not (0 or 1))
