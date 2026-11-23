@@ -1279,6 +1279,11 @@ public static partial class Game
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true && !IsTotemSkill(player, skillId))
                 {
                     channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
+                    if (paidMomentum is { } channelMomentum)
+                    {
+                        GainMomentumOnUse(player, skillId, channelMomentum, action, channelGeneration, AreaTime(player));
+                        paidMomentum = null;
+                    }
                     bool walkChanges = channelWalk is not null || player.ChannelMovement.Skill != 0;
                     player.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
                     if (walkChanges) player.ApplyMovementSpeed();
