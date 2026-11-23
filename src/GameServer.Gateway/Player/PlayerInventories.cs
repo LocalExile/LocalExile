@@ -73,8 +73,22 @@ public sealed partial class PlayerInventories
 
     /// <summary>Writes the character's save (every inventory, with item ids and cells, and the start weapon), in a
     /// transaction of its own or the one it runs in (<see cref="Saves"/>).</summary>
+    long _changes;
+    long _mutations;
+    (byte Row, InventoryItem Item)[]? _equipmentSnapshot;
+    long _equipmentSnapshotMutation = -1;
+
+    /// <summary>How many saved changes the items had (each Persist): a reader that saw the count sees whether they changed.
+    /// Unsaved gem experience is not counted.</summary>
+    public long Changes => Interlocked.Read(ref _changes);
+
+    /// <summary>Monotonic count of all inventory mutations (saved and unsaved).</summary>
+    public long Mutations => Interlocked.Read(ref _mutations);
+
     void Persist()
     {
+        Interlocked.Increment(ref _changes);
+        Interlocked.Increment(ref _mutations);
         if (_owner is not { } owner) return;
         Saves.Atomically(() =>
         {
@@ -405,10 +419,11 @@ public sealed partial class PlayerInventories
     // Immutable item records from ONE inventory read, including attribute gear and all active socket hosts.
     public IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
     {
-        // Asked for many times in one stat-sources lookup: one array of the right size, no growing list (profiled
-        // 2026-11-17: 12% of a lookup).
+        // Asked for many times in one stat-sources lookup: cache the immutable array while no inventory mutation occurs.
         lock (_lock)
         {
+            long version = Interlocked.Read(ref _mutations);
+            if (_equipmentSnapshot is not null && _equipmentSnapshotMutation == version) return _equipmentSnapshot;
             int count = 0;
             foreach (byte row in ItemModStats.EquipmentRows)
                 if (_items.TryGetValue(row, out var items)) count += items.Count;
@@ -417,6 +432,8 @@ public sealed partial class PlayerInventories
             foreach (byte row in ItemModStats.EquipmentRows)
                 if (_items.TryGetValue(row, out var items))
                     foreach (var item in items) snapshot[at++] = (row, item);
+            _equipmentSnapshot = snapshot;
+            _equipmentSnapshotMutation = version;
             return snapshot;
         }
     }
@@ -464,6 +481,7 @@ public sealed partial class PlayerInventories
                         }
                     if (gems.Count == 0) continue;
                     _unsaved = true;
+                    Interlocked.Increment(ref _mutations);
                     items[at] = items[at] with { Item = items[at].Item with { Sockets = sockets } };
                     changed.Add((row, items[at], gems));
                 }
@@ -547,6 +565,23 @@ public sealed partial class PlayerInventories
             }
             return null;
         }
+    }
+
+    static readonly byte[] AutoEquipRows = [BodyArmour, Weapon1, Offhand1, Helmet, 5, 6, 7, Gloves, 9, 10];
+
+    /// <summary>First empty compatible active equipment or flask slot for an identified picked-up item, or null.</summary>
+    public (byte Row, byte X, byte Y)? FindAutoEquipSlot(Item item, Func<Item, Shape?> shapeOf)
+    {
+        if (!item.Identified || shapeOf(item) is not { } shape) return null;
+        lock (_lock)
+        {
+            foreach (byte row in AutoEquipRows)
+                if (Accepts(row, shape.Class) && ItemsIn(row).Count == 0 && HandConflict(row, shape.Class, shapeOf) is null)
+                    return (row, 0, 0);
+            if (Accepts(Flask, shape.Class) && FreeCell(Flask, shape.Width, shape.Height, shapeOf) is { } flaskCell)
+                return (Flask, flaskCell.X, flaskCell.Y);
+        }
+        return null;
     }
 
     /// <summary>Inventories.dat column 7 by row: the slot the player's model shows an equipped item in (17 = none).</summary>
@@ -665,6 +700,7 @@ public sealed partial class PlayerInventories
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) return null;
             _unsaved = true;
+            Interlocked.Increment(ref _mutations);
             return items[at] = items[at] with { Item = change(items[at].Item) };
         }
     }
@@ -930,8 +966,14 @@ public sealed partial class PlayerInventories
     /// <summary>The next revision number of an inventory's contents (sent with each S→C 0xbf).</summary>
     public uint NextRevision(byte row)
     {
-        lock (_lock) return _revisions[row] = _revisions.GetValueOrDefault(row) + 1;
+        uint revision;
+        lock (_lock) revision = _revisions[row] = _revisions.GetValueOrDefault(row) + 1;
+        Changed?.Invoke();
+        return revision;
     }
+
+    /// <summary>An inventory's contents changed (a new revision was taken for the client).</summary>
+    public Action? Changed;
 
     private static readonly ConcurrentDictionary<string, int> ClassRows = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1168,7 +1210,8 @@ public sealed partial class PlayerInventories
     /// <summary>
     /// The class's opening kit from Characters.dat: its start weapon waits on the Strand's ground, while the
     /// skill and support gems are saved as pending tutorial rewards (the biting zombie and large chest).
-    /// Two Small Life Flasks (keys 1/2) and one Small Mana Flask (key 5) are available immediately.
+    /// Two Small Life Flasks (keys 1/2), one Small Mana Flask (key 5) and a stack of three Scrolls of Wisdom are
+    /// available immediately.
     /// Existing saves are loaded unchanged. Game_START_ITEMS=0 starts empty.
     /// </summary>
     static PlayerInventories StartKit(ItemCatalog catalog, string folder, int characterRow = 1)
@@ -1204,6 +1247,9 @@ public sealed partial class PlayerInventories
         Put(Flask, 0, 0, catalog.Find("Metadata/Items/Flasks/FlaskLife1"));
         Put(Flask, 1, 0, catalog.Find("Metadata/Items/Flasks/FlaskLife1"));
         Put(Flask, 4, 0, catalog.Find("Metadata/Items/Flasks/FlaskMana1"));
+        // Three Scrolls of Wisdom, one stack in the main inventory's first cell, to identify the first drops.
+        if (catalog.Find("Metadata/Items/Currency/CurrencyIdentification") is { Supported: true } wisdom)
+            inv.Add(MainInventory, 0, 0, ItemCatalog.Create(wisdom) with { StackSize = 3 });
         return inv;
     }
 }

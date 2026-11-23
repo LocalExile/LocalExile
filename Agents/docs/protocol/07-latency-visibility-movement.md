@@ -292,7 +292,7 @@ checks see the step. Later steps keep their original due times; no lockstep fram
 **Click timing.** The client applies a click right after its frame's tick and sends the 0x25 in the same frame: on one
 QPC clock (Frida in the client, the Gateway's `Game_MOVE_TRACE=1` log), the 0x25 reaches the Gateway's socket 0.24 ms
 (sd 0.05) after the client's sender ran, and the tick was 0.74 ms before that read (526 clicks). So the server applies a
-click at its read time (`ClientInbox.Batch.ReadAt` → `ClientState.ClockAt`), not when the handler runs. The client sends
+click at its read time (`ClientInbox.Batch.ReadAt` → `Player.ClockAt`), not when the handler runs. The client sends
 no clock: neither 0x25, the 0x1b tick nor the HNC 0xDD (an inventory checksum) carries one. Its game clock counts whole
 milliseconds and runs ~1 ms (sd 0.5) before its tick, so a click whose step boundary falls within ~1 ms of the frame can
 still differ by one cell.
@@ -430,7 +430,7 @@ hooked, eight base types, 2026-11-10: each got its row's value; the inventory si
 
 **Server side.** `PlayerWalk` runs `ClientPathfinder` from the player's cell on every order and steps the result at the
 client's step times; walk-ups to NPCs, stashes, waypoints and area transitions use the client's range
-(`PlayerWalk.WalkUpTo`, `InWalkUpRange`); the blockers are the NPCs and stashes the Gateway created (`ClientState.SetBlocker`), the living
+(`PlayerWalk.WalkUpTo`, `InWalkUpRange`); the blockers are the NPCs and stashes the Gateway created (`Player.SetBlocker`), the living
 hostile monsters where the server's estimate has them (size MonsterVarieties `ObjectSize` − 1, not checked live), and the
 quest walls' cells. Replaying a recorded session (424 client path calls, 2026-10-21), every path matched the client's
 waypoint for waypoint. At each order, the predicted cell was exact 184 times, within one cell 392 times, and at most 2.8
@@ -494,7 +494,8 @@ the server the two cases look alike, so the Gateway leaves bodies blocking; lock
 
 **The wake zone.** Monsters more than about 171 cells from the player leave it (S→C 0x1aa) and stop ticking on the client,
 so a chase the server gave up does not run on there. The historical trace below used 0x1a9 with a 0x128 snapshot on return.
-Current `KeepWakeZone` uses 0x1a9 with individual 0x1b7 relocations in Predictive and `LockstepPlace` in Lockstep.
+The area keeps one wake zone for all its players (`StepAreaWake`): a monster is awake while any player is near it, and
+its return is a 0x1a9 with a 0x1b7 to where the server has it, for every client.
 The server's copy stands out there too: its walk ends where it is and the AI gives it no order until it is back. Chased
 on instead, an estimate walked 162 cells while the client's copy stood frozen, and the return's 0x128 put the copy there
 in one jump (live 2026-11-03, a Rhoa pack outrun on the Mud Flats: three such jumps of 95–162 cells in one packet).
@@ -594,22 +595,38 @@ Native checks: normal zombie clearance 4 cells, unique Hillock clearance 5 cells
 Lockstep is partly working through M5's accepted dormant-body and saved-cell corrections (§5).
 Held-walk player and all-monster sync bars pass in the measured cohort. Predictive Mud2 drift and standing-start
 worsening need fresh confirmation; the Rhoa comparison and some adjusted crowd comparisons remain unproved.
-This does not establish full predictive equivalence or complete skill and network support, so Predictive stays
-the preferred mode.
+This does not establish full predictive equivalence or complete skill and network support. Lockstep is still the
+default way of playing: a client is served in it until its first predictive-only message (`Player.LockstepClient`),
+since it has no desync and a local server's latency suits it.
 
 Everything above is the client's **Predictive** network mode (Options → Game → Network Mode;
 `[NETWORKING] networking_type=predictive` in `Documents\My Games\Path of Exile\production_Config.ini`; the mode is
 `+0x984` of the world: 0 predictive, 2 lockstep, 3 auto). The client alone chooses it: no message sets or reports it.
 "Auto" starts at lockstep (`0x1444a9800` holds 2), drops to predictive when connecting took over 90 ms and returns under
 70 ms (`0x14214f1d0`), so it picks lockstep on localhost. A fourth value, `hybrid`, is disabled in the client.
+The mode is chosen again for every instance connection: each instance details (login 0x14 at character select,
+instance 0x27 in game) runs `0x140d57090`, which reads `networking_type` (setting 0 auto → 3, 1 lockstep → 2,
+2 predictive → 0) and builds a new world with it; Auto then resolves at that connection, before the opening, against
+the previous connection's choice kept in `0x1444a9800` for the process's life. So an Auto client can change mode at an
+area change after one connect over 90 ms. In game the option is shown read-only (`0x140949310`), so only a fixed
+setting is fixed for the session. Nothing sent carries the mode: the opening's last byte is `user_input_mode` (global
+`0x1445998ce`) in its low bits and four flags this sender always clears (write `0x141f97550`). The input senders are
+mode-pure (`0x1421660b0`, `0x1421664c0`, `0x142166660`, `0x142166800`, `0x14216ccb0`): lockstep sends only 0x18e,
+0x18f, 0x192, 0x195, 0x196, 0x197 and 0x198, predictive only 0x24, 0x25 and 0x199.
 
-The Gateway has no mode setting: every connection serves both, and follows what its client sends (a player switches by
-changing the option and entering again). The first sign of lockstep logs once per connection that Predictive is the
-preferred mode (`ClientState.NoteLockstepClient`). Latency adds input delay, not position error: both sides count the
+The Gateway has no mode setting and asks nothing. `ClientPackets` lists every C→S message with the mode that sends it (Shared, Predictive-only, Lockstep-only); the first mode-only message of a connection (one area) is the mode its handlers serve (`Player.NotePacket`). Messages of both modes in one area, which one client never sends, are logged and shown six times in the client's chat with their ids, for the player to report. Nothing else tells the modes apart for certain, so until then a client is served in
+Lockstep, the default (a server-controlled player, which sends predictive messages, in Predictive). Latency adds input delay, not position error: both sides count the
 same frames, so a client on a slower link plays the same frames later.
 
-A tick's u8 tells the modes apart early: only a lockstep world counts frames behind, so a predictive client's is always 0
-and a lockstep one's turns nonzero within seconds, idle or not. A lockstep client is timed for aiming
+The tick's u8 is no mode test. Only a lockstep world counts frames behind: its only writers are the world's
+constructor and the tick (both 0) and the frame runner's queued branch (`0x14218a2a0`, world vtable +0x1a8, run at the
+end of each instance tick after the pump and the 0x1b; mode 0 returns before it). It keeps the most queued frames an
+update's time did not cover, and that update's time is the real time since the last one (no cap). The tick sends it,
+and resets it, only while no earlier tick waits for its 0x1c; otherwise it sends 0 and keeps the count. Frida
+2026-11-16 (`trace-network-mode.js`, Lockstep and Auto): two 255 ms frames right after the 0x21 were counted at once,
+during the loading, but went out only in the first tick after the client had its 0x1c answers, which the Gateway held
+behind the 0x7d handler (`ClientInbox.DeferTick`). With 33 ms frames an idle lockstep client then sends 0 on every
+tick, and one long update hides any frames sent, so a 0 never proves Predictive. A lockstep client is timed for aiming
 (`LockstepLatency`, `LockstepClientCell`). S→C **0x194** (id only, handled on arrival) tells a client to go
 AFK: it answers at once with C→S 0x16 command 36 and the text "This player is AFK.", and nothing else changes until a
 server replies. The client reads its socket once per update, so one round trip says little on a slow client (about 100 ms
@@ -740,6 +757,10 @@ attacks in 52 s started at most 3.2 cells off the client's cell, none cancelled.
 Pickup arrival also starts Interaction's default 0.1 s completion (`0x1419478b0`).
 A Move queued inside it starts in `0x141e95f10`, then `0x141e9b860` discards its new path.
 The Gateway holds subsequent lockstep input through that completion, only after arrival; walking up stays interruptible.
+A use on an object uses up the press: the client sends its own 0x195 right after the 0x18f (`0x140123d60`). With the
+button still held, once the object is gone its held path asks for a Move without 0x400. Live 2026-11-16: 3 of 3 pickups,
+77–81 ms later. That Move cannot replace the Interaction (`0x141e941a0`) and loses its path when it starts, so only a
+new press walks again.
 Readiness uses the client frame start: live, a Move at arrival +3 frames (99 ms) lost its path, while +4 frames
 preserved it. The projectile clock can already exceed 100 ms during that third frame and must not release the hold.
 
@@ -768,7 +789,10 @@ the stop that waits for the tick, from its own tick, after Positioned's, so the 
 A 0.99 s attack ordered in frame n was ended in n + 30 and its walker stood from n + 31 (tick trace 2026-11-10, two of
 two): the action's own frame counts toward its time, unlike a hit's recovery. A standing walker gets no stop. The
 Gateway dates the stop at the order (`ClientActionWalkStop`) and the step pass applies it; before, the estimate
-walked on until the next order, a cell or two past the client's monster. Only that one duration is traced.
+walked on until the next order, a cell or two past the client's monster. Only that one duration is traced. A ranged
+monster shooting on the way looked like teleports (each new order's from cell put it back), so the Gateway no longer
+orders an in-place action or a summon while the actor walks: a monster in its reach gets no new walk (a near Move
+cannot cut it short, below) and acts once the walk ends (`StandsToAct`).
 
 **Corpses.** A killed monster's Positioned body stays in the client's path searches and step checks after its death,
 so a Move in that time can take another route even when it never touches the corpse. The client's monster lives until
@@ -787,7 +811,7 @@ by damage over time except for those five (`DotDeathKind`). GGG's 0x2b2 follows 
 death message by 4 or 5 frames for a 150 ms clip, by 0 for a clip without the event and by 54 or 55 for Hillock's
 (recordings of 2026-11-04), keyed by the monster with checkpoint 0x7000.
 
-The Gateway keeps the corpse as the client has it (`ClientState.Corpse`): from the kill the monster keeps its walker
+The Gateway keeps the corpse as the client has it (`Player.Corpse`): from the kill the monster keeps its walker
 and its body, the frame its death message is written in ends the walk and starts the clip's count
 (`CorpseDeathsWritten`, in the send gate of whatever writes the 0x1b1), the body leaves in the monster's turn of the
 clip's last tick, and the 0x2b2 goes out one frame later, where the client has cleared it already. A monster's death
@@ -983,18 +1007,18 @@ Explicit frame ordering and birth dependencies have deterministic coverage. Comp
 producer coverage and skill/network parity remain unverified.
 
 **Other players.** A player's own orders go to every other client that shows the player as the same 0x1ab and 0x1ac
-with the owner's sequences, walks included, and the player's hits (0x1af) keep their action's sequence
-(`MirrorPlayerAction`). GGG's recordings show it so: 851 orders to other players, none with 0xffff, 844 of them from
+with the owner's sequences, walks included, and the player's hits (0x1af) keep their action's sequence: they are
+records of the area's frame (`AreaDelta`), written to every client. GGG's recordings show it so: 851 orders to other players, none with 0xffff, 844 of them from
 the cell the receiving client had the player on. Every connection of an instance ends its frames on one grid of the
 instance clock (`BeginWorldFrames`), and a lockstep client is given what the owner was sent in frame n as records of its
-own frame n + 1 (`ClientState.FrameFrom`): its copy runs the owner's orders one frame later, step for step. Before, a
+own frame n + 1 (`Player.FrameFrom`): its copy runs the owner's orders one frame later, step for step. Before, a
 walk reached the others as a Move from the player's published pose with sequence 0xffff, and about a third of those
 orders matched the receiver's cell (bench 2026-11-09). Only a server-driven player, which has no connection of its
 own, is still walked from its pose.
 
 Players block each other as monsters do (two clients walking together never had the two closer than 3 cells), and each
 client steps its own copy of the other player in its own frames, against its own bodies. So the estimate keeps that copy
-for every lockstep client (`ClientState.PeerWalks`): it is a walker and a body in that client's step pass, and the other
+for every lockstep client (`Player.PeerWalks`): it is a walker and a body in that client's step pass, and the other
 player's order goes out from the cell the copy stands on, with the owner's target (`PeerRecordAtGate`). Against the
 other player's published pose instead, the two estimates disagreed about who was in whose way: of two players walking
 side by side, one's own orders matched its client's cell in 217 of 279 (bench 2026-11-10). Not modelled: the walk-up of

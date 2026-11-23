@@ -22,26 +22,26 @@ public sealed class DescendancyProtocolTests
             InstanceProtocol.KnownClientLength(InstanceWaypoints.DescendancyChosenId));
 
         // A client cannot select without a selector the server opened in this area.
-        var conn = new ClientState(new(1, "descendancy-admission", 100, 100, 50, 50, null, []), 0, 1);
-        Assert.False(Game.CanSelectDescendancy(conn, 6, out _));
-        conn.OfferedDescendancyRow = 6;
-        conn.OfferedDescendancyArea = conn.Layout.Hash;
-        Assert.True(Game.CanSelectDescendancy(conn, 6, out _));
-        Assert.True(Game.CanSelectDescendancy(conn, 5, out _)); // the open selector may show another row
-        conn.OfferedDescendancyArea = 2;
-        Assert.False(Game.CanSelectDescendancy(conn, 6, out _));
+        var player = new Player(new(1, "descendancy-admission", 100, 100, 50, 50, null, []), 0, 1);
+        Assert.False(Game.CanSelectDescendancy(player, 6, out _));
+        player.Character.OfferedDescendancyRow = 6;
+        player.Character.OfferedDescendancyArea = player.Layout.Hash;
+        Assert.True(Game.CanSelectDescendancy(player, 6, out _));
+        Assert.True(Game.CanSelectDescendancy(player, 5, out _)); // the open selector may show another row
+        player.Character.OfferedDescendancyArea = 2;
+        Assert.False(Game.CanSelectDescendancy(player, 6, out _));
 
         // An allocated layer must be refunded before another row replaces it, and the Wildwood rows need their gate.
-        conn.OfferedDescendancyArea = conn.Layout.Hash;
-        conn.DescendancyRow = 6;
-        conn.DescendancyNodes.Add(63623);
-        conn.OfferedDescendancyRow = 5;
-        Assert.False(Game.CanSelectDescendancy(conn, 5, out _));
-        conn.DescendancyRow = 0;
-        conn.DescendancyNodes.Clear();
-        conn.OfferedDescendancyRow = 3;
-        Assert.False(Game.CanSelectDescendancy(conn, 3, out _));
-        conn.QuestFlags.Add("AzmeriArePrimalist");
-        Assert.True(Game.CanSelectDescendancy(conn, 3, out _));
+        player.Character.OfferedDescendancyArea = player.Layout.Hash;
+        player.Character.DescendancyRow = 6;
+        player.Character.DescendancyNodes.Add(63623);
+        player.Character.OfferedDescendancyRow = 5;
+        Assert.False(Game.CanSelectDescendancy(player, 5, out _));
+        player.Character.DescendancyRow = 0;
+        player.Character.DescendancyNodes.Clear();
+        player.Character.OfferedDescendancyRow = 3;
+        Assert.False(Game.CanSelectDescendancy(player, 3, out _));
+        player.Character.QuestFlags.Add("AzmeriArePrimalist");
+        Assert.True(Game.CanSelectDescendancy(player, 3, out _));
     }
 }

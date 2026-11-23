@@ -29,8 +29,8 @@ public class SpectrumAndTattooJewelTests
         var blue = variants["MinimumPowerChargesPerStackableJewelUnique__1"];
         var sources = ItemModStats.Global([red, red, blue], items.Mods, Program.Stats);
         GrandSpectrum.Apply(sources, Program.Stats);
-        Assert.Equal(42, sources[Program.Stats.Key("base_resist_all_elements_%")!.Value]);
-        Assert.Equal(3, sources[Program.Stats.Key("base_minimum_power_charges")!.Value]);
+        Assert.Equal(42, sources[Stat.BaseResistAllElementsPct]);
+        Assert.Equal(3, sources[Stat.BaseMinimumPowerCharges]);
     }
 
     [Fact]
@@ -38,11 +38,11 @@ public class SpectrumAndTattooJewelTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"warriors-tale-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "tattoos", 100, 100, 100, 100, null, []), 1, 1)
-            { Character = "TattooRadius" };
+        var player = new Player(new(1, "tattoos", 100, 100, 100, 100, null, []), 1, 1)
+            { Character = { Name = "TattooRadius" } };
         try
         {
-            var tree = Game.PassivesFor(conn);
+            var tree = Game.PassivesFor(player);
             var socket = tree.JewelNodeForSlot(1)!.Value;
             var jewel = new UniqueCatalog(Program.Items).Create("Warrior's Tale", new Random(2))!;
             var radius = RadiusJewelCatalogue.ReadConversion(jewel, Program.Items.Mods)!.Radius;
@@ -50,31 +50,31 @@ public class SpectrumAndTattooJewelTests
             bool Strength(ushort n) => tree.Find(n)!.Stats.Any(s => Program.Stats.Name(s.Key) == "base_strength" && s.Value == 10);
             var near = inside.First(Strength);
             var far = tree.NodesInRadius(socket, 20000).First(n => !inside.Contains(n) && Strength(n));
-            conn.Tattoos[near] = conn.Tattoos[far] = "Tattoo of the Ngamahu Firewalker";
-            conn.TattooRevision++;
-            uint fire = Program.Stats.Key("base_fire_damage_resistance_%")!.Value;
-            int Resist(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(fire);
+            player.Character.Tattoos[near] = player.Character.Tattoos[far] = "Tattoo of the Ngamahu Firewalker";
+            player.Character.TattooRevision++;
+            uint fire = Stat.BaseFireDamageResistancePct;
+            int Resist(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources.GetValueOrDefault(fire);
             var initial = Resist(near, far, socket);
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(12, 1, 0, jewel));
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(12, 1, 0, jewel));
             Assert.Equal(initial + 6, Resist(near, far, socket));
             Assert.Equal(initial, Resist(near, far));
-            Game.ItemsOf(conn).Remove(PlayerInventories.PassiveJewels, 12);
+            Game.ItemsOf(player).Remove(PlayerInventories.PassiveJewels, 12);
             Assert.Equal(initial, Resist(near, far, socket));
 
             // The +10 Dexterity passive 36287 is within both radii on the 3.29.3c tree.
             byte Slot(ushort node) => (byte)Enumerable.Range(0, 60).Single(i => tree.JewelNodeForSlot(i) == node);
             var meek = new UniqueCatalog(Program.Items).Create("Might of the Meek", new Random(3))!;
-            conn.Tattoos[36287] = "Tattoo of the Arohongui Moonwarden";
-            conn.TattooRevision++;
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(12, Slot(32763), 0, jewel));
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(13, Slot(60735), 0, meek));
-            uint cold = Program.Stats.Key("base_cold_damage_resistance_%")!.Value;
-            int Cold(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(cold);
+            player.Character.Tattoos[36287] = "Tattoo of the Arohongui Moonwarden";
+            player.Character.TattooRevision++;
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(12, Slot(32763), 0, jewel));
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(13, Slot(60735), 0, meek));
+            uint cold = Stat.BaseColdDamageResistancePct;
+            int Cold(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources.GetValueOrDefault(cold);
             Assert.Equal(15, Cold(32763, 60735, 36287) - Cold(32763, 60735));
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             TestEnvironment.ReleaseSaves(path);
         }
     }

@@ -5,7 +5,7 @@ public class SupportExecutionMultiplierTests
     [Fact]
     public void Greater_echo_applies_the_spell_stat_per_repeat()
     {
-        int Own(string name) => name == "support_greater_spell_echo_spell_damage_+%_final_per_repeat" ? 10 : 0;
+        int Own(uint name) => name == Stat.SupportGreaterSpellEchoSpellDamagePlusPctFinalPerRepeat ? 10 : 0;
         Assert.Equal(1, Game.GreaterEchoHitMore(0, Own));
         Assert.Equal(1.1, Game.GreaterEchoHitMore(1, Own));
         Assert.Equal(1.2, Game.GreaterEchoHitMore(2, Own));

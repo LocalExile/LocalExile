@@ -1,6 +1,6 @@
 public static partial class Game
 {
-    public const string MonsterToughness = "monster_difficulty_tankiness_+%";
+    public const uint MonsterToughness = Stat.MonsterDifficultyTankinessPlusPct;
 
     // Toughness changes damage taken, not maximum Life (3.25.0 Monster Balance). Its less-damage percentage is
     // rounded before damage: +100 takes 50%, +200 takes 33%. The pinned monster modifiers are all nonnegative.

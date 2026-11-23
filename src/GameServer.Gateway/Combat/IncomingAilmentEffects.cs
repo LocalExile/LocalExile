@@ -4,24 +4,24 @@
 /// </summary>
 public static class IncomingAilmentEffects
 {
-    public sealed record Rule(string Stat, string Target, int? Cap = null);
+    public sealed record Rule(uint Stat, uint Target, int? Cap = null);
 
     public static readonly IReadOnlyList<Rule> PerPoison =
     [
-        new("chaos_damage_resistance_%_per_poison_stack", "base_chaos_damage_resistance_%"),
-        new("damage_+%_per_poison_up_to_75%", "damage_+%", 75),
-        new("movement_speed_+%_per_poison_up_to_50%", "base_movement_velocity_+%", 50),
-        new("energy_shield_regeneration_rate_per_minute_per_poison_stack",
-            "base_energy_shield_regeneration_rate_per_minute"),
+        new(Stat.ChaosDamageResistancePctPerPoisonStack, Stat.BaseChaosDamageResistancePct),
+        new(Stat.DamagePlusPctPerPoisonUpTo75Pct, Stat.DamagePlusPct, 75),
+        new(Stat.MovementSpeedPlusPctPerPoisonUpTo50Pct, Stat.BaseMovementVelocityPlusPct, 50),
+        new(Stat.EnergyShieldRegenerationRatePerMinutePerPoisonStack,
+            Stat.BaseEnergyShieldRegenerationRatePerMinute),
     ];
 
-    static readonly HashSet<string> Expanded = [.. PerPoison.Select(r => r.Stat)];
+    static readonly HashSet<uint> Expanded = [.. PerPoison.Select(r => r.Stat)];
 
-    public static bool Expands(string stat) => Expanded.Contains(stat);
+    public static bool Expands(uint stat) => Expanded.Contains(stat);
 
-    public static Dictionary<string, int> Expand(Func<string, int> get, int stacks)
+    public static Dictionary<uint, int> Expand(Func<uint, int> get, int stacks)
     {
-        var added = new Dictionary<string, int>(StringComparer.Ordinal);
+        var added = new Dictionary<uint, int>();
         if (stacks <= 0) return added;
         foreach (var rule in PerPoison)
         {

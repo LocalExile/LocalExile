@@ -6,46 +6,46 @@ public static partial class Game
 {
     internal static bool IsSmite(int effect) => Skills.EffectId(effect) is "Smite" or "SmiteAltX" or "VaalSmite";
 
-    static Task ScheduleSmite(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static Task ScheduleSmite(Player player,
         ushort id, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint target, int recovery,
         CooldownUseTicket? ticket, SkillCriticalRoll critical, ushort sequence, double? swingAt, bool cryExerted = false)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(player);
         session.Advance();
-        double duration = SupportedAttackSeconds(conn, id);
-        double contact = GemAttackContactDelay(conn, gem.Effect, duration, out _, out _);
-        int action = conn.ActionCount;
-        var source = SupportedSkill(conn, id);
-        int repeats = SkillsFor(conn).IsVaal(gem.Effect) ? 0 : MeleeAttackRepeats(conn, id);
-        double ruthless = RuthlessBlowMore(conn, id, n => GolemStat(source.Stats, n));
+        double duration = SupportedAttackSeconds(player, id);
+        double contact = GemAttackContactDelay(player, gem.Effect, duration, out _, out _);
+        int action = player.ActionCount;
+        var source = SupportedSkill(player, id);
+        int repeats = SkillsFor(player).IsVaal(gem.Effect) ? 0 : MeleeAttackRepeats(player, id);
+        double ruthless = RuthlessBlowMore(player, id, n => GolemStat(source.Stats, n));
         for (int repeat = 0; repeat <= repeats; repeat++)
         {
             int index = repeat;
-            session.Runtime.Schedule(ProjectileRuntime.Time((swingAt ?? ProjectileWorldTime(conn)) + contact + repeat * duration), () =>
+            session.Runtime.Schedule(ProjectileRuntime.Time((swingAt ?? ProjectileWorldTime(player)) + contact + repeat * duration), () =>
             {
-                if (!session.Active || conn.ActionInterruptionGeneration != recovery || !PlayerStateAllowsAction(conn)
-                    || index > 0 && conn.ActionCount != action || ticket is not null && !ticket.Current(conn)
-                    || !SameTriggerSource(source, SupportedSkill(conn, id))) return;
-                ReleaseSmite(remote, stream, ciphers, conn, session, id, gem, from, aim, target,
+                if (!session.Active || player.ActionInterruptionGeneration != recovery || !PlayerStateAllowsAction(player)
+                    || index > 0 && player.ActionCount != action || ticket is not null && !ticket.Current(player)
+                    || !SameTriggerSource(source, SupportedSkill(player, id))) return;
+                ReleaseSmite(player, session, id, gem, from, aim, target,
                     critical, sequence, index, ruthless, cryExerted);
             });
         }
         return Task.CompletedTask;
     }
 
-    internal static void ReleaseSmite(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static void ReleaseSmite(Player player,
         ProjectileSession session, ushort id, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint target, SkillCriticalRoll critical, ushort sequence,
         int repeat, double ruthless, bool cryExerted = false)
     {
-        var skill = SupportedSkill(conn, id);
-        bool vaal = SkillsFor(conn).IsVaal(gem.Effect);
-        double now = ProjectileWorldTime(conn);
-        int range = Math.Max(1, GolemStat(skill.Stats, "smite_lightning_target_range"));
-        int count = Math.Max(1, GolemStat(skill.Stats, "base_smite_number_of_targets"));
-        if (!vaal) count += GolemStat(CharacterPlayerStats(conn), "base_smite_number_of_targets");
-        var centres = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && p.Value.OwnerId is null)
+        var skill = SupportedSkill(player, id);
+        bool vaal = SkillsFor(player).IsVaal(gem.Effect);
+        double now = ProjectileWorldTime(player);
+        int range = Math.Max(1, GolemStat(skill.Stats, Stat.SmiteLightningTargetRange));
+        int count = Math.Max(1, GolemStat(skill.Stats, Stat.BaseSmiteNumberOfTargets));
+        if (!vaal) count += GolemStat(CharacterPlayerStats(player), Stat.BaseSmiteNumberOfTargets);
+        var centres = player.Area.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && p.Value.OwnerId is null)
             .Select(p => (Id: p.Key, At: p.Value.Walk.Position(now)))
             .Where(p => Dist(from, p.At) <= range)
             .OrderBy(p => p.Id == target ? 0 : 1).ThenBy(p => Dist(p.At, aim)).ThenBy(p => p.Id)
@@ -61,35 +61,35 @@ public static partial class Game
         var once = vaal ? null : new HashSet<uint>();
         void Hit((int X, int Y) at, uint? single = null)
         {
-            var task = AreaSkillHitForUse(ruthless, remote, stream, ciphers, conn, id, gem, from, at,
+            var task = AreaSkillHitForUse(ruthless, player, id, gem, from, at,
                 immediate: true, sequence: sequence, criticalRoll: critical, targetId: single ?? 0,
-                radiusOverride: single is null ? SkillRadius(conn, skill.Stats, false, gem.Effect) : WeaponFor(conn).Range + 4,
-                damageMore: MeleeRepeatDamageMore(conn, id, repeat), singleStrikeTarget: single,
+                radiusOverride: single is null ? SkillRadius(player, skill.Stats, false, gem.Effect) : WeaponFor(player).Range + 4,
+                damageMore: MeleeRepeatDamageMore(player, id, repeat), singleStrikeTarget: single,
                 once: once, onHit: victim => { hit = true; once?.Add(victim); }, scheduledSession: session, repeat: repeat, cryExerted: cryExerted);
             if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Smite contact must not yield.");
             task.GetAwaiter().GetResult();
         }
-        uint primary = LightningStrikeTarget(conn, from, aim, target, now);
-        if (primary != 0 && conn.Monsters.TryGetValue(primary, out var enemy)) Hit(enemy.Walk.Position(now), primary);
-        int radius = SkillRadius(conn, skill.Stats, false, gem.Effect);
+        uint primary = LightningStrikeTarget(player, from, aim, target, now);
+        if (primary != 0 && player.Area.Monsters.TryGetValue(primary, out var enemy)) Hit(enemy.Walk.Position(now), primary);
+        int radius = SkillRadius(player, skill.Stats, false, gem.Effect);
         foreach (var at in centres)
         {
-            session.Enqueue(() => PresentMeleeImpact(remote, stream, ciphers, conn,
+            session.Enqueue(() => PresentMeleeImpact(player,
                 "Metadata/Effects/Spells/smite/impact/impact.ao", from, at, Math.Max(.1f, radius / 15f)));
             Hit(at);
         }
         if (!hit) return;
-        double seconds = VaalAuraSeconds(GolemStat(skill.Stats, "base_skill_effect_duration"), CharacterPlayerStats(conn), skill.Stats);
+        double seconds = VaalAuraSeconds(GolemStat(skill.Stats, Stat.BaseSkillEffectDuration), CharacterPlayerStats(player), skill.Stats);
         if (seconds <= 0) return;
         // Normal and Vaal Smite grant one family of buff: keep the stronger live version.
-        var state = TemporaryAuraStates.GetOrCreateValue(conn);
+        var state = TemporaryAuraStates.GetOrCreateValue(player);
         if (!vaal && state.Active.Values.Any(a => a.Aura.EffectId == "Smite" && a.Until > now
-            && SkillsFor(conn).IsVaal(a.Aura.Effect))) return;
-        StartTemporaryAuraLocked(conn, id, "Smite", 1171, seconds, blessing: false);
+            && SkillsFor(player).IsVaal(a.Aura.Effect))) return;
+        StartTemporaryAuraLocked(player, id, "Smite", 1171, seconds, blessing: false);
         session.Enqueue(async () =>
         {
-            await SendOwnAuraChanges(remote, stream, ciphers, conn);
-            await SendCharacterStats(remote, stream, ciphers, conn, "Smite hit aura");
+            await SendOwnAuraChanges(player);
+            await SendCharacterStats(player, PlayerStatChange.Auras);
         });
     }
 }

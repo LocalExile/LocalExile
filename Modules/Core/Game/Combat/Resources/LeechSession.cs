@@ -25,45 +25,87 @@ public sealed class LeechSession
     // What a kill recovers (RecoverOnKill), from the same stat snapshot as this configuration.
     public KillRecovery OnKill { get; set; }
 
-    public void Configure(double now, LeechLimits.Snapshot value, Func<string, int> get, Func<string, int?> replacement,
-        int equippedClaws = 0)
+    /// <summary>Leeching of a resource started or stopped (the stats that read it follow).</summary>
+    public Action? Changed;
+    /// <summary>An instance was granted or removed, or the rates were configured (the orbs' leech buffs follow).</summary>
+    public Action? DisplayChanged;
+
+    int Count => Life.Count + Mana.Count + EnergyShield.Count;
+
+    // Reports a start or stop, and a granted or removed instance, against the state before a change.
+    void Report(double now, (bool, bool, bool) before, int count)
     {
+        if (Active(now) != before) Changed?.Invoke();
+        if (Count != count) DisplayChanged?.Invoke();
+    }
+
+    /// <summary>When the next instance ends; null without one.</summary>
+    public double? NextExpiry(double now)
+    {
+        double next = double.PositiveInfinity;
+        foreach (var state in new[] { Life, Mana, EnergyShield })
+            if (state.NextExpiry(now) is double expires) next = Math.Min(next, expires);
+        return double.IsFinite(next) ? next : null;
+    }
+
+    /// <summary>When the leech of a resource next stops on its own; null while none leeches.</summary>
+    public double? NextChangeAt(double now)
+    {
+        double next = double.PositiveInfinity;
+        foreach (var state in new[] { Life, Mana, EnergyShield })
+            if (state.Until(now) is double until) next = Math.Min(next, until);
+        return double.IsFinite(next) ? next : null;
+    }
+
+    public void Configure(double now, LeechLimits.Snapshot value, Func<uint, int> get,
+        Func<uint, int?>? replacements = null, int equippedClaws = 0)
+    {
+        var before = Active(now);
+        int count = Count;
+        ConfigureCore(now, value, get, replacements, equippedClaws);
+        Report(now, before, count);
+        DisplayChanged?.Invoke();
+    }
+
+    void ConfigureCore(double now, LeechLimits.Snapshot value, Func<uint, int> get,
+        Func<uint, int?>? replacements, int equippedClaws)
+    {
+        int? replacement(uint key) => replacements?.Invoke(key);
         limits = value;
-        convertLifeToEnergyShield = replacement("virtual_leech_energy_shield_instead_of_life") is int converted
-            ? converted != 0 : get("keystone_ghost_reaver") != 0 || get("leech_energy_shield_instead_of_life") != 0;
-        keepLife = replacement("virtual_life_leech_does_not_stop_at_full_life") is int lifeOverleech
-            ? lifeOverleech != 0 : get("life_leech_does_not_stop_at_full_life") != 0
-                || get("virtual_life_leech_does_not_stop_at_full_life") != 0;
-        keepEnergyShield = get("energy_shield_leech_does_not_stop_on_full_energy_shield") != 0;
-        keepAttackEnergyShield = get("energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield") != 0;
-        recoverLife = get("cannot_recover_life") == 0;
-        recoverEnergyShield = get("cannot_recover_energy_shield") == 0;
-        vaalPact = get("keystone_vaal_pact") != 0;
+        convertLifeToEnergyShield = replacement(Stat.VirtualLeechEnergyShieldInsteadOfLife) is int converted
+            ? converted != 0 : get(Stat.KeystoneGhostReaver) != 0 || get(Stat.LeechEnergyShieldInsteadOfLife) != 0;
+        keepLife = replacement(Stat.VirtualLifeLeechDoesNotStopAtFullLife) is int lifeOverleech
+            ? lifeOverleech != 0 : get(Stat.LifeLeechDoesNotStopAtFullLife) != 0
+                || get(Stat.VirtualLifeLeechDoesNotStopAtFullLife) != 0;
+        keepEnergyShield = get(Stat.EnergyShieldLeechDoesNotStopOnFullEnergyShield) != 0;
+        keepAttackEnergyShield = get(Stat.EnergyShieldLeechFromAttacksDoesNotStopOnFullEnergyShield) != 0;
+        recoverLife = get(Stat.CannotRecoverLife) == 0;
+        recoverEnergyShield = get(Stat.CannotRecoverEnergyShield) == 0;
+        vaalPact = get(Stat.KeystoneVaalPact) != 0;
         equippedClaws = Math.Clamp(equippedClaws, 0, 2);
-        double commonInstant = (double)get("leech_%_is_instant")
-            + (equippedClaws > 0 ? get("leech_%_is_instant_while_wielding_claw") : 0);
-        lifeInstant = Math.Clamp(replacement("virtual_life_leech_%_is_instant")
-            ?? commonInstant + get("life_leech_%_is_instant")
-                + (double)equippedClaws * get("life_leech_%_is_instant_per_equipped_claw"), 0, 100);
+        double commonInstant = (double)get(Stat.LeechPctIsInstant)
+            + (equippedClaws > 0 ? get(Stat.LeechPctIsInstantWhileWieldingClaw) : 0);
+        lifeInstant = Math.Clamp(replacement(Stat.VirtualLifeLeechPctIsInstant)
+            ?? commonInstant + get(Stat.LifeLeechPctIsInstant)
+                + (double)equippedClaws * get(Stat.LifeLeechPctIsInstantPerEquippedClaw), 0, 100);
         // Vaal Pact: "Life Leech from Melee Damage is Instant". A melee hit's life leech is fully instant; a non-melee
         // hit keeps the ordinary fraction. Ghost Reaver's life-to-ES conversion keeps its own (no interaction).
-        meleeLifeInstant = get("keystone_vaal_pact") != 0 || get("melee_damage_life_leech_is_instant") != 0
+        meleeLifeInstant = get(Stat.KeystoneVaalPact) != 0 || get(Stat.MeleeDamageLifeLeechIsInstant) != 0
             ? 100 : lifeInstant;
-        manaInstant = Math.Clamp(replacement("virtual_mana_leech_%_is_instant") ?? commonInstant, 0, 100);
-        shieldInstant = Math.Clamp(replacement("virtual_energy_shield_leech_%_is_instant") ?? commonInstant, 0, 100);
+        manaInstant = Math.Clamp(replacement(Stat.VirtualManaLeechPctIsInstant) ?? commonInstant, 0, 100);
+        shieldInstant = Math.Clamp(replacement(Stat.VirtualEnergyShieldLeechPctIsInstant) ?? commonInstant, 0, 100);
         // GGG 3.22.1d explicitly preserves Life-instant sources through Ghost Reaver. Keep that source scope:
-        // native ES grants do not inherit a Life-only bonus. An explicit final ES replacement still wins.
-        convertedLifeInstant = Math.Clamp(replacement("virtual_energy_shield_leech_%_is_instant") ?? lifeInstant, 0, 100);
+        // native ES grants do not inherit a Life-only bonus.
+        convertedLifeInstant = lifeInstant;
         foreach (var resource in value.Resources)
         {
             var state = State(resource.Pool);
-            double speed = replacement($"virtual_{resource.Pool}_leech_speed_+%")
-                ?? (double)get($"{resource.Pool}_leech_speed_+%") + get("life_mana_es_leech_speed_+%");
+            double speed = (double)get(Stat.Of($"{resource.Pool}_leech_speed_+%")) + get(Stat.LifeManaEsLeechSpeedPlusPct);
             double total = Math.Max(0, 1 + speed / 100);
             // Both raw flags describe the same boolean doubling; two copies do not quadruple recovery.
-            if (resource.Pool == "life" && (get("life_leech_speed_is_doubled") != 0
-                || get("total_recovery_per_minute_from_life_leech_is_doubled") != 0)) total *= 2;
-            double recovery = Math.Max(0, 1 + get($"{resource.Pool}_recovery_rate_+%") / 100.0);
+            if (resource.Pool == "life" && (get(Stat.LifeLeechSpeedIsDoubled) != 0
+                || get(Stat.TotalRecoveryPerMinuteFromLifeLeechIsDoubled) != 0)) total *= 2;
+            double recovery = Math.Max(0, 1 + get(Stat.Of($"{resource.Pool}_recovery_rate_+%")) / 100.0);
             if (resource.Pool == "life" && !recoverLife || resource.Pool == "energy_shield" && !recoverEnergyShield) recovery = 0;
             state.Configure(now, new(total, resource.MaximumPerSecond, recovery));
             if (resource.CannotLeech) state.Clear(now);
@@ -74,8 +116,19 @@ public sealed class LeechSession
         (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
         bool attack = false, bool melee = false)
     {
+        var before = Active(now);
+        int count = Count;
+        var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack, melee);
+        Report(now, before, count);
+        return instant;
+    }
+
+    (double Life, double Mana, double EnergyShield) HitCore(double now,
+        (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
+        bool attack, bool melee)
+    {
         if (limits is null) return default;
-        ClearFull(now, lifeFull, manaFull, shieldFull);
+        ClearFullCore(now, lifeFull, manaFull, shieldFull);
         double Grant(int index, double amount, bool full, bool keep, double instant, bool recover)
         {
             var resource = limits.Resources[index];
@@ -95,6 +148,14 @@ public sealed class LeechSession
     }
 
     public void ClearFull(double now, bool life, bool mana, bool shield)
+    {
+        var before = Active(now);
+        int count = Count;
+        ClearFullCore(now, life, mana, shield);
+        Report(now, before, count);
+    }
+
+    void ClearFullCore(double now, bool life, bool mana, bool shield)
     {
         // Full Life, not Low Life: Petrified Blood ignores leech recovery above Low Life without removing the
         // instance, so it keeps its full-pool cap and can resume when Life drops.
@@ -122,7 +183,10 @@ public sealed class LeechSession
 
     public void Clear(double now)
     {
+        var before = Active(now);
+        int count = Count;
         Life.Clear(now); Mana.Clear(now); EnergyShield.Clear(now);
+        Report(now, before, count);
         LifeInstantCarry = ManaInstantCarry = 0;
         InstantLifeChanged = InstantManaChanged = false;
     }

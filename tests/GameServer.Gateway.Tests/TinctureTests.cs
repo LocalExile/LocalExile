@@ -84,48 +84,48 @@ public class TinctureTests
             Assert.Null(rolls.Alchemy(created, new Random(4)));
 
             // Effect multiplier, scaled mods (flag stats unscaled), burn interval, cooldown, and burn rate.
-            var cullingMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == "culling_strike_with_tinctured_weapons"));
+            var cullingMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == Stat.CullingStrikeWithTincturedWeapons));
             var withCulling = qualityUp with
             {
                 Mods = [.. qualityUp.Mods, cullingMod.With(ModSection.Explicit, cullingMod.MaxValues(), new Random(5))],
             };
-            double mult = Tinctures.EffectMultiplier(withCulling, new Dictionary<string, int>
+            double mult = Tinctures.EffectMultiplier(withCulling, new Dictionary<uint, int>
             {
-                ["local_tincture_mod_effect_+%"] = 30,
-            }, name => name switch
+                [Stat.LocalTinctureModEffectPlusPct] = 30,
+            }, key => key switch
             {
-                "tincture_mod_effect_+%" => 50,
-                "tincture_mod_effect_+%_per_empty_flask_slot" => 10,
+                Stat.TinctureModEffectPlusPct => 50,
+                Stat.TinctureModEffectPlusPctPerEmptyFlaskSlot => 10,
                 _ => 0,
             }, emptyFlaskSlots: 2);
             Assert.Equal(2.2, mult, 6);
             var scaled = Tinctures.ScaledMods(withCulling, items.Mods, mult);
             int rawCrit = ItemModStats.Values(withCulling, items.Mods, local: false)
-                .Where(s => s.Id == "critical_strike_chance_+%_with_tinctured_weapons").Sum(s => s.Value);
+                .Where(s => s.Id == Stat.CriticalStrikeChancePlusPctWithTincturedWeapons).Sum(s => s.Value);
             Assert.Equal(UtilityFlasks.Scale(rawCrit, mult),
-                scaled.Single(s => s.Stat == "critical_strike_chance_+%_with_tinctured_weapons").Value);
-            Assert.Equal(1, scaled.Single(s => s.Stat == "culling_strike_with_tinctured_weapons").Value);
+                scaled.Single(s => s.Stat == Stat.CriticalStrikeChancePlusPctWithTincturedWeapons).Value);
+            Assert.Equal(1, scaled.Single(s => s.Stat == Stat.CullingStrikeWithTincturedWeapons).Value);
 
-            Assert.Equal(0.35, Tinctures.DebuffInterval(def, new Dictionary<string, int>
+            Assert.Equal(0.35, Tinctures.DebuffInterval(def, new Dictionary<uint, int>
             {
-                ["local_tincture_toxicity_rate_+%"] = 100,
+                [Stat.LocalTinctureToxicityRatePlusPct] = 100,
             }, _ => 0), 6);
-            Assert.True(double.IsPositiveInfinity(Tinctures.DebuffInterval(def, new Dictionary<string, int>
+            Assert.True(double.IsPositiveInfinity(Tinctures.DebuffInterval(def, new Dictionary<uint, int>
             {
-                ["local_cannot_generate_toxicity_stacks_over_time"] = 1,
+                [Stat.LocalCannotGenerateToxicityStacksOverTime] = 1,
             }, _ => 0)));
-            Assert.Equal(4.0, Tinctures.CooldownSeconds(def, new Dictionary<string, int>(),
-                name => name == "tincture_cooldown_recovery_+%" ? 100 : 0), 6);
+            Assert.Equal(4.0, Tinctures.CooldownSeconds(def, new Dictionary<uint, int>(),
+                key => key == Stat.TinctureCooldownRecoveryPlusPct ? 100 : 0), 6);
             Assert.Equal(0.0, Tinctures.BurnPerSecond(2, 200, ignoredStacks: 2), 6);
             Assert.Equal(6.0, Tinctures.BurnPerSecond(5, 200, ignoredStacks: 2), 6);
 
             // Mightblood Ire Melee Splash activates only when tincture_applied != 0 and applies no less-damage penalty.
-            Assert.Null(MeleeSplash.Settings(name => name == "melee_splash_with_tinctured_weapons" ? 1 : 0));
-            var splash = MeleeSplash.Settings(name => name switch
+            Assert.Null(MeleeSplash.Settings(key => key == Stat.MeleeSplashWithTincturedWeapons ? 1 : 0));
+            var splash = MeleeSplash.Settings(key => key switch
             {
-                "melee_splash_with_tinctured_weapons" => 1,
-                "tincture_applied" => 1,
-                "melee_splash_area_of_effect_+%" => 50,
+                Stat.MeleeSplashWithTincturedWeapons => 1,
+                Stat.TinctureApplied => 1,
+                Stat.MeleeSplashAreaOfEffectPlusPct => 50,
                 _ => 0,
             });
             Assert.NotNull(splash);
@@ -133,11 +133,11 @@ public class TinctureTests
             Assert.True(splash.Value.Radius > MeleeSplash.BaseRadius);
 
             // Weapon-only ignite chance/duration apply on main_hand and never leak to spell.
-            int IgniteStat(string name) => name switch
+            int IgniteStat(uint key) => key switch
             {
-                "tincture_applied" => 1,
-                "chance_to_ignite_%_with_tinctured_weapons" => 40,
-                "elemental_ailment_duration_+%_with_tinctured_weapons" => 50,
+                Stat.TinctureApplied => 1,
+                Stat.ChanceToIgnitePctWithTincturedWeapons => 40,
+                Stat.ElementalAilmentDurationPlusPctWithTincturedWeapons => 50,
                 _ => 0,
             };
             var weaponIgnite = MonsterIgnites.Settings.From([], "main_hand", IgniteStat);
@@ -175,11 +175,11 @@ public class TinctureTests
         var rosethorn = items.Find("Rosethorn Tincture")!;
         var sword = ItemCatalog.Create(items.Find("Rusted Sword")!, random: new Random(1));
         var bow = ItemCatalog.Create(items.Find("Crude Bow")!, random: new Random(2));
-        var critMultMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == "critical_strike_multiplier_+_with_tinctured_weapons"));
-        var cullMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == "culling_strike_with_tinctured_weapons"));
+        var critMultMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == Stat.CriticalStrikeMultiplierPlusWithTincturedWeapons));
+        var cullMod = items.Mods.All.First(m => m.Stats.Any(s => s.Id == Stat.CullingStrikeWithTincturedWeapons));
         var baseTincture = ItemCatalog.Create(rosethorn, random: new Random(3));
-        string[] killStats = ["life_gained_on_killing_enemies_with_tinctured_weapons", "base_mana_gained_on_tinctured_weapon_kill",
-            "flask_charges_granted_from_tinctured_weapon_kills_+%"];
+        uint[] killStats = [Stat.LifeGainedOnKillingEnemiesWithTincturedWeapons, Stat.BaseManaGainedOnTincturedWeaponKill,
+            Stat.FlaskChargesGrantedFromTincturedWeaponKillsPlusPct];
         var killMods = killStats.Select(stat => items.Mods.All.First(m => m.Stats.Any(s => s.Id == stat)))
             .Select(mod => mod.With(ModSection.Explicit, mod.MaxValues(), new Random(6)));
         var tinctureItem = baseTincture with
@@ -211,12 +211,26 @@ public class TinctureTests
         var stream = writer.GetStream();
         var ciphers = new ConnectionCiphers(new byte[64], false);
 
-        ClientState MakeConn(string name, int level, out InventoryItem placedTincture, out InventoryItem placedSword)
+        var extraStats = new Dictionary<Player, Dictionary<uint, int>>();
+        using var statsHook = GameEvents.Stats.Add("Game", sheet =>
+        {
+            if (extraStats.TryGetValue(sheet.Player, out var map))
+                foreach (var (k, v) in map) sheet.Add(k, v);
+        });
+        void SetPlayerStat(Player p, uint key, int value)
+        {
+            if (!extraStats.TryGetValue(p, out var map)) extraStats[p] = map = [];
+            map[key] = value;
+        }
+
+        Player MakeConn(string name, int level, out InventoryItem placedTincture, out InventoryItem placedSword)
         {
             names.Add(name);
-            var conn = new ClientState(new(1, name, 200, 200, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, name, 200, 200, 100, 100, null, []), 1, 1)
             {
-                Character = name,
+                Character = { Name = name },
+                Connection = { Session = new("tincture-test", stream, ciphers) },
+                LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"])),
                 PlayerLife = 200,
                 PlayerMana = 100,
             };
@@ -233,10 +247,10 @@ public class TinctureTests
             return conn;
         }
 
-        int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
+        int StatVal(IReadOnlyDictionary<uint, int> stats, string name) =>
             Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
 
-        CharacterStats.Bonus BonusOf(ClientState conn)
+        CharacterStats.Bonus BonusOf(Player conn)
         {
             var (stats, attributes) = Game.CharacterStatSources(conn);
             return Game.PassiveBonus(stats, Game.WeaponProfileFor(conn, activeSet: true), attributes);
@@ -246,25 +260,25 @@ public class TinctureTests
         {
             // 1. Level gate, activation via UseFlask, weapon-only stat isolation, and unequip cleanup.
             var conn1 = MakeConn("TinctureStats_" + Guid.NewGuid().ToString("N"), level: 1, out var slot0, out var eqSword);
-            await Game.UseFlask("tincture-test", stream, ciphers, conn1, 0);
+            await Game.UseFlask(conn1, 0);
             Assert.False(conn1.TinctureEffects.AnyActive);
 
             conn1.Pools = Game.PoolsFor(conn1, level: 60);
             var baselineStats = Game.CharacterStatSources(conn1).Stats;
-            int baseAttackCrit = Stat(baselineStats, "attack_critical_strike_chance_+%");
+            int baseAttackCrit = StatVal(baselineStats, "attack_critical_strike_chance_+%");
             var baseBonus = BonusOf(conn1);
             Assert.Equal(0, Game.Cull.Of(baselineStats, skill: null, critical: false, spell: false).Threshold);
 
-            await Game.UseFlask("tincture-test", stream, ciphers, conn1, 0);
+            await Game.UseFlask(conn1, 0);
             Assert.True(conn1.TinctureEffects.IsActive(slot0.Id));
             Assert.False(Game.ItemsOf(conn1).Items(PlayerInventories.Flask).Single().Item.TinctureActive);
 
             var activeStats = Game.CharacterStatSources(conn1).Stats;
             var activeBonus = BonusOf(conn1);
-            Assert.Equal(1, Stat(activeStats, "using_tincture"));
-            Assert.Equal(1, Stat(activeStats, "tincture_applied"));
-            Assert.Equal(1, Stat(activeStats, "tincture_applied_to_main_hand"));
-            Assert.True(Stat(activeStats, "attack_critical_strike_chance_+%") > baseAttackCrit);
+            Assert.Equal(1, StatVal(activeStats, "using_tincture"));
+            Assert.Equal(1, StatVal(activeStats, "tincture_applied"));
+            Assert.Equal(1, StatVal(activeStats, "tincture_applied_to_main_hand"));
+            Assert.True(StatVal(activeStats, "attack_critical_strike_chance_+%") > baseAttackCrit);
             Assert.Equal(baseBonus.CriticalStrikeMultiplier + 36, activeBonus.CriticalStrikeMultiplier); // 30 * 1.2 quality
             Assert.Equal(baseBonus.SpellCriticalStrikeMultiplier, activeBonus.SpellCriticalStrikeMultiplier);
             Assert.Equal(10, Game.Cull.Of(activeStats, skill: null, critical: false, spell: false).Threshold);
@@ -273,11 +287,11 @@ public class TinctureTests
             // A spell kill uses these unconditional stats even while a tinctured sword is equipped.
             foreach (string stat in new[] { "base_life_gained_on_enemy_death", "base_mana_gained_on_enemy_death",
                 "charges_gained_+%", "flask_charges_gained_+%" })
-                Assert.Equal(Stat(baselineStats, stat), Stat(activeStats, stat));
+                Assert.Equal(StatVal(baselineStats, stat), StatVal(activeStats, stat));
             var kill = Game.TinctureKillBonusFor(conn1, activeStats, AttackHand.Main);
             Assert.NotNull(kill);
-            Assert.All(killStats, stat => Assert.True(Stat(activeStats, stat) > 0));
-            Assert.Equal((Stat(activeStats, killStats[0]), Stat(activeStats, killStats[1]), Stat(activeStats, killStats[2])),
+            Assert.All(killStats, stat => Assert.True(activeStats.GetValueOrDefault(stat) > 0));
+            Assert.Equal((activeStats.GetValueOrDefault(killStats[0]), activeStats.GetValueOrDefault(killStats[1]), activeStats.GetValueOrDefault(killStats[2])),
                 (kill.Life, kill.Mana, kill.FlaskChargesPct));
             Assert.Null(Game.TinctureKillBonusFor(conn1, activeStats, AttackHand.Off));
             Assert.Equal(1 + kill.FlaskChargesPct / 100.0, FlaskCharges.KillCharges(MonsterRarity.Normal, items.Mods, kill.FlaskChargesPct));
@@ -287,38 +301,38 @@ public class TinctureTests
             inv1.Remove(PlayerInventories.Weapon1, eqSword.Id);
             var eqBow = inv1.Add(PlayerInventories.Weapon1, 0, 0, bow);
             var bowStats = Game.CharacterStatSources(conn1).Stats;
-            Assert.Equal(0, Stat(bowStats, "tincture_applied"));
-            Assert.Equal(baseAttackCrit, Stat(bowStats, "attack_critical_strike_chance_+%"));
-            conn1.PlayerStats[Program.Stats.Key("tinctures_can_apply_to_ranged_weapons")!.Value] = 1;
+            Assert.Equal(0, StatVal(bowStats, "tincture_applied"));
+            Assert.Equal(baseAttackCrit, StatVal(bowStats, "attack_critical_strike_chance_+%"));
+            conn1.Character.Passives = [Game.PassivesFor(conn1).FindById("AscendancyRaider19")!.GraphId];
             var bowWithMastery = Game.CharacterStatSources(conn1).Stats;
-            Assert.Equal(1, Stat(bowWithMastery, "tincture_applied"));
-            Assert.True(Stat(bowWithMastery, "attack_critical_strike_chance_+%") > baseAttackCrit);
+            Assert.Equal(1, StatVal(bowWithMastery, "tincture_applied"));
+            Assert.True(StatVal(bowWithMastery, "attack_critical_strike_chance_+%") > baseAttackCrit);
             inv1.Remove(PlayerInventories.Weapon1, eqBow.Id);
             var unarmedStats = Game.CharacterStatSources(conn1).Stats;
-            Assert.Equal(0, Stat(unarmedStats, "tincture_applied"));
-            Assert.Equal(baseAttackCrit, Stat(unarmedStats, "attack_critical_strike_chance_+%"));
+            Assert.Equal(0, StatVal(unarmedStats, "tincture_applied"));
+            Assert.Equal(baseAttackCrit, StatVal(unarmedStats, "attack_critical_strike_chance_+%"));
 
             // Unequipping the tincture immediately deactivates it and removes its effects.
             inv1.Remove(PlayerInventories.Flask, slot0.Id);
-            await Game.ReconcileTincturesAfterFlaskBarChange("tincture-test", stream, ciphers, conn1);
+            await Game.ReconcileTincturesAfterFlaskBarChange(conn1);
             Assert.False(conn1.TinctureEffects.AnyEffective);
-            Assert.Equal(0, Stat(Game.CharacterStatSources(conn1).Stats, "using_tincture"));
+            Assert.Equal(0, StatVal(Game.CharacterStatSources(conn1).Stats, "using_tincture"));
 
             // 2. Mana Burn accumulation, on-kill removal, 0-mana auto-deactivation, and cooldown enforcement.
             var conn2 = MakeConn("TinctureBurn_" + Guid.NewGuid().ToString("N"), level: 60, out var slot2, out _);
-            await Game.UseFlask("tincture-test", stream, ciphers, conn2, 0);
+            await Game.UseFlask(conn2, 0);
             Assert.True(conn2.TinctureEffects.IsActive(slot2.Id));
             double t2 = conn2.TinctureEffects.Of(slot2.Id)!.ActivatedAt;
             List<uint>? deactivated = null;
             var stats2 = Game.CharacterStatSources(conn2).Stats;
             Game.AdvanceTincturesLocked(conn2, now: t2 + 0.71, seconds: 0.71, stats2, out double manaDrain, out double lifeDrain, ref deactivated);
             Assert.Equal(1, conn2.TinctureEffects.BurnStacks);
-            Assert.Equal(60, Stat(Game.CharacterStatSources(conn2).Stats, "mana_degeneration_per_minute_%_per_tincture_toxicity"));
+            Assert.Equal(60, StatVal(Game.CharacterStatSources(conn2).Stats, "mana_degeneration_per_minute_%_per_tincture_toxicity"));
             Assert.True(manaDrain > 0);
             Assert.Equal(0, lifeDrain);
 
             // On-kill Mana Burn removal mastery removes 1 stack.
-            conn2.PlayerStats[Program.Stats.Key("chance_to_remove_1_tincture_toxicity_on_kill_%")!.Value] = 100;
+            SetPlayerStat(conn2, Stat.ChanceToRemove1TinctureToxicityOnKillPct, 100);
             Game.ChargesOnKill(conn2, new SpawnedMonster("target", new(10, 10, 0), 0, 0, 100));
             Assert.Equal(0, conn2.TinctureEffects.BurnStacks);
 
@@ -334,14 +348,14 @@ public class TinctureTests
             Assert.True(conn2.TinctureEffects.OnCooldown(t2 + 1.42));
             Assert.False(conn2.TinctureEffects.OnCooldown(t2 + 10.0));
             conn2.PlayerMana = 100;
-            await Game.UseFlask("tincture-test", stream, ciphers, conn2, 0);
+            await Game.UseFlask(conn2, 0);
             Assert.False(conn2.TinctureEffects.AnyActive);
 
             // 3. Manual toggle, Bloodsoaked Blade (life burn), Enduring Suffusion linger, and death cleanup.
             var conn3 = MakeConn("TinctureLife_" + Guid.NewGuid().ToString("N"), level: 60, out var slot3, out _);
-            conn3.PlayerStats[Program.Stats.Key("keystone_tinctures_drain_life")!.Value] = 1;
-            conn3.PlayerStats[Program.Stats.Key("tincture_effects_linger_for_ms_per_toxicity_up_to_6_seconds")!.Value] = 500;
-            await Game.UseFlask("tincture-test", stream, ciphers, conn3, 0);
+            SetPlayerStat(conn3, Stat.KeystoneTincturesDrainLife, 1);
+            SetPlayerStat(conn3, Stat.TinctureEffectsLingerForMsPerToxicityUpTo6Seconds, 500);
+            await Game.UseFlask(conn3, 0);
             Assert.True(conn3.TinctureEffects.IsActive(slot3.Id));
             Assert.True(conn3.TinctureEffects.LifeBurn);
             double t3 = conn3.TinctureEffects.Of(slot3.Id)!.ActivatedAt;
@@ -354,39 +368,39 @@ public class TinctureTests
             Game.AdvanceTincturesLocked(conn3, now: t3 + 1.42, seconds: 0.71, stats3, out manaDrain, out lifeDrain, ref deadIds);
             Assert.Equal(2, conn3.TinctureEffects.BurnStacks);
             var burning = Game.CharacterStatSources(conn3).Stats;
-            Assert.Equal(-2, PlayerDamageTaken.Flat(DamageType.Fire, attack: false, name => Stat(burning, name)));
-            Assert.Equal(0, Stat(burning, "fire_damage_taken_+%"));
-            Assert.Equal(60, Stat(Game.CharacterStatSources(conn3).Stats, "non_lethal_life_loss_%_per_minute_per_tincture_toxicity"));
+            Assert.Equal(-2, PlayerDamageTaken.Flat(DamageType.Fire, attack: false, key => burning.GetValueOrDefault(key)));
+            Assert.Equal(0, StatVal(burning, "fire_damage_taken_+%"));
+            Assert.Equal(60, StatVal(Game.CharacterStatSources(conn3).Stats, "non_lethal_life_loss_%_per_minute_per_tincture_toxicity"));
             Assert.Equal(0, manaDrain);
             Assert.True(lifeDrain > 0);
 
             // Manual toggle off starts lingering for 1.0 s (2 stacks * 500 ms) while clearing active & burn state.
-            await Game.UseFlask("tincture-test", stream, ciphers, conn3, 0);
+            await Game.UseFlask(conn3, 0);
             Assert.False(conn3.TinctureEffects.AnyActive);
             Assert.Empty(conn3.FlaskAutomation.Packets);
             Assert.True(conn3.TinctureEffects.HasLingering);
-            Assert.Equal(1, Stat(Game.CharacterStatSources(conn3).Stats, "has_lingering_tincture"));
-            Assert.Equal(1, Stat(Game.CharacterStatSources(conn3).Stats, "tincture_applied"));
+            Assert.Equal(1, StatVal(Game.CharacterStatSources(conn3).Stats, "has_lingering_tincture"));
+            Assert.Equal(1, StatVal(Game.CharacterStatSources(conn3).Stats, "tincture_applied"));
 
-            // Death clears lingering effects too, and a fresh ClientState starts with no active tinctures.
+            // Death clears lingering effects too, and a fresh Player starts with no active tinctures.
             Game.DeactivateAllTincturesOnDeathLocked(conn3, now: t3 + 1.5, stats3, ref deadIds);
             Assert.False(conn3.TinctureEffects.AnyEffective);
-            Assert.Equal(0, Stat(Game.CharacterStatSources(conn3).Stats, "tincture_applied"));
+            Assert.Equal(0, StatVal(Game.CharacterStatSources(conn3).Stats, "tincture_applied"));
 
             // 4. Weapon-only DoT/PDR-ignore/low-life suffixes, unique on-hit hooks, Nature's Concoction, and live re-scaling.
             var conn4 = MakeConn("TinctureAdv_" + Guid.NewGuid().ToString("N"), level: 60, out var slot4, out _);
             var lifeFlask = ItemCatalog.Create(items.Find("Small Life Flask")!, random: new Random(9)) with { Charges = 0 };
             Game.ItemsOf(conn4).Add(PlayerInventories.Flask, 1, 0, lifeFlask);
-            conn4.PlayerStats[Program.Stats.Key("tincture_effect_+%_if_used_life_flask_recently")!.Value] = 50;
-            conn4.PlayerStats[Program.Stats.Key("flasks_adjacent_to_active_tinctures_have_effect_+%_if_hit_with_weapon_recently")!.Value] = 25;
-            conn4.PlayerStats[Program.Stats.Key("flasks_adjacent_to_active_tinctures_gain_X_charges_on_weapon_hit")!.Value] = 3;
-            conn4.PlayerStats[Program.Stats.Key("hits_ignore_enemy_monster_physical_damage_reduction_%_chance_with_tinctured_weapons")!.Value] = 100;
-            conn4.PlayerStats[Program.Stats.Key("damage_over_time_multiplier_+_with_tinctured_weapons")!.Value] = 40;
-            conn4.PlayerStats[Program.Stats.Key("apply_X_wither_stacks_for_2_seconds_with_tinctured_weapons")!.Value] = 2;
-            conn4.PlayerStats[Program.Stats.Key("refresh_ignite_duration_on_tinctured_weapon_hit_%_chance")!.Value] = 100;
-            conn4.PlayerStats[Program.Stats.Key("tinctured_weapon_cover_in_ash_on_hit_for_X_seconds_vs_full_life_enemies")!.Value] = 4;
+            SetPlayerStat(conn4, Stat.TinctureEffectPlusPctIfUsedLifeFlaskRecently, 50);
+            SetPlayerStat(conn4, Stat.FlasksAdjacentToActiveTincturesHaveEffectPlusPctIfHitWithWeaponRecently, 25);
+            SetPlayerStat(conn4, Stat.FlasksAdjacentToActiveTincturesGainXChargesOnWeaponHit, 3);
+            SetPlayerStat(conn4, Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChanceWithTincturedWeapons, 100);
+            SetPlayerStat(conn4, Stat.DamageOverTimeMultiplierPlusWithTincturedWeapons, 40);
+            SetPlayerStat(conn4, Stat.ApplyXWitherStacksFor2SecondsWithTincturedWeapons, 2);
+            SetPlayerStat(conn4, Stat.RefreshIgniteDurationOnTincturedWeaponHitPctChance, 100);
+            SetPlayerStat(conn4, Stat.TincturedWeaponCoverInAshOnHitForXSecondsVsFullLifeEnemies, 4);
 
-            await Game.UseFlask("tincture-test", stream, ciphers, conn4, 0);
+            await Game.UseFlask(conn4, 0);
             Assert.True(conn4.TinctureEffects.IsActive(slot4.Id));
             double t4 = conn4.TinctureEffects.Of(slot4.Id)!.ActivatedAt;
             double multBefore = conn4.TinctureEffects.Of(slot4.Id)!.EffectMultiplier;
@@ -399,18 +413,18 @@ public class TinctureTests
             Assert.Equal(multBefore + 0.5, conn4.TinctureEffects.Of(slot4.Id)!.EffectMultiplier, 6);
 
             // Spell isolation on DoT multiplier: main_hand ignite scales, spell ignite does not.
-            int Stats4(string name) => Stat(stats4, name);
+            int Stats4(uint key) => stats4.GetValueOrDefault(key);
             var fireBase = DamagePacket.Of(DamageType.Fire, 100, 100);
             var attackAilments = AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true), fireBase, new DamageConversion(), Stats4);
             var spellAilments = AilmentPanelStats.Compute(new("spell", Spell: true, Melee: false), fireBase, new DamageConversion(), Stats4);
-            int atkIgnite = attackAilments.Single(r => r.Stat == "minimum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage").Value;
-            int splIgnite = spellAilments.Single(r => r.Stat == "minimum_ignite_damage_to_deal_per_minute_from_non_critical_spell_damage").Value;
+            int atkIgnite = attackAilments.Single(r => r.Stat == Stat.MinimumIgniteDamageToDealPerMinuteFromNonCriticalMainHandDamage).Value;
+            int splIgnite = spellAilments.Single(r => r.Stat == Stat.MinimumIgniteDamageToDealPerMinuteFromNonCriticalSpellDamage).Value;
             Assert.True(atkIgnite > splIgnite);
 
             // Ignore enemy physical damage reduction applies on attacks and not spells.
             var armored = new SpawnedMonster("armored", new(10, 10, 0), 0, 0, 1000)
             {
-                EncounterStats = new Dictionary<string, int> { ["base_additional_physical_damage_reduction_%"] = 50 },
+                EncounterStats = new Dictionary<uint, int> { [Stat.BaseAdditionalPhysicalDamageReductionPct] = 50 },
             };
             var physHit = DamagePacket.Of(DamageType.Physical, 100, 100);
             var resMods = Game.HitResistMods(stats4);
@@ -418,10 +432,10 @@ public class TinctureTests
             Assert.Equal(50, Game.MonsterHitDamage(armored, physHit, critical: false, attack: false, now: t4 + 0.2, resMods).Damage);
 
             // Low-life enemy damage suffix applies to weapon attacks against low-life targets.
-            conn4.PlayerStats[Program.Stats.Key("tinctured_weapon_damage_+%_vs_enemies_that_are_on_low_life")!.Value] = 75;
+            SetPlayerStat(conn4, Stat.TincturedWeaponDamagePlusPctVsEnemiesThatAreOnLowLife, 75);
             var lowLifeStats = Game.CharacterPlayerStats(conn4);
-            var weapon = Game.SkillsFor(conn4).UnarmedFor(conn4.ClassRow);
-            conn4.Monsters[99] = armored;
+            var weapon = Game.SkillsFor(conn4).UnarmedFor(conn4.Character.ClassRow);
+            conn4.Area.Monsters[99] = armored;
             var fullLifePrehit = Game.DefaultMeleePrehitProfileLocked(conn4, 99, armored, lowLifeStats, weapon, new DamageConversion(), null, t4 + 0.2, 100);
             armored.Life = 400; // <= 50% -> low life
             var lowLifePrehit = Game.DefaultMeleePrehitProfileLocked(conn4, 99, armored, lowLifeStats, weapon, new DamageConversion(), null, t4 + 0.2, 100);
@@ -452,12 +466,12 @@ public class TinctureTests
             conn4.RecentEvents.RecordHit(t4 + 4.5, critical: false);
             Assert.Equal(0, Game.AdjacentTinctureFlaskEffect(conn4, slot: 1, Stats4, t4 + 5.1));
 
-            conn4.PlayerStats[Program.Stats.Key("tincture_effects_linger_for_ms_per_toxicity_up_to_6_seconds")!.Value] = 500;
+            SetPlayerStat(conn4, Stat.TinctureEffectsLingerForMsPerToxicityUpTo6Seconds, 500);
             conn4.TinctureEffects.AddBurnStacks(2);
-            await Game.UseFlask("tincture-test", stream, ciphers, conn4, 0);
+            await Game.UseFlask(conn4, 0);
             Assert.True(conn4.TinctureEffects.HasLingering);
             Game.ItemsOf(conn4).Remove(PlayerInventories.Flask, slot4.Id);
-            await Game.ReconcileTincturesAfterFlaskBarChange("tincture-test", stream, ciphers, conn4);
+            await Game.ReconcileTincturesAfterFlaskBarChange(conn4);
             Assert.False(conn4.TinctureEffects.AnyEffective);
         }
         finally
