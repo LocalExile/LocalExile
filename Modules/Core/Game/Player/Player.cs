@@ -431,8 +431,12 @@ public static partial class Game
                 lifeBasis = (int)Math.Min(cost, int.MaxValue);
                 if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
                     && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                {
+                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0)
+                        unsplitBase = Read(Stat.BaseManaCost);
                     lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
                         applyManaEfficiency: false);
+                }
             }
             petrifiedLife = PetrifiedBlood.LifeCost(player, lifeBasis);
         }
@@ -440,6 +444,7 @@ public static partial class Game
             nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
                 * BloodCharges.More(Own(BloodCharges.CostPerCharge), player.BloodCharges)));
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife);
+        if (Read(Stat.NoManaCost) != 0) cost = 0;
         es = (uint)Math.Max(0, Read(Stat.EsCost));
         if (costPercent != 100)
         {
@@ -544,7 +549,31 @@ public static partial class Game
         return (skills.HasType(effect, "AppliesCurse") ? Total(Stat.CurseCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Mark") ? Total(Stat.MarkSkillCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Link") ? Total(Stat.LinkSkillCastSpeedPlusPct) : 0)
-            + (Supports.Of(effect)?.Types.Contains(120) == true ? Total(Stat.RetaliationSkillSpeedPlusPct) : 0);
+            + (Supports.Of(effect)?.Types.Contains(120) == true ? Total(Stat.RetaliationSkillSpeedPlusPct) : 0)
+            + TaggedAttackAndCastSpeedPct(skills, effect, playerStat, own);
+    }
+
+    static readonly (string Type, uint Speed)[] SkillTypeSpeeds =
+    [
+        ("Physical", Stat.AttackAndCastSpeedPlusPctWithPhysicalSkills),
+        ("Fire", Stat.AttackAndCastSpeedPlusPctWithFireSkills),
+        ("Cold", Stat.AttackAndCastSpeedPlusPctWithColdSkills),
+        ("Lightning", Stat.AttackAndCastSpeedPlusPctWithLightningSkills),
+        ("Chaos", Stat.AttackAndCastSpeedPlusPctWithChaosSkills),
+    ];
+
+    static int TaggedAttackAndCastSpeedPct(SkillCatalog skills, int effect, Func<uint, int> get, Func<uint, int>? own = null)
+    {
+        long Get(uint stat) => (long)get(stat) + (own?.Invoke(stat) ?? 0);
+        long speed = 0;
+        foreach (var (type, stat) in SkillTypeSpeeds)
+            if (Get(stat) is long value and not 0 && skills.HasType(effect, type)) speed += value;
+        if (Get(Stat.AttackAndCastSpeedPlusPctWithChannellingSkills) is long channel and not 0 && skills.IsChannelled(effect))
+            speed += channel;
+        if (Get(Stat.AttackAndCastSpeedPlusPctWithElementalSkills) is long elemental and not 0
+            && (skills.HasType(effect, "Fire") || skills.HasType(effect, "Cold") || skills.HasType(effect, "Lightning")))
+            speed += elemental;
+        return ActorScale.Saturate(speed);
     }
 
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.

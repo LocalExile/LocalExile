@@ -186,16 +186,21 @@ public static class AreaLayouts
             return new AreaLayout(hash, id, 690, 414, 197, 261, fits ? Walkable(cells!, w, h) : null, transitions)
             { Clearance = fits ? Clearance(cells!, w, h) : null };
         }
-        if (cells is not null && start is { } s)
-            return new AreaLayout(hash, id, w, h, s.X, s.Y, Walkable(cells, w, h), transitions)
-                { Clearance = Clearance(cells, w, h), SpawnRotation = s.Angle };
         if (cells is not null)
         {
             // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the deepest cell.
-            var point = AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default");
-            var (sx, sy) = point is null ? DeepestCell(cells, w, h) : (point.X, point.Y);
-            return new AreaLayout(hash, id, w, h, sx, sy, Walkable(cells, w, h), transitions)
-                { Clearance = Clearance(cells, w, h), SpawnRotation = point?.Angle ?? 0 };
+            if (start is null && AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default") is { } point)
+                start = (point.X, point.Y, point.Angle);
+            var walkable = Walkable(cells, w, h);
+            (int X, int Y) spawn;
+            if (start is { } marker)
+            {
+                spawn = (marker.X, marker.Y);
+                if (!walkable(spawn.X, spawn.Y)) spawn = NearestWalkableSpawn(cells, w, h, spawn);
+            }
+            else spawn = DeepestCell(cells, w, h);
+            return new AreaLayout(hash, id, w, h, spawn.X, spawn.Y, walkable, transitions)
+                { Clearance = Clearance(cells, w, h), SpawnRotation = start?.Angle ?? 0 };
         }
         // No walk map yet: a position inside any grid; the client may place the player on unwalkable ground.
         return new AreaLayout(hash, id, 0, 0, 197, 261, null, transitions);
@@ -318,6 +323,29 @@ public static class AreaLayouts
     static Func<int, int, bool> Walkable(byte[] cells, int w, int h) =>
         (x, y) => x >= 0 && y >= 0 && x < w && y < h && cells[y * w + x] >= 2;
 
+
+    // A room's default marker can be farther from the floor than the walk-up search for waypoints and transitions.
+    // Search the grid only for a blocked marker, preserving the marker as a fallback if the grid has no floor at all.
+    static (int X, int Y) NearestWalkableSpawn(byte[] cells, int w, int h, (int X, int Y) marker)
+    {
+        var nearest = marker;
+        long distance = long.MaxValue;
+        for (int y = 0; y < h; y++)
+        {
+            long dy = (long)y - marker.Y;
+            if (dy * dy >= distance) continue;
+            for (int x = 0; x < w; x++)
+            {
+                if (cells[y * w + x] < 2) continue;
+                long dx = (long)x - marker.X;
+                long squared = dx * dx + dy * dy;
+                if (squared >= distance) continue;
+                distance = squared;
+                nearest = (x, y);
+            }
+        }
+        return nearest;
+    }
 
     /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells).</summary>
     static (int X, int Y) DeepestCell(byte[] cells, int w, int h)

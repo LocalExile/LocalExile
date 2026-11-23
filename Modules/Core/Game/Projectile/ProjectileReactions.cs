@@ -144,6 +144,7 @@ public static partial class Game
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        TransferMarksOnDeathLocked(player, monster, now);
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;

@@ -83,14 +83,7 @@ public static partial class Game
         long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
     {
         if (spell) return MonsterIgnites.Settings.None;
-        Func<uint, int> get;
-        if (capturedInputs is null)
-        {
-            var merged = MergeSkillStats(playerStats, SupportedSkill(player, skillId).Stats);
-            get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
-        }
-        else
-            get = capturedInputs.Get;
+        var get = SupportedAilmentStats(player, skillId, playerStats, capturedInputs);
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, "main_hand", weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);

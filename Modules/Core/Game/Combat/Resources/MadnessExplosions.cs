@@ -50,16 +50,25 @@ public static partial class Game
             var playerStats = receipt.Player;
             int Get(uint key) => playerStats.GetValueOrDefault(key);
             var conversion = DamageStats.Conversion(playerStats, Stats, attack: null);
-            ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false, bool lowLife = false)
+            bool contactDamage = HasContactDamage(Get);
+            ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false,
+                bool lowLife = false, TargetContact contact = default)
             {
                 int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
+                int HitStat(uint name) => TargetHitStat(name, TargetStat(name), contact);
+                var target = TargetModifiers(Get, lowLife, contact: contact);
                 increased += SpiderDamageIncrease(Get, webs);
                 var woven = SpiderRawDamage(receipt.Raw, Get, webs);
-                var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion, spell: false, area: true,
-                    secondary: true, additionalIncreased: increased);
-                var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat, increased);
-                return new(hit, MonsterIgnites.Settings.From(rows, "secondary", TargetStat), MonsterIgnites.Settings.None,
-                    MonsterPoisons.Settings.From(rows, "secondary", TargetStat));
+                var hit = PlayerHitDamage.Resolve(woven, HitStat, conversion, spell: false, area: true,
+                    secondary: true, additionalIncreased: increased + target.HitIncrease);
+                var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat,
+                    increased + target.AilmentIncrease);
+                var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
+                var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+                if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
+                return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
+                    : new(hit, RepeatAilment(ignite, target.AilmentMore), MonsterIgnites.Settings.None,
+                        RepeatAilment(poison, target.AilmentMore));
             }
             var normal = Profile(0);
             var blinded = Get(PlayerHitDamage.VsBlindedDamageStat) is var increased && increased != 0
@@ -75,10 +84,11 @@ public static partial class Game
                 {
                     if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
                         || MonsterAsleep(player, id) || Dist(at, target.Walk.Position(now)) > receipt.Radius) continue;
-                    var profile = target.SpiderWebs.Count(now) > 0 || target.Ignites.Burning || target.Bleeds.Burning
-                        || EnemyOnLowLife(target) && Get(DamageVsLowLifePerFrenzy) != 0
+                    var profile = contactDamage || target.SpiderWebs.Count(now) > 0 || target.Ignites.Burning || target.Bleeds.Burning
+                        || EnemyOnLowLife(target) && (Get(DamageVsLowLifePerFrenzy) != 0 || HasLowLifeDamage(Get))
                         ? Profile(Blinded(player, id) ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0,
-                            target.SpiderWebs.Count(now), target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target))
+                            target.SpiderWebs.Count(now), target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target),
+                            contactDamage ? ContactDamage(player, target, now, playerStats) : default)
                         : Blinded(player, id) ? blinded : normal;
                     int critChance = Get(Stat.GlobalCannotCrit) != 0 ? 0
                         : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get(Stat.CriticalStrikeChancePlusPct), Get, _ => 0);
@@ -87,8 +97,9 @@ public static partial class Game
                         gambler.RollOutgoingHit(profile.Hit, player.Madness.Random));
                     var strike = new HitResistances.Strike(Critical: critical, Attack: false);
                     bool invert = gambler.InvertsResistance(player.Madness.Random);
+                    var defenses = ImpurityHitMods(target, now, resistanceMods);
                     var mitigated = rolled.Select((type, range) => range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(
-                        type, MonsterHitResistance(target, type, penetration, now), strike, resistanceMods, invert) / 100)));
+                        type, MonsterHitResistance(target, type, penetration, now), strike, defenses, invert) / 100)));
                     int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
                         CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),
