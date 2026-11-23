@@ -5,10 +5,10 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>
 /// One connection's client messages, split as they are read (issue #46). The client's "network: N ms" is the time until
 /// its oldest 0x1b tick is answered (Agents/docs/protocol/07 §1), so the read loop answers ticks at once, and every other
-/// message waits here, in the order received, for the connection's one handler task. A slow handler (0x7d populating
-/// the area, an area change) no longer holds the 0x1c answers back.
+/// message waits here, in the order received, for the area's input phase (AreaFrames.Input), which handles them in the
+/// frame. A slow handler (0x7d populating the area, an area change) no longer holds the 0x1c answers back.
 /// </summary>
-sealed class ClientInbox(ConnectionPerformance? performance = null)
+public sealed class ClientInbox(ConnectionPerformance? performance = null)
 {
     /// <summary>A tick answered, or a handler run, later than this is logged.</summary>
     public static readonly TimeSpan SlowAfter = TimeSpan.FromMilliseconds(50);
@@ -130,14 +130,13 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
         lock (_ticks) _ticks.Clear();
     }
 
-    public async IAsyncEnumerable<Batch> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
+    /// <summary>The next batch, for the area's input phase (AreaFrames.Input).</summary>
+    public bool TryTake(out Batch batch)
     {
-        await foreach (var batch in _queue.Reader.ReadAllAsync(token))
-        {
-            Interlocked.Decrement(ref pending);
-            performance?.QueueDelta(-1);
-            performance?.Elapsed(LatencyPhase.InputQueue, batch.ReadAt != 0 ? batch.ReadAt : batch.EnqueuedAt);
-            yield return batch;
-        }
+        if (!_queue.Reader.TryRead(out batch!)) return false;
+        Interlocked.Decrement(ref pending);
+        performance?.QueueDelta(-1);
+        performance?.Elapsed(LatencyPhase.InputQueue, batch.ReadAt != 0 ? batch.ReadAt : batch.EnqueuedAt);
+        return true;
     }
 }

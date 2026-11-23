@@ -13,7 +13,7 @@ using GameServer.Core.Projectiles;
 /// is level, not a measured arc. Heights are TerrainHeights steps (7.8125 world units, larger is higher).
 /// </para>
 /// </summary>
-static class ProjectileAimHeight
+public static class ProjectileAimHeight
 {
     /// <summary>How far terrain may rise above the flight's ground before it stops the shot (93.75 world units, below the
     /// Ranger's 16-step bow release).</summary>

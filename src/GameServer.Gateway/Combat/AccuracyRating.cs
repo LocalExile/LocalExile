@@ -2,50 +2,49 @@ using System.Numerics;
 
 /// <summary>Unconditional flat/increased accuracy. Keep the unrounded base so selected supports enter the
 /// same buckets before flooring; never reverse a floored character rating to guess its base.</summary>
-static class AccuracyRating
+public static class AccuracyRating
 {
-    static IEnumerable<string> Families(WeaponProfile w)
+    // Each weapon family's flat and increased accuracy stats (sword_accuracy_rating, sword_accuracy_rating_+%, …).
+    static readonly string[] FamilyNames = ["sword", "axe", "mace", "claw", "dagger", "wand", "staff", "bow"];
+    static readonly (uint Flat, uint Increased)[] FamilyStats =
+        [.. FamilyNames.Select(f => (Stat.Of(f + "_accuracy_rating"), Stat.Of(f + "_accuracy_rating_+%")))];
+
+    static IEnumerable<(uint Flat, uint Increased)> Families(WeaponProfile w)
     {
-        if (w.Sword) yield return "sword";
-        if (w.Axe) yield return "axe";
-        if (w.Mace) yield return "mace";
-        if (w.Claw) yield return "claw";
-        if (w.Dagger) yield return "dagger";
-        if (w.Wand) yield return "wand";
-        if (w.Staff) yield return "staff";
-        if (w.Bow) yield return "bow";
+        bool[] held = [w.Sword, w.Axe, w.Mace, w.Claw, w.Dagger, w.Wand, w.Staff, w.Bow];
+        for (int i = 0; i < held.Length; i++)
+            if (held[i]) yield return FamilyStats[i];
     }
 
-    public static long Flat(WeaponProfile weapon, Func<string, long> get, bool includeLocal = true) =>
-        get("accuracy_rating") + (includeLocal ? weapon.LocalAccuracy : 0L)
-            + Families(weapon).Sum(family => get(family + "_accuracy_rating"));
+    public static long Flat(WeaponProfile weapon, Func<uint, long> get, bool includeLocal = true) =>
+        get(Stat.AccuracyRating) + (includeLocal ? weapon.LocalAccuracy : 0L)
+            + Families(weapon).Sum(family => get(family.Flat));
 
-    public static long Increased(WeaponProfile weapon, Func<string, long> get) =>
-        get("accuracy_rating_+%")
-            + (weapon.DualWield || weapon.Unarmed ? get("accuracy_rating_while_dual_wielding_+%") : 0)
-            + (weapon.OneHandMelee ? get("one_handed_melee_accuracy_rating_+%") : 0)
-            + (weapon.TwoHandMelee ? get("two_handed_melee_accuracy_rating_+%") : 0)
-            + Families(weapon).Sum(family => get(family + "_accuracy_rating_+%"));
+    public static long Increased(WeaponProfile weapon, Func<uint, long> get) =>
+        get(Stat.AccuracyRatingPlusPct)
+            + (weapon.DualWield || weapon.Unarmed ? get(Stat.AccuracyRatingWhileDualWieldingPlusPct) : 0)
+            + (weapon.OneHandMelee ? get(Stat.OneHandedMeleeAccuracyRatingPlusPct) : 0)
+            + (weapon.TwoHandMelee ? get(Stat.TwoHandedMeleeAccuracyRatingPlusPct) : 0)
+            + Families(weapon).Sum(family => get(family.Increased));
 
     public static int Calculate(long basis, long increased) => (int)BigInteger.Min(int.MaxValue,
         BigInteger.Max(0, basis) * BigInteger.Max(0, (BigInteger)100 + increased) / 100);
 
-    public static int Selected(CharacterStats.Pools pools, WeaponProfile weapon, Func<string, long> own)
+    public static int Selected(CharacterStats.Pools pools, WeaponProfile weapon, Func<uint, long> own)
     {
         long flat = Flat(weapon, own, includeLocal: false), increased = Increased(weapon, own);
         return flat == 0 && increased == 0 ? pools.Accuracy
             : Calculate(pools.AccuracyBase + flat, pools.AccuracyPct + increased);
     }
 
-    public static bool IsInput(string name) => name is "accuracy_rating" or "accuracy_rating_+%"
-        or "accuracy_rating_while_dual_wielding_+%" or "one_handed_melee_accuracy_rating_+%"
-        or "two_handed_melee_accuracy_rating_+%" or "accuracy_rating_per_level"
-        or "dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead"
-        or "gain_accuracy_rating_equal_to_intelligence" or "gain_wand_accuracy_rating_equal_to_intelligence"
-        or "gain_accuracy_rating_equal_to_2_times_strength" or "gain_accuracy_rating_equal_to_strength"
-        or "attack_speed_+%_per_200_accuracy_rating"
-        or "accuracy_rating_+%_final_vs_unique_enemies_from_mastery"
-        or "accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery"
-        || new[] { "sword", "axe", "mace", "claw", "dagger", "wand", "staff", "bow" }
-            .Any(family => name == family + "_accuracy_rating" || name == family + "_accuracy_rating_+%");
+    public static bool IsInput(uint name) => name is Stat.AccuracyRating or Stat.AccuracyRatingPlusPct
+        or Stat.AccuracyRatingWhileDualWieldingPlusPct or Stat.OneHandedMeleeAccuracyRatingPlusPct
+        or Stat.TwoHandedMeleeAccuracyRatingPlusPct or Stat.AccuracyRatingPerLevel
+        or Stat.DexterityAccuracyBonusGrantsAccuracyRatingPlus3PerDexterityInstead
+        or Stat.GainAccuracyRatingEqualToIntelligence or Stat.GainWandAccuracyRatingEqualToIntelligence
+        or Stat.GainAccuracyRatingEqualTo2TimesStrength or Stat.GainAccuracyRatingEqualToStrength
+        or Stat.AttackSpeedPlusPctPer200AccuracyRating
+        or Stat.AccuracyRatingPlusPctFinalVsUniqueEnemiesFromMastery
+        or Stat.AccuracyRatingPlusPctFinalVsEnemiesInCloseRangeFromMastery
+        || FamilyStats.Any(family => name == family.Flat || name == family.Increased);
 }

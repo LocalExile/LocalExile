@@ -9,114 +9,124 @@ using static PortalsFeature;
 namespace GameServer.Modules.M_portals;
 
 /// <summary>Town portals, Portal Scrolls, the map device and map portals.</summary>
-public sealed class PortalsModule : IModule, IDisposable
+public sealed class PortalsModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Portals", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
     {
-        foreach (var e in _events) e.Dispose();
+        global::PortalsRules.LoadRulesSettingsData();
     }
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnAreaGenerated(async player =>
+        LoadData();
+        // The portals a player can take are their own view (each keeps its own portal state): theirs alone to see.
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
         {
-            var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
-            await SpawnHideoutDoodads(remote, stream, ciphers, conn);
-            await SpawnMapReturnPortal(remote, stream, ciphers, conn);
-            await SpawnTownPortals(remote, stream, ciphers, conn);
-            // The portals of the character's open map stand at the device again.
-            bool device;
-            lock (conn.HideoutDoodads) device = conn.HideoutDoodads.Count > 0;
-            if (device && MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open) await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
-        });
-        On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            if (conn.BackPortal is { } home && use.TargetId == home.Id && OpenPortals.TryGetValue(CharacterName(conn), out var origin))
+            Program.ViewOf.Value = player;
+            try
             {
-                if (!TryBeginObjectWalk(conn, requestedAt, home.X, home.Y, AreaTransitionObjectSize, out var homeWalk)) return true;
-                var (homeAction, homeNow, _, _, homeArrive) = homeWalk;
-                if (homeArrive > homeNow) await Task.Delay(TimeSpan.FromSeconds(homeArrive - homeNow));
-                if (!PlayerActionCurrent(conn, homeAction)) return true;
-                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)),
-                    "back through the town portal");
-                    return true;
+                await SpawnHideoutDoodads(player);
+                await SpawnMapReturnPortal(player);
+                await SpawnTownPortals(player);
+                // A hideout's instance is gone six minutes after its last player leaves, and its device with it: a run whose
+                // portals stood there follows the character into the instance they enter now, so the portals come up below.
+                await PortalsRules.FollowDeviceToThisInstance(player);
+                // Everyone in this exact device instance sees and spends the same run's portals.
+                if (MapDevice.AtEntrance(player.Layout.Hash, player.InstanceNumber) is { PortalsLeft: > 0 } open)
+                    await SpawnMapPortals(player, open, firstAfterMs: MapPortalEntryMs, standing: true);
             }
-            if (conn.ReturnPortal is { } back && use.TargetId == back.Id)
+            finally { Program.ViewOf.Value = null; }
+        });
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, requestedAt) =>
+        {
+            if (player.BackPortal is { } home && use.TargetId == home.Id && OpenPortals.TryGetValue(CharacterName(player), out var origin))
             {
-                await UseMapReturnPortal(remote, stream, ciphers, conn, use, (back.X, back.Y), requestedAt);
+                if (!TryBeginObjectWalk(player, requestedAt, home.X, home.Y, AreaTransitionObjectSize, out var homeWalk)) return true;
+                var (homeAction, homeNow, _, _, homeArrive) = homeWalk;
+                if (homeArrive > homeNow) await AreaDelay(player, homeArrive - homeNow);
+                if (!PlayerActionCurrent(player, homeAction)) return true;
+                if (await ExpireTownPortal(player, origin))
+                {
+                    if (!player.Closed && !player.LeavingArea && player.BackPortal?.Id == home.Id)
+                    {
+                        player.BackPortal = null;
+                        await global::Game.SendWorldRemoval(player, home.Id, "expired town portal");
+                    }
+                    return true;
+                }
+                if (PlayerActionCurrent(player, homeAction) && OpenPortals.TryGetValue(CharacterName(player), out var current) && current == origin)
+                    await ChangeArea(player, new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)),
+                        "back through the town portal");
+                return true;
+            }
+            if (player.ReturnPortal is { } back && use.TargetId == back.Id)
+            {
+                await UseMapReturnPortal(player, use, (back.X, back.Y), requestedAt);
                 return true;
             }
             (int X, int Y, int Index)? portal;
-            lock (conn.MapPortals) portal = conn.MapPortals.TryGetValue(use.TargetId, out var at) ? at : null;
+            lock (player.MapPortals) portal = player.MapPortals.TryGetValue(use.TargetId, out var at) ? at : null;
             if (portal is { } p)
             {
-                await UseMapPortal(remote, stream, ciphers, conn, use, p, requestedAt);
+                await UseMapPortal(player, use, p, requestedAt);
                 return true;
             }
             HideoutCatalog.Doodad? doodad;
-            lock (conn.HideoutDoodads) doodad = conn.HideoutDoodads.GetValueOrDefault(use.TargetId);
+            lock (player.HideoutDoodads) doodad = player.HideoutDoodads.GetValueOrDefault(use.TargetId);
             if (doodad is null) return false;
-            await UseMapDevice(remote, stream, ciphers, conn, use, doodad, requestedAt);
+            await UseMapDevice(player, use, doodad, requestedAt);
             return true;
         });
         // The Portal skill: a town portal, as the Portal Scroll's, once its cast (2.5 s) is over.
-        On(GameEvents.SkillCast, (conn, effect, skillId, from, current) =>
+        GameEvents.SkillCast.Add(module.Manifest.Id, (player, effect, skillId, from, current) =>
         {
             if (effect != "Portal") return null;
-            var (remote, stream, ciphers) = conn.Wire;
-            if (!PortalAllowed(conn)) { Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} Portal: not here"); return false; }
-            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-            if (CastMs(conn, gem.Effect) is not int castMs) return false;
-            _ = Task.Delay(castMs).ContinueWith(async _ =>
+            if (!PortalAllowed(player)) { Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} Portal: not here"); return false; }
+            var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
+            if (CastMs(player, gem.Effect) is not int castMs) return false;
+            _ = AreaFrames.Start(async () =>
             {
-                if (current()) await OpenTownPortal(remote, stream, ciphers, conn, from.X, from.Y, "Portal skill");
+                await AreaDelay(player, castMs / 1000.0);
+                if (current()) await OpenTownPortal(player, from.X, from.Y, "Portal skill");
             });
             return true;
         });
-        On(GameEvents.ItemUse, async (conn, use, item, type) =>
+        GameEvents.ItemUse.Add(module.Manifest.Id, async (player, use, item, type) =>
         {
             if (type.Id != PortalScroll) return false;
-            var (remote, stream, ciphers) = conn.Wire;
-            await UsePortalScroll(remote, stream, ciphers, conn, use, item, type);
+            await UsePortalScroll(player, use, item, type);
             return true;
         });
-        module.OnPacket(InstanceMapDevice.ActivateId, async p =>
+        GameEvents.Packet(InstanceMapDevice.ActivateId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
-            await ActivateMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadActivate(bytes));
+            await ActivateMapDevice(player, InstanceMapDevice.ReadActivate(bytes));
             return true;
         });
-        module.OnPacket(InstanceMapDevice.SelectMapId, async p =>
+        GameEvents.Packet(InstanceMapDevice.SelectMapId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
-            await SelectAtlasMap(remote, stream, ciphers, conn, InstanceMapDevice.ReadSelectMap(bytes));
+            await SelectAtlasMap(player, InstanceMapDevice.ReadSelectMap(bytes));
             return true;
         });
-        module.OnPacket(InstanceMapDevice.MoveId, async p =>
+        GameEvents.Packet(InstanceMapDevice.MoveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
-            await MoveToMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadMove(bytes));
+            await MoveToMapDevice(player, InstanceMapDevice.ReadMove(bytes));
             return true;
         });
-        // C→S 0xe4 / 0xe5: Ctrl + click a map with the map device open (a map does not send 0xe8 — that is the Atlas Idol,
-        // row 94). The client's writers are 0x14216e300 (0xe4) and 0x14216e5d0 (0xe5); the wire is u16 id, u32 BE item id,
-        // then five bytes (the direction is bit 7 of the byte at +6 of the payload). The framing table does not know these
-        // ids yet, so each arrives as the read's "unframed" run with the message from its id on: the first 6 bytes are all
-        // the move needs, and the rest of that read is lost either way.
-        foreach (ushort ctrlMove in new ushort[] { 0x00e4, 0x00e5 })
-            module.OnPacket(ctrlMove, async p =>
+        // Ctrl + click with the map device open, for the items that are not Atlas Idols: a map moves with one of these, and
+        // without them the click reached no one and the map had to be dragged in.
+        foreach (ushort clicked in new[] { InstanceMapDevice.MoveIntoDeviceId, InstanceMapDevice.MoveOutOfDeviceId })
+            GameEvents.Packet(clicked).Add(module.Manifest.Id, async (player, bytes) =>
             {
-                var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
-                if (bytes.Length < 6) return true;
-                uint itemId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2));
-                Console.WriteLine($"[gateway] {remote} <= 0x{ctrlMove:x4} Ctrl + click item {itemId} on the map device ({bytes.Length} B)");
-                await MoveToMapDevice(remote, stream, ciphers, conn, new InstanceMapDevice.Move(itemId, 0, ctrlMove == 0x00e4, 0, 0));
+                var click = InstanceMapDevice.ReadItemClick(bytes);
+                // Which way it goes is where the item is, so the message's own direction flag is not needed here
+                // (ItemMoves.MoveToMapDevice says so): a click in the inventory takes it in, one in the slots takes it out.
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{clicked:x4} Ctrl + click item {click.ItemId} on the map device " +
+                    $"({(click.IntoDevice ? "into" : "out")}, device 0x{click.Device:x})");
+                await MoveToMapDevice(player,
+                    new InstanceMapDevice.Move(click.ItemId, click.Flags, click.IntoDevice, 0, 0));
                 return true;
             });
     }

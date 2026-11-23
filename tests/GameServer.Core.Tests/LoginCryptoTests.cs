@@ -91,12 +91,11 @@ public class LoginCryptoTests
     }
 
     /// <summary>Uses the real client: generate keys from it, patch a copy, then handshake with values read back from
-    /// the patched image the way the client would. Skips silently when Client/Game.exe is not present.</summary>
-    [Fact]
+    /// the patched image the way the client would.</summary>
+    [ClientExeFact]
     public void Patched_client_image_handshakes_with_generated_keys()
     {
-        string? exe = FindClient();
-        if (exe is null) return;
+        string exe = ClientExeFactAttribute.Exe!;
         var image = new ClientImage(File.ReadAllBytes(exe));
         var original = image.ReadVerifyKey();
         Assert.Equal(2048, original.P.GetBitLength());
@@ -138,15 +137,5 @@ public class LoginCryptoTests
         serverCiphers.Send.Process(down);
         clientCiphers.Receive.Process(down);
         Assert.Equal("server to client", Encoding.ASCII.GetString(down));
-    }
-
-    private static string? FindClient()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            string p = Path.Combine(dir.FullName, "Client", "Game.exe");
-            if (File.Exists(p)) return p;
-        }
-        return null;
     }
 }

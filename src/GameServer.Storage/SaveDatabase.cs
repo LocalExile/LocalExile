@@ -4,11 +4,15 @@ using Microsoft.Data.Sqlite;
 namespace GameServer.Storage;
 
 /// <summary>
-/// The saves of player progress in one SQLite file: one row per character and per account stash, the save as JSON.
+/// The player databases (Agents/docs/dev/databases.md): <c>characters.db</c> (character saves, stashes, the login
+/// character list, friends) with <c>auth.db</c> (accounts) attached as <c>auth</c>, so a table of either is named
+/// without its database. Both are built and updated from <c>sql/</c> (<see cref="SqlUpdater"/>) when opened.
 /// Write-ahead log with synchronous=FULL: a committed transaction survives a crash or a power cut, and one that did not
 /// commit leaves nothing behind. Every write runs in a transaction (<see cref="Atomically{T}"/>), so changes that belong
-/// together (an item leaving the stash and entering the inventory) are saved together or not at all.
-/// <para>Several processes may open the file (the Gateway saves, Auth sets deleted characters aside); a write waits for
+/// together (an item leaving the stash and entering the inventory) are saved together or not at all. The rows written
+/// together (a deleted character and its save set aside) are in one file; a transaction across both files is atomic in
+/// each of them only.
+/// <para>Several processes may open the files (the Gateway saves, Auth sets deleted characters aside); a write waits for
 /// another process's transaction to end.</para>
 /// </summary>
 public sealed class SaveDatabase : IDisposable
@@ -19,37 +23,49 @@ public sealed class SaveDatabase : IDisposable
     // Every use of the connection is under this lock, and a transaction holds it from begin to commit: nothing else
     // writes in between. Reentrant, so a transaction can run inside another (it joins it).
     readonly Lock _gate = new();
+    bool _inAtomic;
     SqliteTransaction? _tx;
     List<Action>? _undo;
+    long _ended;
+    SqliteCommand? _dataVersion;
 
+    /// <summary>The characters database.</summary>
     public string Path { get; }
 
-    /// <summary>data/saves.db, or <c>Game_SAVES_DB</c>.</summary>
-    public static string DefaultPath => Environment.GetEnvironmentVariable("Game_SAVES_DB") ?? System.IO.Path.Combine("data", "saves.db");
+    public string AuthPath { get; }
 
-    public SaveDatabase(string path)
+    /// <summary>data/characters.db, or <c>Game_CHARACTERS_DB</c>.</summary>
+    public static string DefaultPath => Environment.GetEnvironmentVariable("Game_CHARACTERS_DB") ?? System.IO.Path.Combine("data", "characters.db");
+
+    /// <summary>data/auth.db, or <c>Game_AUTH_DB</c>.</summary>
+    public static string DefaultAuthPath => Environment.GetEnvironmentVariable("Game_AUTH_DB") ?? AuthPathFor(DefaultPath);
+
+    /// <summary>The accounts database that goes with a characters database: auth.db beside a characters.db, else
+    /// &lt;name&gt;-auth.db (a copied or scratch database keeps its accounts beside it).</summary>
+    public static string AuthPathFor(string charactersPath)
+    {
+        string folder = System.IO.Path.GetDirectoryName(charactersPath) ?? "";
+        string name = System.IO.Path.GetFileNameWithoutExtension(charactersPath);
+        return System.IO.Path.Combine(folder, name.Equals("characters", StringComparison.OrdinalIgnoreCase) ? "auth.db" : name + "-auth.db");
+    }
+
+    /// <summary>The database from before the split (data/saves.db), migrated when a server first opens the default player
+    /// databases (<see cref="SavesMigration.MigrateIfNeeded"/>).</summary>
+    public static string LegacyPath => System.IO.Path.Combine("data", "saves.db");
+
+    public SaveDatabase(string path, string? authPath = null)
     {
         Path = path;
-        if (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) is { Length: > 0 } folder) Directory.CreateDirectory(folder);
-        // No pooling: closing lets go of the file (Auth opens it for one deletion, tests delete it).
-        _db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
-        _db.Open();
+        AuthPath = authPath ?? (path == DefaultPath ? DefaultAuthPath : AuthPathFor(path));
+        SavesMigration.MigrateIfNeeded(path);
+        SqlUpdater.Update(AuthPath, "auth");
+        _db = SqlUpdater.Open(path);
         try
         {
-            if (Scalar("PRAGMA journal_mode=WAL") is not "wal") throw new IOException($"{path}: SQLite's write-ahead log is not available here");
-            Execute("PRAGMA synchronous=FULL");
-            Execute("PRAGMA busy_timeout=10000");
-            Execute("""
-                CREATE TABLE IF NOT EXISTS characters (name TEXT PRIMARY KEY COLLATE NOCASE, save TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS stashes (account TEXT PRIMARY KEY COLLATE NOCASE, save TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS stash_tabs (account TEXT NOT NULL COLLATE NOCASE, tab INTEGER NOT NULL, items TEXT NOT NULL,
-                    PRIMARY KEY (account, tab)) STRICT;
-                CREATE TABLE IF NOT EXISTS deleted_characters (name TEXT NOT NULL, deleted_utc TEXT NOT NULL, save TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, account TEXT NOT NULL) STRICT;
-                CREATE TABLE IF NOT EXISTS account_characters (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                    created_utc TEXT NOT NULL, character TEXT NOT NULL) STRICT;
-                """);
+            SqlUpdater.Update(_db, "characters");
+            using (var attach = Command("ATTACH DATABASE $path AS auth", ("$path", AuthPath))) attach.ExecuteNonQuery();
+            if (Scalar("PRAGMA auth.journal_mode=WAL") is not "wal") throw new IOException($"{AuthPath}: SQLite's write-ahead log is not available here");
+            Execute("PRAGMA auth.synchronous=FULL");
         }
         catch
         {
@@ -63,17 +79,19 @@ public sealed class SaveDatabase : IDisposable
     /// throws (the exception goes on, after the <see cref="OnRollback"/> actions ran). Inside another transaction it joins
     /// that one, and is saved or undone with it. Keep the work synchronous and short: other writers wait for it.
     /// </summary>
+    public bool InAtomic { get { lock (_gate) return _inAtomic; } }
+
     public T Atomically<T>(Func<T> work)
     {
         lock (_gate)
         {
-            if (_tx is not null) return work();
-            _tx = _db.BeginTransaction();
+            if (_inAtomic) return work();
+            _inAtomic = true;
             _undo = [];
             try
             {
                 T result = work();
-                _tx.Commit();
+                if (_tx is not null) _tx.Commit();
                 return result;
             }
             catch
@@ -83,9 +101,31 @@ public sealed class SaveDatabase : IDisposable
             }
             finally
             {
-                _tx.Dispose();
+                bool hadTx = _tx is not null;
+                _tx?.Dispose();
                 _tx = null;
                 _undo = null;
+                _inAtomic = false;
+                if (hadTx) _ended++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A value that is the same only while nothing in the characters database can have changed: this connection has ended
+    /// no transaction (every write is in one) and no other connection has committed (SQLite's data_version, which also
+    /// sees Auth's process). What was read under one value may be kept and used again while the value stays the same.
+    /// Null inside a transaction, whose reads see its own unfinished writes: read the rows then.
+    /// </summary>
+    public (long Own, long Others)? Unchanged
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_inAtomic) return null;
+                _dataVersion ??= Command("PRAGMA main.data_version");
+                return (_ended, Convert.ToInt64(_dataVersion.ExecuteScalar()));
             }
         }
     }
@@ -102,13 +142,21 @@ public sealed class SaveDatabase : IDisposable
     void Undo()
     {
         // A commit that failed may already have rolled back on its own.
-        try { _tx!.Rollback(); } catch (Exception e) when (e is SqliteException or InvalidOperationException) { }
+        if (_tx is not null)
+            try { _tx.Rollback(); } catch (Exception e) when (e is SqliteException or InvalidOperationException) { }
         foreach (var undo in Enumerable.Reverse(_undo!))
             try { undo(); }
             catch (Exception e) { Console.WriteLine($"[saves] undoing a failed save: {ServerLog.Describe(e)}"); }
     }
 
-    /// <summary>The save stored under <paramref name="key"/>, or null when there is none.</summary>
+    /// <summary>The meta key set once the JSON saves were moved into the save tables (the Gateway's SaveRows.Migrate).</summary>
+    public const string RelationalKey = "relational_saves";
+
+    /// <summary>Whether the JSON saves were moved into the save tables (character_saves, stash_saves, items ...).</summary>
+    public bool Relational => GetMeta(RelationalKey) is not null;
+
+    /// <summary>The JSON save stored under <paramref name="key"/> in the tables from before the save tables (characters,
+    /// stashes), or null when there is none. Only the import of older saves and the move into the save tables use them.</summary>
     public string? Get(Table table, string key)
     {
         lock (_gate)
@@ -118,7 +166,8 @@ public sealed class SaveDatabase : IDisposable
         }
     }
 
-    /// <summary>Stores <paramref name="save"/> under <paramref name="key"/>, replacing what was there.</summary>
+    /// <summary>Stores a JSON <paramref name="save"/> under <paramref name="key"/> in the tables from before the save
+    /// tables, replacing what was there (the import of older saves).</summary>
     public void Put(Table table, string key, string save) => Atomically(() =>
     {
         using var c = Command($"INSERT INTO {Name(table)} ({KeyColumn(table)}, save) VALUES ($key, $save) " +
@@ -144,10 +193,15 @@ public sealed class SaveDatabase : IDisposable
         c.ExecuteNonQuery();
     });
 
-    /// <summary>Moves a deleted character's save to deleted_characters, so a new character of that name starts over and
-    /// the old one can still be put back by hand. False when it had no save.</summary>
+    /// <summary>Sets a deleted character's save aside (character_saves.deleted_utc), so a new character of that name starts
+    /// over and the old one can still be put back by hand. Before the saves were moved into the save tables, the JSON save
+    /// goes to deleted_characters instead. False when it had no save.</summary>
     public bool SetAside(string character) => Atomically(() =>
     {
+        using (var mark = Command("UPDATE character_saves SET deleted_utc = $at WHERE name = $name AND deleted_utc IS NULL",
+                   ("$name", character), ("$at", DateTime.UtcNow.ToString("O"))))
+            if (mark.ExecuteNonQuery() > 0) return true;
+        if (Relational) return false;
         using var copy = Command("INSERT INTO deleted_characters (name, deleted_utc, save) SELECT name, $at, save FROM characters WHERE name = $name",
             ("$name", character), ("$at", DateTime.UtcNow.ToString("O")));
         if (copy.ExecuteNonQuery() == 0) return false;
@@ -176,14 +230,45 @@ public sealed class SaveDatabase : IDisposable
     static string Name(Table t) => t switch { Table.Characters => "characters", Table.Stashes => "stashes", _ => throw new ArgumentOutOfRangeException(nameof(t)) };
     static string KeyColumn(Table t) => t == Table.Characters ? "name" : "account";
 
+    /// <summary>A text column of a character's save (a column of character_saves, or a JSON property before the move into
+    /// the save tables), or null: Auth's reads of what the Gateway saved.</summary>
+    public string? CharacterText(string character, string column, string property) => Read(() =>
+    {
+        if (column is not ("selected_hideout")) throw new ArgumentException($"no text column {column}", nameof(column));
+        using (var c = Command($"SELECT {column}, 1 FROM character_saves WHERE name = $name AND deleted_utc IS NULL", ("$name", character)))
+        using (var r = c.ExecuteReader())
+            if (r.Read()) return r.IsDBNull(0) ? null : r.GetString(0);
+        if (Relational || Get(Table.Characters, character) is not { } json) return null;
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return doc.RootElement.TryGetProperty(property, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String
+            ? value.GetString() : null;
+    });
+
+    /// <summary>The id of a character's main ascendancy (Ascendancy.dat Id), or null when it has none.</summary>
+    public string? Ascendancy(string character) => Read(() =>
+    {
+        using (var c = Command("SELECT a.ascendancy, 1 FROM character_saves s LEFT JOIN character_ascendancies a ON a.save = s.id " +
+                               "WHERE s.name = $name AND s.deleted_utc IS NULL", ("$name", character)))
+        using (var r = c.ExecuteReader())
+            if (r.Read()) return r.IsDBNull(0) ? null : r.GetString(0);
+        if (Relational || Get(Table.Characters, character) is not { } json) return null;
+        using var save = System.Text.Json.JsonDocument.Parse(json);
+        return save.RootElement.TryGetProperty("MainAscendancy", out var progress) && progress.ValueKind == System.Text.Json.JsonValueKind.Object
+            && progress.TryGetProperty("Selection", out var selection) && selection.ValueKind == System.Text.Json.JsonValueKind.Object
+            && selection.TryGetProperty("Id", out var id) ? id.GetString() : null;
+    });
+
     /// <summary>Runs a read under the connection's lock (inside a transaction, it sees that transaction's writes).</summary>
-    internal T Read<T>(Func<T> read)
+    public T Read<T>(Func<T> read)
     {
         lock (_gate) return read();
     }
 
-    internal SqliteCommand Command(string sql, params (string Name, object Value)[] parameters)
+    /// <summary>A command on the connection, in the current transaction. Use it under <see cref="Read{T}"/> or
+    /// <see cref="Atomically{T}"/>, which hold the connection's lock.</summary>
+    public SqliteCommand Command(string sql, params (string Name, object Value)[] parameters)
     {
+        if (_inAtomic && _tx is null) _tx = _db.BeginTransaction();
         var c = _db.CreateCommand();
         c.CommandText = sql;
         c.Transaction = _tx;
@@ -197,6 +282,10 @@ public sealed class SaveDatabase : IDisposable
 
     public void Dispose()
     {
-        lock (_gate) _db.Dispose();
+        lock (_gate)
+        {
+            _dataVersion?.Dispose();
+            _db.Dispose();
+        }
     }
 }

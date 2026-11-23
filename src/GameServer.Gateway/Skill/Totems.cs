@@ -2,16 +2,17 @@ using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 /// <summary>
 /// The player's summoned totems (Agents/docs/protocol/11-skills.md section 10g): team-0 monster objects of the skill's
-/// SkillTotemVariations variety, kept here rather than in <see cref="ClientState.Monsters"/>, so area hits, monster AI,
+/// SkillTotemVariations variety, kept here rather than in <see cref="Player.Monsters"/>, so area hits, monster AI,
 /// loot, experience and the instance save never see them. A totem dies when its Life reaches 0, its duration ends, a new
 /// one replaces it past the limit, or the player dies (wiki Totem, Soul Mantle); it then plays its death (0x1b1 at 0) and
 /// is removed (0x2bd) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by
-/// the Monsters lock; times are the connection's game seconds.
+/// the area's frame; times are the connection's game seconds.
 /// </summary>
-sealed class TotemState
+public sealed class TotemState
 {
     /// <summary>The death animation's time before the object goes.</summary>
     public const double RemoveSeconds = 1;
@@ -20,19 +21,71 @@ sealed class TotemState
     /// the totem's skill, before aura effect.</summary>
     public sealed record Aura(ushort Row, int Radius, IReadOnlyList<(uint Stat, int Value)> Stats);
 
-    public sealed class Totem(uint id, ushort skillId, (int X, int Y) at, uint maxLife, double until, Aura? aura)
+    /// <summary>What a nova totem (Shockwave Totem) does with its skill: the granted id its object carries for the
+    /// action the client plays and the cells around the totem it hits; the hit itself is worked out at each contact.</summary>
+    public sealed class Strike(ushort grantedId, int radius)
+    {
+        public ushort GrantedId { get; } = grantedId;
+        public int Radius { get; } = radius;
+        /// <summary>When the cast in flight lands its hit (scheduled on the projectile runtime) and the next may start.</summary>
+        public double NextCast;
+    }
+
+    /// <summary>Devouring Totem's meal: what one consumed corpse gives the player, and when the next one is due. The
+    /// amounts are the gem's own per-level `corpse_consumption_life_to_gain` / `_mana_to_gain`.</summary>
+    public sealed class Devour(int life, int mana)
+    {
+        public int Life { get; } = life;
+        public int Mana { get; } = mana;
+        /// <summary>The earliest time of the next meal.</summary>
+        public double NextUse;
+    }
+
+    public sealed class Totem(uint id, ushort skillId, (int X, int Y) at, uint maxLife, double until, Aura? aura,
+        Strike? strike = null, ushort grantedId = 0, Devour? devour = null,
+        int row = 0, string varietyId = "", int level = 0, int effectRow = -1)
     {
         public uint Id => id;
         public ushort SkillId => skillId;
+        /// <summary>The GrantedEffects row the totem was summoned from, the variety it was summoned as, and the level
+        /// its Life was computed at (the gem's <c>PlayerLevelReq</c>). Derivation facts for the lab (the /totems and
+        /// /state listings and the ledger label), which have no gem at hand: the connection's gem list is the player's
+        /// and a totem outlives the socket it came from. This is deliberately NOT <see cref="Effect"/>, which is the
+        /// narrower upstream fact "this totem executes that effect itself" and is -1 for every other totem.</summary>
+        public int EffectRow => effectRow;
+        public int Row => row;
+        public string VarietyId => varietyId;
+        public int Level => level;
         public (int X, int Y) At => at;
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
+        /// <summary>Its nova; null for every other totem (an aura, Devouring Totem, an adopted projectile spell).</summary>
+        public Strike? Strike => strike;
+        /// <summary>The granted-skill id its object carries, so the client can play any action it takes (Devouring Totem
+        /// deals no damage but still acts). 0 when the skill could not be built.</summary>
+        public ushort GrantedId => grantedId;
+        /// <summary>Its corpse meal; null unless it is a Devouring Totem.</summary>
+        public Devour? Devour => devour;
+        public double DecoyRadius { get; init; }
+        public int BodySize { get; init; }
+        public double? TauntAt;
+        /// <summary>A Decoy Totem's chasers: the cell each was last sent to and where it stood then, and the cells an
+        /// order never moved a chaser toward (walled in by other bodies), which no chaser is given again.</summary>
+        public readonly Dictionary<uint, ((int X, int Y) Slot, (int X, int Y) From)> DecoyOrders = [];
+        public readonly HashSet<(int X, int Y)> DecoyUnreachable = [];
+        public int Effect = -1;
+        public uint SourceGem;
+        public uint SourceHost;
+        public Item? SourceItem;
+        public bool Ballista;
+        public int BonusSlots;
+        public double NextCast;
+        public SingleUseCooldownState? Cooldown;
+        public ushort Sequence;
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
-        public uint SentLife = maxLife;
-        public bool SentDeath;
         public bool Alive(double now) => DiedAt is null && Life > 0 && now < Until;
     }
 
@@ -41,16 +94,33 @@ sealed class TotemState
     public uint SentAuraTotem;
     public ushort SentAuraInstance;
 
+    /// <summary>A totem was placed or died before its time (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
     public IReadOnlyList<Totem> All => _totems;
     public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
 
     /// <summary>Adds a totem; the oldest living ones die until at most <paramref name="limit"/> live. The ones it replaced.</summary>
-    public List<Totem> Place(Totem totem, int limit, double now)
+    public List<Totem> Place(Totem totem, int limit, double now, int? ordinaryLimit = null)
     {
         var replaced = new List<Totem>();
-        foreach (var old in Living(now).ToList())
-            if (Living(now).Count() >= limit) { old.DiedAt = now; replaced.Add(old); }
+        void Retire(Totem old) { old.DiedAt = now; replaced.Add(old); }
+        if (ordinaryLimit is int ordinary)
+        {
+            // Ballista-only bonus slots do not let ordinary totems exceed their own cap. Placing one ordinary
+            // totem beside two ballistas must not remove both ballistas as the old all-totem limit of one did.
+            if (!totem.Ballista)
+                foreach (var old in Living(now).Where(t => !t.Ballista).ToArray())
+                    if (Living(now).Count(t => !t.Ballista) >= limit) Retire(old);
+            int bonus = Math.Max(totem.BonusSlots, Living(now).Where(t => t.Ballista).Select(t => t.BonusSlots).DefaultIfEmpty(0).Max());
+            int total = Math.Max(limit, (int)Math.Min(int.MaxValue, (long)ordinary + bonus));
+            while (Living(now).Count() >= total && Living(now).FirstOrDefault() is { } oldest) Retire(oldest);
+        }
+        else
+            foreach (var old in Living(now).ToArray())
+                if (Living(now).Count() >= limit) Retire(old);
         _totems.Add(totem);
+        Changed?.Invoke();
         return replaced;
     }
 
@@ -74,7 +144,9 @@ sealed class TotemState
     /// <summary>Every living totem dies (the player died).</summary>
     public void KillAll(double now)
     {
-        foreach (var t in _totems.Where(t => t.DiedAt is null)) t.DiedAt = now;
+        bool any = false;
+        foreach (var t in _totems.Where(t => t.DiedAt is null)) { t.DiedAt = now; any = true; }
+        if (any) Changed?.Invoke();
     }
 
     /// <summary>The dead totems whose death animation is over leave.</summary>

@@ -1,0 +1,78 @@
+using GameServer.Core.Accounts;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+
+namespace GameServer.Gateway.Tests;
+
+// Cruelty Support (GrantedEffect 11889): "Hits from Supported Skills grant Cruelty", which makes every skill supported
+// by Cruelty deal up to 40% more Damage over Time, based on the damage of the hit. The buff is per supported skill,
+// keeps the strongest running value and refreshes its 4 s duration; its more Damage over Time is added to that skill's
+// own stats while its buff runs, and is presented as one buff (BuffDefinitions 1815) with u82 = 0.
+public sealed class CrueltySupportTests
+{
+    [Fact]
+    public void CrueltyPctFor_rounds_caps_and_handles_degenerate_input()
+    {
+        // 1 / 1000 of maximum life, no increased effect: round(100 * 1 * 0.001^0.2) = round(25.1) = 25.
+        Assert.Equal(25, Game.CrueltyPctFor(1, 1000, 0));
+        // A full-life hit saturates the 40% cap.
+        Assert.Equal(Game.CrueltyMaxPct, Game.CrueltyPctFor(1000, 1000, 0));
+        // Increased Cruelty effect (19%) scales the result: round(100 * 1.19 * 0.001^0.2) = round(29.9) = 30.
+        Assert.Equal(30, Game.CrueltyPctFor(1, 1000, 19));
+        // Damage is clamped to the life the target could lose: overkill never inflates it.
+        Assert.Equal(Game.CrueltyPctFor(500, 1000, 0), Game.CrueltyPctFor(100000, 1000, 0));
+        // No damage, no life or a non-positive maximum life grants nothing.
+        Assert.Equal(0, Game.CrueltyPctFor(0, 1000, 0));
+        Assert.Equal(0, Game.CrueltyPctFor(100, 0, 0));
+        Assert.Equal(0, Game.CrueltyPctFor(100, -5, 0));
+        Assert.Equal(40, Game.CrueltyMaxPct);
+        Assert.Equal(4000, Game.CrueltyDurationMs);
+    }
+
+    [Fact]
+    public void CrueltyOnHit_applies_the_strongest_running_instance_and_a_weaker_one_after_it()
+    {
+        var player = new Player(new(1, "cruelty", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            Character = { Name = "CrueltyChar" },
+            PlayerLife = 1000,
+            PlayerMana = 1000,
+            Instance = new()
+        };
+        var skill = new Dictionary<uint, int>
+        {
+            [Stat.SupportedByCruelty] = 1,
+            [Stat.CrueltyEffectPlusPct] = 0,
+            [Stat.SupportBaseCrueltyDurationMs] = 4000,
+        };
+        const ushort skillId = 0x1234;
+        var monster = new SpawnedMonster("target", new(0, 0, 0), 0, 0, 1000) { Hostile = true };
+
+        // First hit: 1 of 1000 life -> 25% for four seconds.
+        var state = player.SupportGems;
+        Game.CrueltyOnHitLocked(player, skillId, 1, 1000, 1000, skill, 0);
+        Assert.Equal((25, 4.0), state.CrueltyActiveAt(0));
+
+        // A stronger hit applies at once; the weaker instance that ends sooner is gone.
+        Game.CrueltyOnHitLocked(player, skillId, 1000, 1000, 1000, skill, 1);
+        Assert.Equal((40, 5.0), state.CrueltyActiveAt(1));
+        Assert.Single(state.CrueltyInstances);
+
+        // A weaker hit, from this or another supported skill, neither lowers nor extends the running 40: it waits as
+        // its own instance and takes over when the 40 ends.
+        Game.CrueltyOnHitLocked(player, 0x5678, 1, 1000, 1000, skill, 3);
+        Assert.Equal((40, 5.0), state.CrueltyActiveAt(3));
+        Assert.Equal(40, Game.CrueltyActivePct(player, 0x5678));
+        Assert.Equal((25, 7.0), state.CrueltyActiveAt(5));
+        Assert.Equal((0, 0.0), state.CrueltyActiveAt(7));
+
+        // A hit of a running strength refreshes that instance.
+        Game.CrueltyOnHitLocked(player, skillId, 1, 1000, 1000, skill, 4);
+        Assert.Equal((25, 8.0), state.CrueltyActiveAt(5));
+
+        // A skill without the supported_by_cruelty stat never gains the buff.
+        var plain = new Dictionary<uint, int> { [Stat.CrueltyEffectPlusPct] = 0 };
+        Game.CrueltyOnHitLocked(player, 0x9999, 1000, 1000, 1000, plain, 6);
+        Assert.Equal((25, 8.0), state.CrueltyActiveAt(6));
+    }
+}

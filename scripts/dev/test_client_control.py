@@ -8,12 +8,14 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sqlite3
 import sys
 import tempfile
 import time
 import unittest
 from unittest.mock import Mock, call, patch
 
+import clientdb
 import client_control
 from client_control import (
     ClientControl, area_row, arrived, character_name, chat_packet, collect_replies, connection_ports, create_fields,
@@ -47,10 +49,10 @@ class FakeBridge:
 
 
 class MockTables:
-    """A data/tables folder with the rows these tests need (the extracted tables are not in the repository)."""
+    """A client.db with the rows these tests need (data/client.db is not in the repository)."""
     def __enter__(self):
         self.folder = tempfile.TemporaryDirectory()
-        path = Path(self.folder.name)
+        self.db = Path(self.folder.name) / "client.db"
         tables = {
             "Characters": [{"Name": "Marauder"}, {"Name": "Witch"}, {"Name": "Scion"}],
             "CharacterStartStates": [
@@ -61,14 +63,21 @@ class MockTables:
             ],
             "WorldAreas": [{"Id": "1_1_town", "HASH16": 0x235c}, {"Id": "1_1_2", "HASH16": 31442}],
         }
-        for name, rows in tables.items():
-            (path / f"{name}.json").write_text(json.dumps(rows), encoding="utf-8")
-        self.patch = patch("client_control.TABLES", path)
+        with contextlib.closing(sqlite3.connect(self.db)) as db, db:
+            for name, rows in tables.items():
+                columns = list(dict.fromkeys(c for row in rows for c in row))
+                kinds = {c: "INTEGER" if all(isinstance(r.get(c), int) for r in rows) else "TEXT" for c in columns}
+                db.execute(f'CREATE TABLE "{name}" (_row INTEGER PRIMARY KEY, '
+                           + ", ".join(f'"{c}" {kinds[c]}' for c in columns) + ")")
+                db.executemany(f'INSERT INTO "{name}" VALUES ({", ".join("?" * (len(columns) + 1))})',
+                               [[i] + [row.get(c) for c in columns] for i, row in enumerate(rows)])
+        self.patch = patch("client_control.CLIENT_DB", self.db)
         self.patch.start()
-        return path
+        return self.db
 
     def __exit__(self, *unused):
         self.patch.stop()
+        clientdb.close(self.db)
         self.folder.cleanup()
 
 
@@ -353,26 +362,31 @@ class ClientControlLoginTests(unittest.TestCase):
     def advance_time(self, seconds):
         self.elapsed += seconds
 
-    def execute_login(self, statuses):
-        self.control.rpc.side_effect = chain([
+    def execute_login(self, statuses, saved=False):
+        before = [{"screen": "login", "loginState": 0}, {}] if saved else [
             {"screen": "login", "loginState": 0},  # ready
             {},  # connect
             {"screen": "login", "loginState": 2, "lastLoginResult": None},  # handshake
             {},  # login
-        ], statuses)
-        return self.control.execute({"command": "login", "account": "test-only", "password": "test-only"})
+        ]
+        self.control.rpc.side_effect = chain(before, statuses)
+        return self.control.execute({"command": "login:saved"} if saved else
+                                    {"command": "login", "account": "test-only", "password": "test-only"})
 
     def test_login_success_before_authenticated_state_waits_for_character_selection(self):
         pending = {"screen": "login", "loginState": 2, "lastLoginResult": 0}
         authenticated = {**pending, "loginState": 3}
-        characters = {**authenticated, "screen": "characters"}
-
-        result = self.execute_login([pending, authenticated, authenticated, characters])
-
-        self.assertEqual(result, {"running": True, **characters})
-        self.assertEqual(self.sleep.call_args_list, [call(0.05), call(0.05)])
-        self.assertEqual([c.args[0] for c in self.control.rpc.call_args_list],
-                         ["status", "connect", "status", "login", "status", "status", "status", "status"])
+        for screen, saved in ((screen, saved) for screen in ("characters", "creation") for saved in (False, True)):
+            with self.subTest(screen=screen, saved=saved):
+                self.control.rpc.reset_mock()
+                self.sleep.reset_mock()
+                self.elapsed = 0.0
+                characters = {**authenticated, "screen": screen}
+                result = self.execute_login([pending, authenticated, authenticated, characters], saved=saved)
+                self.assertEqual(result, {"running": True, **characters})
+                self.assertEqual(self.sleep.call_args_list, [call(0.05), call(0.05)])
+                before = ["status", "connectSaved"] if saved else ["status", "connect", "status", "login"]
+                self.assertEqual([c.args[0] for c in self.control.rpc.call_args_list], before + ["status"] * 4)
 
     def test_login_nonzero_result_rejects_without_another_poll(self):
         with self.assertRaisesRegex(RuntimeError, r"^Local login rejected \(result 6\)$"):
@@ -549,6 +563,7 @@ class ClientControlCampaignTests(unittest.TestCase):
 
     def test_item_pickup_is_the_default_object_interaction(self):
         self.assertEqual(bytes(interact_packet(1027)), bytes.fromhex("0024" "00000403" "0266" "0000" "0408"))
+        self.assertEqual(bytes(interact_packet(1027, ctrl=True, alt=True))[-2:], bytes.fromhex("060c"))
         bridge = self.bridge()
         self.assertEqual(self.control.execute({"command": "item:pickup", "id": 1027}), {"submitted": True, "id": 1027})
         self.control.execute({"command": "object:interact", "id": 1027})
@@ -559,9 +574,7 @@ class ClientControlCampaignTests(unittest.TestCase):
                 self.control.execute({"command": "item:pickup", "id": bad})
 
 
-@unittest.skipUnless(all((client_control.TABLES / f"{name}.json").exists()
-                         for name in ("WorldAreas", "Characters", "CharacterStartStates")),
-                     "extracted tables (data/tables) are absent")
+@unittest.skipUnless(client_control.CLIENT_DB.exists(), "data/client.db is absent")
 class ExtractedTableTests(unittest.TestCase):
     def test_extracted_tables_give_the_documented_values(self):
         self.assertEqual([start_state({"class": c}) for c in ("Witch", "Ranger", "Scion", "Templar")],

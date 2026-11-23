@@ -1,6 +1,6 @@
 # Phrecia Ascendancies module
 
-`Modules/PhreciaAscendancies` owns the existing Phrecia family's class capabilities, opt-ins,
+`Modules/Legacy/PhreciaAscendancies` owns the existing Phrecia family's class capabilities, opt-ins,
 read-only installed-graph verification, allocated node-stat sources and native graph selector.
 `Leagues/Phrecia/modules.json` explicitly composes it with the standard game modules.
 Any other league can list `PhreciaAscendancies` independently.
@@ -15,13 +15,14 @@ Behemoth adds its descriptor and node sources under `Classes/Behemoth`; its reus
 Whisperer adds its exact Deadeye/Ranger descriptor and reusable Mana/Recoup/Blind engines in a separate dependent PR.
 Harbinger remains separate work.
 Other contributors' classes are not copied into this prerequisite.
-Idols has extracted client data but no gameplay implementation and is a separate task.
-There is no placeholder Idols module or dependency on one.
+Idols are their own module, `Modules/Legacy/Idols`, listed by the league beside this one; neither depends on the other.
+See [Idols](idols.md).
 
 The existing `Game_VERIFIED_GAMBLER`, `Game_VERIFIED_ANTIQUARIAN` and `Game_VERIFIED_ARISTOCRAT`
 opt-ins still require the reviewed combined 3.29.3b graph installed separately.
 Behemoth uses the same read-only boundary behind `Game_VERIFIED_BEHEMOTH=1`.
 Whisperer uses `Game_VERIFIED_WHISPERER=1` and the current packed graph boundary; see [Whisperer](whisperer.md).
+Harbinger uses `Game_VERIFIED_HARBINGER=1`; see [Harbinger](harbinger.md).
 The module verifies the original and alternate graph bytes read-only.
 It never installs, repairs or writes the client archive.
 Normal and unascended characters have no alternate-graph verification requirement.

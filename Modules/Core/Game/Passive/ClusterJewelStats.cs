@@ -4,8 +4,11 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>
 /// What a socketed cluster jewel's passives give the character.
 ///
-/// A cluster jewel's small passives all grant its theme ("Added Small Passive Skills grant: ..."), its notables grant the
-/// stats of their <c>affliction_notable_*</c> rows, and its jewel sockets grant nothing.
+/// A cluster jewel's small passives all grant its theme ("Added Small Passive Skills grant: ..."): the stats of the
+/// passive its enchantment names (<see cref="ClusterJewels.ThemeOf"/>), and on top what its "also grant" affixes add.
+/// Its notables grant the stats of their <c>affliction_notable_*</c> rows, and its jewel sockets grant nothing. A jewel
+/// made before the server wrote themes names none: its small passives are the client's empty "Nothingness" and grant
+/// only the "also grant" mods, wherever on the item those are.
 ///
 /// A jewel in a tree socket is mapped by <see cref="ClusterJewelLayout"/>: its small passives grant the theme as they are
 /// allocated, its sockets give nothing, and each notable position applies its own notable's row. A 4-passive medium in an
@@ -13,42 +16,61 @@ using GameServer.Core.Protocol.Instance;
 /// has not measured yet counts once all of its passives are allocated, with the theme on its smalls and every notable's
 /// row, and its own socket excluded from the count.
 /// </summary>
-static class ClusterJewelStats
+public static class ClusterJewelStats
 {
-    /// <summary>The theme statistic's target: the character stat each <c>local_affliction_jewel_small_nodes_grant_*</c>
-    /// feeds. Stats the server does not read (or has no model for, such as the per-skill-type speed grants) are absent,
-    /// so a theme that only has those grants nothing.</summary>
-    static readonly Dictionary<string, string> ThemeStats = new(StringComparer.Ordinal)
+    /// <summary>The target of an "also grant" mod: the character stat each
+    /// <c>local_affliction_jewel_small_nodes_grant_*</c> feeds. Stats the server does not read (or has no model for, such
+    /// as the per-skill-type speed grants) are absent, so a mod that only has those grants nothing.</summary>
+    static readonly Dictionary<uint, uint> ThemeStats = new()
     {
-        ["local_affliction_jewel_small_nodes_grant_maximum_life"] = "base_maximum_life",
-        ["local_affliction_jewel_small_nodes_grant_maximum_mana"] = "base_maximum_mana",
-        ["local_affliction_jewel_small_nodes_grant_maximum_energy_shield"] = "base_maximum_energy_shield",
-        ["local_affliction_jewel_small_nodes_grant_armour"] = "base_physical_damage_reduction_rating",
-        ["local_affliction_jewel_small_nodes_grant_evasion"] = "base_evasion_rating",
-        ["local_affliction_jewel_small_nodes_grant_str"] = "additional_strength",
-        ["local_affliction_jewel_small_nodes_grant_dex"] = "additional_dexterity",
-        ["local_affliction_jewel_small_nodes_grant_int"] = "additional_intelligence",
-        ["local_affliction_jewel_small_nodes_grant_all_attributes"] = "additional_all_attributes",
-        ["local_affliction_jewel_small_nodes_grant_fire_resistance_%"] = "base_fire_damage_resistance_%",
-        ["local_affliction_jewel_small_nodes_grant_cold_resistance_%"] = "base_cold_damage_resistance_%",
-        ["local_affliction_jewel_small_nodes_grant_lightning_resistance_%"] = "base_lightning_damage_resistance_%",
-        ["local_affliction_jewel_small_nodes_grant_chaos_resistance_%"] = "base_chaos_damage_resistance_%",
-        ["local_affliction_jewel_small_nodes_grant_elemental_resistance_%"] = "base_resist_all_elements_%",
-        ["local_affliction_jewel_small_nodes_grant_damage_+%"] = "damage_+%",
-        ["local_affliction_jewel_small_nodes_grant_attack_speed_+%"] = "attack_speed_+%",
-        ["local_affliction_jewel_small_nodes_grant_base_cast_speed_+%"] = "base_cast_speed_%",
-        ["local_affliction_jewel_small_nodes_grant_mana_regeneration_+%"] = "mana_regeneration_rate_+%",
-        ["local_affliction_jewel_small_nodes_grant_%_life_regeneration_per_minute"] = "life_regeneration_rate_per_minute_%",
-        ["local_affliction_jewel_small_nodes_grant_base_critical_strike_multiplier_+"] = "base_critical_strike_multiplier_+",
+        [Stat.LocalAfflictionJewelSmallNodesGrantMaximumLife] = Stat.BaseMaximumLife,
+        [Stat.LocalAfflictionJewelSmallNodesGrantMaximumMana] = Stat.BaseMaximumMana,
+        [Stat.LocalAfflictionJewelSmallNodesGrantMaximumEnergyShield] = Stat.BaseMaximumEnergyShield,
+        [Stat.LocalAfflictionJewelSmallNodesGrantArmour] = Stat.BasePhysicalDamageReductionRating,
+        [Stat.LocalAfflictionJewelSmallNodesGrantEvasion] = Stat.BaseEvasionRating,
+        [Stat.LocalAfflictionJewelSmallNodesGrantStr] = Stat.AdditionalStrength,
+        [Stat.LocalAfflictionJewelSmallNodesGrantDex] = Stat.AdditionalDexterity,
+        [Stat.LocalAfflictionJewelSmallNodesGrantInt] = Stat.AdditionalIntelligence,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAllAttributes] = Stat.AdditionalAllAttributes,
+        [Stat.LocalAfflictionJewelSmallNodesGrantFireResistancePct] = Stat.BaseFireDamageResistancePct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantColdResistancePct] = Stat.BaseColdDamageResistancePct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantLightningResistancePct] = Stat.BaseLightningDamageResistancePct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantChaosResistancePct] = Stat.BaseChaosDamageResistancePct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantElementalResistancePct] = Stat.BaseResistAllElementsPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantDamagePlusPct] = Stat.DamagePlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackSpeedPlusPct] = Stat.AttackSpeedPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantBaseCastSpeedPlusPct] = Stat.Of("base_cast_speed_%"),
+        [Stat.LocalAfflictionJewelSmallNodesGrantManaRegenerationPlusPct] = Stat.ManaRegenerationRatePlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantPctLifeRegenerationPerMinute] = Stat.LifeRegenerationRatePerMinutePct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantBaseCriticalStrikeMultiplierPlus] = Stat.BaseCriticalStrikeMultiplierPlus,
     };
 
     const string NotablePrefix = "local_affliction_notable_";
     const string KeystonePrefix = "local_jewel_expansion_keystone_";
 
-    /// <summary>The item's mods as (stat id, value) pairs, every section, in item order.</summary>
-    public static List<(string Stat, int Value)> Entries(Item jewel)
+    // The item's local stat and the PassiveSkills ID sometimes use different names.
+    public static PassiveTree.Node? Keystone(Item jewel, PassiveTree? tree = null)
     {
-        var entries = new List<(string Stat, int Value)>();
+        foreach (var (stat, value) in Entries(jewel))
+        {
+            string name = Program.Stats.Name(stat);
+            if (value == 0 || !name.StartsWith(KeystonePrefix, StringComparison.Ordinal)) continue;
+            string suffix = name[KeystonePrefix.Length..] switch
+            {
+                "hollow_palm_technique" => "dragon_style",
+                "natures_patience" => "nature's_patience",
+                "veterans_awareness" => "veteran's_awareness",
+                var id => id,
+            };
+            if ((tree ?? Program.Passives).FindById("affliction_keystone_" + suffix) is { IsKeystone: true } node) return node;
+        }
+        return null;
+    }
+
+    /// <summary>The item's mods as (stat id, value) pairs, every section, in item order.</summary>
+    public static List<(uint Stat, int Value)> Entries(Item jewel)
+    {
+        var entries = new List<(uint Stat, int Value)>();
         foreach (var mod in jewel.Mods)
             if (Program.Items.Mods.ByHash(mod.Hash) is { } row)
                 for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
@@ -57,10 +79,10 @@ static class ClusterJewelStats
     }
 
     /// <summary>The stats of every socketed cluster jewel's allocated passives.</summary>
-    public static IEnumerable<(uint Key, int Value)> For(ClientState conn, IReadOnlyList<InventoryItem> jewels,
+    public static IEnumerable<(uint Key, int Value)> For(Player player, IReadOnlyList<InventoryItem> jewels,
         ModCatalog mods, StatCatalog stats)
     {
-        if (conn.ClusterPassives.Count == 0) yield break;
+        if (player.Character.ClusterPassives.Count == 0) yield break;
         // A tree socket has a mapped block: its small passives give the theme as they are taken, its sockets nothing,
         // and its notables' rows come once every passive is allocated. The ids outside every such block belong to the
         // expansion cells, which have no mapped block and count once their passives are all allocated.
@@ -69,13 +91,17 @@ static class ClusterJewelStats
         {
             if (ClusterJewelLayout.For(item.X, item.Item) is not { } layout) continue;
             int inside = 0;
-            foreach (ushort id in conn.ClusterPassives)
+            foreach (ushort id in player.Character.ClusterPassives)
             {
                 if (id < layout.Base || id >= layout.Base + layout.Total) continue;
                 inside++;
                 int offset = id - layout.Base;
                 switch (layout.ByOffset.GetValueOrDefault(offset))
                 {
+                    case ClusterJewelLayout.Kind.Keystone:
+                        if (Keystone(item.Item, Game.PassivesFor(player)) is { } keystone)
+                            foreach (var stat in keystone.Stats) yield return stat;
+                        break;
                     case ClusterJewelLayout.Kind.Small:
                         foreach (var stat in Theme(item.Item, 1, mods, stats)) yield return stat;
                         break;
@@ -88,7 +114,7 @@ static class ClusterJewelStats
             }
             known += inside;
         }
-        int left = conn.ClusterPassives.Count - known;
+        int left = player.Character.ClusterPassives.Count - known;
         foreach (var item in jewels)
         {
             if (ClusterJewelLayout.For(item.X, item.Item) is not null) continue;
@@ -98,8 +124,8 @@ static class ClusterJewelStats
             if (taken >= passives)
             {
                 var entries = Entries(item.Item);
-                int notables = entries.Count(e => e.Stat.StartsWith(NotablePrefix, StringComparison.Ordinal));
-                int keystones = entries.Count(e => e.Stat.StartsWith(KeystonePrefix, StringComparison.Ordinal));
+                int notables = entries.Count(e => Program.Stats.Name(e.Stat).StartsWith(NotablePrefix, StringComparison.Ordinal));
+                int keystones = entries.Count(e => Program.Stats.Name(e.Stat).StartsWith(KeystonePrefix, StringComparison.Ordinal));
                 int smalls = Math.Max(0, passives - notables - keystones);
                 foreach (var stat in Theme(item.Item, smalls, mods, stats)) yield return stat;
                 for (int order = 0; order < notables; order++)
@@ -110,34 +136,44 @@ static class ClusterJewelStats
         }
     }
 
-    /// <summary>The theme for `smalls` small passives of this jewel, scaled by its small-passive effect.</summary>
+    /// <summary>What `smalls` small passives of this jewel grant: its theme's own stats and its "also grant" mods, both
+    /// scaled by its small-passive effect.</summary>
     static IEnumerable<(uint Key, int Value)> Theme(Item jewel, int smalls, ModCatalog mods, StatCatalog stats)
     {
         if (smalls <= 0) yield break;
         var entries = Entries(jewel);
-        int effect = 100 + entries.Where(e => e.Stat == "local_affliction_jewel_small_nodes_have_effect_+%").Sum(e => e.Value);
+        int effect = 100 + entries.Where(e => e.Stat == Stat.LocalAfflictionJewelSmallNodesHaveEffectPlusPct).Sum(e => e.Value);
+        if (Program.Items.ByHash(jewel.TypeHash) is { } type && ClusterJewels.ThemeOf(type, jewel) is { } theme
+            && Program.Passives.FindById(theme.Passive) is { } passive)
+            foreach (var (key, value) in passive.Stats)
+                yield return (key, (int)Math.Floor(value * smalls * effect / 100.0));
         foreach (var (stat, value) in entries)
         {
-            if (!ThemeStats.TryGetValue(stat, out string? target)) continue;
-            if (stats.Key(target) is not uint key) continue;
+            if (!ThemeStats.TryGetValue(stat, out uint key)) continue;
             yield return (key, (int)Math.Floor(value * smalls * effect / 100.0));
         }
     }
 
     /// <summary>The jewel's notables in the client's placement order: ascending Stats.dat row of their notable stat
     /// (Path of Building's notableSortOrder). The layout's notable positions take them in this order.</summary>
-    public static List<string> Notables(Item jewel) =>
-        [.. Entries(jewel).Where(e => e.Stat.StartsWith(NotablePrefix, StringComparison.Ordinal))
-            .Select(e => (e.Stat, Key: Program.Stats.Key(e.Stat) ?? uint.MaxValue))
-            .OrderBy(x => x.Key)
-            .Select(x => x.Stat)];
+    public static List<uint> Notables(Item jewel) =>
+        [.. Entries(jewel).Select(e => e.Stat)
+            .Where(s => Program.Stats.Name(s).StartsWith(NotablePrefix, StringComparison.Ordinal)).Order()];
 
     /// <summary>The stats of the notable at that position in the jewel's mods.</summary>
     static IEnumerable<(uint Key, int Value)> Notable(Item jewel, int order)
     {
         var notables = Notables(jewel);
         if (order >= notables.Count) yield break;
-        string row = "affliction_notable_" + notables[order][NotablePrefix.Length..];
+        string suffix = Program.Stats.Name(notables[order])[NotablePrefix.Length..] switch
+        {
+            "arcane_focus" => "arcane_adept",
+            "summer_commander" => "fiery_commander",
+            "winter_commander" => "icy_commander",
+            "grounded_commander" => "shocking_commander",
+            var id => id,
+        };
+        string row = "affliction_notable_" + suffix;
         if (Program.Passives.FindById(row) is not { } node) yield break;
         foreach (var (key, value) in node.Stats) yield return (key, value);
     }

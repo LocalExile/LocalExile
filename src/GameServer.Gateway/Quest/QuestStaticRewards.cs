@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// QuestStaticRewards.dat (Agents/docs/protocol/12-quests.md §5): what a quest flag gives for good. Column 1 is passive skill
@@ -10,9 +11,15 @@ using System.Text.Json;
 /// points_from_level, skill_points_from_passives and extra_skill_points, 15-progression.md §2), so the server sends them
 /// there. Refund points are spent, so a flag credits its refund points once (the save's QuestRefundsCredited).</para>
 /// </summary>
-sealed class QuestStaticRewards
+public sealed class QuestStaticRewards
 {
-    public sealed record Reward(string Flag, int PassivePoints, int AscendancyPoints, int RefundPoints, IReadOnlyList<(string Stat, int Value)> Stats);
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Default = Load();
+    }
+
+    public sealed record Reward(string Flag, int PassivePoints, int AscendancyPoints, int RefundPoints, IReadOnlyList<(uint Stat, int Value)> Stats);
 
     readonly Dictionary<string, Reward> byFlag = new(StringComparer.Ordinal);
     public IReadOnlyCollection<Reward> Rewards => byFlag.Values;
@@ -33,37 +40,34 @@ sealed class QuestStaticRewards
 
     /// <summary>The permanent stats the flags give, summed per stat. Flags every character has (Quests.EveryCharacter, e.g.
     /// EndGameAvailable, whose row is Kitava's Act 10 penalty) are not quest progress and give nothing here.</summary>
-    public Dictionary<string, int> Stats(IEnumerable<string> flags)
+    public Dictionary<uint, int> Stats(IEnumerable<string> flags)
     {
-        var sum = new Dictionary<string, int>(StringComparer.Ordinal);
+        var sum = new Dictionary<uint, int>();
         foreach (var f in flags.Distinct().Where(f => !Quests.EveryCharacter.Contains(f)))
             foreach (var (stat, value) in Find(f)?.Stats ?? [])
                 sum[stat] = sum.GetValueOrDefault(stat) + value;
         return sum;
     }
 
-    public static readonly Lazy<QuestStaticRewards> Default = new(() => Load());
+    public static QuestStaticRewards Default = default!;
 
     public static QuestStaticRewards Load(string folder = "data")
     {
         var result = new QuestStaticRewards();
-        string table = Path.Combine(folder, "tables", "QuestStaticRewards.json"), flagsFile = Path.Combine(folder, "tables", "QuestFlags.json"),
-            statsFile = Path.Combine(folder, "tables", "Stats.json");
-        if (!File.Exists(table) || !File.Exists(flagsFile)) return result;
+        if (!ClientTables.Has("QuestStaticRewards") || !ClientTables.Has("QuestFlags")) return result;
         string[] flags, stats = [];
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(flagsFile)))
-            flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
-        if (File.Exists(statsFile))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(statsFile)))
-                stats = [.. doc.RootElement.EnumerateArray().Select(s => s.GetProperty("Id").GetString() ?? "")];
-        using var rows = JsonDocument.Parse(File.ReadAllBytes(table));
-        foreach (var r in rows.RootElement.EnumerateArray())
+        flags = [.. ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "")];
+        if (ClientTables.Has("Stats"))
         {
-            if (r.GetProperty("QuestFlag") is not { ValueKind: JsonValueKind.Number } fv || fv.GetInt32() is not (>= 0 and var f) || f >= flags.Length) continue;
-            int Int(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
-            var keys = r.TryGetProperty("StatsKeys", out var sk) ? sk.EnumerateArray().Select(k => k.GetInt32()).ToArray() : [];
-            var values = r.TryGetProperty("StatValues", out var sv) ? sv.EnumerateArray().Select(k => k.GetInt32()).ToArray() : [];
-            var statList = keys.Zip(values).Where(p => p.First >= 0 && p.First < stats.Length).Select(p => (stats[p.First], p.Second)).ToList();
+            stats = [.. ClientTables.Table("Stats").Select(s => s.Text("Id") ?? "")];
+        }
+        foreach (var r in ClientTables.Table("QuestStaticRewards"))
+        {
+            if (r.IntOrNull("QuestFlag") is not int fv || fv is not (>= 0 and var f) || f >= flags.Length) continue;
+            int Int(string name) => (r.IntOrNull(name) ?? 0);
+            var keys = r.Ints("StatsKeys");
+            var values = r.Ints("StatValues");
+            var statList = keys.Zip(values).Where(p => p.First >= 0 && p.First < stats.Length).Select(p => ((uint)p.First + 1, p.Second)).ToList();
             result.byFlag[flags[f]] = new(flags[f], Int("__col1"), Int("__col5"), Int("__col7"), statList);
         }
         return result;

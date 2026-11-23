@@ -1,0 +1,4 @@
+-- Generated table passive_graphs: new, 2 rows. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "passive_graphs" ("_row", "graph", "source", "sha256", "roots", "orbits") VALUES
+(0, 'normal', 'metadata/passiveskillgraph.psg', '82D82CD3CD2DAD81606AF0DA9D18FCD53B2E92CF006550947D65A4F7E102DC32', '[50459,47175,50986,61525,54447,44683,58833,9414,42328,10622,17297,542,9086,10861,9920,31958,37815,41389,9939,63630,8133,7600,35214]', '[1,6,16,16,40,72,72]'),
+(1, 'phrecia', 'derived: ordinary/Bloodline tree with original Phrecia main ascendancies', 'F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A425196CC93D638', '[50459,47175,50986,61525,54447,44683,58833,9414,42328,10622,17297,542,9086,10861,9920,31958,37815,41389,9939,63630,8133,7600,35214]', '[1,6,16,16,40,72,72]');

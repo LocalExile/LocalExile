@@ -1,12 +1,13 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// NPCs (Agents/docs/protocol/17-npcs.md): NPCs.dat rows from the extracted tables with their object type's deserialized
 /// components (data/object-types.json), and where each town's NPCs stand: the NPC lines of the town's room (.arm) through
 /// the client's room placement (TownNpcs, 17-npcs.md §2).
 /// </summary>
-sealed class NpcCatalog
+public sealed class NpcCatalog
 {
     /// <summary>An NPCs.dat row. <paramref name="ShopRow"/>: the NPCShop row of its ShopSet (NPCShopSets.Shop), −1 for none.</summary>
     public sealed record Npc(int Row, string Id, string Name, IReadOnlyList<string>? Components, StateMachineData? StateMachine,
@@ -24,6 +25,14 @@ sealed class NpcCatalog
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
 
+    /// <summary>The keys held on a click that pick one of an NPC's options at once, as NPCTalk's <c>__col22</c> numbers
+    /// them (4 there is none): Ctrl + click on Nessa sells, Alt + click buys, both identify (17-npcs.md §3).</summary>
+    public enum Shortcut { None = 0, Ctrl = 1, Alt = 2, CtrlAlt = 3 }
+
+    /// <summary>The shortcut a click with these keys held asks for.</summary>
+    public static Shortcut ShortcutFor(bool ctrl, bool alt) =>
+        ctrl ? alt ? Shortcut.CtrlAlt : Shortcut.Ctrl : alt ? Shortcut.Alt : Shortcut.None;
+
     /// <summary>An NPCTalk row: the NPC's dialogue option <paramref name="Index"/> (column 1, what C→S 0x82 carries), its
     /// NPCTalkCategory Id (Gossip, Quests, BuyItems, SellItems, IdentifyItems, RespecPassivePointsForGold …), script and
     /// NPCTextAudio rows.</summary>
@@ -33,8 +42,13 @@ sealed class NpcCatalog
         /// (the character's list has no argument or 0).</summary>
         public bool OpensGuildHideouts => System.Text.RegularExpressions.Regex.IsMatch(Script, @"HideoutSelectionWindow\s*,\s*1\s*\)");
         public bool Introduction { get; init; }
+        /// <summary>The keys that pick this row on the click itself (NPCTalk <c>__col22</c>).</summary>
+        public Shortcut Shortcut { get; init; }
         public bool Automatic { get; init; }
         public bool AutomaticContextSupported { get; init; }
+        /// <summary>Like <see cref="AutomaticContextSupported"/>, but permits league quest flag columns (<c>__col15</c>,
+        /// <c>__col16</c>, <c>__col17</c> != 1, <c>__col18</c>, <c>__col19</c>) for NPCs that opt into league-flag filtering.</summary>
+        public bool AutomaticLeagueContextSupported { get; init; }
         public int Priority { get; init; }
         public IReadOnlyList<string> RequiredFlags { get; init; } = [];
         public IReadOnlyList<string> ExcludedFlags { get; init; } = [];
@@ -42,12 +56,30 @@ sealed class NpcCatalog
         /// quest's next step: Tarkleigh's first "Dweller of the Deep" has a1q7-ReceivedQuest, the second a1q7-Congratulated).
         /// Of two rows with the same text, the one not heard yet is the quest's next.</summary>
         public IReadOnlyList<string> HeardFlags { get; init; } = [];
+        /// <summary>NPCTalk column 15: league quest flags the row marks as heard. Later rows need them in column 16
+        /// (Kirac's "The Elderslayers" needs 998 from "Brother"; "Elder Reward" needs 994 from "The Elder").</summary>
+        public IReadOnlyList<int> HeardLeagueFlags { get; init; } = [];
         public string? StartFlag { get; init; }
         public string? FinishFlag { get; init; }
         public int? RewardOffer { get; init; }
         /// <summary>The row's second script (NPCTalk Script2).</summary>
         public string Script2 { get; init; } = "";
+        /// <summary>NPCTalk <c>__col17</c>: league quest flag set when chosen (1 is the manual-only sentinel, 1911 is none).</summary>
+        public int? StartLeagueFlag { get; init; }
+        /// <summary>NPCTalk <c>__col19</c>: league quest flag set when finished (1 is the sentinel, 1911 is none).</summary>
+        public int? FinishLeagueFlag { get; init; }
+        /// <summary>NPCTalk <c>__col15</c>: the LeagueQuestFlags rows the row sets when chosen. Data only: 1168 rows of
+        /// many leagues use these three columns (1911 is the "none" sentinel of <c>__col17/__col19</c>), and the server
+        /// applies them only for NPCs that opt in via <see cref="GameEvents.NpcUsesLeagueFlags"/>. The client already
+        /// filters what it shows by them.</summary>
+        public IReadOnlyList<int> LeagueFlagsSet { get; init; } = [];
+        /// <summary>NPCTalk <c>__col16</c>: the LeagueQuestFlags rows the row requires (see <see cref="LeagueFlagsSet"/>).</summary>
+        public IReadOnlyList<int> LeagueFlagsRequired { get; init; } = [];
+        /// <summary>NPCTalk <c>__col18</c>: the LeagueQuestFlags rows that hide the row (see <see cref="LeagueFlagsSet"/>).</summary>
+        public IReadOnlyList<int> LeagueFlagsRefused { get; init; } = [];
         public bool Available(IReadOnlySet<string> flags) => RequiredFlags.All(flags.Contains) && !ExcludedFlags.Any(flags.Contains);
+        public bool Available(IReadOnlySet<string> flags, IReadOnlySet<int> leagueFlags) =>
+            Available(flags) && LeagueFlagsRequired.All(leagueFlags.Contains) && !LeagueFlagsRefused.Any(leagueFlags.Contains);
 
         // A call names one flag or several: Eramir's "Bandit Amulets" (NPCTalk 95) has
         // SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets").
@@ -120,11 +152,14 @@ sealed class NpcCatalog
     static readonly Dictionary<ushort, Placement[]> Towns = new()
     {
         // The Azurite Mine Encampment (Delve_Hub, HASH16 0x8b9b): Niko by the waypoint (333, 402) and the arrival
-        // (330, 420); our own cell (2026-10-21). The hideout Niko's row: the hub's own (DelveMinerHub) lists no Sell Items.
-        [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHideout", 342, 410, 4.0f)],
-        // The Menagerie (Menagerie_Hub): Einhar placed live with /npc_place Einhar 495 485 290 (2026-10-30). The hideout
-        // Einhar's row: EinharMenagerie has no .ot in the GGPK, and the client drew it without a model.
-        [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharHideout", 495, 485, 290 * MathF.PI / 180)],
+        // (330, 420); our own cell (2026-10-21). DelveMinerHub lists View Subterranean Chart, Flares and Dynamite
+        // (row 1754, completing delve2), Fractured Walls, Sell Items (row 1788) and Identify Items (row 1800).
+        [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHub", 342, 410, 4.0f)],
+        // The Menagerie (Menagerie_Hub): Einhar placed live with /npc_place Einhar 495 485 290 (2026-10-30).
+        // EinharMenagerie has no .ot of its own (Metadata/NPC/NPC), so pass the room line's model (entrance.arm) so he
+        // renders with Einhar's model while keeping the Menagerie's own NPCTalk rows ("The Blood Altar", row 1600).
+        [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharMenagerie", 495, 485, 290 * MathF.PI / 180,
+            Model: "Metadata/NPC/League/Bestiary/Einhar.ao")],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
         // Kingsmarch (KalguuranSettlersLeague): each NPC on the cell and facing its own room line gives it (offsets from the
         // arrival at (590, 655): the room's cell in the comment, FromArrival), to be placed live with /npc_place.
@@ -159,9 +194,8 @@ sealed class NpcCatalog
             new("Metadata/NPC/League/Heist/Illusionist1", 10, -15, 4.0f),
             new("Metadata/NPC/League/Heist/Engineer1", 16, -8, 4.0f),
         ],
-        // The Monastery of the Keepers (ChayulaLeague): Ailith by the arrival (an offset, StashCatalog.FromArrival), to be
-        // placed live with /npc_place.
-        [StashCatalog.ChayulaHub] = [new("Metadata/NPC/League/Chayula/ChayulaFarmerHub", 0, -16, 4.0f)],
+        // The Monastery of the Keepers (ChayulaLeague): Ailith (ChayulaFarmerHub, ControlZone) comes with her live placement
+        // (/npc_place); an offset from the arrival is a guess.
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 
@@ -203,10 +237,30 @@ sealed class NpcCatalog
             && t.StartFlag is { } start && !flags.Contains(start) && t.Available(flags))
         .OrderByDescending(t => t.Priority).FirstOrDefault();
 
+    public Talk? NextConversationOf(Npc npc, IReadOnlySet<string> flags, IReadOnlySet<int> visited, IReadOnlySet<int> leagueFlags) => TalksOf(npc)
+        .Where(t => t.Automatic && (t.AutomaticContextSupported || t.AutomaticLeagueContextSupported) && !visited.Contains(t.Row)
+            && (t.Introduction || t.Category is "Quests" or "QuestReward")
+            && (t.StartFlag is { } start && !flags.Contains(start)
+                || t.StartLeagueFlag is int startLeague && !leagueFlags.Contains(startLeague))
+            && t.Available(flags, leagueFlags))
+        .OrderByDescending(t => t.Priority).FirstOrDefault();
+
+    /// <summary>The option a click with <paramref name="keys"/> held picks: the NPC's first row with that shortcut whose
+    /// quest flags the character meets (rows that share one differ in them: Alva's "View Temple" in the player's own
+    /// hideout, else "Sell Items"). The rows' other conditions (17-npcs.md §3) are not read, as for a picked option.</summary>
+    public Talk? ShortcutOf(Npc npc, Shortcut keys, IReadOnlySet<string> flags) =>
+        keys == Shortcut.None ? null : TalksOf(npc).FirstOrDefault(t => t.Shortcut == keys && t.Available(flags));
+
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
     {
         int source = TalkSource(npc).Row;
         return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags));
+    }
+
+    public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags, IReadOnlySet<int> leagueFlags)
+    {
+        int source = TalkSource(npc).Row;
+        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags, leagueFlags));
     }
 
     /// <summary>The quest reward offers any NPC currently shows (the quests complete), for the vendors' gem stock.</summary>
@@ -230,6 +284,8 @@ sealed class NpcCatalog
         new("Metadata/NPC/Epilogue/KiracHideout", 249, 358, 4.0f),
         new("Metadata/NPC/Epilogue/LillyHideout", 235, 372, 4.0f),
         new("Metadata/NPC/League/Bestiary/EinharHideout", 242, 365, 4.0f),
+        // Last, and two steps past Helena on screen: on every hideout's floor this moves nothing placed before or after him.
+        new("Metadata/NPC/League/Kalguur/VillageFaustusHideout", 284, 323, 4.0f),
     ];
 
     public static IReadOnlyList<Placement> HideoutNpcs => Hideout;
@@ -274,105 +330,98 @@ sealed class NpcCatalog
 
     static NpcCatalog Read(string folder)
     {
-        string table = Path.Combine(folder, "tables", "NPCs.json");
-        if (!File.Exists(table)) return new([], $"{table} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Has("NPCs")) return new([], $"the NPCs client table is missing from {ClientTables.DefaultPath}");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
-        string types = Path.Combine(folder, "object-types.json");
-        if (File.Exists(types))
+        var sharedStates = ObjectTypes.SharedStates();
+        foreach (var (type, t) in ObjectTypes.All())
         {
-            using var doc = GameTables.Open(types);
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
-            {
-                string type = t.GetProperty("type").GetString()!;
-                if (!type.StartsWith("Metadata/NPC/", StringComparison.OrdinalIgnoreCase)) continue;
-                components[type] = [.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)];
-                if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
-                    stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
-                        [.. ss.EnumerateArray().Select(e => e[0].GetString() ?? "")]);
-                if (t.TryGetProperty("transitionable", out var tr) && tr.TryGetProperty("num_states", out var ns))
-                    transitionStates[type] = (byte)Math.Clamp(ns.GetInt32(), 1, 127);
-            }
+            if (!type.StartsWith("Metadata/NPC/", StringComparison.OrdinalIgnoreCase)) continue;
+            components[type] = ObjectTypes.Components(t);
+            if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
+            if (t.IntOrNull("transitionable_num_states") is int numStates)
+                transitionStates[type] = (byte)Math.Clamp(numStates, 1, 127);
         }
         var shopOfSet = new List<int>();
         var hardModeShopOfSet = new List<int>();
-        string sets = Path.Combine(folder, "tables", "NPCShopSets.json");
-        if (File.Exists(sets))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(sets)))
-            {
-                shopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.GetProperty("Shop").ValueKind == JsonValueKind.Number ? s.GetProperty("Shop").GetInt32() : -1)];
-                hardModeShopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.TryGetProperty("ShopRuthless", out var shop)
-                    && shop.ValueKind == JsonValueKind.Number ? shop.GetInt32() : -1)];
-            }
+        if (ClientTables.TableOrNull("NPCShopSets") is { } shopSets)
+        {
+            shopOfSet = [.. shopSets.Select(s => s.IntOrNull("Shop") ?? -1)];
+            hardModeShopOfSet = [.. shopSets.Select(s => s.IntOrNull("ShopRuthless") ?? -1)];
+        }
         var rows = new List<Npc>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(table)))
-            foreach (var r in doc.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("NPCs"))
+        {
+            string id = r.Text("Id") ?? "";
+            // The client files every NPCs.dat row under its Id on the row's Metadata .ot (the register's 0xac-byte
+            // table, base at row +0x10; 04-player-entity.md §1): an Id without an .ot of its own (Act 6's Tarkleigh on
+            // Act 1's) has its Metadata's components.
+            string meta = r.TextOrNull("Metadata") ?? "";
+            string type = components.ContainsKey(id) || !components.ContainsKey(meta) ? id : meta;
+            // Without the object_types table, assume the base NPC list.
+            IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(type);
+            int set = r.IntOrNull("ShopSet") ?? -1;
+            rows.Add(new Npc(rows.Count, id, r.Text("Name") ?? "", list,
+                stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
+                set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1)
             {
-                string id = r.GetProperty("Id").GetString() ?? "";
-                // The client files every NPCs.dat row under its Id on the row's Metadata .ot (the register's 0xac-byte
-                // table, base at row +0x10; 04-player-entity.md §1): an Id without an .ot of its own (Act 6's Tarkleigh on
-                // Act 1's) has its Metadata's components.
-                string meta = r.TryGetProperty("Metadata", out var m) ? m.GetString() ?? "" : "";
-                string type = components.ContainsKey(id) || !components.ContainsKey(meta) ? id : meta;
-                // Without object-types.json, assume the base NPC list.
-                IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(type);
-                int set = r.GetProperty("ShopSet").ValueKind == JsonValueKind.Number ? r.GetProperty("ShopSet").GetInt32() : -1;
-                rows.Add(new Npc(rows.Count, id, r.GetProperty("Name").GetString() ?? "", list,
-                    stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
-                    set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1)
-                {
-                    Model = TownNpcs.ModelOf(id),
-                    TransitionStates = transitionStates.GetValueOrDefault(type, (byte)1),
-                    HardModeShopRow = set >= 0 && set < hardModeShopOfSet.Count ? hardModeShopOfSet[set] : -1,
-                });
-            }
+                Model = TownNpcs.ModelOf(id),
+                TransitionStates = transitionStates.GetValueOrDefault(type, (byte)1),
+                HardModeShopRow = set >= 0 && set < hardModeShopOfSet.Count ? hardModeShopOfSet[set] : -1,
+            });
+        }
         return new(rows, null, ReadTalk(folder));
     }
 
     static List<Talk> ReadTalk(string folder)
     {
-        string table = Path.Combine(folder, "tables", "NPCTalk.json"), categories = Path.Combine(folder, "tables", "NPCTalkCategory.json");
-        if (!File.Exists(table) || !File.Exists(categories)) return [];
-        List<string> names;
-        using (var doc = GameTables.Open(categories))
-            names = [.. doc.RootElement.EnumerateArray().Select(c => c.GetProperty("Id").GetString() ?? "")];
-        string flagsFile = Path.Combine(folder, "tables", "QuestFlags.json");
+        if (!ClientTables.Has("NPCTalk") || !ClientTables.Has("NPCTalkCategory")) return [];
+        List<string> names = [.. ClientTables.Table("NPCTalkCategory").Select(c => c.Text("Id") ?? "")];
         List<string> flags = [];
-        if (File.Exists(flagsFile))
-            using (var doc = GameTables.Open(flagsFile))
-                flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
+        if (ClientTables.Has("QuestFlags"))
+            flags = [.. ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "")];
         string? Flag(int row) => row >= 0 && row < flags.Count && flags[row] != "NEVER_SET" ? flags[row] : null;
         var talk = new List<Talk>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(table)))
-            foreach (var r in doc.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("NPCTalk"))
+        {
+            int Int(string name) => !r.IsNull(name) ? r.Int(name) : -1;
+            int category = Int("Category");
+            int OptionalInt(string name) => (r.IntOrNull(name) ?? -1);
+            string[] FlagList(string name) => [.. r.Ints(name).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])];
+            int col17 = OptionalInt("__col17"), col19 = OptionalInt("__col19");
+            bool nonLeagueAutoContext = !r.IsNull("__col28") && r.Ints("__col28").Length == 0
+                && OptionalInt("__col27") == 60 && OptionalInt("__col29") == 60
+                && OptionalInt("__col31") == 0 && OptionalInt("__col32") < 0
+                && r.Has("BaseItemTypes") && r.IsNull("BaseItemTypes")
+                && r.BoolOrNull("__col14") == false
+                && r.BoolOrNull("__col20") == false;
+            talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.Text("DialogueOption") ?? "",
+                category >= 0 && category < names.Count ? names[category] : "", r.Text("Script") ?? "",
+                [.. r.Ints("NPCTextAudioKeys")])
             {
-                int Int(string name) => r.GetProperty(name).ValueKind == JsonValueKind.Number ? r.GetProperty(name).GetInt32() : -1;
-                int category = Int("Category");
-                int OptionalInt(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
-                string[] FlagList(string name) => r.TryGetProperty(name, out var v)
-                    ? [.. v.EnumerateArray().Select(e => e.GetInt32()).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])] : [];
-                talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.GetProperty("DialogueOption").GetString() ?? "",
-                    category >= 0 && category < names.Count ? names[category] : "", r.GetProperty("Script").GetString() ?? "",
-                    [.. r.GetProperty("NPCTextAudioKeys").EnumerateArray().Select(e => e.GetInt32())])
-                {
-                    Introduction = r.TryGetProperty("__col13", out var introduction) && introduction.GetBoolean(),
-                    Automatic = r.TryGetProperty("__col33", out var automatic) && automatic.GetBoolean(),
-                    Priority = OptionalInt("__col34"),
-                    AutomaticContextSupported = new[] { "__col15", "__col16", "__col18", "__col28" }
-                        .All(k => r.TryGetProperty(k, out var list) && list.GetArrayLength() == 0)
-                        && OptionalInt("__col17") == 0x777 && OptionalInt("__col19") == 0x777
-                        && OptionalInt("__col27") == 60 && OptionalInt("__col29") == 60
-                        && OptionalInt("__col31") == 0 && OptionalInt("__col32") < 0
-                        && r.TryGetProperty("BaseItemTypes", out var item) && item.ValueKind == JsonValueKind.Null
-                        && r.TryGetProperty("__col14", out var special) && !special.GetBoolean()
-                        && r.TryGetProperty("__col20", out var condition) && !condition.GetBoolean(),
-                    RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
-                    StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
-                    RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
-                    Script2 = r.TryGetProperty("Script2", out var script2) ? script2.GetString() ?? "" : "",
-                });
-            }
+                Introduction = r.BoolOrNull("__col13") == true,
+                Shortcut = OptionalInt("__col22") is >= 1 and <= 3 and var keys ? (Shortcut)keys : Shortcut.None,
+                Automatic = r.BoolOrNull("__col33") == true,
+                Priority = OptionalInt("__col34"),
+                AutomaticContextSupported = nonLeagueAutoContext
+                    && new[] { "__col15", "__col16", "__col18" }.All(k => !r.IsNull(k) && r.Ints(k).Length == 0)
+                    && col17 == 0x777 && col19 == 0x777,
+                AutomaticLeagueContextSupported = nonLeagueAutoContext
+                    && (col17 == 0x777 || col17 is > 1 and <= Quests.League.Count)
+                    && (col19 == 0x777 || col19 is > 1 and <= Quests.League.Count),
+                RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
+                HeardLeagueFlags = [.. r.Ints("__col15").Where(i => i is > 0 and < 0x777)],
+                StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
+                StartLeagueFlag = col17 is > 1 and <= Quests.League.Count ? col17 : null,
+                FinishLeagueFlag = col19 is > 1 and <= Quests.League.Count ? col19 : null,
+                RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
+                Script2 = r.TextOrNull("Script2") ?? "",
+                LeagueFlagsSet = r.IsNull("__col15") ? [] : [.. r.Ints("__col15")],
+                LeagueFlagsRequired = r.IsNull("__col16") ? [] : [.. r.Ints("__col16")],
+                LeagueFlagsRefused = r.IsNull("__col18") ? [] : [.. r.Ints("__col18")],
+            });
+        }
         return talk;
     }
 }

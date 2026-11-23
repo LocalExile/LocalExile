@@ -1,0 +1,20 @@
+-- Client table AlternateQualityTypes: all 18 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "AlternateQualityTypes" ("_row", "Id", "Description", "Item", "ModEffectStat", "MapStats", "__col5", "IsCatalyst", "HASH16", "CatalystMod") VALUES
+(0, 'JewelleryElementalQuality', 'Quality (Elemental Damage Modifiers)', 310, 0, '[]', 100, 1, 39847, 21689),
+(1, 'JewelleryCasterQuality', 'Quality (Caster Modifiers)', 311, 1, '[]', 100, 1, 46430, 21690),
+(2, 'JewelleryAttackQuality', 'Quality (Attack Modifiers)', 312, 2, '[]', 100, 1, 28831, 21691),
+(3, 'JewelleryDefensesQuality', 'Quality (Defence Modifiers)', 313, 3, '[]', 100, 1, 105, 21692),
+(4, 'JewelleryResourceQuality', 'Quality (Life and Mana Modifiers)', 314, 4, '[]', 100, 1, 51134, 21693),
+(5, 'JewelleryResistanceQuality', 'Quality (Resistance Modifiers)', 315, 5, '[]', 100, 1, 56602, 21694),
+(6, 'JewelleryAttributeQuality', 'Quality (Attribute Modifiers)', 316, 6, '[]', 100, 1, 14740, 21695),
+(7, 'JewelleryPhysicalChaosQuality', 'Quality (Physical and Chaos Damage Modifiers)', 317, 7, '[]', 100, 1, 32181, 21696),
+(8, 'JewellerySpeedQuality_', 'Quality (Speed Modifiers)', 318, 8, '[]', 100, 1, 6015, 21697),
+(9, 'JewelleryCriticalQuality', 'Quality (Critical Modifiers)', 319, 9, '[]', 100, 1, 11749, 21698),
+(10, 'MapQuantityQuality', 'Quality (Quantity)', 26, NULL, '[1040]', 100, 0, 62490, NULL),
+(11, 'MapRarityQuality', 'Quality (Rarity)', 27, NULL, '[1245]', 200, 0, 39945, NULL),
+(12, 'MapPackSizeQuality', 'Quality (Pack Size)', 28, NULL, '[1025]', 50, 0, 61393, NULL),
+(13, 'MapDivinationCardQuality', 'Quality (Divination Cards)', 29, NULL, '[20774]', 250, 0, 64121, NULL),
+(14, 'MapScarabQuality', 'Quality (Scarabs)', 30, NULL, '[20609]', 250, 0, 38402, NULL),
+(15, 'MapCurrencyQuality', 'Quality (Currency)', 31, NULL, '[20610]', 250, 0, 63693, NULL),
+(16, 'JewelleryPrefixQuality', 'Quality (Prefix Modifiers)', 321, 34, '[]', 100, 0, 35101, NULL),
+(17, 'JewellerySufffixQuality', 'Quality (Suffix Modifiers)', 322, 33, '[]', 100, 0, 9222, NULL);

@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>What an item is besides its mods, for /item_state: the states Agents/docs/protocol/13-items.md §2 places in
 /// the Base and Mods components. Currency that creates them in play is separate work.</summary>
-static class ItemStates
+public static class ItemStates
 {
     /// <summary>The item with a state switched, or null when there is no such state. "clear" removes them all.</summary>
     public static Item? Toggle(Item item, string state) => state.ToLowerInvariant() switch

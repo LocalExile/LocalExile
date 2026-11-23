@@ -3,8 +3,10 @@
 // +0x2b8 and +0x2b9 are equal, and its slot 0x460 (0x1412e1ad0) jumps to the spell base's replay 0x1419e6370, which
 // takes one off +0x2d0 and plays the animation again. This logs each ring start (0x141c02940), each victim the ring
 // reaches (0x141c02f50), each ring end (0x141c02bc0), each replay, and every change of those fields in the update.
-const iceNova = at('0x143545408');
-const isIceNova = a => { try { return a.readPointer().equals(iceNova); } catch (e) { return false; } };
+// Ring helpers can receive a copy of the original action with a different vtable. Observe the actual
+// ring helper and capture its vtable there so updates and shared spell replays use a matching receiver.
+const novaTables = new Set();
+const isIceNova = a => { try { return novaTables.has(a.readPointer().toString()); } catch (e) { return false; } };
 const fields = a => ({ b2b8: a.add(0x2b8).readU8(), b2b9: a.add(0x2b9).readU8(), rings: a.add(0x320).readU32(),
   left: a.add(0x2d0).readU32(), total: a.add(0x2d4).readU32(), pause: a.add(0x31c).readFloat(),
   elapsed: a.add(0x32c).readFloat(), active: a.add(0x650).readU8() });
@@ -19,7 +21,7 @@ Interceptor.attach(at('0x141c02c10'), {
     if (last.get(a.toString()) !== key) { last.set(a.toString(), key); log('update', a); }
   }
 });
-Interceptor.attach(at('0x141c02940'), { onEnter(args) { if (isIceNova(args[0])) log('ringStart', args[0]); } });
+Interceptor.attach(at('0x141c02940'), { onEnter(args) { novaTables.add(args[0].readPointer().toString()); log('ringStart', args[0]); } });
 Interceptor.attach(at('0x141c02f50'), {
   onEnter(args) { if (isIceNova(args[0])) log('reach', args[0], { target: args[1].toUInt32() }); }
 });

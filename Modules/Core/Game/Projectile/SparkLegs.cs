@@ -8,7 +8,7 @@ using GameServer.Core.Projectiles;
 /// terrain stopped it (0x141b38910), a length (0x141b38b80) and a speed factor (0x141b38b10). Every draw is the
 /// client's float range (0x1404ce9b0), all in single precision as the client computes it.
 /// </summary>
-sealed class SparkLegs : IProjectileLegs
+public sealed class SparkLegs : IProjectileLegs
 {
     AnimationVariantSelector.NativeRandom random;
     readonly double baseSpeed;

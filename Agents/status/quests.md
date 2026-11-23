@@ -12,11 +12,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   life (311 at level 1) and a second stage: at half life he pulls out his sword (ZombieBossExtract, Transitionable → 2)
   and heals at its extracted contact (~750 ms), with separate 3 s recovery; the force wall stands across the
   way to the gate until he dies, and the server closes the way on its own walk map too (`QuestBarriers`), so its
-  position estimate stops where the client stops; after his death the quest log says to enter the gate (every
-  character has `CompletedAllTutorials`); his death levels the character to 2, removes the wall and creates the gate
+  position estimate stops where the client stops; his death levels the character to 2, removes the wall, transitions
+  the Doorman (`Metadata/NPC/Act1/Doorman`, state 1 → 3) and creates the gate
   into Lioneye's Watch (the Gateway checks the flag too); Portal Scrolls do nothing on the Strand (its area mod
   MapNoPortals); no Resurrect in Town before a town.
-  Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `AreaModCatalog.cs`.
+  Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `Rules.AreaModCatalog.cs` (Portals module).
   Docs: [12](../docs/protocol/12-quests.md) §5–6.
 - a1q4 "Breaking Some Eggs" in The Mud Flats (played through live, seed 1): the three Rhoa Nests stand at the captured
   tile records and each drops its glyph once per instance while the character still needs it.
@@ -53,12 +53,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/quest_flag`.
   Kills, sightings, room objects come near, exits, cleared areas, quest chests, room NPCs, NPCs that turn into
   monsters, second forms and mirrored blockers are rules; quest items (their `.it` Quest flags: held, picked up,
-  handed in, removed, used), dialogue flags and scripts, session flags and the rewards come from the client's data.
+  handed in, removed, used), dialogue flags and scripts (including `NPCTalk` league quest flags for `hideout1`,
+  `delve2`, and `bestiary2`), session flags and the rewards come from the client's data.
+  Quest chest and Rhoa Nest markers disappear for the character once their item is collected or handed in.
   Quest passive points (QuestStaticRewards) are counted from the flags into the tree's `extra_skill_points` and stay
   after a relog; refund points are credited once (the Book of Regrets: 54 → 56); QuestStaticRewards' stats are stat
-  sources. `QuestSimulator` plays an act's events through the engine; `QuestEngineTests` checks Acts 1–6 against
-  `Act1Complete`, `Act2CompleteEramir`, `Act3Complete`, `Act4Complete` and every Act 5 and 6 quest's "complete" row,
-  and Acts 7–10 and the Epilogue after them against `E3EndOfAct8` and `EpilogueAtlasDemo`.
+  sources. `QuestSimulator` plays an act's events through the engine; no test runs it since the Gateway tests were wiped.
   What existing saves see: a character with `a10q3-SeenBoss` but without `EndGameAvailable` earned no longer has the
   Act 10 −30% resistance penalty (it follows `EndGameAvailable`, QuestStaticRewards 39); a second copy of a quest book
   (from `/item`) is used up without its points once the first was used; a quest item lying on the ground after its
@@ -72,36 +72,44 @@ Part of [Status](../Status.md); what to build next in this area is in
   claimed; using the Book of Regrets gives two refund points, the Book of Skill a passive point (`extra_skill_points` 1).
   Docs: [12](../docs/protocol/12-quests.md) §8.
 - a1q2 "The Caged Brute": Brutus spawns in the Warden's
-  section (`mapboss2`); Piety's room sets `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered;
-  Tarkleigh's reward is claimed.
+  section (`mapboss2`) with intro and chain-hook dialogue; Piety spawns in her room (`PietyPrison`) and plays her
+  monologue on `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered; Tarkleigh's reward is claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - a1q6 "The Marooned Mariner": Fairgraves stands on his
   ship; "Marooned" gives the quest; the slave girl's chest in The Ship Graveyard Cave drops the Allflame; "Thank You"
-  hands it in and turns him into the boss, who fights; his death, Bestel's book and its passive point follow.
+  hands it in, plays his combat line (`FairgravesAttacks`) and turns him into the boss, who fights; his death,
+  Bestel's book and its passive point follow.
   Docs: [12](../docs/protocol/12-quests.md) §10.
-- a1q3 "The Siren's Cadence" and Act 2: Merveil, the Siren
-  spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and creates the
-  exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
+- a1q3 "The Siren's Cadence" and Act 2: Merveil plays her Cavern of Wrath/Anger entry and fight-start dialogue, Merveil,
+  the Siren spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and
+  creates the exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
-- a1q9 "The Way Forward", Act 1: Piety's blockage at Prisoner's
-  Gate sets `a1q9-SeenBlockage` and `a1q9-RoadBlocked`; the road to The Western Forest stays closed (Act 2 opens it).
+- a1q9 "The Way Forward", Act 1: Piety (`PietyBlockage`) and the visual spike walls (`SpikeBlockage`/`SpikeBlockage2`)
+  spawn at Prisoner's Gate, seal the pass with her class dialogue on `a1q9-SeenBlockage`/`a1q9-RoadBlocked`, and reopen
+  when Act 2 sets `a1q9-RoadOpened`.
   After all of Act 1 the save had every `Act1Complete` flag.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - Acts 2 and 3 (live 2026-10-30, seed 1, on the engine before the modules: the campaign runner on a character started
   with `/quest_preset Act1Complete`; on the modules checked by the oracle and the offline exit audit, not yet with the
   client): a2q11 (Arteri, his emblem, the Thaumetic Seal, Bestel's book), a2q10, a2q6 (Helena climbing up after
-  Fidelitas, the Strange Device), a2q1–a2q3 (the bandit lords killed, their amulets), a2q4, a2q5 (the crypt's altar,
+  Piety in the Chamber of Sins, Fidelitas, the Strange Device), a2q1–a2q3 (the bandit lords killed, their amulets), a2q4, a2q5 (the crypt's altar,
   Yeena's book), a2q7 (Eramir takes the amulets: a passive point; The Apex), a2q9 (the tree poisoned with the spike and
   the gem), a2q8 (the Ancient Seal, the Dark Altar, the Vaal Oversoul, the pyramid's exit), a3q1–a3q5, a3q8, a3q9,
   a3q11–a3q13 and a3q10 (the Epic Door, Dominus' two forms, Lady Dialla on the tower, the exit to The Aqueduct) ran
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
-  Act 2/3 quest log at "Quest Complete".
+  Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
+  are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
+  The tower legionnaires now precede the miscreations, then Dominus appears at the roof's boss point.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
   The Library's candle opens the hidden door for the instance only.
   The two exits the layout disables and a quest gates (The Upper Sceptre of God → The Aqueduct, The Library → The
   Archives) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds).
   Every quest object, chest and NPC the rules name is placed at seed 1.
+  Helena's rescue uses her visible state 2 on the kill and on re-entry; Act 2 town Helena is gated on
+  `a2q6-HelenaInTown` (with town-entry recovery for older saves) so Greust offers his reward.
+  Sin's first appearance after Innocence advances the paused entrance to state 2, restores at `ArenaMiddle` in fresh
+  instances until `a5q6-QuestReceived`, and `SinOssuary` spawns transitioned/visible.
   Driver step files: `scripts/dev/campaign/quests/a2q*.py`, `a3q*.py`.
   Code: `Acts/Act2.cs`, `Acts/Act3.cs` (QuestObjects module).
   Docs: [12](../docs/protocol/12-quests.md) §11–12; [act 2](../docs/game/campaign/act2.md),
@@ -110,21 +118,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   Act3Complete`, the campaign runner unattended; on the modules checked by the oracle, not yet with the client): a4q2
   (Voll, Deshret's Banner, the seal opens the Mines), a4q6 (Deshret's spirit, the book), a4q3 and a4q4 (Dialla at the
   Rapture, Kaom, Daresso, both Eyes handed in), a4q5 (the Rapture Device, Piety in the Belly and her talk, the three
-  guardians' organs in one click, the Black Core), a4q1 (Malachai's second form, the withered Dialla opening the Ascent,
+  guardians' organs in one click to open the Black Core), a4q1 (Malachai's second form at the second arena's boss point, the withered Dialla opening the Ascent,
   her reward), a5q1a (the Resonator), a5q1b, a5q3, a5q2, a5q4 (the Templar Courts door, Avarius → Innocence, Sin's talk,
-  burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
-  a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
-  −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama), a6q2
+  the arena shortcut after Innocence falls in that instance, burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
+  a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava again on an unfinished return to a fresh rooftop, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
+  −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama and the two bridges to his keep), a6q2
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
   and the act 5/6 completion flags; every area change through an exit, a waypoint or an NPC-script transport. The god
-  Sins appear where the gods die. `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
-  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); its escort radius and
-  encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
+  Sins follow this instance's god kills and restore after re-entry without replaying their entrances.
+  `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
+  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); the escort uses the payload's displayed ring and current rail leg. Encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
    (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
    tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
-   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
+  The Belly side door and the four arena entrances open (the doors go when used or their guardian dies). Malachai's
+  first form retreats at 70% life. His second form starts at 92% in the next arena, and his portal returns to Highgate.
+  The Ossuary lever opens the passage after the Sign is taken.
+  Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
   [act 5](../docs/game/campaign/act5.md), [act 6](../docs/game/campaign/act6.md).
@@ -140,15 +151,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   `InstancePantheon.cs`. Docs: [pantheon](../docs/game/campaign/pantheon.md).
 - Acts 7–10 and the Epilogue (live 2026-10-31, seed 1, on the engine before the modules: one Witch from
   `/quest_preset E3StartOfAct7`, the runner unattended per act, no `/goto`; on the modules checked by the oracle and
-  the offline exit audit, not yet with the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's portal into the
+  the offline exit audit; firefly pickup and Arakaali entry checked in the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's portal into the
   Sanctum, Black Death's venom), a7q3 (Silk's Obsidian Key, the Sins barrier, the passage into The Den), a7q1
-  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, Yeena burns the webs), a7q6, a7q4 (Arakaali, the bridge into
+  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, unopened chests remain targetable;
+  Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
+  the offline exit audit; Reverie device also checked in the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's
+  native inventory and six consumable portals into one Sanctum instance with return to the same device;
+  Black Death's venom), a7q3 (Silk's Obsidian Key, the Sins barrier, the passage into The Den), a7q1
+  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, unopened chests remain targetable; native pickup checked;
+  Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
   Act 8); a8q1, a8q5, a8q4, a8q6, a8q7 (the legion's multi-kill), a8q3 and a8q2 (both orbs at the fight starter,
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
-  barrier, both Shakaris), a9q4, a9q2 (the feather to Irasha), a9q1 (both ingredients in one click, the membrane, the
-  three spirits, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
-  (Bannon becomes Innocence: Oriath Docks' two stages), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
-  earned, −60% with Act 5's, before him −30%; Sin's portal home) and A11q0 (Lilly sails to Karui Shores). Every act
+  barrier, Shakari retreats at 65% life and resumes in her second arena), a9q4, a9q2 (the feather to Irasha), a9q1
+  (both ingredients in one click, the membrane, the three spirit gauntlets, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
+  (Bannon becomes Innocence: Oriath Docks' two stages; the Chambers shortcut waits for the instance's kill), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
+  earned, −60% with Act 5's, before him −30%; Sin's portal) and A11q0 (Lilly sails). Both routes arrive at
+  Karui Shores' shore entrance. Every act
   7–10 quest done with every act 7–10 flag of `EpilogueAtlasDemo`, 24 quest passive points and 20 refund points.
   The exits the layouts disable and a quest gates (The Ashen Fields' way north, The Harbour Bridge's into Act 9, Sin's
   portal home) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds); burnt Oriath's
@@ -180,17 +198,23 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fresh Duelist and Witch client checks confirmed the corrected lying direction and getup action.
   Skipped long and short speech started the bite within 0.07 seconds of closing, then combat after about 3.1 seconds.
   The combat zombie moved and animated its attacks, and the Duelist claimed Double Strike.
-  Tutorial popup acknowledgements and force walls 1/2 remain unimplemented, and placement still needs local captures.
+  Ground pickups now honour the client's `auto_equip` flag (`0x0008`), `TalkToWoundedExile` checks the active weapon
+  set, `C→S 0x020a` handles tutorial completion, "Skip All Tutorials", Options → "Disable Tutorials" (row 17 sets all
+  tutorial completion flags + `TutorialPanelHideArticlePopups`), and "Hide Popups" (row 77), and `Tutorial_Blocker_1`/`2`
+  block the beach and support-chest segments while tutorials are active (with `force_wall.ao` hull server barriers).
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.
-- The bandit vote (a2q7's help path: talking to a bandit lord opens the client's vote panel through
-  `DispatchRulesetEvent(BanditCallVote)`, VoteType/VoteState) is not implemented; its messages are not
-  reverse-engineered.
-  The lords are hostile and the choice comes from the kills (the campaign runner kills all three); the help rewards'
-  stats (QuestStaticRewards 4–6) apply once their flags are set.
+- In Act 2, solo players talk to a bandit leader to open the native Help or Kill choice. An allied leader accepts both
+  rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
+- Merveil's Caverns Trick Chests (`AmarissaTrickChest` in `1_1_11_1`, `AmbrosiaTrickChest` in `1_1_11_2`) spawn in
+  their chambers, open with loot and ambush with risen targetable Amarissa/Ambrosia plus Slimy Bloodsuckers
+  (not checked live). Code: `Rules.TrickChests.cs`, `Act1.cs`.
+- Player character voice lines (`CharacterAudioEvents`): area entry (`Visited-*` via post-`0x2bb` `0x2bc` diff,
+  Act 4 mines, first Atlas map), campaign and pinnacle boss kills and first NPC meetings trigger natively via
+  `PlayerQuestFlagsUpdate` `0x2bc` (not checked live). Docs: [12](../docs/protocol/12-quests.md).
 
 ## Not working yet
 

@@ -57,12 +57,16 @@ sealed class Servers : IDisposable
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         Tools.Prepare(start);
         // Without Game_GATEWAY_ENTER the Gateway stops after creating the player and the client never enters the area.
-        foreach (var (key, value) in new Dictionary<string, string>
-        {
-            ["Game_GATEWAY_ENTER"] = "1", ["Game_PATCH_TCP_PORT"] = $"{ports.Patch}", ["Game_LOGIN_PORT"] = $"{ports.Login}",
-            ["Game_AUTH_CONTROL_PORT"] = $"{ports.Control}", ["Game_GATEWAY_PORT"] = $"{ports.Gateway}",
-            ["Game_PATCH_URL"] = $"http://127.0.0.1:{ports.PatchWeb}", ["Game_PACKET_DUMPS"] = Path.Combine("logs", "packets"),
-        }) start.Environment[key] = value;
+        start.Environment["Game_GATEWAY_ENTER"] = "1";
+        start.Environment["Game_PACKET_DUMPS"] = Path.Combine("logs", "packets");
+        // The servers read their addresses and ports from localexile.conf; --port-base gives them their own block.
+        if (ports.Base != 0)
+            foreach (var (key, value) in new Dictionary<string, string>
+            {
+                ["Game_PATCH_TCP_PORT"] = $"{ports.Patch}", ["Game_LOGIN_PORT"] = $"{ports.Login}",
+                ["Game_AUTH_CONTROL_PORT"] = $"{ports.Control}", ["Game_GATEWAY_PORT"] = $"{ports.Gateway}",
+                ["Game_PATCH_URL"] = $"http://127.0.0.1:{ports.PatchWeb}",
+            }) start.Environment[key] = value;
         var process = new Process { StartInfo = start };
         void Write(string? line) { if (line is not null) lock (output) output.WriteLine(line); }
         process.OutputDataReceived += (_, e) => Write(e.Data);
@@ -111,12 +115,22 @@ sealed class Servers : IDisposable
         foreach (var output in _logs) lock (output) output.Dispose();
     }
 
-    /// <summary>"stop": every process that runs from this install, except this one.</summary>
+    /// <summary>"stop": the launcher, servers and patched client of this install, except this one.</summary>
     public static void StopInstall(string root, Output log)
     {
         int stopped = 0;
-        string prefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
-        string client = Path.GetFullPath("Client") + Path.DirectorySeparatorChar;
+        string client = Path.GetFullPath(GameServer.Core.ServerConfig.ClientFolder, root);
+        var comparison = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var executables = new HashSet<string>(comparison);
+        void Include(string path)
+        {
+            executables.Add(Path.GetFullPath(path));
+            if (File.Exists(path)) executables.Add(ResolvedPath(new FileInfo(path)));
+        }
+        Include(Path.Combine(root, Platform.Program("LocalExile")));
+        foreach (string name in new[] { "Patch", "Gateway", "Auth" })
+            Include(Path.Combine(root, Tools.App, Platform.Program("GameServer." + name)));
+        Include(Path.Combine(client, "Game.patched.exe"));
         foreach (var process in Process.GetProcesses())
             using (process)
             {
@@ -124,10 +138,7 @@ sealed class Servers : IDisposable
                 try { path = process.MainModule?.FileName; }
                 catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { continue; }
                 if (path is null || process.Id == Environment.ProcessId) continue;
-                // A linked client's path is outside the install: it is told by its name.
-                bool ours = path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || path.StartsWith(client, StringComparison.OrdinalIgnoreCase)
-                    || (Path.GetFileName(path).Equals("Game.patched.exe", StringComparison.OrdinalIgnoreCase) && SameFile(path, Path.Combine(client, "Game.patched.exe")));
-                if (!ours) continue;
+                if (!executables.Contains(path)) continue;
                 process.Kill(entireProcessTree: true);
                 stopped++;
             }
@@ -143,8 +154,16 @@ sealed class Servers : IDisposable
         log.Done(stopped == 0 ? "nothing was running" : $"stopped {stopped} process(es)");
     }
 
-    static bool SameFile(string a, string b) =>
-        File.Exists(b) && new FileInfo(a).Length == new FileInfo(b).Length && File.GetLastWriteTimeUtc(a) == File.GetLastWriteTimeUtc(b);
+    // The OS can report the physical path when the install or its Client directory is a link.
+    // Copies with equal lengths and timestamps still belong to their respective installations.
+    static string ResolvedPath(FileSystemInfo file)
+    {
+        var parent = Directory.GetParent(file.FullName);
+        if (parent is null) return file.FullName;
+        if (file.ResolveLinkTarget(returnFinalTarget: true) is { } target) return ResolvedPath(target);
+        return Path.Combine(ResolvedPath(parent), file.Name);
+    }
+
 }
 
 /// <summary>A job that ends every process in it when its last handle closes: when this process ends, however it ends.

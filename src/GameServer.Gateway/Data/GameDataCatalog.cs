@@ -1,41 +1,23 @@
-using System.Text.Json;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
+using Row = System.Collections.Generic.IReadOnlyDictionary<string, object?>;
 
 /// <summary>
-/// The item and jewel catalogues that used to be static arrays in code. The current arrays are the seed; the SQLite
-/// <c>catalog_entries</c> table is the runtime source once a kind has been seeded. Each kind is loaded once at startup
-/// and replaced atomically after <c>/game_data reload</c>. A fresh database keeps the seed's exact contents.
+/// The item and jewel catalogues: world.db's typed tables (unique_items, radius_jewels, unique_jewels, timeless_jewels,
+/// tattoo_effects, jewel_visuals and their child tables). Each catalogue is loaded at startup and replaced atomically
+/// after <c>/reload</c>; a disabled entry is left out.
 /// </summary>
-static class GameDataCatalog
+public static class GameDataCatalog
 {
-    public sealed record TattooStatRow(string Stat, int Value);
-    public sealed record TattooEffectRow(string Name, TattooStatRow[] Stats);
-    public sealed record VisualRow(string Name, ushort Hash);
-
-    static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
-
-    /// <summary>Raise when UniqueItemSeed corrects existing rows, so that databases already seeded take the correction.</summary>
-    const string UniqueSeedRevision = "4";
-
-    static readonly UniqueCatalog.Definition[] UniqueSeed = UniqueCatalog.Seed;
-    static readonly RadiusJewelCatalogue.Entry[] RadiusSeed = RadiusJewelCatalogue.Seed;
-    static readonly RadiusJewelCatalogue.Entry[] ThresholdSeed = ThresholdJewelCatalogue.Seed;
-    static readonly UniqueJewelCatalogue.Entry[] GlobalSeed = UniqueJewelCatalogue.SeedGlobal;
-    static readonly UniqueJewelCatalogue.Entry[] SpecialSeed = UniqueJewelCatalogue.SeedSpecial;
-    static readonly TimelessJewelCatalog.Entry[] TimelessSeed = TimelessJewelCatalog.Seed;
-    static readonly TattooEffectRow[] TattooSeed = [.. TattooStats.Seed.Select(kv =>
-        new TattooEffectRow(kv.Key, [.. kv.Value.Select(v => new TattooStatRow(v.Stat, v.Value))]))];
-    static readonly VisualRow[] VisualSeed = [.. UniqueJewelVisuals.Seed.Select(kv => new VisualRow(kv.Key, kv.Value))];
-
-    static UniqueCatalog.Definition[] _uniques = UniqueSeed;
-    static RadiusJewelCatalogue.Entry[] _radius = RadiusSeed;
-    static RadiusJewelCatalogue.Entry[] _threshold = ThresholdSeed;
-    static RadiusJewelCatalogue.Entry[] _radiusAll = [.. RadiusSeed, .. ThresholdSeed];
-    static UniqueJewelCatalogue.Entry[] _globals = GlobalSeed;
-    static UniqueJewelCatalogue.Entry[] _specials = SpecialSeed;
-    static TimelessJewelCatalog.Entry[] _timeless = TimelessSeed;
-    static IReadOnlyDictionary<string, (string Stat, int Value)[]> _tattoos = ToTattooMap(TattooSeed);
-    static IReadOnlyDictionary<string, ushort> _visuals = ToVisualMap(VisualSeed);
+    static UniqueCatalog.Definition[] _uniques = [];
+    static RadiusJewelCatalogue.Entry[] _radius = [];
+    static RadiusJewelCatalogue.Entry[] _threshold = [];
+    static RadiusJewelCatalogue.Entry[] _radiusAll = [];
+    static UniqueJewelCatalogue.Entry[] _globals = [];
+    static UniqueJewelCatalogue.Entry[] _specials = [];
+    static TimelessJewelCatalog.Entry[] _timeless = [];
+    static IReadOnlyDictionary<string, (uint Stat, int Value)[]> _tattoos = Empty<(uint, int)[]>();
+    static IReadOnlyDictionary<string, ushort> _visuals = Empty<ushort>();
 
     public static UniqueCatalog.Definition[] Uniques => Volatile.Read(ref _uniques);
     public static RadiusJewelCatalogue.Entry[] RadiusJewels => Volatile.Read(ref _radiusAll);
@@ -43,36 +25,36 @@ static class GameDataCatalog
     public static UniqueJewelCatalogue.Entry[] UniqueJewelGlobals => Volatile.Read(ref _globals);
     public static UniqueJewelCatalogue.Entry[] UniqueJewelSpecials => Volatile.Read(ref _specials);
     public static TimelessJewelCatalog.Entry[] TimelessJewels => Volatile.Read(ref _timeless);
-    public static IReadOnlyDictionary<string, (string Stat, int Value)[]> TattooEffects => Volatile.Read(ref _tattoos);
+    public static IReadOnlyDictionary<string, (uint Stat, int Value)[]> TattooEffects => Volatile.Read(ref _tattoos);
     public static IReadOnlyDictionary<string, ushort> JewelVisuals => Volatile.Read(ref _visuals);
 
     public static string Summary =>
         $"{Uniques.Length} unique item(s), {RadiusJewels.Length} radius jewel(s), {UniqueJewelGlobals.Length + UniqueJewelSpecials.Length} unique jewel(s), " +
         $"{TimelessJewels.Length} timeless jewel(s), {TattooEffects.Count} tattoo effect(s), {JewelVisuals.Count} jewel art row(s)";
 
-    public static void ResetToSeeds()
+    /// <summary>Empties the catalogues (the store was closed).</summary>
+    public static void Reset()
     {
-        Volatile.Write(ref _uniques, UniqueSeed);
-        Volatile.Write(ref _radius, RadiusSeed);
-        Volatile.Write(ref _threshold, ThresholdSeed);
-        Volatile.Write(ref _radiusAll, [.. RadiusSeed, .. ThresholdSeed]);
-        Volatile.Write(ref _globals, GlobalSeed);
-        Volatile.Write(ref _specials, SpecialSeed);
-        Volatile.Write(ref _timeless, TimelessSeed);
-        Volatile.Write(ref _tattoos, ToTattooMap(TattooSeed));
-        Volatile.Write(ref _visuals, ToVisualMap(VisualSeed));
+        Volatile.Write(ref _uniques, []);
+        Volatile.Write(ref _radius, []);
+        Volatile.Write(ref _threshold, []);
+        Volatile.Write(ref _radiusAll, []);
+        Volatile.Write(ref _globals, []);
+        Volatile.Write(ref _specials, []);
+        Volatile.Write(ref _timeless, []);
+        Volatile.Write(ref _tattoos, Empty<(uint, int)[]>());
+        Volatile.Write(ref _visuals, Empty<ushort>());
     }
 
     public static void Reload(GameDataStore store)
     {
-        var uniques = Load(store, "unique_item", UniqueSeed, UniqueKey);
-        var radius = Load(store, "radius_jewel", RadiusSeed, RadiusKey);
-        var threshold = Load(store, "threshold_jewel", ThresholdSeed, RadiusKey);
-        var globals = Load(store, "unique_jewel_global", GlobalSeed, entry => entry.Name);
-        var specials = Load(store, "unique_jewel_special", SpecialSeed, entry => entry.Name);
-        var timeless = Load(store, "timeless_jewel", TimelessSeed, entry => entry.Name);
-        var tattoos = ToTattooMap(Load(store, "tattoo_effect", TattooSeed, entry => entry.Name));
-        var visuals = ToVisualMap(Load(store, "unique_jewel_visual", VisualSeed, entry => entry.Name));
+        var uniques = LoadUniques(store);
+        var (radius, threshold) = LoadRadiusJewels(store);
+        var (globals, specials) = LoadUniqueJewels(store);
+        var timeless = LoadTimeless(store);
+        var tattoos = LoadTattoos(store);
+        var visuals = Enabled(store.LoadRows("jewel_visuals", "name"))
+            .ToDictionary(row => Text(row, "name"), row => (ushort)Int(row, "hash"), StringComparer.OrdinalIgnoreCase);
 
         Volatile.Write(ref _uniques, uniques);
         Volatile.Write(ref _radius, radius);
@@ -85,107 +67,108 @@ static class GameDataCatalog
         Volatile.Write(ref _visuals, visuals);
     }
 
-    static T[] Load<T>(GameDataStore store, string kind, T[] seed, Func<T, string> key)
+    static UniqueCatalog.Definition[] LoadUniques(GameDataStore store)
     {
-        if (kind == "unique_item")
+        var mods = Children(store, "unique_item_mods", "name, base_type, implicit, ord", "name", "base_type");
+        var ranges = Children(store, "unique_item_ranges", "name, base_type, ord", "name", "base_type");
+        var groups = Children(store, "unique_item_roll_groups", "name, base_type, grp", "name", "base_type");
+        var options = Children(store, "unique_item_roll_options", "name, base_type, grp, ord", "name", "base_type", "grp");
+        var variants = Children(store, "unique_item_variants", "name, base_type, variant", "name", "base_type");
+        var variantMods = Children(store, "unique_item_variant_mods", "name, base_type, variant, ord", "name", "base_type", "variant");
+        var identities = store.LoadRows("unique_item_identities", "name, base_type")
+            .ToDictionary(r => Key(r, "name", "base_type"), r => Text(r, "visual_identity"));
+        return [.. Enabled(store.LoadRows("unique_items", "name, base_type")).Select(row =>
         {
-            MigrateUniqueKeys(store);
-            RefreshSeed(store, kind, seed, key, UniqueSeedRevision);
-        }
-        Seed(store, kind, seed, key);
-        return [.. store.LoadCatalog(kind).Where(row => row.Enabled)
-            .Select(row => JsonSerializer.Deserialize<T>(row.Payload, Json)
-                ?? throw new InvalidOperationException($"catalog {kind} row {row.Key} is empty"))];
+            string key = Key(row, "name", "base_type");
+            var own = mods[key].ToLookup(mod => Bool(mod, "implicit"), mod => Text(mod, "mod"));
+            return new UniqueCatalog.Definition(Text(row, "name"), Text(row, "base_type"), [.. own[false]],
+                (byte)Int(row, "item_level"), Bool(row, "corrupted"), Bool(row, "own_implicits") ? [.. own[true]] : null,
+                ranges[key].Any() ? [.. ranges[key].Select(r => new UniqueCatalog.RollRange(Text(r, "mod"), (int)Int(r, "stat"),
+                    (int)Int(r, "min"), (int)Int(r, "max"), Bool(r, "implicit")))] : null,
+                Bool(row, "mirrored"), (ItemInfluence)Int(row, "influences"), (byte)Int(row, "fractured"),
+                Bool(row, "encounter_only"),
+                groups[key].Any() ? [.. groups[key].Select(g => new UniqueCatalog.RollGroup((int)Int(g, "count"),
+                    [.. options[Key(g, "name", "base_type", "grp")].Select(o => Text(o, "mod"))],
+                    IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count"),
+                    [.. options[Key(g, "name", "base_type", "grp")].Select(o => o.ContainsKey("weight") ? (int)Int(o, "weight") : 1)]))] : null,
+                (int)Int(row, "jewel_limit")) { EncounterItemLevelBonus = IntOrNull(row, "encounter_item_level_bonus"),
+                    VisualIdentityId = identities.GetValueOrDefault(key),
+                    Variants = variants[key].Any() ? [.. variants[key].Select(v => new UniqueCatalog.Variant(
+                        Text(v, "variant"), v["variant_base_type"] as string,
+                        [.. variantMods[Key(v, "name", "base_type", "variant")].Select(m => Text(m, "mod"))],
+                        (int)Int(v, "weight")))] : null };
+        })];
     }
 
-    /// <summary>
-    /// Seeds a kind once, then adds only keys that are new to the seed since the last run. The applied seed key set is
-    /// recorded, so a key that was in the previous seed and is missing from the catalogue was deleted by an admin and
-    /// stays deleted; only a genuinely new default is inserted. On the first run with this tracking, an existing
-    /// catalogue (or the old seeded flag) is kept as it is and the current seed becomes the baseline, which preserves
-    /// deletions made before the table existed.
-    /// </summary>
-    internal static void Seed<T>(GameDataStore store, string kind, T[] seed, Func<T, string> key)
+    static (RadiusJewelCatalogue.Entry[] Radius, RadiusJewelCatalogue.Entry[] Threshold) LoadRadiusJewels(GameDataStore store)
     {
-        var seedKeys = seed.Select(key).ToHashSet(StringComparer.Ordinal);
-        var applied = store.LoadSeededKeys(kind);
-        if (applied.Count == 0)
+        var mods = Children(store, "radius_jewel_mods", "kind, name, base, role, ord", "kind", "name", "base");
+        var variants = Children(store, "radius_jewel_variants", "kind, name, base, ord", "kind", "name", "base");
+        var entries = Enabled(store.LoadRows("radius_jewels", "kind, name, base")).Select(row =>
         {
-            bool hasCatalog = store.CatalogSeeded(kind) || store.LoadCatalog(kind).Count > 0;
-            if (!hasCatalog)
-                foreach (var entry in seed)
-                    store.PutCatalogRow(kind, key(entry), JsonSerializer.Serialize(entry, Json));
-            store.ReplaceSeededKeys(kind, seedKeys);
-            if (!store.CatalogSeeded(kind)) store.MarkCatalogSeeded(kind);
-            return;
-        }
-
-        var existing = store.LoadCatalog(kind).Select(row => row.Key).ToHashSet(StringComparer.Ordinal);
-        foreach (var entry in seed)
-        {
-            string rowKey = key(entry);
-            if (!applied.Contains(rowKey) && !existing.Contains(rowKey))
-                store.PutCatalogRow(kind, rowKey, JsonSerializer.Serialize(entry, Json));
-        }
-        if (!seedKeys.SetEquals(applied)) store.ReplaceSeededKeys(kind, seedKeys);
-        if (!store.CatalogSeeded(kind)) store.MarkCatalogSeeded(kind);
+            string key = Key(row, "kind", "name", "base");
+            var byRole = mods[key].ToLookup(mod => Text(mod, "role"), mod => Text(mod, "mod"));
+            return (Kind: Text(row, "kind"), Entry: new RadiusJewelCatalogue.Entry(Text(row, "name"), Text(row, "base"),
+                [.. byRole["global"]], Text(row, "conversion_mod"), (int)Int(row, "jewel_limit"), (byte)Int(row, "level"),
+                Bool(row, "corrupted"), (int)Int(row, "radius"),
+                variants[key].Any() ? [.. variants[key].Select(v => new RadiusJewelCatalogue.Variant(Text(v, "variant"),
+                    Text(v, "mod_id"), IntOrNull(v, "value")))] : null,
+                byRole["extra_conversion"].Any() ? [.. byRole["extra_conversion"]] : null,
+                Bool(row, "variant_keeps_conversion_mod")));
+        }).ToList();
+        return ([.. entries.Where(e => e.Kind == "radius").Select(e => e.Entry)],
+            [.. entries.Where(e => e.Kind == "threshold").Select(e => e.Entry)]);
     }
 
-    /// <summary>
-    /// <see cref="Seed"/> never changes a row it wrote, so a corrected seed would not reach an existing database. When
-    /// <paramref name="revision"/> is new, the enabled rows that still hold the default the seed last gave them take
-    /// their new defaults, and those whose key left the seed go (a base type correction changes the key). Any other row
-    /// stays as it is, however many revisions pass: an edit, a disabled row and a row no seed gave. A row an admin
-    /// deleted stays deleted, unless the correction gave it a new key. A database from before the defaults were recorded
-    /// has only <c>updated_utc</c> to tell an edit by, once. It runs before <see cref="Seed"/>, which replaces the key set
-    /// that tells a seed's row from an admin's there.
-    /// </summary>
-    internal static void RefreshSeed<T>(GameDataStore store, string kind, T[] seed, Func<T, string> key, string revision)
+    static (UniqueJewelCatalogue.Entry[] Global, UniqueJewelCatalogue.Entry[] Special) LoadUniqueJewels(GameDataStore store)
     {
-        string revisionKey = "catalog_seed_revision:" + kind;
-        var applied = store.LoadSeedDefaults(kind);
-        if (store.Meta(revisionKey) == revision)
+        var mods = Children(store, "unique_jewel_mods", "kind, name, ord", "kind", "name");
+        var entries = Enabled(store.LoadRows("unique_jewels", "kind, name")).Select(row =>
         {
-            // A key the seed gained without a revision takes this default from Seed.
-            var gained = seed.Where(entry => !applied.ContainsKey(key(entry)))
-                .Select(entry => KeyValuePair.Create(key(entry), JsonSerializer.Serialize(entry, Json))).ToList();
-            if (gained.Count > 0) store.ReplaceSeedDefaults(kind, [.. applied, .. gained]);
-            return;
-        }
-
-        var defaults = seed.ToDictionary(key, entry => JsonSerializer.Serialize(entry, Json), StringComparer.Ordinal);
-        var seeded = store.LoadSeededKeys(kind);
-        // catalog_seed_written: the last pass of a build from before the defaults were recorded.
-        var untouched = applied.Count == 0 && (store.Meta("catalog_seed_written:" + kind) ?? store.Meta("catalog_seeded:" + kind)) is { } written
-            ? store.CatalogKeysWrittenBy(kind, written) : null;
-        bool Unedited(GameDataStore.CatalogRow row) => row.Enabled && (untouched is null
-            ? applied.TryGetValue(row.Key, out string? old) && old == row.Payload
-            : untouched.Contains(row.Key) && (defaults.ContainsKey(row.Key) || seeded.Contains(row.Key)));
-        store.InTransaction(() =>
-        {
-            foreach (var row in store.LoadCatalog(kind).Where(Unedited))
-                if (!defaults.TryGetValue(row.Key, out string? payload)) store.DeleteCatalogRow(kind, row.Key);
-                else if (payload != row.Payload) store.PutCatalogRow(kind, row.Key, payload);
-            store.ReplaceSeedDefaults(kind, defaults);
-            store.SetMeta(revisionKey, revision);
-        });
+            var own = mods[Key(row, "kind", "name")].ToList();
+            return (Kind: Text(row, "kind"), Entry: new UniqueJewelCatalogue.Entry(Text(row, "name"), Text(row, "base"),
+                Bool(row, "corrupted"), (int)Int(row, "level"), [.. own.Select(m => Text(m, "mod"))],
+                [.. own.Select(m => IntOrNull(m, "value"))]));
+        }).ToList();
+        return ([.. entries.Where(e => e.Kind == "global").Select(e => e.Entry)],
+            [.. entries.Where(e => e.Kind == "special").Select(e => e.Entry)]);
     }
 
-    /// <summary>The first full-catalogue build used the unique name alone as the key; move those rows aside once so
-    /// the same name can appear for different bases (Combat Focus, Doryani's Delusion, Grand Spectrum, Stormblood).</summary>
-    static void MigrateUniqueKeys(GameDataStore store)
+    static TimelessJewelCatalog.Entry[] LoadTimeless(GameDataStore store)
     {
-        foreach (string key in store.LoadCatalog("unique_item").Where(row => !row.Key.Contains('|')).Select(row => row.Key).ToList())
-            store.DeleteCatalogRow("unique_item", key);
+        var conquerors = Children(store, "timeless_jewel_conquerors", "jewel, ord", "jewel");
+        return [.. Enabled(store.LoadRows("timeless_jewels", "name")).Select(row => new TimelessJewelCatalog.Entry(
+            Text(row, "name"), (int)Int(row, "tree_version"), Text(row, "faction"), Text(row, "mod_id"),
+            (int)Int(row, "min_seed"), (int)Int(row, "max_seed"), (int)Int(row, "display_multiplier"),
+            [.. conquerors[Text(row, "name")].Select(c => new TimelessJewelCatalog.Conqueror(Text(c, "name"),
+                (int)Int(c, "conqueror_index"), (int)Int(c, "version")))]))];
     }
 
-    static string UniqueKey(UniqueCatalog.Definition entry) => $"{entry.Name}|{entry.BaseTypeId}";
-    static string RadiusKey(RadiusJewelCatalogue.Entry entry) => $"{entry.Name}|{entry.Base}";
+    static IReadOnlyDictionary<string, (uint Stat, int Value)[]> LoadTattoos(GameDataStore store)
+    {
+        var stats = Children(store, "tattoo_effect_stats", "tattoo, ord", "tattoo");
+        return Enabled(store.LoadRows("tattoo_effects", "name")).ToDictionary(row => Text(row, "name"),
+            row => stats[Text(row, "name")].Select(s => (Stat.Of(Text(s, "stat")), (int)Int(s, "value"))).ToArray(), StringComparer.Ordinal);
+    }
 
-    static IReadOnlyDictionary<string, (string Stat, int Value)[]> ToTattooMap(IEnumerable<TattooEffectRow> rows) =>
-        rows.ToDictionary(row => row.Name,
-            row => row.Stats.Select(stat => (stat.Stat, stat.Value)).ToArray(), StringComparer.Ordinal);
+    /// <summary>A child table's rows by their parent's key (its key columns joined with '|'), in the given order.</summary>
+    static ILookup<string, Row> Children(GameDataStore store, string table, string orderBy, params string[] parent) =>
+        store.LoadRows(table, orderBy).ToLookup(row => Key(row, parent), StringComparer.Ordinal);
 
-    static IReadOnlyDictionary<string, ushort> ToVisualMap(IEnumerable<VisualRow> rows) =>
-        rows.ToDictionary(row => row.Name, row => row.Hash, StringComparer.OrdinalIgnoreCase);
+    static string Key(Row row, params string[] columns) =>
+        string.Join('|', columns.Select(column => Convert.ToString(row[column], System.Globalization.CultureInfo.InvariantCulture)));
+
+    static IEnumerable<Row> Enabled(IEnumerable<Row> rows) => rows.Where(row => Bool(row, "enabled"));
+
+    static string Text(Row row, string column) => row[column] as string
+        ?? throw new InvalidOperationException($"catalogue row {Key(row, [.. row.Keys.Take(2)])}: {column} is not text");
+
+    static long Int(Row row, string column) => row[column] is long value ? value
+        : throw new InvalidOperationException($"catalogue row {Key(row, [.. row.Keys.Take(2)])}: {column} is not an integer");
+
+    static int? IntOrNull(Row row, string column) => row[column] is null ? null : (int)Int(row, column);
+
+    static bool Bool(Row row, string column) => Int(row, column) != 0;
+
+    static IReadOnlyDictionary<string, T> Empty<T>() => new Dictionary<string, T>();
 }

@@ -6,6 +6,50 @@ namespace GameServer.Gateway.Tests;
 // values raised, implicits do not, and the same implicits move the rare affix caps.
 public sealed class ItemModEffectTests
 {
+    [Fact]
+    public void Imported_catalysts_and_crafting_properties_survive_storage_and_native_item_encoding()
+    {
+        using var gameRules = new GameRules();
+        string path = Path.Combine(Path.GetTempPath(), $"pob-item-properties-{Guid.NewGuid():N}.db");
+        Saves.Open(path);
+        try
+        {
+            var items = new ItemCatalog("data");
+            var ring = ItemCatalog.Create(items.Find("Helical Ring")!);
+            ring = With(items, ring, "StrengthEssence7_", ModSection.Explicit, 88);
+            ring = With(items, ring, "FireResist1", ModSection.Explicit, 40);
+            ring = ring with { Quality = 20, AlternateQualityType = 6, Intangibility = 74, MemoryStrands = 27,
+                RelicStyle = 8, Vestigial = true, RequiredLevel = 65 };
+            CharacterSaves.Write("PobProperties", new(new() { [6] = [new(1, 0, 0, CharacterSaves.ToSaved(ring, items.Mods))] }));
+            var saved = CharacterSaves.Load("PobProperties")!.Inventories[6][0].Item;
+            var restored = CharacterSaves.FromSaved(saved, items);
+            Assert.Equal((byte)74, restored.Intangibility);
+            Assert.Equal((byte)27, restored.MemoryStrands);
+            Assert.Equal((byte)6, restored.AlternateQualityType);
+            Assert.Equal((byte)8, restored.RelicStyle);
+            Assert.True(restored.Vestigial);
+            Assert.Equal(65, ItemModStats.LevelRequirement(restored, 1, items.Mods));
+            Assert.Null((restored with { Mods = [.. restored.Mods] }).RequiredLevel);
+            Assert.Null((restored with { Sockets = [new(SocketColour.Red)] }).RequiredLevel);
+            Assert.Equal(149, ItemModStats.Sum([restored], items.Mods)[Stat.AdditionalStrength]);
+            Assert.Equal(60, ItemModStats.Sum([restored], items.Mods)[Stat.BaseFireDamageResistancePct]); // Helical's 50%, no attribute catalyst on resistance.
+            Assert.Equal(132, ItemModStats.Sum([restored with { Quality = 0 }], items.Mods)[Stat.AdditionalStrength]);
+            // A Mods-only frame isolates the two documented properties after ObjectMagicProperties.
+            var frame = (new Item(1, ["Mods"], 1) with { Intangibility = 74, MemoryStrands = 27 }).Payload();
+            Assert.Equal(new byte[] { 27, 74 }, frame[^2..]);
+            var foil = (new Item(1, ["Mods"], 1) with { RelicStyle = 8, Vestigial = true }).Payload();
+            Assert.Equal(new byte[] { 0x10, 4, 8 }, foil[8..11]);
+            var quality = new BlobWriter();
+            MagicProperties.Write(quality, 0, true, [], alternateQualityType: 6, alternateQuality: 20);
+            Assert.Equal(new byte[] { 8, 2, 0, 6, 20 }, quality.ToArray());
+            Assert.Equal(355, ItemDefences.Of(new(150, 150, 0, 0),
+                new Dictionary<uint, int> { [Stat.LocalPhysicalDamageReductionRatingPlusPct] = 137 }, 0).Armour);
+            Assert.Equal(157, ItemDefences.Ward(new Item(1, [], 1) with { Quality = 20, DefenceBaseRoll = 31 },
+                new(0, 0, 0, 0, WardMin: 100, WardMax: 131), items.Mods));
+        }
+        finally { TestEnvironment.ReleaseSaves(path); }
+    }
+
     static Item With(ItemCatalog items, Item item, string id, ModSection section, params int[] values) =>
         item with { Mods = [.. item.Mods, items.Mods.ById(id)!.With(section, values, new Random(1))] };
 
@@ -19,21 +63,21 @@ public sealed class ItemModEffectTests
         item = With(items, item, "StrengthImplicitBelt1", ModSection.Implicit, 20);
 
         var stats = ItemModStats.Sum([item], items.Mods);
-        Assert.Equal(160, stats.GetValueOrDefault("base_maximum_life"));
-        Assert.Equal(20, stats.GetValueOrDefault("additional_strength"));
+        Assert.Equal(160, stats.GetValueOrDefault(Stat.BaseMaximumLife));
+        Assert.Equal(20, stats.GetValueOrDefault(Stat.AdditionalStrength));
         // The effect stat itself is never scaled, or it would raise itself.
-        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct));
         var local = ItemModStats.Local(item, items.Mods);
         local.Clear();
-        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        Assert.Equal(100, ItemModStats.Local(item, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct));
         var changed = item with
         {
             Mods = [.. item.Mods.Select(m => m with { Values = [.. m.Values.Select(v => v + 1)] })],
         };
         Assert.Equal(ItemModStats.Sum([changed], items.Mods, local: true).OrderBy(p => p.Key),
             ItemModStats.Local(changed, items.Mods).OrderBy(p => p.Key));
-        Assert.NotEqual(ItemModStats.Local(item, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"),
-            ItemModStats.Local(changed, items.Mods).GetValueOrDefault("local_explicit_mod_effect_+%"));
+        Assert.NotEqual(ItemModStats.Local(item, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct),
+            ItemModStats.Local(changed, items.Mods).GetValueOrDefault(Stat.LocalExplicitModEffectPlusPct));
     }
 
     [Fact]
@@ -46,11 +90,103 @@ public sealed class ItemModEffectTests
         cogwork = With(items, cogwork, "FireResist1", ModSection.Explicit, 40);
 
         var stats = ItemModStats.Sum([cogwork], items.Mods);
-        Assert.Equal(80, stats.GetValueOrDefault("base_maximum_life"));
-        Assert.Equal(50, stats.GetValueOrDefault("base_fire_damage_resistance_%")); // 40 * 1.25
+        Assert.Equal(80, stats.GetValueOrDefault(Stat.BaseMaximumLife));
+        Assert.Equal(50, stats.GetValueOrDefault(Stat.BaseFireDamageResistancePct)); // 40 * 1.25
         Assert.Equal((2, 4), rolls.RareMaxAffixes(cogwork));
 
         var composite = ItemCatalog.Create(items.All.First(t => t.Name == "Composite Ring"));
         Assert.Equal((6, 0), rolls.RareMaxAffixes(composite));
+    }
+
+    [Fact]
+    public void Heist_defence_magnitude_applies_to_eligible_explicit_mods_on_its_own_item()
+    {
+        using var gameRules = new GameRules();
+        var items = new ItemCatalog("data");
+        var plain = ItemCatalog.Create(items.All.First(t => t.Name == "Twilight Regalia")) with { Mods = [] };
+        plain = With(items, plain, "LocalIncreasedEnergyShield1", ModSection.Explicit, 100);
+        plain = With(items, plain, "LocalIncreasedEnergyShieldPercent1", ModSection.Explicit, 110);
+        plain = With(items, plain, "BreachBodyAllDefences1", ModSection.Explicit, 50);
+        plain = With(items, plain, "ReducedEnergyShieldPercentUniqueAmulet13", ModSection.Explicit, -50);
+        plain = With(items, plain, "FireResist1", ModSection.Explicit, 25);
+        plain = With(items, plain, "LocalIncreasedEnergyShield2", ModSection.Implicit, 10);
+        var item = With(items, plain, "ArmourEnchantmentHeistDefenceEffectAttributeRequirements1", ModSection.Enchant, 15, -25);
+
+        Program.SetGameLogic(null!);
+        Assert.Equal(110, ItemModStats.Local(item, items.Mods)[Stat.LocalEnergyShield]);
+        Assert.Equal(50, ItemModStats.Sum([item], items.Mods)[Stat.GlobalDefencesPlusPct]);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var local = ItemModStats.Local(item, items.Mods);
+        Assert.Equal(125, local[Stat.LocalEnergyShield]); // 115 from the explicit and 10 from the implicit.
+        Assert.Equal(126, local[Stat.LocalEnergyShieldPlusPct]);
+        Assert.Equal(15, local[Stat.HeistEnchantmentDefenceModEffectPlusPct]);
+        Assert.Equal(-25, local[Stat.LocalAttributeRequirementsPlusPct]);
+
+        var global = ItemModStats.Sum([item], items.Mods);
+        Assert.Equal(57, global[Stat.GlobalDefencesPlusPct]);
+        Assert.Equal(-57, global[Stat.MaximumEnergyShieldPlusPct]);
+        Assert.Equal(25, global[Stat.BaseFireDamageResistancePct]);
+        Assert.Equal(107, ItemModStats.Sum([item, plain], items.Mods)[Stat.GlobalDefencesPlusPct]);
+        Assert.Equal(new[] { 100, 110, 50, -50, 25, 10, 15, -25 }, item.Mods.SelectMany(mod => mod.Values));
+
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        Assert.Equal(125, ItemModStats.Local(item, items.Mods)[Stat.LocalEnergyShield]);
+        Program.SetGameLogic(null!);
+        Assert.Equal(110, ItemModStats.Local(item, items.Mods)[Stat.LocalEnergyShield]);
+        Assert.Equal(-50, ItemModStats.Sum([item], items.Mods)[Stat.MaximumEnergyShieldPlusPct]);
+    }
+
+    [Fact]
+    public void Heist_weapon_magnitudes_match_element_tags_and_combine_before_rounding()
+    {
+        using var gameRules = new GameRules();
+        var items = new ItemCatalog("data");
+        var weapon = ItemCatalog.Create(items.All.First(t => t.Name == "Driftwood Wand")) with { Mods = [] };
+        (string Element, string Affix, string Enchantment)[] variants =
+        [
+            ("fire", "LocalAddedFireDamage1", "WeaponEnchantmentHeistFireEffect1"),
+            ("cold", "LocalAddedColdDamage1", "WeaponEnchantmentHeistColdEffect1__"),
+            ("lightning", "LocalAddedLightningDamage1", "WeaponEnchantmentHeistLightningEffect1"),
+        ];
+        foreach (var (_, affix, _) in variants)
+            weapon = With(items, weapon, affix, ModSection.Explicit, 33, 47);
+
+        foreach (var (matched, _, enchantment) in variants)
+        {
+            var enchanted = With(items, weapon, enchantment, ModSection.Enchant, 8);
+            var local = ItemModStats.Local(enchanted, items.Mods);
+            foreach (var (element, _, _) in variants)
+            {
+                Assert.Equal(element == matched ? 35 : 33, local[Stat.Of($"local_minimum_added_{element}_damage")]);
+                Assert.Equal(element == matched ? 50 : 47, local[Stat.Of($"local_maximum_added_{element}_damage")]);
+            }
+        }
+
+        var caster = With(items, weapon, "SpellDamage1", ModSection.Explicit, 33);
+        caster = With(items, caster, "IncreasedCastSpeed1", ModSection.Explicit, 33);
+        caster = With(items, caster, "WeaponEnchantmentHeistCasterDamageEffect1", ModSection.Enchant, 8);
+        var casterStats = ItemModStats.Sum([caster], items.Mods);
+        Assert.Equal(35, casterStats[Stat.SpellDamagePlusPct]);
+        Assert.Equal(33, casterStats[Stat.BaseCastSpeedPlusPct]);
+
+        var dual = With(items, weapon, "ChanceToAvoidIgniteEssence4", ModSection.Explicit, 43);
+        dual = With(items, dual, "WeaponEnchantmentHeistFireEffectAilmentEffect1_", ModSection.Enchant, 6, 6);
+        Assert.Equal(48, ItemModStats.Sum([dual], items.Mods)[Stat.BaseAvoidIgnitePct]);
+
+        var penalty = With(items, weapon, "LocalIncreasedAttackSpeed1", ModSection.Explicit, 20);
+        penalty = With(items, penalty, "LocalReducedPhysicalDamagePercentUniqueBow8", ModSection.Explicit, -120);
+        penalty = With(items, penalty, "WeaponEnchantmentHeistSpeedEffectDamageEffectPenalty1", ModSection.Enchant, 12, -25);
+        var penalized = ItemModStats.Local(penalty, items.Mods);
+        Assert.Equal(22, penalized[Stat.LocalAttackSpeedPlusPct]);
+        Assert.Equal(24, penalized[Stat.LocalMinimumAddedFireDamage]);
+        Assert.Equal(-120, penalized[Stat.LocalWeaponNoPhysicalDamage]);
+    }
+
+    sealed class GameRules : IDisposable
+    {
+        readonly IGameLogic? previous = Program.GameLogicOrNull;
+
+        public GameRules() => Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        public void Dispose() => Program.SetGameLogic(previous!);
     }
 }

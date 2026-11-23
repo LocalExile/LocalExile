@@ -2,10 +2,10 @@ namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>A row of Data/ExtraTerrainFeatures.dat as the pool holds it: id (+0), rooms (+8, .arm), tiles (+0x18,
 /// .tdt / .tst), room orientations (+0x39, 8 = any), the linked row added with it (+0x49), the world area it leads to (+0x51,
-/// a WorldAreas row: a sub-area, <c>0x14204dd90</c>) and the oversize flag (+0x61: a telepad injector's room,
-/// <c>0x142108750</c>).</summary>
+/// a WorldAreas row: a sub-area, <c>0x14204dd90</c>), the oversize flag (+0x61: a telepad injector's room,
+/// <c>0x142108750</c>) and the injected room's descriptions (+0x29: "link", "sidearea", "maptrial", "telepad5" …).</summary>
 sealed record ExtraFeatureRow(string Name, IReadOnlyList<string> Rooms, IReadOnlyList<string> Tiles, IReadOnlyList<int> Orientations,
-    int Link, int WorldArea, bool Oversize)
+    int Link, int WorldArea, bool Oversize, IReadOnlyList<string> Descriptions)
 {
     /// <summary><c>0x142108a70</c>'s orientation mask of the row: 0 (any) when it lists 8, else a bit per orientation.</summary>
     public int Mask => Orientations.Contains(8) ? 0 : Orientations.Aggregate(0, (m, o) => m | 1 << (o & 31));
@@ -48,7 +48,7 @@ sealed class ExtraRoomPool
     }
 
     ExtraFeatureRow Row(int row) => new(Table.String(row, 0), Table.StringList(row, 8), Table.StringList(row, 0x18),
-        Table.I32List(row, 0x39), Table.Ref8(row, 0x49), Table.Ref(row, 0x51), Table.Bool(row, 0x61));
+        Table.I32List(row, 0x39), Table.Ref8(row, 0x49), Table.Ref(row, 0x51), Table.Bool(row, 0x61), Table.StringList(row, 0x29));
 
     /// <summary>AddExtraTerrainFeature by id: <see cref="Add(ExtraFeatureRow, int)"/> for the row named
     /// <paramref name="name"/>.</summary>
@@ -112,12 +112,29 @@ sealed class ExtraRoomPool
         if (counted && Share != 0) Share--;
     }
 
+    /// <summary><c>0x141d8e950</c> given the row named <paramref name="name"/> (the table's row: its first copy in the
+    /// list, none waiting is a no-op).</summary>
+    public void Remove(string name, bool counted)
+    {
+        int i = Rows.FindIndex(r => r.Name == name);
+        if (i < 0) return;
+        Rows.RemoveAt(i);
+        if (counted && Share != 0) Share--;
+    }
+
     /// <summary>The pool's placed rooms (+0x60, <c>0x141d8e240</c>): map rectangles of the unique rooms and shrines
     /// placed. The overlays keep off them (exclusion bit 0x20, <c>0x142004a90</c>).</summary>
     public readonly List<(int X0, int Y0, int X1, int Y1)> Placed = [];
 
+    /// <summary>The rows of the placed rooms (+0x60 entries' +0), where a placing pass gives one.</summary>
+    public readonly List<ExtraFeatureRow> PlacedRows = [];
+
     /// <summary><c>0x141d8e240</c>: a room of w × h at map (x, y) was placed for a row.</summary>
-    public void RoomPlaced(int x, int y, int w, int h) => Placed.Add((x, y, x + w, y + h));
+    public void RoomPlaced(int x, int y, int w, int h, ExtraFeatureRow? row = null)
+    {
+        Placed.Add((x, y, x + w, y + h));
+        if (row is not null) PlacedRows.Add(row);
+    }
 
     /// <summary><c>0x141d8f030</c>: a shrine room was placed. The shrine count drops by one (not below 0), the placed
     /// count goes up, and the first Shrine row leaves the list (the share stays). A shrine with a size (map position and

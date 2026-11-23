@@ -83,7 +83,7 @@ internal static class Program
         if (args.Length < 3)
             return Fail();
 
-        byte[] data = GameFileSystem.ReadRawGgpkFile(ggpkPath, args[2]);
+        byte[] data = GameFileSystem.ReadRawFile(ggpkPath, args[2]);
         string? outPath = GetOption(args, "--out");
         if (outPath is null)
         {

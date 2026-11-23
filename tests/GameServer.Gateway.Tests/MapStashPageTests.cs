@@ -7,11 +7,13 @@ namespace GameServer.Gateway.Tests;
 
 /// <summary>The map tab's pages (#477): the 191 pages the client asks for, the next page once one is full, and a page only
 /// taking the maps that belong to it.</summary>
-public class MapStashPageTests
+public class MapStashPageTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     static AccountStash OpenMapStash(ItemCatalog catalog, string? account = null)
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-mapstash-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("mapstash");
         return AccountStash.For(account ?? "MapStash" + Guid.NewGuid().ToString("N"), catalog);
     }
 
@@ -42,18 +44,19 @@ public class MapStashPageTests
         Assert.True(stash.PageKeyOf(next) != stash.PageKeyOf(page0));
         Assert.True(stash.PageKeyOf(next) == AccountStash.MapPageKey(1, tierOne.Hash));
 
-        var conn = new ClientState(new(ushort.MaxValue, "MapStashTest", 128, 128, 32, 32, null, []), 0, 1)
-            { Account = account, Character = account, League = "Standard" };
+        var player = new Player(new(ushort.MaxValue, "MapStashTest", 128, 128, 32, 32, null, []), 0, 1)
+            { Character = { Account = account, Name = account, League = "Standard" } };
         var items = PlayerInventories.For(account, catalog);
-        conn.StashTabsSent.UnionWith([mapTab, next]);
+        player.Connection.StashTabsSent.UnionWith([mapTab, next]);
         using var wire = new Wire();
+        player.Connection.Session = new("stash-test", wire.Stream, wire.Ciphers);
         try
         {
             // Parent-tab drops must use a free cell and publish the child inventory, including the second drop.
             for (int i = 1; i <= 2; i++)
             {
                 var held = items.Add(PlayerInventories.Cursor, 0, 0, map with { Quality = (byte)i });
-                await Game.PlaceInStash("map-stash-test", wire.Stream, wire.Ciphers, conn, mapTab,
+                await Game.PlaceInStash(player, mapTab,
                     new InstanceItems.PlaceItem(stash.InventoryOf(mapTab), 0, 0, 0, 0, 0, 0));
                 Assert.Empty(items.Items(PlayerInventories.Cursor));
                 Assert.Equal(i, stash.Inventory(next).Items.Count);

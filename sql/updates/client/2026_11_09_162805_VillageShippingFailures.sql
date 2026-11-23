@@ -1,0 +1,23 @@
+-- Client table VillageShippingFailures: all 21 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "VillageShippingFailures" ("_row", "Id", "Text", "Resource", "ResourceLostPercent", "PortBonusLostPercent", "__col5", "CrewMembersLost", "__col7", "SubText", "__col9") VALUES
+(0, 'NULL', '', '[]', 0, 0, 0, 0, 0, '', 0),
+(1, 'ShipCommandeered', 'Pirates have commandeered the Ship! They will execute the Crew and steal the Shipment unless you intervene.', '[]', 0, 0, 0, 0, 2, '<kalguurlightgrey>{One of our ships has been commandeered!}', 0),
+(2, 'Lose50%Metals', '<kalguurred>{A well-armed merchant vessel demanded half of our shipment of ore!}', '[0,1,2,3,4,5,6,7,8,9]', 50, 0, 0, 0, 1, '<kalguurlightgrey>{Half of our shipment of ore has been lost!}', 1),
+(3, 'Lose100%Metals', '<kalguurred>{Our crew had to dump our shipment of ore to outrun a pirate fleet!}', '[0,1,2,3,4,5,6,7,8,9]', 100, 0, 0, 0, 1, '<kalguurlightgrey>{Our shipment of ore has been lost!}', 1),
+(4, 'Lose50%Plants', '<kalguurred>{A wasting disease destroyed half of our shipment of crops!}', '[10,11,12,13,14]', 50, 0, 0, 0, 1, '<kalguurlightgrey>{Half of our shipment of crops has been lost!}', 1),
+(5, 'Lose100%Plants', '<kalguurred>{The crew became stuck in a calm sea and had to eat our shipment of crops!}', '[10,11,12,13,14]', 100, 0, 0, 0, 1, '<kalguurlightgrey>{Our shipment of crops has been lost!}', 1),
+(6, 'Lose100%ArcaneDust', '<kalguurred>{Our shipment of Thaumaturgic Dust collapsed into a portal and vanished!}', '[15]', 100, 0, 0, 0, 1, '<kalguurlightgrey>{Our shipment of Thaumaturgic Dust has been lost!}', 1),
+(7, 'Lose50%AllResourcesOutgoing', '<kalguurred>{A Karui raiding party waiting outside Kingsmarch demand half of our entire shipment!}', '[]', 50, 0, 0, 0, 1, '<kalguurlightgrey>{Half of our entire shipment has been lost!}', 1),
+(8, 'Lose50%AllResourcesAtPort', '<kalguurred>{Corrupt customs officials demanded half of our entire shipment!}', '[]', 50, 0, 0, 0, 1, '<kalguurlightgrey>{Half of our entire shipment has been lost!}', 1),
+(9, 'Lose25%AllResourcesAtPort', '<kalguurred>{A quarter of our entire shipment was somehow misplaced at port!}', '[]', 25, 0, 0, 0, 1, '<kalguurlightgrey>{A quarter of our entire shipment has been lost!}', 1),
+(10, 'Lose75%AllResourcesOutgoing', '<kalguurred>{The King decided to institute a one-time tax of three-quarters of our entire outgoing shipment!}', '[]', 75, 0, 0, 0, 1, '<kalguurlightgrey>{Three quarters of our entire shipment has been lost!}', 1),
+(11, 'Lose50%RewardsAtPort', '<kalguurred>{Trade disruptions at port caused economic shocks. We only received half of what we expected.}', '[]', 0, 50, 0, 0, 1, '<kalguurlightgrey>{Our expected returns have been halved!}', 1),
+(12, 'Lose50%RewardsReturning', '<kalguurred>{Pirates seized half of our profits on the voyage back!}', '[]', 0, 50, 0, 0, 1, '<kalguurlightgrey>{Our expected returns have been halved!}', 1),
+(13, 'Lose25%RewardsAtPort', '<kalguurred>{We were out-negotiated at port, and have received a quarter less than we expected.}', '[]', 0, 25, 0, 0, 1, '<kalguurlightgrey>{Our expected returns have been reduced by a quarter!}', 1),
+(14, 'Lose75%RewardsReturning', '<kalguurred>{The ship experienced a tremendous storm at sea, and three-quarters of our returns have been lost.}', '[]', 0, 75, 0, 0, 1, '<kalguurlightgrey>{Our expected returns have been reduced by three quarters!}', 1),
+(15, 'LoseCrewMemberPubBrawl', '<kalguurred>{Unfortunately, a crew member was killed in a tavern brawl.}', '[]', 0, 0, 0, 1, 1, '<kalguurlightgrey>{One of our crewmembers has been lost!}', 5),
+(16, 'LoseCrewMemberOverboardOutgoing', '<kalguurred>{A storm knocked a crewmember overboard on the voyage out.}', '[]', 0, 0, 0, 1, 1, '<kalguurlightgrey>{One of our crewmembers has been lost!}', 5),
+(17, 'LoseCrewMemberOverboardReturning', '<kalguurred>{One of our crew decided to stay at port and start a new life.}', '[]', 0, 0, 0, 1, 1, '<kalguurlightgrey>{One of our crewmembers has been lost!}', 5),
+(18, 'ShipmentDelayed100%', '<kalguurred>{Dangerous weather has caused a delay.}', '[]', 0, 0, 100, 0, 1, '<kalguurlightgrey>{Our ship has been delayed!}', 1),
+(19, 'LoseAllRewardsOutgoing', '<kalguurred>{Our ship was seized by a pirate fleet on the way to port. The entire shipment has been lost.}', '[]', 100, 0, 0, 0, 0, '<kalguurlightgrey>{Our entire shipment has been lost!}', 10),
+(20, 'LoseAllRewardsReturning', '<kalguurred>{A mysterious green light surrounded the ship on its voyage home. When it passed, everything was gone.}', '[]', 0, 100, 0, 0, 0, '<kalguurlightgrey>{Our entire shipment has been lost!}', 10);

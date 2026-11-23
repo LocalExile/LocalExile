@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The six Legion timeless jewels: their unique name, base type, faction, mod row, real seed range and current
@@ -7,8 +8,14 @@ using GameServer.Core.Protocol.Instance;
 /// alternate tree to build (see Agents/docs/game/timeless-jewels.md). Militant Faith also carries two random
 /// per-10-Devotion mods, as the real item does.
 /// </summary>
-static class TimelessJewelCatalog
+public static class TimelessJewelCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        NameWords = LoadNameWords("data");
+    }
+
     public const string BaseId = "Metadata/Items/Jewels/JewelTimeless";
 
     public sealed record Conqueror(string Name, int Index, int Version);
@@ -19,22 +26,6 @@ static class TimelessJewelCatalog
         public int DisplayedMaxSeed => MaxSeed * DisplayMultiplier;
         public bool IsElegantHubris => DisplayMultiplier > 1;
     }
-
-    internal static readonly Entry[] Seed =
-    [
-        new("Glorious Vanity", 1, "Vaal", "UniqueJewelAlternateTreeInRadiusVaal", 100, 8000, 1,
-            [new("Xibaqua", 1, 0), new("Ahuana", 2, 1), new("Doryani", 3, 0)]),
-        new("Lethal Pride", 2, "Karui", "UniqueJewelAlternateTreeInRadiusKarui", 10000, 18000, 1,
-            [new("Kaom", 1, 0), new("Rakiata", 2, 0), new("Akoya", 3, 1)]),
-        new("Brutal Restraint", 3, "Maraketh", "UniqueJewelAlternateTreeInRadiusMaraketh", 500, 8000, 1,
-            [new("Balbala", 1, 1), new("Asenath", 2, 0), new("Nasima", 3, 0)]),
-        new("Militant Faith", 4, "Templar", "UniqueJewelAlternateTreeInRadiusTemplar", 2000, 10000, 1,
-            [new("Maxarius", 1, 1), new("Dominus", 2, 0), new("Avarius", 3, 0)]),
-        new("Elegant Hubris", 5, "Eternal", "UniqueJewelAlternateTreeInRadiusEternal", 100, 8000, 20,
-            [new("Cadiro", 1, 0), new("Victario", 2, 0), new("Caspiro", 3, 1)]),
-        new("Heroic Tragedy", 6, "Kalguur", "UniqueJewelAlternateTreeInRadiusKalguur", 100, 8000, 1,
-            [new("Vorana", 1, 0), new("Uhtred", 2, 0), new("Medved", 3, 0)]),
-    ];
 
     public static Entry[] All => GameDataCatalog.TimelessJewels;
 
@@ -130,23 +121,23 @@ static class TimelessJewelCatalog
         foreach (var mod in item.Mods)
         {
             if (mods.ByHash(mod.Hash) is not { } row) continue;
-            int? Value(string id)
+            int? Value(uint id)
             {
                 for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
                     if (row.Stats[i].Id == id) return mod.Values[i];
                 return null;
             }
 
-            if (Value("local_unique_jewel_alternate_tree_version") is not int version
-                || Value("local_unique_jewel_alternate_tree_seed") is not int seed
-                || Value("local_unique_jewel_alternate_tree_keystone") is not int keystone
-                || Value("local_jewel_effect_base_radius") is not int radius) continue;
+            if (Value(Stat.LocalUniqueJewelAlternateTreeVersion) is not int version
+                || Value(Stat.LocalUniqueJewelAlternateTreeSeed) is not int seed
+                || Value(Stat.LocalUniqueJewelAlternateTreeKeystone) is not int keystone
+                || Value(Stat.LocalJewelEffectBaseRadius) is not int radius) continue;
             if (ForTreeVersion(version) is not { } entry || seed < entry.MinSeed || seed > entry.MaxSeed
                 || entry.Conquerors.FirstOrDefault(c => c.Index == keystone) is not { } conqueror) continue;
-            int revision = Value("local_unique_jewel_alternate_tree_internal_revision") ?? 1;
+            int revision = Value(Stat.LocalUniqueJewelAlternateTreeInternalRevision) ?? 1;
             string name = revision == 0 ? LegacyName(entry, keystone) ?? conqueror.Name : conqueror.Name;
             return new TimelessSpec(entry.Name, version, entry.Faction, seed, seed * entry.DisplayMultiplier,
-                keystone, name, revision == 0 ? 0 : conqueror.Version, radius);
+                keystone, name, revision == 0 ? 0 : conqueror.Version, RadiusJewelCatalogue.EffectRadius(radius));
         }
         return null;
     }
@@ -163,25 +154,23 @@ static class TimelessJewelCatalog
         _ => null,
     };
 
-    static readonly Lazy<Dictionary<string, uint>> NameWords = new(() => LoadNameWords("data"));
+    static Dictionary<string, uint> NameWords = default!;
 
     static uint? WordHash(string name, string folder) =>
-        folder == "data" ? NameWords.Value.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
+        folder == "data" ? NameWords.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
 
     static Dictionary<string, uint> LoadNameWords(string folder)
     {
         var result = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
-        string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
-        foreach (var row in d.RootElement.EnumerateArray())
-            if (row.GetProperty("Wordlist").GetInt32() == 6)
-                result[row.GetProperty("Text").GetString() ?? ""] = row.GetProperty("HASH32").GetUInt32();
+        if (!ClientTables.Has("Words")) return result;
+        foreach (var row in ClientTables.Table("Words"))
+            if (row.Int("Wordlist") == 6)
+                result[row.Text("Text") ?? ""] = row.UInt("HASH32");
         return result;
     }
 }
 
 /// <summary>The values a socketed timeless jewel contributes to the passive tree. <see cref="Seed"/> is the real
 /// generation seed; <see cref="DisplayedSeed"/> is what the item tooltip shows (Elegant Hubris ×20).</summary>
-sealed record TimelessSpec(string Name, int TreeVersion, string Faction, int Seed, int DisplayedSeed,
+public sealed record TimelessSpec(string Name, int TreeVersion, string Faction, int Seed, int DisplayedSeed,
     int ConquerorIndex, string ConquerorName, int ConquerorVersion, int Radius);

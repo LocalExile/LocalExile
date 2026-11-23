@@ -10,15 +10,15 @@ The Solaris Temple Level 2, and both orbs summon Solaris and Lunaris on The Harb
 (2_9_1). Side quests: `a8q4` Reflection of Terror (Yugul, book), `a8q5` The Wings of Vastiri (Hector Titucius'
 tomb), `a8q6` Love is Dead (Ankh of Eternity, Clarissa at the Quay, book), `a8q7` The Gemling Legion (book).
 Act 8's Pantheon flags: `a8q23-KilledBosses` (major gods Solaris and Lunaris) and `a8q4-KilledBoss` (minor god Yugul).
-Sources: client tables (`data/tables`, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
+Sources: client tables (client.db, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
 grep/cat` of the rooms), the unpacked game text (`.ot`/`.it`), the wiki (Fandom mirror, 2026-10-30), poedb.
 
 ## Status
 
 On the quest engine (`Modules/Core/World/QuestObjects/Acts/Act8.cs`, [12](../../protocol/12-quests.md) §17), with
 driver steps `a8q1`, `a8q5`, `a8q4`, `a8q6`, `a8q7`, `a8q3` (both eclipses' fight), `a8q2` (the arrival in Act 9). Played
-live on 2026-10-31 before the game moved into modules; on the modules the oracle (`QuestEngineTests`, to
-`E3EndOfAct8`'s act 7–8 flags) and the offline exit audit check it, not yet the client. The sections after the status
+live on 2026-10-31 before the game moved into modules; on the modules the offline exit audit checks it, not
+yet the client. The sections after the status
 are the research done before the act was built. What differs from the
 sections below:
 - Every boss is placed (the numbered boss points: Dusk at `mapboss1`, the legion at `mapboss1–7`, Tolman at his spawner,
@@ -79,9 +79,9 @@ WorldAreas boss would need; the server only uses points named `mapboss`.
 ### Objects, NPCs and bosses
 | What | Type / MV / item | Where it comes from | Server today | Needed |
 |---|---|---|---|---|
-| Doedre the Vile | MV 5536 `Metadata/Monsters/Doedre/DoedreSewers` | WorldAreas Bosses; `mapboss` of `doedre_boss_room_1.arm` | placed (spawnable, `mapboss`) | kill/seen flags |
-| Cauldron valve | `Metadata/Monsters/Doedre/DoedreSewer/DoedreCauldronValve` (Positioned, Animated, BaseEvents, InteractionAction, Transitionable) | room line, room (115, 101) | not created | optional (fight start in the real game; the driver kills directly) |
-| SinDoedre | `Metadata/NPC/Act8/SinDoedre` (NPCs row 238) | spawned at the kill (not in any room) | not created | optional out-of-town NPC (no reward) |
+| Doedre the Vile | MV 5536 `Metadata/Monsters/Doedre/DoedreSewers` | WorldAreas Bosses; `mapboss` of `doedre_boss_room_1.arm` | valve-controlled encounter | kill/seen flags |
+| Cauldron valve | `Metadata/Monsters/Doedre/DoedreSewer/DoedreCauldronValve` (Positioned, Animated, BaseEvents, InteractionAction, Transitionable) | room line, room (115, 101) | starts the fight and cycles effluent | required to start; subsequent turns clear stacks |
+| SinDoedre | `Metadata/NPC/Act8/SinDoedre` (NPCs row 238) | spawned at the kill (not in any room) | appears after the kill | optional out-of-town NPC (no reward) |
 | Toxic sewage | `Metadata/QuestObjects/Act8/ToxicDoodad` / `NonToxicDoodad` | room lines; `client_only`, Transitionable `per_player_quest_state_flag = a8q1-KilledBoss` | client-side | nothing (the flag swaps them) |
 
 ### Gates
@@ -114,10 +114,42 @@ the Sewers · 4 `QuestReceived`+`Visited-8_2` · 3 `a8q1-SeenBoss` → Kill Doed
 
 ### Risks
 - Offer 54's rare rings / magic gloves cannot be built: the reward step fails until rare/magic item construction lands.
-- Doedre's fight in the real game starts at the valve; placing her at `mapboss` directly skips that (acceptable).
+- Official AI decision weights/cooldowns and boss-side colour bonuses are not shipped in the client;
+  encounter tuning remains provisional.
 - `a8q1-SeenBoss` / `a8q1-KilledBoss` have no client-side setter: both are server script.
 
+### Native cauldron details
+
+The valve's Transitionable states are 1 spinning/disabled, 2 idle/clickable, 3 paused/disabled.
+The cauldron and face door come from tile records, unlike the room-line valve.
+Their virtual models and heights are needed for correct placement.
+The valve's room-line Z is negative (up); falling back to terrain height puts its wheel below the floor.
+Liquid types use `empty` (6333 ms), `fill` (3000 ms), `loop`;
+their Animated component index differs from PermanentServerEffect.
+Doedre's `teleport_cauldron` is 6333 ms, `teleport` contacts at 1533/2500 ms,
+wand release at 466/1166 ms and bloodbomb at 1000/2000 ms.
+BuffDefinitions 832/833/834 carry stack counts (max 10); they are not IsRecovery and carry no stat-value tail in 0x1c1.
+
 ## a8q2 "Lunar Eclipse" and a8q3 "Solar Eclipse" (Quest rows 87 and 88, main)
+
+`LunarisSolarisBase.ot` defines Transitionable 1 inactive, 2 fight, 3 transforming, 4 transformed, 5 super form.
+Entry into state 2 starts the native 1.6-second timer. The bridge controller keeps one corporeal actor vulnerable,
+with the other in celestial form; the survivor uses state 5 after its sister dies. Inactive bodies are absent from
+world views, so reentry cannot expose a vulnerable duplicate of an orb. The 20-second handoff cadence remains a
+development calibration; official target selection and timing still need a reference capture.
+
+Celestial forms have separate skills: Solaris 6464 (sweeping SkyBeam with three-second burning ground) and 6477
+(SolarFlare), Lunaris 6473 (seven-second cold darkness) and 8433 (TriggerCascade driving 6472 ice contacts).
+The native SkyBeam/SolarFlare implementations are `141a49ef0`/`141a4b5e0`: a two-second, 60-cell sweep with base
+radius 18, and five expanding 32.5-degree half-angle annuli. Their native area modifiers are -40% and +40%.
+Cascade variation 3 supplies 15 spikes, 100 ms spacing, A=50, B=-12 and 15 degrees; `141c62850` computes the radial
+term from A+B*angle in radians. Exact heading/target distribution remains a calibration. Meteor AMD contact is
+999/4966 ms; matching the skill's 300 ms contact requires explicit playback speed. Ground art needs its `loop`
+clip (index 2); its fade-in alone does not start the damaging-ground particles. Dark-patch radius 12 and ice-hit
+radius 8 are development calibrations; damage, durations and minion penalties come from each granted effect.
+SolarisSkyBeamBeam is MiscBeams row 41, following the celestial actor and its moving impact object.
+SolarFlare's warning decal occupies its 3330 ms charge; the explosion AO starts afterward and its first particle
+contact is 480 ms into that animation. Starting the explosion alongside the warning makes its visible hit early.
 
 The two quests share their start, their fight and their end flag (`a8q23-…`), so they are one implementation.
 **Start:** Maramoa NPCTalk 1179 "Solaris and Lunaris". **Finish:** Solaris and Lunaris dead on The Harbour Bridge.
@@ -211,6 +243,24 @@ a8q3: 9 `a8q23-QuestsReceived` · 8 `a8q1-KilledBoss` · 7 `MaramoaOnSunOrb` · 
   server script.
 
 ## a8q4 "Reflection of Terror" (Quest row 89, side)
+
+`SilverFrog.ot` dispatches `reappear` when `mirror_images` becomes 0. `FrogGodHide` is the Hide action (8455),
+separate from `FrogGodSplit` (6796), a leap-style attack. Frog's native `jump_into` lasts 3166 ms and `jump_out` 1166 ms.
+The campaign controller uses the reference 66%/33% mirror intervals and ten native image-spawner positions;
+all images must die before the emergence finishes and damage resumes. The boss has no view or collision body while
+submerged; its instance state keeps the wave from being generated twice on rule reload.
+
+SilverPool is a server-only chill area, not a damage skill. TriggerSpawnersYugul1/2/3 (2976–2978) add 1, 1 and 2
+SilverPoolTurrets. YugulStormBurst (6582) has 350 ms base cast time, -40% cast speed, -60% projectile speed,
+never_freeze, +100% area damage, -10% area radius and -25% damage against minions. Its native projectile speed is
+1000; the reduced flight is 400 world units/s. MercuryTotem AMD supplies 800 ms emergence, a 166 ms channel loop
+with contact at 66 ms, and 166 ms channel-end; MonsterWait is 5000 ms. The six-shot channel and shared terminal
+burst use these timings rather than the ordinary monster attack scheduler.
+Fearful (BuffDefinitions 870, frog_orb_aura) has a stack count and cold degeneration stat, but IsRecovery=false:
+`0x141fe6090` reads no GrantedStats values for it. An extra value desynchronizes the following packet.
+Pool radius 12, pool chill 30%, Fearful radius 8, burst radius 10.8, level-scaled Fearful damage,
+orb counts/speed escalation and target choice remain
+development calibrations: the client does not contain their original server magnitudes or AI.
 
 **Start:** Sin NPCTalk 1194 (needs `Visited-8_4`, not `a8q5-DeliveredItem`) or 1195 (needs `a8q5-DeliveredItem`).
 **Finish:** Hargan's Book of Skill. **DONE flag (driver):** `a8q4-UsedRewardBook` (Order 0).

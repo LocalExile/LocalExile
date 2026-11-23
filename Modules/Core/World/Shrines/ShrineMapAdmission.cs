@@ -1,0 +1,15 @@
+using GameServer.Modding;
+
+namespace GameServer.Modules.Shrines;
+
+/// <summary>Do not charge for an encounter whose summoned Conqueror actions have no server executor.</summary>
+public static class ShrineMapAdmission
+{
+    public static void Check(MapOpening request)
+    {
+        request.HandledContent.Add(MapScarabContent.StandardShrines);
+        if (request.Opening?.Mods.Get(Stat.MapNumExtraApparitionShrines) is not > 0) return;
+        request.Opening = null;
+        request.Reason = "Apparition Shrines are not supported yet. Remove the Domination Scarab of Apparitions; your map and scarab have not been consumed.";
+    }
+}

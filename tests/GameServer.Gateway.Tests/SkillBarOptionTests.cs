@@ -4,6 +4,52 @@ namespace GameServer.Gateway.Tests;
 
 public class SkillBarOptionTests
 {
+    [Fact]
+    public async Task Manual_clear_survives_auto_placement_and_a_queued_refresh_keeps_the_latest_bind()
+    {
+        string character = "ManualBar" + Guid.NewGuid().ToString("N");
+        CharacterSaves.SetSkillBar(character, 2, "IceShot");
+        SkillBarLayout.Bind(character, 2, "");
+        var save = CharacterSaves.Load(character)!;
+        var hidden = SkillBarLayout.Unassigned(save);
+        var added = SkillBarLayout.Fill(save.SkillBar!, "PlayerMelee",
+            new[] { "IceShot", "SplitArrow" }.Where(s => !hidden.Contains(s)), _ => true);
+        Assert.Contains((3, "SplitArrow"), added);
+        Assert.DoesNotContain(added, s => s.Slot == 2 || s.Entry == "IceShot");
+        SkillBarLayout.Bind(character, 5, "IceShot");
+        Assert.DoesNotContain("IceShot", SkillBarLayout.Unassigned(CharacterSaves.Load(character)));
+        var previous = Program.GameLogicOrNull;
+        var outgoing = Program.Outgoing;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var player = SpellTotemExecutionTests.PlayerOf(character);
+        using var wire = new SpellTotemExecutionTests.Wire();
+        player.Connection.Session = new("skill-bar-test", wire.Stream, wire.Ciphers);
+        var packets = new List<byte[]>();
+        Program.Outgoing = (peer, bytes) => { if (ReferenceEquals(peer, player)) packets.Add(bytes.ToArray()); };
+        var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+        try
+        {
+            SkillBarLayout.Bind(character, 2, "Action/Move");
+            Assert.True(gate.Wait(0));
+            Task refresh;
+            try
+            {
+                refresh = Game.SendSkillBar(player);
+                Assert.False(refresh.IsCompleted);
+                SkillBarLayout.Bind(character, 2, "");
+            }
+            finally { gate.Release(); }
+            await refresh;
+            var bar = Assert.Single(packets, p => p.Length > 2 && p[0] == 0 && p[1] == 0x53);
+            Assert.Equal(0, System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(bar.AsSpan(6, 2)));
+        }
+        finally
+        {
+            Program.Outgoing = outgoing; Program.SetGameLogic(previous!);
+            PlayerInventories.Forget(character);
+        }
+    }
+
     // C→S 0x4f is framed, saved per slot, and goes back in 0x53's raw (little-endian) +0x2a mask; a bar sent with 0 there
     // cleared the player's "Always Attack Without Moving".
     [Fact]

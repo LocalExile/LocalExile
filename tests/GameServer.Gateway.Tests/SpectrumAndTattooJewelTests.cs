@@ -1,0 +1,81 @@
+using GameServer.Core.Protocol.Instance;
+
+namespace GameServer.Gateway.Tests;
+
+public class SpectrumAndTattooJewelTests
+{
+    [Fact]
+    public void Grand_spectra_roll_one_variant_and_count_active_copies_across_bases()
+    {
+        var items = Program.Items;
+        var uniques = new UniqueCatalog(items);
+        var random = new Random(18);
+        var variants = new Dictionary<string, Item>();
+        foreach (var definition in uniques.All.Where(d => d.Name == "Grand Spectrum"))
+        {
+            var hashes = new HashSet<ushort>();
+            for (var roll = 0; roll < 48; roll++)
+            {
+                var item = Assert.IsType<Item>(uniques.Create(definition, random));
+                var mod = Assert.Single(item.Mods);
+                hashes.Add(mod.Hash);
+                variants[items.Mods.ByHash(mod.Hash)!.Id] = item;
+                Assert.True(GrandSpectrum.IsSpectrum(item, items.Mods));
+            }
+            Assert.Equal(3, hashes.Count);
+        }
+        Assert.Equal(9, variants.Count);
+        var red = variants["AllResistancePerStackableJewelUnique__1"];
+        var blue = variants["MinimumPowerChargesPerStackableJewelUnique__1"];
+        var sources = ItemModStats.Global([red, red, blue], items.Mods, Program.Stats);
+        GrandSpectrum.Apply(sources, Program.Stats);
+        Assert.Equal(42, sources[Stat.BaseResistAllElementsPct]);
+        Assert.Equal(3, sources[Stat.BaseMinimumPowerCharges]);
+    }
+
+    [Fact]
+    public void Warriors_tale_doubles_only_active_tattoos_in_the_allocated_sockets_radius()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"warriors-tale-{Guid.NewGuid():N}.db");
+        Saves.Open(path);
+        var player = new Player(new(1, "tattoos", 100, 100, 100, 100, null, []), 1, 1)
+            { Character = { Name = "TattooRadius" } };
+        try
+        {
+            var tree = Game.PassivesFor(player);
+            var socket = tree.JewelNodeForSlot(1)!.Value;
+            var jewel = new UniqueCatalog(Program.Items).Create("Warrior's Tale", new Random(2))!;
+            var radius = RadiusJewelCatalogue.ReadConversion(jewel, Program.Items.Mods)!.Radius;
+            var inside = tree.NodesInRadius(socket, radius);
+            bool Strength(ushort n) => tree.Find(n)!.Stats.Any(s => Program.Stats.Name(s.Key) == "base_strength" && s.Value == 10);
+            var near = inside.First(Strength);
+            var far = tree.NodesInRadius(socket, 20000).First(n => !inside.Contains(n) && Strength(n));
+            player.Character.Tattoos[near] = player.Character.Tattoos[far] = "Tattoo of the Ngamahu Firewalker";
+            player.Character.TattooRevision++;
+            uint fire = Stat.BaseFireDamageResistancePct;
+            int Resist(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources.GetValueOrDefault(fire);
+            var initial = Resist(near, far, socket);
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(12, 1, 0, jewel));
+            Assert.Equal(initial + 6, Resist(near, far, socket));
+            Assert.Equal(initial, Resist(near, far));
+            Game.ItemsOf(player).Remove(PlayerInventories.PassiveJewels, 12);
+            Assert.Equal(initial, Resist(near, far, socket));
+
+            // The +10 Dexterity passive 36287 is within both radii on the 3.29.3c tree.
+            byte Slot(ushort node) => (byte)Enumerable.Range(0, 60).Single(i => tree.JewelNodeForSlot(i) == node);
+            var meek = new UniqueCatalog(Program.Items).Create("Might of the Meek", new Random(3))!;
+            player.Character.Tattoos[36287] = "Tattoo of the Arohongui Moonwarden";
+            player.Character.TattooRevision++;
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(12, Slot(32763), 0, jewel));
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(13, Slot(60735), 0, meek));
+            uint cold = Stat.BaseColdDamageResistancePct;
+            int Cold(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources.GetValueOrDefault(cold);
+            Assert.Equal(15, Cold(32763, 60735, 36287) - Cold(32763, 60735));
+        }
+        finally
+        {
+            PlayerInventories.Forget(player.Character.Name!);
+            TestEnvironment.ReleaseSaves(path);
+        }
+    }
+}

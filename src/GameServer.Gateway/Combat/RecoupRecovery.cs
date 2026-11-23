@@ -1,6 +1,6 @@
 /// <summary>Recoup: each hit's share of the damage taken, recovered evenly over its own seconds after the hit. The
 /// hits overlap, so every one keeps its own end and how far it has been paid.</summary>
-sealed class RecoupRecovery
+public sealed class RecoupRecovery
 {
     sealed class Hit(double start, double until, double rate)
     {

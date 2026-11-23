@@ -4,8 +4,8 @@
     "Core/Item/Cosmetics",
     "Core/Player/Chat",
     "Core/Player/Commands",
-    "Survivors/SurvivorsSkills",
-    "Survivors/SurvivorsRewards",
-    "Survivors/SurvivorsRun"
+    "Custom/Survivors/SurvivorsSkills",
+    "Custom/Survivors/SurvivorsRewards",
+    "Custom/Survivors/SurvivorsRun"
   ]
 }

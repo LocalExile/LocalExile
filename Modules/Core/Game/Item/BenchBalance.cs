@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 
 /// <summary>A client-only view of the personal stash's crafting currencies. Never saved or spendable as items.</summary>
-static class BenchBalance
+public static class BenchBalance
 {
     public static IReadOnlyList<InventoryItem> Snapshot(AccountStash stash, ItemCatalog catalog, BenchCrafting bench)
     {
@@ -11,7 +11,7 @@ static class BenchBalance
         return DisplayStacks(catalog, hashes.Select(hash => (hash, stash.CountOf(hash))));
     }
 
-    internal static IReadOnlyList<InventoryItem> DisplayStacks(ItemCatalog catalog, IEnumerable<(uint Hash, int Count)> balances)
+    public static IReadOnlyList<InventoryItem> DisplayStacks(ItemCatalog catalog, IEnumerable<(uint Hash, int Count)> balances)
     {
         var items = new List<InventoryItem>();
         foreach (var (hash, amount) in balances.OrderBy(b => b.Hash))

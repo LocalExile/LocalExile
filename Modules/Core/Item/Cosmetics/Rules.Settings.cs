@@ -18,7 +18,7 @@ using GameServer.Core.Diagnostics;
 
 static partial class CosmeticsRules
 {
-    // Pets (RunPetFollow): how far beside the player a pet stands, and how far it may fall behind before it walks after
+    // Pets (StepPetFollow): how far beside the player a pet stands, and how far it may fall behind before it walks after
     // the player (cells; our own numbers).
     internal const int PetDistance = 6;
     internal const double PetFollowRange = 12;

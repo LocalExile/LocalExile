@@ -14,7 +14,7 @@ Arakaali (`a7q4`) dies and the exit to Act 8 (The Sarn Ramparts `2_8_1`) opens. 
 Gruthkul, 1 passive). Pantheon souls of this act: Ralakesh (`a7q1-KilledBoss`), Arakaali (major, `a7q4-KilledBoss`),
 Gruthkul (`a7q9-KilledBoss`); Maligaro gives no Pantheon soul.
 
-Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobjects` / `generate`, seed 1; 2_7_2 at
+Sources: client tables (client.db), the generated layouts (`lg.ps1 questobjects` / `generate`, seed 1; 2_7_2 at
 seed 1585866662), the unpacked game text (`.ot`/`.it`), the wiki (Fandom mirror, 2026-10-30). The sections after the status are the
 research done before the act was built: their "Risks" are what was expected then, the status says how it went.
 
@@ -26,9 +26,8 @@ chest, `BanditBlock` and `YeenaPositionMarker` are all short lines, found with `
 
 On the quest engine (`Modules/Core/World/QuestObjects/Acts/Act7.cs`, [12](../../protocol/12-quests.md) §16), with
 driver steps `a7q5`, `a7q2`, `a7q3`, `a7q1`, `a7q8`, `a7q9`, `a7q7`, `a7q6`, `a7q4` (a7q2 before a7q3: Silk appears with
-the map). Played live on 2026-10-31 before the game moved into modules; on the modules the oracle (`QuestEngineTests`:
-after Act 6 every quest of the act completes and Act 8 ends with `E3EndOfAct8`'s act 7–8 quest flags) and the offline
-exit audit (`scripts/re/exits --quests`) check it, not yet the client.
+the map). Played live on 2026-10-31 before the game moved into modules; on the modules the offline exit audit
+(`scripts/re/exits --quests`) checks it, not yet the client.
 What differs from the sections below:
 - Every boss is placed (the numbered boss points: Maligaro, Black Death and Fidelitas at `mapboss1–3`; Gruthkul at
   `mapboss1`; The Ashen Fields' boss is Greust when all three bandit lords died, else the spared lord's avatar: each of
@@ -41,8 +40,13 @@ What differs from the sections below:
   lift with it. `a7q1-SeenBlockage` / `a7q4-SeenBlockage` / `a7q8-SeenShrine` are proximity rules.
 - The seven Fireflies' chests have no placement in the data: `On.ScatteredChest` spreads them over The Dread Thicket's
   walk map (the same cells for the same seed).
+  `FireflyChestBase` disables targeting in `create_transitioned`: unopened chests must be sent in Transitionable
+  state 1, not state 2; the latter makes visible fireflies impossible to click.
 - Maligaro's portal (`MaligaroPortalTransition`, spawned by the device beside itself) is a quest portal (`On.Portal`)
   shown with `a7q2-DeliveredItem`. Played live 2026-10-31 (all nine quests, no `/goto`).
+- Arakaali's return gate is on the balcony outside the closed arena web. Arriving beside that gate leaves the player
+  trapped; the campaign arena entrance uses the placed `boss.arm` footprint's walkable centre until the scripted entrance
+  is implemented. Return gates retain their ordinary destination.
 - Not created: the arena machinery (Arakaali's turrets, Maligaro's door), Yeena
   after Arakaali. The Crossroads (`2_7_2`) plays at a seed the client builds; its BanditBlock is placed by no room the
   generation keeps at seed 1, so its sight (`a7q1-SeenBlockage`) is optional.
@@ -297,6 +301,24 @@ Sanctum (a7q2).
 
 ## a7q4 "The Mother of Spiders" (Quest row 80, main; ends the act)
 
+Native encounter notes: `ArakaaliBoss.act` defines `SpellProjectileCold` only under `stance2`.
+Its `stance2` is ACT ordinal 1 (base is 0); `0x141e9d3f0` ignores ordinal 2, which equals this actor's stance count.
+`VaalSpiderGod/rig.amd` clip 10 is `phase_01_transition_silk_01` (6333 ms); changing to stance2 attaches `SilkHead.ao`.
+The Tendrils granted effects select art variations 1/2/3; without `skill_art_variation` their action chooses
+`CastFast`, absent from this actor. The campaign now gates the phase at 50%, plays Silk's clip and resumes at 60%.
+These HP values are provisional reference calibration; arena corner travel remains missing.
+The live object's stance is part of its creation snapshot and is reconciled when an existing observer wakes it.
+
+
+The arena places 13 A rails, 13 B rails and 26 opposite display turrets at seed 1.
+Their `next` script variable is an entity reference to the opposite display, not a StateMachine value.
+The native turret `fire` clip lasts 3333 ms, with `effect` at 66 ms and the damage contact at 1999 ms;
+`activate` lasts 533 ms. Transition 2 invokes `MakeBeam(SpiderGodLaserBeam, next)` on a source turret.
+The rail controller supplies those links and uses the native timeline; the three-lane selection and 3-cell collision
+band are development calibration, not recovered official AI weights.
+Generic AI still excludes the unsafe `SpiderGodActivateLaser*` actions; the controller drives the linked rails directly.
+
+
 **Start:** YeenaTown "Silk" (cat 4, sets the quest). **Finish:** enter The Sarn Ramparts.
 **DONE flag (driver):** `Visited-8_1` (QS 854 Order 0). Optional: SinTown "Arakaali" sets `a7q4-QuestRewardTaken`
 (no item).
@@ -320,7 +342,7 @@ Sanctum (a7q2).
 ### Objects, NPCs and bosses
 | What | Type / MV / item | Where | Server today | Needed |
 |---|---|---|---|---|
-| Arakaali | MV 5740 (boss bar) | WA Bosses; `boss.arm` `mapboss` | placed (spawnable) | targetable; no phases |
+| Arakaali | MV 5740 (boss bar) | WA Bosses; `boss.arm` `mapboss` | placed (spawnable) | Silk transition; stance-specific attacks |
 | Arena | `ArakaaliSequencer`, `ArakaaliTurret_A`/`_B` ×13 each (StateMachine, Transitionable, Timer client-only), 26 `ArakaaliTurretDisplay`, `ArakaaliArenaMiddle`, 4 `TeleportMarkerSerialized1..4`, `ArakaaliLaserTurretDaemon` | `boss.arm` | not created | not needed for `/kill` |
 | Silk | `Metadata/NPC/Act7/SilkArakaali` (not targetable, Transitionable: anim 0 → 1) | `boss.arm` (149, 256) | NOT created | optional (story) |
 | Yeena / fox | `YeenaFox` (`Metadata/Monsters/FireFox/YeenaFox`), `YeenaPositionMarker` | short lines in `boss.arm` (166, 115) / (168, 208) | not created | optional |

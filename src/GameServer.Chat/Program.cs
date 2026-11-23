@@ -2,9 +2,10 @@ using System.Net;
 using GameServer.Core.Chat;
 
 // A public chat server for LocalExile's Gateways (Agents/docs/protocol/10-chat-and-commands.md §6): it transmits lines
-// between characters on channels and stores nothing. Game_CHAT_BIND (default 0.0.0.0), Game_CHAT_PORT (default 6113).
-var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_CHAT_BIND") ?? "0.0.0.0");
-int port = int.Parse(Environment.GetEnvironmentVariable("Game_CHAT_PORT") ?? "6113");
+// between characters on channels and stores nothing. localexile.conf Chat.BindAddress (default 0.0.0.0) and Chat.Port
+// (default 6113), or Game_CHAT_BIND / Game_CHAT_PORT.
+var bind = GameServer.Core.ServerConfig.ChatBind;
+int port = GameServer.Core.ServerConfig.ChatPort;
 
 using var server = new ChatServer(bind, port, maxPerAddress: 32);
 server.Start();

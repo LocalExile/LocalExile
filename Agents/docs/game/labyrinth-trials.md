@@ -63,7 +63,7 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
 
 **What the Gateway does** (`LabyrinthTrials` in the Gateway, `Rules.LabyrinthTrials.cs` in QuestObjects):
 - on entering a trial's area it creates these objects; a door also closes its line across the way between the
-  area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `ClientState.DoorBarriers`);
+  area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `Player.DoorBarriers`);
 - using the trial's door opens it (0x2bc state 2, then 0x1c6 unblocked);
 - a lever opens itself and what its room links turn on (below); unlinked (room-points.json's objects), the nearest
   Locked Door that is still closed;
@@ -99,7 +99,7 @@ puzzles and traps there (`RoomFile.Links`, `ServerLevels.Level.RoomLinks`):
 | `next` | lever → door, gears; gear → gear; door → door; rail → rail; spike → spike; `Trigger_*` → spike; plate → `_Triggered` dart |
 | `counter` | lever, crank, gear → `Counter_Handler`, `Counter_Handler_Any`, `Door_Counter` |
 | `transition1`–`4` | `Counter_Handler(_Any)`, `Switch_Once_Multi`, `Switch_Multi`, `PressurePlate_ResetMulti_4` → doors, cranks, rail switches, darts |
-| `disable`, `disable1`–`3` | door → its levers; lever → the other lever of a pair |
+| `disable`, `disable1`–`3` | door → its levers (numbered); lever → the other lever of a pair (`disable`). EH `bottleneck_06`'s lever (839, 586) also has the door's `disable3`, not followed: it would leave the door shut for good |
 | `previous`, `left`, `right`, `teleport` | rails and swap pieces |
 | `reset`, `reset1`, `reset2` | plate → roomba, roomba → rail |
 | `delay`, `delayed` | dart → dart |
@@ -109,7 +109,9 @@ puzzles and traps there (`RoomFile.Links`, `ServerLevels.Level.RoomLinks`):
 `Counter_Handler` and `Counter_Handler_Any` are server-only lines with a stand-in model (a palm tree): nothing to
 send. The links give the wiring only; the timings are the `.ot`s', the names' (`Switch_Reset_16`: a crank that
 comes back up after 16 s, our reading) or fitted live. `LabyrinthWiring` follows `next`, `counter`, `transitionN`
-and `disable`.
+and `disable`. A toggling `Switch` drives what its `next` and `transitionN` reach and, through its `TimerGears`, what
+their `next` reaches (`RT_branch_bottleneck_2`: Switch → TimerGears → Door_Closed, live); where a room has links, a
+`Switch` stops only the sawblades its `pause` links name.
 
 ## Unblocking a door
 
@@ -125,6 +127,10 @@ Blocking (`0x141e46b10`) saves the grid under the object, stamps its Hull (`0x14
 the unblock adds that difference back (nibbles, clamped at 5). Both do nothing while a byte of the world (entity +0x78
 → +0x111, not identified) is set, and keep no cells in a hideout (the area's WorldAreas row, world +0xb0, byte +0x14e
 IsHideout).
+
+A stamp closes more than its Hull to the player: `0x141d8b430` gives the cells within 4 of a stamped cell their
+Chebyshev distance, and a mover stands only on a value ≥ its size + 1 (the player: 2), so the ring of cells next to the
+Hull is closed too (a spike tile's ±11 cells close ±12).
 
 An object with a **static position** (the type's +0x158 → +0x19 set and Positioned +0x1e7 bit 1 clear; "Has Static
 Position" in the info dump `0x141e36650`) has its Hull stamped by the client's object pass `0x141d8bd20` (and the
@@ -150,6 +156,8 @@ Its room line is `Metadata/NPC/Labyrinth/LabyrinthTrialGlyph<Prison|Sins|Church|
 `Metadata/Terrain/Doodads/Labyrinth/StoryGlyph.ao`: an NPCs.dat row (136–141) with no `.ot` of its own, filed on its
 `Metadata` `.ot`, `StoryGlyphBase` (Positioned, Animated, BaseEvents, InteractionAction, NPC, MinimapIcon).
 The Gateway places it as an NPC (`NpcCatalog`, `SpawnNpc`) with the room line's model.
+So too the Bronze Inscription in the room before Izaro's arena (`LabyrinthGlyph1`–`4`, NPCTalk 784–787; `LabyrinthGlyph0`
+is the Bronze Plaque).
 Each has one NPCTalk row, index 0 "Read" (777–782, NPCTextAudio 929–934).
 In the original it reads at once on the click, and the voice goes on as the player walks away, so a click sends
 **S→C 0x84 with that index**, which opens the talk on the row instead of the option list (live 2026-10-31).
@@ -235,7 +243,7 @@ only target.
 The turret's Hull (every turret model but `statueturret_circlevine_noblock.ao`: ±3.25 to walking, ±2.26 to
 projectiles, turned with it) is stamped by the client: live (2026-10-31) the darts vanished at the turrets in their
 way while the server's flew on, unseen, and could hit a player behind one.
-So the Gateway closes those cells too (`ClientState.ProjectileWalls` for the darts, `DoorBarriers` for the walk
+So the Gateway closes those cells too (`Player.ProjectileWalls` for the darts, `DoorBarriers` for the walk
 estimate).
 The rig's flight clip `spine_shoot` is a `loopnoint` clip, which the `.amd` reader did not know: it dropped every rig
 with one (321 of them), so these darts had no clips in `data/projectile-clips.json` before.
@@ -300,7 +308,7 @@ half a second.
 In the original the pools fall smoothly in it (live 2026-10-31/11-01). The client cannot drain a pool itself: its
 pool step (`0x141e718c0`) adds the pool's native recovery rate only when it is above 0, so a negative
 `energy_shield_recovery_per_minute` or `life_recovery_per_minute` is ignored (tried 2026-10-31, reverted). So the
-degeneration (`ClientState.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`RunResourceRecovery`,
+degeneration (`Player.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`StartResourceRecovery`,
 beside regeneration, so one pool update carries both), and while it runs the player's stat updates carry both rates
 as 0 (`PlayerStatsUpdateAtGate`, `SendPlayerEnergyShield`): with its own regeneration predicted up between the
 updates and the damage dealt down at each, the pool went in a saw (live 2026-11-01).
@@ -414,7 +422,7 @@ ones), with no values in the client data; the wiki: fire damage over time, less 
 So the Gateway heats the room's plates together, keeps them at their peak 5 s after the heating clip, cools them and
 rests them 6 s cold, over and over; while the lava lies a player on a hot plate or a wall plate's half line degenerates by 40% of maximum life plus
 50% of maximum energy shield a second (our numbers, the roomba's: it felt the same in the original) less their fire
-resistance, energy shield first, with that buff on them, as a roomba's cut is dealt (`ClientState.TrapDegenPerSecond`).
+resistance, energy shield first, with that buff on them, as a roomba's cut is dealt (`Player.TrapDegenPerSecond`).
 `/trial_lava <life %> <energy shield %> [<peak s> [<cold s>]]` (dev) changes them.
 
 **Levers and gears.** Each lever opens the nearest Locked Door still closed (the room's way meets them in that order,
@@ -479,6 +487,8 @@ monster skills of [roadmap/monsters](../../roadmap/monsters.md).
 **Mirrored rooms** (orientation codes 4–7) mirror a line's angle only, and the client draws a server object
 unmirrored, so a corner piece (`spinner_rail_corner`, `SpinnerStopper_Corner`) is sent a quarter turn back
 (`LabyrinthTrials.PlacedAngle`): a mirrored L is the L turned a quarter (live 2026-11-01: corners faced away).
+A line's own flip flag counts too, so a flipped line in a mirrored room is not mirrored: EH `secret_payload_01` has most
+of its track flipped (its links show where each corner leads; every room's corners agree with this rule).
 
 **Spinner rooms' swap piece.** Under each spinner of the Crypt set's two-lever rooms lies a
 `Rail_Visible_Swap_Anims10` (`SpinnerStopper_Corner2`; the `.ot` is `Anims01`'s with the clips the other way round),
@@ -633,15 +643,92 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   4 untargetable; his Hide `lift_lower_*` (rig clips 40–42) is what the server's `on_transition_to_4` plays.
 - The original (live, the user): he rises on the elevator as the player comes in; his life bar is split in thirds
   carried from trial to trial (2/3, 1/3, death); at a trial's end he speaks, walks to the elevator's middle, stands and
-  goes down on it, and the doors open as he goes. His weapon is the day's and the tier's (wiki); the client does not
-  have the pick. A move order sent during his swing was lost on the client.
+  goes down on it, and the doors open as he goes. His weapon is the day's and the tier's: not in the client, but
+  poelab.com's archived layout files (`weapon`) show the pick, `TinyMt(tier × 0x13d + seed).Pick(3)` as mace, sword and
+  shield, two swords (101 of 102 days of all tiers, 2023-2026; only its Merciless 2025-05-18 says otherwise).
+  A move order sent during his swing was lost on the client. At his trial's floor his boss bar is
+  dimmed (live, as Malachai's): the bar draws `UniqueBossFrameImmuneOverlay` once the life is at the
+  `cannot_drop_below_%_life` stat (client key 0xca8, checked on each life change, 3.29.3c: 0x14028f1e0), sent with 0x1b3.
+  `is_hidden_monster`, `cannot_be_damaged`, `base_cannot_be_damaged` and the invisible `cannot_be_damaged` buff did not
+  change the bar. No boss bar while he rises (live): `boss_life_bar` 1 goes only as he starts to fight.
+  `disable_life_bar` does not hold it: BossLifeBar.ot's `on_state_boss_life_bar_1` shows the bar whatever
+  `disable_life_bar` is, and `on_state_disable_life_bar_0` shows it even with `boss_life_bar` 0.
 - His lines are NPCTextAudio rows of NPCs 147 (S→C 0x1c7, [17](../protocol/17-npcs.md)): `Izaro<n>_Prefight` as the
-  gate opens, `IzaroStart<mechanic>` as he rises, `IzaroFlee1`–`6` (trial 1) and `7`–`8` (trial 2), `IzaroDeath1`–`6`.
-  The plaza door's line (`IzaroSpeechOpenDoor*`) the client says itself.
+  player comes into the room of the server-only `IzaroSpeech/BossPrefight` object (live; nothing as the gate opens), `IzaroStart<mechanic>` as he rises, `IzaroFlee1`–`6` (trial 1) and `7`–`8` (trial 2), `IzaroDeath1`–`6`.
+  The plaza door's line (`IzaroSpeechOpenDoor*`) the client says itself. At a trial's end he says two lines (the
+  original, live): the Flee or Death line, then the arena's mechanic's `IzaroFinish<mechanic><n>` (n = how many of its
+  three are left; the statues' 1 names the element). `IzaroAll<mechanic>Dead` when the last one is killed.
+- The mechanics (LabyrinthSecretEffects `<Mechanic><Tier>_<Element>`: fire, cold, lightning; the "…2" rows are the
+  ones an earlier trial left). The arena's three `Elevator_Player` (the wiki's "three small holes") carry its own:
+  Toggle Statues rise one at a time, the first with Izaro (EmpowerStatueBase.ot: 1 lowered, 2 raising, 3 off, 4 on, 5 lowering, 6 down), a
+  click turns one off for 15 s in Normal (live). The gargoyles (IzaroGargoyle.ot: 1 lowered, 2 `ascending_elevator`,
+  3 raised, 4 lowering, 5 `elevator_down_idle`, the state a new one is in) rise together, stand 5 s, then one at a
+  time a 10 s beam to Izaro (MiscBeams `IzaroGargoyleBeam`, `awaken_gargoyle` on the gargoyle; the Beam's end follows
+  its object, its start stays where it began, so the start is the gargoyle) and it awakens (its Emerge, `awaken`), its
+  buff on Izaro until it dies (live). Before its beam it takes little damage, from the beam on all of it (live). Elevators cannot be stood on while they move (live), and what rises can be hit only once it is up (live).
+  What rises on a small elevator faces Izaro's (live).
+  The portals (IzaroPortal.ot: 1 lowered, 2 raising, 3 raised, 4 lowering, 5 lowered, the state a new one is in) rise
+  one at a time; `elevator_ascend` is the .ot's server event (0x1b2, rig clip 0). Each brings one guardian
+  (`IzaroSummonSkeletonCaster*`, `alternate_minion` 63–65) about every 5 s, 10 of its own at most (live; the skill: 2.17 s
+  cast). It comes out of the portal and walks a little before it fights (live: the skill's offset, 114 units). The
+  guardians walk the arena: their skills' `spell_maximum_action_distance_+%` -60 keeps them from casting at their
+  200-cell aggro range. When he leaves the portals stay up and bring no more, and the guardians fight on (live).
+  The Goddess's Guardians (`IzaroSummonSkeletonGhostflame`): six circles at random places every 20 s, two in each
+  (`skill_repeat_count` 6, 20 s cooldown, two monsters). They die after 30 s (IzaroSkeleton.ot `time_until_death`), not
+  by a cap; the casters' .ot has no such time. Ours removes them then, with no death clip (live), and the corpse of one killed sooner.
+  The Goddess of Justice (`GoddessOfJustice`, untargetable, cannot be damaged, immobile) rides on Izaro's
+  `jnt_back_spirit` in every trial (live: up the elevator, down with him). Her .ot creates her held at her `emerge` clip's
+  start, unseen until an action plays: her Emerge starts with his. The client takes an attached object's facing from
+  its bone alone, so she turns as his back does (live: as the original). Her `LabyrinthSpiritMortar` is the client's
+  `LbBossSpiritMortar` projectile action: with a count, `monster_projectile_variation` 0 and
+  `distribute_projectiles_over_contact_points` 1 on her record it plays `volly` and fires five mortars, one at each of
+  the clip's first five contacts (without the last stat each of its six contacts fired all five). The gargoyles'
+  awakening beam is her `AwakenGargoyle` action at the gargoyle (`skill_effect_duration` 10 s), from her hands (live),
+  and she casts nothing else while it runs. When Izaro dies she plays her `death` clip (rig clip 3, 17.3 s: she turns
+  slowly and flies up, live).
+  `PortalSummon1_*` have no tier and no buff; the "…2" ones (IzaroPortal2.ot, untargetable, `base_cannot_be_damaged`)
+  give Izaro `izaro_buff_loot_bonus`. A new IzaroPortal2 is in state 3, whose create event plays the closing clip, so the
+  server sends 1 and its idle clip.
+  The Chrono Statues' idols (`ChronoStatues1_1`–`3`: Flame, Frost, Storm Idol; IzaroChronosStatuePhase1.ot: 1 lowered,
+  2 `lift_raise`, 3 raised, 4 active, 5 `lift_lower`, 6 lowered; ExtinguishPillar_chronos/rig.amd clips 7 and 6, which
+  the server plays) rise with Izaro and cannot die (`set_cannot_die`). Up, an idol channels `ChronosStatuesCast`
+  (`chronos_statues_cast`, "WIP"): the client's action (0x14151d120 start: stance `Casting`, its `Activate` clip, the
+  glow effect; 0x14151d480 tick) sets the clip's time to the idol's life percent and its glow by that percent
+  (0x14151d630: up to 25 none, then `first_glow`, `second_glow`, `third_glow` from 76), so the server only fills the life
+  (0x1b1). Full, it casts `beacon_izaro` (`set_user_life_to_1_on_skill_use`, a 3 s fuse) and fills again from 1. The
+  original (live): it fills in about 10 s (the .ot's 360 % a minute would take 16 s), casts 6 circles (the row says
+  10), sits at once; hitting it takes its life down; the idols go down when he leaves. Sent with the channel's end,
+  `lift_lower` left the idol standing: the server sends it a moment later. A circle is the beacon's `aoe.ao` with its
+  orb (`rig.ao`: end 0, loop 1, start 2) in the middle and `explode.ao` at the end; its radius is the action's, not
+  in the data (ours).
+  Monster spells whose damage has StatInterpolations 3 (the beacons, Storm Call) deal FloatStatsValues × the monster
+  damage at the caster's level; the row of the effect's level holds a lower level's resolved values (beacons: 14–22, a
+  level 3's).
+  The Lieutenants (`Lieutenants1_Bull`, `_Melee`, `_Ranged`: of Rage, of the Mace, of the Bow; LieutenantSkeletonBoss*.ot:
+  1 lowered, 2 raising, 3 raised, 4 lowering, 5 lowered; Art/Models/MONSTERS/skeleton/rig.amd `lift_raise_sword_shield`
+  176, `lift_raise_bow` 175, both 10.7 s, which the server plays) rise one at a time, the first with Izaro (live; 10 s
+  apart is ours), hold their weapons (Weapon1 and Weapon2 in the Inventories, as his) and use their rows' skills on
+  GrantedEffectsPerLevel's cooldowns: Ice Crash and `bull_thorns` (no values in the data, shown only), Burning Hammer
+  and Storm Call (`monster_cast_spell_%_on_attack_hit`; ours casts it as a skill), Rain of Arrows (the act plays
+  `lightningarrows.ao`) and Split Arrow. `IzaroAllLieutenantsDead` when the last one dies (live).
+- What is left when a trial ends (a statue on or not risen, a gargoyle alive, a portal not destroyed, a lieutenant
+  alive, an idol glowing: over a quarter of its life, ours) comes back in later trials whose room
+  has the mechanic's "…2" secret: in the arena behind an alcove's railing (`BossObjectiveBlocker`: 1 up, 2 down in
+  3.3 s; its three `BossObjectiveMarker`) and on a ledge of the room before it (`BossEntryObjectiveMarker`, in threes).
+  The original (live): the first trial's on the right ledge, the second's on the left. The final arena has two
+  alcoves; which trial takes which is ours (the first the one with the least y). Statues stand as StatueDoodad1-3 and
+  keep their buff; gargoyles (IzaroGargoyle2) come out with all their buffs when the railing lowers as he fights, and
+  portals bring their guardians from the alcove once it lowers. Lieutenants come out the same way; idols
+  (IzaroChronosStatuePhase2.ot: untargetable, `base_cannot_be_damaged`, 460 % a minute) cast from the alcove behind
+  its railing.
+  The arena's gargoyles rise with Izaro; their `ascending_elevator` is the .ot's server event, so the server plays it
+  (0x1b2, rig clip 0) or the client leaves them in the hole (live).
+- The room before each arena and the Ascendancy Chamber have the account's stash (their `Stash` room object). The
+  plaza's device (`LabyrinthDifficultySelect`) follows the door's state: transitioned, it plays `open` (the green
+  flame) and its minimap icon goes (`hide_on_transition`).
 
 ## Not built yet
 
-- The step-triggered spikes of Izaro's rooms, his arenas' mechanics and the Goddess of Justice, and the hot plates'
-  Cruel and Merciless rooms.
+- The step-triggered spikes of Izaro's rooms and the hot plates' Cruel and Merciless rooms.
 - The Labyrinth's `Door_Counter` puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.

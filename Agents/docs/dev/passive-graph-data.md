@@ -1,9 +1,9 @@
-# Read-only passive graph analysis (3.29.3b)
+# Read-only passive graph analysis (3.29.3c)
 
 This layer parses and exports passive topology from the pinned client archive.
 Generated files are analysis artifacts under `data/`; they provide no installed gameplay support.
 The exporter never writes `Client/Content.ggpk` and has no apply, restore, recovery or installed-graph check modes.
-Standard startup must preserve the installed 3.29.3b archive.
+Standard startup must preserve the installed 3.29.3c archive.
 Any client archive mutation requires separate maintainer agreement.
 The [selection layer](../game/ascendancies.md) consumes JSON topology for server validation and command-based lifecycle.
 Exporting topology does not enable gameplay admission.
@@ -11,9 +11,9 @@ Antiquarian's separately opted-in read-only archive check and native acceptance 
 
 ## Inputs and generated data
 
-Run commands from the repository root with the standalone 3.29.3b client and the dependencies in
+Run commands from the repository root with the standalone 3.29.3c client and the dependencies in
 [GettingStarted](../../GettingStarted.md#what-you-need).
-The exporter uses the existing Node/ooz-wasm worker and `data/tables/PassiveSkills.json` from table extraction.
+The exporter uses the existing Node/ooz-wasm worker and the `PassiveSkills` table from `data/client.db`.
 Production paths remain relative to the repository root.
 
 ```powershell
@@ -22,11 +22,12 @@ Production paths remain relative to the repository root.
 dotnet run --project scripts/re/passive-graphs -- Client/Content.ggpk data/passive-skill-graphs.json
 ```
 
-The `passive-graphs` manifest entry is version 5 and depends on `tables`.
+The `passive-graphs` manifest entry is version 7 and depends on `tables`.
 It writes two ignored analysis artifacts:
 
 - `data/passive-skill-graphs.json`: revision, `analysisOnly: true`, source descriptions, hashes, roots, orbit sizes and
-  sorted undirected adjacency for the ordinary and derived Phrecia graphs. Version 5 also exports each group's `x`/`y`
+  sorted undirected adjacency for the ordinary and derived Phrecia graphs and, from version 7, the Atlas tree
+  (`atlas`: 1029 nodes, root 29045). Version 5 also exports each group's `x`/`y`
   and each node's `orbit`/`orbitIndex`, which the Gateway uses only to compute jewel radii (no graph is installed).
 - `data/phrecia-passive-skillgraph.psg`: the matching merged graph, referenced by `mergedGraphFile` in the JSON.
   This file is not installed or consumed by gameplay.
@@ -45,6 +46,9 @@ Version 4 also accepts the exact maintained combined alternate hash
 `F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A425196CC93D638` as an input.
 Hashes are checked against bytes actually read from the archive before exporting anything.
 Any other source is refused; the exporter does not restore it or substitute a backup and claim it was original.
+The Atlas source `metadata/atlasskillgraphs/atlasskillgraph.psg` is pinned to SHA-256
+`CF58DDD58781A613DB064BC8F17BABB56AEACFD2C3ED303B35FAD80A19F8DA88`, read from the 3.29.3d client; it has not been
+compared with a 3.29.3c archive. `AtlasPassives` uses its links to check Atlas passive pathing.
 The original ordinary graph has 2,987 nodes and the original alternate graph has 2,928.
 Family is needed when interpreting shared start IDs because their outgoing connections differ.
 

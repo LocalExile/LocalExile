@@ -3,9 +3,9 @@
 /// <summary>A hit's conditional luck and unarmed melee multiplier. Native 0x1427ec030 adds ordinary,
 /// low-life and Focus rolls plus Sharp and Brittle, then clamps the signed total to [-1, 1].
 /// Its low-life input is virtual_on_low_life; it has no attack or melee gate, so spell critical rolls qualify.</summary>
-static class CriticalStrikePolicy
+public static class CriticalStrikePolicy
 {
-    public const string UnarmedMeleeMultiplierStat = "unarmed_melee_attack_critical_strike_multiplier_+";
+    public const uint UnarmedMeleeMultiplierStat = Stat.UnarmedMeleeAttackCriticalStrikeMultiplierPlus;
 
     public static bool OnLowLife(uint currentLife, uint maximumLife, int thresholdOverride = 0,
         int thresholdPercent = 0, bool countsAsLowLife = false) =>

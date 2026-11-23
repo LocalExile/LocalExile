@@ -16,16 +16,15 @@ in the Wetlands), a6q7 "The Cloven One" (Bestel: Abberath at Prisoner's Gate). T
 dies a Sin NPC appears next to the corpse and opens the Pantheon screen (Tukohama is the first, it unlocks "Open
 Pantheon" at Sin in town). Four Books of Skill (+1 passive each: a6q3, a6q6, a6q7; a6q4's is a Book of Regrets, +2
 respec only).
-Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobjects`, `lg.ps1 grep` of the room files),
+Sources: client tables (client.db), the generated layouts (`lg.ps1 questobjects`, `lg.ps1 grep` of the room files),
 the unpacked `.ot`/`.it` text (references, not copied), the wiki (Fandom mirror, 2026-10-30), poedb not needed.
 
 ## Status (implemented, played live 2026-10-30)
 
 Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts/Act6.cs`,
 [12](../../protocol/12-quests.md) §15) and was played unattended by the campaign runner (driver steps `a6q4`, `a6q5`,
-`a6q3`, `a6q2`, `a6q7`, `a6q6`, `a6q1`) before the game moved into modules; on the modules the oracle
-(`QuestEngineTests`) plays it after Act 5: every quest of the act complete, the Brine King, Tukohama, Abberath and
-Ryslatha unlocked in the [Pantheon](pantheon.md), arrival in the Bridge Encampment. What differs from the sections below:
+`a6q3`, `a6q2`, `a6q7`, `a6q6`, `a6q1`) before the game moved into modules; it has not been played on the modules
+yet. What differs from the sections below:
 - The Twilight Strand, The Karui Fortress and The Southern Forest fail at seed 1 in the client as in the port: they are
   played at a seed the client built (`ServerLevels.PlayableSeed`, `ServerLevelAreas.SeedsInPlaceOfOne`).
 - The Beacon's carts use the room's rail placements (live 2026-11-06). Both routes form one rail chain; each delivery
@@ -106,7 +105,7 @@ Not created by any room data: `Metadata/NPC/Act6/NessaBrineKing`, `SinTukohama`,
 | Nessa (Cavern of Anger) | `NessaMerveilsCaverns` | `Act6/Area13/Rooms/merveil_empty_nessa.arm` (281, 214) | not created | same, `a6q1-SeenNessa3` |
 | Flag Chest | `Metadata/Chests/QuestChests/BlackFlagChest` (Chests 208, no own `.ot`: inherits `Chests/QuestChests/QuestChest` = the Rhoa nest components) | a named point line of `merveil_empty_nessa.arm` (255, 217) (point-list form, not a server-object line: `lg.ps1 questobjects` misses it) | not created | create; drop BIT 1578 once while the character lacks `a6q1-HaveFlag`/`a6q1-DeliveredFlag` |
 | The Black Flag | `Metadata/Items/QuestItems/Act6/BlackFlag` (BIT 1578) | chest | pickup works like ground items | sync `a6q1-HaveFlag`; take it at the beacon |
-| Fuel carts | `Metadata/QuestObjects/Act6/BeaconPayload` x2 (team 4, Stats, **Movement** FollowPath `pushed_by_player`, Transitionable, MinimapIcon; `set_disable_during_hellscape`) | `lighthouse.arm` (471, 448), (540, 586) | implemented | Movement blob as the Labyrinth roomba; server MoveTo, pause outside escort radius |
+| Fuel carts | `Metadata/QuestObjects/Act6/BeaconPayload` x2 (team 4, Stats, **Movement** FollowPath `pushed_by_player`, Transitionable, MinimapIcon; `set_disable_during_hellscape`) | `lighthouse.arm` (471, 448), (540, 586) | implemented | Movement blob as the Labyrinth roomba; server MoveTo, pause outside the PedestalBuffZone ring (250 world units = 23 grid cells) |
 | Fuel tank | `BeaconFuelTank` (Transitionable `num_states = 3`) | tile `Beach/Beacon/beacon_stairs_v01_01.tdt` record `beacon_stairs_v01_01_FuelTankLiquid` | implemented | state 2 after cart 1, 3 after cart 2 |
 | Ignition switch | `BlackCrest_BeaconLever` (InteractionAction, Transitionable 3 states, MinimapIcon) | `lighthouse.arm` (482, 782), scale 0.85 | implemented | state 2 when refuelled, interact → 3 |
 | Brazier | `BlackCrest_BeaconFlame` (Transitionable 3 states, MinimapIcon) | tile record `beacon_stairs_v01_01_BeaconBrazier` | implemented | 2 on lever, 3 on flag |
@@ -275,6 +274,8 @@ STEPS = [
   `a6q2-QuestRewardSeen` or the server must build magic/rare helmets.
 
 ## a6q3 "The Father of War" (Quest row 72, main)
+The four telepad points of `miniboss.arm` form two bridge pairs. In file order the first and third lie on the arena side, the second and fourth outside. Both exterior doors display `ArenaNameTukohama`.
+
 **Start:** Tarkleigh, NPCTalk 901 "The Karui Fortress" (needs `Visited-6_4`), or the log starts on
 `a6q3-SeenEntrance`/`a6q3-HaveItem`. **Finish:** Tarkleigh, NPCTalk 905 "Tukohama Reward" (Book of Skill).
 **DONE flag (driver):** `a6q3-UsedRewardBook` (QuestStates Order 0; QSR 14 +1 passive).

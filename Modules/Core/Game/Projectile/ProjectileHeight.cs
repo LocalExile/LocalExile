@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 
 // Positioned and 0x1ba use marker = -worldZ / 7.8125. ProjectileObject.Height instead takes worldZ / 7.8125.
 // Keep the three packet forms together so a glide cannot interpolate toward the opposite height before its stop.
-readonly record struct ProjectileHeight(int Marker)
+public readonly record struct ProjectileHeight(int Marker)
 {
     /// <summary>The height above the ground without a release point from the rig: 5 steps (39 world units).</summary>
     public const int DefaultSteps = 5;

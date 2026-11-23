@@ -6,68 +6,109 @@ using static Program;
 
 static class UniqueBeltsFeature
 {
-    /// <summary>Headhunter's kill: the rare's affixes as stacks (StolenMods), when the killer has its stat.</summary>
-    internal static void StealMonsterMods(ClientState conn, SpawnedMonster m)
+    /// <summary>BuffDefinitions row of <c>stolen_mods_buff_experimented</c> ("Replica Headhunter": "You have taken the mods
+    /// of a slain Magic Monster for yourself").</summary>
+    const ushort MagicBuffRow = 1653;
+
+    /// <summary>A player's modifiers stolen from magic monsters: their own stacks and buff, beside Headhunter's.</summary>
+    sealed class MagicStolen
     {
-        if (m.Rarity != MonsterRarity.Rare || !m.Mods.Affixes.Any() || conn.PlayerLife == 0) return;
-        if (Stats.Key(StolenMods.SourceStat) is not uint key || CharacterPlayerStats(conn).GetValueOrDefault(key) <= 0) return;
-        conn.StolenMods.Steal(m.Mods, ItemsFor(conn).Mods, conn.Clock.Elapsed.TotalSeconds);
+        public readonly StolenMods Mods = new();
+        public ushort Buff;
+    }
+    static readonly RuleTable<Player, MagicStolen> Magic = new();
+
+    /// <summary>Headhunter's kill: the rare's affixes as stacks (StolenMods), when the killer has its stat. Replica
+    /// Headhunter's: a magic monster's affixes, on its chance ("X% chance when you Kill a Magic Monster to gain its
+    /// Modifiers for 60 seconds"), as 60 s stacks of their own, shown with their own buff.</summary>
+    internal static void StealMonsterMods(Player player, SpawnedMonster m)
+    {
+        if (m.Rarity is not (MonsterRarity.Rare or MonsterRarity.Magic) || !m.Mods.Affixes.Any() || player.PlayerLife == 0) return;
+        var stats = CharacterPlayerStats(player);
+        var catalog = ItemsFor(player).Mods;
+        double now = AreaTime(player);
+        if (m.Rarity == MonsterRarity.Magic)
+        {
+            if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.GainMagicMonsterModsOnKillPctChance), 100, AreaRng(player)))
+                Magic.GetValue(player, _ => new()).Mods.Steal(m.Mods, catalog, now);
+            return;
+        }
+        if (stats.GetValueOrDefault(StolenMods.SourceStat) > 0)
+            player.StolenMods.Steal(m.Mods, catalog, now);
+        player.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(StolenMods.RandomSourceStat), now, AreaRng(player));
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>
-    internal static Dictionary<uint, int> WithStolenMods(ClientState conn, Dictionary<uint, int> sources)
+    internal static Dictionary<uint, int> WithStolenMods(Player player, Dictionary<uint, int> sources)
     {
-        var stolen = conn.StolenMods.Stats();
-        if (stolen.Count == 0) return sources;
+        // Every player stat build passes here: an empty set of stacks returns before Stats() groups anything.
+        bool rare = player.StolenMods.Count > 0;
+        bool fromMagic = Magic.TryGetValue(player, out var stolenMagic) && stolenMagic.Mods.Count > 0;
+        if (!rare && !fromMagic) return sources;
+        var stolen = rare ? player.StolenMods.Stats() : new Dictionary<uint, int>();
+        var magic = fromMagic ? stolenMagic!.Mods.Stats() : null;
         var stats = new Dictionary<uint, int>(sources);
-        foreach (var (stat, value) in stolen)
-            if (Stats.Key(stat) is uint key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        foreach (var (stat, value) in magic is null ? stolen : stolen.Concat(magic))
+            stats[stat] = ActorScale.Saturate((long)stats.GetValueOrDefault(stat) + value);
         return stats;
     }
 
-    /// <summary>A rolled hit with Headhunter's "increased damage with hits against rare monsters". It joins the character's
-    /// global increased damage; the hit's other increases (physical, spell …) are already in the roll and are not separated
-    /// here, so with those it counts for a little more than the game's sum would.</summary>
+    /// <summary>A rolled hit with Headhunter's "increased damage with hits against rare monsters" (Replica Headhunter's
+    /// against magic monsters). It joins the character's global increased damage; the hit's other increases (physical,
+    /// spell …) are already in the roll and are not separated here, so with those it counts for a little more than the
+    /// game's sum would.</summary>
     internal static DamagePacket WithDamageVsRarity(IReadOnlyDictionary<uint, int> player, SpawnedMonster m, DamagePacket rolled)
     {
-        if (m.Rarity != MonsterRarity.Rare || Stats.Key("damage_+%_vs_rare_monsters") is not uint key
-            || player.GetValueOrDefault(key) is not (> 0 and var against)) return rolled;
-        int increased = Stats.Key("damage_+%") is uint general ? player.GetValueOrDefault(general) : 0;
+        uint? key = m.Rarity switch
+        {
+            MonsterRarity.Rare => Stat.DamagePlusPctVsRareMonsters,
+            MonsterRarity.Magic => Stat.DamagePlusPctVsMagicMonsters,
+            _ => null,
+        };
+        if (key is not uint statKey
+            || player.GetValueOrDefault(statKey) is not (> 0 and var against)) return rolled;
+        int increased = Stat.DamagePlusPct is var general ? player.GetValueOrDefault(general) : 0;
         return rolled.Scale((100.0 + Math.Max(0, increased) + against) / (100 + Math.Max(0, increased)));
     }
 
-    internal static async Task RunUniqueBeltEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // Every frame (GameEvents.AreaTick): Mageblood's flasks and the stolen modifiers of Headhunter, Replica
+    // Headhunter and Inspired Learning. On the tick rather than a loop of the module's own, so a reload's new module steps them from its first tick
+    // and the old one stops.
+    internal static async Task StepUniqueBeltEffects(Player player)
     {
-        const int StepMs = 250;
-        while (!conn.Closed && !conn.RageRetired)
+        try
         {
-            await Task.Delay(StepMs);
-            if (conn.Closed || conn.RageRetired) break;
-            if (conn.LeavingArea) continue;
-            try
+            foreach (var packet in StepMagebloodBuffs(player))
+                await Send(player, packet, "0x01c1/0x01c2 Mageblood flask buff");
+            double now = AreaTime(player);
+            bool rare = player.StolenMods.Step(now, player.PlayerLife == 0, out var belt, out var jewel) is not null;
+            var fromMagic = Magic.TryGetValue(player, out var m) ? m : null;
+            StolenMods.Buff magic = default;
+            bool magicChanged = fromMagic?.Mods.Step(now, player.PlayerLife == 0, out magic, out _) is not null;
+            if (!rare && !magicChanged) return;
+            List<byte[]> packets = [];
+            RecomputePoolsAndSpeed(player);
+            if (rare)
             {
-                foreach (var packet in StepMagebloodBuffs(conn))
-                    await Send(remote, stream, ciphers, packet, "0x01c1/0x01c2 Mageblood flask buff");
-                if (conn.StolenMods.Step(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife == 0) is not var (stacks, remaining)) continue;
-                ushort old, buff = 0;
-                lock (conn.Monsters)
-                {
-                    RecomputePoolsAndSpeed(conn);
-                    old = conn.StolenModsBuff;
-                    conn.StolenModsBuff = stacks > 0 ? buff = conn.NextBuff++ : (ushort)0;
-                }
-                // As charges: a change of count or time is the old buff off and a new one on.
-                if (old != 0) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old), "0x01c2 player buff: Headhunter");
-                if (buff != 0)
-                    await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, StolenMods.BuffRow, PlayerId,
-                            u68: BitConverter.SingleToUInt32Bits((float)remaining), stacks: (ushort)stacks),
-                        $"0x01c1 player buff: Headhunter x {stacks}, {remaining:0.#} s");
-                await SendCharacterStats(remote, stream, ciphers, conn, $"Headhunter: {stacks} modifier(s)");
+                Update(ref player.StolenModsBuff, StolenMods.BuffRow, belt);
+                Update(ref player.InspiredLearningBuff, StolenMods.InspiredLearningBuffRow, jewel);
             }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+            if (magicChanged) Update(ref fromMagic!.Buff, MagicBuffRow, magic);
+            foreach (var packet in packets)
+                await global::Game.SendWorldRecord(player, player.Id, packet, "stolen modifier buff");
+            await SendCharacterStats(player, PlayerStatChange.Build);
+
+            void Update(ref ushort instance, ushort row, StolenMods.Buff state)
             {
-                if (!conn.Closed) Console.WriteLine($"[gateway] {remote} unique belts: {ex.Message}");
+                instance = (ushort)(state.Count > 0 ? 1 : 0);
+                if (state.Count > 0)
+                    player.Area.Buffs.Set(player.Id, new(row, player.Id, U68: Buff.Seconds(state.Remaining), Stacks: (ushort)state.Count));
+                else player.Area.Buffs.Clear(player.Id, row, player.Id);
             }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            if (!player.Closed) Console.WriteLine($"[gateway] {player.Connection.Remote} unique belts: {ex.Message}");
         }
     }
 }

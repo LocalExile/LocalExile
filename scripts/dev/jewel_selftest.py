@@ -32,7 +32,7 @@ import client_control as cc
 ROOT = cc.ROOT
 GATEWAY = ROOT / "logs" / "live-gateway.log"
 CLIENT_LOG = ROOT / "Client" / "logs" / "LatestClient.txt"
-SAVE_DB = ROOT / "data" / "saves.db"
+SAVE_DB = ROOT / "data" / "characters.db"
 
 MAIN, PANE = 1, 24          # inventory ids in the protocol messages
 MAIN_ROW, PANE_ROW, CURSOR_ROW = "0", "23", "12"  # the save keeps inventories by row (Inventories.dat row = id - 1)

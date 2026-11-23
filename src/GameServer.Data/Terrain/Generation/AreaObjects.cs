@@ -2,8 +2,8 @@ namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>A tile object the server creates itself: an area transition or a waypoint, at a grid cell, with its
 /// object type (.ot), its virtual model, its angle, its height (the record's z, negative is up) and its tile's
-/// orientation code; a room's server object line also its scale.</summary>
-public sealed record PlacedTileObject(string Type, string Model, int X, int Y, float Rotation, float Z, int Code = 0, float Scale = 1);
+/// orientation code; a room's server object line also its scale and flip flag.</summary>
+public sealed record PlacedTileObject(string Type, string Model, int X, int Y, float Rotation, float Z, int Code = 0, float Scale = 1, bool Flip = false);
 
 /// <summary>A placed .arm room as scripts/walkmaps captures it (&lt;area&gt;_seed&lt;seed&gt;.rooms.json, the room
 /// loop of the doodad stage <c>0x142046fc0</c>): its origin and its unturned size (room data +0x138 / +0x139) in grid
@@ -52,8 +52,11 @@ public static class AreaObjects
         return rooms;
     }
 
+    /// <remarks>The model is the one the client gives the record (<see cref="ClientModel"/>): The Sovereign's waypoint
+    /// record DeepwaterHubBoat_waypoint names Deepwater/Waypoint/waypoint.ao, and its virtual
+    /// DeepwaterHubBoat_waypoint.ao is no file.</remarks>
     public static List<PlacedTileObject> Transitions(TerrainCache files, GenerationResult result) =>
-        Place(files, result, t => files.IsTransitionType(t) || IsEffect(t), tile => files.HasTransition(tile));
+        Place(files, result, t => files.IsTransitionType(t) || IsEffect(t), tile => files.HasTransition(tile), (o, tdt) => ClientModel(files, o, tdt));
 
     /// <summary>The waypoints a placed .arm room holds as a server object line (type <c>Waypoint</c>) instead of a tile
     /// object: The Ledge's <c>Act1/Area5/Rooms/waypoint.arm</c>. Not in the recorder's .transitions.json (it records tile
@@ -80,12 +83,10 @@ public static class AreaObjects
             foreach (var room in record.Rooms)
             {
                 int code = room.Orientation;
-                int Add(string type, string model, float x, float y, float rawAngle, float z, float scale = 1)
+                int Add(string type, string model, float x, float y, float rawAngle, float z, float scale = 1, bool flip = false)
                 {
-                    var (cx, cy) = Orientation.Map(code, (int)x, (int)y, room.Room.Width * 23, room.Room.Height * 23);
-                    float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
-                    angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
-                    var o = new PlacedTileObject(type, model, room.X * 23 + cx, room.Y * 23 + cy, angle, z, code, scale);
+                    var (px, py, angle) = Place(room, x, y, rawAngle);
+                    var o = new PlacedTileObject(type, model, px, py, angle, z, code, scale, flip);
                     int at = placed.IndexOf(o);
                     if (at >= 0) return at;
                     placed.Add(o);
@@ -93,7 +94,7 @@ public static class AreaObjects
                 }
                 var lines = new Dictionary<int, int>();
                 for (int i = 0; i < room.Room.Doodads.Count; i++)
-                    if (room.Room.Doodads[i] is var d && keep(d.Type)) lines[i] = Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN, d.Scale);
+                    if (room.Room.Doodads[i] is var d && keep(d.Type)) lines[i] = Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN, d.Scale, d.Flip);
                 if (points)
                     foreach (var p in room.Room.Points)
                         if (p.Name.StartsWith("Metadata/", StringComparison.Ordinal) && keep(p.Name)) Add(p.Name, "", p.X, p.Y, p.Angle, float.NaN);
@@ -103,6 +104,22 @@ public static class AreaObjects
             }
         return placed;
     }
+
+    /// <summary>A room line's or point's cell and angle in the level, as <see cref="DoodadStage"/>'s room lines place them
+    /// (<c>0x142046fc0</c>): the cell turned by the room's code, the angle mirrored for codes 4–7 plus (code &amp; 3)·π/2.</summary>
+    public static (int X, int Y, float Angle) Place(PlacedRoom room, float x, float y, float rawAngle)
+    {
+        int code = room.Orientation;
+        var (cx, cy) = Orientation.Map(code, (int)x, (int)y, room.Room.Width * 23, room.Room.Height * 23);
+        float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
+        angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
+        return (room.X * 23 + cx, room.Y * 23 + cy, angle);
+    }
+
+    /// <summary>Where the player arrives in a level whose terrain plugin marks a start room (<see cref="GenerationResult.Start"/>):
+    /// that room's <c>default</c> point, placed; null without a start room or point.</summary>
+    public static (int X, int Y, float Angle)? Start(GenerationResult result) =>
+        result.Start is { } room && room.Room.Points.FirstOrDefault(p => p.Name == "default") is { } p ? Place(room, p.X, p.Y, p.Angle) : null;
 
     const string DoodadType = "Metadata/MiscellaneousObjects/Doodad";
 
@@ -118,8 +135,13 @@ public static class AreaObjects
     /// dungeon_bossrelease_v01_01_ball_replacement record: a static mesh, and bossrelease.ao with the animation its .ot
     /// plays on creation) is placed with that .ao, as the doodad stage takes it; live, the static model hung the client.</remarks>
     public static List<PlacedTileObject> TileObjects(TerrainCache files, GenerationResult result, Func<string, bool> keep) =>
-        Place(files, result, keep, _ => false, (o, tdt) => files.Text(o.VirtualModel(tdt)) is null
-            && o.Animation is { } ao && ao.EndsWith(".ao", StringComparison.OrdinalIgnoreCase) ? ao : o.VirtualModel(tdt));
+        Place(files, result, keep, _ => false, (o, tdt) => ClientModel(files, o, tdt));
+
+    // The record's model as the client holds it (record +0x38, which 0x142047e30 places): the virtual
+    // "<.tdt folder>/<name>.ao" when that file exists, else the .ao the record names.
+    static string ClientModel(TerrainCache files, TileObject o, string tdt) =>
+        files.Text(o.VirtualModel(tdt)) is null && o.Animation is { } ao && ao.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)
+            ? ao : o.VirtualModel(tdt);
 
     // The tile objects of the types kept; a tile is looked at when it has one of them (has) or an effect.
     static List<PlacedTileObject> Place(TerrainCache files, GenerationResult result, Func<string, bool> keep, Func<TileDef, bool> has,

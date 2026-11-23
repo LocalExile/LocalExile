@@ -2,18 +2,23 @@ using GameServer.Core.Projectiles;
 
 
 /// <summary>Named behavior and catalog policies on the common projectile runtime.</summary>
-static class GatewayProjectileSkillProfiles
+public static class GatewayProjectileSkillProfiles
 {
     // User-tuned feel values, not official timings or frame measurements. Keep fractional milliseconds.
+    // Client cluster timer (3.29.3c 0x141ac99c0): first area on the first update, then 0.1 s per area.
     public const double ClusterDelaySeconds = 0;
-    public const double ClusterIntervalSeconds = 1d / 30;
+    public const double ClusterIntervalSeconds = 0.1;
+    // Client placement (3.29.3c 0x141ac9630): three candidate angles per sector before it is omitted.
+    public const int ClusterPlacementAttempts = 3;
     public const double RollingMagmaBounceCells = 16;
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
-        { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY" });
+        { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
+            "KineticBolt", "KineticBoltAltX", "KineticBoltAltY",
+            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike", "HolyFlameTotem" });
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
-        "Spark", "SparkAltX", "SparkAltY", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
+        "Spark", "SparkAltX", "SparkAltY", "Twister", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
         "WinterOrb", "ForbiddenRite", "Cremation", "RollingMagma", "ToxicRain", "PoisonousConcoction"
     };
     static readonly IReadOnlySet<ProjectileEndReason> TerminalStops = new HashSet<ProjectileEndReason>
@@ -22,10 +27,15 @@ static class GatewayProjectileSkillProfiles
         { ProjectileEndReason.Distance, ProjectileEndReason.Returned };
 
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
+    public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    public static bool IsMoltenStrike(string? effect) =>
+        effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
+    public static bool IsCausticArrow(string? effect) =>
+        effect is "CausticArrow" or "CausticArrowAltX" or "CausticArrowAltY" or "VaalCausticArrow";
 
-    public static ProjectileProfile Resolve(string effect, string metadata, Func<string, int> get, double speed, bool attack,
+    public static ProjectileProfile Resolve(string effect, string metadata, Func<uint, int> get, double speed, bool attack,
         bool arrows = false)
     {
         var p = GatewayProjectileDefaults.Create(metadata, get, speed, arrows) with
@@ -35,8 +45,8 @@ static class GatewayProjectileSkillProfiles
         if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";
-            int count = get("cluster_burst_spawn_amount") is > 0 and var amount ? amount : clustering ? 3 : 4;
-            int areaFinal = get("active_skill_area_damage_+%_final");
+            int count = get(Stat.ClusterBurstSpawnAmount) is > 0 and var amount ? amount : clustering ? 3 : 4;
+            int areaFinal = get(Stat.ActiveSkillAreaDamagePlusPctFinal);
             // Exported normal/compatibility profiles carry -40; the default also supports synthetic inputs.
             double multiplier = 1 + (areaFinal != 0 ? areaFinal : clustering ? 0 : -40) / 100d;
             p = p with
@@ -47,7 +57,9 @@ static class GatewayProjectileSkillProfiles
                 ContactArea = new("kinetic-blast", 0, count, Multiplier: Math.Max(0, multiplier))
                     { SectorPlacement = true, RespectTerrain = true, ExcludeContactTarget = true,
                         Delay = ProjectileRuntime.Time(ClusterDelaySeconds),
-                        Interval = ProjectileRuntime.Time(ClusterIntervalSeconds) },
+                        Interval = ProjectileRuntime.Time(ClusterIntervalSeconds),
+                        UpdateTimer = true, PlacementAttempts = ClusterPlacementAttempts,
+                        ExtraCountChancePercent = get(Stat.KineticBlastPctChanceForAdditionalBlast) },
                 EndAreaReasons = NonContactStops, EndAreaOnReturnTurnaround = true
             };
         }
@@ -58,6 +70,10 @@ static class GatewayProjectileSkillProfiles
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
         else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
+        // Spark behaviour variation 4 selects tornado art and forgets contacts every 100 ms (native action).
+        // An official server contact trace remains separate from this client-side repeat policy.
+        else if (effect == "Twister")
+            p = p with { HitRule = new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(.1)) };
 
         // Rolling Magma lobs its orb onto the aim, where it explodes, then chains along the ground: each of its chains
         // (number_of_chains, 2 at level 1) is a bounce forward and another explosion, which may hit the same monsters.
@@ -70,26 +86,125 @@ static class GatewayProjectileSkillProfiles
                 Lobbed = true, DirectDamage = false, GroundBounceDistance = RollingMagmaBounceCells,
                 EndArea = new("rolling-magma", 0), EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
             };
-        else if (IsLightningArrow(effect) && get("lightning_arrow_maximum_number_of_extra_targets") is > 0 and var extra)
+        else if (IsLightningArrow(effect) && get(Stat.LightningArrowMaximumNumberOfExtraTargets) is > 0 and var extra)
             p = p with
             {
                 ContactTargets = new("lightning-arrow-targets", extra, 18)
             };
+        // Molten Strike's balls are lobbed onto sampled landing cells and deal area damage there without direct contacts,
+        // piercing, forking, splitting or monster chaining (3.29.3c RE: 0x141b6ade0 / 0x141b6baa0, base radius 9).
+        // Vaal Molten Strike / Wildfire enable ground-chaining along the sampled trajectory (0x141b6b710 / 0x141b6b790).
+        else if (IsMoltenStrike(effect))
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true,
+                CannotChain = get(Stat.MoltenStrikeProjectilesChainWhenImpactingGround) == 0,
+                EndArea = new("molten-strike", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
+            };
+
+        else if (effect == "VolcanicFissure")
+            p = p with
+            {
+                Count = p.Count + Math.Max(0, get(Stat.VolcanicFissureNumberOfAdditionalProjectiles)),
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("volcanic-fissure", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
+            };
+        else if (effect == "HolyFlameTotem")
+            p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
+        else if (IsCausticArrow(effect))
+            p = p with
+            {
+                ContactArea = new("caustic-arrow-explosion", 0) { ExcludeContactTarget = true },
+                EndAreaReasons = NonContactStops,
+            };
 
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
         // pass below adds the skill's and the support's extra arrows to it.
-        if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0) p = ArrowNovaChildren(p);
+        if (get(Stat.ProjectilesRain) != 0 || get(Stat.SkillIsRainSkill) != 0) p = ArrowNovaChildren(p);
 
-        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows);
+        // These player stats belong to a particular active skill, including its transfigured variants.
+        int extraProjectiles = effect switch
+        {
+            "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
+                => get(Stat.FreezingPulseNumberOfAdditionalProjectiles),
+            "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
+                => get(Stat.FrostboltNumberOfAdditionalProjectiles),
+            _ => 0
+        };
+        int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
+            ? get(Stat.IceShotPiercePlus) : 0;
+        bool nova = effect switch
+        {
+            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" => get(Stat.SparkProjectilesNova) != 0,
+            "EtherealKnives" or "EtherealKnivesAltX" or "EtherealKnivesAltY" or "EtherealKnivesRoyale"
+                => get(Stat.EtherealKnivesProjectilesNova) != 0,
+            _ => false
+        };
+        if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
+            p = p with { NativeVolley = new() { Nova = true } };
+        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (IsMoltenStrike(effect))
+        {
+            bool groundChains = get(Stat.MoltenStrikeProjectilesChainWhenImpactingGround) != 0;
+            int groundChainCount = groundChains ? Math.Max(0, p.Chain + get(Stat.MoltenStrikeChainCountPlus)) : 0;
+            p = p with
+            {
+                CannotChain = !groundChains,
+                Chain = 0,
+                GroundChains = groundChainCount,
+                GroundBounceKeepsRange = groundChainCount > 0
+            };
+            int countFinal = get(Stat.ThresholdJewelMoltenStrikeDamageProjectileCountPlusPctFinal);
+            if (countFinal != 0)
+                p = p with { Count = Math.Max(1, (int)Math.Floor(p.Count * Math.Max(0, 1 + countFinal / 100.0))) };
+        }
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (effect == "Twister") p = p with { Pierce = -1 };
+        if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
     }
+
+    public static ProjectileProfile WithKineticBoltLegs(ProjectileProfile parent, ushort sequence = 0)
+    {
+        var secondary = KineticBoltSecondary(parent);
+        return parent with
+        {
+            // Native ZigZagProjectile (0x141a8ce97..0x141a8ced8) adds the volley index for all multi-projectile fans
+            // (LMP/GMP/Kinetic Bolt of Fragmentation), not only sequential Barrage volleys.
+            Legs = i => new KineticBoltLegs(sequence, i, parent.ZigZags,
+                parent.Speed, parent.Range, secondary),
+            LegLeash = 0
+        };
+    }
+
+    public static ProjectileProfile KineticBoltSecondary(ProjectileProfile parent) => parent with
+    {
+        Id = "Metadata/Projectiles/ZigZagSecondaryWandProjectile",
+        Count = 1,
+        NativeVolley = null,
+        SpreadRadians = 0,
+        AimSpreadDistance = 0,
+        SequentialDelay = 0,
+        CountConsumer = ProjectileCountConsumer.Primary,
+        Returns = false,
+        ReturnChancePercent = 0,
+        ReturnRolls = null,
+        CannotReturn = true,
+        ZigZags = 0,
+        Legs = null,
+        LegLeash = 0,
+        HidePredictedVisual = true
+    };
 
     static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
 
@@ -97,9 +212,9 @@ static class GatewayProjectileSkillProfiles
     // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
     // The group is three TornadoShotSecondaryArrow flights around the client's terminal RNG base ray, so both sides
     // fan out the same way (TornadoShotBaseDirection).
-    static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<string, int> get)
+    static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<uint, int> get)
     {
-        int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
+        int count = Math.Clamp(get(Stat.TornadoShotNumOfSecondaryProjectiles) is > 0 and var n ? n : 3, 1, 256);
         var child = parent with
         {
             Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
@@ -137,7 +252,7 @@ static class GatewayProjectileSkillProfiles
     // The client's terminal RNG (0x1419c73c0) seeds [sequence, mother-derived byte, owner, repeats left,
     // secondary-release byte, 0, 0, 0]. A fresh mother's derived byte is 2, and each arrow of a volley adds its index.
     // The radial emitter then spaces children around that sampled base ray with no extra phase.
-    internal static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
+    public static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
     {
         var random = new AnimationVariantSelector.NativeRandom([sequence, derived, owner, repeats, 0, 0, 0, 0]);
         uint sample = TornadoBounded(ref random, 7001);
@@ -193,21 +308,36 @@ static class GatewayProjectileSkillProfiles
         };
     }
 
-    public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)
+    public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<uint, int> get, bool spell)
     {
-        int Value(string key, int fallback) => get(key) is > 0 and var value ? value : fallback;
+        int Value(uint key, int fallback) => get(key) is > 0 and var value ? value : fallback;
         if (IsKineticBlast(effect) && p.ContactArea is { } contact)
         {
             bool clustering = effect == "KineticBlastAltX";
-            int blast = SkillArea.Radius(Value("active_skill_base_area_of_effect_radius", clustering ? 19 : 14), get, spell);
-            int placement = SkillArea.Radius(Value("active_skill_base_secondary_area_of_effect_radius", clustering ? 28 : 20), get, spell);
+            int blast = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, clustering ? 19 : 14), get, spell);
+            int placement = SkillArea.Radius(Value(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius, clustering ? 28 : 20), get, spell);
             // Centers lie on the scaled placement circle; only the angle is sampled within each sector.
             var area = contact with { Radius = blast, Offset = placement, MinimumOffset = placement };
             return p with { ContactArea = area, EndArea = area };
         }
         if (IsLightningArrow(effect) && p.ContactTargets is { } targets)
             return p with { ContactTargets = targets with
-                { Radius = SkillArea.Radius(Value("active_skill_base_area_of_effect_radius", 18), get, spell) } };
+                { Radius = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 18), get, spell) } };
+        if (IsMoltenStrike(effect) && p.EndArea is { } moltenArea)
+        {
+            int AreaStat(uint name) => name == SkillArea.BaseIncreased
+                ? get(name) + get(Stat.MoltenStrikeRadiusPlusPct) : get(name);
+            int baseRadius = Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 9);
+            return p with { EndArea = moltenArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) } };
+        }
+        if (IsCausticArrow(effect) && p.ContactArea is { } causticArea)
+        {
+            int AreaStat(uint name) => name == SkillArea.BaseIncreased
+                ? get(name) + get(Stat.CausticArrowRadiusPlusPct) : get(name);
+            int baseRadius = Value(Stat.CausticArrowExplodeOnHitBaseAreaOfEffectRadius, 12);
+            var scaled = causticArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) };
+            return p with { ContactArea = scaled, EndArea = scaled };
+        }
         if (p.EndArea is { } terminal)
             return p with { EndArea = terminal with
                 { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };

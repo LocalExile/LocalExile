@@ -36,6 +36,7 @@ public static class ClientPathfinder
     // DAT_142fc93e0 (dx, dy per direction) and DAT_142fc9420 (the opposite direction).
     static readonly (int X, int Y)[] Dirs = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, -1), (-1, 1)];
     static readonly byte[] Reverse = [2, 3, 0, 1, 6, 7, 4, 5];
+    static readonly int[] CoarseSeeds = [-1, 0, 1, 4];
     const byte NoParent = 8, Closed = 1, InObject = 2;
 
     struct Node { public int Gen; public byte Flags, Dir, Coarse; public float G, H, F; }
@@ -43,6 +44,8 @@ public static class ClientPathfinder
     [ThreadStatic] static Node[]? t_nodes;
     [ThreadStatic] static int t_gen;
     [ThreadStatic] static List<(int Index, float F)>? t_heap;
+    [ThreadStatic] static List<(int X, int Y)>? t_coarse;
+    [ThreadStatic] static List<float>? t_coarseLength;
 
     /// <summary>
     /// The client's path from <paramref name="start"/> to <paramref name="target"/>: the waypoints in walking order
@@ -113,7 +116,7 @@ public static class ClientPathfinder
         return left == 0;
     }
 
-    sealed class Search((int X, int Y) start, (int X, int Y) target, Func<int, int, bool> walkable,
+    struct Search((int X, int Y) start, (int X, int Y) target, Func<int, int, bool> walkable,
         IReadOnlyList<Blocker> blockers, int moverSize, int minRange, int maxRange, int tolerance, SearchLimit limit,
         Func<int, int, int>? sight, int precision)
     {
@@ -126,10 +129,18 @@ public static class ClientPathfinder
         readonly int _threshold = moverSize + 1, _objectRadius = 5 - 1 + moverSize;   // DAT_143a6ae58 = 5
         readonly int _vx = target.X - start.X, _vy = target.Y - start.Y;
         // The coarse waypoints (goal first) and the path length from each to the target (DAT_1445c69c0 / 0x1445c69d8).
-        readonly List<(int X, int Y)> _coarse = [];
-        readonly List<float> _coarseLength = [];
+        readonly List<(int X, int Y)> _coarse = t_coarse ??= [];
+        readonly List<float> _coarseLength = t_coarseLength ??= [];
 
         bool InObjectAt(int x, int y) => ObjectBlocks(blockers, x, y, _threshold, _objectRadius);
+
+        bool LineInObject((int X, int Y) a, (int X, int Y) b)
+        {
+            var cells = new LineCells(a, b);
+            while (cells.Next(out int x, out int y))
+                if (InObjectAt(x, y)) return true;
+            return false;
+        }
 
         // 0x141e50ed0: the distance to the target (less the tolerance) outside [min, max], plus 0.001 × |cross|.
         float Heuristic(int x, int y)
@@ -178,7 +189,8 @@ public static class ClientPathfinder
             float ellipse = MathF.Max(MathF.Min(MathF.Sqrt(_vx * _vx + _vy * _vy) * 2, 136f), 20f);
             int maxExpansions = limit switch { SearchLimit.Expansions1000 => 1000, SearchLimit.Expansions100 => 100, _ => -1 };
 
-            int Index(int x, int y) => (x - start.X + Half) * Window + (y - start.Y + Half);
+            var origin = start;
+            int Index(int x, int y) => (x - origin.X + Half) * Window + (y - origin.Y + Half);
             void Close(ref Node n)
             {
                 if (n.Gen != gen) { n.Gen = gen; n.Flags = 0; }
@@ -261,7 +273,7 @@ public static class ClientPathfinder
             while (p != start)
             {
                 var q = Step(p, nodes[Index(p.X, p.Y)].Dir);
-                if (LineBlocked(q, anchor, walkable) || LineInObject(q, anchor, InObjectAt))
+                if (LineBlocked(q, anchor, walkable) || LineInObject(q, anchor))
                 {
                     if (corners.Count == MaxWaypoints) return [];
                     anchor = p;
@@ -286,7 +298,7 @@ public static class ClientPathfinder
             static (int X, int Y) Pos((int X, int Y) c) => (c.X * Tile / 2, c.Y * Tile / 2);
             int Index((int X, int Y) c) => (c.X - c0.X + Half) * Window + (c.Y - c0.Y + Half);
 
-            foreach (int d in new[] { -1, 0, 1, 4 })
+            foreach (int d in CoarseSeeds)
             {
                 var c = d < 0 ? c0 : (c0.X + Dirs[d].X, c0.Y + Dirs[d].Y);
                 var p = Pos(c);
@@ -342,9 +354,11 @@ public static class ClientPathfinder
                     if (n.Gen == gen && (n.Flags & Closed) != 0) continue;
                     var np = Pos(nc);
                     if (Math.Abs(np.X - target.X) >= Half || Math.Abs(np.Y - target.Y) >= Half) continue;
-                    if (LineBlocked(p, np, walkable)) continue;
+                    // The cost before the line: a neighbour already reached as cheaply is passed over either way, and the
+                    // line test only reads the terrain, so it is not walked for one.
                     float g = node.G + (d < 4 ? 11.5f : 16.2634f);
                     if (n.Gen == gen && !(g < n.G)) continue;
+                    if (LineBlocked(p, np, walkable)) continue;
                     float h = Heuristic(np.X, np.Y);
                     if (n.Gen != gen) { n.Gen = gen; n.Flags = 0; }
                     n.G = g;
@@ -380,34 +394,57 @@ public static class ClientPathfinder
             double dx = b.X - x, dy = b.Y - y, clearance = hull + threshold;
             if (dx * dx + dy * dy < clearance * clearance) return true;
         }
+        int adx = b.X - x; if (adx < 0) adx = -adx;
+        int ady = b.Y - y; if (ady < 0) ady = -ady;
+        if ((adx > ady ? adx : ady) - b.Size >= threshold) return false;
         int btx = b.X / Tile, bty = b.Y / Tile;
         // Large bodies can extend across several tile buckets; their centre may be outside this query.
         if ((btx < tx0 || btx >= tx1 || bty < ty0 || bty >= ty1) && b.Size + threshold <= radius) return false;
-        return Math.Max(Math.Abs(b.X - x), Math.Abs(b.Y - y)) - b.Size < threshold;
+        return true;
     }
 
     /// <summary>The cells of the client's line from <paramref name="a"/> to <paramref name="b"/>, both ends included
     /// (the Bresenham of 0x141d8a7f0, and of a walk segment, 0x141e50880 / 0x141e50a90).</summary>
     public static IEnumerable<(int X, int Y)> Line((int X, int Y) a, (int X, int Y) b)
     {
-        bool steep = Math.Abs(b.X - a.X) < Math.Abs(b.Y - a.Y);
-        int major = steep ? a.Y : a.X, majorEnd = steep ? b.Y : b.X, minor = steep ? a.X : a.Y, minorEnd = steep ? b.X : b.Y;
-        int majorLen = Math.Abs(majorEnd - major), minorLen = Math.Abs(minorEnd - minor);
-        int majorStep = major < majorEnd ? 1 : -1, minorStep = minor < minorEnd ? 1 : minor == minorEnd ? 0 : -1;
-        int err = -(majorLen / 2);
-        while (major != majorEnd + majorStep)
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y)) yield return (x, y);
+    }
+
+    // The cells of Line one at a time, with no iterator object: a search's line tests walk thousands of short lines
+    // (the coarse pass alone up to 2400 of a dozen cells each).
+    struct LineCells
+    {
+        readonly bool steep;
+        readonly int majorEnd, majorLen, minorLen, majorStep, minorStep;
+        int major, minor, err;
+
+        public LineCells((int X, int Y) a, (int X, int Y) b)
         {
-            yield return steep ? (minor, major) : (major, minor);
+            steep = Math.Abs(b.X - a.X) < Math.Abs(b.Y - a.Y);
+            major = steep ? a.Y : a.X; majorEnd = steep ? b.Y : b.X; minor = steep ? a.X : a.Y;
+            int minorEnd = steep ? b.X : b.Y;
+            majorLen = Math.Abs(majorEnd - major); minorLen = Math.Abs(minorEnd - minor);
+            majorStep = major < majorEnd ? 1 : -1; minorStep = minor < minorEnd ? 1 : minor == minorEnd ? 0 : -1;
+            err = -(majorLen / 2);
+        }
+
+        public bool Next(out int x, out int y)
+        {
+            if (major == majorEnd + majorStep) { x = y = 0; return false; }
+            (x, y) = steep ? (minor, major) : (major, minor);
             int e = minorLen + err;
             major += majorStep;
             if (e < 1) err = e;
             else { err = e - majorLen; minor += minorStep; }
+            return true;
         }
     }
 
     static bool LineBlocked((int X, int Y) a, (int X, int Y) b, Func<int, int, bool> free)
     {
-        foreach (var (x, y) in Line(a, b))
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y))
             if (!free(x, y)) return true;
         return false;
     }
@@ -424,10 +461,11 @@ public static class ClientPathfinder
     {
         last = a;
         if (threshold < 0) return false;
-        foreach (var cell in Line(a, b))
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y))
         {
-            if (value(cell.X, cell.Y) < threshold) return true;
-            last = cell;
+            if (value(x, y) < threshold) return true;
+            last = (x, y);
         }
         return false;
     }
@@ -435,7 +473,8 @@ public static class ClientPathfinder
     // The object line check (0x141e65c40): blocked when any cell of the line is inside an object.
     static bool LineInObject((int X, int Y) a, (int X, int Y) b, Func<int, int, bool> inObject)
     {
-        foreach (var (x, y) in Line(a, b))
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y))
             if (inObject(x, y)) return true;
         return false;
     }

@@ -2,16 +2,16 @@ using GameServer.Core.Projectiles;
 
 
 /// <summary>Basic straight-flight behavior, independent of any concrete skill provider.</summary>
-static class GatewayProjectileDefaults
+public static class GatewayProjectileDefaults
 {
-    public static ProjectileProfile Resolve(string metadata, Func<string, int> get, double speed, bool attack,
+    public static ProjectileProfile Resolve(string metadata, Func<uint, int> get, double speed, bool attack,
         bool arrows = false) =>
         GatewayProjectileModifiers.Resolve(Create(metadata, get, speed, arrows), get, attack, arrows);
 
     /// <summary>Unresolved common baseline. Attach intrinsic stages before resolving modifiers once.</summary>
-    public static ProjectileProfile Create(string metadata, Func<string, int> get, double speed, bool arrows = false)
+    public static ProjectileProfile Create(string metadata, Func<uint, int> get, double speed, bool arrows = false)
     {
-        int baseCount = get("base_number_of_projectiles") + (arrows ? get("base_number_of_arrows") : 0);
+        int baseCount = get(Stat.BaseNumberOfProjectiles) + (arrows ? get(Stat.BaseNumberOfArrows) : 0);
         return new(metadata)
         {
             Speed = speed,

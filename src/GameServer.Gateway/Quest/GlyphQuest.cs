@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// waterfall and the client's invisible blockers stand in the cave room <c>to_cave.arm</c>, whose cells the wall's tile
 /// shares, so they are placed from the wall's record.
 /// </summary>
-static class GlyphQuest
+public static class GlyphQuest
 {
     public const string Area = "1_1_3", Passage = "1_1_4_1";
     public const string KnowsAboutGlyphs = "a1q4-KnowsAboutGlyphs", SeenGlyphWall = "a1q4-SeenGlyphWall", PlacedGlyphs = "a1q4-PlacedGlyphs";
@@ -121,7 +121,9 @@ static class GlyphQuest
 
     /// <summary>A nest's 0x2bb blob: Positioned (the record's height), Animated (the tile's virtual model), Chest (opened
     /// bit 0, 0x141e16f10), Stats, ObjectMagicProperties, InteractionAction, MinimapIcon (u8 flags), tasks.</summary>
-    public static byte[] NestBlob(Placement p, bool opened)
+    public static byte[] NestBlob(Placement p, bool opened) => NestBlob(p, opened, false);
+
+    public static byte[] NestBlob(Placement p, bool opened, bool hideMinimapIcon)
     {
         var w = new BlobWriter().U8(0).U8(0);
         Positioned(w, p.X, p.Y, p.Rotation, p.Z);
@@ -129,7 +131,7 @@ static class GlyphQuest
         w.U8((byte)(opened ? 1 : 0)).U8(0).U8(0);
         w.U8(0).U32(0).U32(0).U8(0);
         w.U16(0).U8(0).U8(0);
-        return w.U8(0).U8(0).U8(0).ToArray();
+        return w.U8(0).U8((byte)(hideMinimapIcon ? 0x06 : 0)).U8(0).ToArray();
     }
 
     /// <summary>The Glyph Wall's 0x2bb blob: Positioned, Animated, Transitionable (u8 state), MinimapIcon, InteractionAction,
@@ -151,13 +153,8 @@ static class GlyphQuest
         return w.U8(placed ? Transitioned : Untransitioned).U8(0).ToArray();
     }
 
-    // x, y, rotation, u16, flags0 (0x04: fixed height, i32 steps of 7.8125 + f32 z), flags1 0x02 (u8 hidden 0, u8 shown 1).
-    static void Positioned(BlobWriter w, int x, int y, float rotation, float? z)
-    {
-        w.I32(x).I32(y).F32(rotation).U16(0).U8((byte)(z is null ? 0 : 0x04)).U8(2);
-        if (z is float h) w.I32((int)MathF.Round(h / 7.8125f)).F32(h);
-        w.U8(0).U8(1);
-    }
+    static void Positioned(BlobWriter w, int x, int y, float rotation, float? z) =>
+        w.Positioned(x, y, rotation, fixedHeight: z is float h ? BlobWriter.FixedHeight(h) : null);
 
     /// <summary>The Glyph Wall used in the oracle (QuestSimulator): seen, and with the three glyphs carried they are taken
     /// and PlacedGlyphs set, as <see cref="Place"/> does.</summary>

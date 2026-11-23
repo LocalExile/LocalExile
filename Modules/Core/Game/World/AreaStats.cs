@@ -1,10 +1,39 @@
 
-static partial class Game
+public static partial class Game
 {
     // The player's final stats for a skill's area (SkillArea): the panel total skill_area_of_effect_+% already holds the
     // base_skill_area_of_effect_+% of passives, items, /god and /set_aoe (PanelStats), so the base form is left out
     // here and only a skill's own base (gem quality) goes in when the skill's stats are laid over. SkillArea.Increased
     // sums both forms; with the player's base still in, every area skill counted it twice.
-    internal static Dictionary<uint, int> AreaPlayerStats(ClientState conn) =>
-        SkillArea.WithoutPlayerBase(FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2), Stats.Key(SkillArea.BaseIncreased));
+    public static Dictionary<uint, int> AreaPlayerStats(Player player) =>
+        SkillArea.WithoutPlayerBase(FinalPlayerStats(player).ToDictionary(kv => kv.Item1, kv => kv.Item2), SkillArea.BaseIncreased);
+
+    // The stats every player skill's area reads: the player's stats without their base increased area (AreaPlayerStats,
+    // or the snapshot a caller already holds with that base taken out the same way), the skill's own stats laid over, and
+    // the increased area scoped to the skill's types (SkillArea.TypedIncrease) added to skill_area_of_effect_+%. Every
+    // player skill's area goes through here, so no caller merges the player's base form a second time. Totem, trap and
+    // mine come from the supported stats (is_totem, is_trap, is_remote_mine), so a support that makes one counts.
+    public static Dictionary<uint, int> SkillAreaStats(Player player, IReadOnlyDictionary<uint, int> own, int effect,
+        IReadOnlyDictionary<uint, int>? playerStats = null)
+    {
+        var stats = MergeSkillStats(playerStats is null ? AreaPlayerStats(player)
+            : SkillArea.WithoutPlayerBase(new(playerStats), SkillArea.BaseIncreased), own);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        var skills = SkillsFor(player);
+        bool known = effect >= 0;
+        var types = new SkillArea.Types(known && skills.IsMelee(effect), known && skills.IsAttack(effect),
+            known && skills.IsWarcry(effect), known && skills.IsVaal(effect),
+            Get(Stat.IsTotem) != 0, Get(Stat.IsTrap) != 0, Get(Stat.IsRemoteMine) != 0);
+        if (SkillArea.TypedIncrease(Get, types) is int typed and not 0)
+            stats[SkillArea.Increase] = stats.GetValueOrDefault(SkillArea.Increase) + typed;
+        return stats;
+    }
+
+    // A player skill's radius in cells from baseRadius (its own active_skill_base_radius_+ added), through SkillAreaStats.
+    public static int SkillRadius(Player player, int baseRadius, IReadOnlyDictionary<uint, int> own, bool spell, int effect,
+        IReadOnlyDictionary<uint, int>? playerStats = null)
+    {
+        var stats = SkillAreaStats(player, own, effect, playerStats);
+        return SkillArea.Radius(baseRadius, key => stats.GetValueOrDefault(key), spell);
+    }
 }

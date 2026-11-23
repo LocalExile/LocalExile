@@ -1,10 +1,10 @@
-using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>An animation event's position in the model's space (the rig .amd's "x y z" or an .ao event's "position",
 /// world units): +X the model's left, −Y its front, −Z up (the Ranger's attack1_bow contact: 59.8 in front, 127.5 up;
 /// its arrow_appear 26.8 behind, at the quiver). Only the forward and vertical parts are used: the grid's lateral
 /// handedness is not established, and the lateral offsets are under a cell.</summary>
-readonly record struct ContactPoint(float X, float Y, float Z)
+public readonly record struct ContactPoint(float X, float Y, float Z)
 {
     public double ForwardUnits => -Y;
     public double UpUnits => -Z;
@@ -15,17 +15,21 @@ readonly record struct ContactPoint(float X, float Y, float Z)
     public ContactPoint Scaled(double factor) => new((float)(X * factor), (float)(Y * factor), (float)(Z * factor));
 }
 
-/// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position.</summary>
-readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue);
+/// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position, and
+/// every contact keyframe's time in order (empty when the data predates the "contacts" key). Named events are ordered
+/// ms lists, independent of whether the clip has a contact.</summary>
+public readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue,
+    bool CancellationKnown = false, int? Cancel = null, IReadOnlyList<int>? Contacts = null,
+    IReadOnlyDictionary<string, IReadOnlyList<int>>? Events = null);
 
 /// <summary>The kind of cast a run skill plays: an attack swing, or a spell projectile / area / buff cast.</summary>
-enum CastAnimationKind { Attack, Projectile, Area, Buff }
+public enum CastAnimationKind { Attack, Projectile, Area, Buff }
 
 /// <summary>A rig animation the client can play with 0x1b2 kind 0: its name, index and natural length.</summary>
-readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
+public readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
 
 /// <summary>
-/// The "contact" keyframe of the character classes' animations (data/animation-contacts.json, written by
+/// The "contact" keyframe of the character classes' animations (client.db's animation_* tables, from data/animation-contacts.json written by
 /// <c>python -I scripts/re/anim_contacts.py</c> from each class's rig .amd and .ao event lists): per animated object, per
 /// animation, its length and the contact time in ms, and the keyframe's position in the model's space ("positions").
 /// A spell is released at the contact, which the client scales with the cast time, so the server releases it at the
@@ -35,7 +39,7 @@ readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
 /// swings the two halves of doublestrike_sword), with the ACT's attack_time budget; <see cref="DefaultAttackClip"/>
 /// says when its contact plays.
 /// </summary>
-sealed class AnimationContacts(string folder = "data")
+public sealed class AnimationContacts
 {
     /// <summary>The Witch's spell_projectile fraction, used when the file or the animation is missing.</summary>
     public const double DefaultSpellRelease = 599.0 / 1066;
@@ -45,12 +49,23 @@ sealed class AnimationContacts(string folder = "data")
     public const double DefaultAttackContact = 0.4;
 
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
-        Dictionary<string, DefaultAttackClip[]> AttackPools);
+        Dictionary<string, AnimationClip> AllClips, Dictionary<string, DefaultAttackClip[]> AttackPools,
+        Dictionary<(string Stance, string Skill), string> SkillClips);
 
-    private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo = new(() => Load(folder));
+    private readonly Dictionary<string, ActorAnimations> _byAo;
+
+    /// <summary>The rigs in client.db.</summary>
+    public AnimationContacts() : this(ClientTables.TableOrNull) { }
+
+    /// <summary>The rigs in the animation_* tables <paramref name="tables"/> gives by name (null: none), for a test.</summary>
+    public AnimationContacts(Func<string, ClientTable?> tables) => _byAo = Load(tables);
 
     /// <summary>When in a spell cast its projectile leaves, as a fraction of the cast: the class's spell_projectile
     /// animation (wand, unarmed, then any), else any spell animation's contact.</summary>
+    /// <summary>A clip's length in ms (its rig's), null when the rig or the clip is missing.</summary>
+    public int? ClipLengthMs(string animatedObject, string clip) =>
+        _byAo.TryGetValue(animatedObject, out var actor) && actor.AllClips.TryGetValue(clip, out var found) ? found.Length : null;
+
     public double SpellRelease(string animatedObject) =>
         SpellContact(animatedObject, ["spell_projectile_wand", "spell_projectile_unarmed"], ["spell_projectile", "spell_"])
         ?? DefaultSpellRelease;
@@ -61,9 +76,21 @@ sealed class AnimationContacts(string folder = "data")
         SpellContact(animatedObject, ["spell_aoe_wand", "spellaoe_wand", "spell_aoe_unarmed", "spellaoe_unarmed"],
             ["spell_aoe", "spellaoe"]) ?? SpellRelease(animatedObject);
 
+    /// <summary>The native cast's early and late Move windows (0x141942b50), scaled from its actual clip events.</summary>
+    public GameServer.Core.World.LockstepCastWindow? SpellMoveWindow(string animatedObject, WeaponProfile weapon,
+        CastAnimationKind kind, double start, double duration, bool cannotCancelBeforeContact)
+    {
+        if (CastClip(animatedObject, weapon, kind) is not { } selected
+            || !_byAo.TryGetValue(animatedObject, out var actor)
+            || !actor.Clips.TryGetValue(selected.Name, out var clip) || !clip.CancellationKnown) return null;
+        double? early = cannotCancelBeforeContact ? null
+            : duration * Math.Max(.2, (double)clip.Contact / clip.Length - .3);
+        return new(start, duration, early, duration * (clip.Cancel ?? clip.Contact) / clip.Length);
+    }
+
     double? SpellContact(string animatedObject, string[] names, string[] prefixes)
     {
-        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (!_byAo.TryGetValue(animatedObject, out var actor)) return null;
         var anims = actor.Clips;
         foreach (string name in names)
             if (anims.TryGetValue(name, out var a) && a.Length > 0) return (double)a.Contact / a.Length;
@@ -95,10 +122,66 @@ sealed class AnimationContacts(string folder = "data")
         SkillAttackClip(animatedObject, weapon, skillClip) is { } found
             ? (found.Name, (double)found.Clip.Contact / found.Clip.Length) : null;
 
-    private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip)
+    /// <summary>When an attack gem's clip lets a Move cut the swing short, as a fraction of the attack: the skill's own
+    /// clip when the rig has one (or the weapon's attack1 clip), using its lock_cancelling keyframe where listed, else
+    /// its contact keyframe (0x141942b50).</summary>
+    public double AttackCutIn(string animatedObject, WeaponProfile weapon, string? skillClip = null)
     {
-        if (string.IsNullOrEmpty(skillClip) || !_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
-        var anims = actor.Clips;
+        return (SkillAttackClip(animatedObject, weapon, skillClip) ?? AttackClip(animatedObject, weapon)) is { Clip.Length: > 0 } found
+            ? (double)(found.Clip.Cancel ?? found.Clip.Contact) / found.Clip.Length : DefaultAttackContact;
+    }
+
+    /// <summary>
+    /// When a melee attack skill's <paramref name="index"/>-th strike lands, as a fraction of its clip, and the clip's
+    /// name: the skill's own clip as <see cref="SkillAttackContact"/> finds it, its <paramref name="index"/>-th contact
+    /// keyframe. Double Strike swings twice in one clip, and when the second swing lands differs per class rig
+    /// (doublestrike_sword: 300 and 666 of 1000 ms for the Str rig, 299 and 899 for the Hunter's), so the frame is read
+    /// rather than assumed. Null when the rig has no such clip or the clip has fewer contact frames — the caller then
+    /// decides how to place the strike (a modelled fallback, never a constant here).
+    /// </summary>
+    public (string Name, double Contact)? SkillAttackContactAt(string animatedObject, WeaponProfile weapon, string? skillClip,
+        int index)
+    {
+        if (SkillAttackClip(animatedObject, weapon, skillClip) is not { } found || found.Clip.Length <= 0
+            || found.Clip.Contacts is not { } frames || index < 0 || index >= frames.Count) return null;
+        return (found.Name, (double)frames[index] / found.Clip.Length);
+    }
+
+    /// <summary>
+    /// The selected skill clip's natural length and the earliest/latest occurrences of a named event, all in ms.
+    /// Resolves <paramref name="skillClipName"/> like <see cref="SkillAttackContact"/>; with
+    /// <paramref name="includeWithoutContact"/> it also accepts clips that have no contact keyframe. Null when the
+    /// rig, clip or event is absent, including client data from before named events were extracted.
+    /// </summary>
+    public (string Name, int LengthMs, int EarliestMs, int LatestMs)? SkillAnimationEventBounds(
+        string animatedObject, WeaponProfile weapon, string? skillClipName, string eventName,
+        bool includeWithoutContact = true)
+    {
+        if (string.IsNullOrEmpty(eventName)
+            || SkillAttackClip(animatedObject, weapon, skillClipName, includeWithoutContact) is not { } found
+            || found.Clip.Events is not { } events || !events.TryGetValue(eventName, out var times) || times.Count == 0)
+            return null;
+        return (found.Name, found.Clip.Length, times.Min(), times.Max());
+    }
+
+    /// <summary>The exact single clip selected by a supported skill's ACT stance, if the data resolves it.</summary>
+    public (string Name, double Contact)? ActAttackContact(string animatedObject, WeaponProfile weapon, string skill)
+    {
+        if (weapon.DualWield || !_byAo.TryGetValue(animatedObject, out var actor)
+            || StanceFor(weapon) is not { } stance || !actor.SkillClips.TryGetValue((stance, skill), out string? name)
+            || !actor.Clips.TryGetValue(name, out var clip) || clip.Length <= 0) return null;
+        return (name, (double)clip.Contact / clip.Length);
+    }
+
+    private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip,
+        bool includeWithoutContact = false)
+    {
+        if (string.IsNullOrEmpty(skillClip) || !_byAo.TryGetValue(animatedObject, out var actor)) return null;
+        var anims = includeWithoutContact ? actor.AllClips : actor.Clips;
+        // GemAttackContactDelay returns the clip whose first contact drives this use. Accept that exact name so a second
+        // strike reads the same weapon-combination variant (for example doublestrike_sword_claw), not merely the main-hand
+        // suffix variant that the generic resolver would otherwise choose.
+        if (anims.TryGetValue(skillClip, out var exact) && exact.Length > 0) return (skillClip, exact);
         if (anims.TryGetValue($"{skillClip}_{WeaponSuffix(weapon) ?? "unarmed"}", out var stance) && stance.Length > 0)
             return ($"{skillClip}_{WeaponSuffix(weapon) ?? "unarmed"}", stance);
         foreach (string prefix in (string[])[skillClip + "_", "attack_" + skillClip])
@@ -114,7 +197,7 @@ sealed class AnimationContacts(string folder = "data")
     /// </summary>
     public CastAnimationClip? CastClip(string animatedObject, WeaponProfile weapon, CastAnimationKind kind)
     {
-        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (!_byAo.TryGetValue(animatedObject, out var actor)) return null;
         if (kind == CastAnimationKind.Attack)
             return AttackClip(animatedObject, weapon) is { } found && found.Clip.Index != uint.MaxValue
                 ? new(found.Name, found.Clip.Index, found.Clip.Length) : null;
@@ -155,7 +238,7 @@ sealed class AnimationContacts(string folder = "data")
 
     private (string Name, AnimationClip Clip)? AttackClip(string animatedObject, WeaponProfile weapon)
     {
-        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (!_byAo.TryGetValue(animatedObject, out var actor)) return null;
         var anims = actor.Clips;
         string? main = weapon.Unarmed ? "unarmed" : weapon.Bow ? "bow" : weapon.Staff ? "staff"
             : weapon.Sword && weapon.TwoHandMelee ? "2hsword" : weapon.Mace ? "maul"
@@ -196,12 +279,25 @@ sealed class AnimationContacts(string folder = "data")
         out DefaultAttackClip selection)
     {
         selection = default;
-        if (StanceFor(weapon) is not { } stance || !_byAo.Value.TryGetValue(animatedObject, out var actor)
+        if (StanceFor(weapon) is not { } stance || !_byAo.TryGetValue(animatedObject, out var actor)
             || !actor.AttackPools.TryGetValue(stance, out var pool)) return false;
         selection = pool.Any(a => a.Pair)
             ? pool.MaxBy(a => a.ContactSeconds(attackSeconds))
             : pool[AnimationVariantSelector.Select(sequence, pool.Select(a => a.Weight).ToArray())];
         return true;
+    }
+
+    /// <summary>The selected clip name and earliest/latest contact times (seconds) across the stance pool for
+    /// <paramref name="attackSeconds"/>, or null without pool data for the class or stance.</summary>
+    public (string Animation, double EarliestSeconds, double LatestSeconds)? DefaultAttackContactBounds(
+        string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds)
+    {
+        if (!TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var latest)) return null;
+        var pool = _byAo[animatedObject].AttackPools[StanceFor(weapon)!];
+        double earliest = pool.Any(a => a.Pair)
+            ? pool.Min(a => a.ContactSeconds(attackSeconds))
+            : latest.ContactSeconds(attackSeconds);
+        return (latest.Animation, earliest, latest.ContactSeconds(attackSeconds));
     }
 
     /// <summary>When the default attack's contact plays after the swing's start (seconds): the stance pool's clip as the
@@ -218,69 +314,77 @@ sealed class AnimationContacts(string folder = "data")
         TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
             ? clip.CutInSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
 
-    private static Dictionary<string, ActorAnimations> Load(string folder)
+    private static Dictionary<string, ActorAnimations> Load(Func<string, ClientTable?> tables)
     {
-        string path = Path.Combine(folder, "animation-contacts.json");
         var result = new Dictionary<string, ActorAnimations>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
-        foreach (var ao in d.RootElement.EnumerateObject())
+        if (tables("animation_rigs") is not { } rigs) return result;
+        ILookup<long, ClientRow> By(string table, string column) =>
+            (tables(table) ?? ClientTable.FromRows(table, [])).By(column);
+        var clipsByRig = By("animation_clips", "rig");
+        // Every contact frame of a clip, in order: the clip then has only its earliest contact without them, and skills
+        // that ask for a later frame get null and model the timing themselves.
+        var framesByClip = By("animation_clip_contacts", "clip");
+        var eventsByClip = By("animation_clip_events", "clip");
+        var attacksByRig = By("animation_default_attacks", "rig");
+        var skillClipsByRig = By("animation_skill_clips", "rig");
+        foreach (var rig in rigs)
         {
-            var positions = new Dictionary<string, ContactPoint>(StringComparer.Ordinal);
-            if (ao.Value.TryGetProperty("positions", out var listed) && listed.ValueKind == JsonValueKind.Object)
-                foreach (var entry in listed.EnumerateObject())
-                    if (Point(entry.Value) is { } point) positions[entry.Name] = point;
-            var indices = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
-            if (ao.Value.TryGetProperty("indices", out var listedIndices) && listedIndices.ValueKind == JsonValueKind.Object)
-                foreach (var entry in listedIndices.EnumerateObject())
-                    if (entry.Value.ValueKind == JsonValueKind.Number && entry.Value.TryGetUInt32(out uint index))
-                        indices[entry.Name] = index;
-            var clips = ao.Value.GetProperty("animations").EnumerateObject()
-                .ToDictionary(a => a.Name, a => new AnimationClip(a.Value[0].GetInt32(), a.Value[1].GetInt32(),
-                    positions.TryGetValue(a.Name, out var point) ? point : null,
-                    indices.GetValueOrDefault(a.Name, uint.MaxValue)), StringComparer.OrdinalIgnoreCase);
+            string ao = rig.Text("ao")!;
+            var clips = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+            var allClips = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in clipsByRig[rig.Index])
+            {
+                if (c.IsNull("length")) continue;   // a clip listed only for its position, index or cancel
+                var times = framesByClip[c.Index].Where(f => !f.IsNull("ms")).Select(f => f.Int("ms")).ToList();
+                var events = eventsByClip[c.Index].Where(e => e.Text("name") is not null && !e.IsNull("ms"))
+                    .GroupBy(e => e.Text("name")!, StringComparer.Ordinal)
+                    .ToDictionary(g => g.Key, g => (IReadOnlyList<int>)g.Select(e => e.Int("ms")).Order().ToArray(),
+                        StringComparer.Ordinal);
+                var clip = new AnimationClip(c.Int("length"), c.IntOrNull("contact") ?? 0, Point(c, "position"),
+                    c.IsNull("rig_index") ? uint.MaxValue : c.UInt("rig_index"),
+                    c.BoolOrNull("cancel_listed") ?? false, c.IntOrNull("cancel"), times.Count > 0 ? times : null,
+                    events.Count > 0 ? events : null);
+                allClips[c.Text("name")!] = clip;
+                if (!c.IsNull("contact")) clips[c.Text("name")!] = clip;
+            }
             // The default attack's stance pools cover the wand's ACT-selected clip too, which main's "defaultWand" pools
             // served before the stance pools replaced them.
             var pools = new Dictionary<string, DefaultAttackClip[]>(StringComparer.Ordinal);
-            if (ao.Value.TryGetProperty("defaultAttack", out var attack))
-                foreach (var stance in attack.EnumerateObject())
+            foreach (var stance in attacksByRig[rig.Index].GroupBy(a => a.Text("stance")!))
+            {
+                var entries = stance.Select(a =>
                 {
-                    var entries = stance.Value.EnumerateArray().Select(a => new DefaultAttackClip(
-                        a.GetProperty("animation").GetString()!, a.GetProperty("source").GetString()!,
-                        a.GetProperty("index").GetInt32(), a.GetProperty("begin").GetInt32(),
-                        a.GetProperty("length").GetInt32(), a.GetProperty("contact").GetInt32(),
-                        a.TryGetProperty("cancel", out var cancel) && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null,
-                        a.TryGetProperty("slow", out var slow) && slow.ValueKind == JsonValueKind.Array ? slow[0].GetInt32() : null,
-                        a.TryGetProperty("slow", out slow) && slow.ValueKind == JsonValueKind.Array ? slow[1].GetInt32() : null,
-                        a.TryGetProperty("budget", out var budget) && budget.ValueKind == JsonValueKind.Number ? budget.GetDouble() : null,
-                        stance.Name, a.GetProperty("weight").GetUInt32(),
-                        a.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.True,
-                        a.TryGetProperty("pair", out var pair) && pair.ValueKind == JsonValueKind.True,
-                        a.TryGetProperty("position", out var position) ? Point(position) : null)).ToArray();
-                    if (entries.Length == 0 || entries.Any(a => string.IsNullOrWhiteSpace(a.Animation)
-                        || a.LengthMs <= 0 || a.ContactMs < 0 || a.ContactMs > a.LengthMs || a.Weight != 1
-                        || a.CancelMs is < 0 || a.CancelMs > a.LengthMs || a.BudgetSeconds is <= 0))
-                        throw new InvalidDataException($"Invalid default attack animation pool {ao.Name}/{stance.Name}.");
-                    pools.Add(stance.Name, entries);
-                }
-            result[ao.Name] = new ActorAnimations(clips, pools);
+                    long[] slow = a.Longs("slow");
+                    return new DefaultAttackClip(a.Text("animation")!, a.Text("source")!, a.Int("index"), a.Int("begin"),
+                        a.Int("length"), a.Int("contact"), a.IntOrNull("cancel"),
+                        slow.Length == 2 ? (int)slow[0] : null, slow.Length == 2 ? (int)slow[1] : null,
+                        a.RealOrNull("budget"), stance.Key, a.UInt("weight"), a.BoolOrNull("item") ?? false,
+                        a.BoolOrNull("pair") ?? false, Point(a, "position"));
+                }).ToArray();
+                if (entries.Length == 0 || entries.Any(a => string.IsNullOrWhiteSpace(a.Animation)
+                    || a.LengthMs <= 0 || a.ContactMs < 0 || a.ContactMs > a.LengthMs || a.Weight != 1
+                    || a.CancelMs is < 0 || a.CancelMs > a.LengthMs || a.BudgetSeconds is <= 0))
+                    throw new InvalidDataException($"Invalid default attack animation pool {ao}/{stance.Key}.");
+                pools.Add(stance.Key, entries);
+            }
+            var skillClips = skillClipsByRig[rig.Index].ToDictionary(
+                r => (r.Text("stance")!, r.Text("skill")!), r => r.Text("animation")!);
+            result[ao] = new ActorAnimations(clips, allClips, pools, skillClips);
         }
         return result;
     }
 
-    /// <summary>A three-number JSON array as a point; anything else is no position, and so is the rig's placeholder for
-    /// an event without one ("0 -0 -0" in the .amd), which would otherwise read as a release at the feet.</summary>
-    internal static ContactPoint? Point(JsonElement value)
+    /// <summary>A list column of three numbers as a point (<see cref="Point(double[])"/>).</summary>
+    public static ContactPoint? Point(ClientRow row, string column) => row.IsNull(column) ? null : Point(row.Reals(column));
+
+    /// <summary>Three numbers as a point; anything else is no position, and so is the rig's placeholder for an event
+    /// without one ("0 -0 -0" in the .amd), which would otherwise read as a release at the feet.</summary>
+    public static ContactPoint? Point(double[] value)
     {
-        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 3) return null;
-        Span<float> parts = stackalloc float[3];
-        for (int i = 0; i < 3; i++)
-        {
-            if (value[i].ValueKind != JsonValueKind.Number) return null;
-            parts[i] = (float)value[i].GetDouble();
-            if (!float.IsFinite(parts[i])) return null;
-        }
-        return parts[0] == 0 && parts[1] == 0 && parts[2] == 0 ? null : new(parts[0], parts[1], parts[2]);
+        if (value.Length != 3 || !value.All(double.IsFinite)) return null;
+        float x = (float)value[0], y = (float)value[1], z = (float)value[2];
+        if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z)) return null;
+        return x == 0 && y == 0 && z == 0 ? null : new(x, y, z);
     }
 }
 
@@ -290,7 +394,7 @@ sealed class AnimationContacts(string folder = "data")
 /// lock_cancelling keyframe when it has one, and its slow span, all relative to that start, the ACT's attack_time
 /// budget in seconds when it has one, and whether the item's own rig plays it (a bow's attack1_bow).
 /// </summary>
-readonly record struct DefaultAttackClip(string Animation, string Source, int Index, int BeginMs, int LengthMs, int ContactMs,
+public readonly record struct DefaultAttackClip(string Animation, string Source, int Index, int BeginMs, int LengthMs, int ContactMs,
     int? CancelMs, int? SlowBeginMs, int? SlowEndMs, double? BudgetSeconds, string Stance, uint Weight, bool Item, bool Pair,
     ContactPoint? Point)
 {

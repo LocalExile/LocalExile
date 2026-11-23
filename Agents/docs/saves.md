@@ -4,39 +4,36 @@ How the servers keep player progress: what is saved, where, and how a change is 
 
 ## What is saved, and where
 
-Everything is in one SQLite file, `data/saves.db` (`Game_SAVES_DB` to put it elsewhere; git-ignored with the rest of
-`data/`), shared by the Gateway, Auth and the dev host:
+Player progress is in two SQLite files under `data/` (git-ignored), built from `sql/` by the servers
+([databases](dev/databases.md)) and shared by the Gateway, Auth and the dev host: `data/auth.db` (accounts;
+`Game_AUTH_DB`) and `data/characters.db` (everything else below; `Game_CHARACTERS_DB`). A connection opens
+`characters.db` with `auth.db` attached, so the rows written together (a deleted character and its save set aside) are in
+one file. A `data/saves.db` from before the split is moved over once, after a copy, by the first server
+to start ([databases](dev/databases.md)).
 
 | What | Table | Code |
 |---|---|---|
-| A character's items (every inventory row and the cursor), skill bar, experience, passives and mastery effects, refund and extra passive points, main ascendancy identity/nodes/tier awards, waypoints, visited areas, quest flags, the start weapon still on the ground | `characters`, one row per character | `CharacterSaves`, `PlayerInventories` (Gateway) |
-| An account stash's header: its tabs (name, type, colour), last tab, next stash item id, gold, the league quest flags its characters set (a Trial of Ascendancy's) | `stashes`, one row per account and league | `AccountStash` (Gateway) |
-| The items of one stash tab | `stash_tabs`, one row per account and tab | `AccountStash` (Gateway) |
-| Accounts | `accounts` | `SqliteAccountStore` (Auth, Host) |
-| Characters of an account: class, league, level (a copy for the character list), last town | `account_characters` | `SqliteAccountStore` (Auth, Host) |
-| Deleted characters' saves, for recovery by hand | `deleted_characters` | `SqliteAccountStore.DeleteCharacter` |
+| A character's progress: experience, passives, refund and extra passive points, waypoints, visited areas, quest flags, vitals, the selected hideout, Pantheon, stance | `character_saves`, one row per character | `CharacterSaves` (Gateway) |
+| Its maps: inventories it has, skill bar, mastery effects, cosmetics, hideout placements and monster statues, tattoos, module data, the opening tutorial, the main ascendancy (identity, nodes, tier awards) | `character_inventories`, `character_skill_bar`, `character_masteries`, `character_cosmetics`, `character_skill_cosmetics`, `character_hideout_placements`, `character_monster_statues`, `character_tattoos`, `character_tattoo_keystones`, `character_module_data`, `character_tutorials`, `character_ascendancies` | `CharacterSaves` (Gateway) |
+| An account stash's header: last tab, next stash item id, gold, the league quest flags its characters set (a Trial of Ascendancy's); its tabs (name, type, colour); module data | `stash_saves`, one row per account and league; `stash_tab_headers`; `stash_module_data` | `AccountStash` (Gateway) |
+| Every saved item: a character's (every inventory row, the cursor, the start weapon still on the ground, the tutorial gems) and a stash tab's, with the gems in its sockets and its mods | `items` (`character` or `stash`, `inventory`, `role`, `parent`), `item_mods` | `SaveRows`, `PlayerInventories`, `AccountStash` (Gateway) |
+| Accounts (`auth.db`) | `accounts` | `SqliteAccountStore` (Auth, Host) |
+| Characters of an account: class, league, level (a copy for the character list), last town, portrait, a Hardcore death | `account_characters` | `SqliteAccountStore` (Auth, Host) |
+| Deleted characters' saves, for recovery by hand | `character_saves` rows with `deleted_utc` | `SqliteAccountStore.DeleteCharacter` |
 
-Each row holds its record as JSON, readable with any SQLite browser. A save field this build doesn't know (a newer
-build wrote it) is kept as it is by the next write, at the top level of a record: an older build drops an item field it
-doesn't know, such as `Influences`, when it saves that item. Nothing is cached across processes: Auth and the host read and write
+A save is rows and columns, readable with any SQLite browser; `SaveRows` (Gateway) maps them to the records the code
+uses. A list of plain values (passive ids, quest flags, an item's links) is a JSON array column. A save field this build
+doesn't know (a newer build wrote it) is kept as it is by the next write, in the `unknown` column of its record: an older
+build drops an item field it doesn't know, such as `Influences`, when it saves that item.
+
+Before the save tables, each save was one JSON row (`characters`, `stashes` with `stash_tabs`, `deleted_characters`,
+the character list in what is now `account_characters_json`). The first Gateway start with them copies the database
+(`characters.db.backup-<time>`), moves every save over, reads each one back and stops with nothing changed if one does
+not come back the same (`SaveRows.Migrate`, meta key `relational_saves`). The JSON tables are kept as they were, unread. Nothing is cached across processes: Auth and the host read and write
 the database directly, and a write waits for another process's transaction to end.
 
-The same file also holds the server's game-data overlay (`game_data_meta`, `mod_stat_overrides`, `limit_overrides`,
-`system_settings`, `catalog_entries`, `catalog_seed_keys`, `catalog_seed_defaults`, the `stats`/`mods`/`mod_stats`
-reference tables, `unique_weights`/`unique_weight_overrides`, the `effective_mod_stats` view and the future
-`item_templates`), which is not player progress: the Gateway loads it into
-an in-memory snapshot at startup and republishes the snapshot after a `/game_data` edit. See
-[editable game data](dev/editable-game-data.md) for the client-compatibility boundary and the cache rules.
-
-The first Gateway start after `scripts/dev/extract-data.ps1` creates the overlay tables and fills them once:
-`catalog_entries` with the 1,299-row unique catalogue and the jewel/tattoo rows, `system_settings` with its 51 defaults,
-`stats`/`mods`/`mod_stats` with 23,346 / 40,355 / 60,695 rows from `data/tables/Stats.json` and `Mods.json`, and
-`unique_weights` with 1,527 unique drop weights from `VillageUniqueDisenchantValues.json`.
-Later starts add only seed keys new to the build, and a new unique seed revision corrects the rows nobody edited; edited
-rows and rows deleted by an admin stay as they are. The Gateway
-log reports the reference counts (`[gateway] game data reference: ...`); `/game_data reference` rebuilds the reference
-tables without a restart. `dotnet run --project src/GameServer.Gateway -- seed-game-data` fills the overlay without
-starting the server (stop the Gateway first, or run `/game_data reload` after it).
+Game data (settings, catalogues, drop tables, client tables) is not in these files: it is in `world.db` and
+`client.db` ([databases](dev/databases.md)).
 
 Saved items include their raw `DefenceBaseRoll`, shared by armour, evasion and Energy Shield.
 Ordinary rolls are 0 through 31; raw 32 preserves the native special minimum-base state.
@@ -59,7 +56,7 @@ the player's clicks.
 A change that touches more than one save, or one save more than once, runs in one transaction, so all of it is saved or
 none of it is. An item is never lost between its two places, nor counted in both:
 
-| Change | In one transaction (`ItemMoves`, Program.Items.cs) |
+| Change | In one transaction (`ItemMoves`, `Modules/Core/Game/Item/ItemMoves.cs`) |
 |---|---|
 | Stash → cursor (C→S 0x28), stash → inventory (0xe3, a stack onto the inventory's stacks) | out of the tab (or what doesn't fit stays), the last tab, onto the cursor / into the inventory |
 | Inventory → stash (0xe0 into the shown tab, 0xe1 into the item's affinity tab) | out of the inventory (or what doesn't fit stays), into the tab (a stack onto its stacks, a slotted tab into the item's slot), the last tab |
@@ -79,6 +76,8 @@ changes and refund payment in one transaction (`CharacterSaves.SetMainAscendancy
 A snapshot comparison rejects an old area's attempt to replace a newer passive state.
 `ChangeMainAscendancy` applies awards/selection to the latest saved state.
 Unknown nested ascendancy fields are kept, and incompatible identities/graphs are refused without dropping progress.
+The Descendancy row (the second ascendancy layer) saves as one byte beside it, written by `CharacterSaves.SetDescendancy`,
+together with its allocated `DescendancyNodes`; 0 is none and a cleared row drops the layer's nodes.
 The production Phrecia compatibility gate runs before inventory loading or save normalization.
 Level candidates are rechecked against the current passive snapshot before applying, even when no trim was planned.
 Allocations/refunds and level trims hold the connection lock through validation, saving and runtime publication.
@@ -161,16 +160,5 @@ header until its first save, which gives every tab its row.
 
 ## Tests
 
-`SaveDatabaseTests` (commit, rollback, nested transactions, another process writing, set-aside, the import),
-`ItemMovesTests` (every change above, each with a write made to fail part-way, then both saves loaded again; a control
-test shows the same failure without a transaction loses the item), `ProgressSaveTests` (quest flags, waypoints, level,
-unknown fields and items), `UnsavedProgressTests` (experience and flask charges kept in memory and saved),
-`StashRowsTests` (one tab per write, imported stashes), `SaleImprintTests` (the sell window), `StashRulesTests` (what
-each tab holds, slots, the repair at load), `CtrlClickTests` (Ctrl + click to and from the stash and a shop) and, in the
-Core tests,
-`SqliteAccountStoreTests` (accounts, deletion with its save, the import).
-
-`ExperienceLevelEventTests` also checks an extra-point grant while level publication is in flight. Its grant and
-publication run independently from the coordinator that releases the deliberately held save. A loopback connect
-may complete synchronously, so invoking publication on the coordinator can block on that save before release.
-Keep the independent scheduling rather than increasing the timeout; the production transaction is unchanged.
+In the Core tests, `SqliteAccountStoreTests` (accounts, deletion with its save, the import), `JsonAccountStoreTests`
+and `SaveFilesTests`; in the Gateway tests, `LeagueQuestFlagSaveTests` (league quest flags per account and league).

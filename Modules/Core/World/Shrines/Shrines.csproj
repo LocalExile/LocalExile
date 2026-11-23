@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Map shrines: the shrine rooms' objects, their buffs, guards and effects (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+  <ItemGroup>
+    <ProjectReference Include="../../Player/Social/Social.csproj" Private="false" />
+  </ItemGroup>
+</Project>

@@ -1,7 +1,7 @@
 # Projectile framework
 
 `src/GameServer.Core/Projectiles/` supplies the single chronological simulator.
-`src/GameServer.Gateway/Projectiles/` binds player skills, combat state and native presentation to it.
+The Game module's `Modules/Core/Game/Projectile/` binds player skills, combat state and native presentation to it.
 Ordinary bows and catalog-recognized projectile gems use these same production entry points.
 Catalog fallback provides basic straight flight; a registered definition supplies special behavior.
 Missing metadata or an unsupported damage plan is refused before action costs.
@@ -54,9 +54,7 @@ boundary. Keeping a second impale/accuracy block from main would duplicate those
 entropy, actual-roll storage and typed leech. Pending gem releases retain the combined stun/freeze interruption
 generation as well as the shared critical roll; already released flights keep their existing lifecycle.
 
-The merge reports and alternatives are in [the issue #75 review](../dev/issue75-review.md#upstream-merge-resolution)
-and [the later main integration](../dev/issue75-review.md#main-merge-league-modes-gambler-and-vaal-souls).
-These automated composition checks do not replace native validation of the merged runtime.
+The merged runtime has not been validated in the native client.
 
 ## Continuation and hit admission
 
@@ -160,7 +158,7 @@ Native description templates choose the wording and visibility.
 supply presentation directly through `ProjectileOffense`. The common host owns object lifecycle, terrain
 height, arcs, redirects and effect cleanup. Core actor/team contracts are source-neutral. The Gateway has two
 damage adapters: the player's shots hit monsters, and a monster's shot (`HostileProjectileOffense`, team 2:
-`Program.ProjectileHostile.cs`) hits the player through the monster's own contact pipeline, as a mortar landing on
+`Modules/Core/Game/Projectile/ProjectileHostile.cs`) hits the player through the monster's own contact pipeline, as a mortar landing on
 the aimed cell with a splash (`Game_MONSTER_MORTAR_RADIUS`, default 10 cells) or a straight shot's first contact.
 Monster projectiles are known for mortar skills (`SkillCatalog.MonsterProjectile`); weapon-projectile skills still
 hit instantly at half the attack time. A mortar leaves at its clip's contact keyframe and from that keyframe's point
@@ -169,7 +167,7 @@ arrow or bolt leaves from the class clip's keyframe (`data/animation-contacts.js
 the release point and their first move runs from there; the visual trails the simulation by the output delay and
 catches up at the stop. GGG's server sends no object for a player's bow shot, default attack or gem: the live client
 draws its own arrows, which fly about 308 cells/s after a release about 258 ms into the attack. It sends none for a
-Sand Spitter's mortar either ([port record](../dev/ranged-monster-actions-port.md), "Live reference").
+Sand Spitter's mortar either ([11-skills §17](../protocol/11-skills.md#17-live-reference-ranged-attacks-on-gggs-servers)).
 Here a gem use's primary projectiles get no object (`ProjectileOffense.ClientPredicted`): the client's projectile
 action makes them itself, Fireball's and Spark's alike ([protocol §10](../protocol/11-skills.md#10-projectiles-experimental)).
 The client still needs the skill's stats to draw them right: its sparks live `skill_effect_duration`, which the

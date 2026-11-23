@@ -32,8 +32,7 @@ Nothing yet.
   [15](../docs/protocol/15-progression.md) §3).
   The pool is the quest reward gems, the starting gems and the drop-only exceptional supports; the data's Graft,
   item-granted/legacy (Envy, Death Aura, Quickstep) and placeholder ("...") rows never drop.
-  `GemDropsTests` cover the pool, the level gate and the unlevelled gem. The rate is our own until the game's drop pools
-  are known.
+  The rate is our own until the game's drop pools are known.
   Live: rare monsters dropped normal skill and support gems. The first attempt used the data's ShopTag gems, which
   include the item-granted/legacy rows, so the pool was narrowed to the quest/starting/exceptional sets.
 
@@ -67,34 +66,57 @@ Nothing yet.
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
+  Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
+  The trap, mine and totem supports' own more or less damage scales the supported hit.
+  A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
+  Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
+  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
+  Flight and arming times and the native multi-throw patterns remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
+  Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
+  melee skill and support restrictions.
+  Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
   extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
   Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
-  fork; Rupture's stacks raise bleeding damage taken; Close Combat's Combat Rush speeds up travel skills; Block Chance
-  Reduction lowers the monster's block roll and applies Overpowered; Machinations counts allocated keystones for its
-  chaos gain ([25](../docs/protocol/25-gem-supports.md)).
+  fork; Rupture raises bleeding damage taken, dynamically speeds bleed expiry and shows its independent native buff stacks to each player; Close Combat speeds travel skills
+  and is consumed by a paid travel use; Block Chance Reduction lowers the monster's block roll and applies Overpowered;
+  Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
-  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
-  Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
+  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you" (its buff
+  icon is no longer shown for a self-excluding aura, while the aura art and skill-bar association remain).
+  Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
+  Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
+  Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
+  the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
-  Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Iron Grip and
-  Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
-  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Devour, Sacrifice, Spellblade, Hallow and
-  Excommunicate apply too ([25](../docs/protocol/25-gem-supports.md)).
+  Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
+  Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
+  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
+  Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
+  damage at a valid spell release, including projectile hits and poison
+  ([25](../docs/protocol/25-gem-supports.md)).
+  Mirage Archer fires linked bow skills with a native head attachment and default green art; autonomous actions
+  keep a separate sequence and expiry removes it. Independent model facing and reported client CPU spikes remain unresolved
+  ([25](../docs/protocol/25-gem-supports.md)).
+  Owner-only damage restriction overrides still await a client check.
   Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled
   Blaze scales ignite damage and hit damage by enemies ignited recently
   ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
-  Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed
+  Spell Echo repeats supported releases and area hits, including ordinary Ice Nova rings, a cast time apart
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); checked with the real client (2026-11-04).
+  Unleash stores seals per linked spell and spends them on extra projectile, area and summon releases.
+  Greater Spell Echo scales repeated area and projectile hits. Focused Channelling scales channelled area hits by elapsed whole seconds.
+  Meat Shield reduces damage taken by supported minions and lets targetable minions taunt on hit.
+  Elemental Army scales supported minions' elemental damage and applies Exposure on hit.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and
   Awakened `support_spell_cascade_sideways`, so the aimed centre still lands the main hit; captured from the 3.29.3b
   client (2026-11-04): Reap's five Awakened areas were 28-29 cells apart at a 28.5 effective radius.
@@ -102,14 +124,19 @@ Nothing yet.
   20 degrees apart for Split Arrow in the same capture); the official rain rig stands at the caster's cell and plays
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
   documented in [25](../docs/protocol/25-gem-supports.md).
+  CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
+  Server-drawn gem projectiles (triggers, totems) play their impact clip, such as Fireball's explosion.
+  Cast on Melee Kill releases linked spells on a linked melee attack's kill; it is not yet checked in the client.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
-- **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at
-  its own share, and Pacifism's hits leave 1 Life ([25](../docs/protocol/25-gem-supports.md)).
+- **Culling Strike.** Melee, area and projectile hits cull at 10% Life; the target-state conditions (burning, frozen,
+  cursed, marked, poacher's-marked and under 10% Life) cull too, flat Life and Mana on cull are granted, Cull the Weak
+  culls normal and magic enemies at its own share, and Pacifism's hits leave 1 Life
+  ([25](../docs/protocol/25-gem-supports.md)).
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
-  keys no longer move when other gems come or go; a skill that goes away ends its aura or Righteous Fire;
+  keys no longer move when other gems come or go; queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous Fire;
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
@@ -126,6 +153,7 @@ Nothing yet.
   and its attribute requirements follow the client's own formula (`0x142476710`: `trunc((3 * level_req + 11) *
   (percent/100)^0.9 * k + 0.5)`, `k` 0.7 for a skill and 0.5 for a support, none below 14;
   fitted against 570 poedb tooltip cells with no mismatch: Haste 20 is 155 Dex, Clarity 20 119 Int, Fireball 20 155).
+  Any gem fits any gem socket; a matching red, green or blue socket adds 10% quality (client tutorial and reminder text).
   Socketing a gem the character is too low or too weak for is refused (0x30, `GemRequirementsUnmet`), and a gem its
   requirements above the character's makes its item inactive (the item's requirements are the highest of its own and its
   gems', `EquipmentStatSources`; lost in PR #175, restored 2026-10-29), as a worn item the character is too low for is: the
@@ -144,19 +172,27 @@ Nothing yet.
   Not yet: verify every disabled-gem aura transition
   ([19](../docs/protocol/19-gems.md) 1, 3).
 - **Gem experience from kills (one gem in the first weapon set checked with the real client).** Every gem socketed in
-  an equipped item, in either weapon set, gains 10% of a kill's monster experience (support gems included;
-  inactive items, gems at their last level and corrupted gems over their cap nothing;
+  an equipped item, in either weapon set, gains 10% of a kill's experience **before the character's level penalty**
+  (support gems included; inactive items, gems at their last level and corrupted gems over their cap nothing;
   quest levels and `/add_xp` give the gems nothing), sent with the kill as 0x00bf item changes, each item once, so the
   XP bars follow, and saved with the character (`GainGemExperience`, `PlayerInventories.ChangeSocketedGems`;
   [19](../docs/protocol/19-gems.md) §1).
   A kill's share stops one point below the next threshold, where the client shows the "+": it does not level a gem by
-  itself (checked live 2026-10-23).
-  Not checked live yet: several gems in one item, the second weapon set.
+  itself (checked live 2026-10-23; rechecked 2026-11-09: a level-4 Fireball stopped at 8598 and levelled only when the
+  click sent it to 8599).
+  Several gems in one item and both weapon sets: checked live 2026-11-09.
 - **Gem level-up and the lock (checked with the real client).** Clicking the "+" sends C→S 0x31 (inventory, item,
   socket; 14 bytes); the server writes the next threshold into the gem, replaces the item (0xbf) and re-sends the
   skills (0x02bc Actor), so the client derives the new level and its numbers at once, and refuses a gem at its last
   level, a locked one, or one whose next level's requirements the character does not meet (`LevelUpGem`;
   the client's "+" check does not test them, so the server answers with the missing level or attribute).
+  The gem level-up panel's "Click to level up ALL" is C→S 0x32 (the id alone, 2 bytes): one explicit click levels every
+  socketed gem that is ready (its experience at the stall point the client draws the "+" for) by one level, all in the
+  same step, in either weapon set; not-ready, locked, maxed and requirement-blocked gems stay, and a second click finds
+  nothing ready. Experience gains, logins, area changes and opening the inventory never level a gem. Sent as one item
+  change per row and one skills update, so the client's prompts and XP bars follow (`LevelUpAllGems`, `LevelUpReadyGems`,
+  `GemLevelUpReady`, `NextGemLevel`). Checked live 2026-11-09: one click levelled every ready gem across several
+  equipment rows and both weapon sets, and a second click levelled only the newly ready gems.
   A right-click sends C→S 0xd7 (the same three u32s and a u8 lock flag;
   15 bytes), kept in the SkillGem flags bit 2 (`Item.GemFlags`) and saved, so the lock survives a login;
   the client greys the "+" while it is set (`LockGem`).

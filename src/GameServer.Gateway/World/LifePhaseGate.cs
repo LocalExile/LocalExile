@@ -1,6 +1,6 @@
 /// <summary>One-way life thresholds for scripted encounters. A burst stops at the next pending phase;
 /// completing that phase unlocks the next interval. Call under the instance's monster lock.</summary>
-sealed class LifePhaseGate(IReadOnlyList<int> thresholds)
+public sealed class LifePhaseGate(IReadOnlyList<int> thresholds)
 {
     public int Completed { get; private set; }
     public bool Active { get; private set; }

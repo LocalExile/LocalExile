@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// Plays quest events through the engine without a client (Agents/docs/protocol/12-quests.md §5, "The oracle"): the quests'
@@ -10,7 +11,7 @@ using GameServer.Core.World;
 /// accepts. QuestEngineTests feeds every act's sequence and checks the result against CharacterStartQuestState.
 /// Code-driven quest objects (a1q4's Glyph Wall) register in <see cref="ObjectHandlers"/>.
 /// </summary>
-sealed class QuestSimulator
+public sealed class QuestSimulator
 {
     public sealed class StepFailed(string message) : Exception(message);
 
@@ -32,7 +33,7 @@ sealed class QuestSimulator
     public string? Area { get; private set; }
     public int RefundPoints { get; private set; }
     /// <summary>The flags every character is given (<see cref="Quests.EveryCharacter"/>) that the play has not set yet: not
-    /// earned, as ClientState.UnearnedQuestFlags (Kitava's EndGameAvailable counts for his resistance penalty only once an
+    /// earned, as Player.UnearnedQuestFlags (Kitava's EndGameAvailable counts for his resistance penalty only once an
     /// event sets it).</summary>
     public HashSet<string> Unearned { get; } = new(Quests.EveryCharacter, StringComparer.Ordinal);
     readonly HashSet<string> credited = new(StringComparer.Ordinal);
@@ -50,14 +51,13 @@ sealed class QuestSimulator
         items = new ItemCatalog(folder);
         rewards = QuestStaticRewards.Load(folder);
         offers = QuestRewardCatalog.Load(folder);
-        visits = AreaVisitFlags.Load(Path.Combine(folder, "tables", "WorldAreas.json"), Path.Combine(folder, "tables", "MapPins.json"));
+        visits = AreaVisitFlags.Load(ClientTables.TableOrNull("WorldAreas"), ClientTables.TableOrNull("MapPins"));
         areaFlags = [];
-        var flagNames = Quests.ParseRows(File.ReadAllText(Path.Combine(folder, "tables", "QuestFlags.json"))).ToDictionary(kv => kv.Value, kv => kv.Key);
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables", "WorldAreas.json")));
-        foreach (var w in doc.RootElement.EnumerateArray())
+        var flagNames = Quests.FlagRows(ClientTables.Table("QuestFlags")).ToDictionary(kv => kv.Value, kv => kv.Key);
+        foreach (var w in ClientTables.Table("WorldAreas"))
         {
-            string[] Names(string column) => [.. w.GetProperty(column).EnumerateArray().Select(e => flagNames.GetValueOrDefault(e.GetInt32())).OfType<string>()];
-            areaFlags.TryAdd(w.GetProperty("Id").GetString() ?? "", (Names("StartQuestFlags"), Names("EndQuestFlags")));
+            string[] Names(string column) => [.. w.Ints(column).Select(e => flagNames.GetValueOrDefault(e)).OfType<string>()];
+            areaFlags.TryAdd(w.Text("Id") ?? "", (Names("StartQuestFlags"), Names("EndQuestFlags")));
         }
         // As on login: an endgame flag not earned yet is not the character's (Quests.EndgameOnly; the oracle plays no
         // hideout or map area, where the client would have it).
@@ -85,7 +85,7 @@ sealed class QuestSimulator
         foreach (var f in flags)
         {
             // A session flag, or an instance's own state (Quests.IsInstanceFlag): both go with the area.
-            var target = QuestStates.Default.Value.IsSession(f) || Quests.IsInstanceFlag(f) ? SessionFlags : Flags;
+            var target = QuestStates.Default.IsSession(f) || Quests.IsInstanceFlag(f) ? SessionFlags : Flags;
             if (on ? target.Add(f) | Unearned.Remove(f) : target.Remove(f)) Log.Add($"{(on ? "+" : "-")}{f}");
         }
         var (points, due) = rewards.NewRefunds(Flags, credited);

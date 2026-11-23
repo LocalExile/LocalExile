@@ -33,8 +33,7 @@ values were not used on the wire).
 
 **Issue #75 evidence scope:** test counts and native matrices imported with the completed jobs are historical
 LocalExile results. Standard/Ruthless observations do not add private game-mode support to this branch or certify
-its current native behavior. The [port record](../dev/issue75-port.md) identifies revisions, fresh automated
-results and remaining checks. Source `artifacts/issue75-completion/` paths remain in the LocalExile checkout.
+its current native behavior. Source `artifacts/issue75-completion/` paths remain in the LocalExile checkout.
 
 ```
 base skill/weapon damage by type
@@ -60,6 +59,10 @@ does the mirror pass through the player's resistances. Damage over time is outsi
 penetration. Righteous Fire's monster burn (its per-tick percentage-of-life model) and the player's ignites take the
 monster's capped resistance of their type, its base and its mods' as for hits, and its damage taken (`MonsterDotTaken`;
 before the ignites, the burn took only the mods' resistance).
+A DoT adds the target's per-type damage taken to its general increase: Izaro's Toggle Statues (BuffDefinitions
+559–564, Stats 2085/3688/3689, -20 fire/cold/lightning), Vulnerability's `physical_damage_taken_+%` (BuffDefinitions 79)
+and Maim Support's 10% while maimed. Pride stays a separate more multiplier; hits still multiply physical taken
+separately. A hit that applies Maim settles the target's bleed first, so damage already earned keeps the old value.
 
 Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
@@ -122,8 +125,8 @@ The stats the server reads (whole percents, this client's Stats.dat names):
 The derived `main_hand_…`/`off_hand_…` and per-element display aliases are not raw inputs to combat.
 `WeaponIn` captures an immutable local-source dictionary with the weapon's damage. Ordinary melee uses that
 accepted weapon; ordinary bows freeze its penetration at release. Supported projectile/area attacks use their
-current main-hand weapon at contact, consistent with their existing damage path. Inactive-set items, shields and
-unqualified weapons cannot contribute. The current executors still lack off-hand attack selection.
+current swinging hand's weapon at contact (`AttackHands`, [11](11-skills.md) §4). Inactive-set items, shields and
+unqualified weapons cannot contribute.
 The source totals use wide intermediates and saturate once at the integer representation boundary.
 Either player or skill prohibition suppresses elemental penetration even if signed flag values would cancel.
 The non-critical companion is handled by the critical resistance rules below. The hand rows add the "with Weapons"
@@ -184,8 +187,8 @@ where separately rounded 50.5/49.5 becomes 51/50; official endpoint/normalizatio
 Reference: pinned PoB `16de4b82`, `CalcOffence.lua` 35-140 and 1938-1982, via the PoE Reference Library.
 
 `PlayerHitDamage.Resolve` now uses that history for ordinary and supported player hits. Callers supply raw item/class
-or extracted spell base plus raw added damage, with attack effectiveness on the complete attack base and spell
-effectiveness only on added damage. Each path receives one combined increased/reduced bucket: generic/context
+or extracted spell base plus raw added damage, with separate attack base/added coefficients ([11](11-skills.md) §9)
+and spell effectiveness only on added damage. Each path receives one combined increased/reduced bucket: generic/context
 inputs once, each visited typed increase once, and Elemental once if any elemental type was visited. Clamp only the
 completed bucket, so a negative source-type subtotal can recover through a positive destination increase.
 Each applicable support/aura more source also follows the visited-type set once. The existing three no-damage flags
@@ -221,14 +224,14 @@ and socket mutations have full payload acknowledgements. The original account, t
 stash banks and forty tabs retain exact UTF-8 payload hashes; the two fixture inventories persist with their complete
 canonical contents. All 714 frozen source/runtime/helper/oracle inputs match at session end. The supplemental sparse
 policy, verifier and normal-source wrapper have separate recorded freezes and are not included in that 714 count.
-The copied test client is closed and the normal Gateway uses `data/saves.db` again.
+The copied test client is closed and the normal Gateway uses `data/characters.db` again.
 
 The full test run also retained six existing `MonsterKilled` cleanup writes to disposed streams, with no targeted
 conversion fault in the filtered diagnostic capture. The native log retained four remote-host connection closures;
 this is not an exception-free-run claim. Evidence: `artifacts/issue75-completion/conversion-native/verified-matrix-independent.json`
 and `diagnostic-hook/conversion-final-diagnostic-assessment.json`.
 Monster, ailment and DoT consumers remain outside this player-hit change; conditional/minimum-/maximum-only
-operators, critical-weighted DPS, authoritative offhand alternation and official fractional parity remain open.
+operators, critical-weighted DPS and official fractional parity remain open.
 
 ## 2a. Equipped weapon-local damage
 
@@ -254,7 +257,7 @@ Pool, timing, charge and block conditions also use the active weapon profile; an
 cannot grant current speed, block or conditional bonuses. Shield base block requires an enabled active offhand.
 Pinned PoB `CalcSetup.lua` 840-845 excludes unselected weapon-set slots before `CalcPerform.lua` 147-153/221-227
 derives shield, unarmed and dual-wield conditions from the active item context.
-Offhand publication is covered separately from the still-unimplemented authoritative offhand attack alternation.
+Which hand an attack swings is `AttackHands` ([11](11-skills.md) §4).
 Alternative quality bonuses and local base-critical modifiers remain separate work.
 The player resolver retains visited-type qualifiers for destination/intermediate increases and typed more effects
 after conversion to Chaos. The separate 32-control conversion matrix above verifies that integration's local panel
@@ -269,8 +272,25 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 
 ## 2b. Added damage from stats
 
-Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges and the
-stats below are read.
+Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
+`global_minimum/maximum_added_<type>_damage` ranges (a ring's "Adds # to # Fire Damage", added to attacks and spells
+alike), the bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body
+armour bonus, added only while a bow is the weapon) and the stats below are read. Weapon-family ranges go to the
+attacking hand only, before the skill's added effectiveness:
+
+- Wands: `attack_minimum/maximum_added_{lightning,fire,cold}_damage_with_wand` (Stats 412-417) and
+  `…_physical_damage_with_wands` (6772-6773). Claws and daggers: Stats 6774-6777, 6786-6789, 6800-6803, 6812-6815,
+  14155-14158; Rune Daggers count as Daggers (ReminderText 157).
+- Varunastra (Mod 12753): local Stat 4196, hand aliases 4197/4198 (client keys `0x1066/0x1067`). It counts as every
+  one-hand melee type for these ranges and weapon conditions; the hand's native weapon type stays a sword.
+- Fan of Blades (Stats 11248, 11815): the extra projectile checks either hand (type 10/12/16 or a Varunastra alias),
+  the 20% projectile hit increase only the attacking hand.
+- `DualWield3` (Stat 15135): generic increased damage; ordinary and thrusting swords are one type, and Varunastra alone
+  qualifies (as PoB).
+- Eclipse Solaris (Stats 22169-22170): the range per 1% increased light radius; none at zero or less.
+- Ritual boots implicit (Stats 13539-13540, per 200 accuracy; Stat 13577, less accuracy): whole 200-rating groups of
+  the hand's accuracy, with the less factor and Blind applied before one rounding (floor(381 × .75 × .7) = 200, not 199).
+
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
@@ -290,6 +310,8 @@ This stack does not introduce the separate derived-damage engine from archival P
 Automated production-path cases cover ranged and melee gems, effectiveness and a spell isolation control.
 Native evidence here belongs to original head `378ffde`; supported-skill composition needs a new native check.
 `attack_damage_+%` scales the added range for every attack.
+`elemental_damage_with_attack_skills_+%` joins `elemental_damage_+%` for attacks only (Roth's Reach, Ewar's Mirage,
+Aegis Aurora, Sibyl's Lament, Wilma's Requital); a spell's elemental damage ignores it.
 `melee_damage_+%` applies only in explicit melee context: the default attack uses its active weapon profile,
 and attack gems use `ActiveSkillType Melee` through `SkillCatalog.IsMelee`.
 An inactive weapon set cannot change that context.
@@ -324,9 +346,15 @@ description (`Metadata/StatDescriptions/stat_descriptions.txt`, "Adds {0} to {1}
 Strength", and every one of its translations), PoB's unique text and parsed mod cache (`ModCache.lua`: `div=80`) and
 RePoE's mod text all say 80.
 At 11,833 Strength the boots add 147–11,760 chaos.
-The weapon-local "to Attacks with this Weapon per 10 <attribute>" stats
-(`attack_minimum_added_fire_damage_per_10_strength`, `attack_minimum_added_lightning_damage_per_10_dex/int`,
-`attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity`) and the spell
+The `attacks_with_this_weapon_minimum/maximum_added_cold_damage_per_10_dexterity` pair is weapon-scoped added
+damage, not the item's local base damage: Stats rows 7005/7006 have `IsWeaponLocal=1` and `IsLocal=0`.
+`AddedColdDamagePerDexterityUber1` and `AddedColdDamagePerDexterityInfluence1` include bow spawn tags.
+Only the qualified attacking weapon supplies the pair; each complete ten final Dexterity adds its rolled range
+before the skill's added effectiveness, without item quality or local elemental increases.
+Pinned PoB `16de4b82`, `ModParser.lua` lines 1188 and 1471, attaches the attacking-hand condition and Dexterity
+`PerStat` divisor; `CalcOffence.lua` lines 3350–3356 separates that added input from the weapon base.
+The remaining weapon-scoped fire per Strength and lightning per Dexterity/Intelligence pairs
+(`attack_minimum_added_fire_damage_per_10_strength`, `attack_minimum_added_lightning_damage_per_10_dex/int`) and the spell
 `spell_minimum_added_lightning_damage_per_10_intelligence` are not read yet.
 
 Damage-type prohibitions (`DamageStats.Prohibited`) remove a final-type portion after conversion.
@@ -720,6 +748,13 @@ average range. The caller applies the target's resistance. The player's chill, f
 modelled ([below](#outgoing-chill-freeze-and-shock-on-monsters)), and so are his ignites and bleeds (below). Righteous
 Fire still uses its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
 
+Elementalist's Shaper of Flames: `always_ignite` adds 100% ignite chance; `all_damage_can_ignite` lets any hit ignite
+and puts every damage type into the ignite's base (fire scaling plus the types the portion visited, as poison's
+physical part), and the panel's ignite rows follow;
+`enemies_ignited_by_you_have_physical_damage_%_converted_to_fire` (40%) converts a burning monster's hits on the player
+through the Born under Fire hook (`EnemyAuraConversionLocked`), hits only. The golem and Abberath ignites still need
+fire damage.
+
 **The player's ignites on monsters** (`MonsterIgnites.cs`, the wiki's Ignite): `IgniteFromHit` decides a landed hit's
 ignite. A critical strike always ignites; otherwise `base_chance_to_ignite_%`, `chance_to_ignite_%` and
 `chance_to_freeze_shock_ignite_%` give the chance, and the ignite prohibitions (`CannotInflict`, below) stop it. The base is the hit's flat fire damage
@@ -760,7 +795,7 @@ support multiplier's flags. Not modelled: conditional sources and supports (Ruth
 weapon's `local_bleeding_ailment_dot_multiplier_+`, "as though dealing more", and the rows' native formatting.
 Burning Arrow's quality (`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
 
-**Hit ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
+**Hit ignite on monsters (`MonsterIgnites`, `Modules/Core/Game/Monster/MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
 shot captures its ignite at release, and the default attack and an area skill's sweep read the same when they hit
 (`SupportedIgnite`, `DefaultAttackIgnite`): chance `base_chance_to_ignite_%` + `chance_to_freeze_shock_ignite_%` from the caster
 and the skill (Burning Arrow's own 25%), the context's ignite rows above (main hand for attacks, spell for spells) as the
@@ -922,6 +957,7 @@ mechanics remain open; source IDs, support lifecycle and parsed contact tests ar
 - Critical elemental hits with `critical_strikes_ignore_elemental_resistances` use effective resistance zero,
   including when the target's resistance or maximum is negative; ignore overrides penetration.
   `attack_critical_strikes_ignore_elemental_resistances` covers attacks only.
+  Inevitable Judgement (graph node 48214) grants the generic ignore and 10 non-critical penetration.
   Non-critical elemental hits add `non_critical_strikes_penetrate_elemental_resistances_%` to general penetration.
   Player and skill contributions to the same key sum; the prohibition suppresses all elemental penetration and ignore.
   Physical, chaos and DoT keep their separate rules.
@@ -961,8 +997,8 @@ The client Life handler for S→C 0x1b1 stores the current whole pool value; mer
 regeneration stat does not make the visible life value advance between these updates. The former
 250 ms player tick therefore made /god recovery jump by roughly one quarter of maximum life.
 
-`RunResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
-Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `ClientState.Clock`
+`StartResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
+Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `Player.Clock`
 time, including scheduler delays; the clock stops during pause. `RecoveryPool` retains fractional
 points, discards overflow at a full pool and negative carry at RF's one-life floor, and never revives
 dead life. Only changed whole values generate 0x1b1. The unreserved mana cap is unchanged.
@@ -1035,7 +1071,7 @@ the capped leech contribution. Pinned PoB `CalcOffence.lua:3721` likewise derive
 and its base rate; instant portions and Ghost Reaver remain distinct conversions. Preserve these distinctions
 in gameplay rather than using a single regeneration rate or an amount-draining speed multiplier.
 
-`LeechSources`, `LeechRecoveryState`, `LeechSession` and `Program.Leech` now connect raw actor/qualified support/
+`LeechSources`, `LeechRecoveryState`, `LeechSession` and `Game.Leech` now connect raw actor/qualified support/
 attacking-hand inputs to accepted ordinary melee/bow, gem projectile and area contacts. Coefficients apply to final
 damage types after resistance, physical reduction and damage-taken modifiers. Misses, blocks, rejected owners and
 targets, DoT and reflected impales do not grant instances. A monster's `cannot_have_life_leeched_from` gates Life
@@ -1242,7 +1278,7 @@ The recovery writer advances the projectile horizon before consuming earned reco
 use that committed horizon, preventing late pump work from being aged prematurely to the wall clock.
 Decision: port these consumers into the new engine; keeping the removed flight task would duplicate execution paths
 and lose upstream continuation/secondary-area rules. The [framework guide](../game/projectile-framework.md#issue-75-integration)
-and [merge report](../dev/issue75-review.md#upstream-merge-resolution) record the contracts and validation.
+records the contracts.
 
 The later main integration also retains incoming ignite/shock and Hardcore death handling in the same resource
 writer, alongside leech, Energy Shield, Fortification and temporary recovery. Ruthless periodic pool persistence
@@ -1257,8 +1293,8 @@ mitigation are composed as described in the [projectile module](../game/projecti
   supported incoming shock path are implemented. The monsters' base resistances are in §4, with penetration.
 - Remaining skill-specific increased/more/effectiveness mechanics beyond the documented packet and support paths.
   Weapon-local and character flat ranges retain conversion history and their separate scopes.
-- Outgoing ailments beyond ignite, bleed, poison (§3), chill, freeze and shock: alternative ailments (scorch, brittle,
-  sap); the shatter visual and the on-death effects Shatter suppresses.
+- The alternative ailments' remaining sources (see "Scorch, Brittle and Sap"); the shatter visual and the on-death
+  effects Shatter suppresses.
   Supported incoming elemental ailments are bounded by [Gambler](../game/gambler.md#incoming-elemental-ailments).
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, specialized leech conversions/conditions, conditional gain on hit, and Mana and Energy Shield
@@ -1276,7 +1312,14 @@ quality, intelligence, passive ES and global defence increases. Offhand shields 
 spends ES before life; chaos bypasses it. A positive damaging hit interrupts recharge; a zero/blocked hit does not.
 Death empties ES; existing heal/resurrection/entry refills include it. Righteous Fire uses its life and ES burn inputs
 and absorbs its non-chaos self-damage through ES before life. Special keystones and conditional mastery effects are
-not included (CI, Eldritch Battery, Zealot's Oath, Wicked Ward, leech and related substitutions).
+not included (CI, Zealot's Oath, Wicked Ward, leech and related substitutions).
+Eldritch Battery: with only `keystone_eldritch_battery` sent, the client spent Mana on costs and drew ES over Life
+(live 2026-11-13); network stats run no calculator, so the Gateway sends its derived
+`virtual_spend_energy_shield_for_costs_before_mana` and `virtual_energy_shield_protects_mana`. Its client spends its
+own ES on costs and refills it only with a recharge rate to predict, so for it the Gateway sends the rate whenever its
+recharge would run, full or not; at full with no rate the globe stayed below full after a cast (live 2026-11-13).
+The ES it pays a Mana cost with is not Mana spent (a player's 2025 test: Indigon did not count it). Only the ordinary hit path routes around ES for it;
+trial traps and Sirus's damage still spend ES first.
 The native rolled base rounds before local modifiers; the final item ES rounds after local increases and quality.
 This avoids the former intermediate truncation: Simple Robe roll 16, 50% local ES and 20 quality yields 31 ES.
 Character-wide ES retains the local shield as a separate contribution so shield-only increases add to its global
@@ -1360,7 +1403,7 @@ The parent completed with 918 input hashes held; the stopped-child audit checked
 Both canonical inventories, exact item/gem IDs, full charges, empty host, saved bar intent, account, probes, stash and
 metadata payloads were preserved apart from both LastPlayed values and Ruthless current Mana 750→655.
 Its native trace shows a 700→650 clamp, higher capacity without refill, then recovery through 654; the later save is 655,
-without a captured event for that final tick. Only the disposable child was used; normal `data/saves.db` was restored.
+without a captured event for that final tick. Only the disposable child was used; normal `data/characters.db` was restored.
 The three live service stderr files are empty, but the Gateway stdout log retains one remote-closure IOException;
 this is not a fault-free-run claim. Earlier automated diagnostic faults above remain separate and preserved.
 Evidence: `artifacts/issue75-completion/attribute-defence3-native/final-fourteen-controls-summary.json` and the adjacent
@@ -1412,7 +1455,7 @@ The fresh controls above verify corrected supplied-source totals, no-refill, cla
 prediction and full-ES-condition behaviour after the correction remain outside that batch.
 Live OfflineWitch had 185 ES: `/hit physical 100` left life at 3250 and ES at 85, then recovered to 185. Chaos reduced
 life while leaving ES intact. With the prediction bridge, client values advance between pool packets during recharge.
-Measurements used the local client Life component, not orb pixels or an official server trace. ES uses upstream RunResourceRecovery with its 16 ms target and elapsed time/fractional carries; foreground verification saw at most 2-point positive ES updates
+Measurements used the local client Life component, not orb pixels or an official server trace. ES uses upstream StartResourceRecovery with its 16 ms target and elapsed time/fractional carries; foreground verification saw at most 2-point positive ES updates
 instead of the previous 22-point steps. OfflineWitch's selected Energy Shield mastery grants 2% ES regeneration per
 second (3.7 at 185 ES); that regeneration correctly continues while recharge is interrupted. A temporary zero-regen
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and
@@ -1469,7 +1512,7 @@ Not read: the conditional shift stats (while affected by a Purity, with four inf
 ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, the Divine Flesh and Tempered by War
 keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), projectile and spell
 damage taken, the increased damage taken on damage over time (ignite ticks, Righteous Fire), and for Mana before Life:
-damage over time, Eldritch Battery's energy shield before it, the Focus and Clarity forms, and Mind Over Matter at
+damage over time, the Focus and Clarity forms, and Mind Over Matter at
 maximum Power Charges; for avoidance: the per Frenzy Charge, while Phasing and soul gain prevention forms, and
 projectile avoidance.
 
@@ -1627,8 +1670,17 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   as inflicting, and goes as soon as the monster is out of range or the source ends. The receiving monster's immunity
   to the kind counts; its own `shocked_effect_on_self_+%` or `chill_effectiveness_on_self_+%` does not change the
   copy (not verified). A spread chill keeps Glacial Wave's effects, as the wiki says effects built into an ailment
-  spread with it (not verified for Glacial Wave). Ignite proliferation is not modelled, nor a reflected ailment
-  spreading from the player. A shattered monster spreads nothing.
+  spread with it (not verified for Glacial Wave). A reflected ailment spreading from the player is not modelled.
+  Ignite proliferation (`ProliferateIgnitesLocked`, same AI tick): an ignite takes the largest of
+  `support_ignite_proliferation_radius`, `ignite_proliferation_radius`, `gloves_`, `passive_notable_`, `flask_`,
+  `main_hand_` (attacks in that hand) `ignite_proliferation_radius` and the elemental aura radius
+  (`MonsterIgnites.Settings.Spread`, cells, × area like `SpreadRadius`); the client has no virtual ignite radius, so
+  "largest" follows the shock calculator (not verified). Every living hostile monster that can be ignited, in reach of
+  one (corpses included, `MonsterIgnites.Spreads`), burns with the strongest at its damage per second until it ends
+  (`MonsterIgnites.Proliferated`); the copy competes with its own ignites, does not spread and is not a new ignite.
+  A monster that starts burning from it gets the ignited buff (0x1c1 row 0). A killing hit's ignite is not put on
+  the corpse. A shattered or consumed corpse spreads nothing: its retained ignites retire
+  (`MonsterIgnites.RetireCorpse`) and the copies it gave end at the next AI tick; an intact corpse keeps spreading.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
 effects but sends nothing, and nothing spreads. A kind is re-sent only when its strongest magnitude changes: S→C
@@ -1650,6 +1702,24 @@ freeze is not sent there (−100 would divide the native clip by zero); the serv
 Not modelled: the shatter visual, unique and boss thresholds and their reduced effects, immunities from the monster's
 variety (.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
 client's frozen animation (not checked live).
+
+## Scorch, Brittle and Sap
+
+The rules are the ReminderText rows (`ReminderTextScorch`, `ReminderTextBrittle`, `ReminderTextSapped` and their
+`NonHit` forms: up to 30% lower elemental resistances, +6% critical strike chance against, 20% less damage dealt, 4 s;
+10%, +2% and 6% from a source that is no hit) and PoB's `data.nonDamagingAilment` and `CalcOffence` effect functions:
+`50`, `10` and `100/3` × (damage / threshold)^0.4, floored (Brittle to 0.01%), with no minimum. The stats call
+Brittle `frostburn` (`chance_to_inflict_frostburn_%`, `immune_to_frostburn`, `virtual_frostburn_effect_+%`).
+The Gateway keeps them in `RuleAilments`, a store of timed instances by a kind the rules number (one per monster,
+shared by its instance, and one per player); `MonsterAlternateAilments.cs` holds every rule.
+
+They are shown as chill and shock are: 0x1c1 with BuffDefinitions 1243 `scorched`, 1244 `frostburn` (Name "Brittle")
+and 1245 `sapped` (BuffVisuals 1005-1007). Every column but the stat, visual and `CancelOnDeath` equals the chilled
+and shocked rows' (`IsRecovery`, one GrantedStats value, `__col44` set so +0x82 is read), so they carry the
+magnitude in their GrantedStats: `base_resist_all_elements_%` negative for Scorch, `sapped_damage_+%_final`
+negative for Sap, `enemy_additional_critical_strike_chance_against_self` in hundredths for Brittle (its description
+divides by 100). Their fixed instances are 0xfff8, 0xfff9 and 0xfffa, below the player's bleeding and poison buffs'
+0xfffb and 0xfffc; `NextBuff` wraps below `ClientState.FixedBuffInstances` (0xfff8). Not checked live.
 
 ## 2i. Petrified Blood
 

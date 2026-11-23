@@ -4,7 +4,7 @@
 /// grows the ring by elapsed / duration × active_skill_area_of_effect_radius and hits every target whose distance is
 /// within it, so a monster at the edge takes its hit one ring duration after one at the centre.
 /// </summary>
-static class IceNovaRing
+public static class IceNovaRing
 {
     /// <summary>ActionTypes "IceNova" HASH16 (row 34): the action whose constructor 0x141c02130 takes it.</summary>
     public const ushort Action = 0x2748;

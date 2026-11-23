@@ -1,7 +1,7 @@
 # Third-party notices
 
 LocalExile is licensed under GPL-2.0 ([LICENSE](LICENSE)). A release also holds the programs and libraries below, each
-under its own license. Their license texts are in the release's `licenses/` folder or in the package named.
+under its own license. Their license texts are in the release's `app/licenses/` folder or in the package named.
 
 | Component | Used for | License |
 |---|---|---|
@@ -11,10 +11,8 @@ under its own license. Their license texts are in the release's `licenses/` fold
 | SQLite | the save database | public domain |
 | LibGGPK3 | reads `Content.ggpk` | AGPL-3.0-or-later |
 | OozSharp | decompresses game bundles | MIT |
-| Python (embeddable package) | runs the data generators | PSF-2.0, `licenses/python-LICENSE.txt` |
-| Node.js | runs ooz-wasm | MIT and others, `licenses/node-LICENSE.txt` |
-| ooz-wasm | decompresses game bundles | GPL-3.0-or-later, `licenses/ooz-wasm-LICENSE.txt` |
-| dat-schema | the game tables' column layouts | MIT, `licenses/dat-schema-LICENSE.txt` |
+| Node.js | runs ooz-wasm | MIT and others, `app/licenses/node-LICENSE.txt` |
+| ooz-wasm | decompresses game bundles | GPL-3.0-or-later, `app/licenses/ooz-wasm-LICENSE.txt` |
 
 LocalExile is not affiliated with or endorsed by Grinding Gear Games. A release holds no game files: everything the
 servers read from the game is extracted on the player's PC from the player's own client.

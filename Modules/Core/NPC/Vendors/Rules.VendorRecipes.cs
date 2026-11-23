@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>One sale quote: ingredients are consumed once, outputs are rolled once and retained until acceptance.</summary>
@@ -21,24 +22,24 @@ sealed partial class VendorRecipes
         var modTypes = Read("ModType");
         if (modTypes.Count == 0) throw new InvalidOperationException("Vendor pricing data is missing: run scripts/dev/extract-data.ps1 and restart Gateway.");
         foreach (var mod in Read("Mods"))
-            if (mod.GetProperty("ModTypeKey") is { ValueKind: JsonValueKind.Number } key && key.GetInt32() < modTypes.Count)
+            if (mod.IntOrNull("ModTypeKey") is int key && key < modTypes.Count)
             {
-                ushort hash = (ushort)mod.GetProperty("HASH16").GetInt32();
-                _sellTypes.TryAdd(hash, modTypes[key.GetInt32()].GetProperty("ModSellPriceTypesKeys").EnumerateArray().Select(x => x.GetInt32()).ToArray());
-                _sellFamilies.TryAdd(hash, modTypes[key.GetInt32()].GetProperty("Name").GetString()!);
+                ushort hash = (ushort)mod.Int("HASH16");
+                _sellTypes.TryAdd(hash, modTypes[key].Ints("ModSellPriceTypesKeys").ToArray());
+                _sellFamilies.TryAdd(hash, modTypes[key].Text("Name")!);
             }
         var essences = Read("Essences");
         foreach (var essence in essences)
-            if (essences.FirstOrDefault(e => e.GetProperty("EssenceTypeKey").GetInt32() == essence.GetProperty("EssenceTypeKey").GetInt32()
-                && e.GetProperty("Level").GetInt32() == essence.GetProperty("Level").GetInt32() + 1) is { ValueKind: JsonValueKind.Object } next
-                && catalog.Row(essence.GetProperty("BaseItemTypesKey").GetInt32()) is { } from
-                && catalog.Row(next.GetProperty("BaseItemTypesKey").GetInt32()) is { } to)
+            if (essences.Cast<ClientRow?>().FirstOrDefault(e => e!.Value.Int("EssenceTypeKey") == essence.Int("EssenceTypeKey")
+                && e.Value.Int("Level") == essence.Int("Level") + 1) is { } next
+                && catalog.Row(essence.Int("BaseItemTypesKey")) is { } from
+                && catalog.Row(next.Int("BaseItemTypesKey")) is { } to)
                 _upgrades[from.Hash] = to.Hash;
         // The table contains legacy map series too; only expose upgrades belonging to that exact base row.
         foreach (var map in Read("Maps"))
-            if (map.GetProperty("MapUpgrade_BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } next
-                && catalog.Row(map.GetProperty("BaseItemTypesKey").GetInt32()) is { Supported: true } from
-                && catalog.Row(next.GetInt32()) is { Supported: true } to)
+            if (map.IntOrNull("MapUpgrade_BaseItemTypesKey") is int next
+                && catalog.Row(map.Int("BaseItemTypesKey")) is { Supported: true } from
+                && catalog.Row(next) is { Supported: true } to)
                 _upgrades.TryAdd(from.Hash, to.Hash);
         string[] oils = ["Clear", "Sepia", "Amber", "Verdant", "Teal", "Azure", "Indigo", "Violet", "Crimson", "Black", "Opalescent", "Silver", "Golden"];
         foreach (var (a, b) in oils.Zip(oils.Skip(1)))
@@ -48,13 +49,7 @@ sealed partial class VendorRecipes
             if (Exact($"Metadata/Items/Currency/KalguuranRune{i}") is { } from && Exact($"Metadata/Items/Currency/KalguuranRune{i + 1}") is { } to)
             { _upgrades[from.Hash] = to.Hash; _upgradeCosts[from.Hash] = 5; }
 
-        List<JsonElement> Read(string name)
-        {
-            string path = Path.Combine(folder, "tables", name + ".json");
-            if (!File.Exists(path)) return [];
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
-            return doc.RootElement.EnumerateArray().Select(r => r.Clone()).ToList();
-        }
+        IReadOnlyList<ClientRow> Read(string name) => ClientTables.TableOrNull(name) ?? (IReadOnlyList<ClientRow>)[];
     }
 
     ItemCatalog.BaseType? Exact(string idOrName) => _types.FirstOrDefault(t => t.Id == idOrName || t.Name == idOrName);
@@ -69,10 +64,10 @@ sealed partial class VendorRecipes
         public int Left = placement.Item.StackSize;
     }
 
-    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random? random = null, double? basicSaleMultiplier = null)
+    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random random, double? basicSaleMultiplier = null)
     {
         if (basicSaleMultiplier is { } multiplier) return BasicSale(offered, multiplier);
-        var rng = random ?? Random.Shared;
+        var rng = random;
         var pool = offered.OrderBy(x => x.Id).Select(i => new Ingredient(i, Type(i.Item))).ToList();
         if (pool.Select(i => i.Id).Distinct().Count() != pool.Count) throw new ArgumentException("Duplicate vendor ingredient id");
         if (pool.Any(i => i.Item.Mods.Any(m => (_sellTypes.GetValueOrDefault(m.Hash) ?? []).Any(t => t >= 9 && t != 34))))
@@ -244,6 +239,34 @@ sealed partial class VendorRecipes
             recipes.Add($"{cost}-to-one upgrade");
             if (entries[0].Type.Stackable)
                 foreach (var i in entries.Where(i => i.Left > 0)) { rewards.Add(i.Item with { StackSize = (ushort)i.Left }); i.Left = 0; }
+        }
+
+        // Three tattoos of one tribe vendor into one random tattoo of that tribe (tattoos.md, "Vendor"; the weights
+        // live in TattooCatalogue.VendorPool because the client tables carry the tribe but not the recipe weights).
+        // Loyalty, Makanga and event-only tattoos count as tattoos of their tribe on the input side.
+        // By base type id: TattooCatalogue.Find also matches part of a name, which takes an Awl for a Brawler tattoo.
+        static int TattooTribe(string id) => TattooCatalogue.All.FirstOrDefault(entry => entry.Id == id)?.Tribe ?? -1;
+        foreach (var group in pool.Where(i => i.Left > 0 && TattooTribe(i.Type.Id) is >= 0 and <= 9)
+                     .GroupBy(i => TattooTribe(i.Type.Id)).ToList())
+        {
+            var entries = group.ToList();
+            int count = entries.Sum(i => i.Left) / 3;
+            if (count == 0) continue;
+            int consumed = count * 3;
+            foreach (var entry in entries) { int take = Math.Min(consumed, entry.Left); entry.Left -= take; consumed -= take; }
+            for (int n = 0; n < count; n++)
+            {
+                recipes.Add("three tattoos of one tribe");
+                if (TattooCatalogue.VendorTattoo(group.Key, rng) is { } name
+                    && TattooCatalogue.Create(_catalog, name) is { } tattoo)
+                    rewards.Add(tattoo);
+            }
+            // Currency remainders are returned, not silently sold (like the essence block above).
+            foreach (var entry in entries.Where(i => i.Left > 0))
+            {
+                rewards.Add(entry.Item with { StackSize = (ushort)entry.Left });
+                entry.Left = 0;
+            }
         }
 
         FlaskRecipes(pool, rewards, recipes, rng, Has, Spend);
@@ -461,7 +484,7 @@ sealed partial class VendorRecipes
                 }
         }
         bool doubled = item.Mods.Any(m => _catalog.Mods.ByHash(m.Hash)?.Stats.Select((s, n) =>
-            s.Id == "local_item_sell_price_doubled" && n < m.Values.Count && m.Values[n] != 0).Any(x => x) == true);
+            s.Id == Stat.LocalItemSellPriceDoubled && n < m.Values.Count && m.Values[n] != 0).Any(x => x) == true);
         return doubled ? (alteration * 2, alchemy * 2) : (alteration, alchemy);
     }
 }

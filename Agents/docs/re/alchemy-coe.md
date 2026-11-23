@@ -62,15 +62,7 @@ This affects Chaos, Vaal, rare drops and other callers of the shared generator.
 A full per-class audit beyond jewels (for example special legacy classes) is not part of this change; the bounded
 comparison here is ordinary equipment and jewels.
 
-## Automated coverage
-
-`AlchemyTests` checks the 2/3–1/4–1/12 count distribution over 20,000 rolls, the jewel 3/4 distribution with two per
-side over 500 rolls, the wand/map/ring/body-armour bases, rare names, weighted values and families, preserved
-implicits/quality/sockets/links/charges, flask and unmodifiable refusal, unsupported/no-Mods/unknown and empty-pool
-bases, corrupted/mirrored and non-normal items.
-`AlchemyGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, exactly one orb spent, saved mods and name after cache eviction, refused second use, and
-flask/normal/magic/unmodifiable refusal without spending.
+## Verification
 
 No fresh real-client run was made for this change yet.
 The old live check of the unvalidated path (2026-10-21) is not evidence for the new admission rules or the changed count

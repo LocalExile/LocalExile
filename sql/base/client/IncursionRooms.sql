@@ -1,0 +1,25 @@
+-- Client table IncursionRooms (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "IncursionRooms" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "Name" TEXT,
+    "Tier" INTEGER,
+    "MinLevel" INTEGER,
+    "RoomUpgrade_IncursionRoomsKey" INTEGER,
+    "Mods" JSON,
+    "PresentARMFile" TEXT,
+    "HASH16" INTEGER,
+    "IncursionArchitectKey" INTEGER,
+    "PastARMFile" TEXT,
+    "TSIFile" TEXT,
+    "UIIcon" TEXT,
+    "FlavourText" TEXT,
+    "Description" TEXT,
+    "AchievementItemsKeys" JSON,
+    "__col15" INTEGER,
+    "__col16" INTEGER,
+    "RoomUpgradeFrom_IncursionRoomsKey" INTEGER,
+    "ItemisedFlavourText" INTEGER,
+    "__col19" TEXT,
+    "__col20" JSON
+);

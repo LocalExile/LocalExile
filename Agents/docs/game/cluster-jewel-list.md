@@ -1,6 +1,6 @@
 # Cluster jewel passives: full list
 
-Generated from the target client's `Mods.json` / `PassiveSkills.json` and Path of Building's `ModJewelCluster.lua` and `stat_descriptions.lua`. `works` means the server reads every stat and evaluates it unconditionally; `partial` means a condition is not modelled or some stats have no consumer; `inert` means the row exists but no stat is read; `not mapped` means the notable has no `PassiveSkills` row. Conditional stat names are flagged conservatively, so a `partial` row may still work when its condition happens to be irrelevant.
+Generated from the target client's `Mods` / `PassiveSkills` and Path of Building's `ModJewelCluster.lua` and `stat_descriptions.lua`. `works` means the server reads every stat and evaluates it unconditionally; `partial` means a condition is not modelled or some stats have no consumer; `inert` means the row exists but no stat is read; `not mapped` means the notable has no `PassiveSkills` row. Conditional stat names are flagged conservatively, so a `partial` row may still work when its condition happens to be irrelevant.
 
 ## Small-passive themes (42 distinct grants, 211 mods)
 
@@ -157,7 +157,7 @@ The theme is the stat every small passive of a cluster jewel grants. The client 
 | **Exposure Therapy** | +5% to Damage over Time Multiplier; +30% Chaos Resistance against Damage Over Time | partial (1/2 stats read); conditional |
 | **Eye of the Storm** | 40% increased Global Critical Strike Chance; +10% to Damage over Time Multiplier for Ignite from Critical Strikes; 20% increased Effect of non-Damaging Ailments you inflict with Critical Strikes | partial (1/3 stats read); conditional |
 | **Eye to Eye** | 25% increased Projectile Damage; Projectiles deal 35% increased Damage with Hits against nearby Enemies | partial (1/2 stats read) |
-| **Fan of Blades** | Attack Skills fire an additional Projectile while wielding a Claw or Dagger; 20% increased Projectile Attack Damage with Claws or Daggers | inert (no stat read); conditional |
+| **Fan of Blades** | Attack Skills fire an additional Projectile while wielding a Claw or Dagger; 20% increased Projectile Attack Damage with Claws or Daggers | implemented ([20](../protocol/20-damage.md) §2b) |
 | **Fan the Flames** | Ignites you inflict spread to other Enemies within a Radius of 1.5 metres | inert (no stat read) |
 | **Fasting** | 20% increased Flask Charges gained; 10% increased Movement Speed while under no Flask Effects | inert (no stat read); conditional |
 | **Fearsome Warrior** | Attacks with Two Handed Melee Weapons deal 25% increased Damage with Hits and Ailments; 8% increased Area of Effect; 25% chance to Intimidate nearby Enemies for 4 seconds on Melee Kill | partial (1/3 stats read); conditional |

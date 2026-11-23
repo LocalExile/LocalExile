@@ -47,6 +47,8 @@ import time
 
 import frida
 
+import clientdb
+
 ROOT = Path(__file__).resolve().parents[2]
 CLIENT = ROOT / "Client" / "Game.patched.exe"
 AGENT = Path(__file__).with_name("client-control.js")
@@ -299,16 +301,12 @@ def flask_packet(request):
     return list(struct.pack(">HI", 0x70, slot)), slot
 
 
-TABLES = ROOT / "data" / "tables"
-_tables = {}
+CLIENT_DB = ROOT / "data" / "client.db"
 
 
-def table(name, folder=None):
-    """An extracted game-data table (data/tables/<name>.json), cached per folder."""
-    path = (folder or TABLES) / f"{name}.json"
-    if path not in _tables:
-        _tables[path] = json.loads(path.read_text(encoding="utf-8"))
-    return _tables[path]
+def table(name, db=None):
+    """A client table's rows from client.db (clientdb.table), cached per database."""
+    return clientdb.table(name, db or CLIENT_DB)
 
 
 # S→C 0x13 / 0x0d results: BackendErrors rows + 1 (Agents/docs/protocol/01-login.md §7).
@@ -326,19 +324,19 @@ def character_name(name):
     return name
 
 
-def start_state(request, folder=None):
+def start_state(request, db=None):
     """The CharacterStartStates Id for a create request: `startState` as given, or the default (set 0, level 1)
     start state of the Characters row named `class` (Witch → IntDefault)."""
     if ("class" in request) == ("startState" in request):
         raise ValueError("character:create needs exactly one of class or startState")
-    states = table("CharacterStartStates", folder)
+    states = table("CharacterStartStates", db)
     if "startState" in request:
         value = request["startState"]
         if not isinstance(value, str) or not any(row["Id"] == value for row in states):
             raise ValueError(f"Unknown CharacterStartStates Id: {value!r}")
         return value
     name = request["class"]
-    classes = table("Characters", folder)
+    classes = table("Characters", db)
     index = next((i for i, row in enumerate(classes)
                   if isinstance(name, str) and row["Name"].lower() == name.lower()), None)
     if index is None:
@@ -349,15 +347,15 @@ def start_state(request, folder=None):
     raise ValueError(f"No default start state for class {name!r}")
 
 
-def create_fields(request, folder=None):
+def create_fields(request, db=None):
     """Validated (name, league, start state) of a character:create request."""
     league = request.get("league", "Standard")
     if not isinstance(league, str) or not 1 <= len(league) <= 64 or "\0" in league:
         raise ValueError("league must contain 1..64 characters")
-    return character_name(request.get("name")), league, start_state(request, folder)
+    return character_name(request.get("name")), league, start_state(request, db)
 
 
-def area_row(request, folder=None):
+def area_row(request, db=None):
     """(WorldAreas Id or None, HASH16) for a request naming the area Id (`area`) or its HASH16 (`hash`)."""
     if ("area" in request) == ("hash" in request):
         raise ValueError("waypoint:travel needs exactly one of area (WorldAreas Id) or hash")
@@ -366,12 +364,12 @@ def area_row(request, folder=None):
         if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= 0xffff:
             raise ValueError("hash must be a WorldAreas HASH16 (1..65535)")
         try:
-            area = next((row["Id"] for row in table("WorldAreas", folder) if row["HASH16"] == value), None)
-        except OSError:
+            area = next((row["Id"] for row in table("WorldAreas", db) if row["HASH16"] == value), None)
+        except (OSError, KeyError):
             area = None
         return area, value
     area = request["area"]
-    rows = table("WorldAreas", folder) if isinstance(area, str) else []
+    rows = table("WorldAreas", db) if isinstance(area, str) else []
     row = next((row for row in rows if row["Id"] == area), None)
     if row is None:
         raise ValueError(f"Unknown WorldAreas Id: {area!r}")
@@ -384,12 +382,13 @@ def travel_packet(hash16):
     return list(struct.pack(">HHIB", 0x4d, hash16, 0x2f00, 0))
 
 
-def interact_packet(target, skill=0x266):
+def interact_packet(target, skill=0x266, ctrl=False, alt=False):
     """C→S 0x24 on an object with flags 0x408: skill 0x266 is the default left-click interaction (a ground item goes to
-    the first free main-inventory cell); another skill id uses that skill on the target."""
+    the first free main-inventory cell); another skill id uses that skill on the target. `ctrl` and `alt` add the bits
+    the client sets while those keys are held (0x004; 0x200, on an NPC only): an NPC's shortcuts (17-npcs.md §3)."""
     if isinstance(target, bool) or not isinstance(target, int) or not 0 < target <= 0xffffffff:
         raise ValueError("Object id must be a positive uint32")
-    return list(struct.pack(">HIHHH", 0x24, target, skill, 0, 0x408))
+    return list(struct.pack(">HIHHH", 0x24, target, skill, 0, 0x408 | (0x004 if ctrl else 0) | (0x200 if alt else 0)))
 
 
 def lockstep_interact_packet(target, skill=0x266):
@@ -601,8 +600,10 @@ class ClientControl:
 
     def create(self, request):
         name, league, state = create_fields(request)
-        if self.status().get("screen") != "characters":
-            raise RuntimeError("character:create requires the character selection screen")
+        status = self.status()
+        creating = status.get("states", [])[-1:] == [8] and 9 in status.get("states", [])
+        if status.get("screen") != "characters" and not creating:
+            raise RuntimeError("character:create requires the character selection or creation screen")
         if any(c["name"].lower() == name.lower() for c in self.characters()):
             raise RuntimeError(f"Character {name} is already in the client list")
         self.rpc("create", name=name, league=league, startState=state)
@@ -719,7 +720,7 @@ class ClientControl:
                                "login result")
             if result.get("loginState") != 3:
                 raise RuntimeError(f"Local login rejected (result {result.get('lastLoginResult')})")
-            return self.wait(lambda s: s.get("screen") == "characters", "character selection")
+            return self.wait(lambda s: s.get("screen") in ("characters", "creation"), "character selection or creation")
         if command == "login:saved":
             # The client's own remembered login (Remember Password): no password goes through this bridge.
             current = self.ready()
@@ -730,10 +731,10 @@ class ClientControl:
                 self.rpc("logout")
                 self.wait(lambda s: s.get("screen") == "login" and s.get("loginState") == 0, "login screen")
             self.rpc("connectSaved", port=stack_port("login"))
-            result = self.wait(lambda s: s.get("loginState") == 3 or s.get("lastLoginResult") is not None, "login result")
+            result = self.wait(lambda s: s.get("loginState") == 3 or s.get("lastLoginResult") not in (None, 0), "login result")
             if result.get("loginState") != 3:
                 raise RuntimeError(f"Saved login rejected (result {result.get('lastLoginResult')})")
-            return self.wait(lambda s: s.get("screen") == "characters", "character selection")
+            return self.wait(lambda s: s.get("screen") in ("characters", "creation"), "character selection or creation")
         if command == "character:list":
             return self.rpc("characters")
         if command == "character:play":
@@ -782,10 +783,12 @@ class ClientControl:
             skill = int(request.get("skill", 0x266))
             if not 0 < skill <= 0xffff:
                 raise ValueError("Skill id must be a positive uint16")
-            packet = lockstep_interact_packet if request.get("lockstep") else interact_packet
+            if request.get("lockstep"):
+                return self.rpc("interaction", bytes=lockstep_interact_packet(target, skill))
+            packet = interact_packet
             if request.get("instant"):
                 packet = lambda t, s: instant_skill_packet(t, s)
-            return self.rpc("interaction", bytes=packet(target, skill))
+            return self.rpc("interaction", bytes=packet(target, skill, bool(request.get("ctrl")), bool(request.get("alt"))))
         if command == "item:pickup":
             return {**self.rpc("interaction", bytes=interact_packet(request.get("id"))), "id": request["id"]}
         if command == "waypoint:travel":

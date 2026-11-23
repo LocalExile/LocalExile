@@ -5,10 +5,21 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- The commit in AssemblyInfo.cs changes it at the first build after a commit, and `dotnet watch` restarts the Gateway for it. -->
+    <!-- The commit in AssemblyInfo.cs would change it at the first build after a commit, and so recompile every project. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- The commit in the source link file is a compiler input: without this, each commit recompiles every project. -->
     <EnableSourceLink>false</EnableSourceLink>
+    <!-- Mods are built against main, which has the default version 1.0.0.0, and .NET will not bind a mod to a lower one.
+         A release's -p:Version would make the server's assemblies (Gateway, Core, Data, Storage, Modding, the modules) 0.x
+         and stop every downloaded mod from loading. Raise it only when what mods use breaks; the product version still
+         carries the release (InformationalVersion). -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+  </PropertyGroup>
+
+  <!-- The servers, the modules and mods ship precompiled (Directory.Build.targets), in every configuration. -->
+  <PropertyGroup>
+    <_RepoPath>$([MSBuild]::MakeRelative('$(MSBuildThisFileDirectory)', '$(MSBuildProjectDirectory)').Replace('\', '/'))</_RepoPath>
+    <Precompile Condition="'$(Precompile)' == '' and ($(_RepoPath.StartsWith('src/')) or $(_RepoPath.StartsWith('Modules/')) or $(_RepoPath.StartsWith('Mods/Source/')))">true</Precompile>
   </PropertyGroup>
 
   <!-- A mod's project in Mods/Source/<Name>/ (the user's, gitignored) builds as a mod. -->

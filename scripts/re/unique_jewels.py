@@ -9,7 +9,12 @@ Usage (repository root, with Tools/PathOfBuilding present):
     python scripts/re/unique_jewels.py
 """
 import json
+import os
 import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 EXPORT = "Tools/PathOfBuilding/src/Export/Uniques/jewel.lua"
 TEXT = "Tools/PathOfBuilding/src/Data/Uniques/jewel.lua"
@@ -55,12 +60,12 @@ def classify(base, meta, mods):
 
 
 def main():
-    rows = json.load(open("data/tables/Mods.json", encoding="utf-8"))
+    rows = clientdb.table("Mods")
     known_mods = {row["Id"] for row in rows}
-    words = json.load(open("data/tables/Words.json", encoding="utf-8"))
-    layout = json.load(open("data/tables/UniqueStashLayout.json", encoding="utf-8"))
-    visuals = json.load(open("data/tables/ItemVisualIdentity.json", encoding="utf-8"))
-    base_rows = json.load(open("data/tables/BaseItemTypes.json", encoding="utf-8"))
+    words = clientdb.table("Words")
+    layout = clientdb.table("UniqueStashLayout")
+    visuals = clientdb.table("ItemVisualIdentity")
+    base_rows = clientdb.table("BaseItemTypes")
     drop_levels = {row["Name"]: row.get("DropLevel", 1) for row in base_rows}
 
     visual_by_name = {}

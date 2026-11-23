@@ -4,7 +4,8 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.Harvest;
 
-/// <summary>Horticrafting: the station in the hideout, its recipe browser and its crafts.</summary>
+/// <summary>Horticrafting (the station in the hideout, its recipe browser and its crafts), the Sacred Grove of a map
+/// (<see cref="SacredGrove"/>) and Oshabi's fight (<see cref="OshabiEncounter"/>).</summary>
 public sealed class HarvestModule : IModule
 {
     const string StationType = "Metadata/MiscellaneousObjects/Harvest/CraftingSilo_Hideout";
@@ -16,38 +17,69 @@ public sealed class HarvestModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     readonly ConditionalWeakTable<IItemCrafting, HarvestCrafting> _recipes = new();
 
+    public static void LoadData()
+    {
+        HarvestTables.LoadGameData();
+        SacredGrove.LoadGameData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnHideoutReady(async player =>
+        LoadData();
+        GameEvents.HideoutReady.Add(module.Manifest.Id, async player =>
         {
-            if (await module.World(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
-                _states.GetOrCreateValue(player).Station = id;
+            var modPlayer = PlayerOf(player);
+            if (await WorldOf(modPlayer).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
+                _states.GetOrCreateValue(modPlayer).Station = id;
         });
-        module.OnObjectUsed(async use =>
+        GameEvents.FeatureFilled.Add(module.Manifest.Id, (_, row) => SacredGrove.FeatureRows.Contains(row));
+        GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async player =>
         {
-            if (!_states.TryGetValue(use.Player, out var state) || state.Station == 0 || use.ObjectId != state.Station) return false;
-            var world = module.World(use.Player);
-            if (await world.WalkUpToStation(state.Station, use.RequestedAt))
+            await SacredGrove.Enter(player);
+            await OshabiEncounter.Enter(player);
+        });
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, _) =>
+        {
+            await SacredGrove.Tick(player);
+            await OshabiEncounter.Tick(player);
+        }));
+        GameEvents.Drops.Add(module.Manifest.Id, drop =>
+        {
+            HarvestLifeforce.Drops(drop);
+            OshabiEncounter.Drops(drop);
+        });
+        module.Lifetime.Own(OshabiEncounter.CleanupOnUnload());
+        GameEvents.Experience.Add(module.Manifest.Id, HarvestLifeforce.Experience);
+        // The grove monsters' more life: HarvestLifeScalingPerLevel and the Doubling scarab's.
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([SacredGrove.LevelMoreLife, SacredGrove.SextantMoreLife], []));
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, at) =>
+        {
+            if (!_states.TryGetValue(PlayerOf(player), out var state) || state.Station == 0 || use.TargetId != state.Station)
+                return await SacredGrove.Use(player, use, at) || await OshabiEncounter.Use(player, use, at);
+            var world = WorldOf(player);
+            if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");
             return true;
         });
-        module.OnPacket(InstanceHarvest.CraftId, async packet =>
+        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await Craft(module, packet.Player, InstanceHarvest.ReadCraft(packet.Bytes.ToArray()));
+            await Craft(module, PlayerOf(player), InstanceHarvest.ReadCraft(bytes), LeagueFor(player).HardMode);
             return true;
         });
     }
 
     /// <summary>C→S 0x274: execute the HarvestCraftOptions recipe whose HASH16 the native panel sent, on the item in the slot.
     /// The item and all lifeforce costs commit together; a refusal spends nothing.</summary>
-    async Task Craft(IModuleContext module, IPlayer player, ushort recipe)
+    async Task Craft(IModuleContext module, IPlayer player, ushort recipe, bool hardMode)
     {
-        var world = module.World(player);
+        var world = WorldOf(player);
         if (world.OpenWindowOwner != Window || !_states.TryGetValue(player, out var state) || state.Station == 0) return;
-        var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items));
+        // world.Crafting is one instance per game mode, so the cached recipes keep the mode they were made for.
+        var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items, hardMode: hardMode));
         string name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
-        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, Random.Shared), $"Harvest recipe {name}");
+        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, global::Game.AreaRng(PlayerOf(player))), $"Harvest recipe {name}");
         if (crafted is null)
         {
             module.Log($"{player.Character} recipe {name} refused (item, recipe or lifeforce)");

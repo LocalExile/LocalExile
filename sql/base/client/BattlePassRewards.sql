@@ -1,0 +1,25 @@
+-- Client table BattlePassRewards (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "BattlePassRewards" (
+    "_row" INTEGER PRIMARY KEY,
+    "BattlePass" INTEGER,
+    "RewardTier" INTEGER,
+    "__col2" INTEGER,
+    "__col3" INTEGER,
+    "__col4" BOOLEAN,
+    "Id" TEXT,
+    "RewardedMTX" JSON,
+    "__col7" INTEGER,
+    "RewardDescription" TEXT,
+    "__col9" TEXT,
+    "__col10" INTEGER,
+    "__col11" INTEGER,
+    "__col12" BOOLEAN,
+    "RewardTitle" TEXT,
+    "ItemFrameType" INTEGER,
+    "__col15" INTEGER,
+    "__col16" INTEGER,
+    "__col17" INTEGER,
+    "__col18" INTEGER,
+    "BaseItemTypeReward" INTEGER,
+    "__col20" INTEGER
+);

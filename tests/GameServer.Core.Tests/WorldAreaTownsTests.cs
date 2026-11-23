@@ -7,48 +7,35 @@ public class WorldAreaTownsTests
     // HASH16 values of the 3.29.3b WorldAreas rows.
     const ushort LioneyesWatch = 0x235c, ForestEncampment = 0x2233, TwilightStrand = 0xf00a;
 
-    static string WriteTable(string json)
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"WorldAreas-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, json);
-        return path;
-    }
+    static ClientTable WriteTable(string json) => TestTables.Rows("WorldAreas", json);
 
     [Fact]
     public void Loads_the_town_rows_and_skips_the_rest()
     {
-        string path = WriteTable($$"""
+        var areas = WriteTable($$"""
             [{"Id":"1_1_town","IsTown":true,"HASH16":{{LioneyesWatch}}},
              {"Id":"1_1_2","IsTown":false,"HASH16":{{0x7ad2}}},
              {"Id":"1_2_town","IsTown":true,"HASH16":{{ForestEncampment}}},
              {"Id":"pvpTown","IsTown":true,"HASH16":{{0xee9}}}]
             """);
-        try
-        {
-            Assert.Equal([("1_1_town", LioneyesWatch), ("1_2_town", ForestEncampment)], WorldAreaTowns.Load(path));
-        }
-        finally { File.Delete(path); }
+        Assert.Equal([("1_1_town", LioneyesWatch), ("1_2_town", ForestEncampment)], WorldAreaTowns.Load(areas));
     }
 
     [Fact]
     public void A_loaded_town_has_one_shared_instance_where_the_default_registry_makes_two()
     {
-        string path = WriteTable($$"""
+        var areas = WriteTable($$"""
             [{"Id":"1_1_town","IsTown":true,"HASH16":{{LioneyesWatch}}},
              {"Id":"1_2_town","IsTown":true,"HASH16":{{ForestEncampment}}}]
             """);
-        try
-        {
-            var before = new InstanceRegistry { SeedFor = _ => 7 };
-            Assert.NotSame(before.Enter(ForestEncampment, "A"), before.EnterNew(ForestEncampment, "B"));
+        var before = new InstanceRegistry { SeedFor = _ => 7 };
+        Assert.NotSame(before.Enter(ForestEncampment, "A"), before.EnterNew(ForestEncampment, "B"));
 
-            var after = new InstanceRegistry { SeedFor = _ => 7, Towns = WorldAreaTowns.Load(path).Select(t => t.Hash16).ToHashSet() };
-            var a = after.Enter(ForestEncampment, "A");
-            Assert.Same(a, after.EnterNew(ForestEncampment, "B"));
-            Assert.True(a.IsTown);
-            Assert.Equal(1u, a.Seed);
-        }
-        finally { File.Delete(path); }
+        var after = new InstanceRegistry { SeedFor = _ => 7, Towns = WorldAreaTowns.Load(areas).Select(t => t.Hash16).ToHashSet() };
+        var a = after.Enter(ForestEncampment, "A");
+        Assert.Same(a, after.EnterNew(ForestEncampment, "B"));
+        Assert.True(a.IsTown);
+        Assert.Equal(1u, a.Seed);
     }
 
     [Theory]
@@ -62,6 +49,6 @@ public class WorldAreaTownsTests
     [Fact]
     public void Without_the_table_only_Lioneyes_Watch_is_a_town()
     {
-        Assert.Equal([("1_1_town", LioneyesWatch)], WorldAreaTowns.Load(Path.Combine(Path.GetTempPath(), "no-such-WorldAreas.json")));
+        Assert.Equal([("1_1_town", LioneyesWatch)], WorldAreaTowns.Load(null));
     }
 }

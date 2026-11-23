@@ -1,18 +1,119 @@
+using System.Collections.Frozen;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 
-static class SupportedAttackDamage
+public static class SupportedAttackDamage
 {
-    public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
+    const uint ColdPerDexterityMin = Stat.AttacksWithThisWeaponMinimumAddedColdDamagePer10Dexterity,
+        ColdPerDexterityMax = Stat.AttacksWithThisWeaponMaximumAddedColdDamagePer10Dexterity;
+
+    static readonly (DamageType Type, uint Min, uint Max)[] WandAddedRanges =
+    [
+        (DamageType.Physical, Stat.Of("attack_minimum_added_physical_damage_with_wands"), Stat.Of("attack_maximum_added_physical_damage_with_wands")),
+        (DamageType.Lightning, Stat.Of("attack_minimum_added_lightning_damage_with_wand"), Stat.Of("attack_maximum_added_lightning_damage_with_wand")),
+        (DamageType.Cold, Stat.Of("attack_minimum_added_cold_damage_with_wand"), Stat.Of("attack_maximum_added_cold_damage_with_wand")),
+        (DamageType.Fire, Stat.Of("attack_minimum_added_fire_damage_with_wand"), Stat.Of("attack_maximum_added_fire_damage_with_wand")),
+    ];
+
+    static readonly (string ItemClass, (DamageType Type, uint Min, uint Max)[] Ranges)[] MeleeFamilyAddedRanges =
+    [
+        ("Claw", [.. DamageTypes.ConversionOrder.Select(t => (t, Stat.Of($"attack_minimum_added_{t.ToString().ToLowerInvariant()}_damage_with_claws"),
+            Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_claws")))]),
+        ("Dagger", [.. DamageTypes.ConversionOrder.Select(t => (t, Stat.Of($"attack_minimum_added_{t.ToString().ToLowerInvariant()}_damage_with_daggers"),
+            Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_daggers")))]),
+    ];
+
+    static readonly (DamageType Type, uint Min1, uint Min2, uint Max1, uint Max2)[] BowAddedRanges =
+        [.. DamageTypes.ConversionOrder.Select(t => (t,
+            Stat.Of($"attack_minimum_added_{t.ToString().ToLowerInvariant()}_damage_with_bow"),
+            Stat.Of($"attack_minimum_added_{t.ToString().ToLowerInvariant()}_damage_with_bows"),
+            Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_bow"),
+            Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_bows")))];
+
+    // This pair is IsWeaponLocal, not IsLocal: it belongs to attacks by its source weapon, not the item's base range.
+    public static IReadOnlyDictionary<uint, int> WeaponSources(Item item, ModCatalog mods)
     {
-        return PlayerHitDamage.Resolve(Raw(weapon, get), get, new DamageConversion(), spell: false,
+        var sources = ItemModStats.Local(item, mods);
+        var other = Game.PlainItemSum(item, mods);
+        foreach (uint name in new[] { ColdPerDexterityMin, ColdPerDexterityMax })
+            if (other.TryGetValue(name, out int value)) sources[name] = value;
+        return sources.ToFrozenDictionary();
+    }
+
+    // The tree's "with <weapon type>" rows for the attacking hand (issue #1102, batch 1), including ModParser's
+    // "with Claws" (Claw + Hit, not an ailment increase). WeaponTypeDamage reads the hand's family through
+    // WeaponIdentity, so a weapon that counts as all one-hand melee types (Varunastra) takes every family's row.
+    public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
+        WeaponTypeDamage.Any(weapon, get);
+
+    public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<uint, int> get, IReadOnlySet<int> types,
+        AttackAccuracyProfile accuracy)
+    {
+        get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), get);
+        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy), HitModifiers(weapon, get), new DamageConversion(), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
-            wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120));
+            wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
+            additionalIncreased: WeaponIncrease(weapon, get), additional: WeaponTypeDamage.Of(weapon, get));
+    }
+
+    // Fan of Blades' damage is "with" the attacking weapon, unlike its either-hand "while wielding" count.
+    // Keep this in the existing projectile-hit increase bucket, so it cannot increase melee hits or ailments.
+    public static Func<uint, int> HitModifiers(SkillCatalog.Unarmed weapon, Func<uint, int> get)
+    {
+        if (!WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw")
+            && !WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger") && weapon.ItemClass != "Rune Dagger") return get;
+        int increased = get(Stat.ProjectileAttackDamagePlusPctWithClawOrDagger);
+        return increased == 0 ? get : name => get(name) + (name == Stat.ProjectileDamagePlusPct ? increased : 0);
     }
 
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a
-    /// test or main's ItemWeapons constructs separately) with the global added ranges, before any increase.</summary>
-    public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
-        DamageStats.RawAdded(weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
-            new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded), get, spell: false);
+    /// test or main's ItemWeapons constructs separately) with the global added ranges, before any increase. A bow's
+    /// attacks also take the items' "Adds # to # ... Damage with Bows" stats (two spellings in the tables);
+    /// wands, claws and both dagger classes take their corresponding weapon-family ranges.
+    /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
+    public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<uint, int> get, AttackAccuracyProfile accuracy,
+        int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
+    {
+        var local = weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
+            new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
+        var added = DamageStats.RawAdded(DamagePacket.Empty, get, spell: false);
+        // Use the hand/skill's resolved rating, before target-conditional hit-chance modifiers.
+        long accuracyGroups = Math.Max(0, accuracy.Rating) / 200;
+        added = added.Add(DamageType.Lightning, new(
+            accuracyGroups * (double)get(Stat.AttackMinimumAddedLightningDamagePer200AccuracyRating),
+            accuracyGroups * (double)get(Stat.AttackMaximumAddedLightningDamagePer200AccuracyRating)));
+        double lightRadiusIncrease = Math.Max(0, get(Stat.LightRadiusPlusPct));
+        added = added.Add(DamageType.Fire, new(
+            lightRadiusIncrease * get(Stat.MinimumAddedFireDamageToAttacksPer1PctLightRadius),
+            lightRadiusIncrease * get(Stat.MaximumAddedFireDamageToAttacksPer1PctLightRadius)));
+        long dexterityGroups = Math.Max(0, get(Stat.Dexterity)) / 10;
+        if (weapon.LocalSources is { } source && dexterityGroups > 0)
+            added = added.Add(DamageType.Cold, new(
+                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
+                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
+        foreach (var (itemClass, ranges) in MeleeFamilyAddedRanges)
+            if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, itemClass)
+                || itemClass == "Dagger" && weapon.ItemClass == "Rune Dagger")
+                foreach (var (type, min, max) in ranges)
+                    added = added.Add(type, new(get(min), get(max)));
+        if (weapon.WieldingWand)
+            foreach (var (type, min, max) in WandAddedRanges)
+                added = added.Add(type, new(get(min), get(max)));
+        if (weapon.Bow)
+            foreach (var (type, min1, min2, max1, max2) in BowAddedRanges)
+            {
+                var bow = new DamageRange(get(min1) + get(min2), get(max1) + get(max2));
+                if (bow.Min != 0 || bow.Max != 0) added = added.Add(type, bow);
+            }
+        return WithCoefficients(local, added, baseMultiplier, addedEffectiveness);
+    }
+
+    public static DamagePacket WithCoefficients(DamagePacket local, DamagePacket added,
+        int baseMultiplier, int addedEffectiveness) => Scale(local, baseMultiplier).Add(Scale(added, addedEffectiveness));
+
+    // Multiply before dividing so integral endpoints survive later hit/panel flooring.
+    static DamagePacket Scale(DamagePacket packet, int coefficient) => coefficient == 10_000 ? packet
+        : packet.Select((_, range) => new(range.Min * Math.Max(0, coefficient) / 10_000.0,
+            range.Max * Math.Max(0, coefficient) / 10_000.0));
 }

@@ -10,9 +10,11 @@ namespace GameServer.Core.Protocol.Instance;
 /// refused (<see cref="CanSerialize"/>). StateMachine: one value per shared state (<paramref name="States"/>, in the
 /// type's order), no timers.
 /// </summary>
-public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOnlyList<string> Components, HideoutDoodad Doodad,
+public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOnlyList<string> Components, HideoutDoodad? Doodad = null,
     IReadOnlyList<int>? States = null, string? Model = null)
 {
+    public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
+    public IReadOnlyList<int>? States { get; init => field = Owned.List(value); } = Owned.List(States);
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon"];
 
     public static bool CanSerialize(IReadOnlyList<string> components) => components.All(Supported.Contains);
@@ -25,11 +27,10 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
         foreach (string c in Components)
             switch (c)
             {
-                // As the stash's: x, y, rotation, u16 team 0, flags0, flags1 0x02 + two u8 (shown).
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1); break;
+                case "Positioned": w.Positioned(GridX, GridY, Rotation); break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "InteractionAction": w.U8(0); break;
-                case "HideoutDoodad": Doodad.Write(w); break;
+                case "HideoutDoodad": (Doodad ?? throw new ArgumentException("a HideoutDoodad component needs its doodad")).Write(w); break;
                 case "StateMachine":
                     w.U8((byte)(States?.Count ?? 0)).U8(0);
                     foreach (int v in States ?? []) w.CompactI(v).U8(0);   // value, flags
@@ -57,13 +58,44 @@ public static class InstanceMapDevice
     /// <summary>C→S 0x00e7: an Atlas map node picked in the hideout map device. u16 BE WorldAreas HASH16, u8 0x0d.</summary>
     public static (ushort Area, byte Mode) ReadSelectMap(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
 
-    /// <summary>C→S 0xe8: Ctrl + click with the Atlas map device open (0x14030e970 → 0x14216e750 when the window's
-    /// +0x10b8 check passes and the item's inventory kind is 0 or 0x0c). Writer 0x141f9f660: u32 BE item id, u8 flags,
-    /// u8 into (1 from the main inventory onto Map1, 0 back out), u8, u8 row (13 Map1), u8.</summary>
+    /// <summary>C→S 0xe8: Ctrl + click with the map device open, for an **Atlas Idol** (the ItemClasses row 94,
+    /// `AtlasRelic`, which the client's Ctrl + click handler tests first: `cmp eax,0x5f` at `0x140310f44`). Writer
+    /// `0x14216e750`, serializer `0x141f9f660`: u32 BE item id, then five single bytes, no byte swap — `+0x14`, `+0x15`,
+    /// `+0x16` and the low/high of the handler's u16 argument at `+0x17`/`+0x18`. The first of the five is 1 when the item
+    /// is in inventory row 84 (`ExpandedMainInventory1`, `0x14030ea5c`); there is no row-13 byte (the 0x0d the old note
+    /// remembered is 0xe7's). A **map** never sends this message: it sends <see cref="MoveIntoDeviceId"/> or
+    /// <see cref="MoveOutOfDeviceId"/>.</summary>
     public sealed record Move(uint ItemId, byte Flags, bool IntoDevice, byte Extra, byte Row);
 
     public static Move ReadMove(ReadOnlySpan<byte> m) =>
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7] != 0, m[8], m[9]);
+
+    /// <summary>C→S 0xe4 (into) and 0xe5 (out): Ctrl + click with the map device open, for the items that are not Atlas
+    /// Idols — a map goes this way. Both are 12 bytes with u32 BE item id at +2 and u16 BE open map device object's +0x7b
+    /// at +10, but their flag/direction packing differs:
+    /// <list type="bullet">
+    /// <item>0xe4 (sender <c>0x14216e300</c>, writer <c>0x141f9eac0</c>): byte 6 packs bit 0 (+0x24) and bit 1 (+0x26),
+    /// bytes 7..8 are +0x28/+0x29, byte 9 packs bit 7 (+0x25, into device) | low 7 bits (+0x27).</item>
+    /// <item>0xe5 (sender <c>0x14216e5d0</c>, writer <c>0x141f9eef0</c>): byte 6 packs bit 0 (+0x24), bit 1 (+0x25, into
+    /// device) and bit 2 (+0x26), bytes 7..8 are +0x28/+0x29, byte 9 is plain +0x27.</item>
+    /// </list></summary>
+    public const ushort MoveIntoDeviceId = 0x00e4, MoveOutOfDeviceId = 0x00e5;
+    public const int MoveItemLength = 12;
+
+    public sealed record ItemClick(uint ItemId, byte Flags, byte Flags2, byte Flags3, bool IntoDevice, ushort Device);
+
+    public static ItemClick ReadItemClick(ReadOnlySpan<byte> m)
+    {
+        ushort id = BinaryPrimitives.ReadUInt16BigEndian(m);
+        uint itemId = BinaryPrimitives.ReadUInt32BigEndian(m[2..6]);
+        ushort device = BinaryPrimitives.ReadUInt16BigEndian(m[10..12]);
+        if (id == MoveOutOfDeviceId)
+        {
+            byte flags = (byte)((m[6] & 0x01) | ((m[6] & 0x04) >> 1));
+            return new(itemId, flags, m[7], m[8], (m[6] & 0x02) != 0, device);
+        }
+        return new(itemId, m[6], m[7], m[8], (m[9] & 0x80) != 0, device);
+    }
 
     /// <summary>C→S 0xf6: a Voidstone clicked into (or out of) an Atlas socket with the map device open
     /// (0x1407bf070 → 0x14216eac0). Writer 0x141f993f0: u32 BE item id, u8, u8 (both 0 on the live
@@ -91,11 +123,23 @@ public static class InstanceMapDevice
     /// handler gives each listed portal object (it must exist already) its destination through PortalClient vtable +0xb8
     /// (0x14161c0e0: the area, its model, rendering on) and runs the device's on_map_portal_opened; an entry whose area
     /// became 0 closes its portal (+0xc0) and runs on_map_portal_closed. A portal object never listed here is not drawn.
+    /// <para>
+    /// The label floating over the player's own portal is the Portal component's own nametag: slot +0xb8 calls the text
+    /// getter 0x14161ca80, which takes the WorldAreas row the entry's area HASH16 resolved to ([component+0xb0], then its
+    /// +8, the localized area name) and then tests a byte of the component (<c>0x14161caa7</c>); set, the label is
+    /// ClientStrings 0x1fe5 <c>MapPortalsSuffixMapCompleted</c>, "{0} (Completed)" (<c>0x14161caf1</c>). That byte is
+    /// +0x33, which only bit 1 of this message's flags fills (reader <c>0x1421a73c1</c>): the dispatcher passes it to the
+    /// handler (<c>0x14218ca36</c>) and the handler forwards it, per listed portal, as the 7th argument of +0xb8
+    /// (<c>0x14218cc2d</c>). It re-runs +0xb8 for every portal on every 0x008f, so a re-sent list relabels them.
+    /// <paramref name="completed"/> sets that bit 1 and nothing else: bit 0 (0x01) is a different byte, +0x32, and
+    /// selects the "just opened" render path, so it stays clear.
+    /// </para>
     /// </summary>
-    public static byte[] Portals(uint deviceId, IReadOnlyList<Portal> portals)
+    public static byte[] Portals(uint deviceId, IReadOnlyList<Portal> portals, bool completed = false)
     {
-        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(PortalsId).U8(0).U8(0).U8(0).U32(deviceId).U16(0).U8(0).U8(0)
-            .U8((byte)portals.Count);
+        // The flags byte: bit 1 (0x02) is the completed label, 0 is a plain one.
+        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(PortalsId).U8((byte)(completed ? 0x02 : 0x00)).U8(0).U8(0)
+            .U32(deviceId).U16(0).U8(0).U8(0).U8((byte)portals.Count);
         foreach (var p in portals)
         {
             w.U32(p.ObjectId).U16(p.Area);
@@ -132,7 +176,7 @@ public sealed record MapPortalObject(int GridX, int GridY, int DeviceIndex, byte
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                              // object flags, base data entry count
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);    // Positioned, as the hideout doodads'
+        w.Positioned(GridX, GridY, Rotation);                                       // Positioned
         // StateMachine: standard_portal, portal, map_device_index, map_device_large; each a compact value and u8 flags.
         w.U8(4).U8(0);
         foreach (int v in new[] { 1, PortalType, DeviceIndex, 0 }) w.CompactI(v).U8(0);

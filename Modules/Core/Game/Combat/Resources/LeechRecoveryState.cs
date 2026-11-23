@@ -3,7 +3,7 @@
 /// <summary>One resource's timed leech instances. Call under the owner's combat lock with its game clock.
 /// An instance stores its base rate/duration at creation; current total-recovery and cap modifiers apply outside
 /// those instances. Settling before configuration changes prevents a new modifier from changing elapsed recovery.</summary>
-sealed class LeechRecoveryState
+public sealed class LeechRecoveryState
 {
     public readonly record struct Settings(double TotalMultiplier, double MaximumPerSecond, double RecoveryMultiplier);
     public readonly record struct DisplayState(int PerMinute, double Expiry);
@@ -16,6 +16,18 @@ sealed class LeechRecoveryState
 
     public int Count => expiries.Count;
     public bool Active(double now) { Settle(now); return expiries.Count > 0; }
+    /// <summary>When the next instance ends (the shown rate drops); null without one.</summary>
+    public double? NextExpiry(double now)
+    {
+        Settle(now);
+        return expiries.TryPeek(out _, out double expires) ? expires : null;
+    }
+    /// <summary>When the last instance ends (the leech stops unless another is granted); null without one.</summary>
+    public double? Until(double now)
+    {
+        Settle(now);
+        return expiries.Count == 0 ? null : expiries.UnorderedItems.Max(instance => instance.Priority);
+    }
 
     public void Configure(double now, Settings value)
     {

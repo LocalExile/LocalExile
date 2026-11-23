@@ -5,3 +5,7 @@ Agents/roadmap/*.md merge=union
 Agents/Status.md merge=union
 Agents/Roadmap.md merge=union
 Agents/docs/README.md merge=union
+
+# SQL in git is hashed by the database updater after line ends are made LF; keep the checkout LF too
+# (Agents/docs/dev/databases.md).
+sql/**/*.sql text eol=lf

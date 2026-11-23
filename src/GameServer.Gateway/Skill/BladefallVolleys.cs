@@ -1,9 +1,16 @@
+using GameServer.Core;
 /// <summary>Bladefall of Trarthus (BladefallAltZ): an instant toggle that rains a volley around the player every
 /// <c>bladefall_volley_frequency_ms</c> while it spends mana. That stat is virtual: the client reads it but does not derive
 /// it from a network stat snapshot, so without it the interval was 0 and the client hung on the first use (#584). The
 /// game module runs the toggle (BladefallTrarthus.cs).</summary>
-static class BladefallVolleys
+public static class BladefallVolleys
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        BuffRows = LoadBuffRows();
+    }
+
     public const string EffectId = "BladefallAltZ";
     /// <summary>skill_cost_over_time: its GrantedStats are the spent-per-minute stats, set on the player while it lasts.</summary>
     public const string CostBuff = "skill_cost_over_time";
@@ -29,20 +36,21 @@ static class BladefallVolleys
         percentPerMinute <= 0 || maximumMana <= 0 ? 0 : (int)Math.Min(int.MaxValue, maximumMana * percentPerMinute / 100);
 
     /// <summary>The BuffDefinitions row of <see cref="CostBuff"/> or <see cref="BladesBuff"/>, or null without the table.</summary>
-    public static ushort? BuffRow(string id) => BuffRows.Value.TryGetValue(id, out ushort row) ? row : null;
+    public static ushort? BuffRow(string id) => BuffRows.TryGetValue(id, out ushort row) ? row : null;
 
-    static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
+    static Dictionary<string, ushort> BuffRows = default!;
+
+    static Dictionary<string, ushort> LoadBuffRows()
     {
-        const string file = "data/tables/BuffDefinitions.json";
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
-        if (!File.Exists(file)) return rows;
-        using var table = GameTables.Open(file);
+        if (!ClientTables.Has("BuffDefinitions")) return rows;
+        var table = ClientTables.Table("BuffDefinitions");
         int row = 0;
-        foreach (var buff in table.RootElement.EnumerateArray())
+        foreach (var buff in table)
         {
-            if (buff.GetProperty("Id").GetString() is { } id and (CostBuff or BladesBuff)) rows.TryAdd(id, (ushort)row);
+            if (buff.Text("Id") is { } id and (CostBuff or BladesBuff)) rows.TryAdd(id, (ushort)row);
             row++;
         }
         return rows;
-    });
+    }
 }

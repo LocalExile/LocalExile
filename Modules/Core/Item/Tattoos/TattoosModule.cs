@@ -9,77 +9,58 @@ using static TattoosFeature;
 namespace GameServer.Modules.M_tattoos;
 
 /// <summary>Tattoos on passives.</summary>
-public sealed class TattoosModule : IModule, IDisposable
+public sealed class TattoosModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Tattoos", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnPacket(InstanceItems.UseItemOnPassiveId, async p =>
+        GameEvents.Packet(InstanceItems.UseItemOnPassiveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
-            await UseTattooOnPassive(remote, stream, ciphers, conn, InstanceItems.ReadUseItemOnPassive(bytes), Convert.ToHexString(bytes));
+            await UseTattooOnPassive(player, InstanceItems.ReadUseItemOnPassive(bytes), Convert.ToHexString(bytes));
             return true;
         });
-        module.OnChatCommand("tattoo", "/tattoo <name> | list (dev: a tattoo currency item into the inventory)", async c =>
+        GameEvents.Command(module.Manifest.Id, "tattoo", "/tattoo <name> | list (dev: a tattoo currency item into the inventory)", async (player, args) =>
         {
-            var conn = ConnOf(c.Player);
-            var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length == 0 || args[0].Equals("list", StringComparison.OrdinalIgnoreCase))
             {
-                await conn.Commands!.Reply(string.Join(", ", TattooCatalogue.Names));
+                await player.Commands!.Reply(string.Join(", ", TattooCatalogue.Names));
                 return;
             }
             string query = string.Join(' ', args);
-            if (TattooCatalogue.Create(ItemsFor(conn), query) is not { } tattoo)
+            if (TattooCatalogue.Create(ItemsFor(player), query) is not { } tattoo)
             {
-                await conn.Commands!.Reply($"No tattoo \"{query}\"");
+                await player.Commands!.Reply($"No tattoo \"{query}\"");
                 return;
             }
-            var items = ItemsOf(conn);
+            var items = ItemsOf(player);
             if (items.FreeCell(PlayerInventories.MainInventory, 1, 1, ShapeOf) is not { } cell)
             {
-                await conn.Commands!.Reply("No room in the inventory");
+                await player.Commands!.Reply("No room in the inventory");
                 return;
             }
             var added = items.Put(PlayerInventories.MainInventory, new InventoryItem(items.NewItemId(), cell.X, cell.Y, tattoo));
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                 items.NextRevision(PlayerInventories.MainInventory), [], [added]), $"0x00bf inventory 1: /tattoo {query}");
             var entry = TattooCatalogue.Find(query)!;
-            await conn.Commands!.Reply($"{entry.Name} added to the inventory (replaces {entry.Target}" +
+            await player.Commands!.Reply($"{entry.Name} added to the inventory (replaces {entry.Target}" +
                 (entry.EventOnly ? "; event-only, not normally obtainable" : entry.DropDisabled ? "; drop-disabled" : "") + ")");
         });
-        module.OnChatCommand("tattoo_apply", "/tattoo_apply <tattoo name> <node> (dev: apply a pilot tattoo to an allocated passive)", async c =>
+        GameEvents.Command(module.Manifest.Id, "tattoo_apply", "/tattoo_apply <tattoo name> <node> (dev: apply a pilot tattoo to an allocated passive)", async (player, args) =>
         {
-            var conn = ConnOf(c.Player);
-            var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length < 2 || !ushort.TryParse(args[^1], out ushort node))
             {
-                await conn.Commands!.Reply("Usage: /tattoo_apply <tattoo name> <node>");
+                await player.Commands!.Reply("Usage: /tattoo_apply <tattoo name> <node>");
                 return;
             }
             string name = string.Join(' ', args.Take(args.Length - 1));
-            string? error = await ApplyTattoo(remote, stream, ciphers, conn, name, node);
-            await conn.Commands!.Reply(error ?? $"{name} applied to passive {node}");
+            string? error = await ApplyTattoo(player, name, node);
+            await player.Commands!.Reply(error ?? $"{name} applied to passive {node}");
         });
-        module.OnChatCommand("journey_makanui", "/journey_makanui <node> [keystone] (dev: apply Journey Makanui, random or chosen)", async c =>
+        GameEvents.Command(module.Manifest.Id, "journey_makanui", "/journey_makanui <node> [keystone] (dev: apply Journey Makanui, random or chosen)", async (player, args) =>
         {
-            var conn = ConnOf(c.Player);
-            var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length < 1 || !ushort.TryParse(args[0], out ushort node))
             {
-                await conn.Commands!.Reply("Usage: /journey_makanui <node> [keystone name|graph id]");
+                await player.Commands!.Reply("Usage: /journey_makanui <node> [keystone name|graph id]");
                 return;
             }
             JourneyMakanuiCatalogue.Entry? chosen = null;
@@ -88,27 +69,24 @@ public sealed class TattoosModule : IModule, IDisposable
                 chosen = JourneyMakanuiCatalogue.Find(string.Join(' ', args.Skip(1)));
                 if (chosen is null)
                 {
-                    await conn.Commands!.Reply($"No keystone \"{string.Join(' ', args.Skip(1))}\"");
+                    await player.Commands!.Reply($"No keystone \"{string.Join(' ', args.Skip(1))}\"");
                     return;
                 }
             }
-            string? error = await ApplyTattoo(remote, stream, ciphers, conn, "Journey Tattoo of Makanui", node,
+            string? error = await ApplyTattoo(player, "Journey Tattoo of Makanui", node,
                 chosenKeystone: chosen?.GraphId);
-            await conn.Commands!.Reply(error ?? $"Journey Tattoo of Makanui applied to passive {node}" +
+            await player.Commands!.Reply(error ?? $"Journey Tattoo of Makanui applied to passive {node}" +
                 (chosen is null ? " (random keystone)" : $" ({chosen.Name})"));
         });
-        module.OnChatCommand("tattoo_remove", "/tattoo_remove <node> (dev: remove the tattoo from a passive)", async c =>
+        GameEvents.Command(module.Manifest.Id, "tattoo_remove", "/tattoo_remove <node> (dev: remove the tattoo from a passive)", async (player, args) =>
         {
-            var conn = ConnOf(c.Player);
-            var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length != 1 || !ushort.TryParse(args[0], out ushort node))
             {
-                await conn.Commands!.Reply("Usage: /tattoo_remove <node>");
+                await player.Commands!.Reply("Usage: /tattoo_remove <node>");
                 return;
             }
-            string? error = await RemoveTattoo(remote, stream, ciphers, conn, node);
-            await conn.Commands!.Reply(error ?? $"Tattoo removed from passive {node}");
+            string? error = await RemoveTattoo(player, node);
+            await player.Commands!.Reply(error ?? $"Tattoo removed from passive {node}");
         });
     }
 }

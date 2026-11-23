@@ -2,13 +2,13 @@ using System.Net.Sockets;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Development fallback for lobbed skills without a radius stat, in cells. The Sand Spitter's native straight
     // projectile uses direct contact and never this fallback.
-    internal const double MonsterMortarRadiusCells = 10;
+    public const double MonsterMortarRadiusCells = 10;
 
-    internal static double MonsterMortarRadius() =>
+    public static double MonsterMortarRadius() =>
         double.TryParse(Environment.GetEnvironmentVariable("Game_MONSTER_MORTAR_RADIUS"), out double radius) && radius > 0
             ? radius : MonsterMortarRadiusCells;
 
@@ -19,15 +19,16 @@ static partial class Game
     /// with a count on its skill record (the mortar attack's release, 0x141ba7c30): a <c>monster_mortar_attack</c>
     /// record carries one and the client draws it (MonsterProjectileProfile); any other shot's, a spell mortar's included,
     /// carries none, and the server's object is the projectile the player sees.</summary>
-    internal static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
+    public static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null,
-        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence)
+        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence, (int X, int Y)? releasedFrom = null)
     {
-        var conn = session.Conn;
+        var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        var from = ProjectileSession.Vector(m.Walk.Position(now));
-        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(conn, targetId) is { } golem
-            ? golem.Monster.Walk.Position(now) : conn.Walk.Position(now)));
+        // A shot released from an object of the monster's (its trap) leaves that object, not the monster's hand.
+        var from = ProjectileSession.Vector(releasedFrom ?? m.Walk.Position(now));
+        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(player, targetId) is { } golem
+            ? golem.Monster.Walk.Position(now) : player.Walk.Position(now)));
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);
@@ -38,7 +39,8 @@ static partial class Game
         // monster toward the aim (maintain_projectile_direction_when_using_contact_position). Native straight mortar
         // attacks also rotate the lateral contact offset below.
         var release = a.Release;
-        double ahead = release?.Point is { } point ? point.ForwardCells * (release.FacesAway ? -1 : 1) : OrdinaryRangedAttack.ReleaseAheadCells;
+        double ahead = releasedFrom is not null ? 0
+            : release?.Point is { } point ? point.ForwardCells * (release.FacesAway ? -1 : 1) : OrdinaryRangedAttack.ReleaseAheadCells;
         ahead = Math.Min(ahead, distance / 2);
         var origin = from + toward * ahead;
         ProjectileVector[]? nativeTargets = null;
@@ -58,26 +60,30 @@ static partial class Game
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         var profile = MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
+        if (a.Effect is int effect && SkillsFor(player).EffectId(effect) is { } effectId && effectId.Contains("TornadoShot", StringComparison.Ordinal))
+            profile = MonsterTornadoShot(profile, (aim - origin).Length, SkillsFor(player).EffectStats(effect, m.Level));
         if (nativeTargets is not null)
-            profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(projectile.Metadata) };
+            profile = profile with { ContactCells = SkillsFor(player).ProjectileContactCells(projectile.Metadata) };
         var owner = session.ActorKey(id, m);
         double flightCells = projectile.Lobbed ? landing : (aim - origin).Length;
-        var presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(projectile.Metadata), flightCells / speed);
+        var presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(projectile.Metadata), flightCells / speed);
         if (release?.Point is { } launch) presentation = (presentation ?? new ProjectilePresentation()) with { LaunchHeight = launch.HeightSteps };
-        Console.WriteLine($"[gateway] {session.remote} monster 0x{id:x} ({m.Label}) releases {projectile.Metadata} from {origin}"
+        Console.WriteLine($"[gateway] {session.Player.Connection.Remote} monster 0x{id:x} ({m.Label}) releases {projectile.Metadata} from {origin}"
             + $" ({ahead:0.0} cells toward the aim, {(release?.Point is { } up ? up.HeightSteps.ToString() : "default")} steps up"
             + $"{(release is null ? "" : $", clip {release.Clip} at {release.Fraction:0.000} of the attack{(release.FacesAway ? ", facing away" : "")}")})"
             + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
             { ProjectileTargets = nativeTargets,
-                Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}") { Presentation = presentation } };
+                Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
+                    { Presentation = presentation, Sequence = sequence,
+                        OnEnd = a.Ground is null ? null : at => LeaveSkillGround(player, id, a, at) } };
     }
 
     /// <summary>The flight the server simulates for a monster's shot. A lobbed shot's range is its landing distance; a
     /// straight one flies <paramref name="straightRange"/> cells. A mortar attack the client draws (its record carries the
     /// row and count, MonsterProjectileSkillStats) gets no object, so the player sees one mortar, as from GGG, which creates
     /// none; the flight still lands its hit.</summary>
-    internal static ProjectileProfile MonsterProjectileProfile(SkillCatalog.MonsterProjectileInfo projectile, double speed,
+    public static ProjectileProfile MonsterProjectileProfile(SkillCatalog.MonsterProjectileInfo projectile, double speed,
         double landing, double straightRange) => new(projectile.Metadata)
     {
         Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
@@ -90,6 +96,33 @@ static partial class Game
         HideVisual = projectile.Variation > 0,
     };
 
+    /// <summary>A monster's Tornado Shot (ExileTornadoShot): each arrow pierces to the aimed cell and bursts there into
+    /// tornado_shot_num_of_secondary_projectiles secondary arrows around it, as the player's does
+    /// (GatewayProjectileSkillProfiles.TornadoShotChildren). A monster's action draws none of its arrows, so these are
+    /// the server's objects: before, its two arrows flew on past the aim and never split.</summary>
+    static ProjectileProfile MonsterTornadoShot(ProjectileProfile arrow, double toAim, IReadOnlyList<(uint, int)> stats)
+    {
+        int secondary = Stat.TornadoShotNumOfSecondaryProjectiles is var key
+            && stats.FirstOrDefault(s => s.Item1 == key).Item2 is > 0 and var n ? Math.Min(n, 16) : 3;
+        var child = arrow with
+        {
+            Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
+            Count = secondary,
+            SpreadRadians = 0,
+            // The client's secondary action ends its flight after 300 ms (GatewayProjectileSkillProfiles).
+            Range = arrow.Speed * .3,
+            Lifetime = ProjectileRuntime.Time(.3),
+            Pierce = 0,
+            EndEmission = null,
+        };
+        return arrow with
+        {
+            Range = Math.Max(1, toAim),
+            Pierce = -1,
+            EndEmission = new(child, Radial: true, RandomDirections: true),
+        };
+    }
+
     /// <summary>A server-created projectile object plays nothing by itself. Start the rig's flight clip at spawn even
     /// when the .ao declares the same default animation: the explicit 0x1b2 is what guarantees the server object is
     /// drawn and animated (live 2026-10-31: the King's default-animation projectiles were static/invisible). A once-only
@@ -97,7 +130,7 @@ static partial class Game
     /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c>), and the impact clip plays where it
     /// stops, keeping the object for the clip's length. Null without clip data: the object then flies as its .ao
     /// presents it by itself.</summary>
-    internal static ProjectilePresentation? MonsterProjectilePresentation(SkillCatalog.ProjectileClips? clips, double flightSeconds)
+    public static ProjectilePresentation? MonsterProjectilePresentation(SkillCatalog.ProjectileClips? clips, double flightSeconds)
     {
         if (clips is null || clips is { Flight: null, Impact: null }) return null;
         var presentation = new ProjectilePresentation();
@@ -118,58 +151,97 @@ static partial class Game
 
     // The release at the attack's contact: the flight owns contact and damage (HostileHit).
     // The AI action must still be current when the runtime releases it.
-    internal static void LaunchMonsterProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    /// <summary>A monster skill's shot that no longer belongs to the monster's own action (a trap's, set off): released now
+    /// from <paramref name="origin"/> toward the player while <paramref name="still"/> holds; its flight then lands the
+    /// monster's hit as any of its shots does.</summary>
+    public static void LaunchDetachedMonsterProjectile(Player player,
+        uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, (int X, int Y) origin,
+        Func<bool> still, ushort sequence)
+    {
+        var session = ProjectilesFor(player);
+        session.Advance();
+        int action = m.ActionGeneration;
+        session.Schedule(session.Runtime.Now, () => still() && player.PlayerLife > 0 && !InGracePeriod(player),
+            () => MonsterProjectileUse(session, id, m, a, projectile, action, sequence: sequence, releasedFrom: origin));
+    }
+
+    public static void LaunchMonsterProjectile(Player player,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
         (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(player);
         session.Advance();
         session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
-            () => MonsterActionCurrent(conn, id, m, action) && !InGracePeriod(conn),
+            () => MonsterActionCurrent(player, id, m, action) && !InGracePeriod(player),
             () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence));
     }
 
     // Called under the XP -> Monsters lock by the runtime. Only the player takes a monster's projectile; a friendly monster in
     // its way is passed through. The monster's damage pipeline (CommitMonsterHitLocked) owns evasion, block, armour,
     // ailments, recovery and the hit packet; the presentation follows through the session's ordered outbox.
-    internal static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
+    public static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
-        var conn = session.Conn;
-        if (OwnedFighter(conn, contact.Target.Id) is { } golem)
+        var player = session.Player;
+        if (OwnedFighter(player, contact.Target.Id) is { } golem)
         {
-            bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack,
-                Math.Max(AreaTime(conn), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: shot.Attack.Projectile?.Lobbed == true);
-            session.Enqueue(() => PublishMinionOutcomes(session.remote, session.stream, session.ciphers, conn));
+            bool landed = GolemTakeHitLocked(player, golem, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier * shot.MinionDamageFactor) },
+                Math.Max(AreaTime(player), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: contact.IsArea || shot.Attack.Projectile?.Lobbed == true);
+            session.Enqueue(() => PublishMinionOutcomes(player));
             return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }
-        if (contact.Target.Id != PlayerId || conn.PlayerLife == 0 || InGracePeriod(conn)) return ProjectileHitResult.Miss;
+        if (contact.Target.Id != player.Id)
+        {
+            var totems = player.Totems.All;
+            for (int i = 0; i < totems.Count; i++)
+                if (totems[i].Id == contact.Target.Id && totems[i].DecoyRadius > 0)
+                {
+                    double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+                    return DecoyTakeHitLocked(player, totems[i], shot.Monster, shot.Attack, now, contact.Multiplier)
+                        ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
+                }
+            return ProjectileHitResult.Miss;
+        }
+        if (player.PlayerLife == 0 || InGracePeriod(player)) return ProjectileHitResult.Miss;
+        var outcome = CommitHostilePlayerHitLocked(session, contact, shot);
+        if (outcome is null) return ProjectileHitResult.Miss;
+        session.World(shot.MonsterId, outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");
+        session.Enqueue(() => PresentMonsterHit(player, shot.MonsterId, outcome));
+        return outcome.Blocked ? ProjectileHitResult.Blocked : ProjectileHitResult.Hit;
+    }
+
+    public static MonsterHitOutcome? CommitHostilePlayerHitLocked(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
+    {
+        var player = session.Player;
         // The hit pipeline's timers (fortification, recent hits, ailments, evasion entropy) run on the connection clock and
         // refuse to go backwards. The contact's simulated instant lies a few milliseconds behind that clock, which other
         // reads (a stats refresh, a melee swing) may already have advanced, so the hit lands at whichever is later. The
         // runtime's fixtures run their simulation ahead of the clock; there the contact time wins.
-        double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
-        var here = conn.Walk.Position(now);
+        double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, AreaTime(player));
+        var here = player.Walk.Position(now);
         var from = ((int)Math.Round(contact.Position.X), (int)Math.Round(contact.Position.Y));
-        var outcome = CommitMonsterHitLocked(session.remote, conn, shot.MonsterId, shot.Monster, shot.Attack, now, here, from, checkRange: false);
-        if (outcome is null) return ProjectileHitResult.Miss;
-        session.Packet(outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");
-        session.Enqueue(() => PresentMonsterHit(session.remote, session.stream, session.ciphers, conn, shot.MonsterId, outcome));
-        return outcome.Blocked ? ProjectileHitResult.Blocked : ProjectileHitResult.Hit;
+        return CommitMonsterHitLocked(player, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier) }, now, here, from,
+            checkRange: false, sequence: shot.Sequence);
     }
 }
 
 /// <summary>A monster's projectile attack in flight: the monster that released it, its attack and the AI action it belongs
 /// to. The player is its only target (<c>Game.HostileHit</c>); the monster's own damage pipeline commits the hit when
 /// the flight reaches the player, or, for a mortar, when it lands on them.</summary>
-sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, MonsterAttack Attack, int Action, string Label)
+public sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, MonsterAttack Attack, int Action, string Label)
 {
+    public double MinionDamageFactor { get; init; } = 1;
+    /// <summary>The action that released this shot, retained for the client's hit lookup (0x141e977f0).</summary>
+    public ushort Sequence { get; init; } = Game.MonsterActionSequence;
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
     public Game.ProjectilePresentation? Presentation { get; init; }
+    /// <summary>What the shot does where it stops (a hit, a wall, its range or its landing): the ground its skill leaves
+    /// (MonsterAttack.Ground). Run after the flight's end, outside the runtime's lock.</summary>
+    public Func<(int X, int Y), Task>? OnEnd { get; init; }
 }
 
 /// <summary>A shot of a server object that is no monster (a Trial of Ascendancy's dart trap). Its own rule commits a
 /// contact, under the connection's lock as <c>Game.HostileHit</c> is; a miss lets the flight go on.</summary>
-sealed record ObjectProjectileOffense(string Label, Func<Game.ProjectileSession, ProjectileDamage, ProjectileHitResult> Hit)
+public sealed record ObjectProjectileOffense(string Label, Func<Game.ProjectileSession, ProjectileDamage, ProjectileHitResult> Hit)
 {
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
     public Game.ProjectilePresentation? Presentation { get; init; }

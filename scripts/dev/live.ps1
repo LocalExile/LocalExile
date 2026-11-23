@@ -5,8 +5,8 @@
 #   connection's last packets to logs/packets/ when it closes (Game_PACKET_DUMPS; scripts/dev/bugreport.ps1 bundles both).
 #   -NoClient   keep a running client (it drops to the login screen; log in again)
 #   -NoBuild    skip the builds
-#   -NoExtract  skip scripts/dev/extract-data.ps1, which otherwise first extracts any missing or outdated game data into
-#               data/ (a quick check when nothing is missing)
+#   -NoExtract  skip scripts/dev/extract-data.ps1 -Servers, which otherwise first extracts the missing or outdated game
+#               data the servers read from the client into data/ (a quick check when nothing is missing)
 #   -Walkmaps   also run scripts/walkmaps/walkmaps.py (needs Python + `pip install frida`): captures the walk map of every
 #               area the client generates into data/walkability/, and lets the Gateway announce each load to it and run
 #               capture tours (Game_WALKMAPS=1). Without it nothing is recorded. Default ports and client session only
@@ -15,11 +15,9 @@
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
 #               With -Walkmaps the restarted Gateway announces loads again, and this checkout's recorder already running
 #               is kept.
-#   The Gateway runs under `dotnet watch` (.NET hot reload): a saved edit to its code applies to the running server
-#               within seconds and the client stays in game. An edit hot reload cannot apply (a changed signature, a new
-#               static initializer) rebuilds and restarts the Gateway, which drops the client to the login screen.
-#   -NoHotReload  start the built Gateway without `dotnet watch`. Agents/GettingStarted.md step 10.
-#   -Release    build and run Release servers and modules without hot reload (Agents/docs/dev/performance.md).
+#   The servers have no hot reload: an edit to one is a restart (-Only). A module's or mod's new build reloads into the
+#               running Gateway (Agents/docs/dev/live-testing.md, "Hot reload").
+#   -Release    build and run Release servers and modules (Agents/docs/dev/performance.md).
 #   -Debug      build and run Debug (default). The last configuration is remembered for -Only and -ClientOnly.
 #   -ClientOnly open the client (of -Session) when it is closed; the servers must be running (refused without them; a
 #               running client stays). With -Walkmaps (default ports and client) also this checkout's walk-map recorder,
@@ -39,6 +37,9 @@
 #               trimmed working set, freed memory returned at once and the Null buffers' unused copies uncommitted
 #               (about 1.6 GB commit, no GPU memory, ~20 % of a core in town). Without it the session's settings decide
 #               the renderer (the preset: DirectX 11).
+#   -Sound      the -Session client keeps its sound. A session client starts through scripts/dev/nullifier.py, which
+#               appends --nosound (and its preset is a silent one); this hands it --sound instead, for a client that has
+#               to be heard (a skill's sound as it plays). Without it: --nosound, as before.
 #   -Agent      one agent's whole setup in one command: this checkout's servers and one -Nullifier client of session
 #               'agent' (or -Session). The port base is -PortBase, else Game_PORT_BASE, else the one data\stack.json
 #               recorded, else the first block of 100 from 21000 to 29900 whose five ports nothing listens on and no
@@ -49,7 +50,7 @@
 #               only those servers, with -NoClient everything but the clients, with -ClientOnly only the -Session client.
 #   Several stacks and clients on one PC: Agents/docs/dev/live-testing.md ("Several stacks and clients"). Whatever this
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
-param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
+param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly,
     [switch]$KingsmarchDoodads,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
     [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug, [switch]$Sound)
@@ -63,7 +64,6 @@ if ($Release -and $Debug) { throw '-Release and -Debug cannot be combined' }
 $configurationFile = Join-Path $repo 'data\live-configuration.txt'
 $remembered = if (Test-Path $configurationFile) { Get-Content $configurationFile -TotalCount 1 } else { $null }
 $configuration = if ($Release) { 'Release' } elseif ($Debug) { 'Debug' } elseif ($remembered -in 'Debug', 'Release') { $remembered } else { 'Debug' }
-if ($configuration -eq 'Release') { $NoHotReload = $true }
 $out = Join-Path $repo 'logs'
 $clients = Join-Path $repo 'data\clients'
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -82,8 +82,25 @@ function Report-Wait([string]$what, [datetime]$since, [string]$log) {
     Step "  still waiting for $what ($seconds s)$(if ($last) { ": $last" })"
 }
 
-# This checkout's ports. Without a base, today's, where a server's own variable (Game_LOGIN_PORT, Game_PATCH_URL, ...)
-# still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
+# Config\localexile.conf (or Game_CONF) as Key = Value pairs, keys case-insensitive; empty without the file (the
+# defaults; the servers write the file with them on their first start). The servers read it too (ServerConfig).
+function Read-Conf {
+    $path = if ($env:Game_CONF) { $env:Game_CONF } else { Join-Path $repo 'Config\localexile.conf' }
+    $values = @{}
+    if (Test-Path $path) {
+        foreach ($line in Get-Content $path) {
+            $line = $line.Trim()
+            if ($line -eq '' -or $line.StartsWith('#')) { continue }
+            $at = $line.IndexOf('=')
+            if ($at -le 0) { throw "${path}: expected Key = Value, got '$line'" }
+            $values[$line.Substring(0, $at).Trim()] = $line.Substring($at + 1).Trim().Trim('"')
+        }
+    }
+    $values
+}
+
+# This checkout's ports. Without a base, localexile.conf's, where a server's own variable (Game_LOGIN_PORT,
+# Game_PATCH_URL, ...) still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
 # Game_PORT_BASE is written to data\stack.json with its ports (0 removes it): later runs and the control bridge read it.
 function Get-Stack([int]$base) {
     $file = Join-Path $repo 'data\stack.json'
@@ -91,13 +108,17 @@ function Get-Stack([int]$base) {
     if (-not $given -and "$env:Game_PORT_BASE" -ne '') { $base = [int]$env:Game_PORT_BASE; $given = $true }
     if (-not $given) { $base = if (Test-Path $file) { [int](Get-Content $file -Raw | ConvertFrom-Json).portBase } else { 0 } }
     if ($base -ne 0 -and ($base -lt 1024 -or $base -gt 65530)) { throw "port base $base is outside 1024-65530 (0 = the default ports)" }
-    function Pick([string]$name, [int]$offset, [int]$default) {
+    # Without a base: the variable, else localexile.conf's key (ServerConfig), else the default.
+    $conf = Read-Conf
+    function Pick([string]$name, [string]$key, [int]$offset, [int]$default) {
         $value = [Environment]::GetEnvironmentVariable($name)
-        if ($base) { $base + $offset } elseif ($value) { [int]$value } else { $default }
+        if ($base) { $base + $offset } elseif ($value) { [int]$value } elseif ($conf[$key]) { [int]$conf[$key] } else { $default }
     }
-    $web = if ($base) { $base + 1 } elseif ($env:Game_PATCH_URL -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
-    $ports = [ordered]@{ patch = (Pick 'Game_PATCH_TCP_PORT' 0 12995); patchWeb = $web; login = (Pick 'Game_LOGIN_PORT' 2 20493)
-        control = (Pick 'Game_AUTH_CONTROL_PORT' 3 20495); gateway = (Pick 'Game_GATEWAY_PORT' 4 6112) }
+    $url = if ($env:Game_PATCH_URL) { $env:Game_PATCH_URL } else { $conf['Patch.WebUrl'] }
+    $web = if ($base) { $base + 1 } elseif ($url -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
+    $ports = [ordered]@{ patch = (Pick 'Game_PATCH_TCP_PORT' 'Patch.Port' 0 12995); patchWeb = $web
+        login = (Pick 'Game_LOGIN_PORT' 'Login.Port' 2 20493); control = (Pick 'Game_AUTH_CONTROL_PORT' 'AuthControl.Port' 3 20495)
+        gateway = (Pick 'Game_GATEWAY_PORT' 'Gateway.Port' 4 6112) }
     if ($given -and $base) { [ordered]@{ portBase = $base; ports = $ports } | ConvertTo-Json | Set-Content $file -Encoding ascii }
     elseif ($given -and (Test-Path $file)) { Remove-Item $file }
     [pscustomobject]@{ Base = $base; Ports = $ports }
@@ -141,7 +162,7 @@ function Get-OwnClients([string]$session) {
         -not @($pending | Where-Object { $p.CreationDate.ToFileTimeUtc() -ge $_ }).Count })
 }
 
-# This checkout's processes of the given servers: `dotnet <server>.dll`, a watched Gateway's `dotnet watch`, and their cmd
+# This checkout's processes of the given servers: `dotnet <server>.dll`, an older run's `dotnet watch`, and their cmd
 # wrappers, found by their command line (one still loading its game data holds no port yet, and its cmd wrapper keeps the
 # log open), with everything they started (`dotnet watch` runs `dotnet run`, which runs GameServer.Gateway.exe). They
 # name a path inside this checkout themselves or through their parent (an older live.ps1 started them with relative
@@ -292,7 +313,7 @@ function Stop-Processes($processes) {
 # interpreter must be able to import Frida (walkmaps.py, nullifier.py, kingsmarch-doodads.py).
 function Get-Python([string]$purpose) {
     $candidates = New-Object System.Collections.Generic.List[string]
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $venv = Join-Path $repo $(if ($IsLinux) { '.venv/bin/python' } else { '.venv\Scripts\python.exe' })
     if (Test-Path $venv) { $candidates.Add($venv) }
     if ($env:LOCALEXILE_PYTHON) { $candidates.Add($env:LOCALEXILE_PYTHON) }
     foreach ($name in @('python3', 'python', 'py')) {
@@ -300,27 +321,25 @@ function Get-Python([string]$purpose) {
         if ($found -and $found.Source) { $candidates.Add($found.Source) }
     }
     # The Windows Store ships a `python` alias that exits non-zero and prints nothing useful, so every candidate is tried
-    # for Frida instead of trusting whichever interpreter PATH resolves first.
+    # instead of trusting whichever interpreter PATH resolves first.
+    $python = $null
     foreach ($candidate in $candidates) {
-        & $candidate -c 'import frida' 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { return $candidate }
+        if ($IsLinux -and $purpose -eq '-Walkmaps') {
+            & $candidate (Join-Path $repo 'scripts\walkmaps\proton.py') prepare | Out-Host
+            if ($LASTEXITCODE -eq 0) { $python = $candidate; break }
+        }
+        else {
+            & $candidate -c 'import frida' 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { $python = $candidate; break }
+        }
     }
-    Need $false "no Python with the Frida package was found (needed for $purpose): set LOCALEXILE_PYTHON, or python -m pip install frida"
+    if (-not $python) {
+        if ($IsLinux -and $purpose -eq '-Walkmaps')
+            Need $false "could not prepare the Proton recorder (needs g++ and the official Frida GumJS development kit)"
+        Need $false "no Python with the Frida package was found (needed for $purpose): set LOCALEXILE_PYTHON, or python -m pip install frida"
+    }
+    $python
 }
-
-# The Kingsmarch town's buildings, wharf and platforms are room doodads whose type inherits BaseEvents { server_only = true },
-# so the client drops them and keeps only the loose props (the town then looks like floating furniture). The patch in
-# scripts/dev/kingsmarch-doodads.py makes the client build them again, for the town's own rooms only, and has to run next to
-# every client that enters the town: started here so the town is always complete without a second command.
-function Start-KingsmarchDoodads([int]$ClientPid) {
-    if ($IsLinux -or -not $KingsmarchDoodads) { return }
-    try {
-        $python = Get-Python 'the Kingsmarch town doodads (scripts/dev/kingsmarch-doodads.py)'
-        Start-Detached $python @((Join-Path $repo 'scripts\dev\kingsmarch-doodads.py'), '--pid', "$ClientPid",
-            '--room-regex', 'Metadata/Terrain/Leagues/Settlers/HubTown/',
-            '--log', (Join-Path $out 'kingsmarch-doodads.jsonl')) (Join-Path $out 'kingsmarch-doodads.log') (Join-Path $out 'kingsmarch-doodads.err') | Out-Null
-    }
-    catch { Write-Warning "Kingsmarch town doodads: $($_.Exception.Message)" }
 }
 
 # Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
@@ -340,6 +359,21 @@ function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [strin
     if ($PassThru) { $p }
 }
 
+# The Kingsmarch town's buildings, wharf and platforms are room doodads whose type inherits BaseEvents { server_only = true },
+# so the client drops them and keeps only the loose props (the town then looks like floating furniture). The patch in
+# scripts/dev/kingsmarch-doodads.py makes the client build them again, for the town's own rooms only, and has to run next to
+# every client that enters the town: started here so the town is always complete without a second command.
+function Start-KingsmarchDoodads([int]$ClientPid) {
+    if ($IsLinux -or -not $KingsmarchDoodads) { return }
+    try {
+        $python = Get-Python 'the Kingsmarch town doodads (scripts/dev/kingsmarch-doodads.py)'
+        Start-Detached $python @((Join-Path $repo 'scripts\dev\kingsmarch-doodads.py'), '--pid', "$ClientPid",
+            '--room-regex', 'Metadata/Terrain/Leagues/Settlers/HubTown/',
+            '--log', (Join-Path $out 'kingsmarch-doodads.jsonl')) (Join-Path $out 'kingsmarch-doodads.log') (Join-Path $out 'kingsmarch-doodads.err') | Out-Null
+    }
+    catch { Write-Warning "Kingsmarch town doodads: $($_.Exception.Message)" }
+}
+
 # A cmd wrapper Start-Detached returned and what it started after it (a launcher's client goes with its job).
 function Stop-Wrapper($wrapper) {
     $started = try { $wrapper.StartTime } catch { $null }
@@ -349,14 +383,14 @@ function Stop-Wrapper($wrapper) {
     Stop-Process -Id $wrapper.Id -Force -ErrorAction SilentlyContinue
 }
 
-# The client's own Log In goes to the login server of the GGPK's cached gateway list; the control bridge
-# (client_control.py) connects to this stack's Auth by port and needs no list. The GGPK is shared by every checkout and
-# cannot be written while any client runs, so only the default stack points it at its Auth, and only when the list
+# The client's own Log In goes to the login server of the cached gateway list (in the GGPK, or a loose file in a Steam
+# install); the control bridge (client_control.py) connects to this stack's Auth by port and needs no list. The client
+# files are shared by every checkout and cannot be written while any client runs, so only the default stack points it at its Auth, and only when the list
 # (read first; reading works while clients run) does not already. When it cannot be written: with -Strict (before
 # anything was stopped) the script stops; otherwise a warning, and the client's own Log In may go elsewhere.
 function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
     $patch = Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll"
-    $ggpk = Join-Path $repo 'Client\Content.ggpk'
+    $ggpk = Join-Path $repo 'Client'
     $list = @(& dotnet $patch gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
     if ($LASTEXITCODE -eq 0 -and $list.Count -and -not @($list | Where-Object { "$_" -notmatch "^[^;]*;[^;]*;127\.0\.0\.1:$loginPort;" }).Count) { return }
     # Windows' file lock fails this write while a client runs. Linux has no such lock: the same refusal comes from here.
@@ -364,7 +398,7 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
         & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { return }
     }
-    $message = "could not select local login server 127.0.0.1:$loginPort (a client holds the GGPK)"
+    $message = "could not select local login server 127.0.0.1:$loginPort (a client holds the client files); close all clients and retry"
     if ($Strict) { throw $message }
     # The client's own Log In reads this list, so a stale port there is what "unable to connect to server" looks like.
     Write-Warning ("$message. The client's own Log In will go to another login server - close every client and run: " +
@@ -372,9 +406,9 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 }
 
 # Starts the session's client through this stack's patching server and records its PID. A named session runs in its own
-# folder, data\clients\<session>\: the client opens Content.ggpk, config.json, its asset folders (FMOD sound banks,
+# folder, data\clients\<session>\: the client opens Content.ggpk (Steam: Bundles2\ and gateway_list.txt), config.json, its asset folders (FMOD sound banks,
 # Streamline, D3D12), CachedHLSLShaders and logs\Client.txt in its working folder (live 2026-10-30). So the folder gets a
-# hard link to the shared Content.ggpk (the same file: nothing is copied or written), junctions to the shared asset
+# hard link to the shared Content.ggpk or gateway_list.txt (the same file: nothing is copied or written), junctions to the shared asset
 # folders, its own shader cache and log, and a config.json naming the session's own settings file and saved login
 # (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME, in Documents\My Games\Path of Exile). A new settings file (or any,
 # with -SeedConfig) starts as a copy of the seed without its [LOGIN] section: no saved login to send to whichever login
@@ -387,28 +421,42 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 # waits for them. The default client starts plainly, as before.
 function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
+    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
+    & dotnet $authTool verify-patch (Join-Path $client 'Game.patched.exe') (Join-Path $repo 'data\login-keys.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Client login key preflight failed. Rebuild Auth if needed, then explicitly regenerate Client\Game.patched.exe with GameServer.Auth patch; see Agents/GettingStarted.md.' }
     # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
-    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash (Join-Path $client 'Content.ggpk') --save 2>$null | Out-Null
+    # --repair gives a zero root hash a value (the client never skips patching with one).
+    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash $client --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
+    # Which allowed client build this is, and the versions LocalExile supports (ClientBuilds).
+    if (Test-Path $authTool) {
+        & dotnet $authTool build (Join-Path $client 'Game.exe') 2>$null | Where-Object { $_ -like 'This client is *' } |
+            ForEach-Object { Write-Host $_ }
+    }
     $folder = $client
     if ($session -ne 'default') {
         $folder = Join-Path $clients $session
         New-Item -ItemType Directory -Force $folder | Out-Null
-        $shared = Join-Path $client 'Content.ggpk'
-        $link = Join-Path $folder 'Content.ggpk'
-        if (Test-Path $link) {
-            # A link to a GGPK that has been replaced since: only this folder's link goes.
-            $a = Get-Item $link; $b = Get-Item $shared
-            if ($a.Length -ne $b.Length -or $a.LastWriteTimeUtc -ne $b.LastWriteTimeUtc) { Remove-Item $link -Force }
-        }
-        if (-not (Test-Path $link)) {
-            # A hard link needs the same volume; the shared GGPK may live on another one (the Client path can be a
-            # link to another drive), so fall back to a symbolic link to the real file, then to the shared path.
-            try { New-Item -ItemType HardLink -Path $link -Target $shared -ErrorAction Stop | Out-Null }
-            catch {
-                $item = Get-Item $shared -Force -ErrorAction SilentlyContinue
-                $target = if ($item -and $item.Target) { @($item.Target)[0] } else { $shared }
-                New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null
+        # The client's data files in its working folder: the standalone GGPK, or the Steam install's loose gateway list
+        # (its Bundles2\ is one of the asset folders below). A Steam install has no GGPK and no root hash.
+        foreach ($name in 'Content.ggpk', 'gateway_list.txt') {
+            $shared = Join-Path $client $name
+            $link = Join-Path $folder $name
+            if (-not (Test-Path $shared)) { if (Test-Path $link) { Remove-Item $link -Force }; continue }
+            if (Test-Path $link) {
+                # A link to a file that has been replaced since: only this folder's link goes.
+                $a = Get-Item $link; $b = Get-Item $shared
+                if ($a.Length -ne $b.Length -or $a.LastWriteTimeUtc -ne $b.LastWriteTimeUtc) { Remove-Item $link -Force }
+            }
+            if (-not (Test-Path $link)) {
+                # A hard link needs the same volume; the shared GGPK may live on another one (the Client path can be a
+                # link to another drive), so fall back to a symbolic link to the real file.
+                try { New-Item -ItemType HardLink -Path $link -Target $shared -ErrorAction Stop | Out-Null }
+                catch {
+                    $item = Get-Item $shared -Force -ErrorAction SilentlyContinue
+                    $target = if ($item -and $item.Target) { @($item.Target)[0] } else { $shared }
+                    New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null
+                }
             }
         }
         foreach ($assets in Get-ChildItem $client -Directory | Where-Object { $_.Name -notin 'logs', 'CachedHLSLShaders' }) {
@@ -556,11 +604,14 @@ if ($Stop) {
 
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
+# A data\saves.db from before the player databases were split: the first server to start migrates it, after a copy
+# (Agents/docs/dev/databases.md).
+if (Test-Path (Join-Path $repo 'data\saves.db')) { Step 'data\saves.db is from before the split: the servers migrate it (a copy is made first)' }
 # Only a client needs Client\: the servers run from data\ alone (-NoClient, -Only).
 if (-not $NoClient -and -not $Only) {
-    Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'
+    Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client''s PathOfExile.exe (Steam: PathOfExileSteam.exe) to it'
     Need (Test-Path (Join-Path $repo 'Client\Game.patched.exe')) 'Client\Game.patched.exe missing: run GameServer.Auth patch'
-    Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+    Need ((Test-Path (Join-Path $repo 'Client\Content.ggpk')) -or (Test-Path (Join-Path $repo 'Client\Bundles2\_.index.bin'))) 'Client\ has neither Content.ggpk (standalone) nor Bundles2\_.index.bin (Steam)'
 }
 
 # The control bridge can open a closed client without restarting the servers or touching any other client.
@@ -575,6 +626,13 @@ if ($ClientOnly) {
     $python = if ($Walkmaps) { Get-Python '-Walkmaps' } else { $null }
     $existing = @(Get-OwnClients $session)
     if ($existing.Count) {
+        if ($Walkmaps -and $IsLinux) {
+            $maps = try { [IO.File]::ReadAllText("/proc/$($existing[0].ProcessId)/maps") } catch { '' }
+            $helper = [regex]::Escape((Join-Path $repo 'Tools/frida/')) + '[^/]+/proton-recorder\.so'
+            if (-not @(Get-OwnWalkmaps).Count -or $maps -notmatch $helper) {
+                throw 'Linux capture must start with the client: stop this client with -Stop -ClientOnly, then use -ClientOnly -Walkmaps'
+            }
+        }
         if ($Walkmaps) { Start-Recorder $python }
         Write-Output "client already running: $($existing[0].ProcessId)"
         return
@@ -603,10 +661,11 @@ if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
 }
 if ($Walkmaps) { $python = Get-Python '-Walkmaps' }
 
-# Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
+# The game data the servers read from the client (data/game-files.zip, the local root hash): before they start. The client
+# tables and the generated ones come from client.db, built from sql/; the full extraction is extract-data.ps1 on its own.
 if (-not $NoExtract) {
-    Step 'checking game data (a first run extracts all of it from the client, which can take a long time) ...'
-    & (Join-Path $PSScriptRoot 'extract-data.ps1')
+    Step 'checking game data (a first run extracts it from the client, which takes a few minutes) ...'
+    & (Join-Path $PSScriptRoot 'extract-data.ps1') -Servers
 }
 
 # Without this the Gateway stops after creating the player and the client never enters the area.
@@ -614,8 +673,6 @@ if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
 
 $servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
 if ($Only) { $NoClient = $true }
-# Hot reload (the Gateway under `dotnet watch`) unless -NoHotReload.
-$Watch = -not $NoHotReload -and $servers -contains 'Gateway'
 
 # This checkout's clients (every session: they lose their servers) and recorder.
 Step "stopping this checkout's previous run: $($servers -join ', ')$(if (-not $NoClient) { ', clients' }) ..."
@@ -665,8 +722,7 @@ $runs = @(Get-ChildItem (Join-Path $out 'archive') -Directory -ErrorAction Silen
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 if (-not $NoBuild) {
-    # A watched Gateway builds itself.
-    foreach ($s in ($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })) {
+    foreach ($s in $servers) {
         Step "building GameServer.$s ..."
         dotnet build (Join-Path $repo "src\GameServer.$s") -c $configuration -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
@@ -683,12 +739,7 @@ if (-not $NoBuild) {
         $projects = $mods | ForEach-Object { "  <Project Path=`"$($_.FullName.Substring($repo.Length + 1).Insert(0, '..\').Replace('\', '/'))`" />" }
         Set-Content $solution (@('<Solution>') + $projects + '</Solution>') -Encoding utf8
         $output = @(dotnet build $solution -c $configuration -v q -nologo)
-        if ($LASTEXITCODE -eq 0) {
-            # StaleModules: the modules were just checked against this Gateway, and one that did not change keeps its old date.
-            $gatewayBin = Join-Path $repo "src\GameServer.Gateway\bin\$configuration\net10.0"
-            Set-Content (Join-Path $gatewayBin 'modules-checked') (Get-Date -Format o)
-        }
-        else {
+        if ($LASTEXITCODE -ne 0) {
             $failed = @($output | ForEach-Object { if ($_ -match ':\s+error\s.*\[([^\]]+\.csproj)') { [IO.Path]::GetFileNameWithoutExtension($Matches[1]) } } | Select-Object -Unique)
             Write-Warning "did not build (run: dotnet build $solution): $(if ($failed) { $failed -join ', ' } else { 'see the command' }); the Gateway starts without them"
         }
@@ -702,7 +753,7 @@ $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
 # The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
 $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
-# Select the local Auth explicitly before the patch server or client opens the GGPK (the default stack only).
+# Select the local Auth explicitly before the patch server or client opens the client files (the default stack only).
 if (-not $NoClient -and -not $stack.Base) {
     Step 'selecting the local login server in the client data ...'
     Select-LocalGateway $stack.Ports.login
@@ -710,51 +761,50 @@ if (-not $NoClient -and -not $stack.Base) {
 
 # Only for the servers (the shell keeps its own values): this stack's ports; each connection's last packets go to a file
 # when it closes (PacketHistory, the lead for a client crash; relative to the servers' working directory, this checkout;
-# 0 turns it off); a watched Gateway reads `dotnet watch`'s own output (its stderr, below) to tell players about compile
-# errors (HotReload.cs).
+# 0 turns it off).
 $serverEnv = @{
     Game_PATCH_TCP_PORT = "$($stack.Ports.patch)"; Game_LOGIN_PORT = "$($stack.Ports.login)"
     Game_AUTH_CONTROL_PORT = "$($stack.Ports.control)"; Game_GATEWAY_PORT = "$($stack.Ports.gateway)"
     Game_PATCH_URL = if ($env:Game_PATCH_URL -and -not $stack.Base) { $env:Game_PATCH_URL } else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
     Game_PATCH_WEB_ROOT = if ($stack.Base) { $null } else { $env:Game_PATCH_WEB_ROOT }
     Game_PACKET_DUMPS = if ($env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS } else { Join-Path 'logs' 'packets' }
-    Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } else { $null }
 }
 $envBefore = @{}
 foreach ($name in $serverEnv.Keys) {
     $envBefore[$name] = [Environment]::GetEnvironmentVariable($name)
-    [Environment]::SetEnvironmentVariable($name, $serverEnv[$name])
+    # PowerShell converts $null to an empty string here; .NET on Linux preserves an empty environment value.
+    if ($null -eq $serverEnv[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+    else { [Environment]::SetEnvironmentVariable($name, $serverEnv[$name]) }
 }
 Step "starting servers: $($servers -join ', ') ..."
 try {
     foreach ($s in 'Patch', 'Gateway', 'Auth') {
         if ($servers -notcontains $s) { continue }
-        # `dotnet watch` runs the Gateway with this checkout as its working directory, like the plain start, so data\
-        # and logs\ resolve the same. --non-interactive restarts it on an edit hot reload cannot apply instead of asking.
         # Absolute paths: the command line tells this checkout's servers from another checkout's (Get-OwnServers).
         # @(...): a single value would come out as a string, and `+` would glue 'serve' onto the dll's name.
-        $command = @(if ($Watch -and $s -eq 'Gateway') { @('watch', 'run', '--project', (Join-Path $repo "src\GameServer.$s"), '--non-interactive', '--') }
-            else { Join-Path $repo "src\GameServer.$s\$bin\GameServer.$s.dll" })
+        $command = @(Join-Path $repo "src\GameServer.$s\$bin\GameServer.$s.dll")
         Start-Detached 'dotnet' ($command + $serverArgs[$s]) `
             (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
     }
 }
-finally { foreach ($name in $envBefore.Keys) { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) } }
+finally {
+    foreach ($name in $envBefore.Keys) {
+        if ($null -eq $envBefore[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+        else { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) }
+    }
+}
 
-# A watched Gateway first builds: wait until it listens, so the client does not reach a closed port.
-if ($Watch) {
-    Step 'waiting for the Gateway to build and load the game data (this is the long part, up to 3 minutes) ...'
+# Wait until the Gateway listens, so the client does not reach a closed port.
+if ($servers -contains 'Gateway') {
+    Step 'waiting for the Gateway to load the game data and modules ...'
     $waitStart = Get-Date
     $script:nextReport = 10
     $deadline = (Get-Date).AddMinutes(3)
     $gatewayLog = Join-Path $out 'live-gateway.log'
-    $gatewayLogs = @($gatewayLog, (Join-Path $out 'live-gateway.err'))
     while (-not ((Test-Path $gatewayLog) -and (Select-String -Path $gatewayLog -Pattern '\[gateway\] listening on' -Quiet))) {
-        if ((Get-Date) -gt $deadline) { throw 'the watched Gateway did not start (logs\live-gateway.log, logs\live-gateway.err)' }
-        $built = @($gatewayLogs | Where-Object { Test-Path $_ })
-        if ($built -and (Select-String -Path $built -Pattern 'Build failed|error CS' -Quiet)) {
-            throw 'the watched Gateway did not build (logs\live-gateway.log, logs\live-gateway.err)'
-        }
+        if ((Get-Date) -gt $deadline) { throw 'the Gateway did not start (logs\live-gateway.log, logs\live-gateway.err)' }
+        $err = Join-Path $out 'live-gateway.err'
+        if ((Test-Path $err) -and (Get-Item $err).Length -gt 0) { throw "the Gateway failed to start (logs\live-gateway.err):`n$(Get-Content $err -Raw)" }
         Report-Wait 'the Gateway' $waitStart $gatewayLog
         Start-Sleep -Milliseconds 500
     }
@@ -781,9 +831,7 @@ if ($servers -contains 'Patch') {
 }
 Start-Sleep -Seconds 1
 foreach ($name in ($servers | Where-Object { $_ -ne 'Patch' } | ForEach-Object { $_.ToLower() })) {
-    # `dotnet watch` writes its own status lines (hot reload applied, file updated) to stderr.
-    $err = (Get-Content (Join-Path $out "live-$name.err") -ErrorAction SilentlyContinue |
-        Where-Object { -not ($Watch -and $name -eq 'gateway' -and $_ -match '^dotnet watch ') }) -join "`n"
+    $err = (Get-Content (Join-Path $out "live-$name.err") -ErrorAction SilentlyContinue) -join "`n"
     if ($err) { throw "$name failed to start (logs\live-$name.err):`n$err" }
 }
 

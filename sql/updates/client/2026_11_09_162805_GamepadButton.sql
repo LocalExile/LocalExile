@@ -1,0 +1,23 @@
+-- Client table GamepadButton: all 21 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "GamepadButton" ("_row", "Id", "XInput", "Generic", "DualShock", "SteamInput", "DualSense") VALUES
+(0, 'DPadUp', 'D-pad Up', 'DPadUp', 'Up', 'D-pad Up', 'Up'),
+(1, 'DPadDown', 'D-pad Down', 'DPadDown', 'Down', 'D-pad Down', 'Down'),
+(2, 'DPadLeft', 'D-pad Left', 'DPadLeft', 'Left', 'D-pad Left', 'Left'),
+(3, 'DPadRight', 'D-pad Right', 'DPadRight', 'Right', 'D-pad Right', 'Right'),
+(4, 'Start', 'Menu', 'MenuButton', 'OPTIONS', 'Options', 'Options'),
+(5, 'Back', 'View', 'ViewButton', 'Touch Pad Button', 'View', 'Touch Pad Button'),
+(6, 'LeftThumb', 'LS', 'LeftStickButton', 'L3', 'L3', 'L3'),
+(7, 'RightThumb', 'RS', 'RightStickButton', 'R3', 'R3', 'R3'),
+(8, 'LeftShoulder', 'LB', 'ShoulderButtonLeft', 'L1', 'L1', 'L1'),
+(9, 'RightShoulder', 'RB', 'ShoulderButtonRight', 'R1', 'R1', 'R1'),
+(10, 'A', 'A', 'Button4', 'Cross', 'A', 'Cross'),
+(11, 'B', 'B', 'Button3', 'Circle', 'B', 'Circle'),
+(12, 'X', 'X', 'Button1', 'Triangle', 'X', 'Triangle'),
+(13, 'Y', 'Y', 'Button2', 'Square', 'Y', 'Square'),
+(14, 'LeftTrigger', 'LT', 'TriggerLeft', 'L2', 'L2', 'L2'),
+(15, 'RightTrigger', 'RT', 'TriggerRight', 'R2', 'R2', 'R2'),
+(16, 'L4', '', 'BackButtonLeft1', '', 'L4', ''),
+(17, 'R4', '', 'BackButtonRight1', '', 'R4', ''),
+(18, 'L5', '', 'BackButtonLeft2', '', 'L5', ''),
+(19, 'R5', '', 'BackButtonRight2', '', 'R5', ''),
+(20, 'Share', '', 'ShareButton', 'Share', '', 'Create');

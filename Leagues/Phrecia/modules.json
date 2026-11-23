@@ -1,6 +1,8 @@
 {
   "modules": [
+    "Core/Content/Anarchy",
     "Core/Content/Delve",
+    "Core/Content/Delirium",
     "Core/Content/Harvest",
     "Core/Content/Heist",
     "Core/Game",
@@ -18,6 +20,8 @@
     "Core/World/HideoutEditing",
     "Core/World/Portals",
     "Core/World/QuestObjects",
-    "PhreciaAscendancies"
+    "Core/World/Shrines",
+    "Legacy/Idols",
+    "Legacy/PhreciaAscendancies"
   ]
 }

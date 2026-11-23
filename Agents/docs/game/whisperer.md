@@ -1,7 +1,7 @@
 # Whisperer
 
 Whisperer is the Phrecia `Deadeye@3.29.3b` capability in
-`Modules/PhreciaAscendancies/Classes/Whisperer`.
+`Modules/Legacy/PhreciaAscendancies/Classes/Whisperer`.
 The actual Ascendancy catalog row is 4, Characters row 3 (Ranger), BaseClass 2, ClassNo 2, start 56856.
 The displayed name is not its stable ID; normal Deadeye remains a separate family.
 Admission requires `PhreciaAscendancies` in the league and `Game_VERIFIED_WHISPERER=1`.

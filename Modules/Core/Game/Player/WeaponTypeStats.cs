@@ -8,7 +8,7 @@
 // not fit it: Shield Charge, which only the off hand's shield fits.
 public static class WeaponTypeStats
 {
-    public const int Shield = 13, EmptyHand = 14;
+    public const int Bow = 9, Shield = 13, EmptyHand = 14;
 
     static readonly Dictionary<string, int> ByClass = new()
     {
@@ -16,7 +16,7 @@ public static class WeaponTypeStats
         // is_wielding_mace takes 3 and 5 in either hand and 4 in the main hand only. Which of 3 and 5 is the sceptre is
         // not decoded (no client calculator tells them apart); the order of the swords suggests the one-handed mace first.
         ["One Hand Mace"] = 3, ["Two Hand Mace"] = 4, ["Sceptre"] = 5,
-        ["Wand"] = 6, ["One Hand Axe"] = 7, ["Two Hand Axe"] = 8, ["Bow"] = 9, ["Dagger"] = 10, ["Staff"] = 11,
+        ["Wand"] = 6, ["One Hand Axe"] = 7, ["Two Hand Axe"] = 8, ["Bow"] = Bow, ["Dagger"] = 10, ["Staff"] = 11,
         ["Claw"] = 12, ["Shield"] = Shield, ["FishingRod"] = 15, ["Rune Dagger"] = 16, ["Warstaff"] = 17,
     };
 

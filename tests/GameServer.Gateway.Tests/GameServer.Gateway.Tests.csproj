@@ -20,16 +20,26 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
-    <ProjectReference Include="..\..\Modules\PlayerBots\PlayerBots.csproj" />
-    <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
-    <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
-    <ProjectReference Include="..\..\Modules\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
-    <ProjectReference Include="..\..\Modules\PhreciaAscendancies\PhreciaAscendancies.csproj" />
-    <!-- The campaign oracle plays the act tables the QuestObjects module registers (QuestEngineTests). -->
+    <ProjectReference Include="..\..\Modules\Custom\PlayerBots\PlayerBots.csproj" />
+    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
+    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
+    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
+    <ProjectReference Include="..\..\Modules\Legacy\PhreciaAscendancies\PhreciaAscendancies.csproj" />
+    <!-- The QuestObjects module's rules and acts (Act6EncounterTests, QuestEncounterRestoreTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
-    <!-- The campaign driver's dev commands (CampaignCommandTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Player\Commands\Commands.csproj" />
+    <!-- The Social module's party kick and invitation cancel (PartyKickTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\World\Portals\Portals.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Deepwater\Deepwater.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Delirium\Delirium.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\Atlas\Atlas.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\World\Shrines\Shrines.csproj" />
+    <!-- The tattoo vendor recipe (VendorTattooRecipeTests). -->
+    <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
+    <!-- Sacred Grove Crop Rotation (HarvestCropRotationTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
   </ItemGroup>
 </Project>

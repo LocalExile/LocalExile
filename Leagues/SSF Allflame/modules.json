@@ -1,6 +1,9 @@
 {
   "modules": [
+    "Core/Content/Anarchy",
+    "Core/Content/Deepwater",
     "Core/Content/Delve",
+    "Core/Content/Delirium",
     "Core/Content/Harvest",
     "Core/Content/Heist",
     "Core/Game",
@@ -17,6 +20,7 @@
     "Core/World/Atlas",
     "Core/World/HideoutEditing",
     "Core/World/Portals",
-    "Core/World/QuestObjects"
+    "Core/World/QuestObjects",
+    "Core/World/Shrines"
   ]
 }

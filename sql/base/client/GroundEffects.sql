@@ -1,0 +1,27 @@
+-- Client table GroundEffects (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "GroundEffects" (
+    "_row" INTEGER PRIMARY KEY,
+    "GroundEffectTypesKey" INTEGER,
+    "__col1" INTEGER,
+    "__col2" INTEGER,
+    "BuffVisual1" INTEGER,
+    "__col4" REAL,
+    "__col5" JSON,
+    "__col6" BOOLEAN,
+    "AOFile" JSON,
+    "__col8" JSON,
+    "EndEffect" TEXT,
+    "BuffVisual2" INTEGER,
+    "MiscObject1" INTEGER,
+    "MiscObject2" INTEGER,
+    "__col13" JSON,
+    "__col14" JSON,
+    "__col15" BOOLEAN,
+    "__col16" BOOLEAN,
+    "__col17" BOOLEAN,
+    "BuffVisual3" INTEGER,
+    "__col19" JSON,
+    "__col20" BOOLEAN,
+    "__col21" BOOLEAN,
+    "__col22" BOOLEAN
+);

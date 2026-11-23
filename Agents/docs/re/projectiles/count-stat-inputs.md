@@ -18,7 +18,7 @@ Their formulas, current effective provider values and action-local count handlin
 | `4b4b` | `virtual_total_number_of_projectiles` | `0x1400ce360` | `0x14280f470` |
 | `4b4c` | `virtual_total_number_of_arrows` | `0x1400ce400` | `0x142810190` |
 
-Keys are hexadecimal and one-based: `Stats.json[key-1].Id`.
+Keys are hexadecimal and one-based: `Stats[key-1].Id`.
 `S[k]` means a native computation-context input: cached value, otherwise the selected native provider/parent.
 It does not imply automatic recursive recalculation on an ordinary network object.
 Explicit network overrides, including zero, ordinary effective getters and computation transaction eligibility

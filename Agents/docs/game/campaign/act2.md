@@ -32,7 +32,7 @@ Quest passive points in Act 2:
 - Book of Skill from a2q5 (QSR 7).
 - Eramir's point for killing all three bandits (QSR 8).
 
-Sources: client tables (`data/tables`, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1), room text
+Sources: client tables (client.db, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1), room text
 (`lg.ps1 cat`), the unpacked `.ot`/`.it` text, the campaign's boss placement findings
 ([status](../../../status/quests.md)), and the wiki (Fandom mirror, 2026-10-30). The sections after the status are the
 research done before the act was built: their "Risks" are what was expected then, the status says how it went.
@@ -42,8 +42,7 @@ research done before the act was built: their "Risks" are what was expected then
 Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts/Act2.cs`,
 [12](../../protocol/12-quests.md) §11) and was played unattended by the campaign runner
 (`scripts/dev/campaign/quests/a2q*.py`) from `/quest_preset Act1Complete` (seed 1), before the game moved into modules;
-on the modules the oracle (`QuestEngineTests`) plays it after Act 1 to `Act2CompleteEramir`, and the offline exit audit
-(`scripts/re/exits --quests`) has every Act 2 exit at seed 1, the tree's into The Vaal Ruins included.
+on the modules the offline exit audit (`scripts/re/exits --quests`) has every Act 2 exit at seed 1, the tree's into The Vaal Ruins included.
 What the risks below predicted and how it went: Arteri, the bandit lords and the other bosses are placed (boss
 workstream, and the monster blob's InteractionAction); the Thaumetic Seal, the tree, the Ancient Seal, the Apex door and
 the Dark Altar are engine quest objects; books set their `use_flag` and give their points; Eramir's row 95 takes the
@@ -51,8 +50,9 @@ three amulets (its script names two flags); The Apex is built as a reward; `Fini
 `a2q8-KilledShadowMonster`. Found live: The Vaal Ruins had no exits and The Wetlands no tree exit (fixed: exits
 resolved by their room, numbered exit models), the Ancient Seal's static model hung the client (its record's
 `bossrelease.ao` now), and of two dialogue rows with one text the runner must take the unheard one (Yeena 133/134).
-Not done: the bandit vote (help a lord); the automation kills all three. Greust's start row needs
-`a2b-StartNewQuests`, which nothing sets this early.
+The automation kills all three bandits. Solo players can choose to help a leader through the
+[native dialogue](../../protocol/17-npcs.md). Greust's start row needs `a2b-StartNewQuests`,
+which nothing sets this early.
 
 ## Areas
 
@@ -169,7 +169,7 @@ STEPS = [
   order.
 - The Thaumetic Seal and the spike objects are not in `object-types.json`. Their components come from the `.ot` text
   above: no component outside the supported set.
-- Book use (`UseSkillBook`, `Program.Items.cs`) gives +1 passive point. It does not set the `.it` `use_flag`
+- Book use (`UseSkillBook`, `Modules/Core/Game/Item/Items.cs`) gives +1 passive point. It does not set the `.it` `use_flag`
   (`a1q9-UsedRewardBook`), so the quest log and DONE never complete. Whether the Gateway can build a Book of Skill
   as an offer item is unverified.
 
@@ -756,6 +756,20 @@ STEPS = [
     {"verb": "goto", "area": "1_3_1", "via": "transition"},
 ]
 ```
+
+### Oversoul client findings (3.29.3c)
+
+`IncaShadowBoss.act` and `IncaShadowMonster/rig.amd` give a 27 s initial `emerge`, 1.133 s hand turns,
+0.8 s burrow/rise clips and 20 s death clips. `stance2` is the meat hand, `stance3` the claw; the default is bone.
+The spray contacts are in the actor's `.ao`, not only the rig's `.amd`. Ice projectile animation 1 is flight,
+0 is impact; the summon projectile uses 0 for flight and 1 for impact.
+
+Live, the travel action left Positioned x/y stretches at zero: the actor executed attacks but its body was invisible.
+S→C `0x2bc` to component 0, LE mask `0x20` plus three f32 values `(1,1,1)`, restores the ordinary model.
+The scale needs restoration on resurfacing as well as the clip; an initial update alone does not survive the burrow.
+The actions also need their `0x1ac` acknowledgement; without it, a pending action could remain behind an idle clip.
+Campaign level 23 uses effect level 1, not 23 (`MaxLevelAt(effect, monsterLevel)`).
+The `.ais` is absent from the archive; exact official decision weights and cooldowns are not recoverable from these assets.
 
 ### Risks
 - **The Vaal Oversoul is scripted:**

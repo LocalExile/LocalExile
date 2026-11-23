@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
 
 /// <summary>
 /// The quest objects the engine creates itself (Quests.ObjectRule, ChestRule; Agents/docs/protocol/12-quests.md §5): what
@@ -9,8 +10,14 @@ using GameServer.Data.Terrain.Generation;
 /// <para>Quest chests without an .ot of their own (the Golden Hand's altar, Victario's stashes, Siosa's book stands) are
 /// Chests.dat rows: the client builds them from InheritsFrom (QuestChest), with the row's AOFiles model.</para>
 /// </summary>
-static class QuestObjectTypes
+public static class QuestObjectTypes
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Catalog = Load();
+    }
+
     /// <summary>A quest object type: its deserialized components in order, Transitionable's last state (2 when the .ot
     /// does not say), its Positioned size (object_size − 1, at least 1), whether it blocks, and the model when the type
     /// has no Animated model of its own (a Chests.dat row's AOFiles).</summary>
@@ -19,6 +26,10 @@ static class QuestObjectTypes
         /// <summary>Whether the .ot names its own model (Animated animated_object); one that does not takes the placing
         /// line's (the Aspirants' Plaza's LabyrinthAirlockPortal, LabyrinthAirlockPortal.ao in airlock.arm).</summary>
         public bool OwnModel { get; init; } = true;
+        public string? AnimatedModel { get; init; }
+        /// <summary>The .ot's Positioned <c>static</c>: unless the object is sent with no static position (flags1 0x20),
+        /// the client stamps its model's Hull into the walk grid when it creates it (0x141d8bd20).</summary>
+        public bool Static { get; init; }
     }
 
     /// <summary>Tile objects the quest engine may create: quest objects, quest chests, the Dark Altar and the quest
@@ -26,53 +37,43 @@ static class QuestObjectTypes
     public static bool IsTileQuestObject(string type) =>
         type.StartsWith("Metadata/QuestObjects/", StringComparison.Ordinal) || type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Monsters/IncaShadowBoss/", StringComparison.Ordinal)
+        || type.StartsWith("Metadata/Monsters/Doedre/DoedreSewer/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Terrain/", StringComparison.Ordinal) && type.Contains("/Objects/", StringComparison.Ordinal);
 
-    public static Info? Find(string type) => Catalog.Value.GetValueOrDefault(type);
+    public static Info? Find(string type) => Catalog.GetValueOrDefault(type);
 
     /// <summary>Quest doors that open in place (0x2bc Transitionable plays their .ot's on_transition, 0x1c6 lifts their
     /// TriggerableBlockage) instead of being created again open: the Aspirants' Plaza's door, whose opening the user
     /// missed (live 2026-11-03).</summary>
     public static bool OpensInPlace(string type) => type == "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor";
 
-    static readonly Lazy<Dictionary<string, Info>> Catalog = new(() => Load());
+    static Dictionary<string, Info> Catalog = default!;
 
-    public static Dictionary<string, Info> Load(string folder = "data")
+    public static Dictionary<string, Info> Load()
     {
         var types = new Dictionary<string, Info>(StringComparer.Ordinal);
-        string file = Path.Combine(folder, "object-types.json");
-        if (!File.Exists(file)) return types;
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(file)))
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
-            {
-                string id = t.GetProperty("type").GetString() ?? "";
-                int read = t.GetProperty("read").GetInt32();
-                var components = t.GetProperty("components").EnumerateArray().Select(c => c.GetString() ?? "").Take(read).ToList();
-                int states = t.TryGetProperty("transitionable", out var tr) && tr.ValueKind == JsonValueKind.Object
-                    && tr.TryGetProperty("num_states", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetInt32() : 2;
-                int size = 1;
-                bool blocking = false;
-                if (t.TryGetProperty("positioned", out var pos) && pos.ValueKind == JsonValueKind.Object)
-                {
-                    if (pos.TryGetProperty("object_size", out var os) && int.TryParse(os.GetString(), out int s)) size = Math.Max(1, s - 1);
-                    blocking = pos.TryGetProperty("blocking", out var b) && b.GetString() == "true";
-                }
-                types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
-                {
-                    OwnModel = !components.Contains("Animated") || t.TryGetProperty("animated_object", out var ao) && ao.ValueKind == JsonValueKind.String,
-                };
-            }
-        // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
-        string chests = Path.Combine(folder, "tables", "Chests.json");
-        if (File.Exists(chests))
+        foreach (var (id, t) in ObjectTypes.All())
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(chests));
-            foreach (var r in doc.RootElement.EnumerateArray())
+            var components = ObjectTypes.Components(t);
+            int states = t.IntOrNull("transitionable_num_states") ?? 2;
+            int size = t.TextOrNull("positioned_object_size") is { } os && int.TryParse(os, out int s) ? Math.Max(1, s - 1) : 1;
+            bool blocking = ObjectTypes.Flag(t, "positioned_blocking") == true;
+            types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
             {
-                if (r.GetProperty("Id").GetString() is not { Length: > 0 } id || !id.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)) continue;
-                string? model = r.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString();
+                AnimatedModel = t.TextOrNull("animated_object"),
+                OwnModel = !components.Contains("Animated") || t.TextOrNull("animated_object") is not null,
+                Static = ObjectTypes.Flag(t, "positioned_static") == true,
+            };
+        }
+        // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
+        if (ClientTables.Has("Chests"))
+        {
+            foreach (var r in ClientTables.Table("Chests"))
+            {
+                if (r.Text("Id") is not { Length: > 0 } id || !id.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)) continue;
+                string? model = r.Texts("AOFiles").FirstOrDefault();
                 if (types.TryGetValue(id, out var own)) { types[id] = own with { Model = model }; continue; }
-                if (r.GetProperty("InheritsFrom").GetString() is { } parent && types.TryGetValue(parent, out var basis))
+                if (r.Text("InheritsFrom") is { } parent && types.TryGetValue(parent, out var basis))
                     types[id] = basis with { Type = id, Model = model };
             }
         }

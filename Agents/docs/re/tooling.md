@@ -34,6 +34,77 @@ only ERROR/Exception/SCRIPT lines (`GLINES=<n>` for more). Arguments go through 
 | `ReadSchema.java` | `<out.json> <components.json> [factory:a+b] [only:f+g] [withc]` | read-sequence summaries (section 7) |
 | `SendSites.java` | `<out.json> [send:0xaddr/REG+…]` | every call of a send function (default the instance send `0x1421752b0`, message in RDX) resolved over the CFG to its (vtable, id) pairs, path by path (section 7) |
 
+### Headless heap and analysis troubleshooting
+
+`support/analyzeHeadless.bat` uses `GHIDRA_HEADLESS_MAXMEM`, falling back to `GHIDRA_MAXMEM`, then 2G.
+For example, `$env:GHIDRA_HEADLESS_MAXMEM = '16G'` in PowerShell raises the Java heap limit for that shell's
+headless runs; choose a limit that leaves RAM for Windows and other processes.
+`support/launch.bat` does read `support/launch.properties`, but places the launcher's `-Xmx` after that file's
+VM arguments. A heap setting in `launch.properties` therefore does not replace the headless limit.
+Extra `-Xmx` arguments in `GHIDRA_JAVA_OPTIONS` or `GHIDRA_HEADLESS_JAVA_OPTIONS` come last and can override it.
+
+An out-of-memory error during analysis may need both more heap and fewer analysis passes.
+The log's stack trace identifies the failing analyzer; a pre-script can disable its **bare option name** before
+analysis. Sub-options such as `ASCII Strings.Minimum string length` do not disable the analyzer itself.
+Save this helper as `Tools/re/LocalAnalysisOptions.java` (local, ignored):
+
+```java
+import ghidra.app.script.GhidraScript;
+
+public class LocalAnalysisOptions extends GhidraScript {
+    @Override
+    public void run() {
+        var options = getCurrentAnalysisOptionsAndValues(currentProgram);
+        var names = getScriptArgs();
+        if (names.length == 0) {
+            options.entrySet().stream().sorted(java.util.Map.Entry.comparingByKey())
+                .forEach(entry -> println(entry.getKey() + " = " + entry.getValue()));
+            return;
+        }
+        for (String name : names) {
+            if (!options.containsKey(name)) {
+                throw new IllegalArgumentException("Unknown analysis option: " + name);
+            }
+            setAnalysisOption(currentProgram, name, "false");
+        }
+    }
+}
+```
+
+With no script arguments it lists the installed program's options. For an already imported `PathOfExile.exe`,
+this example resumes analysis with Microsoft demangling disabled and saves the result:
+
+```powershell
+$ghidraDir = Join-Path $PWD 'Tools/ghidra_12.1.4_PUBLIC_20260921/ghidra_12.1.4_PUBLIC'
+$projectDir = Join-Path $PWD 'Tools/ghidra-projects'
+$env:JAVA_HOME = Join-Path $PWD 'Tools/jdk-21'
+$env:GHIDRA_HEADLESS_MAXMEM = '16G'
+& "$ghidraDir/support/analyzeHeadless.bat" $projectDir poe3293 `
+    -process PathOfExile.exe -scriptPath Tools/re `
+    -preScript LocalAnalysisOptions.java 'Demangler Microsoft' `
+    -log Tools/re/headless-analysis.log -scriptlog Tools/re/headless-script.log
+```
+
+For inspection alone, the same command with `-noanalysis -readOnly` and no argument after
+`LocalAnalysisOptions.java` lists options without saving. Analysis options persist in a saved project.
+Ghidra rejects project paths containing a dot-prefixed component, such as a `.codex` worktree. In that case,
+`$projectDir` must point to the imported project outside that tree; the script path can still use the worktree.
+Other option names from the reduced-pass recipe are `Windows x86 PE RTTI Analyzer`, `Decompiler Parameter ID`,
+`Call Convention ID`, `Apply Data Archives`, `Create Address Tables`, `ASCII Strings`, `Embedded Media`,
+`Aggressive Instruction Finder`, `Non-Returning Functions - Known`, `Non-Returning Functions - Discovered` and
+`Stack`. Disable only the passes implicated by the failure: omitting them sacrifices their types, strings,
+function or stack recovery. A reduced pass is not a fully analyzed project, and there is no fixed completion time.
+
+`-noanalysis` skips automatic analysis; it is for querying an analyzed project, not a substitute for preparing a
+fresh import. Failed decompilation or `halt_baddata()` alone does not prove that missing analysis is the cause.
+The `g.sh` and `run.ps1` wrappers above deliberately use `-noanalysis -readOnly`; a retry that must save analysis
+uses the headless launcher directly, as above.
+
+The Java requirement is version-specific: Ghidra 12.2 declares `application.java.min=25` in
+`Ghidra/application.properties`. Its launcher needs a matching JDK 25 or later; this repository's 12.1.x/JDK 21
+wrapper paths do not select that toolchain. The installed launcher files, that properties file and Ghidra's
+`GetAndSetAnalysisOptionsScript.java` example are the references for these settings.
+
 ### Full decompilation dump (grep before you run Ghidra)
 
 `Tools/re/out/decomp-all/` (git-ignored, never commit it) holds the whole client decompiled, one file per function:
@@ -102,6 +173,21 @@ It uses `GameServer.Data`'s `GameFileSystem` (bundle index + bundles) and a Node
 the client runs. The bundle index also stores every path (about 1.2 million): `list <regex>` as the first path prints the matching
 ones (e.g. `dotnet run --project scripts/re/ggdump -- Client/Content.ggpk out list "beachtown_v2/"`). `.ot` files are UTF-16
 with a BOM; `.datc64` files are rows followed by `0xbb×8` and the variable data section.
+
+In a contributor's test on 2026-11-20, a copy of the 3.29.3c release client loaded a custom index and bundle and
+displayed the supplied tables and art.
+- A chunk may be one uncompressed Kraken block: `CC 06` and up to 262,144 bytes as they are (the chunk's size is 2 more).
+  The client's `OodleLZ_Decompress` (`0x142c9d520`) unpacked the stored bytes. The same raw payload failed with
+  `8C 06` in place of `CC 06` and when supplied without a block header.
+- The bundle header's u32 at offset 16 is 1 in the client's own index. The test index with 0 there closed the client
+  during startup, before `[ENGINE] Ready` in the log. With 1 the client loaded the index.
+- The index's file records are not sorted by hash. A new file's record added at the end, with its path added to its
+  directory's block, is found.
+- A directory record's hash is MurmurHash64A (seed `0x1337b33f`) of the lower-case directory path without a trailing
+  slash: true of all 74,033 directories that have files of their own in 3.29.3c. Each block lists one directory's files. The other 12,176
+  records yield no file paths when decoded.
+- `art/uiimages1.txt` is UTF-16LE without a BOM, a line per sprite: `"<name>" "<texture>.dds" x1 y1 x2 y2`. For
+  `InGame/BreachItemSymbol` both coordinate differences are 43. For its `InGame/4K/` variant both are 58.
 
 ## 4. Frida through REA (live client)
 
@@ -190,6 +276,12 @@ call. There is no `cdb`/WinDbg installed.
 | C→S messages | `bash scripts/re/ghidra/g.sh SendSites.java 'C:\…\Tools\re\out\sendsites.json'` (15 s), then `python -I scripts/re/c2s_md.py` | [../protocol/c2s.md](../protocol/c2s.md): every client → server message of the instance, login and patch connections with its class, writer, length and senders. Senders outside `0x1421752b0` are a hand table in the script. Exit 1 if an exact length disagrees with the Gateway's `KnownClientLength` |
 | Live check | `common.js` + `frida/check-components.js` (section 4) | bytes per component of every object the server sends |
 
+The offline command `python -I scripts/re/c2s_md.py --instance-length-candidates` reads the checked-in
+[message inventory](../protocol/c2s.json) using only the Python standard library.
+It writes sorted C# switch arms for exact instance lengths to standard output and the fixed-table audit to standard error.
+The plaintext opening, dedicated framer IDs and messages without an exact length stay outside the candidate table.
+A mismatch or a fixed ID missing from the inventory stops candidate output.
+
 Rules the generators rely on (all from the code, see the script headers): the object-type constructor `0x141ec7c10`
 creates Positioned first; `.ot` sections merge parent-first with the first position kept; `type+0x80` components (the
 non-client ones) are deserialized; live objects often use a subclass vtable (`ClientPlayer`, `ClientActor`,
@@ -230,8 +322,8 @@ These passes also need Python with `capstone` and `pefile`, and Unicorn in `Tool
 | `content/files/`, `content/textures/`, `content/extensions.tsv` | every GGPK file, NTFS-compressed only when free space is short (`.dds` 94 GB, 1.5:1 with LZX); the index's size per extension |
 
 Measured on Game.exe: `.pdata` adds only 71 functions to the analysis (it had the rest), and after the fragment and switch
-passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `Client/PathOfExile.exe` here is only the first 1.7 MB of `Game.exe`, so its headers
-describe code the file lacks; do not analyze it. A decompile's quality is capped by the binary: locals and most functions have no names.
+passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `Client/PathOfExile.exe` can be only the first bytes of `Game.exe`,
+or a copy of it; the script skips both. A decompile's quality is capped by the binary: locals and most functions have no names.
 
 `NightRetry.java` gives failed functions a long timeout and falls back to p-code, which the earlier decompiler passes can
 still return (they print no C); such a file says so on its second line. Measured on this laptop:
@@ -283,7 +375,12 @@ Other formats:
   ooz-wasm rejects nine small blocks at their real size. Eight unpack with a larger output buffer, and their tracks parse from
   the first `size` bytes; `art/models/cinematic/facecrack/effects/rig.ast` (Leviathan) does not.
 - `<file>.header` repeats what the client needs before streaming the file (`0x1411ce9f0`, `0x1411ceef0`, `0x141149220`, u64
-  counts, padded with zeros): `.dds.header` holds the DDS header and smallest mips.
+  counts, padded with zeros): `.dds.header` holds the DDS header and smallest mips. For the Chaos Orb icon
+  (`Art/2DItems/Currency/CurrencyRerollRare.dds`, 80×80) the `.dds` is a DX10 DDS, DXGI format 28 (R8G8B8A8,
+  uncompressed), every mip down to 1×1; its `.dds.header` is u32 3, width, height, mip count, 21 (meaning unknown), the
+  size of the DDS that follows, the `.dds` file's size, then a legacy DDS (masks `ff`, `ff00`, `ff0000`, `ff000000`) of
+  its five smallest mips (20, 10, 5, 2, 1 pixels wide). A pair written to that layout shows as the item's art
+  in the client (live 2026-11-20).
 - `.tdt` (`0x1429fc500`): a file with a parent has a mask byte saying which groups it overrides. Grids are LZ4 blocks that
   unpack to 1, 2, 4 or 8 bits per cell plus a palette (`0x1429ff000`). Names of its later fields are not known.
 - `.mtp` (`0x141178730`) is a texture atlas keyed by `.tdt` path, `.pjd` (`0x141f03cf0`) three record lists with ranges into
@@ -322,6 +419,12 @@ Other formats:
 
 How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by offset guessing.
 
+A build whose functions did not move (`compare_builds.py` passes its first two checks) needs none of this for the
+decompile: `port_build.py <old exe> <new exe> <old full/game> <new game dir> [--index-only]` rewrites the data
+addresses of section 9's output in minutes and lists what it cannot prove. Two surprises: strings change text in place
+(the build number, and the per-compile hash in anonymous-namespace names `?A0x…`), and constants one build folded into
+one address can be separate in the other, so an address can have several new ones.
+
 1. **Address map.** Import and analyze the new executable into a separate Ghidra project, add the old one, and run
    `AutoVersionTrackingScript.java` with `PortVtOptions.java` as the first post-script (the stock options without the
    duplicate-function correlator, which ran for hours without finishing). Run `NightRecover.java` and
@@ -348,3 +451,91 @@ How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by of
    name (`byte_table_0x…`) is not matched. `rewrite_message_ids.py <report.tsv> --shift first:last:delta …` moves
    message ids; its report needs reading line by line, since stat keys, offsets after another id (`0x22 + 0x2b9`) and
    ClientStrings rows share the range. Re-check every script's code signature against the new executable.
+
+**The already-supported 3.29.3.5 hotfix.** Its `PathOfExile.exe` (build 328126, still "3.29.3c") has the 3.29.3c release's
+sections and all 148,967 `.pdata` functions at the same addresses. Most `.text` differences reference moved data,
+but a fresh comparison also reports four changed immediates (`0x140e61a01`, `0x14182f300`, `0x142e15d25`,
+`0x142e15d49`) and two changed fields outside `.pdata` spans (`0x1420f4065`, `0x1420f4071`). Their semantics remain
+unresolved; the comparator reports **not proven equal**, not unconditional whole-program equivalence.
+Selected network contracts are checked separately below. Globals, vtables and strings move, so a script needs the
+hotfix value. The login-key offset (`0x2fc91f0`) and the HNC mask are equal. The patch changed only
+`Bundles2/Tiny_02.bundle.bin` and the index: no table, and one server-read file
+(`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`).
+
+**The already-supported 3.29.3d** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
+sections and `.pdata` functions. Of 234,255 changed instructions all but two refer to data that moved; the two
+(`0x140ead440`, `0x140ead44c`, and the same pair again at `0x140ead804` and `0x140ead80d`) swap the thread-local
+offsets `0x6f0` and `0x6f8` of two variables. The HNC mask is at `0x142feaeb0`, 0x20 lower. All 942 tables and
+the 132,753 files `game-pack pack` takes are identical.
+The changed offsets are observed; equivalence of the affected TLS state is unresolved. Equal selected network
+contracts below do not resolve these whole-program comparator exceptions or change the admission rule.
+
+**A build that needs no port gets a row in `ClientBuilds`** (`src/GameServer.Core/Protocol/ClientBuilds.cs`).
+LocalExile runs only the builds listed there, each recognized by the SHA-256 of its unpatched executable; the launcher,
+Auth's `keygen` and `patch` and the constants extraction refuse any other. To add one:
+
+1. `python -I scripts/re/port/compare_builds.py <allowed exe> <new exe> <the allowed build's mask VA>` (needs capstone)
+   must end in "same code": equal sections and `.pdata` functions, and every changed instruction a reference to data
+   that moved. It prints the new build's mask address and lists whatever a person has to judge.
+2. Decode both clients' tables (`PoEDataExtractor decode`) and run `compare_tables.py`: no difference. Compare the
+   other files the servers read too (`game-pack pack` on each client), and look at each one that differs.
+3. `SteamIndexSha256` is the hash of `Bundles2/_.index.bin`. The standalone client holds the same file inside
+   `Content.ggpk` (`PoEDataExtractor raw`): for 3.29.3.5 and 3.29.3d it is byte-identical to Steam's loose one, as
+   `PathOfExileSteam.exe` is to `PathOfExile.exe`. `SteamManifests` are the depots' manifests in Steam's
+   `steamapps\appmanifest_238960.acf` while that build is installed.
+   For a build Steam no longer installs, the ids come from the depots' manifest history. A depot's manifest lists
+   every file with its SHA-1, so two manifests compare file by file, and the executables manifest is the one whose
+   `PathOfExileSteam.exe` has the row's hash: two can appear seconds apart, as for the 3.29.3c release.
+4. Add the row, then play the live checklist on that build.
+
+5. Give the live scripts the build. Their data addresses are the 3.29.3c release's, and each of
+   `scripts/re/frida/common.js`, `check-components.js`, `trace-action-state.js`, `sniff-support-geometry.js` and
+   `scripts/walkmaps/walkmaps.js` lists in `MOVED` where they sit in every later build, told apart by the
+   executable's link time. `compare_builds.py <3.29.3c release exe> <new exe> --data-map <script>...` prints a
+   table's rows; for `common.js` pass the traces that have no `at()` of their own. `client-control.js` and
+   `nullifier.js` find their globals through the code that uses them (`globalAt`) and need nothing.
+   A table lists every data address its script uses, also the ones that stay, so a missing one is one nobody checked:
+   on a later build `at()` then sends a `notice` once and uses the address as written, and `va()` gives a data address
+   it cannot translate back with the build it was read on (`0x1436b0000@3.29.3d`). Neither stops the script. Run the
+   same command again after adding a data address to a script.
+
+The 3.29.3.5 hotfix moved 259 of the 365 data addresses those scripts use, and 3.29.3d moved 361. The linker also
+changes which of several identical functions a class table's entry names, so a class table is not always
+byte-equal between two builds with the same code.
+
+A moved function or a changed table is a port: the first list of this section.
+
+### Network contract evidence
+
+`scripts/re/port/network_contracts.json` pins the originals by full SHA-256: historical 3.29.3b, 3.29.3c release,
+3.29.3.5 hotfix and 3.29.3d. It retains function spans, field-reading instructions, the correction/teleport/removal
+switch routes and build-specific data targets for the Predictive investigation. Labels are analyst names.
+Structural matches normalize calls and RIP-relative operands; they do not prove every callee or referenced datum
+equivalent. The manifest distinguishes selected callee checks and unresolved comparator exceptions.
+
+From the checkout root, with Python and Capstone installed (`python -m pip install capstone`), run:
+
+```powershell
+python -I scripts/re/port/verify_network_contracts.py --client "C:\clients\3.29.3b\PathOfExile.exe" --client "C:\clients\3.29.3c\PathOfExile.exe" --client "C:\clients\3.29.3.5\PathOfExile.exe" --client "C:\clients\3.29.3d\PathOfExile.exe" --require-all
+```
+
+Replace the four paths with retained **unpatched originals**. The command reads them without writing; each result
+must have an empty `errors` list, `missing_builds` must be empty, and exit status must be 0. A single `--client`
+checks that build only; omit `--require-all` for that case. Unknown hashes are refused. Byte/span checks reproduce
+the retained observations; they are not whole-program or live gameplay parity tests.
+
+The 0x128 route maps from 3.29.3b `0x14214ef81` to `0x1421558d1` in all three later executables. The client skips
+it in Lockstep; Predictive applies its distance tests to the player-first snapshot, as described in
+[07 §5](../protocol/07-latency-visibility-movement.md). Actor 0x1ac decrements `+0x22c` before the mode branch;
+the Predictive branch releases an eligible server-created action. It is not a generic action stop.
+
+The native manifest records the position-tracking field evidence for the three supported originals:
+message kind `+8`, object id `+0x10`, Actor local flag `+0x1c8`, Actor `+8` → entity `+0x98` → Positioned,
+grid coordinates `+0x294/+0x298`, and movement-step duration `+0x240`. Position tracking reads no absolute globals.
+The world handler takes its message in the second argument; the third register is not a second candidate message.
+The sampled movement indicator means nonzero step duration, not independently measured velocity.
+
+Review of GGG/retail Predictive behavior supports player-first correction ordering. This finding does not establish
+a universal correction radius or send timer. The executable checks above independently verify the selected
+client-side contracts; they do not reproduce GGG's server implementation or prove gameplay parity.
+These findings concern 3.29; message-id mappings must follow the relevant build rather than importing 3.30 mappings.

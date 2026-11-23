@@ -5,34 +5,43 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters: [17](../docs/protocol/17-npcs.md).
+- Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters; campaign Lilly saves her account shop
+  unlock after her introduction: [17](../docs/protocol/17-npcs.md).
+- Gold gambling at the gamble NPCs (black-market window, 3.29 prices and rolls): [17](../docs/protocol/17-npcs.md) §5.
+- `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
 
-- Chat commands `/commands` (`/com`; paged, `/com <name>` for one), `/raw <hex>`, `/set_stat`, `/set_speed`,
-  `/set_level <1 to 100>` (saved to the account, sent in place), `/add_passive_points <n>`, `/add_passive <id>`
-  (replies as chat lines).
+- Chat commands `/commands` (`/com`; paged, `/com <name>` for one; replies as chat lines). The development commands
+  `/raw <hex>`, `/set_stat`, `/set_speed`, `/set_level <1 to 100>` (saved to the account, sent in place),
+  `/add_passive_points <n>` and `/add_passive <id>` are the `gm-commands` mod (LocalExile-Mods, `GmCommands.cs`).
   Code: `Program.Commands.cs` (`Commands`), `ChatCommands.cs`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md).
 - Chat lines and channels (the `Chat` module): local lines go to the players of the instance, `#` global, `$` trade and
   `@Name` whispers go through a chat server, so players of separate Gateways can talk.
-  Each Gateway runs a local chat server; a mod (`UseChatServer`: `globalchat` in LocalExile-Mods) moves its players to another server, and
+  Each Gateway runs a local chat server; a mod (`ChatRoutes.Use`: `globalchat` in LocalExile-Mods) moves its players to another server, and
   disabling the mod moves them back. When that server fails a player is told in chat and stays local, trying again at an area change a minute later.
   `src/GameServer.Chat` is the server to host; it stores nothing.
   An item linked with Ctrl+Alt+click from an inventory or the stash shows as a link in the line (C→S 0x12, S→C 0x17).
+  Chat-server frame cleanup preserves original item marks in automated checks; native presentation remains unverified.
   The global and trade channel joins (C→S 0x134, after entering an area and for `/global N` and `/trade N`) are
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
   The client joins once per session, so every area entry sends 0x135 for the channels already joined.
-  Party and guild lines are not sent. A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
-  Code: `Modules/Core/Player/Chat`, `src/GameServer.Core/Chat`.
+  Guild lines are not sent. A `%` party line reaches every member of the sender's party, in whatever area each one is
+  (S→C 0x17 with the sender prefixed `%`); a player in no party is sent none (tested, not yet checked with the real
+  client).
+  A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
+  Code: `Modules/Core/Player/Chat`, `Modules/Core/Player/Social`, `src/GameServer.Core/Chat`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §6.
 - NPCs in every campaign town (acts 1-10, Oriath, the Karui Shores): each town room's own NPC lines, placed as the
   client places the room (checked against its walk-map capture of every town), with name, minimap icon, model and
   facing.
+  Estimated placements on blocked cells move to nearby walkable ground. Room placements and editable hideout furniture keep their coordinates.
   Their collision footprints now come from inherited OT metadata, including later-act NPC Id aliases.
   The shared routing and overlap correction covers spawned NPCs in towns and hideouts.
   Native walking respected the three NPCs and both stashes in Lioneye's Watch; the guild stash receives
   its native HaveGuild access flag when locally available, so its client collision matches the server.
   League NPCs and later quest stages are not placed ([17](../docs/protocol/17-npcs.md) §2).
+  Niko also stands in Act 4 Highgate at the player's confirmed position and facing.
   Clicking walks to them and opens the dialogue window (S→C 0x84); talk options play (0x82 → 0x84 + index);
   Continue and Goodbye (C→S 0x85) are answered; Purchase Items opens the shop (S→C 0xc0 manager 1 + 0x8c) and buying
   (C→S 0x88) uses item-specific prices; Sell Items: the sell window (S→C 0xb8) takes drops, Ctrl + click (first free
@@ -43,6 +52,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Identify Items identifies the inventory for free, prints "N Items identified" in chat (S→C 0x17) and grays the
   option; `/npc`, `/npcs`, `/pos`.
   Dialogue options now enforce their required/excluded quest flags and save their start/finish flags.
+  Ctrl, Alt or both held on the click open the option NPCTalk gives that shortcut at once (Nessa: sell, buy, identify).
   Code: `InstanceNpcs.cs`, `NpcCatalog.cs`, `TownNpcs.cs`, Gateway (`SpawnTownNpcs`, `TalkToNpc`).
   Docs: [17](../docs/protocol/17-npcs.md).
 
@@ -55,7 +65,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   A member who follows another into an area joins their instance.
   The party bonus follows the client's rules (monster life by rarity, currency items) and its icons (S→C 0x231).
   "Leave Party" removes the player, and a party left with one member is disbanded on both clients.
-  Decline, kicks and disconnects are open.
+  Kick and cancel invitation (C→S 0x94) remove a member or drop a pending invitation: the removed player is told (S→C
+  0xaa), the rest get the smaller party list (S→C 0xa9), and a party left with one member is disbanded as on Leave.
+  Party rows carry each member's area; campaign travel and quest-gate refusal were checked through the native client.
+  Native map travel arrives outside the owner's device, spends its shared portals on entry and returns to that source ([28](../docs/protocol/28-player-trade.md)).
+  Decline and disconnects are open.
+  Decline and human-only disconnect cleanup remain open.
   See [28](../docs/protocol/28-player-trade.md) §5.
   Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
   Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.
@@ -70,6 +85,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
+
+- Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
+  Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written and not yet played.
+  Faustus stands in every hideout; his dialogue option there is not yet played.
+  See [29](../docs/protocol/29-currency-exchange.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.
@@ -94,23 +115,30 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
 - Captured gem grouping is restored; uncaptured classes/vendors use documented ordering, and Kirac refresh UI remains open.
+- Campaign lore interactables (`Metadata/NPC/Info/*` from rooms and tiles, including Letters of Exile, Weathered
+  Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components
+  and read/close via `0x84`/`0x85` (not checked live). Docs: [17](../docs/protocol/17-npcs.md).
 - Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
   `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
-  Players see them walk with their class model and gear.
+  Town bots are not drawn: since the area replicates its own entities, a bot is not yet one of them (party followers,
+  which are controlled players, are).
   Each campaign town maintains 2–5 residents with native level display (Act 1: 1–3; Act 10: 59–75; intermediate acts interpolate the center with ±5).
   Invited bots keep their town-selected level across zones and grow through earned experience, without scaling to monster levels.
   Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,
   damage, resurrection and persisted kill/gem experience, shared for melee, projectile and owned kills.
   Observers receive earned experience, level stats and the default level-up flash; active-party reload retains earned XP.
-  The native party-menu kick removes any selected bot.
-  Followers stand calmly within 60 cells of an idle leader, with rare short adjustments, and enter on clear cells ahead of the entrance.
+  The native party-menu kick removes any selected bot; `/botinvite <name>` and `/botleave` do the invite and the leave
+  from chat, and an invite also matches a bot standing in the player's town that has not been published to them yet
+  (a module reload clears that flag until the bot's next update).
+  Followers stay within 60 cells with rare idle adjustments, retry rejected steps, and enter ahead on clear cells.
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
   Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
-  Optional [MCP control](../../Modules/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
+  Optional [MCP control](../../Modules/Custom/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
+  Human friends and town-invited bots share one six-member roster, including kicks, leader handover and area changes.
   Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
   trade, chat, ascendancy builds and advanced tactical AI remain open.
   See [player bots](../docs/dev/player-bots.md).

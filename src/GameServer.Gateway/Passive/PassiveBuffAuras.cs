@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 using DamageConversion = GameServer.Core.World.DamageConversion;
 
 /// <summary>
@@ -13,7 +14,7 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// One table, three views, each limited to the templates whose stats have a consumer:
 /// <list type="bullet">
 /// <item>enemy auras (<see cref="EnemyAurasFor"/>, Game.EnemyAuraActs): Light of Divinity's elemental damage taken,
-/// Born under Fire's hit conversion and the <c>SaboteurBlind</c> blind (Devout of Solaris, Born in the Shadows: a
+/// Born under Fire's hit conversion, Overwhelm's crit multiplier and the <c>SaboteurBlind</c> blind (Devout of Solaris, Born in the Shadows: a
 /// stat-less generic_buff_aura, shown on monsters as BuffDefinitions <c>blinded</c>). Game.EnemyDebuffsTick puts
 /// them on every living hostile monster within their radius of the living player; hits read them.</item>
 /// <item>player-and-ally auras (<see cref="AllyAurasFor"/>): the relic trigger (Program.TriggerElementalRelicLocked).</item>
@@ -23,8 +24,15 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// pulse, Chieftain's while stationary) and are not applied.</item>
 /// </list>
 /// </summary>
-static class PassiveBuffAuras
+public static class PassiveBuffAuras
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        normal = Load("data", ruthless: false);
+        ruthlessAuras = Load("data", ruthless: true);
+    }
+
     /// <summary>A passive's buff: its BuffTemplates row and Id, BuffDefinitions row, radius (cells, 0 on the player),
     /// whom it affects (<c>__col4</c>) and its stats.</summary>
     public sealed record Aura(int Row, string Template, ushort Definition, int Radius, IReadOnlyList<int> Targets,
@@ -41,10 +49,11 @@ static class PassiveBuffAuras
     static readonly HashSet<string> EnemyAuraTemplates =
     [
         "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken", // Paladin Light of Divinity: 2551 Augury of Penitence
+        "SlayerCritMultiplier", // Slayer Overwhelm: 1343 slayer_crit_multi_aura, -30 to their crits on the player
     ];
 
     /// <summary>The passive blind aura: every enemy in it is Blinded (Game.Blinded).</summary>
-    internal const string BlindTemplate = "SaboteurBlind";
+    public const string BlindTemplate = "SaboteurBlind";
 
     // On the player and his allies within the radius.
     static readonly HashSet<string> AllyAuraTemplates =
@@ -59,34 +68,34 @@ static class PassiveBuffAuras
         "CustomAscendancyIllegalFisherman", // Surfcaster Ghost of the Deep: BuffDefinitions 2550 Torment Touched
     ];
 
-    static readonly Lazy<Dictionary<ushort, Aura[]>> normal = new(() => Load("data", ruthless: false));
-    static readonly Lazy<Dictionary<ushort, Aura[]>> ruthlessAuras = new(() => Load("data", ruthless: true));
+    static Dictionary<ushort, Aura[]> normal = default!;
+    static Dictionary<ushort, Aura[]> ruthlessAuras = default!;
 
     /// <summary>Every buff of these nodes (PassiveSkillGraphIds), one per template however many nodes grant it.</summary>
     public static IReadOnlyList<Aura> For(IEnumerable<ushort> nodes, bool ruthless = false) =>
-        [.. nodes.SelectMany(n => (ruthless ? ruthlessAuras : normal).Value.GetValueOrDefault(n) ?? []).DistinctBy(a => a.Template)];
+        [.. nodes.SelectMany(n => (ruthless ? ruthlessAuras : normal).GetValueOrDefault(n) ?? []).DistinctBy(a => a.Template)];
 
     /// <summary>The enemy auras of these nodes the server applies.</summary>
-    internal static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>
+    public static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>
         [.. For(nodes, ruthless).Where(acts)];
 
     /// <summary>Whether this enemy aura is applied by name (not by its stats).</summary>
-    internal static bool AppliedByName(Aura aura) => aura.Template == BlindTemplate || EnemyAuraTemplates.Contains(aura.Template);
+    public static bool AppliedByName(Aura aura) => aura.Template == BlindTemplate || EnemyAuraTemplates.Contains(aura.Template);
 
     /// <summary>The player-and-ally auras of these nodes the server applies.</summary>
-    internal static IReadOnlyList<Aura> AllyAurasFor(IEnumerable<ushort> nodes, bool ruthless) =>
+    public static IReadOnlyList<Aura> AllyAurasFor(IEnumerable<ushort> nodes, bool ruthless) =>
         [.. For(nodes, ruthless).Where(a => a.Radius > 0 && AllyAuraTemplates.Contains(a.Template)
             && a.Targets.SequenceEqual([PlayerTarget, AlliesTarget]))];
 
     /// <summary>The self buffs of these nodes the server applies.</summary>
-    internal static IReadOnlyList<Aura> SelfBuffsFor(IEnumerable<ushort> nodes, bool ruthless) =>
+    public static IReadOnlyList<Aura> SelfBuffsFor(IEnumerable<ushort> nodes, bool ruthless) =>
         [.. For(nodes, ruthless).Where(a => a.Radius == 0 && SelfBuffTemplates.Contains(a.Template))];
 
     /// <summary>The largest blind radius of these auras, or null without one.</summary>
     public static int? BlindRadius(IEnumerable<Aura> auras) =>
         auras.Where(a => a.Template == BlindTemplate && a.Enemies && a.Radius > 0).Select(a => (int?)a.Radius).Max();
 
-    internal static Dictionary<uint, int> WithSelfBuffs(Dictionary<uint, int> stats, IEnumerable<ushort> nodes, bool ruthless)
+    public static Dictionary<uint, int> WithSelfBuffs(Dictionary<uint, int> stats, IEnumerable<ushort> nodes, bool ruthless)
     {
         foreach (var buff in SelfBuffsFor(nodes, ruthless))
             foreach (var (key, value) in buff.Stats)
@@ -96,81 +105,83 @@ static class PassiveBuffAuras
 
     /// <summary>The 0x1c1/0x1c2 that bring the player's published self buffs to the allocated ones, or null. Run at the
     /// send gate; a new area's connection starts with none, so area entry publishes them again.</summary>
-    internal static byte[]? Presentation(ClientState conn)
+    public static byte[]? Presentation(Player player)
     {
-        lock (conn.Monsters)
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return null;
+        var wanted = SelfBuffsFor([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated], Program.LeagueFor(player).HardMode)
+            .Select(b => b.Definition).ToHashSet();
+        var bytes = new List<byte>();
+        foreach (var (definition, _) in player.PassiveBuffs.Where(b => !wanted.Contains(b.Key)).ToArray())
         {
-            if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return null;
-            var wanted = SelfBuffsFor([.. conn.Passives, .. conn.MainAscendancy.Allocated], Program.LeagueFor(conn).HardMode)
-                .Select(b => b.Definition).ToHashSet();
-            var bytes = new List<byte>();
-            foreach (var (definition, instance) in conn.PassiveBuffs.Where(b => !wanted.Contains(b.Key)).ToArray())
-            {
-                bytes.AddRange(InstanceEntities.RemoveBuff(Program.PlayerId, instance));
-                conn.PassiveBuffs.Remove(definition);
-            }
-            foreach (ushort definition in wanted.Where(d => !conn.PassiveBuffs.ContainsKey(d)))
-                bytes.AddRange(InstanceEntities.AddBuff(Program.PlayerId, conn.PassiveBuffs[definition] = conn.NextBuff++,
-                    definition, Program.PlayerId));
-            return bytes.Count == 0 ? null : [.. bytes];
+            player.Area.Buffs.Clear(player.Id, definition, player.Id);
+            player.PassiveBuffs.Remove(definition);
         }
+        foreach (ushort definition in wanted.Where(d => !player.PassiveBuffs.ContainsKey(d)))
+        {
+            player.PassiveBuffs[definition] = 1;
+            player.Area.Buffs.Set(player.Id, new(definition, player.Id));
+        }
+        return bytes.Count == 0 ? null : [.. bytes];
     }
 
     static Dictionary<ushort, Aura[]> Load(string folder, bool ruthless)
     {
-        string Table(string name) => Path.Combine(folder, "tables", $"{name}.json");
         var result = new Dictionary<ushort, Aura[]>();
-        if (new[] { "PassiveSkills", "BuffTemplates", "BuffDefinitions" }.Any(t => !File.Exists(Table(t)))) return result;
-        using var passives = JsonDocument.Parse(File.ReadAllBytes(Table("PassiveSkills")));
-        using var templates = JsonDocument.Parse(File.ReadAllBytes(Table("BuffTemplates")));
-        using var definitions = JsonDocument.Parse(File.ReadAllBytes(Table("BuffDefinitions")));
+        if (new[] { "PassiveSkills", "BuffTemplates", "BuffDefinitions" }.Any(t => !ClientTables.Has(t))) return result;
+        var passives = ClientTables.Table("PassiveSkills");
+        var templates = ClientTables.Table("BuffTemplates");
+        var definitions = ClientTables.Table("BuffDefinitions");
         var cache = new Dictionary<int, Aura?>();
         Aura? Template(int row)
         {
             if (cache.TryGetValue(row, out var known)) return known;
             Aura? aura = null;
-            if (row >= 0 && row < templates.RootElement.GetArrayLength()
-                && templates.RootElement[row] is var t && t.GetProperty("Id").GetString() is { } id
-                && t.GetProperty("BuffDefinitionsKey") is { ValueKind: JsonValueKind.Number } key
-                && key.GetInt32() is >= 0 and <= ushort.MaxValue and var definition && definition < definitions.RootElement.GetArrayLength())
+            if (row >= 0 && row < templates.Count
+                && templates[row] is var t && t.Text("Id") is { } id
+                && t.IntOrNull("BuffDefinitionsKey") is >= 0 and <= ushort.MaxValue and int definition && definition < definitions.Count)
             {
-                var granted = definitions.RootElement[definition].GetProperty("GrantedStats").EnumerateArray().Select(s => s.GetInt32()).ToList();
-                var values = t.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32()).ToList();
+                var granted = definitions[definition].Ints("GrantedStats");
+                var values = t.Ints("Buff_StatValues");
                 // A template whose values do not line up with its definition's stats is left out rather than misapplied.
-                if (granted.Count == values.Count)
-                    aura = new(row, id, (ushort)definition, t.GetProperty("AuraRadius").GetInt32(),
-                        [.. t.GetProperty("__col4").EnumerateArray().Select(v => v.GetInt32())],
+                if (granted.Length == values.Length)
+                    aura = new(row, id, (ushort)definition, t.Int("AuraRadius"),
+                        [.. t.Ints("__col4")],
                         [.. granted.Zip(values, (stat, value) => ((uint)(stat + 1), value))]);
             }
             return cache[row] = aura;
         }
-        foreach (var row in passives.RootElement.EnumerateArray())
+        foreach (var row in passives)
         {
-            if (row.GetProperty("PassiveSkillGraphId").GetInt32() is not (> 0 and <= ushort.MaxValue and var node)) continue;
-            bool alternate = ruthless && row.TryGetProperty("HasHardmodeAlternate", out var hardmode) && hardmode.GetBoolean();
-            if (!row.TryGetProperty(alternate ? "BuffsHardmode" : "PassiveSkillBuffs", out var buffs)
-                || buffs.ValueKind != JsonValueKind.Array) continue;
-            if (buffs.EnumerateArray().Select(b => Template(b.GetInt32())).OfType<Aura>().ToArray() is { Length: > 0 } auras)
+            if (row.Int("PassiveSkillGraphId") is not (> 0 and <= ushort.MaxValue and var node)) continue;
+            bool alternate = ruthless && row.BoolOrNull("HasHardmodeAlternate") == true;
+            string column = alternate ? "BuffsHardmode" : "PassiveSkillBuffs";
+            if (!row.Has(column) || row.IsNull(column)) continue;
+            if (row.Ints(column).Select(Template).OfType<Aura>().ToArray() is { Length: > 0 } auras)
                 result.TryAdd((ushort)node, auras);
         }
         return result;
     }
 
     /// <summary>One connection's monsters blinded by the player's passive blind aura, with the ids of the buffs that show
-    /// it. Its own lock, so a hit can ask without the Monsters lock; the Monsters lock may be held when it is taken, never
+    /// it. Its own lock, so a hit can ask without the area's frame; the area's frame may be held when it is taken, never
     /// the other way round.</summary>
     public sealed class BlindState
     {
         readonly Dictionary<uint, ushort> _blinded = [];
         readonly Lock _lock = new();
 
+        public bool Any
+        {
+            get { lock (_lock) return _blinded.Count > 0; }
+        }
+
         public bool Blinded(uint monster)
         {
-            lock (_lock) return _blinded.ContainsKey(monster);
+            lock (_lock) return _blinded.Count > 0 && _blinded.ContainsKey(monster);
         }
 
         /// <summary>The buffs to add and to remove so that exactly <paramref name="inside"/> are blinded. A monster that
-        /// is gone (<paramref name="exists"/> false) is forgotten without a message. Call under the Monsters lock, which
+        /// is gone (<paramref name="exists"/> false) is forgotten without a message. Call in the area's frame, which
         /// <paramref name="next"/> needs.</summary>
         public List<(uint Monster, ushort Buff, bool Added)> Reconcile(IReadOnlySet<uint> inside, Func<uint, bool> exists, Func<ushort> next)
         {

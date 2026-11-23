@@ -1,5 +1,5 @@
 /// <summary>The three standard charges every character can hold (issue #237).</summary>
-enum ChargeType { Endurance, Frenzy, Power }
+public enum ChargeType { Endurance, Frenzy, Power }
 
 /// <summary>
 /// Endurance, Frenzy and Power charges: how many a character can hold, for how long, and how they are gained, refreshed,
@@ -16,9 +16,9 @@ enum ChargeType { Endurance, Frenzy, Power }
 /// <c>frenzy_charge</c>, <c>power_charge</c>).</item>
 /// </list>
 /// Times are the connection's game clock in seconds (it stops while the game is paused). The state is not thread-safe:
-/// the Gateway keeps it under the connection's Monsters lock.
+/// the Gateway keeps it in the area's frame.
 /// </summary>
-static class Charges
+public static class Charges
 {
     /// <summary>A charge's base duration: 10 seconds (wiki "Charge", Mark_GGG 2013; Path of Building CalcSetup's
     /// <c>ChargeDuration</c> BASE 10). No game table holds it.</summary>
@@ -59,14 +59,14 @@ static class Charges
     /// one of the special type (pinned PoB CalcPerform: the special count takes the standard count, which becomes 0), with
     /// the special type's effects and HUD buff instead of the standard ones; the held state, limits and gains are the
     /// standard type's.</summary>
-    public static string ConversionFlag(ChargeType type) => ConversionFlags[Index(type)];
+    public static uint ConversionFlag(ChargeType type) => ConversionFlags[Index(type)];
 
     // The per-type stat names, built once: every stat snapshot asks for them (Agents/docs/dev/character-stat-lifecycle.md).
-    static readonly string[] ConversionFlags = [.. Types.Select(t => $"gain_{SpecialName(t)}_charges_instead_of_{Name(t)}_charges")];
-    static readonly string[] MinimumConversionFlags =
-        [.. Types.Select(t => $"modifiers_to_minimum_{Name(t)}_charges_instead_apply_to_{SpecialName(t)}_charges")];
-    static readonly string[] VirtualMaximums = [.. Types.Select(t => $"virtual_maximum_{Name(t)}_charges")];
-    static readonly string[] BaseMinimums = [.. Types.Select(t => $"base_minimum_{Name(t)}_charges")];
+    static readonly uint[] ConversionFlags = [.. Types.Select(t => Stat.Of($"gain_{SpecialName(t)}_charges_instead_of_{Name(t)}_charges"))];
+    static readonly uint[] MinimumConversionFlags =
+        [.. Types.Select(t => Stat.Of($"modifiers_to_minimum_{Name(t)}_charges_instead_apply_to_{SpecialName(t)}_charges"))];
+    static readonly uint[] VirtualMaximums = [.. Types.Select(t => Stat.Of($"virtual_maximum_{Name(t)}_charges"))];
+    static readonly uint[] BaseMinimums = [.. Types.Select(t => Stat.Of($"base_minimum_{Name(t)}_charges"))];
 
     // Types[i] is the ChargeType i; anything else throws as Name does.
     static int Index(ChargeType type) => type is ChargeType.Endurance or ChargeType.Frenzy or ChargeType.Power
@@ -75,10 +75,10 @@ static class Charges
     /// <summary>"Modifiers to Minimum Endurance Charges instead apply to Brutal Charges":
     /// <c>modifiers_to_minimum_endurance_charges_instead_apply_to_brutal_charges</c> and the other two. The minimum then
     /// shows on the special type's row.</summary>
-    public static string MinimumConversionFlag(ChargeType type) => MinimumConversionFlags[Index(type)];
+    public static uint MinimumConversionFlag(ChargeType type) => MinimumConversionFlags[Index(type)];
 
     /// <summary>Whether the type's charges are the special type's now (<paramref name="get"/>: the character's stats).</summary>
-    public static bool Converted(ChargeType type, Func<string, int> get) => get(ConversionFlag(type)) != 0;
+    public static bool Converted(ChargeType type, Func<uint, int> get) => get(ConversionFlag(type)) != 0;
 
     /// <summary>The word for the charges the character holds of a type: the special name under the conversion flag.</summary>
     public static string Label(ChargeType type, bool converted) => converted ? SpecialName(type) : Name(type);
@@ -96,22 +96,31 @@ static class Charges
     /// the stats the panel's duration rows sum, PanelStats) plus <c>frenzy_charge_duration_+%_per_frenzy_charge</c> ×
     /// the frenzy charges held after the gain (<paramref name="held"/>); more is <c>power_charge_duration_+%_final</c>.
     /// Path of Building floors the result to whole seconds for its display; the game counts milliseconds, so this
-    /// floors to milliseconds.
+    /// floors to milliseconds. <paramref name="maximum"/>: the caller's maximum instead of the panel's (a module that
+    /// completes the maxima further).
     /// </summary>
-    public static Limits LimitsOf(ChargeType type, Func<string, int> get, int held = 0)
+    public static Limits LimitsOf(ChargeType type, Func<uint, int> get, int held = 0, int? maximum = null)
     {
-        string virtualMaximum = VirtualMaximums[Index(type)];
-        int maximum = ChargePanelStats.Compute(get).First(r => r.Stat == virtualMaximum).Value;
-        int minimum = Math.Clamp(get(BaseMinimums[Index(type)]) + get("minimum_frenzy_power_endurance_charges"), 0, maximum);
-        int increased = get("charge_duration_+%") + get("base_charge_duration_+%") + type switch
+        maximum ??= PanelMaximum(type, get);
+        int minimum = Math.Clamp(get(BaseMinimums[Index(type)]) + get(Stat.MinimumFrenzyPowerEnduranceCharges), 0, maximum.Value);
+        int increased = get(Stat.ChargeDurationPlusPct) + get(Stat.BaseChargeDurationPlusPct) + type switch
         {
-            ChargeType.Endurance => get("endurance_charge_duration_+%"),
-            ChargeType.Frenzy => get("base_frenzy_charge_duration_+%") + get("frenzy_charge_duration_+%_per_frenzy_charge") * held,
-            _ => get("power_charge_duration_+%"),
+            ChargeType.Endurance => get(Stat.EnduranceChargeDurationPlusPct),
+            ChargeType.Frenzy => get(Stat.BaseFrenzyChargeDurationPlusPct) + get(Stat.FrenzyChargeDurationPlusPctPerFrenzyCharge) * held,
+            _ => get(Stat.PowerChargeDurationPlusPct),
         };
-        int more = type == ChargeType.Power ? get("power_charge_duration_+%_final") : 0;
+        int more = type == ChargeType.Power ? get(Stat.PowerChargeDurationPlusPctFinal) : 0;
         double ms = BaseDurationMs * Math.Max(0, 100 + increased) / 100.0 * Math.Max(0, 100 + more) / 100.0;
-        return new(maximum, minimum, (int)Math.Floor(ms));
+        return new(maximum.Value, minimum, (int)Math.Floor(ms));
+    }
+
+    // The panel's maximum of one type, without a lambda: LimitsOf runs on every stat lookup's condition flags.
+    static int PanelMaximum(ChargeType type, Func<uint, int> get)
+    {
+        uint virtualMaximum = VirtualMaximums[Index(type)];
+        foreach (var (stat, value) in ChargePanelStats.Compute(get))
+            if (stat == virtualMaximum) return value;
+        throw new InvalidOperationException(virtualMaximum.ToString());
     }
 
     /// <summary>One type's charges as an area change hands them on: how many were held and how much of their duration was
@@ -128,7 +137,7 @@ static class Charges
     /// </summary>
     public sealed class State
     {
-        internal readonly Shown[] Presented = new Shown[3];
+        public readonly Shown[] Presented = new Shown[3];
         private readonly int[] held = new int[3];
         private readonly double[] expiresAt = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
         double expiryRate = 1;
@@ -252,7 +261,7 @@ static class Charges
 }
 
 // The charge values/deadlines are neutral data; replacement Game sessions keep accepted gains and expiry.
-sealed partial class ClientState
+public sealed partial class Player
 {
-    internal readonly Charges.State PlayerChargeState = new();
+    public readonly Charges.State PlayerChargeState = new();
 }

@@ -2,7 +2,7 @@ using System.Text;
 
 namespace LocalExile;
 
-/// <summary>The player's login: Auth holds the accounts (data\saves.db), and the password goes to it on standard input.</summary>
+/// <summary>The player's login: Auth holds the accounts (data\auth.db), and the password goes to it on standard input.</summary>
 static class Accounts
 {
     public static void EnsureOne(Options options, Output log)
@@ -28,6 +28,14 @@ static class Accounts
         var (code, lines) = Tools.Capture(Tools.Auth, ["register", name], password);
         if (code != 0) throw new LauncherException(ExitCode.Usage, string.Join('\n', lines));
         log.Info($"account {name} created");
+    }
+
+    /// <summary>Splits a data\saves.db from an older release into data\auth.db and data\characters.db, after a copy.</summary>
+    public static void MigrateSaves(Output log)
+    {
+        var (code, lines) = Tools.Capture(Tools.Auth, ["migrate-saves"]);
+        if (code != 0) throw new LauncherException(ExitCode.Unexpected, $"the saves could not be migrated:\n{string.Join('\n', lines)}");
+        foreach (string line in lines) log.Info(line);
     }
 
     static string Password(Options options, Output log)

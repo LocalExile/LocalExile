@@ -4,12 +4,14 @@ using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
 
-public class VendorItemLevelTests
+public class VendorItemLevelTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     [Fact]
     public void Vendor_membership_prices_and_generated_requirements_follow_the_reviewed_rules()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(),"LocalExile-gem-layout-"+Guid.NewGuid().ToString("N")+".db"));
+        TestEnvironment.OpenOwnSaves("gem-layout");
         var catalog = new ItemCatalog("data");
         var rewards = QuestRewardCatalog.Load();
         var npcs = NpcCatalog.Load(); var skills = new SkillCatalog();
@@ -81,7 +83,7 @@ public class VendorItemLevelTests
             uint next = 0;
             var notes = new List<string>();
             var window = VendorStock.Open("Layout"+Guid.NewGuid().ToString("N"),"Standard",id,91,catalog,
-                new SkillCatalog(),gems.Stock(id,2,flags),() => ++next,LeagueRules.Standard,false,notes,random:new Random(2));
+                new ItemRolls(catalog),new SkillCatalog(),gems.Stock(id,2,flags),() => ++next,LeagueRules.Standard,false,notes,random:new Random(2));
             Assert.Empty(notes);
             var tabs = window.Tabs.Where(t => t.Items.Any(i => catalog.Gem(catalog.ByHash(i.Item.TypeHash)!) is not null)).ToArray();
             string positions = string.Join('\n',tabs.SelectMany((t,index) => t.Items.Select(i =>
@@ -94,13 +96,15 @@ public class VendorItemLevelTests
     [Fact]
     public void Stock_survives_reopening_purchases_and_reload_and_rotates_partially_with_atomic_multicurrency_payment()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(),"LocalExile-vendors-"+Guid.NewGuid().ToString("N")+".db"));
-        var catalog = new ItemCatalog("data"); var skills = new SkillCatalog();
+        TestEnvironment.OpenOwnSaves("vendors");
+        var catalog = new ItemCatalog("data"); var skills = new SkillCatalog(); var rolls = new ItemRolls(catalog);
         string name = "Vendor"+Guid.NewGuid().ToString("N");
         var items = PlayerInventories.For(name,catalog); var stash = AccountStash.For(name,catalog);
+        // A new character starts with three Scrolls of Wisdom: this test counts from none.
+        foreach (var starter in items.Items(PlayerInventories.MainInventory).ToArray()) items.Remove(PlayerInventories.MainInventory, starter.Id);
         var notes = new List<string>();
         VendorStock.Window Open(int level) => VendorStock.Open(name,"Standard","Metadata/NPC/Act1/Tarkleigh",level,
-            catalog,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(7401));
+            catalog,rolls,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(7401));
         var first = Open(91); Assert.Empty(notes); Assert.Equal(60,first.Finite.Count);
         string saved = CharacterSaves.ModuleData(name,first.Key)!;
         var again = Open(91); Assert.Equal(saved,CharacterSaves.ModuleData(name,first.Key));
@@ -139,7 +143,7 @@ public class VendorItemLevelTests
         Assert.InRange(first.Finite.Values.Intersect(rotated.Finite.Values).Count(),39,40);
         var allNew=Open(94); Assert.Empty(first.Finite.Values.Intersect(allNew.Finite.Values));
         VendorStock.Window Kirac(string character) => VendorStock.Open(character,"Standard","Metadata/NPC/Epilogue/KiracHideout",91,
-            catalog,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(2),account:stash);
+            catalog,rolls,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(2),account:stash);
         var kirac=Kirac(name);
         Assert.Equal(18,kirac.Finite.Count);
         var kiracItems = Assert.Single(kirac.Tabs).Items;

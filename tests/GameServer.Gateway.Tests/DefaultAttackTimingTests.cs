@@ -2,14 +2,9 @@ namespace GameServer.Gateway.Tests;
 
 // When the default attack's contact plays: the class ACT's stance clip as the client plays it (a one-hand sword swings
 // the two views of doublestrike_sword over a 0.45 s budget, stretched to the attack time before the contact).
-public sealed class DefaultAttackTimingTests : IDisposable
+public sealed class DefaultAttackTimingTests
 {
-    private readonly string _folder = Path.Combine(Path.GetTempPath(), $"default-attack-timing-{Guid.NewGuid():N}");
-
-    public DefaultAttackTimingTests()
-    {
-        Directory.CreateDirectory(_folder);
-        File.WriteAllText(Path.Combine(_folder, "animation-contacts.json"), """
+    const string Json = """
             { "Metadata/Characters/Dex/Dex.ao": {
                 "animations": { "attack1_sword": [666, 299], "attack1_wand": [600, 300] },
                 "defaultAttack": {
@@ -24,15 +19,12 @@ public sealed class DefaultAttackTimingTests : IDisposable
                   "Bow": [
                     { "animation": "attack1_bow", "source": "attack1_bow", "index": 2, "begin": 0, "length": 1066,
                       "contact": 399, "cancel": 600, "slow": [166, 397], "budget": null, "weight": 1, "item": true, "pair": false, "position": [-6.3, -59.8, -127.5] } ] } } }
-            """);
-    }
-
-    public void Dispose() => Directory.Delete(_folder, recursive: true);
+        """;
 
     [Fact]
     public void A_budgeted_sword_view_lands_its_contact_late_and_a_wand_clip_at_its_fraction()
     {
-        var contacts = new AnimationContacts(_folder);
+        var contacts = AnimationContactsTables.From(Json);
         const string ao = "Metadata/Characters/Dex/Dex.ao";
         var sword = new WeaponProfile(Shield: false, DualWield: false, Staff: false, Bow: false, DualClaws: false,
             OneHand: true, Melee: true, OneHandMelee: true, Sword: true);

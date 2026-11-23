@@ -113,7 +113,7 @@ keeps the ids of the last list it sent (`ChooserList`).
 
 - **InstanceRegistry** (`src/GameServer.Core/World/InstanceRegistry.cs`):
   - A town has one instance, with seed 1. Auth's towns are the WorldAreas rows with `IsTown` (`WorldAreaTowns`, from
-    `data/tables/WorldAreas.json`): the 12 act towns, Lioneye's Watch to Karui Shores. `pvpTown` is left out (PvP is not
+    the `WorldAreas` table): the 12 act towns, Lioneye's Watch to Karui Shores. `pvpTown` is left out (PvP is not
     implemented), and without the table only Lioneye's Watch is a town. Auth logs the list at startup (`[auth] towns:`).
   - A plain click joins the character's previous live instance of the area, or creates one.
   - The chooser can join any instance or create a new one.
@@ -140,7 +140,7 @@ keeps the ids of the last list it sent (`ChooserList`).
 - **Where a login starts** (Play, login 0x0e → `InstanceDirectory.AssignStart`): the spawn point of the character's
   **last town**, as in the real game, which never logs a character into a combat area or at a saved position. This
   holds after logging out, Exit to Character Selection, a crash, a server restart, or disconnecting while dead. The
-  `resolve` op records the town (`Character.LastTown`, a WorldAreas Id in `data/saves.db`) when the ticket's
+  `resolve` op records the town (`Character.LastTown`, a WorldAreas Id in `data/characters.db`) when the ticket's
   instance is a town: the Gateway resolves a ticket only once the client connects to that instance, so the town counts
   once the character is in it. `WorldAreaTowns.LoginArea` picks the area: the last town, else
   `AccountService.StartingArea`, The Twilight Strand (`1_1_1`): as in the real game, a new character washes up there,

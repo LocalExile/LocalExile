@@ -9,38 +9,38 @@ namespace GameServer.Modules.Social;
 /// <summary>Directed account friendships: an add also gives the other account an invitation to add back.</summary>
 static class FriendsFeature
 {
-    static readonly ConcurrentDictionary<string, ClientState> Online = new(StringComparer.OrdinalIgnoreCase);
+    static readonly ConcurrentDictionary<string, Player> Online = new(StringComparer.OrdinalIgnoreCase);
     static SqliteAccountStore Accounts => new(Saves.Db);
     static SqliteFriendStore Store => new(Saves.Db);
 
-    static void Register(ClientState c)
+    static void Register(Player c)
     {
-        if (c.Account is { } account && !c.Closed && !c.LeavingArea) Online[account] = c;
+        if (c.Character.Account is { } account && !c.Closed && !c.LeavingArea) Online[account] = c;
     }
 
     // Existing players can use a newly reloaded Social module without re-entering their area.
-    static void Discover(ClientState c)
+    static void Discover(Player c)
     {
         Register(c);
         foreach (var peer in c.Instance.Presence.PlayersExcept(0))
-            if (peer.Owner is { } owner) Register(owner);
+            if (peer is { } owner) Register(owner);
     }
 
-    static ClientState? Changing(string name) =>
+    static Player? Changing(string name) =>
         Moving.TryGetValue(name, out var m) && DateTime.UtcNow - m.Since < MovingGrace ? m.From : null;
 
-    static ClientState? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
+    static Player? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
     // Online, or between two connections of an area change (as the connection it left had them). The third field is the
-    // area the friend is in, a WorldAreas HASH16 (0xa7 +0xa8): the friends and party rows draw it as the area name and
-    // show "Travelling..." for anything that is not an area (SocialModule.Introduce, #715).
+    // area the friend is in, a WorldAreas HASH16 (+0xa8): the friends' and party rows draw it as the area's name and show
+    // "Travelling..." for anything that is not an area (#715).
     static byte[] Details(Account a) => (Connected(a.Name) ?? Changing(a.Name)) is { } c
-        ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Layout.Hash, PackedClass(c), c.PortraitFrame, WornPortrait(c))
+        ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c))
         : InstanceSocial.OfflinePlayer(a.Name);
 
-    public static IEnumerable<(string Log, byte[] Message)> Enter(ClientState c)
+    public static IEnumerable<(string Log, byte[] Message)> Enter(Player c)
     {
         Discover(c);
-        if (c.Account is not { } name || Accounts.FindAccount(name) is not { } me) yield break;
+        if (c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) yield break;
         var store = Store;
         var friends = store.Friends(me.Id).ToHashSet();
         foreach (var id in friends.Union(store.Incoming(me.Id)))
@@ -62,9 +62,9 @@ static class FriendsFeature
     // friend who came online in between was listed offline after their own online notice had arrived, and stayed so
     // (live 2026-11-05: admin@admin.ru online at 00:40:44.180, then offline from test1's entry list at .186). On the
     // player's first tick after the entry (SocialModule), the friends' presence as it is then.
-    public static async Task AfterEntry(ClientState c)
+    public static async Task AfterEntry(Player c)
     {
-        if (c.Closed || c.LeavingArea || c.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        if (c.Closed || c.LeavingArea || c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
         Register(c);
         foreach (var id in Store.Friends(me.Id))
             if (Accounts.GetAccount(id) is { } friend) await RefreshSafely(c, friend);
@@ -74,16 +74,16 @@ static class FriendsFeature
             await RefreshSafely(other, me);
     }
 
-    static async Task RefreshSafely(ClientState viewer, Account about, bool removal = false)
+    static async Task RefreshSafely(Player viewer, Account about, bool removal = false)
     {
         try { await Refresh(viewer, about, removal); }
         catch (Exception e) when (e is IOException or ObjectDisposedException)
-        { Console.WriteLine($"[gateway] friend presence delivery to {viewer.Account}: {e.Message}"); }
+        { Console.WriteLine($"[gateway] friend presence delivery to {viewer.Character.Account}: {e.Message}"); }
     }
 
-    static async Task Refresh(ClientState viewer, Account about, bool removal = false)
+    static async Task Refresh(Player viewer, Account about, bool removal = false)
     {
-        if (viewer.Closed || viewer.LeavingArea || viewer.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        if (viewer.Closed || viewer.LeavingArea || viewer.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
         var store = Store;
         bool accepted = store.Friends(me.Id).Contains(about.Id);
         bool incoming = store.Friends(about.Id).Contains(me.Id);
@@ -93,10 +93,10 @@ static class FriendsFeature
             $"0x00c9 friend {about.Name}: {(accepted ? "accepted" : incoming ? "invited" : "removed")}");
     }
 
-    public static async Task Change(ClientState c, (string Name, ushort U16) request)
+    public static async Task Change(Player c, (string Name, ushort U16) request)
     {
         Discover(c);
-        if (c.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        if (c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
         Console.WriteLine($"[gateway] <= 0x0080 friend action 0x{request.U16:x4} from {me.Name}");
         // Wire byte 0 selects the list (0 friends, 1 ignore); byte 1 is add 0, remove/decline 1, accept 2.
         if (request.U16 is not (0 or 0x100 or 0x200)) return;
@@ -121,9 +121,9 @@ static class FriendsFeature
         if (Connected(friend.Name) is { } other) await RefreshSafely(other, me, removal: !add);
     }
 
-    public static async Task Leaving(ClientState c)
+    public static async Task Leaving(Player c)
     {
-        if (c.Account is not { } name || !Online.TryRemove(new KeyValuePair<string, ClientState>(name, c))) return;
+        if (c.Character.Account is not { } name || !Online.TryRemove(new KeyValuePair<string, Player>(name, c))) return;
         if (Accounts.FindAccount(name) is not { } me) return;
         // An area change: the player is still online, on the next connection. The friends hear nothing of it (an offline
         // and an online notice on every area change, live 2026-11-05); a player who does not come back is told offline.
@@ -137,7 +137,7 @@ static class FriendsFeature
     }
 
     // Accounts between two connections of an area change, since when.
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Since, ClientState From)> Moving = new(StringComparer.OrdinalIgnoreCase);
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Since, Player From)> Moving = new(StringComparer.OrdinalIgnoreCase);
     static readonly TimeSpan MovingGrace = TimeSpan.FromSeconds(60);
 
     static async Task OfflineIfNotBack(string name, Account me)

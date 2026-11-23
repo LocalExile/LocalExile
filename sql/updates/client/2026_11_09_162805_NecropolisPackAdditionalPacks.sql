@@ -1,0 +1,21 @@
+-- Client table NecropolisPackAdditionalPacks: all 19 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "NecropolisPackAdditionalPacks" ("_row", "Id", "MonsterPack") VALUES
+(0, 502, 2994),
+(1, 492, 2969),
+(2, 493, 2972),
+(3, 494, 2974),
+(4, 495, 2976),
+(5, 496, 2978),
+(6, 497, 2980),
+(7, 498, 2982),
+(8, 499, 2984),
+(9, 500, 2986),
+(10, 501, 2988),
+(11, 516, 3018),
+(12, 517, 3020),
+(13, 518, 3022),
+(14, 519, 3024),
+(15, 520, 3026),
+(16, 521, 3028),
+(17, 522, 3030),
+(18, 939, 3096);

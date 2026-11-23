@@ -10,7 +10,7 @@ using System.Text.RegularExpressions;
 /// one with its default, and the user's values (only what they changed) are in a file of their own under <c>data/</c>. The host
 /// merges the two and checks every value against its declaration; a value that does not fit is logged and its default used.
 /// </summary>
-static class ModSettings
+public static class ModSettings
 {
     /// <summary>The declarations' file, beside <c>mod.json</c> or <c>module.json</c>.</summary>
     public const string FileName = "settings.json";
@@ -27,15 +27,15 @@ static class ModSettings
         "applies", "advanced"];
 
     /// <summary>One setting as <c>settings.json</c> declares it.</summary>
-    internal sealed record Declaration(string Type, JsonNode? Default, double? Min, double? Max, double? Step, JsonNode[]? Options,
+    public sealed record Declaration(string Type, JsonNode? Default, double? Min, double? Max, double? Step, JsonNode[]? Options,
         string? Source, int? MinLength, int? MaxLength, Regex? Pattern, int? MinItems, int? MaxItems, bool Integers, Declaration? Item,
         Declaration? Value, IReadOnlyDictionary<string, Declaration>? Settings);
 
     /// <summary>A whole <c>settings.json</c>: its settings, and the names it renamed (old to new).</summary>
-    internal sealed record Schema(IReadOnlyDictionary<string, Declaration> Settings, IReadOnlyDictionary<string, string> Renamed);
+    public sealed record Schema(IReadOnlyDictionary<string, Declaration> Settings, IReadOnlyDictionary<string, string> Renamed);
 
     /// <summary>The game's values of a kind (<c>area</c>, <c>item</c>, ...) for a declaration's <c>source</c>; null when unknown.</summary>
-    internal delegate IEnumerable<string>? Values(string kind);
+    public delegate IEnumerable<string>? Values(string kind);
 
     /// <summary>Reads a <c>settings.json</c>. Throws <see cref="FormatException"/> for a declaration that is wrong (its default
     /// included), so the mod's author sees it at the load.</summary>
@@ -176,7 +176,7 @@ static class ModSettings
     }
 
     /// <summary>What is wrong with a value for this declaration; null when it fits.</summary>
-    internal static string? Check(Declaration d, JsonNode? value, Values? values = null)
+    public static string? Check(Declaration d, JsonNode? value, Values? values = null)
     {
         if (value is null) return "is null";
         var kind = value.GetValueKind();

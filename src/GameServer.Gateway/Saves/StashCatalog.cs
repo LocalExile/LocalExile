@@ -3,7 +3,7 @@
 /// its model; the town tiles' .tmd records hold the waypoint and doodads), so the cells are ours, as for the NPCs. A
 /// hideout's comes from its decoration (HideoutCatalog).
 /// </summary>
-static class StashCatalog
+public static class StashCatalog
 {
     public sealed record Placement(int X, int Y, float Rotation);
 
@@ -20,6 +20,10 @@ static class StashCatalog
         [LioneyesWatchAct6] = new(329, 408, 0),
         // The Menagerie (Menagerie_Hub): placed live with /stash_place 455 480 0 (2026-10-30).
         [MenagerieHub] = new(455, 480, 0),
+        // Oriath Docks (2_10_town): dock_town.arm's own object line, at its room cell. The room's placement code is 0 with
+        // its origin at (0, 0) (TownNpcs), so a room cell is an area cell: the stash (532, 296), the guild stash (542,
+        // 276) and the crafting bench (507, 300) stand as the client's room puts them, left to right on screen.
+        [OriathDocks] = new(532, 296, -0.800368f),
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): by the waypoint (126, 149), to be placed live with /stash_place.
         [SanctumHub] = new(116, 160, 0),
         // Kingsmarch: the town's own Stash doodad (an offset from the arrival at (590, 655), FromArrival; the room places
@@ -29,6 +33,9 @@ static class StashCatalog
         [HeistHub] = new(6, 8, 0),
         // The Monastery of the Keepers: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
         [ChayulaHub] = new(6, 8, 0),
+        // The Sovereign (DeepwaterHub): hub.arm's own object line (306, 218, -0.261801), placed at (0, 276) with code 0 by
+        // hub.dgr on every seed, so area cell = room cell + (0, 276). The guild stash is its line (293, 219, 0.0799581).
+        [DeepwaterHub] = new(306, 494, -0.261801f),
     };
 
     /// <summary>A town's guild stash where it has a place of its own (else next to the stash), placed live with
@@ -45,13 +52,18 @@ static class StashCatalog
         HeistHub => new(-6, 8, 0),
         ChayulaHub => new(-6, 8, 0),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),
+        OriathDocks => new(542, 276, -MathF.PI),
         SarnEncampment => new(285, 418, 28 * MathF.PI / 180),
         LioneyesWatchAct6 => new(318, 408, 0),
+        DeepwaterHub => new(293, 495, 0.0799581f),
         _ => null,
     };
 
     /// <summary>HASH16 of Act 6 Lioneye's Watch (WorldAreas 2_6_town).</summary>
     public const ushort LioneyesWatchAct6 = 0xb0fb;
+
+    /// <summary>HASH16 of Oriath Docks (WorldAreas 2_10_town).</summary>
+    public const ushort OriathDocks = 0x95b0;
 
     /// <summary>HASH16 of the Sarn Encampment (WorldAreas 1_3_town).</summary>
     public const ushort SarnEncampment = 0x0431;
@@ -73,6 +85,9 @@ static class StashCatalog
 
     /// <summary>HASH16 of the Monastery of the Keepers (WorldAreas ChayulaLeague).</summary>
     public const ushort ChayulaHub = 0xcb44;
+
+    /// <summary>HASH16 of The Sovereign (WorldAreas DeepwaterHub).</summary>
+    public const ushort DeepwaterHub = 0x5844;
 
     /// <summary>HASH16 of the Rogue Harbour (WorldAreas HeistHub).</summary>
     public const ushort HeistHub = 0xb5be;

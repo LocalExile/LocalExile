@@ -2,7 +2,7 @@
 /// ordinary base Rage cost, then applies generic/Rage increases, the final cost modifier and efficiency.
 /// The converted portion therefore receives neither support cost multipliers nor soul-cost reductions.
 /// 0x1428c9f40 derives no-souls eligibility from the same Vaal, attack, self and conversion flags.</summary>
-static class VaalRageCost
+public static class VaalRageCost
 {
     public readonly record struct Modifiers(int GenericIncreasedPercent = 0, int RageIncreasedPercent = 0,
         int FinalCostPercent = 0, int GenericEfficiencyPercent = 0, int RageEfficiencyPercent = 0,

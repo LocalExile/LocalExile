@@ -29,7 +29,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 
 ## Validation against the Gateway
 
-`InstanceProtocol.KnownClientLength` has 93 fixed lengths: 87 agree with an exact extracted length, 0 disagree; 6 have no exact extracted length (branching or variable writers): 0x1b, 0x28, 0x4a, 0x99, 0xe7, 0x15d.
+`InstanceProtocol.KnownClientLength` has 115 fixed lengths: 107 agree with an exact extracted length, 0 disagree; 8 have no exact extracted length (branching or variable writers): 0x1b, 0x28, 0x4a, 0x99, 0xe4, 0xe5, 0xe7, 0x15d.
 
 ## Instance connection (u16 id, `instance+0xc288`)
 
@@ -71,7 +71,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x0040 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1409db680`, `0x140a11c30` |  |
 | 0x0041 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140a11930`, `0x140a11ab0` |  |
 | 0x004a | `0x1435ca0e8` / `0x141fa7300` | ≥ 14 |  | `0x142165f30` |  |
-| 0x004b | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140284470` |  |
+| 0x004b | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140284470` | `CancelBuffId`: right-click a removable buff icon (`BuffDefinitions.Removable == 1`, UI handler `0x1402718c0` → `0x140284470`); `u32 BE` buff instance id (zero-extended from `S→C 0x01c1`/`0x01c2` `u16`); framed (`InstanceEntities.CancelBuffId`) |
 | 0x004d | `0x1435cb2f0` / `0x141f99750` | 9 |  | `0x140aa3880`, `0x140aa6d60` |  |
 | 0x004e | `0x1435ca670` / `0x141f99900` | 5 |  | `0x140adf180`, `0x140aec430` |  |
 | 0x004f | `0x1435ca380` / `0x141f99a50` | 4 |  | `0x140aecf00` |  |
@@ -116,7 +116,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x0088 | `0x1435cb1b0` / `0x141f9bdb0` | ≥ 14 |  | `0x1403148b0` |  |
 | 0x0089 | `0x1435cadb0` / `0x141f9c300` | 20 |  | `0x140314a90` |  |
 | 0x008a | `0x1435ca4c0` / `0x141f9c040` | ≥ 10 |  | `0x14216c700` |  |
-| 0x008b | `0x1435cb1f0` / `0x140e27920` | 3 |  | `0x140779d60`, `0x140c661a0` |  |
+| 0x008b | `0x1435cb1f0` / `0x140e27920` | 3 |  | `0x140779d60`, `0x140c661a0` | `TakeAllRewardsId`: "TAKE ALL" on multi-item quest reward offers (`QuestRewardOffers.__col6 == 1`, e.g., `#111` Voidstones, `#139` Cursed Ducats); `u16 BE 0x008b, u8 flag` (live 2026-11-19: `008B00`) |
 | 0x0092 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x142169740` |  |
 | 0x0093 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a9ef70`, `0x140ab8d60`, `0x142162d20` |  |
 | 0x0094 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a9cfa0`, `0x140ab8ed0`, `0x142162d20` |  |
@@ -145,8 +145,8 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x00ce | `0x1435ca3c0` / `0x141f9d0a0` | 17 |  | `0x14025b9b0` |  |
 | 0x00cf | `0x1435cacd0` / `0x141f9d290` | 14 |  | `0x14216e070` | calls the class writer directly |
 | 0x00d0 | `0x1435ca0c8` / `0x141f9d470` | 6 | instance 0x231 | `0x14025b9b0` |  |
-| 0x00d1 | `0x1435cabd0` / `0x141f9d680` | 7 |  | `0x14216dd20` |  |
-| 0x00d2 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14025c5c0` |  |
+| 0x00d1 | `0x1435cabd0` / `0x141f9d680` | 7 |  | `0x14216dd20` | stash tab into a folder |
+| 0x00d2 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14025c5c0` | delete a stash folder |
 | 0x00d3 | `0x1435cad70` / `0x141f9d7d0` | ≥ 8 | instance 0xd3 | `0x140251f90`, `0x14216de70` |  |
 | 0x00d7 | `0x1435ca500` / `0x141f9dc00` | 15 |  | `0x14216f8c0` |  |
 | 0x00d8 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14216ce30` |  |
@@ -193,14 +193,14 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x010b | `0x1435ca998` / `0x141f9fa30` | 9 |  | `0x14064fc40`, `0x140655860` |  |
 | 0x010c | `0x1435cae50` / `0x141f9fa30` | 9 |  | `0x14216eed0` |  |
 | 0x010d | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef30` |  |
-| 0x010e | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef80` |  |
-| 0x010f | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403170a0`, `0x14216efd0` |  |
-| 0x0110 | `0x1435ca3a0` / `0x141fa06e0` | 12 |  | `0x14216f020` |  |
-| 0x0111 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f080` |  |
-| 0x0112 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f0d0` |  |
-| 0x0113 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14216f120` |  |
+| 0x010e | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef80` | as 0x0112, for the Inventories row 0x67 window (DeepwaterChartWindow); framed (`InstanceItems.MissionSlotMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
+| 0x010f | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403170a0`, `0x14216efd0` | as 0x0112, for the Inventories row 0x69 window (DeepwaterCraftingWindow); framed (`InstanceItems.CraftingSlotMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
+| 0x0110 | `0x1435ca3a0` / `0x141fa06e0` | 12 |  | `0x14216f020` | Ctrl + click with the Inventories row 0x6c window open; an extra argument, not framed |
+| 0x0111 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f080` | as 0x0112, for the Inventories row 0x70 window (Chart Locker); framed (`InstanceItems.LockerMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
+| 0x0112 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f0d0` | Ctrl + click with the Allflame capsule window open (`0x14030e970`, only while UI slot +0x8a0 is true): u32 BE item id, u8 the clicked grid is row 0x54, u8 1 = from the main inventory (row 0) into row 0x71, 0 = out of row 0x71; other grids send nothing. Framed (`InstanceItems.ExtractionMoveId`) |
+| 0x0113 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14216f120` | u32 BE item id taken out of the Inventories row 0x72 window; framed (`InstanceItems.CollectionTakeId`) |
 | 0x0114 | `0x1435ca220` / `0x141fa08c0` | 16 |  | `0x140312da0` |  |
-| 0x0115 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f170`, `0x14216f1c0` |  |
+| 0x0115 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f170`, `0x14216f1c0` | Ctrl + click for Inventories rows 0x73/0x74 (Cursed Ducats): u32 BE item id, u8 fromMain (1 = row 0, 0 = row 0x73/0x74), u8 isActive (1 = row 0 or 0x73, 0 = row 0x74); framed (`InstanceItems.SocketStorageMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
 | 0x0116 | `0x1435ca4e0` / `0x141fa09e0` | 26 |  | `0x1403f8670`, `0x14040ac30` |  |
 | 0x011a | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1408e7070`, `0x140ac1750` |  |
 | 0x011d | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1408e6ff0` |  |
@@ -263,7 +263,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x0190 | `0x1435cb150` / `0x141f98850` | 12 |  | `0x140123640` |  |
 | 0x0191 | `0x1435cb310` / `0x141f98a00` | 8 | instance 0x1cc, instance 0x25c, instance 0x26d | `0x140123640` |  |
 | 0x0192 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1421664c0` |  |
-| 0x0193 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14011ecb0` |  |
+| 0x0193 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14011ecb0` | u32 BE target object id: retarget an active held/channelled action onto an object |
 | 0x0195 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x142166660` |  |
 | 0x0196 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x142166800` |  |
 | 0x0197 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1421664c0` |  |

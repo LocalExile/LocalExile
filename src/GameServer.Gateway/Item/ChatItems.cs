@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Items linked in chat as they travel through a chat server: the saved form, not the client's bytes, since a chat
 /// server is open to anyone and the client stops at an item it cannot read. Each Gateway builds the bytes itself, from what
 /// its own game data knows.</summary>
-static class ChatItems
+public static class ChatItems
 {
     const int MaxSockets = 6;
 
@@ -29,6 +29,7 @@ static class ChatItems
         var sockets = item.Sockets ?? [];
         if (sockets.Count > (socketable ? MaxSockets : 0)) return false;
         if (item.Links is { } links && (links.Contains((byte)0) || links.Sum(n => n) != sockets.Count)) return false;
+        if (item.SkinTransferSource is { } donor && (!socketable || donor.SkinTransferSource is not null || !Possible(donor, socketable: true))) return false;
         return sockets.All(s => Enum.IsDefined(s.Colour) && (s.Gem is null || Possible(s.Gem, socketable: false)));
     }
 
@@ -39,5 +40,6 @@ static class ChatItems
         AlternateQualityType = item.AlternateQualityType is byte quality && catalog.IsAlternateQuality(quality) ? quality : null,
         GemVariant = catalog.ByHash(item.Type) is { } type && catalog.Gem(type) is { } gem && item.GemVariant >= 0 && item.GemVariant < gem.Variants.Count ? item.GemVariant : 0,
         Sockets = item.Sockets?.Select(s => s with { Gem = s.Gem is null ? null : Known(s.Gem, catalog) }).ToList(),
+        SkinTransferSource = item.SkinTransferSource is null ? null : Known(item.SkinTransferSource, catalog),
     };
 }

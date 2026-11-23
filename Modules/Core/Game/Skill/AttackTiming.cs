@@ -6,7 +6,7 @@
 /// one arrive up to a quarter of an attack early, and the schedule stays on its cadence
 /// (Agents/docs/protocol/11-skills.md §5).
 /// </summary>
-static class AttackTiming
+public static class AttackTiming
 {
     /// <summary>How early a use may arrive, as a fraction of the attack time.</summary>
     public const double EarlyAllowance = 0.25;

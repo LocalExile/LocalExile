@@ -1,10 +1,23 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>Essences.dat's exact class-specific affix keys, resolved against this client's Mods.dat.</summary>
-sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+public sealed class EssenceCrafting
 {
+    readonly ItemCatalog catalog;
+    readonly ItemRolls rolls;
+    readonly string folder;
+
+    public EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+    {
+        this.catalog = catalog;
+        this.rolls = rolls;
+        this.folder = folder;
+        _all = Load(catalog, folder);
+    }
+
     public sealed record Essence(uint Hash, string Id, int Tier, int ModLevelCap, IReadOnlyDictionary<string, int> ModRows)
     {
         // Tier zero with item modifiers is the Essence of Desolation, not the Remnant of Corruption.
@@ -27,8 +40,8 @@ sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
         ["Quiver"] = "Display_Quiver_ModsKey",
     };
 
-    readonly Lazy<IReadOnlyList<Essence>> _all = new(() => Load(catalog, folder));
-    public IReadOnlyList<Essence> All => _all.Value;
+    readonly IReadOnlyList<Essence> _all;
+    public IReadOnlyList<Essence> All => _all;
     public bool Contains(uint hash) => All.Any(e => e.Hash == hash);
     public ModCatalog.Mod? Guaranteed(Essence essence, ItemCatalog.BaseType type) =>
         essence.ModRows.TryGetValue(type.Class, out int row) ? catalog.Mods.Row(row) : null;
@@ -36,7 +49,7 @@ sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
     public Item? Apply(uint essenceHash, Item item, Random random)
     {
         var essence = All.FirstOrDefault(e => e.Hash == essenceHash);
-        if (essence is null || item.Corrupted || item.Mirrored || !item.Components.Contains("Mods") ||
+        if (essence is null || item.Corrupted || item.Mirrored || item.Vestigial || !item.Components.Contains("Mods") ||
             item.Rarity != ItemRarity.Normal && !(item.Rarity == ItemRarity.Rare && essence.ReforgesRare) ||
             catalog.ByHash(item.TypeHash) is not { } type || Guaranteed(essence, type) is not { } forced ||
             forced.Domain != type.ModDomain ||
@@ -48,8 +61,8 @@ sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
             fixedMods.Count(m => m.GenerationType == forced.GenerationType) >= 3) return null;
         // Modern essences refuse meta-crafted items, rather than pretending to honour the protected affixes.
         if (item.Mods.Where(m => m.Section == ModSection.Explicit).Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s =>
-            s.Id is "item_generation_cannot_change_prefixes" or "item_generation_cannot_change_suffixes" or
-                "item_generation_cannot_roll_attack_affixes" or "item_generation_cannot_roll_caster_affixes") == true)) return null;
+            s.Id is Stat.ItemGenerationCannotChangePrefixes or Stat.ItemGenerationCannotChangeSuffixes or
+                Stat.ItemGenerationCannotRollAttackAffixes or Stat.ItemGenerationCannotRollCasterAffixes) == true)) return null;
 
         return ItemRolls.ClearForesee(rolls.Roll(item, ItemRarity.Rare, random, guaranteed: forced,
             maxModLevel: essence.ModLevelCap > 0 ? essence.ModLevelCap : null) with { Identified = true });
@@ -57,20 +70,19 @@ sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
 
     static IReadOnlyList<Essence> Load(ItemCatalog catalog, string folder)
     {
-        string path = Path.Combine(folder, "tables", "Essences.json");
-        if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Has("Essences")) return [];
+        var doc = ClientTables.Table("Essences");
         var result = new List<Essence>();
-        foreach (var row in doc.RootElement.EnumerateArray())
+        foreach (var row in doc)
         {
-            if (catalog.Row(row.GetProperty("BaseItemTypesKey").GetInt32()) is not { } currency) continue;
+            if (catalog.Row(row.Int("BaseItemTypesKey")) is not { } currency) continue;
             var mods = new Dictionary<string, int>();
             foreach (var (itemClass, column) in Columns)
-                if (row.TryGetProperty(column, out var key) && key.ValueKind == JsonValueKind.Number)
-                    mods.Add(itemClass, key.GetInt32());
+                if (row.IntOrNull(column) is int key)
+                    mods.Add(itemClass, key);
             if (mods.Count == 0) continue; // Remnants target imprisoned monsters, not equipment.
-            result.Add(new(currency.Hash, currency.Id, row.GetProperty("Level").GetInt32(),
-                row.GetProperty("ItemLevelRestriction").GetInt32(), mods));
+            result.Add(new(currency.Hash, currency.Id, row.Int("Level"),
+                row.Int("ItemLevelRestriction"), mods));
         }
         return result;
     }

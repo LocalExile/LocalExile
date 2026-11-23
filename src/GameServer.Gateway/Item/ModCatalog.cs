@@ -1,18 +1,37 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
-/// Mods.dat (data/tables/Mods.json, loaded on first use): what the server needs to put mods on items
+/// Mods.dat (the Mods client table, read when the catalog is made): what the server needs to put mods on items
 /// (Agents/docs/protocol/13-items.md §2a). The client identifies a mod by its HASH16 and counts its stats itself
 /// (StatsKey1..8 up to the first empty one), so every <see cref="ItemMod"/> is built here with exactly that many values.
 /// </summary>
-sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
+public sealed class ModCatalog
 {
-    public ModRangeProvider Ranges { get; } = ranges ?? ModRangeProvider.Default;
+    readonly string folder;
+    readonly bool hardMode;
+    readonly ModRangeProvider? ranges;
+
+    public ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
+    {
+        this.folder = folder;
+        this.hardMode = hardMode;
+        this.ranges = ranges;
+        Ranges = ranges ?? ModRangeProvider.Default;
+        _mods = Load(folder, hardMode, ranges ?? ModRangeProvider.Default);
+    }
+
+    public ModRangeProvider Ranges { get; }
 
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
-    public sealed record ModStat(string Id, int Min, int Max, bool Local = false);
+    public sealed record ModStat(uint Id, int Min, int Max, bool Local = false)
+    {
+        public bool Scalable { get; init; } = true;
+        /// <summary>The stat's Stats.dat Id (for text and logs).</summary>
+        public string Name => Program.Stats.Name(Id);
+    }
 
     /// <summary>A Mods.dat row. GenerationType 1 prefix, 2 suffix, 3 unique / base implicit, 10 enchantment …;
     /// Domain 1 items.</summary>
@@ -21,7 +40,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
     public sealed record Mod(int Row, string Id, ushort Hash, string Name, int Domain, int GenerationType, int Level,
         IReadOnlyList<ModStat> Stats)
     {
-        internal ModRangeProvider? Ranges { get; init; }
+        public ModRangeProvider? Ranges { get; init; }
         public IReadOnlyList<int> Families { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> SpawnWeights { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> GenerationWeights { get; init; } = [];
@@ -29,6 +48,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         /// <summary>ModType.dat's Name for ModTypeKey: the Harvest conversion groups (ColdResistance, FireDamage …).</summary>
         public string ModType { get; init; } = "";
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
+        public bool Unscalable { get; init; }
         /// <summary>What a mod does beyond its stats (monster mods: MonsterModCatalog): its BuffTemplates row (an aura or
         /// buff, BuffTemplate1), the monster it leaves on death (MonsterOnDeath) and its granted skills
         /// (GrantedEffectsPerLevelKeys).</summary>
@@ -36,6 +56,8 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         public string MonsterOnDeath { get; init; } = "";
         public int GrantedEffects { get; init; }
         public IReadOnlyList<int> GrantedEffectLevels { get; init; } = [];
+        /// <summary>GrantedEffectsPerLevel overrides used by HardMode when this list is nonempty.</summary>
+        public IReadOnlyList<int> RuthlessGrantedEffectLevels { get; init; } = [];
 
         /// <summary>The weight for an item with these tags: the first spawn tag it has, times the first generation tag
         /// it has / 100; 0 when no spawn tag matches.</summary>
@@ -56,7 +78,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
                 ? Ranges?.Range(Id, index, Stats[index].Min, Stats[index].Max) ?? Normalise(Stats[index])
                 : (0, 0);
 
-        /// <summary>An admin's range (/game_data mod) applies to this stat.</summary>
+        /// <summary>A range from world.db's mod_stat_overrides applies to this stat.</summary>
         public bool RangeOverridden(int index) => Ranges?.All.ContainsKey((Id, index)) == true;
 
         /// <summary>The effective maxima, in stat order (max-roll dev items and unique definitions use these).</summary>
@@ -88,24 +110,23 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         public override string ToString() => $"{Id} (row {Row})";
     }
 
-    private readonly Lazy<(List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById)> _mods =
-        new(() => Load(folder, hardMode, ranges ?? ModRangeProvider.Default));
+    private readonly (List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById) _mods;
 
-    public bool Loaded => _mods.Value.Rows.Count > 0;
+    public bool Loaded => _mods.Rows.Count > 0;
 
-    public Mod? Row(int row) => row >= 0 && row < _mods.Value.Rows.Count ? _mods.Value.Rows[row] : null;
+    public Mod? Row(int row) => row >= 0 && row < _mods.Rows.Count ? _mods.Rows[row] : null;
 
-    public Mod? ByHash(ushort hash) => _mods.Value.ByHash.GetValueOrDefault(hash);
+    public Mod? ByHash(ushort hash) => _mods.ByHash.GetValueOrDefault(hash);
 
-    public Mod? ById(string id) => _mods.Value.ById.GetValueOrDefault(id);
+    public Mod? ById(string id) => _mods.ById.GetValueOrDefault(id);
 
-    public IReadOnlyList<Mod> All => _mods.Value.Rows;
+    public IReadOnlyList<Mod> All => _mods.Rows;
 
     /// <summary>A mod by row number, exact Id (any case), then the first Id that contains the text.</summary>
     public Mod? Find(string query)
     {
         if (int.TryParse(query, out int row)) return Row(row);
-        return ById(query) ?? _mods.Value.Rows.FirstOrDefault(m => m.Id.Contains(query, StringComparison.OrdinalIgnoreCase));
+        return ById(query) ?? _mods.Rows.FirstOrDefault(m => m.Id.Contains(query, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>"SpellDamageOnWeaponImplicitWand1 implicit: spell_damage_+% 10" for logs and /item_mods.</summary>
@@ -116,58 +137,53 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
     private static (List<Mod>, Dictionary<ushort, Mod>, Dictionary<string, Mod>) Load(string folder, bool hardMode,
         ModRangeProvider ranges)
     {
-        string path = Path.Combine(folder, "tables", "Mods.json"), statsPath = Path.Combine(folder, "tables", "Stats.json"),
-            tagsPath = Path.Combine(folder, "tables", "Tags.json"), modTypePath = Path.Combine(folder, "tables", "ModType.json");
         var rows = new List<Mod>();
-        if (!File.Exists(path) || !File.Exists(statsPath)) return (rows, [], []);
-        List<(string Id, bool Local)> stats;
-        using (var s = GameTables.Open(statsPath))
-            stats = [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("Id").GetString() ?? "", r.GetProperty("IsLocal").GetBoolean()))];
+        if (!ClientTables.Has("Mods") || !ClientTables.Has("Stats")) return (rows, [], []);
+        List<(string Id, bool Local, bool Scalable)> stats;
+        var s = ClientTables.Table("Stats");
+        stats = [.. s.Select(r => (r.Text("Id") ?? "", r.Bool("IsLocal"), r.BoolOrNull("IsScalable") ?? true))];
         List<string> modTypes = [];
-        if (File.Exists(modTypePath))
-            using (var t = JsonDocument.Parse(File.ReadAllBytes(modTypePath)))
-                modTypes = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Name").GetString() ?? "")];
+        if (ClientTables.Has("ModType"))
+            modTypes = [.. ClientTables.Table("ModType").Select(r => r.Text("Name") ?? "")];
         List<string> tags = [];
-        if (File.Exists(tagsPath))
-            using (var t = JsonDocument.Parse(File.ReadAllBytes(tagsPath)))
-                tags = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
-        List<(string, int)> Weights(JsonElement r, string keys, string values) =>
-            [.. r.GetProperty(keys).EnumerateArray().Zip(r.GetProperty(values).EnumerateArray(),
-                (k, v) => (k.GetInt32() < tags.Count ? tags[k.GetInt32()] : $"#{k.GetInt32()}", v.GetInt32()))];
-        using var d = GameTables.Open(path);
-        foreach (var r in d.RootElement.EnumerateArray())
+        if (ClientTables.Has("Tags"))
+            tags = [.. ClientTables.Table("Tags").Select(r => r.Text("Id") ?? "")];
+        List<(string, int)> Weights(ClientRow r, string keys, string values) =>
+            [.. r.Ints(keys).Zip(r.Ints(values), (k, v) => (k < tags.Count ? tags[k] : $"#{k}", v))];
+        foreach (var r in ClientTables.Table("Mods"))
         {
-            bool alternate = hardMode && r.TryGetProperty("HasHardmodeStatValues", out var hardmode) && hardmode.GetBoolean();
+            bool alternate = hardMode && r.BoolOrNull("HasHardmodeStatValues") == true;
             string suffix = alternate ? "Hardmode" : "";
             // The client's stat iterator (0x1424371e0) stops at the first empty key, so the count does too.
             var modStats = new List<ModStat>();
             for (int i = 1; i <= 8; i++)
             {
-                if (r.GetProperty($"StatsKey{i}") is not { ValueKind: JsonValueKind.Number } k) break;
-                int key = k.GetInt32();
-                var (statId, local) = key < stats.Count ? stats[key] : ($"#{key}", false);
+                if (r.IntOrNull($"StatsKey{i}") is not int k) break;
+                int key = k;
+                var (_, local, scalable) = key >= 0 && key < stats.Count ? stats[key] : ("", false, true);
+                uint statId = key >= 0 && key < stats.Count ? (uint)key + 1 : Stat.Of($"#{key}");
                 // Explicit zero is meaningful (for example disabled boss rarity bonuses); it must not fall back.
-                modStats.Add(new(statId, r.GetProperty($"Stat{i}Min{suffix}").GetInt32(), r.GetProperty($"Stat{i}Max{suffix}").GetInt32(), local));
+                modStats.Add(new(statId, r.Int($"Stat{i}Min{suffix}"), r.Int($"Stat{i}Max{suffix}"), local)
+                { Scalable = scalable });
             }
-            rows.Add(new Mod(rows.Count, r.GetProperty("Id").GetString() ?? "", (ushort)r.GetProperty("HASH16").GetInt32(),
-                r.GetProperty("Name").GetString() ?? "", r.GetProperty("Domain").GetInt32(), r.GetProperty("GenerationType").GetInt32(),
-                r.GetProperty("Level").GetInt32(), modStats)
+            rows.Add(new Mod(rows.Count, r.Text("Id") ?? "", (ushort)r.Int("HASH16"),
+                r.Text("Name") ?? "", r.Int("Domain"), r.Int("GenerationType"),
+                r.Int("Level"), modStats)
             {
                 Ranges = ranges,
-                Families = [.. r.GetProperty("Families").EnumerateArray().Select(f => f.GetInt32())],
+                Families = [.. r.Ints("Families")],
                 SpawnWeights = Weights(r, "SpawnWeight_TagsKeys", "SpawnWeight_Values"),
                 GenerationWeights = Weights(r, "GenerationWeight_TagsKeys", "GenerationWeight_Values"),
-                EssenceOnly = r.GetProperty("IsEssenceOnlyModifier").GetBoolean(),
-                ModType = r.TryGetProperty("ModTypeKey", out var modType) && modType.ValueKind == JsonValueKind.Number &&
-                    modType.GetInt32() is int mt && mt >= 0 && mt < modTypes.Count ? modTypes[mt] : "",
-                BuffTemplate = r.TryGetProperty("BuffTemplate1", out var buff) && buff.ValueKind == JsonValueKind.Number ? buff.GetInt32() : null,
-                MonsterOnDeath = r.TryGetProperty("MonsterOnDeath", out var death) ? death.GetString() ?? "" : "",
-                GrantedEffects = r.TryGetProperty("GrantedEffectsPerLevelKeys", out var granted) ? granted.GetArrayLength() : 0,
-                GrantedEffectLevels = r.TryGetProperty("GrantedEffectsPerLevelKeys", out var effects)
-                    ? [.. effects.EnumerateArray().Select(e => e.GetInt32())] : [],
+                EssenceOnly = r.Bool("IsEssenceOnlyModifier"),
+                Unscalable = r.BoolOrNull("IsUnscalable") == true,
+                ModType = r.IntOrNull("ModTypeKey") is int mt && mt >= 0 && mt < modTypes.Count ? modTypes[mt] : "",
+                BuffTemplate = r.IntOrNull("BuffTemplate1"),
+                MonsterOnDeath = r.TextOrNull("MonsterOnDeath") ?? "",
+                GrantedEffects = r.Ints("GrantedEffectsPerLevelKeys").Length,
+                GrantedEffectLevels = [.. r.Ints("GrantedEffectsPerLevelKeys")],
+                RuthlessGrantedEffectLevels = [.. r.Ints("GrantedEffectRuthless")],
                 Tags = new[] { "TagsKeys", "ImplicitTagsKeys" }
-                    .Where(key => r.TryGetProperty(key, out _))
-                    .SelectMany(key => r.GetProperty(key).EnumerateArray().Select(k => k.GetInt32()))
+                    .SelectMany(key => r.Ints(key))
                     .Where(k => k >= 0 && k < tags.Count).Select(k => tags[k]).ToHashSet(),
             });
         }

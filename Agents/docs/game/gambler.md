@@ -74,7 +74,8 @@ intermediary (calculator `0x142822e80`). It is not sent while frozen, where −1
 Whether the native walk and clips now follow a chill is not checked live.
 
 This scope does not add hostile projectile/spell adapters, enemy chance-to-ailment mods, special ailment thresholds,
-conditional ailment immunities or alternative-ailment sources (Scorch, Brittle, Sap).
+conditional ailment immunities, or alternative-ailment sources beyond those in
+[20](../protocol/20-damage.md) ("Scorch, Brittle and Sap").
 Bleed and poison are not elemental ailments and gain no avoidance from Risk Aversion.
 The existing stun consumer remains bounded to supported ordinary-Life physical melee hit recovery.
 These engine limits must not be described as broader ailment parity.
@@ -103,10 +104,7 @@ From the repository root, start only through `scripts/dev/live.ps1` and run:
 ```
 
 The usual point award command is a development shortcut, not Labyrinth acquisition or an expanded native Altar.
-Use native passive refunds or `/reset_ascendancy`; allocate/refund/save failure tests exercise the actual Gateway and SQLite.
-`AscendancyGatewayIntegrationTests.Gambler`, `GamblerRuntimeTests`, `PlayerElementalAilmentsTests` and the existing
-critical/projectile/recovery suites cover node consumers, live removal, multiple choices and normal combat composition.
-Local full-suite and native evidence belongs under this worktree's ignored `logs/`; record exact revisions with results.
+Use native passive refunds or `/reset_ascendancy`.
 
 ## Verification evidence
 

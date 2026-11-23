@@ -69,7 +69,7 @@ This chapter establishes the actual caller order and arguments, not all numerica
 
 ## 3. These cached fields describe walls, not continuation counts
 
-The key/name binding is checked against `Stats.json` SHA256
+The key/name binding is checked against `Stats` SHA256
 `91c2ed42f6d8094a2704f56aea32f6f16243881b04aadbe4fdbbdd3a566f05da`.
 Native key `k` selects JSON row `k-1`.
 

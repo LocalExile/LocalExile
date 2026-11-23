@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace GameServer.Core.World;
 
 /// <summary>
@@ -11,14 +9,14 @@ public static class AreaSeedPins
 {
     public const string File = "data/area-seeds.json";
 
-    /// <summary>These pins keyed by WorldAreas <c>HASH16</c> (data/tables/WorldAreas.json); empty without either file.</summary>
-    public static Dictionary<ushort, uint> Load(string worldAreasJson, string file = File)
+    /// <summary>These pins keyed by WorldAreas <c>HASH16</c>; empty without the file or the table.</summary>
+    public static Dictionary<ushort, uint> Load(ClientTable? worldAreas, string file = File)
     {
         var byId = new Dictionary<string, uint>(StringComparer.Ordinal);
         if (!System.IO.File.Exists(file)) return [];
-        using (var doc = JsonDocument.Parse(System.IO.File.ReadAllBytes(file)))
+        using (var doc = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllBytes(file)))
             foreach (var row in doc.RootElement.EnumerateObject())
                 if (row.Value.TryGetUInt32(out uint seed)) byId[row.Name] = seed;
-        return ServerLevelAreas.ByHash(worldAreasJson, byId);
+        return ServerLevelAreas.ByHash(worldAreas, byId);
     }
 }

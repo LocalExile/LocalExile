@@ -18,6 +18,10 @@ rows with `SendsGenericCommandPacket` never arrive as chat: the client sends C�
 (`/destroy` 9, `/hideout` 45: [21](21-hideouts.md) §3), so our commands must not reuse those words. `InstanceChat.Length` frames it
 (the length depends on the text), and `SplitClientMessages` uses it for id 0x15.
 
+`/played` is `ShowTimePlayed`, Commands row 1: **C→S 0x16, u8 2, empty wstr** (`00 16 02 00 00`).
+The Commands module answers with a chat line and saves online seconds in character module data.
+The counter starts when this support is installed; earlier playtime cannot be reconstructed from existing saves.
+
 The prefixes are `#` global, `$` trade, `%` party, `&` guild and `@` whisper; local has none (live 2026-10-25, typed in
 the chat box: `hello local`, `#hello global`, `$hello trade`).
 After a trade line the chat box opens with `$` already typed, so the next line goes to trade too.
@@ -31,7 +35,12 @@ A plain line reaches its listeners, the player too, as a 0x17 chat line (the Cha
 `Name` for local, `#Name` for global and `$Name` for trade, the text without its prefix.
 Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name green, `#OfflineWitch: hello global`
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
-Party and guild lines are not sent. A whisper is typed `@Name text`.
+A `%` party line goes to the human members of the sender's party, in whatever area each one is, as a 0x17 whose sender
+carries the `%` prefix; guild lines are not sent. A whisper is typed `@Name text`.
+
+The unmodified chat submitter clamps input to 512 UTF-16 units, even when the editor holds a longer paste.
+Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
+inbox filename instead. Raising only the server's packet limit does not change these client limits.
 
 ## 2. Server → client text
 
@@ -109,7 +118,7 @@ Then it fires the instance +0xef8 listeners.
 The chat panel's Global and Trade tabs, greyed out before, become usable.
 It prints no line itself: S→C 0x12d with BackendErrors code 240 (JoinedGlobalChannel) printed "You have joined global
 chat channel {1} {0}." with the placeholders unfilled, so the Gateway sends that text filled in as a 0x17 line instead.
-The Gateway (`Program.Chat.cs`, `ChatChannels`) answers every 0x134 with 0x135: the number asked for, else the
+The Chat module (`Modules/Core/Player/Chat/`, `ChatChannels`) answers every 0x134 with 0x135: the number asked for, else the
 character's last channel of that kind, else channel 1, and the language echoed.
 After the answer it prints "You have joined global chat channel N." when the channel is new for the character or a
 command asked for it.
@@ -148,7 +157,14 @@ Other header consumers and indirect notification effects are separate questions.
 - The Stats component has no 0x2bc (component update) handler: its vtable slot +0xa0 is a no-op. So 0x1b3 is the way to
   change stats.
 
-## 4. Commands (Gateway, `Program.Commands.cs` `Commands`)
+## 4. Commands
+
+Where a command lives: the Gateway's own are `/commands`, `/mod`, `/mod_reload`, `/mod_enable`, `/mod_disable`, `/module`,
+`/module_reload`, `/reload` and `/lastpackets` (`ChatCommands.cs`, `Modding/Program.Commands.cs`); a module adds its own
+(`Core/Player/Commands`: `/oos`, `/passives`; `Core/World/Atlas`: `/atlas_complete`, `/atlas_reset`). Every other command
+below is a development command of the `gm-commands` mod in
+[LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) (`mods/gm-commands/`), so it exists only while that mod
+is installed and loaded ([modding](../dev/modding.md)).
 
 `/hit`, `/spellhit` and `/blockhit` are synthetic incoming enemy contacts for the
 [recent-hit armour model](../game/steel-willed-armour.md), including blocked and zero-damage results.
@@ -160,7 +176,7 @@ For tools outside the game (the desktop launcher's console), the built Gateway l
 usage and argument kinds as JSON lines (`Program.CommandUsages`, the loaded mods' commands not included).
 A command declares the kinds of its leading arguments where it registers (`ChatCommands.Add`: area, monster, item, gem,
 stat, npc, quest_flag), and `GameServer.Gateway.dll values <kind>` prints what such an argument can be, from the catalog
-the command looks it up in (`Program.CompletionValues`): a name only one row has, else the row's Id with the name as
+the command looks it up in (`Game.CompletionValues`): a name only one row has, else the row's Id with the name as
 its detail; `/goto`'s areas say whether the Gateway generates them, a capture has them, or only the client can.
 Both run before `ServerLog`, so their output is JSON lines only.
 
@@ -298,8 +314,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
   DiesAfterTime, StateMachine or Transitionable. The blob also writes MinimapIcon (u8), DiesAfterTime (no data: its
   live vtable is the factory's `0x1435a7888`, slot 17 `ret`), Preload, Functions, PlayerClass (no data), Transitionable
   and StateMachine (below), NPC (`00 ff`, [17](17-npcs.md)), InteractionAction (u8 flags 0, `0x141e218a0`: Act 2's
-  bandit lords Kraityn, Alira and Oak) and Timer (no data: its only vtable `0x1435ab790` has slot 17 `ret`; Solaris and
-  Lunaris on The Harbour Bridge). The rest have ControlZone, BlightTower, Mercenary, LimitedLifespan … components and
+  bandit lords Kraityn, Alira and Oak), Timer (no data: its only vtable `0x1435ab790` has slot 17 `ret`; Solaris and
+  Lunaris on The Harbour Bridge) and TriggerableBlockage (`0x141e47880`: u8 blocked, then only while blocked a u8 section
+  count; Oshabi's Root Wall, sent unblocked, not yet seen live). The rest have ControlZone, BlightTower, Mercenary, LimitedLifespan … components and
   are refused with a message box. The type is the variety's own Id when an
   `.ot` exists under it, else its `BaseMonsterTypeIndex`: `KitavaBoss/KitavaFinal`'s base column names `Kitava1`, but
   the client builds it from `kitavafinal.ot`, which has no Transitionable; sent with Kitava1's list, the extra byte was
@@ -331,8 +348,11 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
     - **Lurking** (69 types, 115 varieties: Tide Strider, Blood Elemental, Dreadwheel …): the client shows them frozen
       in the first frame of the clip but targetable. They stay among the connection's monsters and can be hit; the AI
       leaves them alone until they rise, and they rise when hit.
-    - **Unique monsters** keep their own state (no rise): a boss's entrance (Kitava's 7 s `phase1_transition_in`, the
-      Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script.
+    - **Unique monsters** keep their own state: a boss's entrance (Kitava's 7 s `phase1_transition_in`, the
+      Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script. Campaign Yugul is an exception:
+      `SilverFrog.ot` starts untargetable in a paused clip and enables targeting on transition to state 2. Without
+      a rise, first entry stayed in state 1 while instance rebind recreated him in state 2. He uses the buried rise
+      before generic AI, with the native `jump_out` clip (1.166 s). His dive/mirror phases remain separate work.
 
     The server raises one:
     In one tick, in GGG's order:
@@ -340,9 +360,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
     2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
        a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
        `grasp_emerge`, 3.7 s).
-    3. S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
-       (`0x141e9afc0`, looked at again every 0.25 s), and only then plays (`+0x1b0`). After the clip the monster chases
-       and attacks like any other.
+    3. S→C **0x1ac**: predictive mode waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
+       (`0x141e9afc0`, otherwise checked every 0.25 s). Lockstep starts directly. Both modes end Emerge with its clip
+       (`0x141e99d50`), with no additional recovery tail; the monster then becomes eligible to chase and attack.
     Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
     one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
     time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to
@@ -380,7 +400,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
   animation, along the client's own path around walls, on the terrain height**. Alternatives: **0x1ba** (Positioned
   move) only slides it in a straight line through walls, at `duration = cell distance / value` (value ≈ cells per
   second; `0x141e33fd0` → `0x141e37460`), keeping the old height; **0x1b7** teleports it.
-- **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
+- **AI** (Gateway, `StartMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
   its MonsterVarieties `MaxAgroRange` (taken as grid cells: 60 for Hungry Corpse, 105 for most) of the server's estimate
   of the player starts chasing: a Move action (0x1ab, 0x2909) to its own cell around the player, re-sent when that cell
   moves by 3+ cells; beyond twice the range it gives up: an S→C 0x1ac ends the client's chase action (925 of 1166
@@ -419,12 +439,12 @@ Global, trade and whisper lines leave the Gateway for a chat server, GGG's split
 it across its areas, so players of separate Gateways can talk. Local lines stay in the Gateway.
 
 The Chat module runs a chat server on a free loopback port, so each Gateway has chat alone. A mod moves the players to
-another server with `UseChatServer(host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
+another server with `ChatRoutes.Use(id, host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
 `Failed to connect to host:port chat channel, switching back to local chat server.` in chat when that server fails or the
 connection drops, each reason once, and tries again at an area change after 60 s.
 
-To host one: `dotnet run -c Release --project src/GameServer.Chat` (solution `GameServer.Chat.slnx`), with
-`Game_CHAT_BIND` and `Game_CHAT_PORT` (default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
+To host one: `dotnet run -c Release --project src/GameServer.Chat`, with
+`Chat.BindAddress` and `Chat.Port` in `localexile.conf` (or `Game_CHAT_BIND`, `Game_CHAT_PORT`; default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
 Nothing is encrypted, stored or authenticated. Separate Gateways can have characters of one name, so a later one gets the
 first free `Name_n` for that connection; `@Name_n` whispers to it. Not `Name[n]`: the client drew `#Build[1]: hey` all
 white, without the global colour (live 2026-11-07).

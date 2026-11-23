@@ -1,29 +1,39 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// Waypoints (Agents/docs/protocol/16-waypoints.md): which areas have one and their bit in S→C 0x4c (WorldAreas, see
 /// <see cref="WorldAreaWaypoints"/>), and where an area's waypoint stands: the tile object scripts/walkmaps captured
 /// for the (area, seed), like the area transitions (08-area-transitions.md §7), or Lioneye's Watch's known place.
 /// </summary>
-static class WaypointCatalog
+public static class WaypointCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Order = LoadOrder();
+        VisitFlags = AreaVisitFlags.Load(ClientTables.TableOrNull("WorldAreas"), ClientTables.TableOrNull("MapPins"));
+    }
+
     const string Folder = "data/walkability";
 
     /// <summary>The waypoint's server object id (area transitions use 0x2000…, monsters 0x3000…).</summary>
     public const uint ObjectId = 0x2f00;
 
-    static readonly Lazy<WorldAreaWaypoints> Order = new(() =>
+    static WorldAreaWaypoints Order = default!;
+
+    static WorldAreaWaypoints LoadOrder()
     {
-        var w = WorldAreaWaypoints.Load("data/tables/WorldAreas.json");
+        var w = WorldAreaWaypoints.Load(ClientTables.TableOrNull("WorldAreas"));
         Console.WriteLine(w.Entries.Count == 0
-            ? "[gateway] waypoints: no data/tables/WorldAreas.json (run scripts/dev/extract-data.ps1), waypoints are off"
+            ? $"[gateway] waypoints: no WorldAreas table in {ClientTables.DefaultPath}, waypoints are off"
             : $"[gateway] waypoints: {w.Entries.Count} waypoint areas");
         return w;
-    });
+    }
 
-    public static WorldAreaWaypoints Areas => Order.Value;
+    public static WorldAreaWaypoints Areas => Order;
 
     /// <summary>The Azurite Mine Encampment (WorldAreas Delve_Hub), where Niko's Visit Mine Encampment leads.</summary>
     public const string DelveHub = "Delve_Hub";
@@ -46,10 +56,10 @@ static class WaypointCatalog
     /// <summary>The Aspirants' Plaza (WorldAreas Labyrinth_Airlock), the World panel's Labyrinth pin.</summary>
     public const string LabyrinthPlaza = "Labyrinth_Airlock";
 
-    static readonly Lazy<AreaVisitFlags> VisitFlags = new(() => AreaVisitFlags.Load("data/tables/WorldAreas.json", "data/tables/MapPins.json"));
+    static AreaVisitFlags VisitFlags = default!;
 
     /// <summary>The quest flags entering an area sets (AreaVisitFlags), and the areas with a World panel pin.</summary>
-    public static AreaVisitFlags Visits => VisitFlags.Value;
+    public static AreaVisitFlags Visits => VisitFlags;
 
     // Lioneye's Watch without a capture: the town tile's .tmd record beachencampment_v01_01_v2_waypoint1 as the client
     // places it (TerrainTests.Town_area_transition_and_waypoint_placement; live capture 2026-10-18).
@@ -70,24 +80,30 @@ static class WaypointCatalog
     static WaypointObject? LoadCapture(string id, uint seed)
     {
         string file = $"{Folder}/{id}_seed{seed}.transitions.json";
+        if (!File.Exists(file)) return Generated(id, seed);
         try
         {
-            // No capture: the layout the Gateway generated itself.
-            if (!File.Exists(file))
-                return ServerLevels.For(id, seed)?.Objects.FirstOrDefault(o => o.Type == WaypointObject.MetadataPath) is { } made
-                    ? new WaypointObject(made.X, made.Y, made.Model, made.Rotation, float.IsNaN(made.Z) ? null : made.Z) : null;
             var data = JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(file), Json);
-            var o = data?.Objects?.FirstOrDefault(o => o.ObjectType == WaypointObject.MetadataPath);
-            return o is null ? null : new WaypointObject(o.X, o.Y, o.Model, o.Rotation, o.Z);
+            return FromCapture(data) ?? Generated(id, seed);
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
-            return null;
+            return Generated(id, seed);
         }
     }
 
+    /// <summary>The waypoint the tile objects of a capture name, or null when the capture holds none.</summary>
+    internal static WaypointObject? FromCapture(CaptureFileData? data) =>
+        data?.Objects?.FirstOrDefault(o => o.ObjectType == WaypointObject.MetadataPath) is { } o
+            ? new WaypointObject(o.X, o.Y, o.Model, o.Rotation, o.Z) : null;
+
+    /// <summary>The waypoint the layout the Gateway generated itself places in the area, or null when it places none.</summary>
+    internal static WaypointObject? Generated(string id, uint seed) =>
+        ServerLevels.For(id, seed)?.Objects.FirstOrDefault(o => o.Type == WaypointObject.MetadataPath) is { } made
+            ? new WaypointObject(made.X, made.Y, made.Model, made.Rotation, float.IsNaN(made.Z) ? null : made.Z) : null;
+
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
-    sealed record CaptureFileData(List<CapturedObject>? Objects);
-    sealed record CapturedObject(string? ObjectType, string? Model, int X, int Y, float Rotation, float? Z);
+    internal sealed record CaptureFileData(List<CapturedObject>? Objects);
+    internal sealed record CapturedObject(string? ObjectType, string? Model, int X, int Y, float Rotation, float? Z);
 }

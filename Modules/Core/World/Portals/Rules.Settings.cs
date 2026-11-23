@@ -18,6 +18,12 @@ using GameServer.Core.Diagnostics;
 
 static partial class PortalsRules
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadRulesSettingsData()
+    {
+        AreaMods = AreaModCatalog.Load();
+    }
+
     // How close the player walks to the map device before it opens (its size is not known yet).
     internal const double StashReach = 6;
 
@@ -25,7 +31,11 @@ static partial class PortalsRules
     /// cell) and where it leads (a town's HASH16, or the hideout's). While the server runs.</summary>
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OpenPortal> OpenPortals = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Each character's town portal standing in a map instance (it leads to the hideout, with no portal back
+    /// there): an entry through that map's device portals arrives at it. While the server runs.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OpenPortal> MapTownPortals = new(StringComparer.OrdinalIgnoreCase);
+
     // WorldAreas' own mods (AreaModCatalog); loaded with the first Portal Scroll.
-    internal static readonly Lazy<AreaModCatalog> AreaMods = new(() => AreaModCatalog.Load());
+    internal static AreaModCatalog AreaMods = default!;
     internal const string PortalScroll = "Metadata/Items/Currency/CurrencyPortal";
 }

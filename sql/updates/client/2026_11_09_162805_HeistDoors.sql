@@ -1,0 +1,22 @@
+-- Client table HeistDoors: all 20 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "HeistDoors" ("_row", "Id", "__col1", "HeistJobsKey1", "HeistJobsKey2", "__col4", "__col5", "__col6", "__col7", "HeistAreasKey") VALUES
+(0, 'NormalDoor', 'door', NULL, NULL, '', '[]', '[]', 0, NULL),
+(1, 'LockpickDoorIn', 'door_lockpick', 0, NULL, '', '[]', '[]', 0, NULL),
+(2, 'LockpickDoorOut', 'door_lockpickout', NULL, 0, 'security', '[]', '[]', 0, NULL),
+(3, 'BruteForceDoorIn', 'door_bruteforce', 1, NULL, '', '[]', '[]', 0, NULL),
+(4, 'BruteForceDoorOut', 'door_bruteforceout', NULL, 1, 'security', '[]', '[]', 0, NULL),
+(5, 'PerceptionDoorIn', 'door_perception', 2, NULL, '', '[]', '[]', 0, NULL),
+(6, 'PerceptionDoorOut', 'door_perceptionout', NULL, 2, 'security', '[]', '[]', 0, NULL),
+(7, 'DemolitionDoorIn', 'door_demolition', 3, NULL, '', '[]', '[]', 0, NULL),
+(8, 'DemolitionDoorOut', 'door_demolitionout', NULL, 3, 'security', '[]', '[]', 0, NULL),
+(9, 'CounterThaumaturgeDoorIn', 'door_countermagic', 4, NULL, '', '[]', '[]', 0, NULL),
+(10, 'CounterThaumaturgeDoorIn', 'door_mindcontrol', 4, NULL, '', '[]', '["FloorLever"]', 1, 5),
+(11, 'CounterThaumaturgeDoorOut', 'door_countermagic', NULL, 4, 'security', '[]', '[]', 0, NULL),
+(12, 'TrapDisarmamentDoorIn', 'door_disarmament', 5, NULL, '', '[]', '[]', 0, NULL),
+(13, 'TrapDisarmamentDoorOut', 'door_disarmamentout', NULL, 5, 'security', '[]', '[]', 0, NULL),
+(14, 'AgilityDoorIn', 'door_agility', 6, NULL, '', '["VentIn"]', '["VentOut","FloorLever"]', 0, NULL),
+(15, 'AgilityDoorOut', 'door', NULL, NULL, '', '[]', '[]', 0, NULL),
+(16, 'DeceptionDoorIn', 'door_deception', 7, NULL, '', '[]', '["FloorLever"]', 0, NULL),
+(17, 'DeceptionDoorOut', 'door', NULL, NULL, '', '[]', '[]', 0, NULL),
+(18, 'EngineeringDoorIn', 'door_engineering', 8, NULL, '', '[]', '[]', 0, NULL),
+(19, 'EngineeringDoorOut', 'door_engineeringout', NULL, 8, 'security', '[]', '[]', 0, NULL);

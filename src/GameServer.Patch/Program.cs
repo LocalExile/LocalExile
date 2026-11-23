@@ -18,26 +18,29 @@ using GameServer.Data.Ggpk;
 // skips patching and goes straight to the login screen. The welcome's web roots are always
 // this server (default http://127.0.0.1:8080/, Game_PATCH_WEB_ROOT to override), never the CDN.
 // The hash comes from data/client-constants.json: the server never opens the client's files.
-// Env: Game_PATCH_TCP_PORT (default 12995).
+// localexile.conf Patch.Port, or Game_PATCH_TCP_PORT (default 12995).
 //
-// Tools (run while the client is closed; these do open the GGPK):
-//   root-hash [ggpk] [--save]             print the GGPK root hash; --save also writes it to data/client-constants.json
-//   gateway [ggpk]                        print the gateway list the client will use
-//   gateway [ggpk] --login <host:port>    point every gateway at <host:port>; the original
-//                                         is saved once to data/gateway_list.original.txt
-//   gateway [ggpk] --restore              write the saved original back
+// Tools (run while the client is closed; these do open the client's files). <client> is the client folder (standalone
+// or Steam layout, default Client.Folder) or a Content.ggpk:
+//   root-hash [client] [--repair] [--save]  print the GGPK root hash; --repair first gives a zero root hash a value (it
+//                                           writes the GGPK), --save also writes it to data/client-constants.json.
+//                                           A Steam install has no GGPK, so no root hash
+//   gateway [client]                        print the gateway list the client will use
+//   gateway [client] --login <host:port>    point every gateway at <host:port>; the original
+//                                           is saved once to data/gateway_list.original.txt
+//   gateway [client] --restore              write the saved original back
 
 if (args.Length > 0 && args[0] is "root-hash" or "gateway")
 {
     try { return GgpkTool(args); }
     catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
     {
-        Console.Error.WriteLine($"[patch] GGPK not found ({ex.Message}). Copy the standalone client into Client/ (Client/Content.ggpk) and run from the repository root.");
+        Console.Error.WriteLine($"[patch] client files not found ({ex.Message}). Copy the client (standalone or Steam) into Client/ and run from the repository root.");
         return 1;
     }
     catch (IOException ex)
     {
-        Console.Error.WriteLine($"[patch] cannot open the GGPK ({ex.Message}). Close the client first.");
+        Console.Error.WriteLine($"[patch] cannot open the client's files ({ex.Message}). Close the client first.");
         return 1;
     }
 }
@@ -51,7 +54,8 @@ builder.Logging.SetMinimumLevel(LogLevel.Warning);
 string? pfx = Environment.GetEnvironmentVariable("Game_TLS_PFX");
 bool useTls = pfx is not null && File.Exists(pfx);
 string defaultUrl = useTls ? "https://0.0.0.0:443" : PatchServerConfig.DefaultListenUrl;
-string listenUrl = Environment.GetEnvironmentVariable("Game_PATCH_URL") ?? defaultUrl;
+// localexile.conf Patch.WebUrl (Game_PATCH_URL) when given; otherwise the default, https on 443 with a certificate.
+string listenUrl = GameServer.Core.ServerConfig.Text("Game_PATCH_URL", "Patch.WebUrl", defaultUrl);
 builder.WebHost.UseUrls(listenUrl);
 if (useTls)
 {
@@ -61,7 +65,7 @@ if (useTls)
 
 var app = builder.Build();
 
-int patchTcpPort = int.TryParse(Environment.GetEnvironmentVariable("Game_PATCH_TCP_PORT"), out var ptp) ? ptp : 12995;
+int patchTcpPort = GameServer.Core.ServerConfig.PatchPort;
 var config = PatchServerConfig.From(Environment.GetEnvironmentVariable, listenUrl, passthroughFlag);
 _ = Task.Run(() => ServePatchProtocol(patchTcpPort, config.WebRoot, config.BackupWebRoot));
 
@@ -162,6 +166,8 @@ static async Task ServePatchProtocol(int port, string webRoot, string backupWebR
             // wrong hash would make the client start patching.
             byte[] hash = ClientConstants.Load().GgpkRootHashBytes;
             Console.WriteLine($"[patch] {peer} hello v{version}{(version == PatchProtocol.ExpectedVersion ? "" : " (unexpected)")}; root hash {Convert.ToHexString(hash).ToLowerInvariant()}");
+            if (!hash.AsSpan().ContainsAnyExcept((byte)0))
+                Console.WriteLine($"[patch] zero root hash: expected for a Steam install (no Content.ggpk). A standalone client's Content.ggpk with a zero root hash makes it try to patch and time out at \"Checking resources\"; close the client and run GameServer.Patch root-hash <Content.ggpk> --repair --save (LocalExile does this on start)");
             await stream.WriteAsync(PatchProtocol.EncodeWelcome(hash, webRoot, backupWebRoot));
             // A client that still wants to patch sends more requests; log them (not implemented).
             while (true)
@@ -182,17 +188,27 @@ static async Task ServePatchProtocol(int port, string webRoot, string backupWebR
 static int GgpkTool(string[] args)
 {
     var rest = args.Skip(1).ToList();
-    string ggpk = rest.Count > 0 && !rest[0].StartsWith("--") ? rest[0] : Find("Client/Content.ggpk") ?? "Client/Content.ggpk";
+    string ggpk = rest.Count > 0 && !rest[0].StartsWith("--") ? rest[0] : Find(GameServer.Core.ServerConfig.ClientFolder) ?? GameServer.Core.ServerConfig.ClientFolder;
     if (args[0] == "root-hash")
     {
+        var found = ClientFiles.Resolve(ggpk);
+        if (found?.Layout == ClientLayout.Steam)
+        {
+            Console.WriteLine("[patch] a Steam install has no Content.ggpk, so no root hash");
+            return 0;
+        }
+        // A client folder names its Content.ggpk: the GGPK readers open a file.
+        if (found is { } standalone) ggpk = standalone.Path;
+        if (rest.Contains("--repair") && GgpkMaintenance.RepairRootHash(ggpk) is { } repaired)
+            Console.WriteLine($"[patch] the GGPK's root hash was zero, so the client would always try to patch; it is now {Convert.ToHexString(repaired).ToLowerInvariant()}");
         Console.WriteLine(Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)).ToLowerInvariant());
         if (rest.Contains("--save")) SaveRootHash(ggpk);
         return 0;
     }
     // The client reads gateway_list.txt, then Bundles2/gateway_list.txt if that exists (0x140cfc290); the last one wins.
-    string? file = new[] { "Bundles2/gateway_list.txt", "gateway_list.txt" }.FirstOrDefault(f => GgpkMaintenance.TryReadFile(ggpk, f) is not null);
-    if (file is null) { Console.Error.WriteLine("[patch] no gateway_list.txt in the GGPK"); return 1; }
-    byte[] current = GgpkMaintenance.TryReadFile(ggpk, file)!;
+    string? file = new[] { "Bundles2/gateway_list.txt", "gateway_list.txt" }.FirstOrDefault(f => ClientFiles.TryReadFile(ggpk, f) is not null);
+    if (file is null) { Console.Error.WriteLine("[patch] no gateway_list.txt in the client's files"); return 1; }
+    byte[] current = ClientFiles.TryReadFile(ggpk, file)!;
     int at = rest.IndexOf("--login");
     if (at >= 0 && at + 1 < rest.Count)
     {
@@ -206,19 +222,19 @@ static int GgpkTool(string[] args)
             if (f.Length >= 3) f[2] = rest[at + 1];
             return string.Join(';', f);
         }));
-        GgpkMaintenance.ReplaceFile(ggpk, file, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(patched)]);
+        ClientFiles.ReplaceFile(ggpk, file, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(patched)]);
         SaveRootHash(ggpk);
         Console.WriteLine($"[patch] {file} now points at {rest[at + 1]} (original saved to {backup})");
-        current = GgpkMaintenance.TryReadFile(ggpk, file)!;
+        current = ClientFiles.TryReadFile(ggpk, file)!;
     }
     else if (rest.Contains("--restore"))
     {
         string backup = Path.Combine("data", "gateway_list.original.txt");
         if (!File.Exists(backup)) { Console.Error.WriteLine($"[patch] no {backup}"); return 1; }
-        GgpkMaintenance.ReplaceFile(ggpk, file, File.ReadAllBytes(backup));
+        ClientFiles.ReplaceFile(ggpk, file, File.ReadAllBytes(backup));
         SaveRootHash(ggpk);
         Console.WriteLine($"[patch] {file} restored from {backup}");
-        current = GgpkMaintenance.TryReadFile(ggpk, file)!;
+        current = ClientFiles.TryReadFile(ggpk, file)!;
     }
     Console.WriteLine($"[patch] {file}:");
     Console.WriteLine(DecodeList(current).TrimEnd());
@@ -226,11 +242,12 @@ static int GgpkTool(string[] args)
 }
 
 // A changed GGPK has a new root hash, which the Patch server answers with. Before the first extraction there is no file
-// to update (the extraction reads the hash itself).
+// to update (the extraction reads the hash itself). A Steam install has no GGPK.
 static void SaveRootHash(string ggpk)
 {
-    if (!File.Exists(ClientConstants.DefaultFile)) return;
-    (ClientConstants.Load() with { GgpkRootHash = Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)) }).Save();
+    // The location is a client folder or the archive itself; the hash is read from the archive.
+    if (!File.Exists(ClientConstants.DefaultFile) || ClientFiles.Resolve(ggpk) is not { Layout: ClientLayout.Standalone, Path: var archive }) return;
+    (ClientConstants.Load() with { GgpkRootHash = Convert.ToHexString(GgpkMaintenance.RootHash(archive)) }).Save();
 }
 
 static string DecodeList(byte[] b) =>
@@ -255,7 +272,7 @@ static string? Find(string relative)
     while (dir is not null)
     {
         string candidate = Path.Combine(dir.FullName, relative);
-        if (File.Exists(candidate)) return candidate;
+        if (ClientFiles.Resolve(candidate) is not null) return candidate;
         dir = dir.Parent;
     }
     return null;

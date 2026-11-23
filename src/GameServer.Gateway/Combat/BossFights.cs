@@ -6,7 +6,7 @@
 /// (zombie_boss_extract_life_%_to_gain is not in it), so how much he regains is the server's: all of it, as in the real
 /// game. Agents/docs/protocol/12-quests.md §6.
 /// </summary>
-static class BossFights
+public static class BossFights
 {
     /// <summary>At <paramref name="AtLifePct"/> of its maximum life the monster uses its granted effect
     /// <paramref name="SkillEffect"/> (GrantedEffects row) for <paramref name="CastSeconds"/>. At its animation contact,

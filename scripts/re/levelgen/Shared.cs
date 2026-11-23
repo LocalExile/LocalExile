@@ -12,13 +12,13 @@ static class Shared
     static GameFileSystem? _fs;
     static TerrainCache? _files;
 
-    /// <summary>The game files (Client/Content.ggpk), opened on first use and kept open: callers do not dispose it.</summary>
+    /// <summary>The game files (Client/, either layout), opened on first use and kept open: callers do not dispose it.</summary>
     public static GameFileSystem OpenGame()
     {
         if (_fs is not null) return _fs;
         string root = Root();
         var oodle = new NodeOodleDecoder("node", Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs"));
-        return _fs = GameFileSystem.Open(Path.Combine(root, "Client", "Content.ggpk"), oodle);
+        return _fs = GameFileSystem.Open(Path.Combine(root, "Client"), oodle);
     }
 
     /// <summary>The terrain cache over <see cref="OpenGame"/>, shared by every command of the process.</summary>

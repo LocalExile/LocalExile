@@ -2,7 +2,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Persistent generated offers; local generation assumptions are documented in protocol/17-npcs.md.</summary>
-static class VendorStock
+public static class VendorStock
 {
     public sealed record Cost(uint Currency, uint Amount);
     public sealed record Entry(Guid Token, int RefreshAt, CharacterSaves.SavedItem Item, bool Sold = false,
@@ -30,7 +30,7 @@ static class VendorStock
     });
 
     public static Window Open(string character, string league, string npc, int level, ItemCatalog items,
-        SkillCatalog skills, IReadOnlyCollection<int> gems, Func<uint> nextId, LeagueRules rules,
+        ItemRolls rolls, SkillCatalog skills, IReadOnlyCollection<int> gems, Func<uint> nextId, LeagueRules rules,
         bool hardMode, List<string> notes, bool refreshKirac = false, Random? random = null, AccountStash? account = null)
     {
         random ??= Random.Shared;
@@ -41,7 +41,6 @@ static class VendorStock
         bool shared = profile.Kind == "Kirac" && account is not null;
         int offeredTier = shared ? KiracProgress.For(account).Tier : 1;
         int count = profile.Kind switch { "Weapons" => 60, "Magic" => 40, "Kirac" => 18, _ => 0 };
-        var rolls = new Lazy<ItemRolls>(() => new(items));
         bool Eligible(ItemCatalog.BaseType t) => t.Supported && t.DropLevel > 0
             && t.Components.Contains("Mods") && !rules.ShopExcludedClasses.Contains(t.Class)
             && !t.Name.StartsWith('[') && !t.Id.Contains("Royale") && t.ModDomain == 1;
@@ -101,7 +100,7 @@ static class VendorStock
             if (type is not { Supported: true }) return null;
             var item = ItemCatalog.Create(type, random: random) with { ItemLevel = (byte)itemLevel,
                 Quality = type.Components.Contains("Quality") && random.Next(10) == 0 ? (byte)random.Next(1,21) : (byte)0 };
-            item = rolls.Value.Roll(item, rarity, random);
+            item = rolls.Roll(item, rarity, random);
             int max = CurrencyEffects.MaximumSockets(item, type);
             if (max > 0)
             {

@@ -41,8 +41,10 @@ threshold (`SkillCatalog.MaxLevelAt`, `GainGemExperience`; §"Requirements" belo
 derives whatever the experience says (checked live 2026-10-23).
 
 The server gives the kills' experience to the gems (`GainGemExperience`, from `MonsterKilled` only: a quest's level and
-`/add_xp` give the gems nothing): each gem socketed in an equipped item, in either weapon set (rows 1–10, 14, 15),
-gains 10% of the player's monster experience, up to the threshold of the first level whose requirement the character
+`/add_xp` give the gems nothing): each gem socketed in an equipped item, in either weapon set (rows 1-10, 14, 15),
+gains 10% of the kill's experience **before the character's level penalty** (the wiki's Gem page: "Socketed gems gain
+10% of the experience your character earns, before any level penalties. This value is not affected by level
+penalties."), up to the threshold of the first level whose requirement the character
 does not meet and the last level's threshold (a support gem too; a gem in an
 inactive item, at its last level, or at experience -1, a corrupted gem over its cap, nothing). All the gems change in
 one step under the inventory's lock (`PlayerInventories.ChangeSocketedGems`), written into the gem inside the socket
@@ -142,8 +144,7 @@ the transfigured item-name display still needs a native retest.
   again after recovery, the Plate Vest keeping its 19 Armour throughout); that rule is superseded by the restored
   host deactivation above, and those controls describe the port's behaviour, not the current one. Separate aura
   transitions still need their own lifecycle evidence.
-  These captures precede this port; the ordinary-mode integration checks and fresh-native limitation are recorded
-  in [the port record](../dev/issue75-port.md).
+  These captures precede the port and have not been repeated on it.
 - **Supports:** GrantedEffects holds what a support applies to (`AllowedActiveSkillTypes`, `ExcludedActiveSkillTypes`,
   `AddedActiveSkillTypes`, `SupportsGemsOnly`) and its skill-bar letter (`SupportGemLetter`); a skill's types come from
   its ActiveSkills row.
@@ -169,7 +170,9 @@ the transfigured item-name display still needs a native retest.
   - **Vaal skills** have a soul collector and native budget payloads; unsupported Vaal executors remain refused.
     See [27-vaal-souls.md](27-vaal-souls.md); collection does not enable casting.
 - **Not created** (`ItemCatalog.FindGem`, `/gem`): the "[DNT]" placeholder variants, the "[UNUSED] …", "[DNT] …" and
-  "WIP …" gem rows, the awakened supports other than Awakened Empower, Enhance and Enlighten, and the Vaal variants
+  "WIP …" gem rows, the awakened supports other than Awakened Empower, Enhance and Enlighten (a `RegularVariant` row
+  with a GemProgressionPlusN experience type; the Greater exceptional supports, Greater Volley and Greater Multiple
+  Projectiles also have a `RegularVariant` and are created), and the Vaal variants
   whose base skill is only a placeholder's (Vaal Fireball has only its normal variant). A Vaal variant's name is "Vaal "
   and its base variant's ("Vaal Ice Nova of Frostbolts"); the table names them all "Vaal Ice Nova". Whether the game
   names them so is unverified.
@@ -203,6 +206,15 @@ client's own check does not look at the requirements — only the lock and the r
 level the character does not meet still shows the "+", and the click is answered with what is missing (checked live
 2026-10-23: Fireball at level 9 with the experience one below level 10 on a character set to level 31, level 10 needing
 32; then with 70 Int, level 10 needing 75). A gem lying in the inventory, not in a socket, sent nothing in the captures.
+
+**Level Up All** is C→S 0x32, the id alone (2 bytes, captured 2026-11-09): it names no gem, so the server levels every
+socketed gem in the equipment rows (both weapon sets) whose experience has reached the stall point — the state the client's
+`0x142479880` draws the "+" for — one level, with the same rules as the single click. A locked gem, one at its highest
+level and one whose next level's requirements the character does not meet are skipped without affecting the others. Each
+changed item is replaced (0xbf, one per row) and the skills are re-sent once, so the client derives the levels and drops
+the prompts. Only this message levels the batch: gaining experience, logging in, changing area and opening the inventory
+never do. A gem lying in the main inventory is not covered (its "+" sent nothing in the captures, and the message carries
+no target).
 
 The lock: a right-click on a socketed gem sends C→S 0xd7 (15 bytes): the same three u32s and a u8, 1 to lock and 0 to
 unlock. The client keeps the lock in the SkillGem flags +0x10 bit 2 — its level-up check `0x142479880` returns false
@@ -273,7 +285,7 @@ rarity roll. The pool is the obtainable gems only: every class's quest reward ge
 (`QuestRewardOffers`), the starting gems (Characters `StartSkillGem`/`StartSupportGem`) and the drop-only exceptional
 supports (Empower, Enhance, Enlighten). The data's Graft skills (the Chayula gems), item-granted and legacy skills
 (Envy, Death Aura, Quickstep, the single-level rows) and placeholders such as "..." never drop. Because of the level
-gate a low-level monster only drops low-drop-level gems. Checked by `GemDropsTests` and live 2026-10-26 (rare monsters
+gate a low-level monster only drops low-drop-level gems. Checked live 2026-10-26 (rare monsters
 dropped normal skill and support gems). The first live attempt dropped the data's item-granted/legacy rows (Envy,
 Death Aura, "...") at monster level 1 and led to this pool.
 

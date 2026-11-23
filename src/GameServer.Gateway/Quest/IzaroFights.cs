@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Izaro's Aspirant's Trials (roadmap world.md "The Labyrinth", step 1): each section of the day's Labyrinth ends in his
@@ -9,17 +10,32 @@ using GameServer.Core.Protocol.Instance;
 /// Normal) and leaves the first ones on the elevator at the next third; the last one he dies. The arena's doors
 /// (LabyrinthIzaroArenaDoor) shut as he rises and open again with its ways out (<see cref="Beaten"/>); the corridor's gate
 /// (LabyrinthIzaroDoor) in front of the way into the arena opens when used (<see cref="GateOpen"/>), and he speaks
-/// (S→C 0x1c7, <see cref="Speech"/>). The mechanics (the BossObjectiveMarkers' objects, LabyrinthSecretEffects), the
-/// Goddess of Justice and his chests are not built yet.
+/// (S→C 0x1c7, <see cref="Speech"/>). The arena's mechanics are IzaroEffects', the Goddess of Justice IzaroGoddess';
+/// his chests are not built yet.
 /// </summary>
-static class IzaroFights
+public static class IzaroFights
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Tables = LoadTables();
+    }
+
     /// <summary>The arena's server objects: his elevator and the doors of the arena's ways in and out; the corridor's gate
     /// in front of the way into the arena (LabyrinthIzaroArenaTransition, at the same place).</summary>
     public const string Elevator = "Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro",
         ArenaDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIzaroArenaDoor",
         Gate = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIzaroDoor",
+        Railing = "Metadata/Terrain/Labyrinth/Objects/BossObjectiveBlocker",
         ArenaTransition = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIzaroArenaTransition";
+
+    /// <summary>The places of a mechanic's things an earlier trial left: an alcove's (BossObjectiveMarker, three behind each
+    /// railing) and a ledge's in the room before the arena (BossEntryObjectiveMarker, in threes).</summary>
+    public const string Marker = "Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker",
+        LedgeMarker = "Metadata/Terrain/Labyrinth/Objects/BossEntryObjectiveMarker";
+
+    /// <summary>The railing's lowering (alcove_railing.ao "down").</summary>
+    public const double RailingSeconds = 3.3;
 
     // Positioned, BaseEvents, Animated, Transitionable, TriggerableBlockage (then Render), the gate also InteractionAction
     // (then Render, Targetable), ot_components.py.
@@ -41,6 +57,10 @@ static class IzaroFights
     /// "open"). The gate's the other way round (LabyrinthIzaroDoor.ot): 1 shut ("open" paused at its start), 2 open.</summary>
     public const byte DoorOpen = 1, DoorShut = 2, GateShut = 1, GateOpened = 2;
 
+    /// <summary>An alcove's railing (BossObjectiveBlocker, alcove_railing.ao; same components as the doors): 1 up and
+    /// blocked, 2 lowered (its "down" clip, 3.3 s), for a mechanic's monsters to come out of the alcove.</summary>
+    public const byte RailingUp = 1, RailingDown = 2;
+
     /// <summary>Izaro's Transitionable (LabyrinthBoss.ot, num_states 5): he is created in 5 (the Hide clip at its end:
     /// down on the lowered elevator, untargetable), 2 is the fight (EnableTargetable), 4 the trial won (untargetable,
     /// Boss_Resolve.ogg).</summary>
@@ -55,11 +75,18 @@ static class IzaroFights
     public const ushort MoveSkill = 0x2909;
     public const double StandSeconds = 1.5, LineSeconds = 3.5;
 
-    /// <summary>The longest wait for the swing he is in when a trial ends, before he walks.</summary>
-    public const double SwingWaitSeconds = 2.5;
+    /// <summary>The longest wait for the swing or skill he is in when a trial ends, before he walks (his slowest skills
+    /// take about 3.8 s).</summary>
+    public const double SwingWaitSeconds = 3.8;
 
-    /// <summary>Izaro's three weapons (MonsterVarieties): the two-handed mace, sword and shield, two swords. The weapon is
-    /// the day's and the difficulty's (wiki); how the official server picks it is not in the client, so the pick is ours.</summary>
+    /// <summary>Izaro's three weapons (MonsterVarieties), in the order of the official pick
+    /// (<see cref="GameServer.Data.Terrain.Generation.LabyrinthLayout.BossWeapon"/>): the two-handed mace, sword and shield,
+    /// two swords.</summary>
+    /// <summary>How he moves: LabyrinthBoss.ot's <c>base_movement_velocity_+%</c> 15 (the client walks him at 41 cells/s where
+    /// the row's speed says 36, measured with trace-sync.js), through his minions (the original, live), and ordered again at
+    /// most once a second while he is on his way (ours).</summary>
+    public static readonly MonsterMovement Movement = new() { SpeedFactor = 1.15, ThroughBodies = true, ReorderSeconds = 1 };
+
     public static readonly string[] Varieties =
     [
         "Metadata/Monsters/Labyrinth/LabyrinthBossMaul",
@@ -81,7 +108,7 @@ static class IzaroFights
         ["LabyrinthKilledIzaro", tier switch { 1 => "LabyrinthComplete1", 2 => "LabyrinthComplete2", 3 => "LabyrinthComplete3", _ => "LabyrinthCompleteMaps" }];
 
     /// <summary>An Aspirant's Trial: its number of the layout's sections (<see cref="Of"/>), Izaro's weapon and the tier.</summary>
-    public sealed record Trial(int Number, int Of, int Weapon, int Tier, string? Mechanic = null)
+    public sealed record Trial(int Number, int Of, int Weapon, int Tier, string? Mechanic = null, IReadOnlyList<string>? Secrets = null)
     {
         public bool Last => Number >= Of;
         /// <summary>His life when it starts: what the earlier trials left (100, 66, 33 of 100 with three).</summary>
@@ -94,31 +121,31 @@ static class IzaroFights
     /// <summary>The trial in this instance of an area, or null outside Izaro's arenas of today's Labyrinth.</summary>
     public static Trial? For(string areaId, uint instanceSeed) =>
         LabyrinthDay.IzaroRoom(areaId, instanceSeed) is { } room
-            ? new Trial(room.Number, room.Of, WeaponOf(room.Seed, room.Difficulty), room.Difficulty, SecretId(room.Secret)) : null;
+            ? new Trial(room.Number, room.Of, WeaponOf(room.Seed, room.Difficulty), room.Difficulty, SecretId(room.Secret),
+                [.. new[] { SecretId(room.Secret), SecretId(room.Secret2) }.OfType<string>()]) : null;
 
     /// <summary>The trials of a day's Labyrinth in section order, with their rooms' areas.</summary>
     public static IEnumerable<(string? Area, Trial Trial)> Trials(uint seed, int difficulty)
     {
         var day = LabyrinthDay.For(seed, difficulty);
         foreach (var (node, number, of) in LabyrinthDay.IzaroRooms(day))
-            yield return (day.Areas[node], new Trial(number, of, WeaponOf(seed, difficulty), difficulty, SecretId(day.Layout.Nodes[node].Secret1)));
+        {
+            var n = day.Layout.Nodes[node];
+            yield return (day.Areas[node], new Trial(number, of, WeaponOf(seed, difficulty), difficulty, SecretId(n.Secret1),
+                [.. new[] { SecretId(n.Secret1), SecretId(n.Secret2) }.OfType<string>()]));
+        }
     }
 
-    /// <summary>The day's weapon for a difficulty (ours: a hash of both).</summary>
-    public static int WeaponOf(uint seed, int difficulty)
-    {
-        uint x = unchecked(seed * 4 + (uint)difficulty);
-        x ^= x >> 16; x = unchecked(x * 0x7feb352du); x ^= x >> 15; x = unchecked(x * 0x846ca68bu); x ^= x >> 16;
-        return (int)(x % 3);
-    }
+    /// <summary>The day's weapon for a difficulty, as the official server picks it.</summary>
+    public static int WeaponOf(uint seed, int difficulty) => GameServer.Data.Terrain.Generation.LabyrinthLayout.BossWeapon(seed, difficulty);
 
     /// <summary>The NPCs row that speaks his lines (Metadata/NPC/Izaro, 147).</summary>
-    public static ushort Npc => Tables.Value.Npc;
+    public static ushort Npc => Tables.Npc;
 
     /// <summary>What Izaro says (S→C 0x1c7, from <paramref name="objectId"/>, 0: globally): the NPCTextAudio row of the
     /// id, or null when the table does not have it.</summary>
     public static byte[]? Speech(uint objectId, string line) =>
-        Tables.Value.Lines.TryGetValue(line, out ushort row) ? InstanceNpcs.TextAudio(objectId, Npc, row) : null;
+        Tables.Lines.TryGetValue(line, out ushort row) ? InstanceNpcs.TextAudio(objectId, Npc, row) : null;
 
     /// <summary>His line as he rises: the arena's mechanic's (IzaroStart&lt;mechanic&gt;, by its LabyrinthSecrets Id); none
     /// for a mechanic without one (Power Symbols, Pedestals) or a mechanic's second part (the "…2" rows, no room).</summary>
@@ -141,25 +168,20 @@ static class IzaroFights
     public static string EndLine(Trial trial) =>
         trial.Last ? $"IzaroDeath{Random.Shared.Next(1, 7)}" : trial.Number == 1 ? $"IzaroFlee{Random.Shared.Next(1, 7)}" : $"IzaroFlee{Random.Shared.Next(7, 9)}";
 
-    /// <summary>His line before a trial, as its corridor's gate opens: Izaro&lt;n&gt;_Prefight.</summary>
-    public static string PrefightLine(Trial trial) => $"Izaro{Math.Clamp(trial.Number, 1, 3)}_Prefight";
-
     /// <summary>The instance's state once the corridor's gate is open: it stays open, the way into the arena shows.</summary>
     public static readonly string GateOpen = Quests.InstanceFlag("IzaroGate");
 
-    static string? SecretId(int row) => row < 0 ? null : Tables.Value.Secrets.ElementAtOrDefault(row);
+    static string? SecretId(int row) => row < 0 ? null : Tables.Secrets.ElementAtOrDefault(row);
 
-    // NPCs (his row), NPCTextAudio (his lines by Id) and LabyrinthSecrets (Ids), from data/tables.
-    static readonly Lazy<(ushort Npc, Dictionary<string, ushort> Lines, string[] Secrets)> Tables = new(() =>
+    // NPCs (his row), NPCTextAudio (his lines by Id) and LabyrinthSecrets (Ids), from the client tables.
+    static (ushort Npc, Dictionary<string, ushort> Lines, string[] Secrets) Tables = default!;
+
+    static (ushort Npc, Dictionary<string, ushort> Lines, string[] Secrets) LoadTables()
     {
         ushort npc = 147;
         var lines = new Dictionary<string, ushort>(StringComparer.Ordinal);
         string[] secrets = [];
-        static IEnumerable<string?> Ids(string table)
-        {
-            using var d = GameTables.Open($"data/tables/{table}.json");
-            return [.. d.RootElement.EnumerateArray().Select(r => r.TryGetProperty("Id", out var id) ? id.GetString() : null)];
-        }
+        static IEnumerable<string?> Ids(string table) => [.. ClientTables.Table(table).Select(r => r.Has("Id") ? r.Text("Id") : null)];
         try
         {
             if (Ids("NPCs").ToList().IndexOf("Metadata/NPC/Izaro") is int row and >= 0) npc = (ushort)row;
@@ -176,11 +198,20 @@ static class IzaroFights
             Console.WriteLine($"[gateway] Izaro's lines: {ex.Message}");
         }
         return (npc, lines, secrets);
-    });
+    }
 
     /// <summary>The 0x2bb blob of the elevator or a door (<see cref="LabyrinthTrials.Blob(IReadOnlyList{string}, string, int,
     /// int, float, float, byte, float?, bool, bool)"/>): a shut door blocks; the elevator never does.</summary>
     public static byte[] Blob(string type, string model, int x, int y, float angle, byte state) =>
         LabyrinthTrials.Blob(type == Gate ? GateComponents : Components, model, x, y, angle, 1, state, null, blockage: true,
-            blocked: type == ArenaDoor ? state == DoorShut : type == Gate && state == GateShut);
+            blocked: type == ArenaDoor ? state == DoorShut : type == Gate ? state == GateShut : type == Railing ? state == RailingUp
+                : LiftMoving(state));
+
+    /// <summary>An elevator (Izaro's or a small one: their states) cannot be stood on while it moves (the original, live
+    /// 2026-11-07): its blockage is on while it raises or lowers.</summary>
+    public static bool LiftMoving(byte state) => state is Raising or Lowering;
+
+    /// <summary>How far round an elevator's middle it blocks while moving (cells: its .ao's walk_tri hull, ElevatorLarge
+    /// about 21, ElevatorSmall about 11).</summary>
+    public static int LiftRadius(string type) => type == Elevator ? 21 : 11;
 }

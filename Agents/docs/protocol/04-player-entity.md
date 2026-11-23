@@ -36,7 +36,7 @@ insert `0x1424fe270`).
 | `Metadata/Characters/Int/Int` (Witch) | `0x9c41993e` |
 | `Metadata/Characters/Str/Str` (Marauder) | `0xd7aa9065` |
 
-Characters.dat rows (`data/tables/Characters.json`): 0 Marauder `Str/Str`, **1 Witch `Int/Int`**, 2 Scion
+Characters.dat rows (the `Characters` table): 0 Marauder `Str/Str`, **1 Witch `Int/Int`**, 2 Scion
 `StrDexInt/StrDexInt`, 3 Ranger `Dex/Dex`, 4 Duelist `StrDex/StrDex`, 5 Shadow `DexInt/DexInt`, 6 Templar
 `StrInt/StrInt`. Note that the login 0x15 class byte uses a different enum (3 showed "Witch").
 
@@ -81,6 +81,14 @@ throws (the out-of-range builder is `0x140e272d0`, the exception type `0x143a5c5
    component order
 4. **tasks** (`0x141ee6950`): u8 n, then n × (u16 task id + task data; an unknown id logs "Unrecognised task serialised by
    server; missing registration?")
+
+A base-data entity variable is raw u32 name hash, u8 flags (0), u8 value count (1), u8 type (1), raw u32 entity id.
+`0x141dfe5a0` resolves type 1 through the instance entity table and defers an unresolved forward reference.
+Type 9 is an i32 and type 8 an f32 (number reader `0x141806520`), in the same 11-byte shape; 10 is a bool (1 byte), 7 and
+0xb are strings, others are ignored. GEAL reads them as `this.<name>` (an object script's `this.RandomNumber` is
+`0xe70679eb`); an unset one gives GEAL "Expression passed to function gave an empty result".
+The variable-name hash is `0x1406db8f0`, Murmur2 of UTF-16LE with seed 0; `next` is `0x61f4555e`.
+This is distinct from the narrowed-byte metadata type hash.
 
 ### Component order: traced, and now derived from the .ot files
 
@@ -139,10 +147,10 @@ Offsets are inside the component object. "If bN" means that bit of the component
 | u8 flags0, u8 flags1 | | |
 | if f0 & 0x20: f32 +0x2b0, f32 +0x2a8, f32 +0x2ac | | +0x2b0 the uniform scale (× the object type's own, type `+0x5c`; "Scale" in the info dump `0x141e36650`; setter `0x141e39050`, skipped when `+0x1e6` bit 4 "locked scale"), +0x2a8 / +0x2ac an x / y stretch on top of it: the local-to-world transform `0x141e394f0` takes x × +0x2a8 × +0x2b0, y × +0x2ac × +0x2b0, z × +0x2b0. The constructor sets 1.0. Sending s in all three draws at s² in x and y (Righteous Fire's ring, live 2026-10-23) |
 | if f1 & 0x04: f32 +0x2d8, +0x2dc, +0x2e0, +0x2e4 | | probably a rotation quaternion (copied as one block) |
-| if f0 & 0x04: i32 +0x290, f32 +0x2b4 | | **fixed height**: whole steps of 7.8125 and the world z; when `+0x290` ≠ `0x7fffffff` the z is used instead of the terrain height (`0x141e38b40`) |
+| if f0 & 0x04: i32 +0x290, f32 +0x2b4 | | **fixed height**: −z / 7.8125 in whole steps (world z points down) and the world z; when `+0x290` ≠ `0x7fffffff` the z is used instead of the terrain height (`0x141e38b40`) |
 | if f0 & 0x40: f32 +0x2b8, f32 +0x2bc | else derived from x/y | world x, y (else `(grid + 0.5) × 250/23`) |
 | if f1 & 0x01: u32, u32, u32, u8, u32, u8 | | movement (`0x141e37460`) |
-| if f1 & 0x02: u8, u8 | | visibility toggles |
+| if f1 & 0x02: u8, u8 | | `+0x1e7` bit 0, then **blocking** (`+0x1e5` bit 0x08, the bit 0x2b2 clears on a corpse); each change calls vtable +0xb0. The constructor (`0x141e31ca0`) already set blocking from the type's .ot `blocking` (type +0x16, parser `0x141e30ba0`; unset is false, `0x141e281d0`) and cleared `+0x1e7`, so the pair only overrides: a hard-coded `0, 1` made a `blocking = false` object (the Labyrinth trial's return portal, waypoints, area transitions) a body |
 | if f1 & 0x08: u8 | | `+0x1e6` bit 0x40: the object blocks no walker (the collision test `0x141e65ae0` skips it; pets) |
 | if f1 & 0x10: u32 +0x2a0 | | |
 
@@ -305,6 +313,9 @@ The stationary Crawler's wheels use zero values for these optional fields and th
 An empty bone name means `<root>` and `*` means `<lock>` (`0x141dc6820`). The attachment kind is a mask on the transform
 (`0x142909a50`): 1 drops the scale, 2 the translation, 4 the rotation, and 0x08 / 0x10 / 0x20 the same for the bone alone.
 Righteous Fire's ring rides on the player's `<root>` with kind 4, so it does not turn with the player.
+A monster rides the same way (the Goddess of Justice on Izaro's `jnt_back_spirit`, kind 0, mask 3). The attached
+object's facing comes from the bone and parent alone: `0x142909a50` never reads its own Positioned rotation, so an
+action aimed elsewhere does not turn it (live).
 Bit3: u32, f32, u32 (animation + speed). Bit5: two u32. Bit4: several
 u32. With 0 nothing else is read.
 
@@ -323,7 +334,7 @@ u32. With 0 nothing else is read.
 | 9 raw bytes | +0x1e8 | |
 | u16, u16 | → +0x1f8, +0x208 | Hideouts.dat keys by HASH16 (lookups that fail give null and are tolerated); the first is the character's hideout ([21](21-hideouts.md) §1) |
 | u8 | +0x1b1 | non-zero → "WashedUp" state; Actor's initial stance must also be 68 (below) |
-| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | +0x1ae / +0x1ad: the major and minor **Pantheon** god, PantheonPanelLayout row + 1, 0 = none (`PlayerObject.PantheonMajor/Minor`; [pantheon](../game/campaign/pantheon.md) §5) |
+| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | +0x1ae / +0x1ad: the major and minor **Pantheon** god, PantheonPanelLayout row + 1, 0 = none (`PlayerObject.PantheonMajor/Minor`; [pantheon](../game/campaign/pantheon.md) §5). +0x1b0: the **Descendancy** row, Descendancy.dat, 0 = none (`PlayerObject.Descendancy`; [16](16-waypoints.md) §3) |
 | u32 n + n × u32 | → vtable +0x158 | |
 | u8 n + n × (record `0x141e8a960`, u32) | → vtable +0x160 | MicrotransactionCounters.dat |
 
@@ -334,6 +345,12 @@ component's vtable +0x108. Other bits: 2 and 8 the two vec16 lists, 0x200 the 9 
 0x10 the Hideouts keys, 0x20 the class byte, 0x1000 → +0x1b0, 0x80 → +0x1ae/+0x1ad, 0x100 → +0x1af, 0x800 a u32-counted
 list. `InstanceEntities.PlayerExperienceUpdate` sends `0001` + the u32 (`/set_level`); `PlayerPantheonUpdate` sends
 `0080` + the two Pantheon bytes after C→S 0x1ee.
+
+The second ascendancy layer has two copies of its row in the client: the Player component's **+0x1b0** and the
+passive tree's spare `0x33` byte (+0x269). The tree panel (`0x14099f370`) builds the Bloodline/Wildwood panel from
+the Player component's byte, so sending only `0x33` leaves the panel on the main ascendancy. `0x33` still carries
+the row for the tree's own allocation checks, and both layers spend the same earned ascendancy points. Update bit
+`0x1000` sets +0x1b0 without recreating the object.
 
 ### 4.8 Inventories (`0x141e22490`, through slot 17 → slot 20), 2 bytes minimal
 
@@ -388,11 +405,15 @@ S→C **0x2aa** (class `0x1431767e8`, read `0x140911270`): u32 BE, the gold show
 respec cost check (`0x1409996c0`) and the village gold label (`0x1404ffb90`) read it, and plays Gold_Spend.ogg when it
 drops. Found with a hardware watchpoint on the field and the dispatcher's disassembly (its decompile fails). The
 Gateway keeps gold per account, as in the real game where every character of an account (and league) shares it:
-`AccountStash.Gold`, saved in the account's stash row of `data/saves.db` ([18](18-stash.md) §6). It sends that amount on every area
+`AccountStash.Gold`, saved in the account's stash row of `data/characters.db` ([18](18-stash.md) §6). It sends that amount on every area
 entry, on `/gold` and after a gold respec. A character save from before this still holding `Gold` gives it to the
-account at the character's next login (`CharacterSaves.TakeGold`). Leagues are not kept apart yet. Gold coins on the ground are the item
-`Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound); picking them up is
-not done yet.
+account at the character's next login (`CharacterSaves.TakeGold`). Gold coins on the ground are the item
+`Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound).
+Monsters drop gold piles (`ItemDrops.Gold`, our own numbers): normal 40%, magic 75%, rare and unique always, each
+(3 + 1.2 × level) × 1/2/5/15 by rarity. Gold within the `gold_auto_loot_radius` setting (default 20 cells) is
+picked up
+by itself on the player tick, in full and without late-drop ghosts. Every league has its own stash and gold; Standard
+keeps the account's stash from before (`AccountStash.Key`).
 
 ## Open
 

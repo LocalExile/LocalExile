@@ -1,13 +1,13 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>
     /// Maven's Writ (Absence of Mercy): The Maven's first granted effects are teleports, Nucleus starts un-emerged
     /// without a boss bar, and neither fights at 15-cell melee. Live 2026-11-01: The Maven died in ~2 s, Nucleus formed
     /// at mapboss2 with <c>emerged</c> 0, and the arena never spawned orbs or volatile cores.
     /// </summary>
-    internal static class MavenNucleus
+    public static class MavenNucleus
     {
         public const string Area = "MavenBoss";
         public const string Maven = "Metadata/Monsters/MavenBoss/TheMaven";
@@ -59,7 +59,11 @@ static partial class Game
             int? fallback = null;
             foreach (int effect in effects)
             {
-                if (skills.IsMovement(effect)) continue;
+                // A corpse skill does nothing without a corpse (MonsterSkills.OnCorpse): it is never the plain attack.
+                // Nor is a trigger on damage taken (the damage sets it off: BossKits.IsDamageTakenTrigger) or an aura (it stands on
+                // the monster: MonsterSkills.Auras).
+                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect) || MonsterSkills.IsCorpseSkill(effect)
+                    || BossKits.IsDamageTakenTrigger(skills, effect) || skills.IsAura(effect)) continue;
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)
@@ -69,12 +73,22 @@ static partial class Game
                     // client linked it to entity 0 (0x141a2bbb0, live 2026-11-05). His DominusLightningSlam is the swing.
                     || id.Contains("Bond", StringComparison.Ordinal)
                     || id.Contains("Mark", StringComparison.Ordinal)
-                    || id.Contains("Souls", StringComparison.Ordinal))) continue;
+                    || id.Contains("Souls", StringComparison.Ordinal)
+                    // Corpse-utility spells deal no direct hit damage and require a corpse target the ordinary AI does
+                    // not supply (e.g. Stygian Revenant's RevenantReviveUndead, Avian Retch's BirdmanConsumeCorpse).
+                    || id.Contains("Revive", StringComparison.Ordinal)
+                    || id.Contains("ConsumeCorpse", StringComparison.Ordinal))) continue;
                 if (!(skills.IsAttack(effect) || skills.IsSpell(effect) || skills.IsProjectile(effect))) continue;
                 if (Shot(skills, effect) is not null) return effect;
                 fallback ??= effect;
             }
-            return fallback ?? effects[0];
+            // The leap's damage row asks Goatman2.act for GroundSlam. Use the monster's
+            // ordinary swing when it has one; keep the damage row for payload-only actors.
+            if (fallback is int chosen && skills.EffectId(chosen) == "GAGoatmanLeapSlamDamage")
+                foreach (int effect in effects)
+                    if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
+                        return effect;
+            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e), -1);
         }
 
         public static bool AttackIsRanged(SkillCatalog skills, int effect) =>

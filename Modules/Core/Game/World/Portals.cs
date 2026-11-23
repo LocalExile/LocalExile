@@ -1,86 +1,196 @@
 using System.Net.Sockets;
+using GameServer.Core.World;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device: 0x008f
-    // carries the variation of every entry and the client re-applies the visual. False when nothing stands.
-    internal static async Task<bool> ResendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    sealed class MapRunProgress(Guid run, int[] bosses)
     {
-        uint deviceId;
-        lock (conn.HideoutDoodads) deviceId = conn.HideoutDoodads.Keys.FirstOrDefault();
-        lock (conn.MapPortals)
-            if (conn.MapPortals.Count == 0) return false;
-        var open = MapDevice.OpenOf(CharacterName(conn));
-        await SendMapPortals(remote, stream, ciphers, conn, deviceId, open?.Area.Hash16 ?? conn.Layout.Hash, areaId: open?.Area.Id);
+        public readonly Guid Run = run;
+        public readonly HashSet<int> Bosses = [.. bosses];
+        public readonly HashSet<int> Killed = [];
+        public double NextCheck;
+        public volatile bool Completed;
+    }
+    static readonly Store<InstanceState, MapRunProgress> MapRuns = new();
+
+    // A run survives its owner's area change and belongs to guests too. The instance keeps its exact run even when
+    // the owner opens another copy of the same area; neither character names nor area ids identify a run.
+    public static bool RunBossKilled(MapDevice.OpenMap? run) => run is not null
+        && MapRuns.Any(p => p.Value.Run == run.Run && p.Value.Completed);
+
+    static int[] CompletionBosses(string area)
+    {
+        var bosses = (Packs.For(area)?.Bosses ?? []).Select(row => Monsters.Find(row.ToString()))
+            .OfType<MonsterCatalog.Variety>().ToArray();
+        // LaterForms places a second form only when its first flees or falls. Only the terminal form has to die;
+        // multiple distinct bosses (Strand, for example) must all die. Other unique monsters are irrelevant.
+        return [.. bosses.Where(first => !bosses.Any(last => last.Id == first.Id + "2" && last.Name == first.Name))
+            .Select(b => b.Row)];
+    }
+
+    public static async Task TickMapRunBoss(Player player, bool force = false)
+    {
+        if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea || player.Instance is not { } instance
+            || MapDevice.ForInstance(player) is not { } run) return;
+        var progress = MapRuns.GetValue(instance, _ => new(run.Run, CompletionBosses(run.Area.Id)));
+        double now = AreaTime(player);
+        if (progress.Completed || progress.Bosses.Count == 0 || !force && now < progress.NextCheck) return;
+        progress.NextCheck = now + 0.25;
+        bool alive = false;
+        foreach (var monster in player.Area.Monsters.Values.Concat(player.Area.DormantMonsters.Values))
+        {
+            if (!monster.Hostile || monster.Variety is not { } variety || !progress.Bosses.Contains(variety.Row)) continue;
+            if (monster.Dead || monster.Life <= 0) progress.Killed.Add(variety.Row);
+            else alive = true;
+        }
+        // Remember kills before a corpse is consumed, but never complete while a twin or a later boss is alive
+        // or a required boss has not spawned yet.
+        if (alive || !progress.Bosses.IsSubsetOf(progress.Killed)) return;
+        progress.Completed = true;
+        Console.WriteLine($"[gateway] {run.Owner} map run {run.Run} completed: {run.Area.Id}");
+        foreach (var visitor in Program.InGame.Keys.Where(c => c.MapPortalRun?.Run == run.Run
+            && c.Connection.PlayerSent && !c.Closed && !c.LeavingArea))
+        {
+            try
+            {
+                await SendMapPortals(visitor,
+                    MapDeviceHere(visitor)?.Id ?? 0, run.Area.Hash16);
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+            {
+                // A visitor disconnected; the next listing still reads this run's completed state.
+            }
+        }
+    }
+
+    public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(Player player)
+    {
+        if (player.Layout.Id == MapDevice.CampaignDeviceArea)
+            lock (player.QuestObjects)
+                foreach (var (id, obj) in player.QuestObjects)
+                    if (obj.Rule.ObjectType == MapDevice.CampaignDeviceType)
+                        return (id, obj.At.X, obj.At.Y, true);
+        lock (player.HideoutDoodads)
+            foreach (var (id, device) in player.HideoutDoodads)
+                return (id, device.X, device.Y, false);
+        return null;
+    }
+    // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device or
+    // using another Portal Scroll: 0x008f carries the variation of every entry and the client re-applies the visual.
+    // False when nothing stands.
+    public static async Task<bool> ResendMapPortals(Player player)
+    {
+        bool single = await SendSinglePortals(player, "listed again");
+        uint deviceId = MapDeviceHere(player)?.Id ?? 0;
+        lock (player.MapPortals)
+            if (player.MapPortals.Count == 0) return single;
+        await SendMapPortals(player, deviceId,
+            player.MapPortalRun?.Area.Hash16 ?? player.Layout.Hash);
         return true;
     }
 
-    // S→C 0x8f: the device's portals and where they lead (21-hideouts.md §5). Without it the client never draws them; a
-    // portal listed with area 0 (one just taken) closes. <paramref name="areaId"/> is the map area's WorldAreas Id, for the
-    // completed mark below; without it the portals are listed as before.
-    internal static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area,
-        uint closed = 0, string? areaId = null)
+    // The portals that stand without a map device (a Portal Scroll's, a map's own way back, the portal back to an open
+    // town portal): object id Ã¢â€ ’ the area it leads to, for the connection that made them.
+    static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
+
+    /// <summary>
+    /// Lists a portal that stands without a map device, <paramref name="afterMs"/> after its create and once more
+    /// MapPortalRelistMs later. 0x8f only reaches a portal object the client has built. The client reads its socket once
+    /// per update and handles 0x8f at once, while the create waits for its world frame, so a list that arrives in the
+    /// same read as the create is lost and the portal is never drawn (seen live 2026-11-12, a background window in the
+    /// lockstep mode: 0x8f handled 3 ms before the object was built, sent 100 ms after it). An entry listed again
+    /// unchanged leaves the portal as it is.
+    /// </summary>
+    public static void ListPortal(Player player, uint id, ushort area,
+        string what, int afterMs)
     {
-        byte style = conn.MapPortalStyle;
-        List<uint> ids;
-        lock (conn.MapPortals) ids = [.. conn.MapPortals.Keys.Order()];
-        string owner = CharacterName(conn);
-        var list = (closed == 0 ? [] : new List<InstanceMapDevice.Portal> { new(closed, 0) })
-            .Concat(ids.Select(id => new InstanceMapDevice.Portal(id, area, owner, style, conn.CosmeticPortalVariation))).ToList();
-        byte[] bytes = InstanceMapDevice.Portals(deviceId, list);
-        // The floating label over a portal is the Portal component's own nametag (0x14161c0e0 -> 0x14161ca80): the area's
-        // name, and with bit 1 of 0x008f's first byte set, " (Completed)" through ClientStrings 0x1fe5. The builder is the
-        // Gateway's and cannot be rebuilt while it runs, so the bit is set on the bytes here. Bit 0 stays clear: it is the
-        // "just opened" render path.
-        bool completed = areaId is not null && RunBossKilled(conn, areaId);
-        if (completed) bytes[2] |= 0x02;
-        await Send(remote, stream, ciphers, bytes,
-            $"0x008f map device 0x{deviceId:x} portals: {ids.Count} open to 0x{area:x4}{(completed ? " (completed)" : "")}{(closed == 0 ? "" : $", 0x{closed:x} closed")}");
-    }
-
-    /// <summary>The key the Atlas module marks a run's boss kill under (it decides whether a monster is the area's map boss).</summary>
-    internal const string MapRunBossKey = "LocalExile.Portals.MapRunBoss";
-
-    // The map device's run whose boss has died, by character: an area change is a new connection of the same character,
-    // so the mark cannot live on the ClientState — the hideout's connection would not have it. Activating a map clears it
-    // (PortalsFeature.ActivateMapDevice), so a fresh map starts unmarked.
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> CompletedRuns = new(StringComparer.Ordinal);
-
-    /// <summary>This run's boss died: from now on the area's portals read " (Completed)".</summary>
-    internal static void MarkRunBossKilled(ClientState conn, string areaId)
-    {
-        string character = CharacterName(conn);
-        if (character.Length == 0) return;
-        if (!CompletedRuns.TryGetValue(character, out var done) || done != areaId)
-            Console.WriteLine($"[gateway] {character} map run completed: {areaId} (its portals read completed)");
-        CompletedRuns[character] = areaId;
-    }
-
-    /// <summary>A new map was put in the device: its run has no completed mark yet.</summary>
-    internal static void ResetRunCompleted(ClientState conn) => CompletedRuns.TryRemove(CharacterName(conn), out _);
-
-    static bool RunBossKilled(ClientState conn, string areaId) =>
-        CompletedRuns.TryGetValue(CharacterName(conn), out var done) && done == areaId;
-
-    /// <summary>A boss by the test <c>/kill boss</c> uses: unique, the big boss health bar, or a boss stage.</summary>
-    internal static bool MapBoss(SpawnedMonster m) => m.Rarity == MonsterRarity.Unique || m.Variety?.BossHealthBar == true || m.Stage is not null;
-
-    /// <summary>Whether the map's boss is already dead in this run: a boss stands in the area's roster and none of them is
-    /// alive (a corpse stays in the roster, so this survives the moment of the kill).</summary>
-    internal static bool MapBossDead(ClientState conn)
-    {
-        lock (conn.Monsters)
+        SinglePortals.GetOrCreateValue(player)[id] = area;
+        _ = AreaFrames.Start(async () =>
         {
-            bool any = false;
-            foreach (var m in conn.Monsters.Values)
+            try
             {
-                if (!MapBoss(m)) continue;
-                any = true;
-                if (!m.Dead && m.Life > 0) return false;
+                await AreaDelay(player, afterMs / 1000.0);
+                if (!await SendSinglePortals(player, what, id)) return;
+                await AreaDelay(player, MapPortalRelistMs / 1000.0);
+                await SendSinglePortals(player, what + ", listed again", id);
             }
-            return any;
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+            {
+                // The connection closed while sending.
+            }
+        });
+    }
+
+    /// <summary>
+    /// The effect one portal is drawn with. The Portal slot has two choices that are no cosmetic
+    /// (MicrotransactionSlotAdditionalDefaultOptions; CÃ¢â€ ’S 0x1f9 with record 0 and the option): 1 "Use one random
+    /// variation for every portal" and 2 "Use random variations for all portals". The pick is kept, per area visit for
+    /// 1 and per portal for 2, so a portal listed again keeps its effect. Otherwise the worn effect.
+    /// </summary>
+    public static ushort PortalVariation(Player player, uint portal)
+    {
+        byte mode = CharacterSaves.Cosmetics(CharacterName(player)).GetValueOrDefault(InstanceMicrotransactions.PortalSlot) is
+            { Record: 0, Option: 1 or 2 } choice ? choice.Option : (byte)0;
+        if (mode == 0 || Cosmetics.Portals.Count == 0) return player.Character.CosmeticPortalVariation;
+        int seed = mode == 1 ? HashCode.Combine(player.Seed, player.Ticket) : HashCode.Combine(player.Seed, player.Ticket, portal);
+        return (ushort)Cosmetics.Portals[(int)((uint)seed % (uint)Cosmetics.Portals.Count)].Index;
+    }
+
+    static InstanceMapDevice.Portal SinglePortalEntry(Player player, uint id, ushort area) =>
+        new(id, area, CharacterName(player), Variation: PortalVariation(player, id));
+
+    /// <summary>
+    /// For a portal that already stands when the player arrives: its 0x8f entry, sent before its create. The client plays a
+    /// portal's opening whenever 0x8f lists it for the first time (or changed), and it keeps an entry whose object does not
+    /// exist yet, so the lists after the create (ListPortal, the same entry) show it idle (21-hideouts.md §5).
+    /// </summary>
+    public static Task ListStandingPortal(Player player, uint id, ushort area, string what) =>
+        Send(player, InstanceMapDevice.Portals(0, [SinglePortalEntry(player, id, area)]),
+            $"0x008f portal 0x{id:x} leads to 0x{area:x4} before its create ({what} stands already)");
+
+    // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.
+    // With an id, only while that portal stands. False when nothing was sent.
+    static async Task<bool> SendSinglePortals(Player player, string why, uint only = 0)
+    {
+        if (player.Closed || !SinglePortals.TryGetValue(player, out var portals)) return false;
+        bool Stands(uint id) => player.ReturnPortal?.Id == id || player.BackPortal?.Id == id;
+        foreach (uint gone in portals.Keys.Where(id => !Stands(id)).ToList()) portals.TryRemove(gone, out _);
+        if (portals.IsEmpty || (only != 0 && !portals.ContainsKey(only))) return false;
+        var list = portals.OrderBy(p => p.Key).Select(p => SinglePortalEntry(player, p.Key, p.Value)).ToList();
+        await Send(player, InstanceMapDevice.Portals(0, list),
+            $"0x008f {string.Join(", ", list.Select(p => $"portal 0x{p.ObjectId:x} leads to 0x{p.Area:x4}"))} (variation {string.Join(", ", list.Select(p => p.Variation))}; {why})");
+        return true;
+    }
+
+    // SÃ¢â€ ’C 0x8f: the device's portals and where they lead (21-hideouts.md Ã‚§5). Without it the client never draws them; a
+    // portal listed with area 0 (one just taken) closes.
+    public static async Task SendMapPortals(Player player, uint deviceId, ushort area, uint closed = 0)
+    {
+        byte style = player.MapPortalStyle;
+        List<(uint Id, int Index)> ids;
+        MapDevice.OpenMap? run;
+        lock (player.MapPortals)
+        {
+            ids = [.. player.MapPortals.OrderBy(p => p.Key).Select(p => (p.Key, p.Value.Index))];
+            run = player.MapPortalRun;
+            area = run?.Area.Hash16 ?? area;
         }
+        string owner = run?.Owner ?? CharacterName(player);
+        var list = (closed == 0 ? [] : new List<InstanceMapDevice.Portal> { new(closed, 0) })
+            .Concat(ids.Select(p => new InstanceMapDevice.Portal(p.Id, area, owner, style,
+                run is null ? PortalVariation(player, p.Id) : MapPortalVariation(run, p.Index)))).ToList();
+        await Send(player, InstanceMapDevice.Portals(deviceId, list, RunBossKilled(run)),
+            $"0x008f map device 0x{deviceId:x} portals: {ids.Count} open to 0x{area:x4}{(closed == 0 ? "" : $", 0x{closed:x} closed")}");
+    }
+
+    static ushort MapPortalVariation(MapDevice.OpenMap run, int index)
+    {
+        byte mode = CharacterSaves.Cosmetics(run.Owner).GetValueOrDefault(InstanceMicrotransactions.PortalSlot) is
+            { Record: 0, Option: 1 or 2 } choice ? choice.Option : (byte)0;
+        if (mode == 0 || Cosmetics.Portals.Count == 0) return CharacterSaves.PortalCosmetic(run.Owner);
+        int seed = HashCode.Combine(run.Run, mode == 1 ? 0 : index);
+        return (ushort)Cosmetics.Portals[(int)((uint)seed % (uint)Cosmetics.Portals.Count)].Index;
     }
 }

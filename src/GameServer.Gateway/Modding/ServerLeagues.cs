@@ -5,7 +5,7 @@ using LeagueCode = GameServer.Modding.League;
 
 /// <summary>A connection's league (<c>Program.LeagueFor</c>), fixed until its next area. It holds no object of a module, so a
 /// connection does not keep a reloaded assembly in memory.</summary>
-sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
+public sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
 {
     /// <summary>The rules' defaults, with no modules: a league that is not loaded, for what still reaches the Gateway.</summary>
     public static readonly LeagueRuntime Standard = new(new League(LeagueCatalog.Standard, LeagueCatalog.Standard, false, false), ImmutableHashSet<string>.Empty);
@@ -23,7 +23,7 @@ sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
 
 /// <summary>Which modules each league has, and the rules they give. Set when the Gateway starts: leagues are not loaded, unloaded,
 /// added or removed while it runs. One copy of each module serves every league that lists it; its hooks run per player's league.</summary>
-static class ServerLeagues
+public static class ServerLeagues
 {
     static ImmutableDictionary<string, Func<LeagueRules>> _rules = ImmutableDictionary.Create<string, Func<LeagueRules>>(StringComparer.OrdinalIgnoreCase);
     static ImmutableDictionary<string, LeagueCode> _code = ImmutableDictionary.Create<string, LeagueCode>(StringComparer.OrdinalIgnoreCase);
@@ -47,7 +47,16 @@ static class ServerLeagues
     }
 
     /// <summary>A league's modules, by id: its modules.json lists paths under Modules/, and a module's id is its folder's name.</summary>
-    public static IReadOnlySet<string> ModulesOf(League league) => league.Modules.Select(path => Path.GetFileName(path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    /// A league's list is fixed once it is loaded (init-only), so its ids are built once: every LeagueRuntime.Rules read
+    /// built this set again, under the area's lock in the skill checks (CPU profile 2026-11-18: ~300 ms of other threads'
+    /// lock waits in 25 s of Caustic Arrow).
+    public static IReadOnlySet<string> ModulesOf(League league)
+    {
+        // Made on first use, not by an initializer: a hot reload that adds the field runs none.
+        var ids = moduleIds ?? Interlocked.CompareExchange(ref moduleIds, new(), null) ?? moduleIds!;
+        return ids.GetValue(league, l => l.Modules.Select(path => Path.GetFileName(path)).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+    static System.Runtime.CompilerServices.ConditionalWeakTable<League, IReadOnlySet<string>>? moduleIds;
 
     /// <summary>Every module any loaded league lists, and the game itself: the others do not load.</summary>
     public static IReadOnlySet<string> Wanted(LeagueCatalog leagues) =>

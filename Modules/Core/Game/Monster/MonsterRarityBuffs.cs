@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// row grants them and the client does not add them for the rarity itself; without the buff the monster has no glow.
 /// Both rows are invisible, not removable, cancel on death and carry no stats, so the 0x1c1 has no values.
 /// </summary>
-static class MonsterRarityBuffs
+public static class MonsterRarityBuffs
 {
     public const ushort MagicRow = 66, RareRow = 67;
 

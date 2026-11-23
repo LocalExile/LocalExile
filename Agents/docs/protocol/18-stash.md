@@ -31,6 +31,12 @@ Positioned as an NPC's (`… 00 02 00 01`), Animated `00`, MinimapIcon `00`, Int
 (`StashObject`). It is not in the town tiles' `.tmd` records, so the server places it: `StashCatalog` (Lioneye's
 Watch at (319, 272), next to Nessa). A click sends C→S 0x24 with skill `0x0266`, as for NPCs and the waypoint.
 
+The lid is the client's own: its StateMachine `open` is a client-block state the blob does not carry, and
+`UpdateStashDoodadAnimation` (`0x1417ef1d0`) plays `open_idle` / `closed_idle` when called with `true` (the model
+added) but the `open` / `close` clip when called without (the state's `on_or_create_state_open_*`). That is probably
+why a re-entered hideout's stash shows its lid closing as it appears (the event order is not traced); no field of the
+blob selects either.
+
 ## 2. The tab list
 
 The instance keeps three lists of 0x68-byte tab records (`0x142173910`): personal stash `+0xc498`, guild stash
@@ -86,26 +92,32 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   it), then **S→C 0xc8** (class `0x1435e7540`, read `0x1421aaf20`, case 0x3b): u16 BE tab index, u32 BE inventory id
   (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87da0`), which builds the
   page. The Gateway sends 0xc0 when the client doesn't have the tab, and 0xc8 every time.
-- **Only the shown tab stays loaded.** The client keeps every tab it was sent, and each stash open walks all of them as
-  the panel becomes visible (`0x1418b0a30`, the element show/hide). Opening therefore got slower with every loaded item.
-  Live 2026-10-29: about 1.5 s once the currency, essence, fragment, gem and divination tabs were all loaded.
-  - When the player picks a tab (a 0xc7 outside the first open's two requests), the Gateway unloads every other loaded
-    tab with **S→C 0xc1** (u8 manager, u32 inventory id).
-  - It then sends the tab list (0x136) again with those tabs' loaded bit clear, so the panel asks for them (0xc7) when
-    they are shown again.
-  - The tabs with shop currency stay (below).
-  - During the first open, the panel's old tab is asked for after the forced one; unloading the shown tab then crashed
-    the client on the next open, so nothing is unloaded in that window.
-  - A click can still name a tab that was just unloaded: the panel keeps showing it for a moment, and the client sends
-    0x28/0x2a (or the 0xe0/0xe3 path) for the tab it displays. A 0xbf for an inventory the client no longer has is fatal
-    ("Got an inventory set change for an inventory that isn't in the set", [#605](https://github.com/LocalExile/LocalExile/issues/605)),
-    and the panel has the tab marked not loaded, so it drops that tab's 0xbfs until a 0xc8 tells it the tab is loaded
-    again. The Gateway therefore re-sends 0xc0 and 0xc8 for that tab before the 0xbf, and answers with its own
-    inventory id rather than the one the client sent (`EnsureTabLoaded`).
-  - Live 2026-10-29: the stash opened much faster after the heavy tabs were visited, with no crash.
+- **Visited inventories stay registered for the connection.** The panel asks (`0xc7`) only for a tab it has no built page for: a
+  page it built stays at panel tab `+0x58` across `0x136` tab lists (`0x140a87e90` clears pages via `0x140b08980` only
+  for kind 2 trade tabs), and the tab-selected handler (`0x140a86290`) shows that page without another request.
+  - Earlier builds unloaded non-shown tabs on tab switch with **S→C 0xc1** (`0x141d65a40`, u8 manager, u32 inventory id)
+    to reduce open cost (`0x1418b0a30`), then reloaded on `0xbf` via `Game.SendTabChange` so the client would not abort
+    with `"Got an inventory set change for an inventory that isn't in the set"`
+    ([#605](https://github.com/LocalExile/LocalExile/issues/605), [#710](https://github.com/LocalExile/LocalExile/issues/710)).
+  - Before an ordinary chest reopens, the Gateway sends a tab list with the ordinary visited pages detached
+    (inventory id 0 and loaded bit clear). Their inventory manager entries keep accepting item changes. Currency
+    sources used by vendors and the Map and Unique collection bindings retain their inventory ids. The guild chest
+    applies the same rule to its own catalog. No tab positions or saved items change.
+  - Regular uncapped 3.29.3d, 1,503 entries across Currency, Essence, Fragment, Gem and Divination. On three
+    physical chest reopens showing a small grid tab, the largest main-loop gap per open was 180–181 ms with the
+    original Lockstep handler, 14–19 ms with the fix in Lockstep and 14–19 ms in Predictive. A reopen showing
+    the full 470-card page measured 194 ms with the original Lockstep handler and 86 ms with the fix in either mode.
+    Moving an Essence out of its cached tab and back by hand kept its item id in both modes.
+  - Static 3.29.3c/d verification of `0x141d65f80` (inventory placement check): the very first lookup
+    (`0x141d65830` at `0x141d65fd1`) returns null when `0xc1` removed the tab's inventory while `+0x58` kept its page
+    shown, so hovering a held item over a revisited tab turns red and blocks manual left-click placement (`0x2a`),
+    whereas Ctrl + click (`0xe0`/`0xe1`) still sends the tab index (`+0x4a4`) and triggers `SendTabChange`.
+  - `SendStashTab` therefore keeps every visited tab registered in the client's inventory manager for the connection
+    (resetting on area change), while `Game.SendTabChange` still calls `EnsureTabLoaded` (`0xc0` + `0xc8`) before any
+    `0xbf` to an unopened tab (e.g. an affinity deposit or hidden Map/Unique child).
 - **Area entry preloads only shop currency.** Vendors price items against the currency the client knows of, so the
   tabs that can hold it (a currency tab or a grid tab) go out on area entry when they hold class `StackableCurrency`
-  (`Program.PreloadsForPrices`). Before, every tab with a stackable item went out: a full divination tab alone is
+  (`Game.PreloadsForPrices`). Before, every tab with a stackable item went out: a full divination tab alone is
   470 items.
 - Sizes (`AccountStash.Types`): StashType StorageSlots × column 4: Normal and Premium 12 × 12, Quad 24 × 24; the special
   tabs (Currency 142 × 4, Essence 110 × 4, Fragment 255 × 9, Map 12 × 6, Flask 250 × 4, Gem 250 × 2, Delve 41 × 4,
@@ -121,23 +133,30 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   BE tab, u16 BE position). Kept (2026-10-22): `AccountStash.SetPositions` saves each tab's position with the stash
   (kind 1 the guild stash), and the tab lists send it back as the record's +0x38, so the order survives a relog.
 - **0xd1** (7 bytes, vtable `0x1435cabd0`, write `0x141f9d680`, `0x14216dd20`): u16 BE tab, u16 BE folder (0xffff out),
-  u8 kind: a tab into a folder. Logged.
+  u8 kind: a tab into a folder. The tab settings' Folder box (shown only with `user_input_mode` gamepad) sends 0xffff then its choice, and its "Create New Folder" sends
+  the tab's own index as the folder: only then does the sender leave the tab's +0x3a alone, so the server makes the
+  folder (a StashType 16 tab, never asked for contents) and the tab list (S→C 0x136) puts the tab in it. A drag in the
+  tab list (`0x140a8cf75`) sends the same pair. Kept (`AccountStash.MoveToFolder`, the parent column).
 - **0xcd** (vtable `0x1435cab10`, write `0x141f9ccd0`; built by the tab settings `0x14025b9b0`): a premium tab renamed.
   u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
   send back (the record's second u32). Both are kept with the stash, account-wide (`AccountStash.Rename`, `SetColour`;
-  every tab but normal ones and folders is premium, as bought tabs are: the tab settings show the name and colour only
-  with the record's premium flag; kind 1 the guild stash). Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
-- **0xd2** (u16 tab, u8 kind; `0x14025c5c0`): from the tab settings. Not seen yet.
+  every tab but normal ones is premium, as bought tabs are: the tab settings show the name and colour only
+  with the record's premium flag; kind 1 the guild stash). Folders have the flag too but no colour: retail (3.30 capture) sends a new folder as "New Folder", inventory 0, colour 0, and its settings show only the name and Delete Folder. Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
+- **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
+  Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
+  the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
+  removing it would move the later tabs' indices and inventory ids (`AccountStash.DeleteFolder`).
 - **0xd3** (class `0x1435cad70`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
   (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
   0x136 is what closes the window is not checked live yet.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
-  item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bits 0, 1), u8 kind (page
-  +0x491), u16 token (raw, changes per request), u64 raw (0). The item's inventory is not sent. The Gateway moves the
-  item to the tab's first free cell (column by column) from whichever inventory holds it.
+  item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bit 1: Ctrl + right click, the
+  bulk boolean of `0x1403119d0`, as 0xe1 below), u8 kind (page +0x491), u16 token (raw, changes per request), u64 raw (0). The
+  item's inventory is not sent. The Gateway moves the item to the tab's first free cell (column by column) from whichever
+  inventory holds it.
 - **0xe3** (12 bytes, vtable `0x1435caf38`, write `0x141f9e870`, built by `0x14216f7d0`): Ctrl + click on a tab item.
   u16 BE tab, u32 BE item id, u8 stash kind, u16 raw token (low byte first), u8 bulk.
   Live ordinary click suffix: `00 a7 cd 00`; the middle two bytes change per request.
@@ -165,7 +184,7 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 
 ## 6. The server's stash
 
-`AccountStash` (Gateway): per account (Auth's resolve now returns `Account`), saved as its row in `data/saves.db` the way
+`AccountStash` (Gateway): per account (Auth's resolve now returns `Account`), saved as its row in `data/characters.db` the way
 character saves are ([saves](../saves.md)): a stash that can't be read stops what needed it instead of becoming the
 starter tabs, and every move between the stash and a character's items is one transaction.
 Tab i's inventory id is 0x800 + i. A new account gets two normal tabs, two premium tabs, a quad tab and Currency,
@@ -192,6 +211,10 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   EssenceStashTabLayout / FragmentStashTabLayout `FirstSlotIndex` (a currency slot also takes its `StoredItem`: the Eldritch Embers and Ichors rows keep old Ids, CurrencyCleansingFireOrb1-4 and CurrencyGreatTangleOrb1-4, SlotGroup 1 = the Atlas page; a fragment slot also takes its `StoredItems`). The
   client shows slot n as cell (n, 0) and sends it so (live 2026-10-20: a Scroll of Wisdom dropped at (54, 0), (12, 0) and
   (1, 0); its slot is 1). An item dropped anywhere on such a tab goes into its own slot, onto what is there.
+  Inventory row 26 is shared, but the kind must identify the special tab: fragment `0x16`, Delirium `0x1e`,
+  divination `0x14` (`StashType.__col5`). Generic kind `0x11` hides their stack counters for inventory-single items even when the
+  transmitted count is greater than one. Verified live with two Simulacrums and fragments; reopening the panel
+  refreshes an inventory created before this kind changed through hot reload.
 - **Crafting slot.** The currency tab's big cell in the middle is CurrencyStashTabLayout row `CraftingSlot` (no
   `StoredItem`, `FirstSlotIndex` 28, 2 × 4). The client drops onto it as (28, 0) (live 2026-10-23, a weapon). It takes
   any item, where dropped (`StashRules.TakesAnything`), at the item's own stack size; an item dropped on it swaps with the
@@ -213,9 +236,12 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a
   map from each row's card (its BaseItemTypes Id) to the row index (`0x140b306d0`), and 470 rows run past the tab's
   255 cells. So slot n is cell (n mod width, n / width): rows 255–469 go into the second row of its 255 × 2. Every other
-  layout fits its first row. The tab shows a card only once its set is complete (stack = the card's stack size).
-  Live 2026-10-28: with one card each, only the 1-card sets showed; with two each, exactly the 1- and 2-card sets.
-  Luck of the Vaal (row 154, not in game) never showed. Unique (4), Breach (22) and Ultimatum (14) tabs exist but take nothing yet (`StashRules.NotShown`: uniques
+  layout except fragments fits its first row. FragmentStashTabLayout `Subtab` is the inventory row, not the visible
+  category (`Tab`): cell `(FirstSlotIndex, Subtab)`, flattened as `Subtab * 255 + FirstSlotIndex`.
+  Allflame uses columns 3–10 of row 1; reusing row 0 collides with Vaal fragments and leaves Allflame empty.
+  With kind `0x14` the client draws its own card collection (Size slider, Show filter) and every held card with
+  its count over the set, including more than a set (live 2026-11-14: "1/4", then "5/4" with the full-set border, for
+  A Chilling Wind). Under the generic kind it showed a card only once its set was complete (live 2026-10-28). Unique (4), Breach (22) and Ultimatum (14) tabs exist but take nothing yet (`StashRules.NotShown`: uniques
   are keyed by unique names and the server has none; 3.29.3b has no breach or ultimatum layout table). The starter tabs
   are four normal tabs "1"-"4", as the real game's, then the premium and special ones; a stash saved before gets the
   missing ones
@@ -316,7 +342,7 @@ Gold stays with the personal stash.
 - **Last tab:** switching to an already loaded tab sends nothing, so a switch followed by a logout without reopening
   the stash or moving an item is not seen; the next login opens on the tab before it.
 - Not checked live yet: the affinity window closing on S→C 0x136, and the special tabs other than currency and map.
-- Tab folders (0xd1 is logged), 0xe2, the unique, divination and other special tabs, the
+- Tab folders in the real client (0xd1 and 0xd2 are handled, not checked live), 0xe2, the unique, divination and other special tabs, the
   real guilds (shared guild stash, members, rights), stashes per league, and stashes in the other towns.
 
 ### Delve inventory bounds and resonators

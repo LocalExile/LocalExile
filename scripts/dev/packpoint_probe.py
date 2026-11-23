@@ -1,16 +1,16 @@
-"""Pack-point probe: enter an area whose layout names its pack points (The Aqueduct, 1_4_1: 10 of them)
-and check the gateway's population note lists them as room points instead of a purely scattered set.
-"""
+"""Enter the Aqueduct and inspect its population through the existing native-client bridge.
 
+    .venv/Scripts/python.exe scripts/dev/packpoint_probe.py --session agent
+
+Requires a logged-in client started by live.ps1. The Gateway log records room-point placement and the remaining
+scattered pack budget. This probe changes the validation character's area; it does not unlock its waypoints.
+"""
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
+import argparse
 import time
-from pathlib import Path
+from client_control import ClientControl
 
-REPO = Path(r"D:\大肥鱼工作区\LocalExile")
 AQUEDUCT = "1_4_1"
 
 
@@ -18,55 +18,34 @@ def say(text: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {text}", flush=True)
 
 
-class Bridge:
-    def __init__(self) -> None:
-        self.proc = subprocess.Popen(
-            [sys.executable, str(REPO / "scripts" / "dev" / "client_control.py"), "--stdio"],
-            cwd=str(REPO), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1)
-
-    def call(self, request: dict, timeout: float = 240.0) -> dict:
-        self.proc.stdin.write(json.dumps(request) + "\n")
-        self.proc.stdin.flush()
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            line = self.proc.stdout.readline()
-            if not line:
-                break
-            if line.strip().startswith("{"):
-                return json.loads(line)
-        return {"ok": False, "error": "no reply"}
-
-    def close(self) -> None:
-        try:
-            self.proc.stdin.close()
-        except OSError:
-            pass
-
-
-def text(reply: dict) -> str:
-    return " ".join(((reply.get("result") or {}).get("replies") or []))
+def replies(result: dict) -> str:
+    return " ".join(result.get("replies") or [])
 
 
 def main() -> int:
-    bridge = Bridge()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--session", help="The live.ps1 client session to inspect")
+    options = parser.parse_args()
     try:
-        st = bridge.call({"command": "game:status"}).get("result") or {}
-        say(f"status: running={st.get('running')} area={st.get('area')}")
-        if not st.get("running"):
-            return 1
-        say("unlock waypoints, then /goto the Aqueduct")
-        bridge.call({"command": "chat", "text": "/waypoints all"}, timeout=60)
-        time.sleep(1)
-        say("/goto: " + text(bridge.call({"command": "chat", "text": f"/goto {AQUEDUCT}"}, timeout=180))[:160])
-        time.sleep(4)
-        say("pos: " + text(bridge.call({"command": "chat", "text": "/pos"}, timeout=60)))
-        mobs = text(bridge.call({"command": "chat", "text": "/mobs"}, timeout=60))
-        say(f"/mobs: {mobs[:240]}")
-        say(f"monster count: {mobs.count('0x')}")
-        return 0
-    finally:
-        bridge.close()
+        with ClientControl(options.session) as bridge:
+            state = bridge.execute({"command": "game:status"})
+            say(f"status: running={state.get('running')} area={state.get('area')}")
+            if not state.get("running") or state.get("screen") != "game":
+                say("A logged-in validation character is required")
+                return 1
+            bridge.execute({"command": "command", "text": f"/goto {AQUEDUCT}"})
+            bridge.execute({"command": "area:wait", "area": AQUEDUCT, "timeout": 180})
+            position = replies(bridge.execute({"command": "command", "text": "/pos", "wait": 30}))
+            if not position:
+                raise TimeoutError("The Gateway did not finish entering the area")
+            say("pos: " + position[:160])
+            mobs = replies(bridge.execute({"command": "command", "text": "/mobs"}))
+            say(f"/mobs: {mobs[:240]}")
+            say("Population details: logs/live-gateway.log")
+            return 0
+    except Exception as error:
+        say(f"probe failed: {error}")
+        return 1
 
 
 if __name__ == "__main__":

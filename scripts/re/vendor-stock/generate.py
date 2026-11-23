@@ -7,8 +7,12 @@ with --ids from English tables when the snapshot or the additions below change.
 """
 import functools
 import json
+import os
 import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 HERE = Path(__file__).resolve().parent
 # Captured Scion additions. Unlocks are assumptions: place each at its native reward requirement tier.
@@ -27,7 +31,8 @@ LILLY_QUEST = 'Fallen from Grace'
 
 
 def table(tables, name):
-    return json.loads((Path(tables) / (name + '.json')).read_text(encoding='utf-8-sig'))
+    """A client table's rows; `tables` names another client.db (None: data/client.db)."""
+    return clientdb.table(name, tables)
 
 
 def rows(tables):
@@ -127,12 +132,12 @@ def main():
     source = json.loads((HERE / 'community-stock.json').read_text(encoding='utf-8'))
     if sys.argv[1:] == ['--ids']:
         kinds = [f'  {json.dumps(kind)}: {{\n' + ',\n'.join(f'    {json.dumps(n)}: {json.dumps(i)}' for n, i in names.items())
-                 + '\n  }' for kind, names in build_ids('data/tables', source).items()]
+                 + '\n  }' for kind, names in build_ids(None, source).items()]
         (HERE / 'ids.json').write_text('{\n' + ',\n'.join(kinds) + '\n}\n', encoding='utf-8')
         return
     ids = json.loads((HERE / 'ids.json').read_text(encoding='utf-8'))
     layouts = json.loads((HERE / 'gem-layout.json').read_text(encoding='utf-8'))['Vendors']
-    out = generate('data/tables', source, ids, layouts)
+    out = generate(None, source, ids, layouts)
     Path('data/vendor-stock.json').write_text(json.dumps(out, indent=2)+'\n', encoding='utf-8')
     print(json.dumps(dict(shops=len(out['Shops']), gem_rules=len(out['Gems']))))
 

@@ -1,9 +1,9 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Stable per-template placements; runtime object ids never enter the character save.</summary>
-sealed record HideoutPlacement(int X, int Y, float Rotation);
+public sealed record HideoutPlacement(int X, int Y, float Rotation);
 
-sealed class HideoutEditing
+public sealed class HideoutEditing
 {
     public sealed record Entry(string Key, HideoutPlacement Position, int BlockerSize, double? CollisionRadius = null);
     readonly Dictionary<uint, Entry> _objects = [];

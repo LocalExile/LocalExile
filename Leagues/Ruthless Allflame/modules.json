@@ -1,6 +1,9 @@
 {
   "modules": [
+    "Core/Content/Anarchy",
+    "Core/Content/Deepwater",
     "Core/Content/Delve",
+    "Core/Content/Delirium",
     "Core/Content/Harvest",
     "Core/Content/Heist",
     "Core/Game",
@@ -12,12 +15,12 @@
     "Core/NPC/Vendors",
     "Core/Player/Chat",
     "Core/Player/Commands",
-    "Core/Player/Pantheon",
     "Core/Player/Social",
     "Core/World/Atlas",
     "Core/World/HideoutEditing",
     "Core/World/Portals",
     "Core/World/QuestObjects",
-    "Ruthless"
+    "Core/World/Shrines",
+    "Core/Ruthless"
   ]
 }

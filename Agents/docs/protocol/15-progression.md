@@ -16,15 +16,22 @@ yet confirmed on screen).
   `Metadata/Effects/misc/levelup_new/rig.ao`; its default animation is `levelup`.
 - **A kill** (`MonsterKilled`): the player gains experience when alive and within `Game_XP_RANGE` cells (default 150)
   of the monster when it dies (melee, Fireball or Righteous Fire). Amount (`Progression.MonsterExperience`):
-  DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity
-  (magic 2, rare and unique 5: our own numbers) × the level penalty, rounded.
-- **Level penalty** (`Progression.LevelPenalty`): safe zone 3 + level / 16; beyond it, with d the levels past it,
-  ((L + 5) / (L + 5 + d^2.5))^1.5, at least 0.01 (L = the player's level). The extra penalty above level 95 is not
-  modelled.
+  DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity ×
+  the level penalty × the party share, rounded. The rarity multipliers are the hidden rarity mods in the Mods table
+  (`monster_slain_experience_+%`): magic +250% (×3.5), rare +750% (×8.5), unique +450% (×5.5).
+- **Level penalty** (`Progression.LevelPenalty`, the wiki's Experience page): safe zone 3 + level / 16; beyond it, with d
+  the levels past it, ((L + 5) / (L + 5 + d^2.5))^1.5, at least 0.01 (L = the player's level). At level 95 and above
+  another 1 / (1 + 0.1 * (L − 94)) applies. A monster above level 70 counts as a lower level for d only
+  (`EffectiveMonsterLevel`: −0.03 * level² + 5.17 * level − 144.9; 75 → 74.10, 82 → 77.32), not for its stats, loot or
+  base experience.
+- **Party play** (`ShareKill`, `Progression.PartyMultiplier`): every living player within the experience range (150
+  cells) of the kill takes a share of any party member's kill, min{1, N * (level + 10)^2.71 / Σ (level + 10)^2.71},
+  capped at their solo experience; the killer is one of the N. The gems' 10% takes the same share (they are the
+  character's pre-penalty experience). A private area is entered as the party's instance, so its presence is the party.
 - **A new level** (`ApplyLevel`): the level's stats (0x1b3) and skills (0x2bc Actor), full life and mana (0x1b1), the
   Passive Skill Tree with the new level (0x33, §2), and the account's level through Auth's `set_level` control op (the
   character list and the next tickets carry it). Experience stops at the start of level 100.
-- **Saved** in the character's save (`data/saves.db`, `Experience`): added to the character's total in memory and saved within 5 s, at once at a level-up ([saves](../saves.md)); the saved
+- **Saved** in the character's save (`data/characters.db`, `Experience`): added to the character's total in memory and saved within 5 s, at once at a level-up ([saves](../saves.md)); the saved
   experience decides the level, and a stale account level is corrected at login ([saves](../saves.md)).
 - **Concurrent events:** each receiving connection reconciles its level from current character experience.
   An old-area gain cannot suppress a live connection's pending level gain or explicit reset.
@@ -43,10 +50,10 @@ yet confirmed on screen).
   |---|---|---|
   | u16 | tree +0x270 | refund points (Orbs of Regret) |
   | u16 | +0x274 | `extra_skill_points` (quest points; dev extra points for now) |
-  | u16 | +0x27c | ascendancy points |
+  | u16 | +0x27c | ascendancy points; the three Wildwood Descendancy rows add their own eight points here, while the main ascendancy stays capped by its earned points |
   | u8 | +0x26c | **the level**: the client's `points_from_level` = (level − 1) × points per level |
   | u8 | +0x268 | class byte: base IntegerId + packed ClassNo (`CharacterClassByte`), the tree's start |
-  | u8 | +0x269 | |
+  | u8 | +0x269 | the second ascendancy layer's **Descendancy.dat row** (0 none): nodes whose `PassiveSkills.DescendancyKey` equals it are that layer's tree and spend the same earned points as the main ascendancy. The panel's own copy is the Player component's +0x1b0 ([04](04-player-entity.md) §4) |
   | u8 flags | | bit0 → +0x91, bit1 → no lists (then `0x141efdcb0` sets only the numbers) |
   | vec16 u16 | +0x180 | **allocated nodes**: PassiveSkills.dat `PassiveSkillGraphId`, raw (little-endian), **sorted** (§2 Gold respec) |
   | vec16 u16 | | (sent empty) |
@@ -80,15 +87,45 @@ yet confirmed on screen).
   PassiveSkillMasteryEffects.dat HASH16). Captured `003598091194` = node 38921 (Block Mastery), effect 4500
   (+1% spell block per 5% attack block). The Gateway allocates the mastery node and records the effect, then answers
   with 0x33 and the updated stats.
-- **S→C 0x3d is the Atlas tree**, not the character's: its three presets ([05](05-inventories-and-ui.md) §4; the check
-  `0x141ef3860` logs "atlas passive skills allocated but only allowed"). The server populates them from the saved presets,
-  and handles Atlas allocation/refund as C→S 0x3e/0x3f. The point budget is saved but completion does not award it yet
-  (completed maps themselves are tracked: [21](21-hideouts.md) §4).
+- **S→C 0x3d is the Atlas tree**, not the character's: its three presets (layout in [05](05-inventories-and-ui.md) §4).
+  - u16 +0x28 is the Atlas **respec points** (each slot's +0x468): the refund check `0x141ef3710` needs them to cover
+    the cost (1, or the node's +0xb2 when +0xb6 is set) and subtracts it. u16 +0x2a is the points before the node
+    grants: the client's budget is u2a + the allocated nodes' SkillPointsGranted (`0x141ef4840`; only Unwavering
+    Vision grants, 20, 10 in HardMode, where two more keystones grant 20).
+  - Each flagged preset is created or updated with the one list. The handler (`0x142150ae0` case 0x11) makes a preset
+    the **active** one (instance +0xc2f0, what the tree draws and what 0x3e/0x3f send) only when the message flags
+    exactly that one; nothing else in the client writes it. The server sends one message per preset with the active
+    one last.
+  - The list must be sorted: `0x141ef3040` diffs it as a sorted set and CanAllocate binary-searches it.
+  - With bit1 the reader (`0x1421a55a0`) reads no count and no list, and the slot keeps its own; the server does not
+    use that form.
+- **C→S 0x2a8** (3 bytes, u8): a tab of the Atlas tree picked (`0x1407cacf0`, also `0x1407c7500`). The byte is the
+  tab's AtlasTrees row (the tabs are built from AtlasTrees.dat's rows, `0x1407c6520`), taken as the preset. The server
+  saves it and answers with that preset's 0x3d alone, unless the tree is locked (the server refuses it).
+  - **Unlocking** is by league quest flags, not by a message: AtlasTrees has two flag columns (row +0x10 Unlocked, +0x14
+    Active). Tree I has none (always unlocked); tree II is 329 `AtlasPassiveAllocationSet1Unlocked` / 330
+    `...Set1Active`, tree III 331 `...Set2Unlocked` / 332 `...Set2Active`. The client tests bit (id - 1) of the
+    Player's league flag set (the unlock test `0x1407c7c90`, like `UnlockedMapDevice` 350) and builds the tree selector
+    (`0x1407c6520`) only when more than one tree is unlocked; a 0x2bc league-flag update shows it at once. The selector
+    starts on the last tree whose Unlocked and Active flags are both set (`0x1407c7370`, `0x1407ca980`), so the Active
+    flags must mirror the active preset. The real rule is "Unlocked at 50 / 100 bonus Atlas objectives"
+    (AtlasTrees.UnlockObjective); the server has no bonus-objective count and uses the completed-map count (50 and 100)
+    per character, a tree holding nodes counting as unlocked so an old save keeps its tree. The flags live on the
+    connection (re-sent with 0x2bc when they change), never in the account's saved league flags.
+- **C→S 0x3e/0x3f** allocate or refund one Atlas node (u8 the active preset, u32 BE node; 0x3f adds u8 the "gold
+  respec" flag of 0x36). A refund spends one respec point (none for a stale node: icon-only, off the graph or cut off from the start); an Orb of Unmaking grants one (the Atlas Book of Skill's two
+  are not modelled). **C→S 0x40** (the Atlas "Refund All", from 0x37's senders) and **0x41** (0x38's, the widget
+  shown by 0x3d bit0) are 3 bytes, u8 the active preset, and are not handled. Completed maps:
+  [21](21-hideouts.md) §4.
 - **Masteries**: `PassiveSkillMasteryGroups.dat` maps a mastery node's `MasteryGroup` to its effects and
   `PassiveSkillMasteryEffects.dat` holds their stats. The selected effect is stored per node and its stats are summed
   with the node's (`Passives.Stats`). Block Mastery's four effects are max attack block +2, max spell block +2, 20
   life and 20 mana gained on block, and +1% spell block per 5% attack block (the last is applied after the shield's
   base block).
+  Fire Mastery's "1 Life regenerated per second per 1% uncapped fire resistance" counts in life regeneration, for
+  positive resistance only. Wand Mastery's wand-only effects (an extra attack projectile, accuracy equal to
+  Intelligence) count only while a wand is held; its 0.5% attack life and mana leech is a generic effect that applies
+  with any weapon. Spellslinger's reservation efficiency has no consumer while Spellslinger is unimplemented.
 - **Stats** (`PassiveBonus`, `BaseStats`): the nodes' stats summed; attributes (`base_*`, `additional_*`, all and
   pairs), flat and increased life and mana, increased evasion, energy shield and melee physical damage go into the
   pools ([11](11-skills.md) §4); the other stats are sent as they are (the character panel shows them; nothing uses
@@ -119,6 +156,15 @@ yet confirmed on screen).
   0xbf and the tree's 0x33 are sent back. `/add_refund_points <n>` remains a dev shortcut. Expansion nodes are still
   refused.
 - `/passives` lists the ordinary passive and refund points; `/reset_passives` refunds ordinary nodes (free).
+- **Keystone indication (3.29.3c client tables).** Most keystones have no `BuffDefinitions` row (Resolute Technique,
+  Precise Technique, Pain Attunement, Magebane, Unwavering Stance, Arrow Dancing, Vaal Pact, Lethe Shade, Perfect
+  Agony): nothing to show. Elemental Overload's diamond below a skill's icon is the Invisible `elemental_overload` buff
+  (row 606, no buff-bar icon) bound to that skill (AddBuff bit3, `activeSkill`): the server sends it on the skill's
+  critical strike and removes it in the player tick when the eight-second window ends, as the client does not expire
+  it. The damage rides on the non-public `keystone_elemental_overload_damage_+%_final`;
+  `elemental_overload_rotation_active` is the unique's "every 16 seconds" variant. The window is per skill, as the 3.29
+  tree text says ("Skills that have dealt a Critical Strike in the past 8 seconds"); PoB's global flag is a calculator
+  limitation.
 
 ### Passive tree jewel sockets
 
@@ -126,7 +172,7 @@ The ordinary tree's 21 large jewel sockets are the client's `PassiveJewels1` inv
 inventory id 24, 60x1). Pane cell `x` is the `PassiveJewelSlots.dat` row; that row's first column (`Slot`) is the
 `PassiveSkills.dat` row of the socket node. Rows 21-56 are cluster-jewel expansion slots and rows 57-59 are
 ascendancy charm sockets, so only slots 0-20 are ordinary jewel sockets. `PassiveTree.JewelNodeForSlot` and
-`JewelSlotForNode` expose this mapping from `PassiveJewelSlots.json` and `PassiveSkills.json`.
+`JewelSlotForNode` expose this mapping from `PassiveJewelSlots` and `PassiveSkills`.
 
 A jewel is moved in like any inventory item: C->S 0x2a places the held item at (slot, 0), 0x4a swaps it onto an
 occupied cell, and 0x28 picks it up. The server checks that the slot is an ordinary socket, its node is allocated in
@@ -219,20 +265,32 @@ Regret's way but gives two refund points (ClientStrings `ItemFunction2RespecPoin
 quantity. Each item is currency (35%: Scroll of Wisdom most, down to the Mirror), a gem (4%: an obtainable gem
 whose DropLevel is at most the monster's level, from `GemSources`, at gem level 1 like a vendor's), a life or mana flask (8%)
 or equipment (53%: a weighted slot, then any of its bases with DropLevel ≤ the monster's level, minus unique-only, event
-and league bases), item level = the monster's level, +1 magic, +2 rare, +3 unique (gems keep 1), with the type's default sockets. Equipment then rolls
+and league bases), item level = the monster's level, +1 magic, +2 rare or unique (gems keep 1), with the type's default sockets. Equipment then rolls
 unique, rare or magic, raised by item rarity. A unique is chosen among its base's by the inverse of its
 `VillageUniqueDisenchantValues` value (the client's measure of a unique's rarity; `RuthlessValue` in Ruthless); where a
 base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.
+So a Mageblood is about 840 times as rare as a Wanderlust. The 1,527 weights are world.db's `unique_weights` (a CHECK
+keeps each in 0..1), with `unique_weight_overrides` on top; the client table is the fallback only while world.db is
+not open. The core currency weights come from `drop_currency_weights` (the compiled table is the fallback), still
+gated by each base's DropLevel. Affix spawn and generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families
+and tags) still load from JSON; moving them also needs the affix-pool cache cleared on reload.
+One drop event's stackable items of one type become stacks up to the `CurrencyItems` StackSize (twenty-one Divine
+Orbs lie as 10, 10 and 1; `ItemDrops.Stacked`).
 `DropLoot` puts each as a WorldItem
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
-it off.
+it off. In a map, the kill also rolls the base card and scarab chances (`drop_card_chance_pct`, `drop_scarab_chance_pct`,
+our own numbers, scaled by item quantity); a card or scarab pick follows the published community weights when
+`drop_item_weights` covers the monster's level, and is uniform otherwise.
+The client DropLevels, the current hardcoded weights, the recent patch changes and the (unimplemented) currency drop
+penalty are collected in [game/currency-drops.md](../game/currency-drops.md).
 
 ## Open
 
 - Phrecia client compatibility and special ascendancy gameplay.
   Selection/points/saves have automated coverage; this slice makes no claim that all 19 classes' gameplay works.
   See [scope and checks](../game/ascendancies.md).
-- The real rarity experience bonuses, the level 95+ penalty, party sharing.
+- The death experience penalty (0% in Acts 1-5 and the Normal Labyrinth, 5% in Acts 6-10 and Cruel/Merciless, 10% in
+  maps and the Eternal Labyrinth) and the boss areas where no experience is gained or lost.
 - Quest passive-point rewards and cluster/expansion topology; ordinary and ascendancy connectivity are checked.
 - Real drop pools (MonsterVarieties / area drop tables), item rarity and mods, quantity and rarity bonuses; ground
   items only exist on the connection that saw them drop.

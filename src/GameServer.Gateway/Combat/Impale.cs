@@ -3,7 +3,7 @@
 /// triggers one separate reflected physical hit from all live impales. Instances expire independently by time
 /// or remaining hit count; there is no separate five-stack cap. Callers hold the target's state lock.
 /// </summary>
-sealed class ImpaleState
+public sealed class ImpaleState
 {
     public const int HitsPerStack = 5;
     public const double BaseDuration = 8;

@@ -265,6 +265,8 @@ public class InstanceItemsTests
         Assert.Equal(new InstanceItems.SocketGem(3, 1, 0),
             InstanceItems.ReadLevelUpGem(Convert.FromHexString("0031000000030000000100000000")));
         Assert.Equal(14, InstanceProtocol.KnownClientLength(InstanceItems.LevelUpGemId));
+        // Captured 2026-11-09: "Click to level up ALL" is the id alone (2 bytes).
+        Assert.Equal(2, InstanceProtocol.KnownClientLength(InstanceItems.LevelUpAllGemsId));
         Assert.Equal(new InstanceItems.LockGem(3, 1, 0, true),
             InstanceItems.ReadLockGem(Convert.FromHexString("00D700000003000000010000000001")));
         Assert.Equal(new InstanceItems.LockGem(3, 1, 1, false),

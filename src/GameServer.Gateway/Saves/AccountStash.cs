@@ -13,7 +13,7 @@ using GameServer.Storage;
 /// (from <see cref="FirstItemId"/>, never reused: the next id is saved) and keeps it when a character takes it out.
 /// PlayerInventories does not count stash ids when it picks its next id.</para>
 /// </summary>
-sealed partial class AccountStash
+public sealed partial class AccountStash
 {
     /// <summary>Stash item ids start here (PlayerInventories counts from 1, ground items from 0x100000).</summary>
     public const uint FirstItemId = 0x40000000;
@@ -38,9 +38,11 @@ sealed partial class AccountStash
 
     /// <summary>A tab: name, StashType row, colour, items, and its affinities (a bitset of StashTabAffinityId rows, set in the
     /// tab settings, C→S 0xd3).</summary>
-    /// <summary>A tab as saved. <paramref name="Position"/>: its button's place in the panel (C→S 0xcc), null for its index.</summary>
+    /// <summary>A tab as saved. <paramref name="Position"/>: its button's place in the panel (C→S 0xcc), null for its index.
+    /// <paramref name="Parent"/>: a unique category page's Unique tab, else the folder the tab is in (0xffff none).
+    /// <paramref name="Hidden"/>: left out of the panel; a deleted folder, kept so later tabs keep their places.</summary>
     public sealed record SavedTab(string Name, byte Type, byte R, byte G, byte B, List<CharacterSaves.SavedPlacement> Items, uint Affinities = 0,
-        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue);
+        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue, bool Hidden = false);
 
     /// <summary>LeagueQuestFlags: the league quest flags (client ids, Quests.League) the account's characters set in this
     /// stash's league, such as a Trial of Ascendancy's: every character of the league has them.</summary>
@@ -142,7 +144,7 @@ sealed partial class AccountStash
                 var tab = new TabState(headers[i] with { Items = [] });
                 // Each tab's items are a row of their own; a stash saved before that (imported) keeps them in its header,
                 // and its first save gives every tab its row.
-                var items = Saves.LoadStashTab<List<CharacterSaves.SavedPlacement>>(name, i, Opts);
+                var items = Saves.LoadStashTab(name, i);
                 if (items is null && headers[i].Items.Count > 0) stash._itemsInHeader = true;
                 foreach (var p in items ?? headers[i].Items)
                     tab.Items.Add(new InventoryItem(p.Id, p.X, p.Y, CharacterSaves.FromSaved(p.Item, catalog)));
@@ -164,12 +166,13 @@ sealed partial class AccountStash
                 stash.Persist([.. repaired]);
             // A map tab gets a page per tier (#477): the client shows a map only on a page of its own.
             stash.EnsureMapChildren();
+            stash.EnsureUniqueChildren();
             return stash;
         });
 
     // A stash that can't be read throws UnreadableSaveException and stays as it is, instead of becoming the starter tabs,
     // which For would write over it.
-    static Save? Load(string account) => Saves.Load<Save>(SaveDatabase.Table.Stashes, account, Opts);
+    static Save? Load(string account) => Saves.LoadStash(account);
 
     /// <summary>Saves the stash's header (tabs, last tab, next item id, gold: small) and the items of the tabs that
     /// changed, in one transaction: a click in one tab writes that tab, not the whole stash.</summary>
@@ -184,21 +187,64 @@ sealed partial class AccountStash
         });
         // Copied under the stash's lock, inside the transaction: an older copy never lands after a newer one.
         Save header;
-        List<(int Tab, string Items)> tabs;
+        List<(int Tab, List<CharacterSaves.SavedPlacement> Items)> tabs;
         lock (_lock)
         {
             header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData),
                 [.. _leagueQuestFlags]) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
-            tabs = [.. write.Select(i => (i, JsonSerializer.Serialize(
-                _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList(), Opts)))];
+            tabs = [.. write.Select(i => (i,
+                _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList()))];
             _itemsInHeader = false;   // a rollback drops this whole copy
         }
-        Saves.Put(SaveDatabase.Table.Stashes, _account, JsonSerializer.Serialize(header, Opts));
+        Saves.PutStash(_account, header);
         foreach (var (tab, items) in tabs) Saves.PutStashTab(_account, tab, items);
     });
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
+
+    /// <summary>The tabs the player sees, in folders or not. A map tab's 191 hidden pages are children with a unique
+    /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
+    public int VisibleCount
+    {
+        get { lock (_lock) return _tabs.Count(t => t.Saved.UniqueCategory == 0 && !t.Saved.Hidden); }
+    }
+
+    /// <summary>Whether the tab is one the panel shows as a tab of its own (in a folder or not): not a page of a Map or
+    /// Unique tab, and not removed.</summary>
+    public bool IsShownTab(int tab)
+    {
+        lock (_lock) return tab >= 0 && tab < _tabs.Count && _tabs[tab].Saved is { UniqueCategory: 0, Hidden: false };
+    }
+
+    /// <summary>Appends <paramref name="count"/> tabs of one type and saves the header (the new tabs have no items, so no
+    /// tab row is written). What a tab is called and its colour are the caller's: the stash appends what it is given and
+    /// makes the names unique. The client's tab list (0x21, sent on entering an area) shows them next time.</summary>
+    public IReadOnlyList<int> AddTabs(byte type, int count, string namePrefix, byte r, byte g, byte b)
+    {
+        if (!Types.ContainsKey(type)) throw new ArgumentOutOfRangeException(nameof(type), $"no stash type {type}");
+        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count), "at least one tab");
+        if (string.IsNullOrWhiteSpace(namePrefix)) throw new ArgumentException("a tab name prefix", nameof(namePrefix));
+        List<int> added;
+        lock (_lock)
+        {
+            if (_stale) throw new InvalidOperationException($"stash of {_account}: changed on a copy dropped after a failed save");
+            if (_tabs.Count + count > ushort.MaxValue) throw new InvalidOperationException("the tab list is full");
+            string prefix = namePrefix.Trim();
+            var names = _tabs.Select(t => t.Saved.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            added = new List<int>(count);
+            for (int i = 0; i < count; i++)
+            {
+                int n = 1;
+                string name;
+                do name = $"{prefix} {n++}"; while (!names.Add(name));
+                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [])));
+                added.Add(_tabs.Count - 1);
+            }
+        }
+        Persist();
+        return added;
+    }
 
     /// <summary>The account's gold (S→C 0x2aa).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }
@@ -309,16 +355,109 @@ sealed partial class AccountStash
     /// game: the tab settings then offer the name and colour (record flag 0x02).</summary>
     static bool IsPremium(byte type) => type is not (0 or 16);
 
-    /// <summary>Renames a premium tab (C→S 0xcd). False for no such tab, a tab that is not premium or an empty name.</summary>
+    /// <summary>Renames a premium tab or a folder (C→S 0xcd; the settings send it for either, 0x14025b9b0). False for no
+    /// such tab, another tab that is not premium or an empty name.</summary>
     public bool Rename(int tab, string name)
     {
         name = name.Trim();
         if (name.Length is 0 or > 64) return false;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type)) return false;
+            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type) && _tabs[tab].Saved.Type != StashRules.Folder) return false;
             if (_tabs[tab].Saved.Name == name) return true;
             _tabs[tab].Saved = _tabs[tab].Saved with { Name = name };
+        }
+        Persist();
+        return true;
+    }
+
+    /// <summary>
+    /// A tab into a folder or out of one (C→S 0xd1, from the tab settings' Folder box or a drag in the tab list):
+    /// <paramref name="folder"/> 0xffff takes it out, the tab's own index makes a new folder that holds it (the client's
+    /// "Create New Folder": its sender 0x14216dd20 leaves its own record alone only then), and a folder's index puts it
+    /// there. A new folder reuses a deleted one, so the tabs after it keep their places, and stands where the tab stood.
+    /// Folders do not go into folders, nor do the pages of a Map or Unique tab. The new folder's index, the folder's, or
+    /// 0xffff out; null when refused.
+    /// </summary>
+    public int? MoveToFolder(int tab, int folder)
+    {
+        int result;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved is { Hidden: true } or { UniqueCategory: not 0 }
+                || _tabs[tab].Saved.Type == StashRules.Folder) return null;
+            var saved = _tabs[tab].Saved;
+            // A page of a Map or Unique tab stays with that tab.
+            if (saved.Parent != ushort.MaxValue && (saved.Parent >= _tabs.Count || _tabs[saved.Parent].Saved.Type != StashRules.Folder)) return null;
+            if (folder == ushort.MaxValue)
+            {
+                if (saved.Parent == ushort.MaxValue) return folder;
+                _tabs[tab].Saved = saved with { Parent = ushort.MaxValue };
+                result = folder;
+            }
+            else if (folder == tab)
+            {
+                int reused = _tabs.FindIndex(t => t.Saved is { Type: StashRules.Folder, Hidden: true });
+                if (reused < 0 && _tabs.Count >= ushort.MaxValue) return null;
+                // As retail's (3.30 capture): every new folder is "New Folder", colourless.
+                var made = new SavedTab("New Folder", StashRules.Folder, 0, 0, 0, [], Position: saved.Position ?? (ushort)tab);
+                if (reused >= 0) _tabs[reused].Saved = made;
+                else _tabs.Add(new TabState(made));
+                result = reused >= 0 ? reused : _tabs.Count - 1;
+                _tabs[tab].Saved = saved with { Parent = (ushort)result };
+            }
+            else
+            {
+                if (folder < 0 || folder >= _tabs.Count || _tabs[folder].Saved is not { Type: StashRules.Folder, Hidden: false }) return null;
+                if (saved.Parent == folder) return folder;
+                _tabs[tab].Saved = saved with { Parent = (ushort)folder };
+                result = folder;
+            }
+        }
+        Persist();
+        return result;
+    }
+
+    /// <summary>
+    /// Removes a tab with what is in it: the record stays, hidden from the panel, so the tabs after it keep their places
+    /// and inventory ids. A Map or Unique tab's pages go with it, a folder's tabs move out of it. The items removed, or
+    /// null for no such tab (a page, or one already removed).
+    /// </summary>
+    public int? RemoveTab(int tab)
+    {
+        int removed = 0;
+        var changed = new List<int>();
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved is not { UniqueCategory: 0, Hidden: false }) return null;
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var t = _tabs[i];
+                if (i == tab || t.Saved.UniqueCategory != 0 && t.Saved.Parent == tab)
+                {
+                    removed += t.Items.Count;
+                    if (t.Items.Count > 0) { t.Items.Clear(); t.Revision++; changed.Add(i); }
+                    t.Saved = t.Saved with { Hidden = true, Affinities = 0, Parent = i == tab ? ushort.MaxValue : t.Saved.Parent };
+                }
+                else if (t.Saved.UniqueCategory == 0 && t.Saved.Parent == tab) t.Saved = t.Saved with { Parent = ushort.MaxValue };
+            }
+            if (_tabs[_lastTab].Saved is { Hidden: true } or { UniqueCategory: not 0 })
+                _lastTab = Math.Max(0, _tabs.FindIndex(t => t.Saved is { UniqueCategory: 0, Hidden: false } && t.Saved.Type != StashRules.Folder));
+        }
+        Persist([.. changed]);
+        return removed;
+    }
+
+    /// <summary>Deletes a folder (C→S 0xd2, "Delete Folder" in its settings): the tabs in it move out, and it stays as
+    /// a hidden record, which the next new folder reuses. False when it is not a folder.</summary>
+    public bool DeleteFolder(int folder)
+    {
+        lock (_lock)
+        {
+            if (folder < 0 || folder >= _tabs.Count || _tabs[folder].Saved is not { Type: StashRules.Folder, Hidden: false }) return false;
+            foreach (var t in _tabs.Where(t => t.Saved.UniqueCategory == 0 && t.Saved.Parent == folder))
+                t.Saved = t.Saved with { Parent = ushort.MaxValue };
+            _tabs[folder].Saved = _tabs[folder].Saved with { Hidden = true, Parent = ushort.MaxValue, Name = "" };
         }
         Persist();
         return true;
@@ -348,16 +487,33 @@ sealed partial class AccountStash
     /// <summary>The tab list for S→C 0x21 / 0x136. The last tab carries affinity bit <paramref name="selectBit"/> (if
     /// any): S→C 0x7b kind 1 with that affinity makes the panel select it. Loaded tabs are the ones this connection
     /// already has the inventory of.</summary>
-    public List<InstanceStash.Tab> Records(int? selectBit, ISet<int>? loaded = null)
+    public List<InstanceStash.Tab> Records(int? selectBit, ISet<int>? loaded = null) => Records(selectBit, loaded, null);
+
+    public List<InstanceStash.Tab> Records(int? selectBit, ISet<int>? loaded, ItemCatalog? openingWith)
     {
         lock (_lock)
-            return [.. _tabs.Select((t, i) => new InstanceStash.Tab((ushort)i, t.Saved.Name,
-                t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) ? 0 : InventoryOf(i), t.Saved.Type,
-                t.Saved.R, t.Saved.G, t.Saved.B,
-                Flags: IsPremium(t.Saved.Type) ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
-                Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
-                Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
-                Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory))];
+        {
+            List<InstanceStash.Tab> records = new(_tabs.Count);
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var t = _tabs[i];
+                bool registered = loaded?.Contains(i) == true;
+                // Keep the inventory registered for deltas and manual drops. Detach ordinary panel pages on reopen
+                // so the native client builds only the visible page; collection children and vendor prices retain bindings.
+                bool detached = openingWith is not null && registered && !t.Saved.Hidden && t.Saved.UniqueCategory == 0
+                    && t.Saved.Type is not (StashRules.Unique or StashRules.Map) && !StashRules.PreloadsForPrices(t.Saved.Type, t.Items, openingWith);
+                records.Add(new InstanceStash.Tab((ushort)i, t.Saved.Name,
+                    detached || t.Saved.UniqueCategory != 0 && !registered || t.Saved.Type == StashRules.Folder ? 0 : InventoryOf(i),
+                    t.Saved.Type, t.Saved.R, t.Saved.G, t.Saved.B,
+                    // Retail sends folders with the premium flag and no inventory (3.30 capture), though they have no colour.
+                    Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
+                    Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
+                    Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
+                    Loaded: registered && !detached, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,
+                    Hidden: t.Saved.Hidden));
+            }
+            return records;
+        }
     }
 
     public string NameOf(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Name : "?"; }
@@ -370,7 +526,13 @@ sealed partial class AccountStash
         lock (_lock)
         {
             var t = _tabs[tab];
-            return (InstanceStash.TabSlot(t.Grid.W, t.Grid.H), [.. t.Items]);
+            var slot = InstanceStash.TabSlot(t.Grid.W, t.Grid.H);
+            // StashType.__col5: the native stack limit/display uses the inventory kind, not its shared row 26.
+            slot = slot with { Kind = t.Saved.Type switch
+            {
+                StashRules.Fragment => 0x16, StashRules.Delirium => 0x1e, StashRules.Divination => 0x14, _ => slot.Kind,
+            } };
+            return (slot, [.. t.Items]);
         }
     }
 
@@ -404,6 +566,8 @@ sealed partial class AccountStash
     (int X, int Y)? CellIn(TabState t, Item item, int x, int y, out string why)
     {
         why = "";
+        if (item.Components.Contains("Quest") || _rules.IsQuestItem(item.TypeHash))
+        { why = "quest items cannot be stored in the stash"; return null; }
         if (t.Saved.UniqueCategory != 0)
         {
             // A map tab's page (AccountStash.Map) takes a map at the first free cell; every other hidden child is a
@@ -425,8 +589,7 @@ sealed partial class AccountStash
         return SlotCell(t, slot);
     }
 
-    // Slot n of a slotted tab is cell (n mod width, n / width): every layout but the divination tab's fits its first row;
-    // its 470 cards run on into the second row of its 255 × 2.
+    // Slot n is cell (n mod width, n / width): divination cards span two rows, and fragments use their Subtab row.
     static (int X, int Y) SlotCell(TabState t, int slot) => (slot % t.Grid.W, slot / t.Grid.W);
 
     static string TypeName(TabState t) => Types.TryGetValue(t.Saved.Type, out var n) ? n.Name : $"type {t.Saved.Type}";
@@ -440,6 +603,7 @@ sealed partial class AccountStash
     // How many of an item one cell of the tab holds: a currency tab's slot more than the item's own stack (not its crafting
     // slot, which holds any item at its own stack size).
     int MaxStack(TabState t, Item item, PlayerInventories.Shape shape, int x, int y) =>
+        !item.Components.Contains("Stack") ? 1 :
         _rules.TakesAnything(t.Saved.Type, x, y) ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
 
     /// <summary>The item put into a tab at (x, y) (in a slotted tab, its own slot), and the one item it was dropped on
@@ -488,10 +652,11 @@ sealed partial class AccountStash
         (InventoryItem, int) result;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || shapeOf(held.Item) is not { MaxStack: > 1 } shape) return null;
+            if (tab < 0 || tab >= _tabs.Count || shapeOf(held.Item) is not { } shape) return null;
             var t = _tabs[tab];
             if (CellIn(t, held.Item, x, y, out _) is not var (cx, cy)) return null;
             int max = MaxStack(t, held.Item, shape, cx, cy);
+            if (max <= 1) return null;
             if (InTheWay(t, cx, cy, shape, shapeOf) is not [var under] || under.Item.TypeHash != held.Item.TypeHash || under.Item.StackSize >= max) return null;
             int moved = Math.Min(Math.Min(held.Item.StackSize, most), max - under.Item.StackSize);
             var bigger = under with { Item = under.Item with { StackSize = (ushort)(under.Item.StackSize + moved) } };
@@ -568,7 +733,7 @@ sealed partial class AccountStash
     /// <summary>
     /// The /item_tab command: up to <paramref name="amount"/> more of every item type that has a slot of its own in a
     /// slotted tab (currency, essence, fragment, delve, blight, delirium, divination), each into that slot only and as far
-    /// as the slot holds (<see cref="StashRules.MaxStack"/>; one of an item that doesn't stack), in one save.
+    /// as the slot holds (<see cref="StashRules.MaxStack"/>; requires a Stack component), in one save.
     /// <paramref name="create"/> makes an item of a type, or null when the server can't write it. Null with the reason
     /// when the tab has no slots of its own.
     /// </summary>
@@ -596,8 +761,8 @@ sealed partial class AccountStash
                 int at = t.Items.FindIndex(i => i.X == x && i.Y == y);
                 // Another type in the slot (two layout rows naming one slot): leave it.
                 if (at >= 0 && t.Items[at].Item.TypeHash != type) { skipped++; continue; }
-                // The divination tab shows a card only once its set is complete (live 2026-10-28): fill it to its set.
-                int max = shape.MaxStack <= 1 || t.Saved.Type == StashRules.Divination ? Math.Max(1, (int)shape.MaxStack) : MaxStack(t, item, shape, -1, -1);
+                // A divination card is filled to its complete set.
+                int max = t.Saved.Type == StashRules.Divination ? Math.Max(1, (int)shape.MaxStack) : MaxStack(t, item, shape, -1, -1);
                 int room = max - (at >= 0 ? t.Items[at].Item.StackSize : 0);
                 if (room <= 0) { full++; continue; }
                 int take = Math.Min(amount, room);
@@ -812,7 +977,7 @@ sealed partial class AccountStash
                     continue;
                 }
                 var shape = shapeOf(it.Item) ?? new(1, 1, "");
-                var home = Enumerable.Range(0, _tabs.Count).Where(i => StashRules.IsGrid(_tabs[i].Saved.Type))
+                var home = Enumerable.Range(0, _tabs.Count).Where(i => StashRules.IsGrid(_tabs[i].Saved.Type) && !_tabs[i].Saved.Hidden)
                     .Select(i => (Tab: i, Cell: FreeCellIn(_tabs[i], shape.Width, shape.Height, shapeOf))).FirstOrDefault(h => h.Cell is not null);
                 if (home.Cell is not { } cell)
                 {
@@ -832,5 +997,5 @@ sealed partial class AccountStash
     public uint NewItemId() { lock (_lock) return _nextItemId++; }
 
     /// <summary>Forgets the account's loaded stash: the next use loads it from the database (tests: a restart).</summary>
-    internal static void Forget(string account) => ByAccount.TryRemove(account, out _);
+    public static void Forget(string account) => ByAccount.TryRemove(account, out _);
 }

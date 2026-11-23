@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Finds a nearby safe cell when static furniture or terrain encloses the player.</summary>
-static class CollisionEscape
+public static class CollisionEscape
 {
     public static bool Clear((int X, int Y) at, int width, int height, Func<int, int, bool>? walkable,
         IReadOnlyList<ClientPathfinder.Blocker> blockers, int moverSize = 1) =>

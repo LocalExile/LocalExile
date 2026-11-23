@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The quest log as the client derives it from the flags (Agents/docs/protocol/12-quests.md §1): QuestStates rows per quest,
@@ -7,11 +8,29 @@ using System.Text.Json;
 /// that last only while the player stays: they are not saved). The server does not send the log; this mirrors it for the
 /// oracle tests (<see cref="QuestSimulator"/>).
 /// </summary>
-sealed class QuestStates
+public sealed class QuestStates
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Default = Load();
+    }
+
     public sealed record State(int Order, IReadOnlyList<string> Present, IReadOnlyList<string> Missing, string Text, string Message)
     {
-        public bool Matches(Func<string, bool> has) => Present.All(has) && !Missing.Any(has);
+        /// <summary>League quest flags required for this state (<c>QuestStates.__col13</c>, 1-based).</summary>
+        public IReadOnlyList<int> LeaguePresent { get; init; } = [];
+        /// <summary>League quest flags that must be absent for this state (<c>QuestStates.__col14</c>, 1-based).</summary>
+        public IReadOnlyList<int> LeagueMissing { get; init; } = [];
+        /// <summary>WorldAreas rows where this state applies (<c>QuestStates.Area</c>); empty for any area.</summary>
+        public IReadOnlyList<int> Areas { get; init; } = [];
+
+        public bool Matches(Func<string, bool> has) => Matches(has, null, null);
+
+        public bool Matches(Func<string, bool> has, Func<int, bool>? hasLeague, int? areaRow = null) =>
+            Present.All(has) && !Missing.Any(has)
+            && (hasLeague is null ? LeaguePresent.Count == 0 : LeaguePresent.All(hasLeague) && !LeagueMissing.Any(hasLeague))
+            && (areaRow is null || Areas.Count == 0 || Areas.Contains(areaRow.Value));
     }
 
     /// <summary>A CharacterStartQuestState row: the quests it completes and the flags it adds.</summary>
@@ -32,57 +51,66 @@ sealed class QuestStates
     public bool IsSession(string flag) => session.Contains(flag);
 
     /// <summary>The state the quest log shows, or null when no row matches (the quest has not started).</summary>
-    public State? Current(string quest, Func<string, bool> has) => Of(quest).OrderBy(s => s.Order).FirstOrDefault(s => s.Matches(has));
+    public State? Current(string quest, Func<string, bool> has) => Current(quest, has, null, null);
+
+    /// <summary>The state the quest log shows with optional league quest flags and current WorldAreas row.</summary>
+    public State? Current(string quest, Func<string, bool> has, Func<int, bool>? hasLeague, int? areaRow = null) =>
+        Of(quest).OrderBy(s => s.Order).FirstOrDefault(s => s.Matches(has, hasLeague, areaRow));
 
     /// <summary>Whether the quest is complete: its Order 0 row matches, or the row shown is another ending with the same flags
     /// (a9q2's Order 0 is the feather given to Tasuni, missing IrashaTakeFeather; Order 1, the same book used, Irasha's), or
     /// with the same text and only some of an Order 0 row's flags (a7q1's Order 0 also needs a helped bandit's
     /// a2q1-QuestRewardTaken; Order 3, the book used alone, is the ending of a character that killed all three).</summary>
-    public bool Complete(string quest, Func<string, bool> has) =>
-        Of(quest).Any(s => s.Order == 0 && s.Matches(has))
-        || Current(quest, has) is { } shown && Of(quest).Any(s => s.Order == 0 && (s.Present.Order().SequenceEqual(shown.Present.Order())
-            || s.Text == shown.Text && shown.Present.All(s.Present.Contains)));
+    public bool Complete(string quest, Func<string, bool> has) => Complete(quest, has, null, null);
 
-    public static readonly Lazy<QuestStates> Default = new(() => Load());
+    /// <summary>Whether the quest is complete with optional league quest flags and current WorldAreas row.</summary>
+    public bool Complete(string quest, Func<string, bool> has, Func<int, bool>? hasLeague, int? areaRow = null) =>
+        Of(quest).Any(s => s.Order == 0 && s.Matches(has, hasLeague, areaRow))
+        || Current(quest, has, hasLeague, areaRow) is { } shown && Of(quest).Any(s => s.Order == 0
+            && (s.Present.Order().SequenceEqual(shown.Present.Order()) && s.LeaguePresent.Order().SequenceEqual(shown.LeaguePresent.Order())
+                || s.Text == shown.Text && shown.Present.All(s.Present.Contains) && shown.LeaguePresent.All(s.LeaguePresent.Contains)));
+
+    public static QuestStates Default = default!;
 
     public static QuestStates Load(string folder = "data")
     {
         var result = new QuestStates();
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(Table("QuestFlags")) || !File.Exists(Table("Quest"))) return result;
+        if (!ClientTables.Has("QuestFlags") || !ClientTables.Has("Quest")) return result;
         string[] flags, ids;
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("QuestFlags"))))
-            flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
-        string? Flag(JsonElement e) => e.ValueKind == JsonValueKind.Number && e.GetInt32() is >= 0 and var i && i < flags.Length ? flags[i] : null;
-        string[] Flags(JsonElement r, string name) => r.TryGetProperty(name, out var v) ? [.. v.EnumerateArray().Select(Flag).OfType<string>()] : [];
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("Quest"))))
+        flags = [.. ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "")];
+        string? Flag(int? e) => e is >= 0 and int i && i < flags.Length ? flags[i] : null;
+        string[] Flags(ClientRow r, string name) => [.. r.Ints(name).Select(i => Flag(i)).OfType<string>()];
+        var doc = ClientTables.Table("Quest");
         {
-            ids = [.. doc.RootElement.EnumerateArray().Select(q => q.GetProperty("Id").GetString() ?? "")];
-            foreach (var q in doc.RootElement.EnumerateArray())
-                result.quests.TryAdd(q.GetProperty("Id").GetString() ?? "", (q.GetProperty("Act").GetInt32(), q.GetProperty("Name").GetString() ?? ""));
+            ids = [.. doc.Select(q => q.Text("Id") ?? "")];
+            foreach (var q in doc)
+                result.quests.TryAdd(q.Text("Id") ?? "", (q.Int("Act"), q.Text("Name") ?? ""));
         }
-        if (File.Exists(Table("QuestStates")))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("QuestStates"))))
-                foreach (var s in doc.RootElement.EnumerateArray())
+        int[] Ints(ClientRow r, string name) => r.Has(name) && !r.IsNull(name) ? r.Ints(name) : [];
+        if (ClientTables.Has("QuestStates"))
+            foreach (var s in ClientTables.Table("QuestStates"))
+            {
+                if (s.IntOrNull("Quest") is not int qv || qv is not (>= 0 and var q) || q >= ids.Length) continue;
+                if (!result.byQuest.TryGetValue(ids[q], out var list)) result.byQuest[ids[q]] = list = [];
+                list.Add(new(s.Int("Order"), Flags(s, "FlagsPresent"), Flags(s, "FlagsMissing"),
+                    s.Text("Text") ?? "", s.TextOrNull("Message") ?? "")
                 {
-                    if (s.GetProperty("Quest") is not { ValueKind: JsonValueKind.Number } qv || qv.GetInt32() is not (>= 0 and var q) || q >= ids.Length) continue;
-                    if (!result.byQuest.TryGetValue(ids[q], out var list)) result.byQuest[ids[q]] = list = [];
-                    list.Add(new(s.GetProperty("Order").GetInt32(), Flags(s, "FlagsPresent"), Flags(s, "FlagsMissing"),
-                        s.GetProperty("Text").GetString() ?? "", s.TryGetProperty("Message", out var m) ? m.GetString() ?? "" : ""));
-                }
-        if (File.Exists(Table("CharacterStartQuestState")))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("CharacterStartQuestState"))))
-                foreach (var p in doc.RootElement.EnumerateArray())
-                {
-                    string id = p.GetProperty("Id").GetString() ?? "";
-                    result.presets.TryAdd(id, new(id,
-                        [.. p.GetProperty("QuestKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k >= 0 && k < ids.Length).Select(k => ids[k])],
-                        Flags(p, "QuestFlags")));
-                }
-        if (File.Exists(Table("SessionQuestFlags")))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Table("SessionQuestFlags"))))
-                foreach (var s in doc.RootElement.EnumerateArray())
-                    if (Flag(s.GetProperty("QuestFlag")) is { } f) result.session.Add(f);
+                    LeaguePresent = Ints(s, "__col13"),
+                    LeagueMissing = Ints(s, "__col14"),
+                    Areas = Ints(s, "Area"),
+                });
+            }
+        if (ClientTables.Has("CharacterStartQuestState"))
+            foreach (var p in ClientTables.Table("CharacterStartQuestState"))
+            {
+                string id = p.Text("Id") ?? "";
+                result.presets.TryAdd(id, new(id,
+                    [.. p.Ints("QuestKeys").Where(k => k >= 0 && k < ids.Length).Select(k => ids[k])],
+                    Flags(p, "QuestFlags")));
+            }
+        if (ClientTables.Has("SessionQuestFlags"))
+            foreach (var s in ClientTables.Table("SessionQuestFlags"))
+                if (Flag(s.IntOrNull("QuestFlag")) is { } f) result.session.Add(f);
         return result;
     }
 }

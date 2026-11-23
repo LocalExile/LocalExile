@@ -1,0 +1,21 @@
+-- Client table MapNodeHeader: all 19 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "MapNodeHeader" ("_row", "Id", "__col1", "__col2") VALUES
+(0, 'Default', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderGeneral', '[60,25,412,54]'),
+(1, 'Atziri', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderAtziri', '[60,25,412,54]'),
+(2, 'Blighted', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderBlighted', '[60,25,412,54]'),
+(3, 'Breachlord', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderBreachlord', '[60,25,412,54]'),
+(4, 'Catarina', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderCatarina', '[60,25,412,54]'),
+(5, 'DomainoftTimelessConflict', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderDomainoftTimelessConflict', '[60,25,412,54]'),
+(6, 'EaterofWorlds', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderEaterofWorlds', '[60,25,412,54]'),
+(7, 'KingintheMists', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderKingintheMists', '[60,25,412,54]'),
+(8, 'Maven', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderMaven', '[60,25,412,54]'),
+(9, 'Oshabi', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderOshabi', '[60,25,412,54]'),
+(10, 'SearingExarch', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderSearingExarch', '[60,25,412,54]'),
+(11, 'ShaperElder', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderShaperElder', '[60,25,412,54]'),
+(12, 'Simulacrum', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderSimulacrum', '[60,25,412,54]'),
+(13, 'Sirus', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderSirus', '[60,25,412,54]'),
+(14, 'Synthesis', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderSynthesis', '[60,25,412,54]'),
+(15, 'ZanaMemoryBosses', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderZanaMemoryBosses', '[60,25,412,54]'),
+(16, 'NightmareMap', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderNightmare', '[60,25,412,54]'),
+(17, 'FaridunBoss', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderSaresh', '[60,25,412,54]'),
+(18, 'AbyssPinnacle', 'Art/2DArt/UIImages/InGame/AtlasScreen/AtlasMapBackingHeaderAbyss', '[60,25,412,54]');

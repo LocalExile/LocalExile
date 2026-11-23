@@ -51,8 +51,7 @@ Decision: preserve the issue #75 branch's single half-up final defence rounding 
 of restoring upstream's older intermediate truncations. Ordinary Mana retains integer Intelligence / 2 and its existing
 pool floor. Active conversion retains the upstream signed final clamp, rather than saturating each armour contribution
 before cancellation. Fractional slot values and exact MORE factors require arbitrary denominators rather than silently
-truncating them into the former fixed scale. Combined tests and alternatives are in the
-[merge review](../dev/issue75-review.md#upstream-merge-resolution).
+truncating them into the former fixed scale.
 
 ## Sources, consumers and integration boundary
 
@@ -83,22 +82,6 @@ Phrecia selection and its existing client compatibility gate are unchanged.
 
 ## Verification
 
-`PowerOfPurposeTests` covers the 280/25 example, shared increases, MORE, Iron Reflexes, combined rounding,
-odd Intelligence, signed cancellation, extreme bounds and ordinary native-byte controls.
-`PowerOfPurposeGatewayTests` uses the production tables and node, real Commands dispatch and decrypted wire decoding.
-It covers idle reservation updates with regeneration disabled, unchanged current mana, lower-cap clamping,
-dead characters, raw toggles/removal, fresh pool reconstruction and queued snapshot freshness.
-It also checks signed native limits and the maximum-mana lightning and Steel Willed consumers.
-Current-main regressions cover both real-node sources, complete Strength groups with odd Intelligence,
-additive mana/armour increases, active/inactive equipment, zero/off/removal, Mageblood and chaos-armour/CI.
-The rebase onto `939b44fec76ba46df762fcd9cdf616fa3d2f8739` adds combined increased-attribute regressions.
-Real item/passive sources and actual `/set_stat` commands cover typed/all increases, final Strength groups,
-odd final Intelligence, independent raw zero/off controls and display overrides without pool feedback.
-Decrypted complete stat snapshots match the final source snapshot, including attributes and requirement values.
-Half-mana reservation changes clamp current mana without refilling it when a source returns.
-Extreme scaled attributes retain main's signed pool and rating limits with conversion enabled or disabled.
-Queued mana publication also checks own-aura restriction with both raw mana sources changing before the send gate.
-
 The following thirteen native controls are historical evidence for original head
 `7678d60e5020793722556d0689a8f08e58b499f0`, using an unascended Witch and chosen level-one Plate Vest modifiers.
 Historical ordered #290 / #294 / #296 / #300 composition at `c9cd1864` passed the build and all three suites.
@@ -122,5 +105,4 @@ Maximum-mana attack lightning reads the remaining mana and the existing attack i
 Relog preserves the real item modifiers and clears the development conversion source.
 Each run verifies embedded Git versions, DLL hash and working directory before attachment.
 These controls do not allocate Mental Conditioning or establish official-server rounding parity.
-Native idle-aura reservation, Iron Reflexes and MORE compositions remain additional checks;
-their authoritative calculation and resource snapshots retain the automated coverage above.
+Native idle-aura reservation, Iron Reflexes and MORE compositions remain additional checks.

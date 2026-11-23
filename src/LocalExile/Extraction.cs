@@ -40,10 +40,9 @@ static class Extraction
             done++;
             log.Progress("extract", $"[{done}/{todo.Count}] {entry.Name} ({why}) ...", done - 1, todo.Count);
             var started = DateTime.Now;
-            string[] arguments = entry.Runner == "python" ? ["-I", .. entry.Args] : entry.Args;
-            string exe = entry.Runner == "python" ? Tools.Python : entry.Exe;
+            // A release ships no Python: every entry is one of its published programs (build-release.ps1 checks).
             string name = "extract-" + entry.Name;
-            int code = Tools.Run(exe, arguments, name, log);
+            int code = Tools.Run(entry.Exe, entry.Args, name, log);
             string output = Local(entry.Outputs[0]);
             bool fresh = File.Exists(output) && File.GetLastWriteTime(output) >= started.AddSeconds(-2);
             if (code != 0 || !fresh)

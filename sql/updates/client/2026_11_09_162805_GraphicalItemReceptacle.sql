@@ -1,0 +1,3 @@
+-- Client table GraphicalItemReceptacle: all 1 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "GraphicalItemReceptacle" ("_row", "Id", "BackgroundArt", "HoverMessage", "__col3", "__col4", "SoundEffect", "__col6", "ErrorMessage", "Script", "__col9", "AreaName", "Icon", "Description", "__col13", "__col14", "__col15", "__col16", "__col17", "__col18", "__col19", "SoundEffect1", "SoundEffect2") VALUES
+(0, 'AbyssPinnacleActivationSkull', 'Art/2DArt/UIImages/InGame/Abyss/DoorSocketsAbyssBossBg', 8427, 0, 0, NULL, 'Art/2DArt/UIImages/InGame/Abyss/DoorSocketsAbyssBossButtonBg', 8352, '', 1, 250, '', 8353, -30, 1, 0, 0, 1911, 0, 0, 846, 847);

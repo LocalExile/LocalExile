@@ -1,4 +1,4 @@
-# usage: ot_components.py [--check] [--all] [--md <out.md>] [--json <out.json>] [Metadata/Type ...]
+# usage: ot_components.py [--check] [--all] [--cached-only] [--md <out.md>] [--json <out.json>] [Metadata/Type ...]
 #        ot_components.py --items --json data/item-types.json   (every BaseItemTypes row from the .it files)
 #
 # Merged component list per object type, as the client builds it from the .ot/.otc files:
@@ -15,7 +15,7 @@
 # Validated with --check against the two objects traced live with Frida (Agents/docs/protocol/04, 08).
 #
 # Files come from the GGPK through scripts/re/ggdump (read-only; works while the client runs) and are cached in
-# Tools/re/out/ot. --all enumerates object types from every Metadata path in data/tables/*.json plus the raw
+# Tools/re/out/ot. --all enumerates object types from every Metadata path in the client tables plus the raw
 # strings of the dat files our extractor could not decode (MonsterVarieties, Chests), plus the tile objects' types
 # in data/area-transitions.json (scripts/re/atlas; e.g. Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition), the
 # server objects of the rooms in data/room-points.json and QUEST_TILE_TYPES (quest objects that tiles place).
@@ -23,7 +23,9 @@ import json, os, re, subprocess, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = REPO
-GGPK = os.path.join(ROOT, "Client", "Content.ggpk")
+sys.path.insert(0, os.path.join(REPO, "scripts", "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
+GGPK = os.path.join(ROOT, "Client")  # the client folder, standalone or Steam layout
 CACHE = os.path.join(ROOT, "Tools", "re", "out", "ot")
 REGISTRY = os.path.join(REPO, "Agents", "docs", "re", "components.json")
 RAW_DATS = ["Data/MonsterVarieties.datc64", "Data/Chests.datc64"]
@@ -275,6 +277,11 @@ def first_contact(events):
     return min(hits, key=lambda h: h[0]) if hits else None
 
 
+def all_contacts(events):
+    """Every "contact" event of a clip in time order, as [(ms, position or None), ...]."""
+    return sorted([(ms, pos) for name, ms, pos in events if name == "contact"], key=lambda h: h[0])
+
+
 TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|[{}=]|[^\s{}=]+')
 
 
@@ -283,11 +290,10 @@ _QUEST_FLAGS = None
 
 def quest_flag(name):
     """A quest flag named in an .ot/.it: "minus" stands for "-" (the client's name lookup 0x141deb180), but only where the
-    literal name is not a flag itself ("a3q10-KilledDominus" keeps its "minus"); QuestFlags.json decides."""
+    literal name is not a flag itself ("a3q10-KilledDominus" keeps its "minus"); the QuestFlags table decides."""
     global _QUEST_FLAGS
     if _QUEST_FLAGS is None:
-        path = os.path.join(ROOT, "data", "tables", "QuestFlags.json")
-        _QUEST_FLAGS = {f["Id"] for f in json.load(open(path, encoding="utf-8"))} if os.path.exists(path) else set()
+        _QUEST_FLAGS = {f["Id"] for f in clientdb.table("QuestFlags")} if clientdb.exists() else set()
     if name in _QUEST_FLAGS or "minus" not in name:
         return name
     dashed = name.replace("minus", "-")
@@ -307,7 +313,8 @@ def parse(text):
     toks = TOKEN.findall(re.sub(r"//[^\n]*", "", text))
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
          "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
-         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {}}
+         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {},
+         "stats": {}, "pathfinding": {}, "actor": {}}
     i = 0
 
     def block(i):  # i at '{' -> index after matching '}', plus the names of sections directly inside
@@ -351,10 +358,17 @@ def parse(text):
                     r["life"].update({k: {"true": True, "false": False}.get(v.lower()) for k, v in keys.items()})
                 elif t == "Positioned":
                     top_level_keys(toks[i + 2:j - 1], r["positioned"], ("object_size", "blocking", "static", "block_league_flag"))
+                elif t == "Stats":
+                    top_level_keys(toks[i + 2:j - 1], r["stats"], ("set_phase_through_objects",))
+                elif t == "Pathfinding":
+                    top_level_keys(toks[i + 2:j - 1], r["pathfinding"], ("immobile",))
                 elif t == "Animated":
                     top_level_keys(toks[i + 2:j - 1], r["animated"], ("animated_object",))
                 elif t == "Actor":  # basic actions (ActionTypes Ids): basic_action = "Emerge"
                     body = toks[i + 2:j - 1]
+                    keys = {}
+                    top_level_keys(body, keys, ("slow_animations_go_to_idle",))
+                    r["actor"].update({k: {"true": True, "false": False}.get(v.lower()) for k, v in keys.items()})
                     r["basic_actions"] += [body[k + 2].strip("\"'") for k in range(len(body) - 2)
                                            if body[k] == "basic_action" and body[k + 1] == "="]
                 elif t == "Quest":  # a quest item's flags (12-quests.md §5): "minus" in a name stands for "-"
@@ -496,6 +510,29 @@ def merge(type_path, files, otc, first=("Positioned",)):
                                        if f and f.get("client_targetable") is not None), None),
             "transitionable": {"num_states": num_states,
                                "no_serialise": str(trans.get("no_serialise", "false")).lower() == "true"}}
+    # Stats { set_phase_through_objects = 1 } along the chain (later files override): the object's Pathfinding phases, so
+    # it neither blocks other walkers nor is stopped by them (Maven's orbs, volatile orbs, daemons: about a hundred
+    # monster types). Written only when set, as "phases".
+    phases = next((f["stats"]["set_phase_through_objects"] for _, f in reversed(ch)
+                   if f and "set_phase_through_objects" in f.get("stats", {})), None)
+    if phases is not None and phases != "0":
+        result["phases"] = True
+    # Pathfinding { immobile = true } along the chain (later files override): the client never walks the object, whatever
+    # its MonsterVarieties MovementSpeed (a unique Maven's orb has 20). Written only when set, as "immobile".
+    immobile = next((f["pathfinding"]["immobile"] for _, f in reversed(ch)
+                     if f and "immobile" in f.get("pathfinding", {})), None)
+    if immobile is not None and immobile.lower() == "true":
+        result["immobile"] = True
+    if "Actor" in comps[:read]:
+        # Actor resource constructor 0x141e927c0 sets +0x58 false; parser 0x141e91ea0 replaces it from this key.
+        # A missing parent leaves the inherited value unknown until a later explicit key resolves it.
+        actor = {"slow_animations_go_to_idle": False}
+        for _, f in ch:
+            if f is None:
+                actor = dict.fromkeys(actor)
+            else:
+                actor.update(f.get("actor", {}))
+        result["actor"] = actor
     if "Life" in comps[:read]:
         # Life type constructor 0x141e28b50, store 0x141e28ca5: e4..e7 = 00 00 00 01.
         # A missing parent can override these defaults; only subsequent explicit keys resolve that uncertainty.
@@ -511,11 +548,12 @@ def merge(type_path, files, otc, first=("Positioned",)):
     return result
 
 
-def load(types, ext=".ot", companion=".otc"):
+def load(types, ext=".ot", companion=".otc", fetch_missing=True):
     """Parse every type and its extends chain (fetching as needed)."""
     files, otc, frontier = {}, {}, list(types)
     while frontier:
-        fetch([p + ext for p in frontier] + ([p + companion for p in frontier] if companion else []))
+        if fetch_missing:
+            fetch([p + ext for p in frontier] + ([p + companion for p in frontier] if companion else []))
         nxt = []
         for p in frontier:
             t = read_text(p + ext)
@@ -654,7 +692,7 @@ QUEST_ROOM_TYPES = [
 ]
 
 
-def all_types():
+def all_types(fetch_missing=True):
     paths = set()
 
     def walk(x):
@@ -666,23 +704,34 @@ def all_types():
         elif isinstance(x, dict):
             for y in x.values(): walk(y)
 
-    tables = os.path.join(ROOT, "data", "tables")
-    for f in sorted(os.listdir(tables)):
-        if f.endswith(".json"):
-            walk(json.load(open(os.path.join(tables, f), encoding="utf-8")))
+    db = clientdb.connect()
+    for name in clientdb.names():
+        for values in db.execute(f'SELECT * FROM "{name}"'):
+            for v in values:
+                if isinstance(v, str):
+                    try:
+                        walk(json.loads(v) if v[:1] == "[" else v)
+                    except ValueError:
+                        walk(v)
+    # The atlas and room points: extract-data's fresh output when it just wrote them, else client.db's tables.
     atlas = os.path.join(ROOT, "data", "area-transitions.json")
     if os.path.exists(atlas):
         for area in json.load(open(atlas, encoding="utf-8")).get("areas", []):
             for topology in area.get("topologies") or []:
                 for t in topology.get("transitions") or []:
                     if t.get("objectType"): paths.add(t["objectType"])
+    elif clientdb.has("area_topology_transitions"):
+        paths.update(t["objectType"] for t in clientdb.table("area_topology_transitions") if t.get("objectType"))
     # The rooms' server objects (NPCs, quest objects and chests: scripts/re/atlas room-points) and the quest tile objects.
     points = os.path.join(ROOT, "data", "room-points.json")
     if os.path.exists(points):
         walk(json.load(open(points, encoding="utf-8")).get("rooms"))
+    elif clientdb.has("room_points"):
+        walk([clientdb.table("room_points"), clientdb.table("room_doodads")])
     paths.update(QUEST_TILE_TYPES)
     paths.update(QUEST_ROOM_TYPES)
-    fetch(RAW_DATS)
+    if fetch_missing:
+        fetch(RAW_DATS)
     for d in RAW_DATS:
         b = open(cache_name(d), "rb").read()
         for m in re.finditer(rb"M\0e\0t\0a\0d\0a\0t\0a\0/\0(?:[\x20-\x7e]\0)+?\0\0", b):
@@ -697,16 +746,16 @@ def item_types():
     Metadata/ItemTypeRegister files each BaseItemTypes row under its HASH32 (MurmurHash2 of the Id, the same hash as
     object types; FUN_1421f2d00 looks it up) and builds it from the .it chain. Most leaf rows have no .it file of their
     own: their chain is InheritsFrom's."""
-    rows = json.load(open(os.path.join(ROOT, "data", "tables", "BaseItemTypes.json"), encoding="utf-8"))
-    return {r["Id"]: r.get("InheritsFrom") or "nothing" for r in rows}
+    return {r["Id"]: r.get("InheritsFrom") or "nothing" for r in clientdb.table("BaseItemTypes")}
 
 
-def merge_items():
+def merge_items(fetch_missing=True):
     """Component lists of every BaseItemTypes row from the .it files. Unlike object types nothing comes first (the item
     reader FUN_1421f2d00 calls slot 5 (+0x28) on the type's first type+0x80 components; no Positioned for items), and
     the "client" blocks (RenderItem) are never read. Verified live for Wand1, the flasks and the glyphs (05 §6)."""
     rows = item_types()
-    files, _ = load(sorted(set(rows) | {v for v in rows.values() if v != "nothing"}), ext=".it", companion=None)
+    files, _ = load(sorted(set(rows) | {v for v in rows.values() if v != "nothing"}), ext=".it", companion=None,
+                    fetch_missing=fetch_missing)
     out = {}
     for tid, parent in rows.items():
         if tid in files:
@@ -726,7 +775,7 @@ def merge_items():
         if quest:
             r["quest"] = quest
         for k in ("shared_states", "shared_timers", "transitionable", "positioned", "animated_object", "basic_actions",
-                  "client_transitionable", "client_targetable"):
+                  "client_transitionable", "client_targetable", "actor"):
             r.pop(k, None)
         out[tid] = r
     return out
@@ -841,9 +890,10 @@ def main():
         return None
 
     do_check, do_all, do_items = flag("--check"), flag("--all"), flag("--items")
+    fetch_missing = not flag("--cached-only")
     md_out, json_out = popopt("--md"), popopt("--json")
     if do_items:
-        results = merge_items()
+        results = merge_items(fetch_missing)
         for t in a:
             r = results.get(t)
             print(f"{t}: no .it chain" if not r else f"{t}  chain={' > '.join(r['chain'])}\n  " + ", ".join(r["components"][:r["read"]]))
@@ -856,9 +906,9 @@ def main():
     if do_check or md_out:
         types += list(GROUND_TRUTH) + DOC_TYPES
     if do_all:
-        types += all_types()
+        types += all_types(fetch_missing)
     types = sorted(set(types))
-    files, otc = load(types)
+    files, otc = load(types, fetch_missing=fetch_missing)
     results = {t: merge(t, files, otc) for t in types if t in files}
     for t in a:
         r = results.get(t)

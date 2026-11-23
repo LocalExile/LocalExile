@@ -1,0 +1,26 @@
+-- Client table MercenaryBuilds (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "MercenaryBuilds" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "Class" INTEGER,
+    "Skills1" JSON,
+    "Skills2Count" INTEGER,
+    "Skills2" JSON,
+    "__col5" INTEGER,
+    "__col6" JSON,
+    "Skills3Count" INTEGER,
+    "Skills3" JSON,
+    "__col9" JSON,
+    "Tags" JSON,
+    "AIFile" TEXT,
+    "HASH16" INTEGER,
+    "Name" TEXT,
+    "__col14" INTEGER,
+    "IsInfamous" BOOLEAN,
+    "IdleSkill" INTEGER,
+    "__col17" TEXT,
+    "__col18" JSON,
+    "Achievements" JSON,
+    "WieldableTypes" JSON,
+    "ExtraStats" JSON
+);

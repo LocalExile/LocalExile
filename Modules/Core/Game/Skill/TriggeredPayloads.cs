@@ -1,0 +1,81 @@
+using GameServer.Core.Protocol.Instance;
+
+public static partial class Game
+{
+    // These spells have a single radial hit executor. Do not silently turn ground damage, chains, corpses or
+    // persistent entities into one area hit merely because their extracted stat set contains damage.
+    static bool TriggerAreaSpell(Player player, SupportedGem gem) => SkillsFor(player).EffectId(gem.Effect)
+        is "IceNova";
+
+    public static bool TriggerPayloadAvailable(Player player, SupportedGem gem)
+    {
+        if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
+            || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
+        if (CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? "")) return true;
+        return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
+                || TriggerAreaSpell(player, gem))
+            && SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
+    }
+
+    // Prepare without payment or a player action. The caller commits exactly one cost before invoking this release.
+    static Action? PrepareTriggeredPayload(Player player, ProjectileSession session, ushort id,
+        (int X, int Y) aim, Func<bool> current, (int X, int Y)? brandOrigin = null, SpawnedMonster? brandedTarget = null)
+    {
+        var gem = SupportedSkill(player, id);
+        var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
+        if (skill.Name is null || !TriggerPayloadAvailable(player, gem)) return null;
+        if (TriggerGuardSpell(player, gem))
+            return TriggerGuardReady(player, AreaTime(player))
+                ? () => StartTriggeredGuard(player, session, id, AreaTime(player)) : null;
+        if (TriggerSummonSpell(player, gem))
+            return () => session.Enqueue(() => ReleaseTriggeredSummon(player, session, id, aim, current));
+        if (UsesProjectileRuntime(gem.Effect))
+        {
+            var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
+            var critical = CaptureSkillCriticalRoll(player, id);
+            return () => session.Schedule(session.Runtime.Now, () => current() && sacrifice.Current, () =>
+            {
+                var use = CaptureGemProjectile(player, session, id, skill, aim, critical, from: brandOrigin, sacrifice: sacrifice);
+                use = ClientDrawnVolley(player, session, id, skill, use, 0, 0);
+                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, BrandedTarget = brandedTarget } };
+            });
+        }
+        if (brandOrigin is { } origin && TriggerAreaSpell(player, gem))
+            return () => session.Enqueue(() => AreaSkillHitForUse(null, player,
+                id, skill, origin, aim, immediate: true, triggeredCurrent: current, brandedTarget: brandedTarget));
+        return () => session.Enqueue(() => ReleaseTriggeredNonProjectile(player, session, id, aim, current));
+    }
+
+    public static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
+        (int X, int Y) aim, Func<bool> current)
+    {
+        var gem = SupportedSkill(player, id);
+        var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
+        if (skill.Name is null || !current()) return;
+        if (MinionUtility(SkillsFor(player).EffectId(gem.Effect)))
+        {
+            if (!current() || !CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
+            double now = AreaTime(player);
+            string effect = SkillsFor(player).EffectId(gem.Effect)!;
+            if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
+            else StartOfferingLocked(player, id, gem, effect, aim, 0, now);
+            await PublishMinionOutcomes(player);
+        }
+        else if (CurseCatalog.All.TryGetValue(SkillsFor(player).EffectId(gem.Effect) ?? "", out var curse))
+        {
+            if (!current()) return;
+            double now = AreaTime(player);
+            var playerStats = CharacterPlayerStats(player);
+            int radius = CurseRadius(player, id, false, gem, playerStats);
+            var target = player.Area.Monsters.Where(m => m.Value.Hostile && !m.Value.Dead && m.Value.Life > 0)
+                .OrderBy(m => Dist(m.Value.Walk.Position(now), aim)).ThenBy(m => m.Key).FirstOrDefault();
+            foreach (var (objectId, monster) in player.Area.Monsters)
+                if (curse.Mark ? objectId == target.Key : Dist(monster.Walk.Position(now), aim) <= radius)
+                    ApplyCurseLocked(player, monster, id, now, false, gem, playerStats);
+            await EnemyDebuffsTick(player, AreaTime(player));
+        }
+        else if (TriggerAreaSpell(player, gem))
+            await AreaSkillHit(player, id, skill,
+                player.Walk.Position(AreaTime(player)), aim, immediate: true, triggeredCurrent: current);
+    }
+}

@@ -2,19 +2,26 @@ using System.Net;
 using System.Net.Sockets;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol;
 using GameServer.Core.Protocol.Login;
 using GameServer.Storage;
+using GameServer.Core;
 
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
-//   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys
+//   build  <Game.exe>                      say which allowed client build the executable is (ClientBuilds)
+//   verify-patch <out.exe> [keys.json]     read-only check that the patched copy trusts this server's keys
+//   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys; in a Steam install's
+//                                          folder the copy also reads the loose game files (LooseFilesPatch)
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
 //   accounts                               print how many accounts there are
 //   register <account>                     create an account; its password is the first line of standard input
+//   migrate-saves [saves.db]               split a database from before the split (data/saves.db) into data/auth.db and
+//                                          data/characters.db, after a copy (Agents/docs/dev/databases.md)
 //   [serve] [keys.json]                    accept logins: 0x0002 key exchange, then answer account login 0x03 with 0x04
 //                                          and log every decoded message (Agents/docs/re/009)
-// Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: the save database
-// (Game_SAVES_DB, default data/saves.db, shared with GameServer.Host and the Gateway; register through the Host), with an
+// Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: data/auth.db (Game_AUTH_DB) with the
+// login character list in data/characters.db (Game_CHARACTERS_DB), shared with GameServer.Host and the Gateway, with an
 // older data/accounts.json (Game_DEV_DB) imported once. Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET),
 // shared with GameServer.Gateway. Instance control for the Gateway: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495). Play sends
 // the client to the Gateway at Game_GATEWAY_HOST:Game_GATEWAY_PORT (127.0.0.1:6112, GatewayEndpoint).
@@ -43,24 +50,61 @@ switch (cmd)
         Console.WriteLine(r.Ok ? $"[auth] account {args[1]} created" : $"[auth] {args[1]}: {r.Error}");
         return r.Ok ? 0 : 1;
     }
+    case "migrate-saves":
+    {
+        var result = SavesMigration.Migrate(args.Length > 1 ? args[1] : SaveDatabase.LegacyPath, SaveDatabase.DefaultPath, SaveDatabase.DefaultAuthPath);
+        Console.WriteLine($"[auth] migrated; the copy made first is {result.Backup}");
+        return 0;
+    }
     case "keygen" when args.Length >= 2:
     {
         string outPath = args.Length > 2 ? args[2] : DefaultKeys;
         if (File.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
-        var keys = LoginServerKeys.Generate(new ClientImage(File.ReadAllBytes(args[1])));
+        byte[] executable = File.ReadAllBytes(args[1]);
+        Console.WriteLine($"[auth] {ClientBuilds.SupportNote(ClientBuilds.Require(executable))}");
+        var keys = LoginServerKeys.Generate(new ClientImage(executable));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, keys.ToJson());
         Console.WriteLine($"[auth] wrote {outPath}");
         return 0;
+    }
+    case "build" when args.Length >= 2:
+    {
+        // For live.ps1: which allowed build the executable is, and the versions LocalExile supports.
+        Console.WriteLine(ClientBuilds.SupportNote(ClientBuilds.Require(File.ReadAllBytes(args[1]))));
+        return 0;
+    }
+    case "verify-patch" when args.Length >= 2:
+    {
+        var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 2 ? args[2] : DefaultKeys));
+        var image = new ClientImage(File.ReadAllBytes(args[1]));
+        var verify = image.ReadVerifyKey();
+        var signing = keys.Signing;
+        bool matches = verify.P == signing.P && verify.Q == signing.Q && verify.G == signing.G && verify.Y == signing.Y
+            && image.ReadServerStaticPublic() == keys.ServerStaticPublic
+            && LoginGroups.Static.PublicFor(image.ReadClientStaticPrivate()) == keys.ClientStaticPublic;
+        if (!matches)
+            Console.Error.WriteLine("[auth] patched client login keys do not match this server; regenerate the patched copy with GameServer.Auth patch before starting the client.");
+        else
+            Console.WriteLine("[auth] patched client login keys match this server");
+        return matches ? 0 : 1;
     }
     case "patch" when args.Length >= 3:
     {
         if (Path.GetFullPath(args[1]).Equals(Path.GetFullPath(args[2]), StringComparison.OrdinalIgnoreCase))
         { Console.Error.WriteLine("[auth] refusing to overwrite the input; give a different output path."); return 1; }
         var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
-        var image = new ClientImage(File.ReadAllBytes(args[1]));
+        byte[] original = File.ReadAllBytes(args[1]);
+        Console.WriteLine($"[auth] {ClientBuilds.SupportNote(ClientBuilds.Require(original))}");
+        var image = new ClientImage(original);
         Console.WriteLine($"[auth] login key blobs at file offset 0x{image.Offset:x}");
         image.Patch(keys);
+        string folder = Path.GetDirectoryName(Path.GetFullPath(args[2]))!;
+        if (GameServer.Data.Ggpk.ClientFiles.Resolve(folder)?.Layout == GameServer.Data.Ggpk.ClientLayout.Steam)
+        {
+            LooseFilesPatch.Apply(image.Bytes);
+            Console.WriteLine("[auth] Steam install: the copy reads the loose game files instead of Content.ggpk");
+        }
         File.WriteAllBytes(args[2], image.Bytes);
         Console.WriteLine($"[auth] wrote {args[2]}");
         return 0;
@@ -69,18 +113,28 @@ switch (cmd)
         await Serve(LoginServerKeys.FromJson(File.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
         return 0;
     default:
-        Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | serve [keys.json]");
+        Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | verify-patch <out.exe> [keys.json] | serve [keys.json]");
         return 2;
 }
 }
+catch (UnknownClientBuildException ex)
+{
+    Console.Error.WriteLine($"[auth] {ex.Message}. Give the unpatched PathOfExile.exe (copied to Client/Game.exe).");
+    return 1;
+}
 catch (FormatException ex)
 {
-    Console.Error.WriteLine($"[auth] {ex.Message}: the file is not the 3.29.3c client executable (PathOfExile.exe copied to Client/Game.exe).");
+    Console.Error.WriteLine($"[auth] {ex.Message}: the file is not the {ClientBuilds.Versions} client executable (PathOfExile.exe copied to Client/Game.exe).");
     return 1;
 }
 catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
 {
     Console.Error.WriteLine($"[auth] file not found: {ex.Message} (run from the repository root; see Agents/GettingStarted.md)");
+    return 1;
+}
+catch (Exception ex) when (ex is SqlUpdateException or IOException)
+{
+    Console.Error.WriteLine($"[auth] {ex.Message}");
     return 1;
 }
 
@@ -89,23 +143,30 @@ static async Task Serve(LoginServerKeys keys)
     var accounts = new AccountService(SqliteAccountStore.Open());
     Console.OutputEncoding = System.Text.Encoding.UTF8; // decoded wide strings
     GameServer.Core.Diagnostics.ServerLog.Install("auth");   // after the encoding: it wraps the console writer as it is
-    int port = int.TryParse(Environment.GetEnvironmentVariable("Game_LOGIN_PORT"), out var p) ? p : 20493;
-    // Local play only by default; Game_BIND=0.0.0.0 to accept other machines.
-    var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
+    // localexile.conf Login.Port / Login.BindAddress (Game_LOGIN_PORT, Game_BIND): local play only by default;
+    // 0.0.0.0 accepts other machines.
+    int port = ServerConfig.LoginPort;
+    var bind = ServerConfig.LoginBind;
     var listener = new TcpListener(bind, port);
     listener.Start();
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
-    // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
-    // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
-    // keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it cannot build seed 1
-    // (ServerLevelAreas.SeedsInPlaceOfOne). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
-    // generation off) pins them all that way. Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
-    string worldAreas = Path.Combine("data", "tables", "WorldAreas.json");
-    string baseline = GameServer.Core.World.ServerLevelAreas.BaselineFile;
+    // WorldAreas comes from data/client.db (ClientTables): built and updated from sql/ first. The Gateway may be building
+    // it at the same time; the updater applies each file once.
+    SqlUpdater.Update(ClientTables.DefaultPath, "client");
+    // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without the WorldAreas table.
+    // A new instance of an area the Gateway generates itself (world.db's server_level_areas, generated = 1) gets a random
+    // seed; every other area keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it
+    // cannot build seed 1 (server_level_areas.seed_in_place_of_one). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
+    // generation off) pins supported/captured areas that way; uncaptured maps still need random seeds.
+    // Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
+    var worldAreas = ClientTables.TableOrNull("WorldAreas");
+    // world.db is the Gateway's too: the updater applies each file once, whichever server opens it first.
+    IReadOnlyList<GameDataStore.ServerLevelAreaRow> levelAreas;
+    using (var world = new GameDataStore(GameDataStore.DefaultPath)) levelAreas = world.LoadServerLevelAreas();
     // Game_SEED=<n> (dev) gives every new non-hideout instance that seed instead, for generation traces of one seed.
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
-    // The WorldAreas loads run on a thread of their own: the parse buffers ArrayPool keeps for a thread go with it (they
-    // were ~20 MB of the idle Auth's 33), then one collection gives their memory back (performance.md).
+    // The WorldAreas loads run on a thread of their own: the buffers ArrayPool keeps for a thread go with it, then one
+    // collection gives their memory back (performance.md).
     var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne, mapAreas, pinnedSeeds) = Isolated(() =>
     {
         var towns = GameServer.Core.World.WorldAreaTowns.Load(worldAreas);
@@ -114,11 +175,11 @@ static async Task Serve(LoginServerKeys keys)
         var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
             ? new HashSet<ushort>()
             : GameServer.Core.World.ServerLevelAreas.Hashes(worldAreas,
-                GameServer.Core.World.ServerLevelAreas.Load(baseline, m => Console.WriteLine($"[auth] {m}")));
+                levelAreas.Where(r => r.Generated).Select(r => r.AreaId).ToHashSet(StringComparer.Ordinal));
         var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
-            GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(baseline, m => Console.WriteLine($"[auth] {m}")));
+            levelAreas.Where(r => r.SeedInPlaceOfOne is not null).ToDictionary(r => r.AreaId, r => r.SeedInPlaceOfOne!.Value, StringComparer.Ordinal));
         // The areas a map item opens: a map nobody captured is played at a random seed (WorldAreaMaps, AreaSeeds).
-        var mapAreas = GameServer.Core.World.WorldAreaMaps.Load(worldAreas, Path.Combine("data", "tables", "Maps.json"));
+        var mapAreas = GameServer.Core.World.WorldAreaMaps.Load(worldAreas, ClientTables.TableOrNull("Maps"));
         // Areas pinned to the seed they were captured at (data/area-seeds.json), where the port cannot reproduce them.
         var pinnedSeeds = GameServer.Core.World.AreaSeedPins.Load(worldAreas);
         return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne, mapAreas, pinnedSeeds);
@@ -138,10 +199,12 @@ static async Task Serve(LoginServerKeys keys)
         Fixed = fixedSeed,
     };
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);
+    var characterListClass = new CharacterListClass(progress);
     var registry = new GameServer.Core.World.InstanceRegistry
     {
         SeedFor = seeds.For,
         Towns = towns.Select(t => t.Hash16).ToHashSet(),
+        PersonalAreas = hideouts,
     };
     Console.WriteLine($"[auth] towns: {towns.Count} ({string.Join(", ", towns.Select(t => t.Id))})");
     var directory = new InstanceDirectory(registry, accounts, towns, character =>
@@ -153,7 +216,7 @@ static async Task Serve(LoginServerKeys keys)
     while (true)
     {
         var tcp = await listener.AcceptTcpClientAsync();
-        _ = Task.Run(() => HandleConnection(tcp, keys, accounts, keyring, directory));
+        _ = Task.Run(() => HandleConnection(tcp, keys, accounts, keyring, directory, characterListClass));
     }
 }
 
@@ -181,7 +244,7 @@ static T Isolated<T>(Func<T> load)
     return result;
 }
 
-static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountService accounts, InstanceKeyring keyring, InstanceDirectory directory)
+static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountService accounts, InstanceKeyring keyring, InstanceDirectory directory, CharacterListClass characterListClass)
 {
     string peer = tcp.Client.RemoteEndPoint?.ToString() ?? "?";
     Console.WriteLine($"[auth] {peer} connected");
@@ -209,8 +272,8 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
-            link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
+            var session = new LoginServerSession(accounts) { CharacterListClass = characterListClass.For, InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
+            link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer, () => tcp.Close());
             byte[] rest = buf[used..have];
             try
             {
@@ -228,7 +291,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
                 Console.WriteLine($"[auth] {peer} closed with {incoming.Undecoded.Count} bytes of an incomplete message");
         }
     }
-    catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException or System.Security.Cryptography.CryptographicException)
+    catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or InvalidDataException or System.Security.Cryptography.CryptographicException)
     {
         Console.WriteLine($"[auth] {peer} error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
     }
@@ -267,12 +330,13 @@ static ILoginMessage Redact(ILoginMessage m) => m switch
     _ => m,
 };
 
-// A deleted character's save in the database went to deleted_characters with the deletion itself (SqliteAccountStore). A
+// A deleted character's save in the database is set aside with the deletion itself (character_saves.deleted_utc,
+// SqliteAccountStore). A
 // save from before the database (data/saves/<name>.json, the Gateway hasn't imported it yet) moves to data/saves/deleted/,
 // so a new character with that name starts with its class's kit and the old one can still be recovered by hand.
 static void SetSaveAside(string character)
 {
-    Console.WriteLine($"[auth] {character} deleted; its save, if it had one, is in deleted_characters ({SaveDatabase.DefaultPath})");
+    Console.WriteLine($"[auth] {character} deleted; its save, if it had one, is set aside in {SaveDatabase.DefaultPath} (character_saves.deleted_utc)");
     string folder = Path.Combine("data", "saves");
     string safe = string.Concat(character.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
     string path = Path.Combine(folder, safe + ".json");

@@ -49,15 +49,3 @@ public class VisitHideoutTests
         Assert.Empty(unknown);
     }
 }
-
-public class HideoutWaypointTests
-{
-}
-
-public class HideoutObjectTests
-{
-}
-
-public class LeagueQuestFlagTests
-{
-}

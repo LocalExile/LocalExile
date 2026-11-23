@@ -1,0 +1,28 @@
+-- Client table DynamicCraftingBenchTypes (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "DynamicCraftingBenchTypes" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "__col1" TEXT,
+    "BackgroundArt" TEXT,
+    "Description" TEXT,
+    "Name" TEXT,
+    "SoundEffect" INTEGER,
+    "__col6" JSON,
+    "__col7" INTEGER,
+    "__col8" INTEGER,
+    "__col9" INTEGER,
+    "__col10" INTEGER,
+    "__col11" INTEGER,
+    "__col12" BOOLEAN,
+    "__col13" INTEGER,
+    "__col14" INTEGER,
+    "__col15" JSON,
+    "__col16" INTEGER,
+    "__col17" INTEGER,
+    "__col18" INTEGER,
+    "__col19" INTEGER,
+    "__col20" TEXT,
+    "__col21" BOOLEAN,
+    "OpenSound" INTEGER,
+    "CloseSound" INTEGER
+);

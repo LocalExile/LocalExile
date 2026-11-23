@@ -1,6 +1,6 @@
 /// <summary>Explicit LocalExile v1 scheduling of the target's thirteen tier plans. Metadata supplies damage,
 /// summon counts, duration, repeat counts and radius changes. Repeat channels are independent, never multiplied.</summary>
-static class RampageExecution
+public static class RampageExecution
 {
     public const double RippleInterval = 0.1;
     public const double RepeatInterval = 0.25;
@@ -14,18 +14,18 @@ static class RampageExecution
         var own = tier.Skill.AtLevel(level) ?? throw new InvalidOperationException("Missing Rampage skill level");
         if (tier.Summons.Count > 0) return [new(0, StepKind.Weapons)];
         if (tier.Effect == RampageCatalog.Kind.CorpseExplosions) return [new(0, StepKind.Corpses)];
-        bool projectile = own.Get("base_is_projectile") != 0 || tier.Effect == RampageCatalog.Kind.StunNova;
+        bool projectile = own.Get(Stat.BaseIsProjectile) != 0 || tier.Effect == RampageCatalog.Kind.StunNova;
         var result = new List<Step> { new(0, projectile ? StepKind.Projectiles : StepKind.Pulse) };
-        for (int i = 1; i <= own.Get("ice_nova_number_of_repeats"); i++)
+        for (int i = 1; i <= own.Get(Stat.IceNovaNumberOfRepeats); i++)
             result.Add(new(i * RippleInterval, StepKind.Pulse,
-                Math.Max(0, 100 + i * own.Get("ice_nova_radius_+%_per_repeat"))));
-        for (int i = 1; i <= own.Get("skill_repeat_count"); i++)
+                Math.Max(0, 100 + i * own.Get(Stat.IceNovaRadiusPlusPctPerRepeat))));
+        for (int i = 1; i <= own.Get(Stat.SkillRepeatCount); i++)
             result.Add(new(i * RepeatInterval, projectile ? StepKind.Projectiles : StepKind.Pulse));
         return result.OrderBy(s => s.Delay).ToArray();
     }
 }
 
-sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner = null) : ITransientCombatState
+public sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner = null) : ITransientCombatState
 {
     public GameServer.Modding.IModuleLifetime? SourceOwner { get; } = sourceOwner;
     public sealed record Job(double At, long Epoch, uint Actor, RampageCatalog.Tier Tier,
@@ -38,7 +38,6 @@ sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner = null
     public readonly Dictionary<uint, Actor> Actors = [];
     public readonly HashSet<SpawnedMonster> ConsumedCorpses = new(ReferenceEqualityComparer.Instance);
     public readonly HashSet<uint> PendingRemoval = [];
-    public readonly HashSet<(uint Actor, ushort Buff)> PendingBuffRemoval = [];
     public readonly Dictionary<uint, (double Until, ushort Buff)> Blinds = [];
     public readonly Dictionary<uint, double> SentBlinds = [];
     public sealed record Strike(double At, long Epoch, uint ActorId, SpawnedMonster Actor,
@@ -57,5 +56,5 @@ sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner = null
     public void Clear() => Disable();
     public IReadOnlyCollection<uint> RetiredObjects => PendingRemoval;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs =>
-        PendingBuffRemoval.Concat(Blinds.Select(p => (p.Key, p.Value.Buff))).ToArray();
+        [.. Blinds.Select(p => (p.Key, p.Value.Buff))];
 }

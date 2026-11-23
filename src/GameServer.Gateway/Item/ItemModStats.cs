@@ -7,17 +7,20 @@ using GameServer.Core.Protocol.Instance;
 /// character's and is added to the passives' stats (<see cref="Global"/>), so it reaches the pools and the stats the
 /// client shows the same way.
 /// </summary>
-static class ItemModStats
+public static class ItemModStats
 {
+    /// <summary>A rule's replacement for one modifier value, or null to use the existing effect calculation.</summary>
+    public delegate int? ModifierValueRule(ItemMod mod, ModCatalog.Mod row, int statIndex, long ordinaryEffect);
+
     /// <summary>The equipment rows whose items count: body armour, the first weapon set, helmet, amulet, rings, gloves,
-    /// boots and belt (Inventories.dat rows 1-10). The second weapon set (14, 15) and the flasks (11) do not.</summary>
-    public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    /// boots and belt (Inventories.dat rows 1-10), and the third ring slot (row 102, Ring3, shown by The Unseen Hand's
+    /// <c>enable_ring_slot_3</c>). The second weapon set (14, 15) and the flasks (11) do not.</summary>
+    public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 102];
 
     /// <summary>The item-local stats that raise the effect of the item's own explicit modifiers: every explicit one,
-    /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source). Mods.dat carries no
-    /// damage-type tags, so the weapon-tree variants that name a damage category are not modelled here.</summary>
-    const string ExplicitEffect = "local_explicit_mod_effect_+%", PrefixEffect = "local_prefix_mod_effect_+%",
-        SuffixEffect = "local_suffix_mod_effect_+%";
+    /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source).</summary>
+    const uint ExplicitEffect = Stat.LocalExplicitModEffectPlusPct, PrefixEffect = Stat.LocalPrefixModEffectPlusPct,
+        SuffixEffect = Stat.LocalSuffixModEffectPlusPct;
 
     /// <summary>The summed values of the stats on these items' mods, by Stats.dat Id: global ones, or with
     /// <paramref name="local"/> the item's own. An explicit modifier counts with the item's increased effect applied
@@ -33,12 +36,23 @@ static class ItemModStats
     /// pools, panels and damage pipeline already read — otherwise the condition would be decided but nothing would read
     /// the value. A caller that does not give it (or gives none) keeps every id as it is.
     /// </para></summary>
-    public static Dictionary<string, int> Sum(IEnumerable<Item> items, ModCatalog mods, bool local = false,
+    public static Dictionary<uint, int> Sum(IEnumerable<Item> items, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
-        var sum = new Dictionary<string, int>();
-        var attributes = new Dictionary<string, long>();
-        foreach (var (id, value) in Values(items, mods, local, subject, statExists))
+        sums++;
+        return SumValues(Values(items, mods, local, subject, statExists, Program.GameLogicOrNull));
+    }
+
+    /// <summary>How many times this thread has called <see cref="Sum"/>. A stat-sources lookup whose inputs did not
+    /// change must add none (Agents/docs/dev/performance.md, "Hot paths"): a test reads this before and after one.</summary>
+    public static long SumsOnThisThread => sums;
+    [ThreadStatic] static long sums;
+
+    static Dictionary<uint, int> SumValues(IEnumerable<(uint Id, int Value)> values)
+    {
+        var sum = new Dictionary<uint, int>();
+        var attributes = new Dictionary<uint, long>();
+        foreach (var (id, value) in values)
             if (AttributeModifiers.IsInput(id)) attributes[id] = attributes.GetValueOrDefault(id) + value;
             else sum[id] = ArcaneMight.Combine(id, sum.GetValueOrDefault(id), value);
         // This int API is a bounded view for existing stat consumers, not an attribute calculation source.
@@ -46,12 +60,19 @@ static class ItemModStats
         return sum;
     }
 
-    static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local = false,
-        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
+    static IEnumerable<(uint Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local,
+        StatConditions.Subject subject, Func<string, bool>? statExists, IGameLogic? game)
     {
-        foreach (var item in items)
-            foreach (var value in Values(item, mods, local, subject, statExists))
-                yield return value;
+        // Influence thresholds count the full active equipment set supplied by the caller.
+        var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
+        foreach (var item in equipment)
+            foreach (var value in Values(item, mods, local, subject, statExists, game))
+            {
+                if (local || !InfluencedItemConditions.Read(Program.Stats.Name(value.Id), out string target, out var influence, out int required))
+                    yield return value;
+                else if (equipment.Count(equipped => (equipped.Influences & influence) != 0) >= required)
+                    foreach (uint stat in InfluencedItemConditions.Targets(target)) yield return (stat, value.Value);
+            }
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
@@ -59,35 +80,55 @@ static class ItemModStats
     /// they never scale each other. Implicits, enchants and the other lists are unchanged.
     /// <para>A stat whose id carries a condition only counts while that condition holds (issue #504); with no
     /// <paramref name="subject"/> every condition is unmodelled and no stat changes.</para></summary>
-    public static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
+    public static IEnumerable<(uint Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
+        => Values(item, mods, local, subject, statExists, Program.GameLogicOrNull);
+
+    static IEnumerable<(uint Id, int Value)> Values(Item item, ModCatalog mods, bool local,
+        StatConditions.Subject subject, Func<string, bool>? statExists, IGameLogic? game)
     {
+        bool sourceBound = subject.ItemValue is not null;
+        if (subject.ItemValue is { } itemValue)
+        {
+            var characterValue = subject.Value;
+            subject = subject with { Value = key => itemValue(item, key) ?? characterValue?.Invoke(key), ItemValue = null };
+        }
         var effect = Effect(item, mods);
+        var rule = game?.ItemModifierValues(item, mods);
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
             {
-                int percent = EffectPercent(mod, row, effect);
+                // A mod that displays an aura for other creatures ("Nearby Enemies have 50% increased Fire and Cold
+                // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
+                // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
+                if (row.Stats.Any(IsOthersAura)) continue;
+                long percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
-                    if (row.Stats[s].Local == local)
+                    if (row.Stats[s].Local == local
+                        || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Name))
                     {
-                        string id = row.Stats[s].Id;
-                        var state = StatConditions.Of(id, subject);
+                        uint id = row.Stats[s].Id;
+                        string name = row.Stats[s].Name;
+                        var state = StatConditions.Of(name, subject);
+                        // Unknown source relationships retain the local view instead of leaking into a global one.
+                        if (row.Stats[s].Local && !local && state is StatConditions.State.NotModelled) continue;
                         if (!StatConditions.Counts(state)) continue;
                         // The condition holds: a conditional stat with no consumer of its own moves onto its plain
                         // name, which is what the pools read (issue #504).
-                        if (state is StatConditions.State.Holds && statExists is not null
-                            && StatConditions.Fold(id, statExists) is { } plain)
-                            id = plain;
-                        yield return (id, IsEffectStat(row.Stats[s].Id) ? mod.Values[s] : Scale(mod.Values[s], percent));
+                        int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
+                            : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
+                        value = StatConditions.Counted(name, value, state, subject, statExists, out var targets);
+                        if (targets is null) yield return (id, value);
+                        else foreach (string target in targets) yield return (Stat.Of(target), value);
                     }
             }
     }
 
     /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix and
     /// suffix (only that side). The stats are local, so they are read here rather than from the character's list.</summary>
-    static (int Explicit, int Prefix, int Suffix) Effect(Item item, ModCatalog mods)
+    static (long Explicit, long Prefix, long Suffix) Effect(Item item, ModCatalog mods)
     {
-        int explicitAll = 0, prefix = 0, suffix = 0;
+        long explicitAll = 0, prefix = 0, suffix = 0;
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
@@ -102,23 +143,30 @@ static class ItemModStats
 
     /// <summary>How much the item's effect stats raise this modifier: only explicit affixes are affected, by the
     /// all-explicit stat plus the stat for their own side.</summary>
-    static int EffectPercent(ItemMod mod, ModCatalog.Mod row, (int Explicit, int Prefix, int Suffix) effect) =>
+    static long EffectPercent(ItemMod mod, ModCatalog.Mod row, (long Explicit, long Prefix, long Suffix) effect) =>
         mod.Section != ModSection.Explicit ? 0
         : effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
             : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0);
 
-    static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
+    /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
+    /// (enemies or allies) or a debuff the wearer puts on them.</summary>
+    static bool IsOthersAura(ModCatalog.ModStat stat) => stat.Name is var id && id.StartsWith("local_display_", StringComparison.Ordinal)
+        && (id.Contains("nearby", StringComparison.OrdinalIgnoreCase)
+            || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
+
+    static bool IsEffectStat(uint id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
 
     /// <summary>The game's increased-effect multiplication on one integer value, rounded down like the Adorned's
     /// jewel effect (Items.AdornedJewel).</summary>
-    static int Scale(int value, int percent) => percent == 0 ? value
-        : (int)Math.Clamp(Math.Floor((decimal)value * (100 + (long)percent) / 100), int.MinValue, int.MaxValue);
+    static int Scale(int value, long percent) => percent == 0 ? value
+        : (int)Math.Clamp(Math.Floor((decimal)value * (100 + percent) / 100), int.MinValue, int.MaxValue);
 
     /// <summary>Wide per-key attribute totals: retain them until complete raw-key replacement and bucket scaling.</summary>
-    public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods)
+    public static Dictionary<uint, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods,
+        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
-        var raw = new Dictionary<string, long>();
-        foreach (var (id, value) in Values(items, mods))
+        var raw = new Dictionary<uint, long>();
+        foreach (var (id, value) in Values(items, mods, false, subject, statExists, Program.GameLogicOrNull))
             if (AttributeModifiers.IsInput(id)) raw[id] = raw.GetValueOrDefault(id) + value;
         return raw;
     }
@@ -130,36 +178,104 @@ static class ItemModStats
         StatConditions.Subject subject = default)
     {
         var items = equipped.ToArray();
+        var game = Program.GameLogicOrNull;
         var result = new Dictionary<uint, int>();
-        foreach (var (id, value) in Sum(items, mods, subject: subject, statExists: stats.Has))
-            if (stats.Key(id) is uint key) result[key] = result.GetValueOrDefault(key) + value;
+        foreach (var (id, value) in SumValues(Values(items, mods, local: false,
+            subject: subject, statExists: stats.Has, game: game)))
+            if (StatCatalog.IsClientId(id)) result[id] = result.GetValueOrDefault(id) + value;
         // PoB Item.lua leaves ItemCondition-tagged increases in the character mod list, outside calcLocal.
         // This stat is marked IsLocal in Stats.dat, but affects global ES only while its source item is corrupted.
-        int conditionalES = Sum(items.Where(i => i.Corrupted), mods, local: true)
-            .GetValueOrDefault("local_maximum_energy_shield_+%_if_item_corrupted");
-        if (conditionalES != 0 && stats.Key("maximum_energy_shield_+%") is uint esKey)
+        int conditionalES = SumValues(Values(items.Where(i => i.Corrupted), mods, local: true,
+            subject: default, statExists: null, game: game))
+            .GetValueOrDefault(Stat.LocalMaximumEnergyShieldPlusPctIfItemCorrupted);
+        if (conditionalES != 0 && Stat.MaximumEnergyShieldPlusPct is var esKey)
             result[esKey] = (int)Math.Clamp((long)result.GetValueOrDefault(esKey) + conditionalES, int.MinValue, int.MaxValue);
         return result;
     }
 
     /// <summary>One item's local stats by Stats.dat Id (local_critical_strike_chance_+% …).</summary>
-    sealed record LocalValues(Dictionary<string, int> Stats);
+    sealed record LocalValues(Dictionary<uint, int> Stats);
     sealed class LocalItems
     {
         public readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, LocalValues> Items = new();
     }
-    static System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalItems>? LocalCatalogs;
-
-    public static Dictionary<string, int> Local(Item item, ModCatalog mods)
+    sealed class LocalRules
     {
-        // Local rows use only this immutable item and catalogue, without a combat subject. A changed item or a different
-        // catalogue has a different key. Return a copy: callers merge their own values into these dictionaries.
-        var cache = System.Threading.LazyInitializer.EnsureInitialized(ref LocalCatalogs).GetOrCreateValue(mods).Items;
-        return new(cache.GetValue(item, current => new(Sum([current], mods, local: true))).Stats);
+        public readonly LocalItems Default = new();
+        public readonly System.Runtime.CompilerServices.ConditionalWeakTable<IGameLogic, LocalItems> Games = new();
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalRules> LocalCatalogs = new();
+
+    // Return a copy: callers merge their own values into these dictionaries.
+    public static Dictionary<uint, int> Local(Item item, ModCatalog mods) => new(LocalCached(item, mods));
+
+    /// <summary>One local stat without Local's copy, for read-only checks on hot paths.</summary>
+    public static int LocalValue(Item item, ModCatalog mods, uint stat) => LocalCached(item, mods).GetValueOrDefault(stat);
+
+    static Dictionary<uint, int> LocalCached(Item item, ModCatalog mods)
+    {
+        // A replacement game supplies a new rule generation. Weak keys let its old load context be collected.
+        var game = Program.GameLogicOrNull;
+        var rules = LocalCatalogs.GetOrCreateValue(mods);
+        var cache = (game is null ? rules.Default : rules.Games.GetOrCreateValue(game)).Items;
+        return cache.GetValue(item, current => new(SumValues(
+            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats;
+    }
+
+    /// <summary>Local conditional rows need the current actor's subject and cannot use the immutable item cache.</summary>
+    public static Dictionary<uint, int> Local(Item item, ModCatalog mods, StatConditions.Subject subject,
+        Func<string, bool> statExists) => Sum([item], mods, local: true, subject: subject, statExists: statExists);
+
+    /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block
+    /// ("+X% Chance to Block" is a local modifier). A local no-block modifier (Kongming's Stratagem) removes it.</summary>
+    public static int ShieldBlock(ItemCatalog items, Item item, ItemCatalog.BaseType type)
+    {
+        var local = Local(item, items.Mods);
+        return local.GetValueOrDefault(Stat.LocalNoBlockChance) != 0 ? 0
+            : items.ShieldBlock(type) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct);
+    }
+
+    /// <summary>An item's attribute requirements after its own local modifiers: the base's requirement raised or lowered
+    /// by <c>local_attribute_requirements_+%</c> and the per-attribute stats (Agnerod's 40% increased Strength
+    /// Requirement, Chober Chaber's reduced one), or zero with a no-attribute-requirement modifier. A row that is both the
+    /// base implicit and an explicit mod counts once (Queen's Escape).</summary>
+    public static (int Str, int Dex, int Int) AttributeRequirements(ItemCatalog items, Item item, ItemCatalog.BaseType type)
+    {
+        var local = Local(item, items.Mods);
+        if (local.GetValueOrDefault(Stat.LocalNoAttributeRequirements) != 0
+            || local.GetValueOrDefault(Stat.LocalUniqueTabulaRasaNoRequirementOrEnergyShield) != 0) return (0, 0, 0);
+        int Percent(uint id) => item.Mods.GroupBy(mod => mod.Hash).Sum(group => ValueOf(group.First(), id));
+        int ValueOf(ItemMod mod, uint id)
+        {
+            if (items.Mods.ByHash(mod.Hash) is not { } row) return 0;
+            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                if (row.Stats[s].Id == id) return mod.Values[s];
+            return 0;
+        }
+        int all = Percent(Stat.LocalAttributeRequirementsPlusPct);
+        int Scale(int value, int percent) => (int)Math.Floor(value * (100L + all + percent) / 100.0);
+        var (str, dex, intel) = items.Requirements(type);
+        return (Scale(str, Percent(Stat.LocalStrengthRequirementPlusPct)),
+            Scale(dex, Percent(Stat.LocalDexterityRequirementPlusPct)),
+            Scale(intel, Percent(Stat.LocalIntelligenceRequirementPlusPct)));
     }
 
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>
-    public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level);
+    public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level)
+    {
+        public bool BaseRequirementsApplied { get; init; }
+    }
+
+    /// <summary>Apply clothing's attribute waiver before merging the socketed gems' requirements.</summary>
+    public static Worn ApplyBaseRequirementOverrides(Worn worn, ModCatalog mods)
+    {
+        if (worn.BaseRequirementsApplied) return worn;
+        var local = Local(worn.Item, mods);
+        bool waived = local.GetValueOrDefault(Stat.LocalNoAttributeRequirements) != 0
+            || local.GetValueOrDefault(Stat.LocalUniqueTabulaRasaNoRequirementOrEnergyShield) != 0;
+        return worn with { Strength = waived ? 0 : worn.Strength, Dexterity = waived ? 0 : worn.Dexterity,
+            Intelligence = waived ? 0 : worn.Intelligence, BaseRequirementsApplied = true };
+    }
 
     /// <summary>
     /// The worn items that are inactive (their requirements are not met), as in the game: an item stays equipped but its
@@ -197,15 +313,7 @@ static class ItemModStats
         IReadOnlyList<Worn> worn, int level, Func<IReadOnlyList<Worn>, (int Str, int Dex, int Int)> finalAttributes,
         IReadOnlySet<uint>? previous = null, ModCatalog? mods = null)
     {
-        // The Tabula/Skin/Apostate hidden modifier also suppresses native attribute requirements.
-        // Keep the level requirement: removing attributes does not make a high-level item wearable at level one.
-        if (mods is not null) worn = worn.Select(w =>
-        {
-            var local = Local(w.Item, mods);
-            return local.GetValueOrDefault("local_no_attribute_requirements") != 0
-                || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0
-                ? w with { Strength = 0, Dexterity = 0, Intelligence = 0 } : w;
-        }).ToArray();
+        if (mods is not null) worn = worn.Select(w => ApplyBaseRequirementOverrides(w, mods)).ToArray();
         var inactive = Inactive(worn, level, finalAttributes, previous);
         return (inactive, worn.Where(w => !inactive.Contains(w.Id)).Select(w => w.Item).ToArray());
     }
@@ -258,10 +366,11 @@ static class ItemModStats
     /// </summary>
     public static int LevelRequirement(Item item, int dropLevel, ModCatalog mods)
     {
+        if (item.RequiredLevel is int recorded) return recorded;
         var local = Sum([item], mods, local: true);
-        if (local.GetValueOrDefault("local_level_requirement_override") is int over and not 0) return Math.Max(0, over);
+        if (local.GetValueOrDefault(Stat.LocalLevelRequirementOverride) is int over and not 0) return Math.Max(0, over);
         int required = Math.Max(dropLevel, item.Mods.Select(m => (mods.ByHash(m.Hash)?.Level ?? 0) * 4 / 5).DefaultIfEmpty(0).Max());
-        return Math.Max(0, required + local.GetValueOrDefault("local_level_requirement_+"));
+        return Math.Max(0, required + local.GetValueOrDefault(Stat.LocalLevelRequirementPlus));
     }
 
     /// <summary>Two stat dictionaries added together (passives + items).</summary>

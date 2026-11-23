@@ -1,0 +1,28 @@
+-- Client table BuffVisuals (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "BuffVisuals" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "BuffDDSFile" TEXT,
+    "EPKFiles1" JSON,
+    "EPKFiles2" JSON,
+    "PreloadGroups" JSON,
+    "__col5" BOOLEAN,
+    "BuffName" TEXT,
+    "MiscAnimated1" INTEGER,
+    "MiscAnimated2" INTEGER,
+    "BuffDescription" TEXT,
+    "EPKFile" TEXT,
+    "HasExtraArt" BOOLEAN,
+    "ExtraArt" TEXT,
+    "__col13" JSON,
+    "EPKFiles" JSON,
+    "BuffVisualOrbs" JSON,
+    "MiscAnimated3" INTEGER,
+    "WeaponEffect" INTEGER,
+    "__col18" TEXT,
+    "__col19" REAL,
+    "__col20" REAL,
+    "__col21" BOOLEAN,
+    "__col22" BOOLEAN,
+    "__col23" JSON
+);

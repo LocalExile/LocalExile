@@ -5,10 +5,15 @@ rarity column 0x1421f0a20; amount/stack handling 0x1421f0940.
 """
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
-def table(name): return json.loads((Path('data/tables')/(name+'.json')).read_text(encoding='utf-8-sig'))
+
+def table(name): return clientdb.table(name)
 
 
 def main():

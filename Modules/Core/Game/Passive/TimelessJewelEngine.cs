@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -6,8 +7,16 @@ using System.Text.Json;
 /// engineered by Vilsol/timeless-jewels and used to build Path of Building's LUTs; the data comes from the target
 /// client's AlternateTreeVersions, AlternatePassiveSkills and AlternatePassiveAdditions tables.
 /// </summary>
-sealed class TimelessJewelEngine(string folder = "data")
+public sealed class TimelessJewelEngine
 {
+    readonly string folder;
+
+    public TimelessJewelEngine(string folder = "data")
+    {
+        this.folder = folder;
+        _data = Load(folder);
+    }
+
     public sealed record AlternateNode(bool Replaces, IReadOnlyList<(uint Key, int Value)> Stats, string Name);
 
     sealed record TreeVersion(int Key, bool ReplaceSmallAttribute, bool ReplaceSmallNormal,
@@ -26,16 +35,16 @@ sealed class TimelessJewelEngine(string folder = "data")
         IReadOnlyDictionary<(int Version, int Type), AltAddition[]> Additions,
         IReadOnlyDictionary<(int Version, int Conqueror, int ConquerorVersion), AltSkill> Keystones);
 
-    readonly Lazy<Data?> _data = new(() => Load(folder));
+    readonly Data? _data;
 
-    public bool Loaded => _data.Value is not null;
+    public bool Loaded => _data is not null;
 
     /// <summary>The alternate version of a node, or null when the node is not a passive a timeless jewel may conquer.
     /// <see cref="AlternateNode.Replaces"/> says whether the original stats are removed (replacement) or kept and the
     /// returned stats are additions.</summary>
     public AlternateNode? Alternate(PassiveTree.Node node, TimelessSpec spec, uint graphId)
     {
-        if (_data.Value is not { } data || !Eligible(node)) return null;
+        if (_data is not { } data || !Eligible(node)) return null;
         int type = Type(node);
         if (!data.Versions.TryGetValue(spec.TreeVersion, out var version)) return null;
 
@@ -161,16 +170,12 @@ sealed class TimelessJewelEngine(string folder = "data")
 
     static Data? Load(string folder)
     {
-        string versionsPath = Path.Combine(folder, "tables", "AlternateTreeVersions.json");
-        string skillsPath = Path.Combine(folder, "tables", "AlternatePassiveSkills.json");
-        string additionsPath = Path.Combine(folder, "tables", "AlternatePassiveAdditions.json");
-        if (!new[] { versionsPath, skillsPath, additionsPath }.All(File.Exists)) return null;
+        if (!new[] { "AlternateTreeVersions", "AlternatePassiveSkills", "AlternatePassiveAdditions" }.All(ClientTables.Has)) return null;
 
         var versions = new Dictionary<int, TreeVersion>();
-        using (var d = GameTables.Open(versionsPath))
         {
             int row = 0;
-            foreach (var r in d.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("AlternateTreeVersions"))
             {
                 int key = row++;
                 if (key == 0) continue;
@@ -182,10 +187,9 @@ sealed class TimelessJewelEngine(string folder = "data")
 
         var skills = new Dictionary<(int, int), List<AltSkill>>();
         var keystones = new Dictionary<(int, int, int), AltSkill>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(skillsPath)))
         {
             int row = 0;
-            foreach (var r in d.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("AlternatePassiveSkills"))
             {
                 var types = Ints(r, "PassiveType");
                 var skill = new AltSkill(row++, Str(r, "Id"), Str(r, "Name"), Int(r, "AlternateTreeVersionsKey"),
@@ -204,10 +208,9 @@ sealed class TimelessJewelEngine(string folder = "data")
         }
 
         var additions = new Dictionary<(int, int), List<AltAddition>>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(additionsPath)))
         {
             int row = 0;
-            foreach (var r in d.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("AlternatePassiveAdditions"))
             {
                 var addition = new AltAddition(row++, Str(r, "Id"), Int(r, "AlternateTreeVersionsKey"),
                     Ints(r, "PassiveType"), Ints(r, "StatsKeys"),
@@ -228,24 +231,18 @@ sealed class TimelessJewelEngine(string folder = "data")
             keystones);
     }
 
-    static string Str(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+    static string Str(ClientRow e, string name) => e.Has(name) ? e.TextOrNull(name) ?? "" : "";
 
-    static int Int(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+    static int Int(ClientRow e, string name) => e.Has(name) ? e.IntOrNull(name) ?? 0 : 0;
 
-    static bool Bool(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+    static bool Bool(ClientRow e, string name) => e.Has(name) && e.BoolOrNull(name) == true;
 
-    static int[] Ints(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
-            ? [.. v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetInt32())]
-            : [];
+    static int[] Ints(ClientRow e, string name) => e.Ints(name);
 }
 
 /// <summary>The client's TinyMT32 generator, ported from Vilsol/timeless-jewels' random/main.go. Legion jewels use the
 /// plain modulo draw (not the Abyss MSVC rejection draw).</summary>
-sealed class TinyMt32
+public sealed class TinyMt32
 {
     const uint InitialStateConstant0 = 0x40336050, InitialStateConstant1 = 0xCFA3723C,
         InitialStateConstant2 = 0x3CAC5F6F, InitialStateConstant3 = 0x3793FDFF;

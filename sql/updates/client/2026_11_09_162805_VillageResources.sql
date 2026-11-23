@@ -1,0 +1,23 @@
+-- Client table VillageResources: all 21 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "VillageResources" ("_row", "Id", "Export", "__col2", "PopupIcon") VALUES
+(0, 'PendingIronOre', NULL, 0, NULL),
+(1, 'PendingCopperOre', NULL, 0, NULL),
+(2, 'PendingAmber', NULL, 0, NULL),
+(3, 'PendingBismuthOre', NULL, 0, NULL),
+(4, 'PendingVerisiumOre', NULL, 0, NULL),
+(5, 'IronOre', 0, 0, NULL),
+(6, 'CopperOre', 1, 0, NULL),
+(7, 'Amber', 2, 0, NULL),
+(8, 'BismuthOre', 3, 0, NULL),
+(9, 'VerisiumOre', 4, 0, NULL),
+(10, 'Wheat', 10, 1, 14),
+(11, 'Corn', 11, 2, 15),
+(12, 'Pumpkin', 12, 3, 16),
+(13, 'Globulora', 13, 4, 17),
+(14, 'Orbisfera', 14, 5, 18),
+(15, 'RefinedIron', 5, 0, 9),
+(16, 'RefinedCopper', 6, 0, 10),
+(17, 'RefinedAmber', 7, 0, 11),
+(18, 'RefinedBismuth', 8, 0, 12),
+(19, 'RefinedVerisium', 9, 0, 13),
+(20, 'MagicDust', 15, 0, 19);

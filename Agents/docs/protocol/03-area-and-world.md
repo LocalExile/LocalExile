@@ -44,6 +44,11 @@ The extra-data decoder (`0x141ecdad0`) has its own two-byte flags and little-end
 Its first flag byte's bit 5 selects the Delve terrain block (`0x141ecc7d0`).
 Bit 3 is the Labyrinth node: u32 seed, u16 LabyrinthSectionLayout row, u8 difficulty, from which `0x1424ec930` builds
 the day's layout and finds the room ([re/011](../re/011-level-generation.md), "Labyrinth pass").
+Bit 1 is Ultimatum's (`0x141eccca0`). In the second flag byte, bit 0 is the terrain plugin states: u8 count, then per
+plugin its TerrainPlugins `__col1` (u16), a u16 length and that many bytes (world +0x70). At generation start
+`0x141eca930` creates each listed plugin with its bytes (`0x141ecab90`; "Failed to create TerrainPlugin: unknown
+PluginID"), then the area's own WorldAreas `TerrainPlugin` with none unless listed (`0x141ecb130`); the Allflame
+encounter's grid is the DeepwaterPlugin's (re/011 §3c4). Bit 3 is Mercenary data (`0x141ecd3a0`).
 See [Delve](21-hideouts.md#delve-sulphite-and-the-crawler-live-2026-10-29) for the initial mine control.
 
 ### What the client does
@@ -146,8 +151,149 @@ The Gateway spawns at **(197, 261)**, the walkable cell farthest from any edge (
 Result: [../re/evidence/2026-10-16-spawn-on-land.jpg](../re/evidence/2026-10-16-spawn-on-land.jpg) (beach, pier,
 minimap marker inside the town outline). The character model is not visible yet.
 
+## 8. S→C 0x1f: add a ruleset
+
+`u16 0x001f, u8 Rulesets.dat row, u32` (big-endian; the factories ignore it). Instance dispatcher 0x142150ae0 case 8 calls
+the instance's slot 8 (0x1415a6800), which builds the row's ruleset from the factory table and appends it to the
+instance's ruleset list, unless one of that row is already there; a row without a factory logs "Failed to create
+ruleset". Nothing in 0x1d or 0x21 creates rulesets, and the WorldAreas `Ruleset` column is not read. Client code finds
+a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0) looks up HarvestRules (row 105) once,
+when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
+HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
+
+S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-9
+come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`
+(Core `InstanceRulesets`; the Gateway frames 0x2ca by that length). The payload's first byte is an opcode or mode, the
+rest little-endian. The sender `0x1421a1960` takes a lambda whose slot 2 writes the payload; the action `i32, i32, u8`
+with `0x141689da0` is ExpeditionRules' (row 116), not row 171's.
+
+Row 171 (ClientDeepwater, the Allflame run; `Modules/Core/Content/Deepwater/DeepwaterRuleset.cs`):
+
+| C→S 0x2ca op | payload | sent by |
+|---|---|---|
+| 0 PlaceLantern | i32 x, i32 y: the cursor cell, not the snapped spot | releasing the held key (V, league action 55, `0x140d5b970`) or a left click in mode 2 (`0x14011bd20`), when the last preview was valid |
+| 2 SendItemsToSurface | – | the capsule window's "Send to Surface" (`0x140427bf0`), which then closes the window |
+| 3 RequestExtraction | – | the capsule window's "Call Bathysphere" (`0x140427c50`) and the HUD's leave button (`0x14044c280`) |
+
+The Bathysphere (`ExtractionObject.ot`) is targetable only with QuestFlags 3562 DeepwaterCanExtract and `landed` 1 or 2;
+`landed` 0 disables it. As 3562 goes on when a called Bathysphere lands, the server sends a Voyage's start one
+(`landed` 2) `landed` 0 at the call, or it would turn usable and labelled again.
+
+| S→C 0x2c9 mode (reader `0x141683c40`) | after the mode | client effect |
+|---|---|---|
+| 0 | i32 x, i32 y, u32 | appends a lantern anchor for placement; nothing found reads the u32 (the Gateway sends the lantern's id) |
+| 1 | u32 a, u32 b | the Sulphur gauge, a/b in five steps (`0x1403fbe20`; the Gateway sends collected, the run's total) |
+| 2 | u8 placed, u8 total | the lantern counter (`0x1403fbf10`) and the client's placement gate (placed < total, QuestFlags 3550); placed + 1 == total with total > 2 shows the final-lantern banner once |
+| 3 | u8 state | 3 hides the HUD; 0 → 1 or 2 plays DeepwaterCollapseStart, 1 and 2 keep the collapse audio (`0x1403fbdb0`). The Gateway: 1 collapse, 2 first lantern out, 3 over |
+| 4 | u32 count | the CollectionChest's `amount_looted` model (≤ 8/16/32/64/more) |
+| 5 | – | the completion popup once (`0x1403fc330`), Valerie's ChartSuccess, VoyageSuccess or Tut_PlayerReturns line |
+| 6 | – | Valerie's ChartFail line |
+| 7 | – | closes the capsule window |
+
+The preview (`0x141683660`, each frame while the key is held) snaps the cursor with `0x141fc5800`: for each mode-0
+anchor (lit or not; none is ever removed) the spot exactly BaseLanternPlacementRange (115) from it towards the cursor
+(float32, rounded), kept if under 60 cells from the cursor, under 100 from the player, not behind the player when 30 or
+more away, and over 110 from every anchor; the nearest to the cursor wins and no other is tried. It must be walkable
+(layer 0 ≥ 4, else the first walkable cell on rings 1..9, rows outer) with a clear layer-1 line from the player.
+Without an anchor nothing can be placed. The module runs the same snap on the cursor cell; as its estimate of the
+player trails the client's, it retries the player tests 10 cells looser when none fits and only logs the line test.
+
+Row 172 (ClientDeepwaterHub, the deck's windows; `DeepwaterHubRuleset.cs`; op names from the lambdas' type names). There
+is no op 3. Adding a chart to the Voyage board sends nothing (`0x14041c610`): the board reaches the server only in op 0.
+
+| C→S 0x2ca op | payload | sent by |
+|---|---|---|
+| 0 OpenMission | u8 n, n × u8: per board slot the chart's x in inventory 104, 0xff empty; n 4 (2 × 2, slot i = cell i) or 9 | the Voyage window's "Set Forth!" (`0x14041b5d0`), only when its validator `0x141fbeda0` passes |
+| 1 Open1x1Mission | – | the Chart window's "Descend" (`0x14040cea0`): needs an identified chart in 103 and room in 104 (ClientStrings 8466, 8426) |
+| 2 DoCraft | u32 LE currencyInvId, u32 LE currencyItemId | Vesper's Allflame Crafting (`0x140412df0`): target item is read from inventory 105 (omitted for Changeling's Ducat); outputs go into inventory 106 and the four `GhostflameCraftingOutput` `HeistRewardDisplay` vats (`0x141eb4120`: u8 hasPrimary, u8 hasSecondary, raw Item.Payload() × present, i32 LE openAttempts) |
+| 4 MoveStoredChart | u8 from, u8 to | a drag inside 104 (`0x140414530`) |
+| 5 RotateStoredChart | u8 x in 104 | a right click on a stored chart or a board slot (`0x140413f10`, `0x14041c3b0`); the client leaves the item alone, so the server turns the chart's rotation ([13](13-items.md) §2) and resends it |
+| 6 DeleteStoredChart | u8 x in 104 | `0x140419390` from a callback (a confirm, M) |
+| 7 RerollBorderModifiers | – | the reroll button (`0x140419720`): shown only on a 3 × 3 board |
+| 8 ConfirmEnterMission | – | Yes on mode 2's popup (`0x140dea550`) |
+| 9 TakeAllLoot | – | the Loot window's Take All |
+
+| S→C 0x2c9 mode (reader `0x141683030`) | after the mode | client effect |
+|---|---|---|
+| 0 | – | nothing |
+| 1 | u32 cost, u8 k, k × (u16 Mods HASH16, a compact int per stat) | the next reroll's Dead Man's Sulphur cost (ClientStrings 8470, `<unmet>` when short; **0xFFFFFFFF disables the button**) and the 12 border mods, used only when k = 12, in segment order: cell x + 3y, y = 0 → mod[x], x = 2 → mod[3 + y], y = 2 → mod[8 − x], x = 0 → mod[11 − y] (`0x141fbe2d0`) |
+| 2 | – | the HUD's ClientStrings 8445 popup ("will remove all items from the capsule collection inventory"); Yes sends op 8 |
+
+The Voyage window's board side is 2 + a league quest flag test, `0x764` (`0x1404179e0`): 1893
+Deepwater3x3VoyagesEnabled if the test is 0-based on the row, else 1892 (open). Its area level text and the validator
+use (sum of chart levels / count) + 10, capped at the highest chart, 1..100; a boss room needs level ≥ 83, at most one.
+
+S→C 0x1e is a ruleset event by name: `u16 0x001e, u32 entity BE, u16 length BE, ASCII` (reader `0x1421a44a0`); the
+client passes it to every ruleset's slot 3. Row 171 acts only on `update_collection_chest` and
+`trigger_npc_completion_textaudio`, which its own scripts raise, so the run sends none.
+
+A row belongs to the areas whose client-side content uses it. Row 171 DeepwaterRules (ClientDeepwater) looks up the
+`DeepwaterPlugin` terrain plugin every frame (`0x1416851b0` → `0x141685030`, which returns 0x28 when it is missing, with
+no null check). Sent on The Sovereign or The Twilight Strand, the client closed about 2 s later with no log line. The
+encounter areas (WorldAreas `TerrainPlugin` DeepwaterPlugin: DeepwaterEncounter, DeepwaterEncounterVoyage) always have
+the plugin at world `+0xe0`, with or without the server's state (§1, extra data), so the Allflame module sends row 171
+there only, after 0x7d; the client keeps it there (3.29.3d, 2026-11-18). Whether the real server did is unknown. The Sovereign takes row 172
+DeepwaterHubRules alone (no per-frame code). The encounter areas take it too, and both get it before 0x21: the in-game
+UI attaches its windows to the area once (`0x140dba5d0`), and the deck's Loot window (0x7b kind 0x6f, shown by
+`0x140dac350` without attaching again) builds its grid over inventory 114 only if row 172 was there then
+(`0x1404244b0`). Sent after 0x21 the window stayed empty (3.29.3d, 2026-11-19). The Chart, Crafting and Voyage windows (0x7b
+kinds 0x67, 0x69, 0x6a) attach the same way (`0x1403feb40`, `0x14040f940`, `0x1404179e0`) and build nothing without row 172.
+The capsule window attaches again when
+shown (`0x140425400`), so row 171 after 0x21 is enough for it. Row 171's area type 53 checks are for the Sovereign that the plugin adds
+inside an encounter as a secondary area (`0x141f32870`).
+
 ## Open
 
 - The real player start position for each town (area data, or a real capture).
 - What the 0x21 record lists and flag bits mean (party, league, PvP …).
 - The remaining 0x1d fields and flags.
+
+## Shrine objects (`Metadata/Shrines/Shrine`)
+
+The nova daemons can play their own granted actions on an Actor. `ShrineShockNova` (1067) and
+`ShrineShockNovaPlayer` (1068) both use **ShockNova** (`0xc563`), not the gem's **NewShockNova** (`0x368c`).
+Its contact `0x141404c60` visits one circle: `floor(26 × radiusPercent / 100)`, reading the derived
+`total_skill_area_of_effect_radius_+%_including_final` (`0x1591`) through `0x14193efd0`. No second annulus
+contact is present. The standing/claimed stat sets give radii 52/19 and five/one ground patches. Sending raw
+area modifiers alone leaves the native radius at 26. Ice Nova uses its ordinary expanding-ring action
+([11-skills](11-skills.md)); the native daemon needs cast-time and non-pathing skill stats too.
+
+`LesserShrine` reads the same components followed by Transitionable (one byte, live state 1) and
+DiesAfterTime (no bytes). Its object size is 2 and its own `.ao` supplies the model. Its base 10-second object
+lifetime comes from `TriggeredSummonLesserShrine`; the claimed row's 20-second buff is a different timer.
+State 0 crashes its post-create event at `0x141df0e19`, as with the other Transitionable types
+([10](10-chat-and-commands.md)); state 1 is untransitioned, not the disabled state.
+
+Object type 9293 reads ten components, in order: Positioned, BaseEvents, Stats, Animated, Buffs, Life, ObjectMagicProperties,
+Shrine, MinimapIcon, InteractionAction (Render and Targetable are in the type but not serialised). Live findings, 2026-11-12:
+
+- **The Shrine component's key byte** is the Shrines row the client copies for the icon it draws over the object; `0xff`
+  means no shrine, and the statue then keeps its model but loses the icon and the interaction. The component's next byte
+  (stored at `+0x50`) changed nothing visible when written as 1.
+- **`ObjectMagicProperties` bit 3 (`u16` flags `0x08`) is the identified flag.** Without it the client's target nameplate
+  prints its unidentified line ("Undefined") under the shrine's name; with it the line disappears. Rarity is bits 0–2
+  (0 = normal).
+- **A life pool of 0 removes the target nameplate but also hover and click**: a live `Life` component is what makes the
+  object targetable at all. The top-centre nameplate and its bar are that lifecycle HUD, so a clickable shrine cannot
+  avoid them. Chests and strongboxes are not affected because their object types carry no `Life` component.
+
+See also: the shrine buff is a normal `0x01c1` on a BuffDefinitions row (the Shrines row's `Player_ShrineBuffsKey` template),
+and the click that claims it is C→S 0x24, answered with 0x01ab `ActionStarted`/`ActionEnded` like any walked-up object.
+
+## Strongbox objects (`Metadata/Chests/StrongBoxes/*`)
+
+A strongbox reads the Rhoa Nest's chest components plus StateMachine: Positioned, BaseEvents, Animated, Chest, Stats,
+ObjectMagicProperties, InteractionAction, MinimapIcon, StateMachine (`read` 9; Render and Targetable are client-only).
+`Strongbox.ot` defines the shared states `opened; started;` and, in its client block,
+`on_or_create_state_opened_1 = { HideMinimapIcon(); }`: a box created with `opened` = 1 has no minimap marker.
+Its `.ot` names no model (Animated `animated_object` is empty); the Chests row's `AOFiles` does, and the server
+writes it in Animated. The HardMode rows (`…HardMode`) have no `.ot`: their Chests `InheritsFrom` is `Strongbox`.
+`CoreLeagues` row 3 "Ambush" has no ExtraTerrainFeatures row, so the client's level generator never rolls it.
+Live (2026-11-17): a box created with ObjectMagicProperties flags `0x08` (identified) shows its name alone; without
+it the nameplate adds a red "Unidentified" line. A box's rarity and mods are written as a monster's (flags: rarity
+bits 0–2, `0x08`, `0x20` for the explicit list; then the list; live: a rare box shows its mod lines in yellow).
+Removed and created again with `opened` = 1 it shows opened with no minimap marker.
+A unique box (live 2026-11-18, Strange Barrel and Redblade Cache) is its base strongbox's object with rarity 3, the
+UniqueChests row's `AOFile` as the Animated model, its Words row's HASH32 as the name (flags bit 8, as a unique item),
+and its UniqueChests mods in the explicit list: the nameplate shows the name in unique colour and the mod lines. A currency used on it is C→S 0x74 ([13](13-items.md)).
+Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.

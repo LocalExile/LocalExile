@@ -1,24 +1,36 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// A character's items, by Inventories.dat row (the Gateway registers inventory id = row + 1 for every row, 05 §2). Kept
 /// in memory per character name and saved after every change (<see cref="CharacterSaves"/>, data/saves/), so they follow
 /// the player through area changes and Gateway restarts.
 /// </summary>
-sealed class PlayerInventories
+public sealed partial class PlayerInventories
 {
-    public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Gloves = 8,
-        Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14, Offhand2 = 15, CraftingBench = 16,
-        PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43, Cursor = InstanceInventories.CursorRow;
+    public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
+        Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
+        Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
+        ExpandedInventory = 84, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
+
+    // Persistent gem edits replace immutable records without replacing the physical socketed gem.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, object> GemIdentities = new();
+    public static object GemIdentity(Item gem) => GemIdentities.GetValue(gem, _ => new());
+    public static Item PreserveGemIdentity(Item before, Item after)
+    {
+        if (!ReferenceEquals(before, after)) GemIdentities.AddOrUpdate(after, GemIdentity(before));
+        return after;
+    }
 
     private readonly Dictionary<byte, List<InventoryItem>> _items = [];
     private readonly Dictionary<byte, uint> _revisions = [];
     private uint _nextItemId = 1;
     private readonly Lock _lock = new();
+    private readonly GemSourceLifetimes.SourceStore _gemSourceLifetimes = new();
     private string? _owner;   // the character whose save this is; null while the start kit is being built
     private ModCatalog? _mods;  // to save mods by their Mods.dat Id
     private Item? _startWeapon;
@@ -61,8 +73,22 @@ sealed class PlayerInventories
 
     /// <summary>Writes the character's save (every inventory, with item ids and cells, and the start weapon), in a
     /// transaction of its own or the one it runs in (<see cref="Saves"/>).</summary>
+    long _changes;
+    long _mutations;
+    (byte Row, InventoryItem Item)[]? _equipmentSnapshot;
+    long _equipmentSnapshotMutation = -1;
+
+    /// <summary>How many saved changes the items had (each Persist): a reader that saw the count sees whether they changed.
+    /// Unsaved gem experience is not counted.</summary>
+    public long Changes => Interlocked.Read(ref _changes);
+
+    /// <summary>Monotonic count of all inventory mutations (saved and unsaved).</summary>
+    public long Mutations => Interlocked.Read(ref _mutations);
+
     void Persist()
     {
+        Interlocked.Increment(ref _changes);
+        Interlocked.Increment(ref _mutations);
         if (_owner is not { } owner) return;
         Saves.Atomically(() =>
         {
@@ -71,6 +97,7 @@ sealed class PlayerInventories
             Saves.Db.OnRollback(() =>
             {
                 _stale = true;
+                _gemSourceLifetimes.RetireOwner();
                 ByCharacter.TryRemove(new KeyValuePair<string, PlayerInventories>(owner, this));
             });
             // Copied under the items' lock, inside the transaction: an older copy never lands after a newer one. The rest
@@ -139,21 +166,54 @@ sealed class PlayerInventories
     /// </summary>
     /// <remarks>With <paramref name="one"/> (Shift + click, 0x2a's first flag) only one of a held stack goes: into an
     /// empty cell as a new item, or onto a stack of its type with room; the rest stays held.</remarks>
-    public Placement? Place(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false)
+    public Placement? Place(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false,
+        bool expandedAllowed = false)
     {
-        var result = PlaceCore(row, x, y, shapeOf, out why, one);
+        var result = PlaceCore(row, x, y, shapeOf, out why, one, expandedAllowed);
         if (result is not null) Persist();
         return result;
     }
 
-    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false)
+    // Vendor preflight uses the same placement checks without putting an unpaid item on the cursor.
+    public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
+        PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
+
+    /// <summary>The single item that placing the held item at (<paramref name="x"/>, <paramref name="y"/>) in
+    /// <paramref name="row"/> would swap out onto the cursor, or null when nothing (or more than one item) is in the way,
+    /// or when the move would merge into a stack or split one off.</summary>
+    public InventoryItem? DisplacedByPlace(byte row, int x, int y, Func<Item, Shape?> shapeOf, bool one = false)
+    {
+        lock (_lock)
+        {
+            // PlaceCore's own checks, changing nothing: what it would swap out, before its stack rules.
+            if (PlaceCore(row, x, y, shapeOf, out _, expandedAllowed: true, preview: true) is not { Displaced: { } under, Held: var held }) return null;
+            if (one && held.Item.StackSize > 1) return null;
+            return under.Item.TypeHash == held.Item.TypeHash && shapeOf(held.Item) is { MaxStack: > 1 } shape
+                && under.Item.StackSize < shape.MaxStack ? null : under;
+        }
+    }
+
+    /// <summary>The single item that clicking the held item onto <paramref name="itemId"/> in <paramref name="row"/>
+    /// would swap out onto the cursor, or null when it would not swap a single item.</summary>
+    public InventoryItem? DisplacedByMerge(byte row, uint itemId, Func<Item, Shape?> shapeOf, bool one = false)
+    {
+        lock (_lock)
+            return ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is { } target ? DisplacedByPlace(row, target.X, target.Y, shapeOf, one) : null;
+    }
+
+    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false, bool expandedAllowed = false,
+        InventoryItem? incoming = null, bool preview = false)
     {
         lock (_lock)
         {
             why = "";
+            if (row == ExpandedInventory && !expandedAllowed)
+            { why = "extra backpack is disabled; existing items can still be removed"; return null; }
             if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) { why = "not an inventory to place into"; return null; }
-            if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
-            var held = cursor[0];
+            var cursor = ItemsIn(Cursor);
+            if (incoming is null && cursor.Count == 0) { why = "nothing held"; return null; }
+            if (incoming is not null && cursor.Count != 0) { why = "something held"; return null; }
+            var held = incoming ?? cursor[0];
             if (shapeOf(held.Item) is not { } shape) { why = "unknown item type"; return null; }
             var slot = InstanceInventories.PlayerDefaults[row];
             List<InventoryItem> inTheWay;
@@ -172,11 +232,12 @@ sealed class PlayerInventories
             {
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
-                if (row == MapDevice && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
             if (inTheWay.Any(i => _offered.ContainsKey(i.Id))) { why = "an item offered for sale is in the way"; return null; }
+            if (preview) return new(row, held with { X = (byte)x, Y = (byte)y }, held, inTheWay.FirstOrDefault());
             var items = ItemsIn(row);
             int amount = one ? 1 : held.Item.StackSize;
             if (inTheWay is [var under] && under.Item.TypeHash == held.Item.TypeHash && shape.MaxStack > 1 && under.Item.StackSize < shape.MaxStack)
@@ -217,7 +278,8 @@ sealed class PlayerInventories
     /// that item's cell. A stack of the same type with room takes what fits (with <paramref name="one"/>, one) and the
     /// rest stays held; anything else is swapped (refused with <paramref name="one"/>). Null with the reason; nothing changes.
     /// </summary>
-    public Placement? MergeOnto(byte row, uint itemId, Func<Item, Shape?> shapeOf, out string why, bool one = false)
+    public Placement? MergeOnto(byte row, uint itemId, Func<Item, Shape?> shapeOf, out string why, bool one = false,
+        bool expandedAllowed = false)
     {
         Placement? result;
         lock (_lock)
@@ -226,7 +288,7 @@ sealed class PlayerInventories
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
             if (ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } target) { why = "no such item"; return null; }
-            result = PlaceCore(row, target.X, target.Y, shapeOf, out why, one && held.Item.StackSize > 1);
+            result = PlaceCore(row, target.X, target.Y, shapeOf, out why, one && held.Item.StackSize > 1, expandedAllowed);
         }
         if (result is not null) Persist();
         return result;
@@ -291,7 +353,7 @@ sealed class PlayerInventories
             why = "";
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
-            if (shapeOf(held.Item)?.Class is not ("Active Skill Gem" or "Support Skill Gem")) { why = "the held item is not a gem"; return null; }
+            var heldClass = shapeOf(held.Item)?.Class;
             var items = ItemsIn(row);
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) { why = "no such item"; return null; }
@@ -299,9 +361,16 @@ sealed class PlayerInventories
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
             var sockets = item.Item.Sockets.ToList();
+            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
+                : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            {
+                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                return null;
+            }
             var old = sockets[socket].Gem;
             sockets[socket] = sockets[socket] with { Gem = held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
+            _gemSourceLifetimes.RetireSocket(item.Id, socket);
             cursor.RemoveAt(0);
             InventoryItem? now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
             if (now is not null) cursor.Add(now);
@@ -334,6 +403,7 @@ sealed class PlayerInventories
             var sockets = item.Item.Sockets.ToList();
             sockets[socket] = sockets[socket] with { Gem = null };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
+            _gemSourceLifetimes.RetireSocket(item.Id, socket);
             var held = new InventoryItem(newId(), 0, 0, gem);
             cursor.Add(held);
             return (items[at], held);
@@ -347,11 +417,25 @@ sealed class PlayerInventories
     public IReadOnlyList<(uint ItemId, Item Gem)> SocketedGemsByItem() => [.. SocketedGemPlaces().Select(g => (g.ItemId, g.Gem))];
 
     // Immutable item records from ONE inventory read, including attribute gear and all active socket hosts.
-    internal IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
+    public IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
     {
+        // Asked for many times in one stat-sources lookup: cache the immutable array while no inventory mutation occurs.
         lock (_lock)
-            return [.. ItemModStats.EquipmentRows.SelectMany(row =>
-                (_items.TryGetValue(row, out var items) ? items : []).Select(item => (row, item)))];
+        {
+            long version = Interlocked.Read(ref _mutations);
+            if (_equipmentSnapshot is not null && _equipmentSnapshotMutation == version) return _equipmentSnapshot;
+            int count = 0;
+            foreach (byte row in ItemModStats.EquipmentRows)
+                if (_items.TryGetValue(row, out var items)) count += items.Count;
+            var snapshot = new (byte Row, InventoryItem Item)[count];
+            int at = 0;
+            foreach (byte row in ItemModStats.EquipmentRows)
+                if (_items.TryGetValue(row, out var items))
+                    foreach (var item in items) snapshot[at++] = (row, item);
+            _equipmentSnapshot = snapshot;
+            _equipmentSnapshotMutation = version;
+            return snapshot;
+        }
     }
 
     public Item? SocketHost(uint id)
@@ -364,7 +448,7 @@ sealed class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.Keys.Order().SelectMany(r => (_items.TryGetValue(r, out var l) ? l : []).Select(i => (Row: r, Item: i)))
-                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem)).Where(g => g.Gem is not null)
+                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
     }
 
@@ -389,13 +473,15 @@ sealed class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket].Gem is { } gem && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && change(items[at].Id, gem) is { } after)
                         {
+                            after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
                             sockets[socket] = sockets[socket] with { Gem = after };
                         }
                     if (gems.Count == 0) continue;
                     _unsaved = true;
+                    Interlocked.Increment(ref _mutations);
                     items[at] = items[at] with { Item = items[at].Item with { Sockets = sockets } };
                     changed.Add((row, items[at], gems));
                 }
@@ -421,7 +507,7 @@ sealed class PlayerInventories
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
         MapDevice => global::MapDevice.AcceptsClass(itemClass),
-        Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical",
+        Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" or "Tincture",
         _ => true,
     };
 
@@ -429,7 +515,8 @@ sealed class PlayerInventories
     /// Why an item of this class can't go into a hand row next to what the other hand of the same weapon set holds, or
     /// null: a bow goes with an empty off hand or a quiver, another two-handed weapon only with an empty off hand; a quiver
     /// goes with an empty main hand or a bow, never with a one-handed weapon; a shield or a one-handed weapon in the off hand
-    /// not with a two-handed weapon (a bow included). Call under the lock.
+    /// not with a two-handed weapon (a bow included); a wand only dual-wields with another wand, not a melee weapon. Call
+    /// under the lock.
     /// </summary>
     string? HandConflict(byte row, string itemClass, Func<Item, Shape?> shapeOf)
     {
@@ -441,10 +528,60 @@ sealed class PlayerInventories
         {
             if (itemClass == "Bow") return otherClass is null or "Quiver" ? null : "a bow goes only with an empty off hand or a quiver";
             if (TwoHand.Contains(itemClass)) return otherClass is null ? null : "a two-handed weapon needs an empty off hand";
-            return otherClass == "Quiver" ? "a quiver goes only with a bow (or an empty main hand)" : null;
+            if (otherClass == "Quiver") return "a quiver goes only with a bow (or an empty main hand)";
+            if (otherClass is not null && OneHand.Contains(otherClass) && (itemClass == "Wand") != (otherClass == "Wand"))
+                return "a wand cannot be dual-wielded with a melee weapon";
+            return null;
         }
         if (itemClass == "Quiver") return otherClass is null or "Bow" ? null : "a quiver goes only with a bow or an empty main hand";
-        return otherClass is not null && TwoHand.Contains(otherClass) ? $"the main hand holds a two-handed weapon ({otherClass})" : null;
+        if (otherClass is not null && TwoHand.Contains(otherClass)) return $"the main hand holds a two-handed weapon ({otherClass})";
+        if (otherClass is not null && OneHand.Contains(itemClass) && OneHand.Contains(otherClass) && (itemClass == "Wand") != (otherClass == "Wand"))
+            return "a wand cannot be dual-wielded with a melee weapon";
+        return null;
+    }
+
+    /// <summary>
+    /// Finds the first empty compatible slot among <paramref name="candidateRows"/> for an item of <paramref name="shape"/>:
+    /// a single-item row must be empty, accept its class (<see cref="Accepts"/>) and have no <see cref="HandConflict"/>; a
+    /// grid row (such as <see cref="Flask"/>) must accept its class and have a free cell (<see cref="FreeCell"/>). Returns
+    /// null when no candidate row can take it without displacing anything.
+    /// </summary>
+    public (byte Row, (byte X, byte Y) Cell)? FindEmptySlot(IEnumerable<byte> candidateRows, Shape shape, Func<Item, Shape?> shapeOf)
+    {
+        lock (_lock)
+        {
+            foreach (byte row in candidateRows)
+            {
+                if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) continue;
+                if (!Accepts(row, shape.Class)) continue;
+                if (InstanceInventories.PlayerDefaults[row].SingleItem)
+                {
+                    if (ItemsIn(row).Count != 0) continue;
+                    if (HandConflict(row, shape.Class, shapeOf) is not null) continue;
+                    return (row, (0, 0));
+                }
+                if (FreeCellCore(row, shape.Width, shape.Height, shapeOf) is { } cell)
+                    return (row, cell);
+            }
+            return null;
+        }
+    }
+
+    static readonly byte[] AutoEquipRows = [BodyArmour, Weapon1, Offhand1, Helmet, 5, 6, 7, Gloves, 9, 10];
+
+    /// <summary>First empty compatible active equipment or flask slot for an identified picked-up item, or null.</summary>
+    public (byte Row, byte X, byte Y)? FindAutoEquipSlot(Item item, Func<Item, Shape?> shapeOf)
+    {
+        if (!item.Identified || shapeOf(item) is not { } shape) return null;
+        lock (_lock)
+        {
+            foreach (byte row in AutoEquipRows)
+                if (Accepts(row, shape.Class) && ItemsIn(row).Count == 0 && HandConflict(row, shape.Class, shapeOf) is null)
+                    return (row, 0, 0);
+            if (Accepts(Flask, shape.Class) && FreeCell(Flask, shape.Width, shape.Height, shapeOf) is { } flaskCell)
+                return (Flask, flaskCell.X, flaskCell.Y);
+        }
+        return null;
     }
 
     /// <summary>Inventories.dat column 7 by row: the slot the player's model shows an equipped item in (17 = none).</summary>
@@ -464,7 +601,10 @@ sealed class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.OrderBy(e => e.Value).Select(e =>
-                _items.TryGetValue(e.Key, out var l) && l.Count > 0 && look(l[0].Item) is { } v ? v with { Slot = e.Value } : VisibleItem.Empty(e.Value))];
+                _items.TryGetValue(e.Key, out var l) && l.Count > 0 && look(l[0].Item) is { } v
+                    ? v with { Slot = e.Value, SkinVisual = l[0].Item.SkinTransferSource is { } source
+                        && look(source) is { } donor ? donor.VisualIdentity : v.SkinVisual }
+                    : VisibleItem.Empty(e.Value))];
     }
 
     /// <summary>Which weapon set is in the hands: 0 the first, 1 the second (the 0x21 / 0xde flag the panel's I / II tab
@@ -560,6 +700,7 @@ sealed class PlayerInventories
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) return null;
             _unsaved = true;
+            Interlocked.Increment(ref _mutations);
             return items[at] = items[at] with { Item = change(items[at].Item) };
         }
     }
@@ -647,7 +788,38 @@ sealed class PlayerInventories
         }
     }
 
-    Stacking StackInto(byte row, List<InventoryItem> items, Item item, Func<Item, Shape?> shapeOf, ref uint nextId)
+    /// <summary>Stacks across the requested grids before using their empty cells. A preview changes nothing.</summary>
+    public IReadOnlyDictionary<byte, Stacking> StackAcross(IReadOnlyList<byte> rows, Item item,
+        Func<Item, Shape?> shapeOf, bool preview = false)
+    {
+        Dictionary<byte, Stacking> result;
+        lock (_lock)
+        {
+            var grids = rows.Distinct().ToDictionary(row => row, row => ItemsIn(row).ToList());
+            var before = grids.ToDictionary(p => p.Key, p => p.Value.ToDictionary(i => i.Id));
+            uint next = _nextItemId;
+            int left = item.StackSize;
+            foreach (bool stacksOnly in new[] { true, false })
+                foreach (var (row, grid) in grids)
+                {
+                    if (left == 0) break;
+                    left = StackInto(row, grid, item with { StackSize = (ushort)left }, shapeOf, ref next, stacksOnly).Left;
+                }
+            result = grids.ToDictionary(p => p.Key, p => new Stacking(
+                p.Value.Where(i => before[p.Key].TryGetValue(i.Id, out var old) && old != i).ToArray(),
+                p.Value.Where(i => !before[p.Key].ContainsKey(i.Id)).ToArray(), left));
+            if (!preview)
+            {
+                foreach (var (row, grid) in grids) _items[row] = grid;
+                _nextItemId = next;
+            }
+        }
+        if (!preview && result.Values.Any(s => s.Any)) Persist();
+        return result;
+    }
+
+    Stacking StackInto(byte row, List<InventoryItem> items, Item item, Func<Item, Shape?> shapeOf, ref uint nextId,
+        bool stacksOnly = false)
     {
         var shape = shapeOf(item) ?? new(1, 1, "");
         int max = Math.Max((int)shape.MaxStack, 1), left = item.StackSize;
@@ -663,7 +835,7 @@ sealed class PlayerInventories
                 items[items.IndexOf(s)] = grown;
                 changed.Add(grown);
             }
-        while (left > 0 && FreeCellIn(row, items, shape.Width, shape.Height, shapeOf) is { } cell)
+        while (!stacksOnly && left > 0 && FreeCellIn(row, items, shape.Width, shape.Height, shapeOf) is { } cell)
         {
             int take = Math.Min(left, max);
             left -= take;
@@ -794,8 +966,14 @@ sealed class PlayerInventories
     /// <summary>The next revision number of an inventory's contents (sent with each S→C 0xbf).</summary>
     public uint NextRevision(byte row)
     {
-        lock (_lock) return _revisions[row] = _revisions.GetValueOrDefault(row) + 1;
+        uint revision;
+        lock (_lock) revision = _revisions[row] = _revisions.GetValueOrDefault(row) + 1;
+        Changed?.Invoke();
+        return revision;
     }
+
+    /// <summary>An inventory's contents changed (a new revision was taken for the client).</summary>
+    public Action? Changed;
 
     private static readonly ConcurrentDictionary<string, int> ClassRows = new(StringComparer.OrdinalIgnoreCase);
 
@@ -810,18 +988,47 @@ sealed class PlayerInventories
         if (ByCharacter.TryRemove(character, out var gone))
         {
             gone._stale = true;
+            gone._gemSourceLifetimes.RetireOwner();
             Console.WriteLine($"[gateway] {character}: no save any more (deleted?), items start over");
         }
     }
 
     /// <summary>Forgets the character's loaded items: the next use loads them from the database (tests: a restart).</summary>
-    internal static void Forget(string character) => ByCharacter.TryRemove(character, out _);
+    public static void Forget(string character)
+    {
+        if (ByCharacter.TryRemove(character, out var old)) old._gemSourceLifetimes.RetireOwner();
+    }
 
     // A confirmed build replacement retires old references, including the periodic unsaved-items writer.
-    internal static void Invalidate(string character)
+    public static void Invalidate(string character)
     {
-        if (ByCharacter.TryRemove(character, out var old)) old._stale = true;
+        if (ByCharacter.TryRemove(character, out var old))
+        {
+            old._stale = true;
+            old._gemSourceLifetimes.RetireOwner();
+        }
     }
+
+    /// <summary>The physical shared marker for a source in this loaded inventory, or null after this owner was retired.
+    /// Taking the inventory lock makes capture linearizable with the accepted socket writes below.</summary>
+    public GemSourceLifetimes.SourceMarker? CaptureGemSourceLifetime(GemSkillIds.Gem key)
+    {
+        lock (_lock) return _gemSourceLifetimes.Capture(key);
+    }
+
+    /// <summary>The loaded inventory currently registered for a character, without constructing or loading another one.</summary>
+    public static PlayerInventories? Current(string character) =>
+        ByCharacter.TryGetValue(character, out var inventory) ? inventory : null;
+
+    /// <summary>Claims the current saved activation of one source. Takes only the neutral store lock.</summary>
+    public bool ClaimGemActivation(string saveNamespace, ushort skill,
+        GemSourceLifetimes.SourceMarker marker, Guid owner) =>
+        _gemSourceLifetimes.ClaimActivation(saveNamespace, skill, marker, owner);
+
+    /// <summary>Looks up one source's activation writer using only the neutral store lock.</summary>
+    public GemSourceLifetimes.SourceStore.ActivationOwner? GemActivationWriter(
+        string saveNamespace, ushort skill) =>
+        _gemSourceLifetimes.ActivationWriter(saveNamespace, skill);
 
     /// <summary>The character's items: as saved, or the class's start kit (saved at once) when it has no save. A saved item
     /// the game data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>
@@ -877,7 +1084,7 @@ sealed class PlayerInventories
         lock (_lock)
         {
             if (_offered.ContainsKey(itemId) || ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } it
-                || it.Item.Sockets.Any(s => s.Gem is not null)) return null;
+                || it.Item.SkinTransferSource is not null || it.Item.Sockets.Any(s => s.Gem is not null)) return null;
             if (row == Cursor)
             {
                 var shape = shapeOf(it.Item) ?? new(1, 1, "");
@@ -1003,33 +1210,32 @@ sealed class PlayerInventories
     /// <summary>
     /// The class's opening kit from Characters.dat: its start weapon waits on the Strand's ground, while the
     /// skill and support gems are saved as pending tutorial rewards (the biting zombie and large chest).
-    /// Two Small Life Flasks (keys 1/2) and one Small Mana Flask (key 5) are available immediately.
+    /// Two Small Life Flasks (keys 1/2), one Small Mana Flask (key 5) and a stack of three Scrolls of Wisdom are
+    /// available immediately.
     /// Existing saves are loaded unchanged. Game_START_ITEMS=0 starts empty.
     /// </summary>
     static PlayerInventories StartKit(ItemCatalog catalog, string folder, int characterRow = 1)
     {
         var inv = new PlayerInventories();
         if (Environment.GetEnvironmentVariable("Game_START_ITEMS") == "0") return inv;
-        string chars = Path.Combine(folder, "tables", "Characters.json"), gems = Path.Combine(folder, "tables", "SkillGems.json");
-        if (catalog.Error is not null || !File.Exists(chars) || !File.Exists(gems))
+        if (catalog.Error is not null || !ClientTables.Has("Characters") || !ClientTables.Has("SkillGems"))
         {
             // The empty kit is saved like any other, so this character stays empty: say why.
-            Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no {chars} or {gems}"} (extract the tables and data/item-types.json first, Agents/GettingStarted.md)");
+            Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no Characters or SkillGems client table in {ClientTables.DefaultPath}"}");
             return inv;
         }
-        using var c = GameTables.Open(chars);
-        using var g = GameTables.Open(gems);
-        var row = c.RootElement[characterRow];
+        var c = ClientTables.Table("Characters");
+        var g = ClientTables.Table("SkillGems");
+        var row = c[characterRow];
         void Put(byte inventory, byte x, byte y, ItemCatalog.BaseType? t)
         {
             if (t is { Supported: true }) inv.Add(inventory, x, y, ItemCatalog.Create(t));
         }
         ItemCatalog.BaseType? Gem(string column) =>
-            row.GetProperty(column) is { ValueKind: JsonValueKind.Number } k
-                ? catalog.Row(g.RootElement[k.GetInt32()].GetProperty("BaseItemTypesKey").GetInt32()) : null;
+            row.IntOrNull(column) is int k
+                ? catalog.Row(g[k].Int("BaseItemTypesKey")) : null;
         // The start weapon with two linked white sockets (3.29: gems fit any colour), empty, for its gems.
-        if (row.GetProperty("StartWeapons").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Number } w &&
-            catalog.Row(w.GetInt32()) is { Supported: true } weapon)
+        if (row.Ints("StartWeapons") is [var w, ..] && catalog.Row(w) is { Supported: true } weapon)
         {
             var item = ItemCatalog.Create(weapon, [new(SocketColour.White), new(SocketColour.White)], [2]);
             // Pending until the character picks it up from the beach.
@@ -1041,6 +1247,9 @@ sealed class PlayerInventories
         Put(Flask, 0, 0, catalog.Find("Metadata/Items/Flasks/FlaskLife1"));
         Put(Flask, 1, 0, catalog.Find("Metadata/Items/Flasks/FlaskLife1"));
         Put(Flask, 4, 0, catalog.Find("Metadata/Items/Flasks/FlaskMana1"));
+        // Three Scrolls of Wisdom, one stack in the main inventory's first cell, to identify the first drops.
+        if (catalog.Find("Metadata/Items/Currency/CurrencyIdentification") is { Supported: true } wisdom)
+            inv.Add(MainInventory, 0, 0, ItemCatalog.Create(wisdom) with { StackSize = 3 });
         return inv;
     }
 }

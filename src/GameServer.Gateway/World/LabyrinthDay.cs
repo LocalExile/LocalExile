@@ -11,12 +11,19 @@ using GameServer.Data.Terrain.Generation;
 /// the seed is the UTC day's number since 1970, the same for every tier (<c>Game_LAB_SEED</c> overrides it), and a room's
 /// area is one of its LabyrinthAreas row's areas for the difficulty (<see cref="LabyrinthLayout.AreaPick"/>).
 /// </summary>
-static class LabyrinthDay
+public static class LabyrinthDay
 {
     static readonly ConcurrentDictionary<(uint Seed, int Difficulty), Day> Days = new();
 
     /// <summary>A built day: its layout and each node's WorldAreas Id.</summary>
     public sealed record Day(LabyrinthLayout Layout, IReadOnlyList<string?> Areas);
+
+    /// <summary>The day and difficulty selected at the plaza, with the first room's area hash.</summary>
+    public sealed record Entry(uint Seed, int Difficulty, ushort Destination);
+
+    public static Entry? EntryFor(uint seed, int difficulty) =>
+        For(seed, difficulty).Areas.FirstOrDefault() is { } first && AreaTransitionCatalog.HashOf(first) is ushort hash
+            ? new(seed, difficulty, hash) : null;
 
     /// <summary>Today's seed.</summary>
     public static uint Seed =>
@@ -73,6 +80,9 @@ static class LabyrinthDay
         public readonly HashSet<int> Revealed = [];
         // Izaro's Aspirant's Trials won (their sections' numbers, 1 …): the map's Izaro icons go.
         public readonly HashSet<int> Izaro = [];
+        // What his trials' mechanics left on him for the later ones (LabyrinthSecretEffects Ids: a statue still on, a
+        // gargoyle alive), with the trial that left it.
+        public readonly Dictionary<string, int> Carried = new(StringComparer.Ordinal);
         public int Node = -1;
         public long Number = Interlocked.Increment(ref runs);
     }
@@ -83,21 +93,22 @@ static class LabyrinthDay
 
     static int IndexOf(Day day, int row) => day.Layout.Nodes.ToList().FindIndex(n => n.Row == row);
 
-    /// <summary>The way to a room of a run from a transition: the plaza's way in starts a new run of today's Normal
-    /// Labyrinth at its first room; an exit of a run's room goes to its neighbour in the layout (the exit's
+    /// <summary>The way to a room of a run from a transition: the plaza's way in starts a new run of the selected day
+    /// and difficulty at its first room; an exit of a run's room goes to its neighbour in the layout (the exit's
     /// <paramref name="entrance"/> N: the N-th connection, else the neighbour played in the exit's area), its instance
     /// when the run has been there, else a new one at a seed the run picks, so the server knows its room.
     /// Null: not a run's way (an ordinary transfer).</summary>
     public static PendingTransfer? Transfer(string character, string fromArea, uint fromSeed, string? sourceType, ushort destination, string? destinationArea,
-        int? entrance = null)
+        int? entrance = null, Entry? entry = null)
     {
         Run? run;
         int to;
         if (fromArea == Plaza && sourceType == Entrance)
         {
-            run = Runs[character] = new Run(Seed, 1);
+            if (entry is null || entry.Destination != destination) return null;
+            run = Runs[character] = new Run(entry.Seed, entry.Difficulty);
             to = 0;
-            Console.WriteLine($"[gateway] {character}: Labyrinth run {run.Number} of day {run.Seed} starts");
+            Console.WriteLine($"[gateway] {character}: Labyrinth run {run.Number} of day {run.Seed}, difficulty {run.Difficulty}, starts");
         }
         else
         {
@@ -131,7 +142,7 @@ static class LabyrinthDay
     /// <summary>The layout index of the room an exit of room <paramref name="index"/> leads to, or -1. Two exits can lead
     /// to rooms played in the same area, so the exit's entranceN names its neighbour (the N-th connection); without one (a
     /// passage secret's way, counted after the connections) it is the neighbour played in the exit's area.</summary>
-    internal static int Neighbour(Day day, int index, string? area, int? entrance)
+    public static int Neighbour(Day day, int index, string? area, int? entrance)
     {
         var links = day.Layout.Nodes[index].Links;
         return entrance is int n && n >= 1 && n <= links.Count && links[n - 1] >= 0 && day.Areas[links[n - 1]] == area
@@ -209,15 +220,16 @@ static class LabyrinthDay
 
     /// <summary>Izaro's Aspirant's Trial in a room of today's Labyrinth (<see cref="NodeFor(string, uint)"/>): its
     /// section's number (the layout node's <see cref="LabyrinthLayout.Node.SectionEnd"/>, 1 …) of the layout's sections,
-    /// the day and difficulty, and the node's first secret (its LabyrinthSecrets row, -1: none; the arena's mechanic).
+    /// the day and difficulty, and the node's secrets (LabyrinthSecrets rows, -1: none; the first is the arena's mechanic,
+    /// a "…2" row brings an earlier trial's mechanic back).
     /// Null in any other room.</summary>
-    public static (int Number, int Of, uint Seed, int Difficulty, int Secret)? IzaroRoom(string areaId, uint instanceSeed)
+    public static (int Number, int Of, uint Seed, int Difficulty, int Secret, int Secret2)? IzaroRoom(string areaId, uint instanceSeed)
     {
         if (!areaId.Contains("_Labyrinth_boss_", StringComparison.Ordinal) || NodeFor(areaId, instanceSeed) is not { } node) return null;
         var day = For(node.Seed, node.Difficulty);
         int index = IndexOf(day, node.Row);
         return IzaroRooms(day).FirstOrDefault(r => r.Node == index) is { Number: > 0 } room
-            ? (room.Number, room.Of, node.Seed, node.Difficulty, day.Layout.Nodes[index].Secret1) : null;
+            ? (room.Number, room.Of, node.Seed, node.Difficulty, day.Layout.Nodes[index].Secret1, day.Layout.Nodes[index].Secret2) : null;
     }
 
     /// <summary>A day's Izaro rooms (each section's last, <see cref="LabyrinthLayout.Node.SectionEnd"/>): node index, the
@@ -226,6 +238,29 @@ static class LabyrinthDay
     {
         for (int i = 0; i < day.Layout.Nodes.Count; i++)
             if (day.Layout.Nodes[i].SectionEnd > 0) yield return (i, day.Layout.Nodes[i].SectionEnd, day.Layout.Sections.Count);
+    }
+
+    /// <summary>What Izaro's earlier trials of the character's run left on him (<see cref="Carry"/>), with the trial that
+    /// left each; none outside a run.</summary>
+    public static IReadOnlyList<(string Effect, int Trial)> Carried(string character)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return [];
+        lock (run) return [.. run.Carried.Select(c => (c.Key, c.Value))];
+    }
+
+    /// <summary>A trial's mechanic leaves these effects on Izaro for the run's later trials (an effect already carried
+    /// keeps the trial that first left it).</summary>
+    public static void Carry(string character, int trial, IEnumerable<string> effects)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return;
+        lock (run) foreach (string e in effects) run.Carried.TryAdd(e, trial);
+    }
+
+    /// <summary>A carried effect is gone (a gargoyle an earlier trial left was killed in a later one).</summary>
+    public static void Uncarry(string character, IEnumerable<string> effects)
+    {
+        if (!Runs.TryGetValue(character, out var run)) return;
+        lock (run) foreach (string e in effects) run.Carried.Remove(e);
     }
 
     /// <summary>The character's run has won Izaro's Aspirant's Trial of this section: the map's progress (his icon there
@@ -243,8 +278,9 @@ static class LabyrinthDay
     /// <summary>The Aspirants' Plaza: where the first room's way out (its -1 connection) leads.</summary>
     public const string Plaza = "Labyrinth_Airlock";
 
-    /// <summary>The plaza's way into the Labyrinth (the entrance tile's LabyrinthAreaTransition) and the instance state of
-    /// its door, which the Labyrinth chosen at the device (C→S 0x212) opens: the way in is shown only then.</summary>
+    /// <summary>The plaza's way into the Labyrinth (the entrance tile's LabyrinthAreaTransition) and the flag of its door,
+    /// which the Labyrinth chosen at the device (C→S 0x212) opens: the way in is shown only then. The flag is per player
+    /// (ClientState.LabyrinthEntry, read by Game.ClientHasQuestFlag); setting it on the instance does nothing.</summary>
     public const string Entrance = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAreaTransition";
     public static readonly string PlazaDoorOpen = Quests.InstanceFlag("PlazaDoor");
 

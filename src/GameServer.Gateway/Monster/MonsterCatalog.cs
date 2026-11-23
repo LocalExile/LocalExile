@@ -1,26 +1,55 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The monsters /spawn_mob can create: MonsterVarieties rows from the extracted tables
-/// (data/tables/MonsterVarieties.json, Agents/GettingStarted.md "Extracting the game's data tables"), with each type's
+/// (the MonsterVarieties client table), with each type's
 /// deserialized components from data/object-types.json (`python -I scripts/re/ot_components.py --all --json
 /// data/object-types.json`). Without that file every variety is assumed to have the base Monster list, which is wrong
 /// for about half of them (StateMachine, DiesAfterTime …) and then the client shows "Buffer Underflow".
-/// Both files are game data: they stay in data/ and are loaded on first use.
+/// Both files are game data: they stay in data/ and are read when the catalog is made.
 /// </summary>
-sealed class MonsterCatalog(string folder = "data")
+public sealed class MonsterCatalog
 {
+    readonly string folder;
+
+    public MonsterCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        _resistance = new(folder);
+        _rows = Load(folder);
+        _life = LifeTables.Load(folder);
+        _mapBoss = MapBossScalingTable.Load(folder);
+        _takeHit = LoadTakeHit();
+        _corpse = LoadCorpse();
+        _degenDeath = LoadDegenDeath();
+    }
+
     public sealed record Variety(int Row, string Id, string Name, string BaseType, string? AnimatedObject, IReadOnlyList<string>? Components,
         int LifeMultiplier = 100, int MonsterType = -1, StateMachineData? StateMachine = null, byte TransitionStates = 1,
         int MovementSpeed = 30, int ObjectSize = 3, int AggroRange = 60, IReadOnlyList<int>? GrantedEffects = null,
-        int AttackMs = 1500, int AttackRange = 8, int DamageMultiplier = 100, int ExperienceMultiplier = 100, bool BossHealthBar = false)
+        int AttackMs = 1500, int AttackRange = 8, int DamageMultiplier = 100, int ExperienceMultiplier = 100,
+        bool BossHealthBar = false, IReadOnlyList<int>? SpeciesMods = null)
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
+        /// <summary>What its row says it holds (Weapon1, Weapon2: the first of each, with the MainHand and OffHand classes), as
+        /// the Inventories component lists it. Only an encounter that passes it on sends it (Izaro's).</summary>
+        public IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons { get; init; } = [];
         /// <summary>Native Positioned.blocking, independent of targetability. Missing optional metadata retains
         /// the earlier living-body assumption; the extracted resolved type supplies explicit false values.</summary>
         public bool PositionedBlocking { get; init; } = true;
+        /// <summary>The type's Stats set_phase_through_objects (object-types.json "phases"): the client's Pathfinding
+        /// phases for it, so it is no body to any other walker and no living body stops it (Maven's orbs).</summary>
+        public bool Phases { get; init; }
+        /// <summary>The type's Pathfinding immobile (object-types.json "immobile"): the client never walks it. A Move's
+        /// 0x1ab only puts it on the order's from cell (no path search, no step: a unique Maven's orb, traced
+        /// 2026-11-10), so it gets no chase, like a variety with MovementSpeed 0.</summary>
+        public bool Immobile { get; init; }
+        /// <summary>The resolved Actor resource's slow_animations_go_to_idle flag. Null for legacy or incomplete
+        /// metadata, or varieties with addon types whose Actor overrides are not resolved here.</summary>
+        public bool? SlowAnimationsGoToIdle { get; init; }
         /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
         public ushort Hash16 { get; init; }
         /// <summary>
@@ -34,17 +63,19 @@ sealed class MonsterCatalog(string folder = "data")
         /// <c>use_scaled_contact_offset</c> scales its release offset with it.</summary>
         public double ModelScale { get; init; } = 1;
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
+        /// <summary>Mods.dat rows owned by this MonsterVarieties row (ModsKeys, ModsKeys2 and Special_ModsKeys).</summary>
+        public IReadOnlyList<int> SpeciesModsOrEmpty => SpeciesMods ?? [];
         public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
 
-    private readonly Lazy<(List<Variety> Rows, string? Error)> _rows = new(() => Load(folder));
-    private readonly Lazy<LifeTables?> _life = new(() => LifeTables.Load(folder));
-    private readonly Lazy<MapBossScalingTable?> _mapBoss = new(() => MapBossScalingTable.Load(folder));
-    private readonly MonsterResistanceCatalog _resistance = new(folder);
-    private readonly Lazy<Dictionary<string, HitAnimation[]>> _takeHit = new(() => LoadTakeHit(folder));
+    private readonly (List<Variety> Rows, string? Error) _rows;
+    private readonly LifeTables? _life;
+    private readonly MapBossScalingTable? _mapBoss;
+    private readonly MonsterResistanceCatalog _resistance;
+    private readonly Dictionary<string, HitAnimation[]> _takeHit;
 
-    public string? Error => _rows.Value.Error;
+    public string? Error => _rows.Error;
 
     /// <summary>The variety's elemental/chaos base resistance at this level, before spawned monster modifiers.</summary>
     public int? BaseResistance(Variety variety, int level, GameServer.Core.World.DamageType type) =>
@@ -60,27 +91,52 @@ sealed class MonsterCatalog(string folder = "data")
     /// row (the monster then just does not flinch). A clip without a length (a file from before "lengths") has 0 s, so
     /// the 0.4 s minimum applies.
     /// </summary>
-    public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.Value.GetValueOrDefault(id) ?? [];
+    public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.GetValueOrDefault(id) ?? [];
 
-    static Dictionary<string, HitAnimation[]> LoadTakeHit(string folder)
+    /// <summary>Nothing left to build: the constructor reads the life tables and the take-hit animations. Kept for the game
+    /// module's startup warm-up.</summary>
+    public void Warm() { }
+
+    /// <summary>
+    /// When the variety's death clip clears the corpse's body from the client's paths, in ms from the clip's start (its
+    /// remove_collidability event; client.db's monster_takehit death_unblock), null when it has none: the client then
+    /// clears the body with the death itself. 150 without the table (most varieties' value).
+    /// </summary>
+    public int? CorpseUnblockMs(string id) => _corpse is { } known ? known.GetValueOrDefault(id) : 150;
+
+    private readonly Dictionary<string, int?>? _corpse;
+
+    /// <summary>The variety's DeathFromDegen clip clears the body at another time than its Death clip (client.db's
+    /// monster_takehit death_unblockByKind_DeathFromDegen: five Faridun Flesh Hulks, 166 ms against 150).</summary>
+    public bool DegenDeathClipDiffers(string id) => _degenDeath.Contains(id);
+
+    private readonly HashSet<string> _degenDeath;
+
+    static HashSet<string> LoadDegenDeath() =>
+        [.. ClientTables.TableOrEmpty("monster_takehit").Where(r => !r.IsNull("death_unblockByKind_DeathFromDegen"))
+            .Select(r => r.Text("variety")!)];
+
+    static Dictionary<string, int?>? LoadCorpse()
     {
-        string path = Path.Combine(folder, "monster-takehit.json");
-        if (!File.Exists(path)) return [];
-        using var doc = GameTables.Open(path);
+        if (ClientTables.TableOrNull("monster_takehit") is not { } table) return null;
+        Dictionary<string, int?>? result = null;
+        foreach (var r in table)
+            if (!r.IsNull("death_clips")) (result ??= [])[r.Text("variety")!] = r.IntOrNull("death_unblock");
+        return result;
+    }
+
+    static Dictionary<string, HitAnimation[]> LoadTakeHit()
+    {
         var result = new Dictionary<string, HitAnimation[]>();
-        foreach (var p in doc.RootElement.EnumerateObject())
+        foreach (var r in ClientTables.TableOrEmpty("monster_takehit"))
         {
             // "lengths" (ms) runs parallel to "indexes".
-            JsonElement[] lengths = p.Value.TryGetProperty("lengths", out var l) && l.ValueKind == JsonValueKind.Array
-                ? [.. l.EnumerateArray()] : [];
-            double Seconds(int i) =>
-                i < lengths.Length && lengths[i].ValueKind == JsonValueKind.Number ? lengths[i].GetDouble() / 1000 : 0;
-            if (p.Value.TryGetProperty("indexes", out var list) && list.ValueKind == JsonValueKind.Array)
-                result[p.Name] = [.. list.EnumerateArray().Select((e, i) => (e, i))
-                    .Where(x => x.e.ValueKind == JsonValueKind.Number)
-                    .Select(x => new HitAnimation(x.e.GetInt32(), Seconds(x.i)))];
-            else if (p.Value.TryGetProperty("index", out var one) && one.ValueKind == JsonValueKind.Number)
-                result[p.Name] = [new HitAnimation(one.GetInt32(), Seconds(0))];
+            double[] lengths = r.Reals("lengths");
+            double Seconds(int i) => i < lengths.Length ? lengths[i] / 1000 : 0;
+            if (!r.IsNull("indexes"))
+                result[r.Text("variety")!] = [.. r.Ints("indexes").Select((e, i) => new HitAnimation(e, Seconds(i)))];
+            else if (r.IntOrNull("index") is int one)
+                result[r.Text("variety")!] = [new HitAnimation(one, Seconds(0))];
         }
         return result;
     }
@@ -93,7 +149,7 @@ sealed class MonsterCatalog(string folder = "data")
     /// </summary>
     public int? BaseLife(Variety v, byte level)
     {
-        if (_life.Value is not { } t || level < 1 || level > t.Levels.Count) return null;
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
         var row = t.Levels[level - 1];
         var type = v.MonsterType >= 0 && v.MonsterType < t.Types.Count ? t.Types[v.MonsterType] : default;
         int column = type.AltLife1 ? row.AltLife1 : type.AltLife2 ? row.AltLife2 : type.Minion ? row.MinionLife : row.MonsterLife;
@@ -125,7 +181,7 @@ sealed class MonsterCatalog(string folder = "data")
     /// </summary>
     public (int Min, int Max)? BaseDamage(Variety v, byte level)
     {
-        if (_life.Value is not { } t || level < 1 || level > t.Levels.Count) return null;
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
         var type = v.MonsterType >= 0 && v.MonsterType < t.Types.Count ? t.Types[v.MonsterType] : default;
         var row = t.Levels[level - 1];
         double d = (type.Minion ? row.MinionDamage : row.Damage) * v.DamageMultiplier / 100.0 * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
@@ -153,26 +209,26 @@ sealed class MonsterCatalog(string folder = "data")
     /// level penalty (Progression.MonsterExperience): DefaultMonsterStats row level − 1 `Experience`. Null when the
     /// tables are missing.</summary>
     public int? BaseExperience(Variety v, byte level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Experience : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Experience : null;
 
     /// <summary>A normal monster's damage at this level, before a variety's multiplier: DefaultMonsterStats `Damage`.
     /// Used by the defence probe; the actual hit spread is in <see cref="BaseDamage(Variety, byte)"/>.</summary>
     public int? BaseDamage(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? (int)Math.Round(t.Levels[level - 1].Damage) : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? (int)Math.Round(t.Levels[level - 1].Damage) : null;
 
     /// <summary>A monster's accuracy at this level: DefaultMonsterStats `Accuracy`.</summary>
     public int? BaseAccuracy(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Accuracy : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Accuracy : null;
 
     /// <summary>A monster's evasion rating at this level: DefaultMonsterStats `Evasion` (the same table PoB uses for
     /// <c>monsterEvasionTable</c>). Null when the tables are missing.</summary>
     public int? BaseEvasion(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Evasion : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Evasion : null;
 
     /// <summary>The evasion of an evasive (high-dexterity) monster at this level: DefaultMonsterStats `EvasiveEvasion`.
     /// The character panel's "Chance to Hit Evasive Monsters" row uses it.</summary>
     public int? BaseEvasiveEvasion(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].EvasiveEvasion : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].EvasiveEvasion : null;
 
     /// <summary>
     /// The life and damage a unique map boss has more than its base life and hit at this map level: MonsterMapBossDifficulty
@@ -181,7 +237,7 @@ sealed class MonsterCatalog(string folder = "data")
     /// life). Poedb's level-83 King in the Mists life (45,614,731) is this multiplier over 15,319 x 18 x 7.98.
     /// </summary>
     public (double Life, double Damage) MapBossScaling(int level) =>
-        _mapBoss.Value is { } s && level >= 1 && level < s.BossLife.Length
+        _mapBoss is { } s && level >= 1 && level < s.BossLife.Length
             ? (1 + (s.BossLife[level] + s.MapLife[level]) / 100.0,
                1 + (s.BossDamage[level] + s.MapDamage[level]) / 100.0)
             : (1, 1);
@@ -190,17 +246,15 @@ sealed class MonsterCatalog(string folder = "data")
     {
         public static MapBossScalingTable? Load(string folder)
         {
-            string boss = Path.Combine(folder, "tables", "MonsterMapBossDifficulty.json"),
-                map = Path.Combine(folder, "tables", "MonsterMapDifficulty.json");
-            if (!File.Exists(boss) || !File.Exists(map)) return null;
-            using var b = JsonDocument.Parse(File.ReadAllBytes(boss));
-            using var m = JsonDocument.Parse(File.ReadAllBytes(map));
-            var bossRows = b.RootElement.EnumerateArray()
-                .Select(r => (Level: r.GetProperty("MapLevel").GetInt32(), Life: r.GetProperty("BossLifePercentIncrease").GetDouble(),
-                    Damage: r.GetProperty("BossDamagePercentIncrease").GetDouble())).ToArray();
-            var mapRows = m.RootElement.EnumerateArray()
-                .Select(r => (Level: r.GetProperty("MapLevel").GetInt32(), Life: r.GetProperty("LifePercentIncrease").GetDouble(),
-                    Damage: r.GetProperty("DamagePercentIncrease").GetDouble())).ToArray();
+            if (!ClientTables.Has("MonsterMapBossDifficulty") || !ClientTables.Has("MonsterMapDifficulty")) return null;
+            var b = ClientTables.Table("MonsterMapBossDifficulty");
+            var m = ClientTables.Table("MonsterMapDifficulty");
+            var bossRows = b
+                .Select(r => (Level: r.Int("MapLevel"), Life: r.Real("BossLifePercentIncrease"),
+                    Damage: r.Real("BossDamagePercentIncrease"))).ToArray();
+            var mapRows = m
+                .Select(r => (Level: r.Int("MapLevel"), Life: r.Real("LifePercentIncrease"),
+                    Damage: r.Real("DamagePercentIncrease"))).ToArray();
             int size = Math.Max(bossRows.Max(r => r.Level), mapRows.Max(r => r.Level)) + 1;
             var result = new MapBossScalingTable(new double[size], new double[size], new double[size], new double[size]);
             foreach (var r in bossRows) if (r.Level >= 0 && r.Level < size) { result.BossLife[r.Level] = r.Life; result.BossDamage[r.Level] = r.Damage; }
@@ -215,30 +269,29 @@ sealed class MonsterCatalog(string folder = "data")
     {
         public static LifeTables? Load(string folder)
         {
-            string stats = Path.Combine(folder, "tables", "DefaultMonsterStats.json"), types = Path.Combine(folder, "tables", "MonsterTypes.json");
-            if (!File.Exists(stats) || !File.Exists(types)) return null;
-            using var s = JsonDocument.Parse(File.ReadAllBytes(stats));
-            using var t = JsonDocument.Parse(File.ReadAllBytes(types));
+            if (!ClientTables.Has("DefaultMonsterStats") || !ClientTables.Has("MonsterTypes")) return null;
+            var s = ClientTables.Table("DefaultMonsterStats");
+            var t = ClientTables.Table("MonsterTypes");
             return new LifeTables(
-                [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("MonsterLife").GetInt32(), r.GetProperty("MinionLife").GetInt32(),
-                    r.GetProperty("AltLife1").GetInt32(), r.GetProperty("AltLife2").GetInt32(), r.GetProperty("Damage").GetDouble(),
-                    r.GetProperty("Experience").GetInt32(), r.GetProperty("Accuracy").GetInt32(), r.GetProperty("Evasion").GetInt32(),
-                    r.GetProperty("EvasiveEvasion").GetInt32(), r.GetProperty("MinionDamage").GetDouble()))],
-                [.. t.RootElement.EnumerateArray().Select(r => (r.GetProperty("IsPlayerMinion").GetBoolean(), r.GetProperty("AltLife1").GetBoolean(),
-                    r.GetProperty("AltLife2").GetBoolean(),
-                    r.TryGetProperty("DamageSpread", out var spread) && spread.ValueKind == JsonValueKind.Number ? spread.GetInt32() : 0,
-                    r.TryGetProperty("BaseDamageIgnoresAttackSpeed", out var ignores) && ignores.ValueKind == JsonValueKind.True))]);
+                [.. s.Select(r => (r.Int("MonsterLife"), r.Int("MinionLife"),
+                    r.Int("AltLife1"), r.Int("AltLife2"), r.Real("Damage"),
+                    r.Int("Experience"), r.Int("Accuracy"), r.Int("Evasion"),
+                    r.Int("EvasiveEvasion"), r.Real("MinionDamage")))],
+                [.. t.Select(r => (r.Bool("IsPlayerMinion"), r.Bool("AltLife1"),
+                    r.Bool("AltLife2"),
+                    (r.IntOrNull("DamageSpread") ?? 0),
+                    r.BoolOrNull("BaseDamageIgnoresAttackSpeed") == true))]);
         }
     }
 
     /// <summary>A MonsterVarieties row by number, or by Id: exact, then the last path segment, then any part of it,
     /// then the display name. Several matches: the first one the blob writer supports.</summary>
     /// <summary>Every MonsterVarieties row (the launcher's suggestions).</summary>
-    public IReadOnlyList<Variety> All => _rows.Value.Rows;
+    public IReadOnlyList<Variety> All => _rows.Rows;
 
     public Variety? Find(string query)
     {
-        var rows = _rows.Value.Rows;
+        var rows = _rows.Rows;
         if (int.TryParse(query, out int row)) return row >= 0 && row < rows.Count ? rows[row] : null;
         foreach (Func<Variety, bool> match in new Func<Variety, bool>[]
         {
@@ -256,75 +309,122 @@ sealed class MonsterCatalog(string folder = "data")
 
     private static (List<Variety>, string?) Load(string folder)
     {
-        string varieties = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!File.Exists(varieties)) return ([], $"{varieties} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Has("MonsterVarieties")) return ([], $"the MonsterVarieties client table is missing from {ClientTables.DefaultPath}");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
+        var chains = new Dictionary<string, string[]>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
         var blocking = new Dictionary<string, bool>();
-        string types = Path.Combine(folder, "object-types.json");
-        if (File.Exists(types))
+        var phasing = new HashSet<string>();
+        var immobile = new HashSet<string>();
+        var idleSlowAnimations = new Dictionary<string, bool?>();
+        if (ClientTables.TableOrNull("object_types") is { } objectTypes)
         {
-            using var doc = GameTables.Open(types);
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
+            var sharedStates = ObjectTypes.SharedStates();
+            foreach (var t in objectTypes)
             {
-                int read = t.GetProperty("read").GetInt32();
-                string type = t.GetProperty("type").GetString()!;
-                components[type] = [.. t.GetProperty("components").EnumerateArray().Take(read).Select(c => c.GetString()!)];
-                if (t.TryGetProperty("positioned", out var positioned) && positioned.ValueKind == JsonValueKind.Object
-                    && positioned.TryGetProperty("blocking", out var block))
-                {
-                    if (block.ValueKind is JsonValueKind.True or JsonValueKind.False) blocking[type] = block.GetBoolean();
-                    else if (block.ValueKind == JsonValueKind.String && bool.TryParse(block.GetString(), out bool value)) blocking[type] = value;
-                }
-                // Files generated before the StateMachine data have no "shared_states": those types stay unsupported.
-                if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
-                    stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
-                        [.. ss.EnumerateArray().Select(e => e[0].GetString() ?? "")]);
-                if (t.TryGetProperty("transitionable", out var tr) && tr.TryGetProperty("num_states", out var ns))
-                    transitionStates[type] = (byte)Math.Clamp(ns.GetInt32(), 1, 127);
-                if (t.TryGetProperty("life", out var life) && life.ValueKind == JsonValueKind.Object)
-                {
-                    bool? Flag(string name) => life.TryGetProperty(name, out var value)
-                        && value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean() : null;
-                    lifeData[type] = new(Flag("corpse_usable"), Flag("prevent_corpse_sinking"), Flag("corpse_use_veto"));
-                }
+                string type = t.Text("type")!;
+                components[type] = ObjectTypes.Components(t);
+                chains[type] = t.Texts("chain");
+                if (ObjectTypes.Flag(t, "positioned_blocking") is bool block) blocking[type] = block;
+                if (t.BoolOrNull("phases") == true) phasing.Add(type);
+                if (t.BoolOrNull("immobile") == true) immobile.Add(type);
+                idleSlowAnimations[type] = t.BoolOrNull("actor_slow_animations_go_to_idle");
+                // Data generated before the StateMachine data has no shared timers: those types stay unsupported.
+                if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
+                if (t.IntOrNull("transitionable_num_states") is int numStates)
+                    transitionStates[type] = (byte)Math.Clamp(numStates, 1, 127);
+                // A type with Life has its three flags; one without has none.
+                if (!t.IsNull("life_corpse_usable") || !t.IsNull("life_prevent_corpse_sinking") || !t.IsNull("life_corpse_use_veto"))
+                    lifeData[type] = new(t.BoolOrNull("life_corpse_usable"), t.BoolOrNull("life_prevent_corpse_sinking"),
+                        t.BoolOrNull("life_corpse_use_veto"));
             }
         }
         var rangedVisuals = RangedWeaponVisuals(folder);
-        bool RangedWeapon(JsonElement row) => new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }
-            .Any(name => row.TryGetProperty(name, out var values) && values.ValueKind == JsonValueKind.Array
-                && values.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.Number && rangedVisuals.Contains(value.GetInt32())));
-        static int Column(JsonElement row, string name) =>
-            row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
-        var rows = new List<Variety>();
-        using (var doc = GameTables.Open(varieties))
+        // Its art is a base bow's or wand's, or its main hand is of those classes: a unique's art is no base item's
+        // (Ainsley Varrich's Windripper, UniqueBow9), and his Default Attack and Elemental Hit swung in melee with no arrow.
+        var rangedClasses = ClientTables.Has("ItemClasses")
+            ? ClientTables.Table("ItemClasses").Select((r, i) => (Id: r.Text("Id"), i)).Where(p => p.Id is "Bow" or "Wand").Select(p => p.i).ToHashSet()
+            : new HashSet<int>();
+        bool RangedWeapon(ClientRow row) => row.IntOrNull("MainHand_ItemClassesKey") is int hand && rangedClasses.Contains(hand)
+            || new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }.Any(name => row.Ints(name).Any(rangedVisuals.Contains));
+        static int Column(ClientRow row, string name) =>
+            (row.IntOrNull(name) ?? 0);
+        var (visualHashes, classStances) = WeaponTables();
+        // The ItemClasses row of bows, and the type and stance of a model entry that is no weapon (as Game.BowSetup's).
+        int bowClass = ClientTables.Has("ItemClasses")
+            ? ClientTables.Table("ItemClasses").Select(r => r.Text("Id")).ToList().IndexOf("Bow") : -1;
+        const byte NoWeaponType = 0x68, NoStance = 0xff;
+        IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
         {
-            foreach (var r in doc.RootElement.EnumerateArray())
+            var held = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
+            void Hold(byte slot, string visuals, string itemClass)
             {
-                string id = r.GetProperty("Id").GetString() ?? "";
-                string baseType = r.GetProperty("BaseMonsterTypeIndex").GetString() ?? "";
+                int visual = row.Ints(visuals).FirstOrDefault(-1);
+                if (visual < 0 || row.IntOrNull(itemClass) is not int type) return;
+                if (visual < visualHashes.Count && type < classStances.Count && type < 255)
+                    held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
+            }
+            Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
+            // A bow is held as a player's is (13-items.md "Bow model records"): the row's Weapon1 is the arrow in the
+            // right hand (slot 0, the Bow type and stance), its Weapon2 the bow in the left (slot 1), its Back the quiver
+            // (slot 7), both of those no weapon (0x68) and no stance. The row names no off-hand class for it: every one
+            // of the 518 bow varieties lists the arrow first and the bow second (Ainsley Varrich held only an arrow).
+            if (bowClass >= 0 && row.IntOrNull("MainHand_ItemClassesKey") == bowClass && row.IsNull("OffHand_ItemClassesKey"))
+            {
+                void Worn(byte slot, int visual)
+                {
+                    if (visual >= 0 && visual < visualHashes.Count) held.Add(new(slot, visualHashes[visual], NoStance, NoWeaponType));
+                }
+                Worn(1, row.Ints("Weapon2_ItemVisualIdentityKeys").FirstOrDefault(-1));
+                Worn(7, row.IntOrNull("Back_ItemVisualIdentityKey") ?? -1);
+            }
+            else Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+            return held;
+        }
+        var rows = new List<Variety>();
+        var varieties = ClientTables.Table("MonsterVarieties");
+        {
+            foreach (var r in varieties)
+            {
+                string id = r.Text("Id") ?? "";
+                string baseType = r.Text("BaseMonsterTypeIndex") ?? "";
                 // The .ot the client builds the object from: a type file under the variety's own Id when there is one
                 // (Metadata/Monsters/KitavaBoss/KitavaFinal.ot, whose base column names Kitava1), else the base type. With
                 // Kitava1's list, KitavaFinal got a Transitionable byte its own type does not read, which the client took
                 // for the task count: "Buffer Underflow" (live 2026-10-30). 17 varieties serialise differently that way.
                 string type = components.ContainsKey(id) ? id : baseType;
-                string? ao = r.GetProperty("AOFiles").EnumerateArray().Select(a => a.GetString()).FirstOrDefault();
-                rows.Add(new Variety(rows.Count, id, r.GetProperty("Name").GetString() ?? "", baseType, ao,
+                string? ao = r.Texts("AOFiles").FirstOrDefault();
+                // The add-on types (AddonMonsterTypeIndex) join the client's type after the base: their shared states and
+                // timers follow the base's in the StateMachine data. Without them a Coconut Crab (add-on
+                // DeepwaterBaseWaveOnly: state size, timer despawn) gave "Buffer Underflow" (live 2026-11-19, the client
+                // read wave_monster, size and one timer). Add-on components are not merged (not traced). An add-on the type
+                // already inherits adds nothing (Abberath2Gauntlet lists itself).
+                var machine = stateMachines.GetValueOrDefault(type);
+                var chain = chains.GetValueOrDefault(type) ?? [];
+                foreach (string addon in r.Texts("AddonMonsterTypeIndex"))
+                    if (machine is not null && addon != type && !chain.Contains(addon) && stateMachines.GetValueOrDefault(addon) is { } extra)
+                        machine = new StateMachineData([.. machine.SharedStates, .. extra.SharedStates], machine.SharedTimers + extra.SharedTimers,
+                            [.. machine.Names ?? machine.SharedStates.Select(_ => ""), .. extra.Names ?? extra.SharedStates.Select(_ => "")]);
+                int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
+                    .SelectMany(r.Ints)
+                    .Distinct().ToArray();
+                rows.Add(new Variety(rows.Count, id, r.Text("Name") ?? "", baseType, ao,
                     components.Count == 0 ? null : components.GetValueOrDefault(type),
-                    r.GetProperty("LifeMultiplier").GetInt32(),
-                    r.GetProperty("MonsterTypesKey").ValueKind == JsonValueKind.Number ? r.GetProperty("MonsterTypesKey").GetInt32() : -1,
-                    stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
-                    r.GetProperty("MovementSpeed").GetInt32(), r.GetProperty("ObjectSize").GetInt32(), r.GetProperty("MaxAgroRange").GetInt32(),
-                    [.. r.GetProperty("GrantedEffectsKeys").EnumerateArray().Select(e => e.GetInt32())],
-                    r.GetProperty("AttackSpeed").GetInt32(), r.GetProperty("MaximumAttackDistance").GetInt32(),
-                    r.GetProperty("DamageMultiplier").GetInt32(), r.GetProperty("ExperienceMultiplier").GetInt32(),
-                    r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
+                    r.Int("LifeMultiplier"),
+                    !r.IsNull("MonsterTypesKey") ? r.Int("MonsterTypesKey") : -1,
+                    machine, transitionStates.GetValueOrDefault(type, (byte)1),
+                    r.Int("MovementSpeed"), r.Int("ObjectSize"), r.Int("MaxAgroRange"),
+                    [.. r.Ints("GrantedEffectsKeys")],
+                    r.Int("AttackSpeed"), r.Int("MaximumAttackDistance"),
+                    r.Int("DamageMultiplier"), r.Int("ExperienceMultiplier"),
+                    r.BoolOrNull("BossHealthBar") == true, speciesMods)
                     {
-                        LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
-                        PositionedBlocking = blocking.GetValueOrDefault(type, true),
-                        Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
+                        LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
+                        PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
+                        SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
+                        Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
                     });
@@ -336,19 +436,24 @@ sealed class MonsterCatalog(string folder = "data")
         return (rows, null);
     }
 
+    // ItemVisualIdentity HASH16 by row and ItemClasses ItemStance by row (0xff without one).
+    static (List<ushort> Visuals, List<byte> Stances) WeaponTables()
+    {
+        if (!ClientTables.Has("ItemVisualIdentity") || !ClientTables.Has("ItemClasses")) return ([], []);
+        return ([.. ClientTables.Table("ItemVisualIdentity").Select(r => (ushort)r.Int("HASH16"))],
+            [.. ClientTables.Table("ItemClasses").Select(r => r.IntOrNull("ItemStance") is int s ? (byte)s : (byte)0xff)]);
+    }
+
     static HashSet<int> RangedWeaponVisuals(string folder)
     {
-        string classes = Path.Combine(folder, "tables", "ItemClasses.json");
-        string bases = Path.Combine(folder, "tables", "BaseItemTypes.json");
-        if (!File.Exists(classes) || !File.Exists(bases)) return [];
-        using var c = GameTables.Open(classes);
-        using var b = GameTables.Open(bases);
-        var rangedClasses = c.RootElement.EnumerateArray().Select((row, index) => (row, index))
-            .Where(p => p.row.GetProperty("Id").GetString() is "Bow" or "Wand").Select(p => p.index).ToHashSet();
-        return b.RootElement.EnumerateArray()
-            .Where(row => row.TryGetProperty("ItemClassesKey", out var k) && k.ValueKind == JsonValueKind.Number
-                && rangedClasses.Contains(k.GetInt32()) && row.TryGetProperty("ItemVisualIdentity", out var v)
-                && v.ValueKind == JsonValueKind.Number)
-            .Select(row => row.GetProperty("ItemVisualIdentity").GetInt32()).ToHashSet();
+        if (!ClientTables.Has("ItemClasses") || !ClientTables.Has("BaseItemTypes")) return [];
+        var c = ClientTables.Table("ItemClasses");
+        var b = ClientTables.Table("BaseItemTypes");
+        var rangedClasses = c.Select((row, index) => (row, index))
+            .Where(p => p.row.Text("Id") is "Bow" or "Wand").Select(p => p.index).ToHashSet();
+        return b
+            .Where(row => row.IntOrNull("ItemClassesKey") is int k && rangedClasses.Contains(k)
+                && !row.IsNull("ItemVisualIdentity"))
+            .Select(row => row.Int("ItemVisualIdentity")).ToHashSet();
     }
 }

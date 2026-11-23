@@ -6,9 +6,20 @@ using GameServer.Core.Protocol.Instance;
 /// logouts and disconnects; it is wiped, like Auth's instance, once no connection has been in it for the lifetime
 /// (<c>InstanceRegistry.Lifetime</c>). Agents/docs/protocol/13-items.md §5.
 /// </summary>
-sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
+public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 {
     readonly Dictionary<(ulong Id, long Created, string? SoloOwner), InstanceState> _instances = [];
+
+    public InstanceState[] Snapshot()
+    {
+        lock (_instances) return [.. _instances.Values];
+    }
+
+    /// <summary>Reads a retained instance without admitting another connection.</summary>
+    public InstanceState? Find(ulong id, long created, string? soloOwner = null)
+    {
+        lock (_instances) return _instances.GetValueOrDefault((id, created, soloOwner?.ToUpperInvariant()));
+    }
 
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
     public InstanceState Enter(ulong id, long created, string? soloOwner = null)
@@ -42,27 +53,84 @@ sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
     }
 }
 
-sealed partial class InstanceState
+public sealed partial class InstanceState
 {
+    /// <summary>Encounter snapshots as text, owned by this instance rather than a reloadable assembly. Not character saves.</summary>
+    public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ContentState = new(StringComparer.Ordinal);
+
+    MapDevice.Run? _map;
+
+    /// <summary>The map this instance was opened with, or null outside a map: its level, mods and owner for population,
+    /// monsters, drops and every later entry.</summary>
+    public MapDevice.Run? Map => Volatile.Read(ref _map);
+
+    /// <summary>The first connection that brings a map fixes it (<see cref="Map"/>); later ones keep that one.</summary>
+    public MapDevice.Run? OpenedWith(MapDevice.Run? run)
+    {
+        if (run is not null) Interlocked.CompareExchange(ref _map, run, null);
+        return Map;
+    }
+
+    readonly Lock _areaStatsGate = new();
+    IReadOnlyDictionary<uint, int>? _areaStats;
+
+    /// <summary>The area stats the instance is played with (InstanceEvents.AreaStats), composed by its first connection and
+    /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
+    public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
+    {
+        lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
+    }
+
+    int? _leagueCategory;
+
+    /// <summary>The league category the instance is played in (InstanceEvents.LeagueCategory), composed by its first
+    /// connection and kept with <see cref="AreaStats"/>: the seed and the generated level depend on it.</summary>
+    public int LeagueCategory(Func<int> compose)
+    {
+        lock (_areaStatsGate) return _leagueCategory ??= compose();
+    }
+
+    IReadOnlyList<(ushort Plugin, byte[] State)>? _terrainPluginStates;
+
+    /// <summary>The terrain plugin states the instance is played with (InstanceEvents.TerrainPluginStates), composed by its
+    /// first connection and kept with <see cref="AreaStats"/>: a party member gets the same level.</summary>
+    public IReadOnlyList<(ushort Plugin, byte[] State)> TerrainPluginStates(Func<IReadOnlyList<(ushort Plugin, byte[] State)>> compose)
+    {
+        lock (_areaStatsGate) return _terrainPluginStates ??= compose();
+    }
+
+    /// <summary>The instance is played without terrain plugin states from now on (0x1d carries other extra data).</summary>
+    public void DropTerrainPluginStates()
+    {
+        lock (_areaStatsGate) _terrainPluginStates = [];
+    }
+
+    /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
+    public IReadOnlyDictionary<uint, int>? KeptAreaStats
+    {
+        get { lock (_areaStatsGate) return _areaStats; }
+    }
+
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
     public InstanceWorld World { get; } = new();
     /// <summary>The living monsters as the last connection left them (issue #12), or null before the first connection
     /// placed the area's packs.</summary>
     public volatile List<SavedMonster>? Monsters;
-    internal int Connections;
-    internal DateTimeOffset? EmptySince;
+    public int Connections;
+    public DateTimeOffset? EmptySince;
     readonly Dictionary<string, (uint Id, Item Weapon)> _startWeapons = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Puts a character's start weapon (<see cref="PlayerInventories.StartWeapon"/>) on this instance's ground
     /// once: its ground id, or null when this weapon was put here before (it is still on the ground, or was picked up).
-    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too.</summary>
-    public uint? PlaceStartWeapon(string character, WorldItemObject weapon)
+    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too. <paramref name="by"/> is the
+    /// connection it is for: an unshared ground item is shown only to the one that owns it.</summary>
+    public uint? PlaceStartWeapon(string character, WorldItemObject weapon, object? by = null)
     {
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(character, out var placed) && ReferenceEquals(placed.Weapon, weapon.Item)) return null;
-            uint id = Ground.Add(weapon, null, shared: false, justDropped: false);
+            uint id = Ground.Add(weapon, by, shared: false, justDropped: false);
             _startWeapons[character] = (id, weapon.Item);
             return id;
         }
@@ -72,6 +140,19 @@ sealed partial class InstanceState
     public bool IsStartWeapon(string character, uint id)
     {
         lock (_startWeapons) return _startWeapons.TryGetValue(character, out var placed) && placed.Id == id;
+    }
+
+    readonly Dictionary<string, (int X, int Y)> _positions = new(StringComparer.Ordinal);
+
+    /// <summary>Remembers a rule's first position in this instance, including across connection and module reloads.</summary>
+    public void RememberPosition(string key, (int X, int Y) position)
+    {
+        lock (_positions) _positions.TryAdd(key, position);
+    }
+
+    public (int X, int Y)? RememberedPosition(string key)
+    {
+        lock (_positions) return _positions.TryGetValue(key, out var position) ? position : null;
     }
 
     readonly HashSet<string> _states = new(StringComparer.Ordinal);
@@ -94,17 +175,21 @@ sealed partial class InstanceState
         lock (_states) return _states.Contains(state);
     }
 
-    readonly HashSet<(int X, int Y)> _openedChests = [];
+    readonly HashSet<(int X, int Y, string? Owner)> _openedChests = [];
 
     /// <summary>Opens the quest chest standing at this cell (a Rhoa Nest): true the first time in this instance.</summary>
-    public bool OpenChest(int x, int y)
+    public bool OpenChest(int x, int y) => OpenChest(x, y, null);
+
+    public bool OpenChest(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Add((x, y));
+        lock (_openedChests) return _openedChests.Add((x, y, owner));
     }
 
-    public bool ChestOpened(int x, int y)
+    public bool ChestOpened(int x, int y) => ChestOpened(x, y, null);
+
+    public bool ChestOpened(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Contains((x, y));
+        lock (_openedChests) return _openedChests.Contains((x, y, owner));
     }
 
     readonly HashSet<(string Type, int X, int Y)> _transitioned = [];
@@ -128,12 +213,14 @@ sealed partial class InstanceState
         lock (_transitioned) return transitioned ? _transitioned.Add((type, x, y)) : _transitioned.Remove((type, x, y));
     }
 
-    public uint? PlaceTutorialItem(string key, WorldItemObject item)
+    public uint? PlaceTutorialItem(string key, WorldItemObject item, Player recipient)
     {
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(key, out var placed) && Ground.Get(placed.Id) is not null) return null;
-            uint id = Ground.Add(item);
+            // The initial recipient gets its create from the tutorial transaction. Shared-ground sync must not
+            // create the same awake object again (the native object table reports that replacement at 0x141ec6010).
+            uint id = Ground.Add(item, recipient);
             _startWeapons[key] = (id, item.Item);
             return id;
         }
@@ -142,10 +229,12 @@ sealed partial class InstanceState
 
 /// <summary>An instance's items on the ground. Their object ids come from their own range, so they stay the same for every
 /// connection and never meet the ids a connection gives its monsters and effects (0x3000 up).</summary>
-sealed class InstanceGround
+public sealed class InstanceGround
 {
     public const uint FirstItemId = 0x100000;
     readonly Dictionary<uint, WorldItemObject> _items = [];
+    // Where they lie, by grid cell: a pickup looks at the cells its radius covers, not at every item.
+    readonly AreaGrid _cells = new();
     uint _nextId = FirstItemId;
     long birthVersion;
     readonly Dictionary<uint, long> births = [];
@@ -163,9 +252,18 @@ sealed class InstanceGround
         lock (_items) return births.GetValueOrDefault(id) > observers.GetValue(observer, _ => new(birthVersion)).Since;
     }
 
-    public void Restore(uint id, WorldItemObject item)
+    public void Restore(uint id, WorldItemObject item) => Restore(id, item, null, true);
+
+    public void Restore(uint id, WorldItemObject item, object? by, bool shared)
     {
-        lock (_items) { _items[id] = item; births.Remove(id); }
+        lock (_items)
+        {
+            _items[id] = item;
+            _cells.Set(new(id), (item.GridX, item.GridY));
+            if (by is not null) _by[id] = by;
+            if (!shared) _private.Add(id);
+            births.Remove(id);
+        }
     }
 
     // Who put each item down (the client already shown it) and the items only that player sees (quest items, the start
@@ -181,6 +279,7 @@ sealed class InstanceGround
         {
             uint id = _nextId++;
             _items[id] = item;
+            _cells.Set(new(id), (item.GridX, item.GridY));
             if (justDropped) births[id] = ++birthVersion;
             if (by is not null) _by[id] = by;
             if (!shared) _private.Add(id);
@@ -189,6 +288,15 @@ sealed class InstanceGround
     }
 
     /// <summary>Who put the item down (null when unknown) and whether the other players see it.</summary>
+    /// <summary>Makes <paramref name="owner"/> the owner of every item one of its earlier selves put down (<paramref name="earlier"/>):
+    /// a player back in the instance on a new connection sees its own unshared items (the start weapon, quest items) again.</summary>
+    public void Reassign(Func<object, bool> earlier, object owner)
+    {
+        lock (_items)
+            foreach (var (id, by) in _by.ToList())
+                if (!ReferenceEquals(by, owner) && earlier(by)) _by[id] = owner;
+    }
+
     public (object? By, bool Shared) Origin(uint id)
     {
         lock (_items) return (_by.GetValueOrDefault(id), !_private.Contains(id));
@@ -199,6 +307,12 @@ sealed class InstanceGround
         lock (_items) return _items.GetValueOrDefault(id);
     }
 
+    /// <summary>An id this ground issued whose item has since gone; permits repairing an older client's stale label.</summary>
+    public bool WasTaken(uint id)
+    {
+        lock (_items) return id >= FirstItemId && id < _nextId && !_items.ContainsKey(id);
+    }
+
     /// <summary>Removes the item: only one caller gets it, so a pickup can never duplicate it.</summary>
     public WorldItemObject? Take(uint id, WorldItemObject? expected = null)
     {
@@ -206,6 +320,7 @@ sealed class InstanceGround
         {
             if (expected is not null && !ReferenceEquals(_items.GetValueOrDefault(id), expected)) return null;
             if (!_items.Remove(id, out var item)) return null;
+            _cells.Remove(new(id));
             _by.Remove(id);
             _private.Remove(id);
             births.Remove(id);
@@ -218,12 +333,30 @@ sealed class InstanceGround
         lock (_items) return [.. _items.Select(e => (e.Key, e.Value))];
     }
 
+    readonly List<EntityId> _nearScratch = [];
+
     /// <summary>The items of <paramref name="which"/> within <paramref name="range"/> cells (centre to centre) of a cell.</summary>
     public IReadOnlyList<(uint Id, WorldItemObject Item)> Within(int x, int y, double range, Func<WorldItemObject, bool> which)
     {
         lock (_items)
-            return [.. _items.Where(e => which(e.Value) && Math.Sqrt((double)(e.Value.GridX - x) * (e.Value.GridX - x)
-                + (double)(e.Value.GridY - y) * (e.Value.GridY - y)) <= range).Select(e => (e.Key, e.Value))];
+        {
+            if (_items.Count == 0) return [];
+            _nearScratch.Clear();
+            _cells.Near((x, y), (int)Math.Ceiling(range), _nearScratch);
+            if (_nearScratch.Count == 0) return [];
+            List<(uint Id, WorldItemObject Item)>? found = null;
+            double r2 = range * range;
+            for (int i = 0; i < _nearScratch.Count; i++)
+            {
+                uint id = _nearScratch[i].Value;
+                if (!_items.TryGetValue(id, out var item) || !which(item)) continue;
+                double dx = item.GridX - x, dy = item.GridY - y;
+                if (dx * dx + dy * dy <= r2) (found ??= []).Add((id, item));
+            }
+            if (found is null) return [];
+            if (found.Count > 1) found.Sort(static (a, b) => a.Id.CompareTo(b.Id));
+            return found;
+        }
     }
 }
 
@@ -231,10 +364,14 @@ sealed class InstanceGround
 /// the next entry, idle until the player comes in range. Dead monsters are not kept, so they stay dead.</summary>
 // shortcut: a /spawn_mob name is not kept (packs have none), add it when named monsters matter.
 // Unrisen: a monster that rises from the ground (MonsterEmerge.cs) and had not risen yet: re-created waiting.
-sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity, bool Hostile, int X, int Y, uint Life, bool Unrisen = false)
+public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity, bool Hostile, int X, int Y, uint Life, bool Unrisen = false)
 {
     /// <summary>Its mods as rolled (MonsterMods.cs): the same affixes, values and rare name on the next entry.</summary>
     public MonsterModSet Mods { get; init; } = MonsterModSet.None;
+
+    /// <summary>Planned by the area's population and not created yet (InstanceWorld.HeldBackMonsters): its cell is the
+    /// planned one, its mods are not rolled and its life is full.</summary>
+    public bool Planned { get; init; }
 
     /// <summary>The living monsters: <paramref name="monsters"/> (the connection's) and the ones waiting to rise
     /// (<paramref name="unrisen"/>: the buried ones and the lurking ones, which are among the connection's too).</summary>

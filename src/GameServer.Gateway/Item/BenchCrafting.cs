@@ -1,15 +1,28 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>The ordinary bench's live client recipes, costs, class filters and guaranteed modifiers.</summary>
-sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+public sealed class BenchCrafting
 {
+    readonly ItemCatalog catalog;
+    readonly ItemRolls rolls;
+    readonly string folder;
+
+    public BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+    {
+        this.catalog = catalog;
+        this.rolls = rolls;
+        this.folder = folder;
+        _all = Load(catalog, folder);
+    }
+
     public sealed record Recipe(int Row, string Name, ModCatalog.Mod? Mod, ModCatalog.Mod? Enchant,
         int Action, int Sockets, int Links, string Colours, IReadOnlySet<int> Classes,
         IReadOnlyList<(uint Currency, int Amount)> Costs, IReadOnlyList<int> Unlocks);
     public sealed record Result(Item Item, IReadOnlyList<(uint Currency, int Amount)> Costs);
-    readonly Lazy<IReadOnlyList<Recipe>> _all = new(() => Load(catalog, folder));
-    public IReadOnlyList<Recipe> All => _all.Value;
+    readonly IReadOnlyList<Recipe> _all;
+    public IReadOnlyList<Recipe> All => _all;
     public IEnumerable<int> UnlockFlags => All.SelectMany(r => r.Unlocks).Where(i => i > 0).Distinct();
     public Recipe? Find(int row) => All.FirstOrDefault(r => r.Row == row);
     public bool IsCrafted(ItemMod mod) => mod.Section == ModSection.Explicit && catalog.Mods.ByHash(mod.Hash)?.Domain == 9;
@@ -17,7 +30,7 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
     public Result? Apply(int row, Item item, Random rng)
     {
         if (Find(row) is not { } recipe || catalog.ByHash(item.TypeHash) is not { } type ||
-            !recipe.Classes.Contains(type.ClassRow) || item.Mirrored || !item.Components.Contains("Mods")) return null;
+            !recipe.Classes.Contains(type.ClassRow) || item.Mirrored || item.Vestigial || !item.Components.Contains("Mods")) return null;
         bool socketCraft = recipe.Sockets > 0 || recipe.Links > 0 || recipe.Colours.Length > 0;
         if (item.Corrupted && !socketCraft) return null;
         if (!item.Identified && !socketCraft) return null;
@@ -84,12 +97,12 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
                 if (catalog.Mods.ByHash(existing.Hash) is { } definition)
                     for (int i = 0; i < definition.Stats.Count && i < existing.Values.Count; i++)
                     {
-                        string stat = definition.Stats[i].Id;
-                        if (stat == "item_generation_can_have_multiple_crafted_mods" && existing.Values[i] > 0) limit = Math.Max(limit, 3);
-                        else if (stat == "local_can_have_additional_crafted_mods") limit += existing.Values[i];
+                        uint stat = definition.Stats[i].Id;
+                        if (stat == Stat.ItemGenerationCanHaveMultipleCraftedMods && existing.Values[i] > 0) limit = Math.Max(limit, 3);
+                        else if (stat == Stat.LocalCanHaveAdditionalCraftedMods) limit += existing.Values[i];
                     }
             if (Enumerable.Range(0, mod.Stats.Count).Any(i =>
-                mod.Stats[i].Id == "item_generation_can_have_multiple_crafted_mods" && mod.RangeAt(i).Min > 0))
+                mod.Stats[i].Id == Stat.ItemGenerationCanHaveMultipleCraftedMods && mod.RangeAt(i).Min > 0))
                 limit = Math.Max(limit, 3);
             bool conflict(ItemMod m) => catalog.Mods.ByHash(m.Hash) is { } other &&
                 (other.Hash == mod.Hash || other.Families.Intersect(mod.Families).Any());
@@ -165,27 +178,24 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
 
     static IReadOnlyList<Recipe> Load(ItemCatalog catalog, string folder)
     {
-        string options = Path.Combine(folder, "tables/CraftingBenchOptions.json"), categories = Path.Combine(folder, "tables/CraftingItemClassCategories.json");
-        if (!File.Exists(options) || !File.Exists(categories)) return [];
-        using var cats = JsonDocument.Parse(File.ReadAllBytes(categories));
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(options));
-        ModCatalog.Mod? Mod(JsonElement r, string key) => r.GetProperty(key).ValueKind == JsonValueKind.Number ? catalog.Mods.Row(r.GetProperty(key).GetInt32()) : null;
+        if (!ClientTables.Has("CraftingBenchOptions") || !ClientTables.Has("CraftingItemClassCategories")) return [];
+        var cats = ClientTables.Table("CraftingItemClassCategories");
+        ModCatalog.Mod? Mod(ClientRow r, string key) => r.IntOrNull(key) is int mod ? catalog.Mods.Row(mod) : null;
         var result = new List<Recipe>();
-        int row = -1;
-        foreach (var r in doc.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("CraftingBenchOptions"))
         {
-            row++;
-            if (r.GetProperty("IsDisabled").GetBoolean() || r.GetProperty("IsAreaOption").GetBoolean() || r.GetProperty("MapDevice").GetBoolean()) continue;
-            var classes = r.GetProperty("ItemClasses").EnumerateArray().Select(c => c.GetInt32()).ToHashSet();
+            int row = r.Index;
+            if (r.Bool("IsDisabled") || r.Bool("IsAreaOption") || r.Bool("MapDevice")) continue;
+            var classes = r.Ints("ItemClasses").ToHashSet();
             if (classes.Count == 0)
-                foreach (int category in r.GetProperty("CraftingItemClassCategories").EnumerateArray().Select(c => c.GetInt32()))
-                    classes.UnionWith(cats.RootElement[category].GetProperty("ItemClasses").EnumerateArray().Select(c => c.GetInt32()));
-            var costs = r.GetProperty("Cost_BaseItemTypes").EnumerateArray().Zip(r.GetProperty("Cost_Values").EnumerateArray(),
-                (b, n) => (catalog.Row(b.GetInt32())!.Hash, n.GetInt32())).ToList();
-            result.Add(new(row, r.GetProperty("Name").GetString()!, Mod(r, "AddMod"), Mod(r, "AddEnchantment"),
-                r.GetProperty("CraftingBenchCustomAction").GetInt32(), r.GetProperty("Sockets").GetInt32(),
-                r.GetProperty("Links").GetInt32(), r.GetProperty("SocketColours").GetString()!, classes, costs,
-                r.GetProperty("RecipeIds").EnumerateArray().Select(c => c.GetInt32()).ToList()));
+                foreach (int category in r.Ints("CraftingItemClassCategories"))
+                    classes.UnionWith(cats[category].Ints("ItemClasses"));
+            var costs = r.Ints("Cost_BaseItemTypes").Zip(r.Ints("Cost_Values"),
+                (b, n) => (catalog.Row(b)!.Hash, n)).ToList();
+            result.Add(new(row, r.Text("Name")!, Mod(r, "AddMod"), Mod(r, "AddEnchantment"),
+                r.Int("CraftingBenchCustomAction"), r.Int("Sockets"),
+                r.Int("Links"), r.Text("SocketColours")!, classes, costs,
+                r.Ints("RecipeIds").ToList()));
         }
         return result;
     }

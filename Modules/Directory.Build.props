@@ -31,12 +31,16 @@
 
   <!-- A module's internals are open to the other modules. -->
   <ItemGroup>
+    <InternalsVisibleTo Include="anarchy" />
     <InternalsVisibleTo Include="atlas" />
     <InternalsVisibleTo Include="bench" />
     <InternalsVisibleTo Include="chat" />
     <InternalsVisibleTo Include="commands" />
     <InternalsVisibleTo Include="cosmetics" />
+    <InternalsVisibleTo Include="currencyexchange" />
+    <InternalsVisibleTo Include="deepwater" />
     <InternalsVisibleTo Include="delve" />
+    <InternalsVisibleTo Include="delirium" />
     <InternalsVisibleTo Include="harvest" />
     <InternalsVisibleTo Include="heist" />
     <InternalsVisibleTo Include="hideoutediting" />
@@ -47,6 +51,7 @@
     <InternalsVisibleTo Include="phreciaascendancies" />
     <InternalsVisibleTo Include="questobjects" />
     <InternalsVisibleTo Include="ruthless" />
+    <InternalsVisibleTo Include="shrines" />
     <InternalsVisibleTo Include="social" />
     <InternalsVisibleTo Include="survivorsskills" />
     <InternalsVisibleTo Include="survivorsrewards" />

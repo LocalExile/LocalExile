@@ -5,12 +5,12 @@ using GameServer.Core.World;
 /// (minimum_attack_damage_+%_final_from_volatility_support and maximum_attack_damage_+%_final_from_volatility_support).
 /// Applied to the attack's damage range before the hit rolls, so the panel and the hit use the same range.
 /// </summary>
-static class Volatility
+public static class Volatility
 {
-    public static DamagePacket Apply(DamagePacket hit, Func<string, int> get)
+    public static DamagePacket Apply(DamagePacket hit, Func<uint, int> get)
     {
-        int minimum = get("minimum_attack_damage_+%_final_from_volatility_support");
-        int maximum = get("maximum_attack_damage_+%_final_from_volatility_support");
+        int minimum = get(Stat.MinimumAttackDamagePlusPctFinalFromVolatilitySupport);
+        int maximum = get(Stat.MaximumAttackDamagePlusPctFinalFromVolatilitySupport);
         if (minimum == 0 && maximum == 0) return hit;
         double low = Math.Max(0, 1 + minimum / 100.0), high = Math.Max(0, 1 + maximum / 100.0);
         return hit.Select((type, range) =>

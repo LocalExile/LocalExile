@@ -6,6 +6,8 @@ Automated wire/dispatcher tests and 42 bounded real-client collection/counter ch
 This establishes the collection/counter scope, not full Vaal execution or lifecycle parity.
 Unsupported Vaal casts are refused before action echoes, including full budgets and effective zero cost.
 Vaal Ground Slam now has an explicit executor, atomic soul/Rage payment and a GEPL-based prevention timer.
+Vaal Discipline is the first Vaal aura executor: BuffDefinitions 160 `vaal_aura_energy_shield` (BuffVisuals 329).
+Its source and received buffs show the timed HUD icon; live, its affected/caster EPKs did not render.
 The optional Behemoth capability and current modular validation limits are in [Behemoth](../game/behemoth.md).
 
 ## Primary evidence
@@ -78,7 +80,7 @@ Removing or explicitly zeroing an override does not change the flag or refill th
 The property defaults false; ordinary Fireball, default attacks and support records retain their existing bytes.
 No extraction dependency or generated file changes, so the extraction manifest needs no version bump.
 Native construction `0x141eeddf2..0x141eede14` sets base cost, raw stored uses and the selected multiplier.
-Getter `0x141eeef80` reads the following keys, whose names come from Stats.json:
+Getter `0x141eeef80` reads the following keys, whose names come from the Stats table:
 
 - 14270: `virtual_vaal_skill_require_no_souls_per_use`.
 - 19748: `virtual_non_aura_vaal_skill_soul_requirement_multipler`.
@@ -137,6 +139,9 @@ The following are explicit LocalExile policies:
 Creation publishes full 0x40 budgets alongside current skills.
 Real `SendSkills` reconciles sources before awaiting and again at the send gate.
 Kill publication also reads the current state at the send gate, so queued removal/death/transfer cannot resurrect souls.
+A kill only credits the budgets the equipment and skill seams reconciled (`RefreshVaalSouls` there, not per corpse),
+and a presentation is sent only when a budget or a capacity changed (a per-connection revision); rebuilding the sources
+and the player's stats after every kill cost 2-3 ms per corpse in a pack (measured 2026-11-18).
 Holding death notifications cannot reclassify prevention, range or source eligibility from the lethal event.
 Vaal gem and accepted-support requirements use one immutable current-equipment snapshot.
 Attribute gear, host activation, socket places and link groups are resolved from that same inventory read.

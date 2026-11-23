@@ -16,12 +16,18 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   save/load, global mods, refund guard); unique jewels use the same path but have no item source yet.
   See [unique-jewels.md](unique-jewels.md) for the 185-entry catalogue and the phased unique-jewel plan.
 - **Next:** tattoos: all 100 items, protocol, target/limit rules and interactions are documented in
-  [tattoos.md](../docs/game/tattoos.md). The client flow, 32 plain stats, nine Makanga gates, three Journey
-  tattoos and Journey Makanui are client-verified (Hinekora/Kitava Makanga are inert; Ancestral Bloodlines is
-  partial): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring removal. The five
-  `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. Next: the
-  35 condition/skill rows and Loyalty; the seven Forbidden ascendancy tattoos use a separate client flow. Also
-  still open: replace/reallocation and the 50-tattoo cap.
+  [tattoos.md](../docs/game/tattoos.md). The client flow, the plain stats, the nine ailment and avoidance rows,
+  the nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows, the Herald, guard and
+  Fortify rows, the corpse-consumption and Hinder rows, all ten Loyalty summons, nine Makanga gates,
+  three Journey tattoos, Journey Makanui and Ancestral Bloodlines are client-verified (Hinekora/Kitava Makanga are
+  inert): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring removal. The
+  five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. The vendor
+  recipe works (three same-tribe tattoos for one weighted random tattoo of that tribe; not live-checked). The ten
+  Loyalty Leaderships all have consumers (Rage regeneration, travel-skill cooldown speed, the action-speed floor and
+  the earlier block/leech/totem stats). The seven event-only Forbidden ascendancy tattoos are applied by the server
+  (random class notable saved in `TattooKeystones`, ascendancy-policy stats, `0x33` HASH16) and are partial: the
+  client's separate use flow is untraced (a real-client right-click sends no C->S packet). Replace, tattoo
+  persistence across refund/reallocate and the 50-tattoo cap are client-verified.
 - **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
   for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),
   [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, +500 / -2 per
@@ -31,8 +37,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Gem attacks still need their own accuracy rolls before these target conditions can affect them.
 - **Known:** pinned ordinary/Phrecia topology is available as
   [read-only analysis artifacts](../docs/dev/passive-graph-data.md), without installing a client graph.
-- **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/PhreciaAscendancies`.
-  Its league composition is independent of Idols; the latter has client data but no gameplay implementation.
+- **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/Legacy/PhreciaAscendancies`.
+  Its league composition is independent of Idols, which are their own module ([Idols](../docs/game/idols.md)).
   Behemoth now supplies its descriptor and sources with generation-bound shared Rampage/Vaal engines.
   Whisperer supplies its exact descriptor and generic Mana/Recoup/Blind consumers after the actual Behemoth merge.
   **Next:** review and replay Whisperer's reconciled current-main candidate, then adapt the remaining class PRs.

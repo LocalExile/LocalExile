@@ -31,13 +31,16 @@ features.
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
-  has every unique's base, mods and rolls, the mechanics behind those mods are the open part), chancing, and
-  Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
+  has every unique's base, mods and rolls, the mechanics behind those mods are the open part), and chancing.
+  Mageblood's "effects cannot be removed" waits for a server mechanic that removes flask effects (13 §2e).
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
-  automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
-  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): sockets are not generated
-  (`Sockets:` lines are dropped, and Tabula Rasa has neither its sockets nor mods); the five synthesis uniques and The Eternal
-  Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
+  automatic triggers with their ordinary hostile sources.
+  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): Abyss socket layouts still lack
+  generation rules (`Sockets:` lines are dropped); ordinary default sockets, Tabula's six linked whites, Skin of the
+  Loyal's six linked random colours, the 3.29 no-white property, fixed "Has X Sockets" counts and Malachai's all-white
+  socket are implemented, awaiting a fresh native check. Skin of the Lords is absent from the generated seed, so it
+  cannot be created until its definition is added. The five synthesis
+  uniques and The Eternal Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
   generator lists stay out, `{crafted}` lines too (Cinderswallow Urn's enchant-like rolls).
   Doryani's Delusion's generated variants are its corrupted ones.
   poedb differs from PoB's current variant on the base of Twyzel, Replica Twyzel, Kitava's Feast and Dissolution of the
@@ -93,14 +96,13 @@ features.
 - **Socket colours (3.29):** the 3.29 rules are in (white by default with an item-level colour chance, the
   Chromatic and non-white bench crafts, white sockets from Jeweller's/bench socket adds, Vaal colouring one white
   socket; [13](../docs/protocol/13-items.md), "Socket colours (3.29)", Status).
-  Remaining: Tainted Chromatic/Jeweller's Orbs, the Orb of Binding, the Locus of Corruption, the milestone bench
+  Remaining: the Locus of Corruption, the milestone bench
   reward (25 reforges keeping the most non-white sockets), special item overrides, and fitting the exact colour
   probabilities from live captures (the current curve is an approximation).
 - **Done when:** items' damage and defences count, and flasks and currency can be used.
 - **Flask modifiers (#75):** character charge-gain source resolution and independent hybrid recovery components
   have ordinary-mode handler/lifecycle coverage here. The counts and Standard/Ruthless observations in this entry
-  describe historical LocalExile validation, not a new native run on this branch; see the
-  [port record](../docs/dev/issue75-port.md). Twenty-four earlier native controls verify actual buffs,
+  describe historical LocalExile validation, not a new native run on this branch. Twenty-four earlier native controls verify actual buffs,
   recovery and charge awards, including Ruthless utility prevention and ordinary vendor refill.
   Flat and per-player-level duration now share one raw resolver for the panel and actual uses; level and inputs are
   captured before the charge send. Utility local/global duration factors multiply rather than add, with quality and
@@ -123,17 +125,10 @@ features.
 
 ## 4. Server design
 
-- **Editable game data and limits:** the SQLite overlay, snapshot/reload foundation, mod roll ranges and item limits are
-  implemented and live-checked. The unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
-  catalogues are now in `catalog_entries` (including the full 1,299-row unique catalogue), seeded from the current code
-  arrays and swapped on `/game_data reload`. The `stats`/`mods`/`mod_stats` reference tables and
-  `effective_mod_stats` view give an editor the default keys and ranges without opening the JSON. `system_settings` now
-  holds socket caps by item class, passive points per level, drop/pack/experience/max-level/gold/default-limit/grace
-  numbers. The next step is item templates with custom names, then the admin interface, then NPC shops/placements and
-  the remaining drop/balance settings.
-  The client-compatibility boundary, schema and cache plan are in
-  [dev/editable-game-data.md](../docs/dev/editable-game-data.md).
-  The extracted JSON stays the reference; the database only overrides it.
+- **Game content in world.db:** mod roll ranges, item limits, settings, unique weights, the catalogues and the drop
+  tables are world.db content built from `sql/` (status: items-and-crafting). Next: item templates with custom names,
+  then NPC shops/placements and the remaining drop/balance settings as world tables.
+  What can be content, and what the client owns, is in [dev/editable-game-data.md](../docs/dev/editable-game-data.md).
 
 ## 5. Project
 

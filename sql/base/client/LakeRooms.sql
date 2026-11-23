@@ -1,0 +1,25 @@
+-- Client table LakeRooms (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "LakeRooms" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "ARMFiles" JSON,
+    "Script" TEXT,
+    "__col3" JSON,
+    "Stats" JSON,
+    "StatsValues" JSON,
+    "Description" TEXT,
+    "Name" TEXT,
+    "Type" INTEGER,
+    "WorldArea" INTEGER,
+    "Icon" TEXT,
+    "__col11" INTEGER,
+    "MinLevel" INTEGER,
+    "StampFamily" INTEGER,
+    "__col14" BOOLEAN,
+    "ExtraStats" JSON,
+    "ExtraStatsValues" JSON,
+    "ReminderText" TEXT,
+    "TextAudioIntro" INTEGER,
+    "TextAudioOutro" INTEGER,
+    "__col20" BOOLEAN
+);

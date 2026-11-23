@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Atlas;
 
@@ -12,6 +13,12 @@ namespace GameServer.Modules.Atlas;
 /// </summary>
 public static class AtlasProgress
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadAtlasProgressData()
+    {
+        Loaded = Load("data");
+    }
+
     public sealed record Node(int Row, string Id, ushort Hash16, string Name, IReadOnlySet<string> Areas, IReadOnlySet<string> Bosses,
         IReadOnlySet<string> FinalBosses);
 
@@ -21,13 +28,13 @@ public static class AtlasProgress
     /// RandomContent nodes).</summary>
     const int MaskRows = 170, MaskBytes = 22;
 
-    static readonly Lazy<(IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas)> Loaded = new(() => Load("data"));
+    static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Loaded = default!;
 
-    public static IReadOnlyList<Node> Maps => Loaded.Value.Maps;
+    public static IReadOnlyList<Node> Maps => Loaded.Maps;
 
     /// <summary>Every AtlasNode row the client draws (NotOnAtlas false, row &lt; 170), including voidstone
     /// sockets and pinnacle bosses. The first 0x1a3 mask uses this so the bottom citadels stay on screen.</summary>
-    public static IReadOnlySet<int> OnAtlasRows => Loaded.Value.OnAtlas;
+    public static IReadOnlySet<int> OnAtlasRows => Loaded.OnAtlas;
 
     public static Node? Find(string idOrName) => Maps.FirstOrDefault(n =>
         n.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase) || n.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
@@ -106,15 +113,12 @@ public static class AtlasProgress
 
     static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Load(string folder)
     {
-        string nodes = Path.Combine(folder, "tables", "AtlasNode.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json"),
-            varieties = Path.Combine(folder, "tables", "MonsterVarieties.json"),
-            recipes = Path.Combine(folder, "tables", "MapDeviceRecipes.json");
-        if (!File.Exists(nodes) || !File.Exists(areas)) return ([], new HashSet<int>());
+        if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return ([], new HashSet<int>());
         var areaRows = new List<(string Id, string Name, int[] Bosses)>();
-        using (var a = GameTables.Open(areas))
-            foreach (var row in a.RootElement.EnumerateArray())
-                areaRows.Add((row.GetProperty("Id").GetString() ?? "", row.GetProperty("Name").GetString() ?? "",
-                    [.. row.GetProperty("Bosses_MonsterVarietiesKeys").EnumerateArray().Select(b => b.GetInt32())]));
+        var a = ClientTables.Table("WorldAreas");
+        foreach (var row in a)
+            areaRows.Add((row.Text("Id") ?? "", row.Text("Name") ?? "",
+                [.. row.Ints("Bosses_MonsterVarietiesKeys")]));
         var byRow = new Dictionary<int, (string Id, ushort Hash16, string Name, HashSet<int> Areas)>();
         void Add(int r, string id, ushort hash, string name, IEnumerable<int> areaIndexes)
         {
@@ -125,50 +129,49 @@ public static class AtlasProgress
                 if (i >= 0 && i < areaRows.Count) cur.Areas.Add(i);
         }
         var onAtlas = new HashSet<int>();
-        using (var n = GameTables.Open(nodes))
+        var n = ClientTables.Table("AtlasNode");
         {
             int index = 0;
-            var atlas = n.RootElement.EnumerateArray().ToList();
+            var atlas = n.ToList();
             foreach (var row in atlas)
             {
                 int r = index++;
                 if (r >= MaskRows) continue;
-                if (!row.GetProperty("NotOnAtlas").GetBoolean()) onAtlas.Add(r);
-                if (row.GetProperty("NotOnAtlas").GetBoolean()) continue;
-                bool map = row.GetProperty("IsNormalMap").GetBoolean() || row.GetProperty("IsUniqueMap").GetBoolean();
+                if (!row.Bool("NotOnAtlas")) onAtlas.Add(r);
+                if (row.Bool("NotOnAtlas")) continue;
+                bool map = row.Bool("IsNormalMap") || row.Bool("IsUniqueMap");
                 int[] rowAreas = [.. new[] { "Area1", "Area2" }
-                    .Select(c => row.GetProperty(c) is { ValueKind: JsonValueKind.Number } v ? v.GetInt32() : -1)
+                    .Select(c => row.IntOrNull(c) ?? -1)
                     .Where(i => i >= 0 && i < areaRows.Count).Distinct()];
                 if (map && rowAreas.Length > 0)
-                    Add(r, row.GetProperty("Id").GetString() ?? "", (ushort)row.GetProperty("HASH16").GetInt32(),
+                    Add(r, row.Text("Id") ?? "", (ushort)row.Int("HASH16"),
                         areaRows[rowAreas[0]].Name, rowAreas);
             }
-            if (File.Exists(recipes))
+            if (ClientTables.Has("MapDeviceRecipes"))
             {
-                using var rec = GameTables.Open(recipes);
-                foreach (var row in rec.RootElement.EnumerateArray())
+                foreach (var row in ClientTables.Table("MapDeviceRecipes"))
                 {
-                    if (row.GetProperty("AtlasNode") is not { ValueKind: JsonValueKind.Number } node
-                        || row.GetProperty("WorldArea") is not { ValueKind: JsonValueKind.Number } area) continue;
-                    int r = node.GetInt32(), a = area.GetInt32();
-                    if (r < 0 || r >= atlas.Count || r >= MaskRows || a <= 0 || a >= areaRows.Count) continue;
+                    if (row.IntOrNull("AtlasNode") is not int r || row.IntOrNull("WorldArea") is not int areaIndex) continue;
+                    if (r < 0 || r >= atlas.Count || r >= MaskRows || areaIndex <= 0 || areaIndex >= areaRows.Count) continue;
                     var atlasRow = atlas[r];
-                    if (atlasRow.GetProperty("NotOnAtlas").GetBoolean()) continue;
-                    Add(r, atlasRow.GetProperty("Id").GetString() ?? "", (ushort)atlasRow.GetProperty("HASH16").GetInt32(),
-                        areaRows[a].Name is { Length: > 0 } named ? named : atlasRow.GetProperty("Id").GetString() ?? "",
-                        [a]);
+                    if (atlasRow.Bool("NotOnAtlas")) continue;
+                    Add(r, atlasRow.Text("Id") ?? "", (ushort)atlasRow.Int("HASH16"),
+                        areaRows[areaIndex].Name is { Length: > 0 } named ? named : atlasRow.Text("Id") ?? "",
+                        [areaIndex]);
                 }
             }
         }
         var bossIds = new Dictionary<int, string>();
         foreach (int boss in byRow.Values.SelectMany(n => n.Areas.SelectMany(i => areaRows[i].Bosses)))
             bossIds[boss] = "";
-        if (bossIds.Count > 0 && File.Exists(varieties))
-            using (var v = GameTables.Open(varieties))
+        if (bossIds.Count > 0 && ClientTables.Has("MonsterVarieties"))
+        {
+            var v = ClientTables.Table("MonsterVarieties");
             {
-                int count = v.RootElement.GetArrayLength();
+                int count = v.Count;
                 foreach (int row in bossIds.Keys.ToList())
-                    bossIds[row] = row >= 0 && row < count ? v.RootElement[row].GetProperty("Id").GetString() ?? "" : "";
+                    bossIds[row] = row >= 0 && row < count ? v[row].Text("Id") ?? "" : "";
+        }
             }
         string Variety(int row) => bossIds.GetValueOrDefault(row, "");
         return ([.. byRow.OrderBy(kv => kv.Key).Select(kv =>

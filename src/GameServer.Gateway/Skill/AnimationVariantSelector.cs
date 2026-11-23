@@ -5,7 +5,7 @@
 /// The same generator, seeded from a key (0x1413ce240) and drawn in a range (0x1404d0990), rolls each monster's
 /// movement speed (MonsterSpeedRoll.cs).
 /// </summary>
-static class AnimationVariantSelector
+public static class AnimationVariantSelector
 {
     public static int Select(uint seed, ReadOnlySpan<uint> weights)
     {
@@ -23,7 +23,7 @@ static class AnimationVariantSelector
         return selected;
     }
 
-    internal struct NativeRandom
+    public struct NativeRandom
     {
         private const uint Mat1 = 0x8f7011ee, Mat2 = 0xfc78ff1f, Tmat = 0x3793fdff;
         private uint _s0, _s1, _s2, _s3;

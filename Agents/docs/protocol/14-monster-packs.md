@@ -3,15 +3,15 @@
 State of 2026-10-18, verified live in The Coast (seed 1): on entering, the Gateway fills the area with monster packs
 from the game tables: normal, magic and rare packs scattered over the walk map; cannibal packs at the bonfires; the
 unique boss **Fire Fury** and her guards at the cannibal camp, next to its campfire. Code: `src/GameServer.Gateway/Monster/MonsterPacks.cs`
-(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Program.Monsters.cs`.
+(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Modules/Core/Game/Monster/Monsters.cs`.
 
 ## 1. The data
 
-| Table (`data/tables/`) | What it gives |
+| Client table (client.db) | What it gives |
 |---|---|
-| `MonsterPacks.json` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
-| `MonsterPackEntries.json` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
-| `WorldAreas.json` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
+| `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
+| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
+| `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
 
 The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
@@ -37,6 +37,13 @@ This is a local seed derivation; the official server population RNG and placemen
 
 ## 2. Spawning
 
+For `MonsterVarieties` with main-hand class `Bow`, the model uses the same three-slot bow layout as a player
+([13](13-items.md) "Bow model records", `BowSetup`): slot 0 (right hand) takes `Weapon1_ItemVisualIdentityKeys`
+(the arrow visual: `SkeletonArrow1` for Brittle Archer, `DefaultArrow` for Kraityn's Scout) with the `Bow` class and
+stance; slot 1 (left hand) takes `Weapon2_ItemVisualIdentityKeys` (the held bow: `Bow4` / `Bow3`) with type `0x68` and
+stance `0xff`; and slot 7 (the back) takes `Back_ItemVisualIdentityKey` (`SkeletonQuiver1` / `Quiver6`) with type
+`0x68` and stance `0xff`. A null off-hand class must not discard slot 1 or slot 7.
+
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2bb with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
 attack). Its mods (§5) set its life, hit, speed and defences.
@@ -47,6 +54,26 @@ invisible and cancel on death. No Mods.dat row grants them, and the rarity in Ob
 glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (parser 0x1421e4390) set a
 per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d →
 `SendPlayer` → skill bar → `PopulateArea`); towns and areas without a walk map get none.
+
+GGG's server has every monster of the area from the entry and sends each client only the ones near its player (retail
+3.29.3b and 3.30.0b captures: a monster first sent a minute in has an id below the player's, one that left and came
+back has the id it had, and "monsters remain" arrives before any create; creates lie in a box of about 250 cells
+around the player, awake within about 170). Ours places them all too: one placed more than 120 cells from the player
+is held back in the instance (`InstanceWorld.HeldBackMonsters`), counted and saved but not created, and is created
+when a player comes within 120 cells, or the nearest few per pass out to 163. Differs from GGG: no sleeping copy
+between 170 and 250 cells, a held-back monster cannot be hit, and it gets its id and its mods when it is created.
+
+**The map overlay's "X monsters remain"** is S→C 0x1a0, one byte, and the client never counts monsters itself. The
+instance constructor (0x14214b4a0, at 0x14214e686) starts `instance+0xd7cd` at 0xff, and 0x1a0 is its only writer in
+the whole client (dispatcher case 0x7e at 0x14215718b copies `byte [msg+0x10]` there), so with nobody sending it every
+area read "More than 50 monsters remain". The text builder 0x1406b24e0, reached from the overlay builder 0x1406b25f0 at
+0x1406b279b, picks ClientStrings 0x1ab6 "1 monster remains" for 1, 0x1ab7 "{0} monsters remain" for 0..50 and 0x1ab8
+"More than 50 monsters remain" for 51..255, so an area of more than 50 living monsters is sent 255. The Gateway sends
+the byte once the area's packs are placed (after 0x21) and again whenever the count changes: a kill, a hostile
+summon or a removal. It counts living hostile monsters in both the active and dormant rosters; friendly summons and
+corpses never count. Emerging moves between those rosters without changing the total. Live 2026-11-14 with `/raw` in an entered area: `01a0 05` → "5
+monsters remain", `01a0 01` → "1 monster remains", `01a0 00` → "0 monsters remain", `01a0 33` → "More than 50 monsters
+remain".
 
 **An instance keeps its monsters** (#12), as in the real game. When a connection closes, the instance
 (`InstanceStore`) saves each living monster's variety, level, rarity, mods, team, life and current position (its walk
@@ -106,9 +133,42 @@ So:
    What a room places itself is in its points too (version 8 keeps them in the rooms kept for other reasons): monsters
    by MonsterVarieties Id (`Metadata/Monsters/…`: boss arenas' daemons and guards, the Imperial Gardens trial's four
    `RootSpiderHidden`), server spawners (`Metadata/QuestObjects/…Spawner`) and pack points `normal`, `magic` and
-   `rare`. Only a Trial of Ascendancy's rooms place them yet ([labyrinth-trials](../game/labyrinth-trials.md),
-   "Monsters"); a quest room placed where the client placed it is also returned with its points and objects
+   `rare`. A pack point is one of the area's scattered packs of that rarity. Every placed room of a generated layout
+   places its own (`ServerLevels.Level.PackRooms`, read from the generated rooms, not from `room-points.json`); a
+   captured layout only its Trial of Ascendancy's ([labyrinth-trials](../game/labyrinth-trials.md), "Monsters").
+   The points are few: 2 126 in 1 498 of 3 265 generated layouts (795 areas, two seeds each): 1 663 `magic`, 450 `rare`
+   and 13 `normal`, 99% of them on walkable cells. So the room files do not say where an area's ordinary packs stand,
+   or how many it has (§1). A quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
+   **Shrine guards** (`ShrineGuards`, `PopulateArea`): a shrine the level generator placed (`Metadata/Shrines/Shrine` in
+   its room; `ShrinePlacement`) gets one guard pack at its cell. Which pack and how many come from the shrine's rule:
+   a shrine whose `Shrines.MonsterPacks` names packs (the eight apparition shrines, one of 2–9 monsters a pack, in
+   area-agnostic rows) stands one of those packs; a basic shrine names none and stands one of the area's own scattered
+   packs, at that pack's own `MinCount`–`MaxCount`. The client's shrine rooms carry no monster points of their own
+   (`metadata/shrines/*.arm`: the statue and decals only), nothing in the data scales a guard count by area level, Act,
+   map tier or difficulty, and the Atlas passives that make a map shrine's guard pack magic
+   (`map_shrines_have_guaranteed_magic_pack`) and add a chance of a second (`map_shrines_additional_pack_chance_%`) are
+   the only other statement the game makes about them: normal rarity, one pack, in the campaign. A map picks its rule
+   through `ShrineGuards.Resolve(..., mapArea)` so a map's rule can change without the campaign's. A shrine within
+   `AreaPopulation.TransitionClearance` (25 cells) of the arrival or an area transition is not guarded (the 1.0.0d note,
+   "Monster packs around shrines are now not spawned if they are too close to an area entrance or waypoint"). The guards
+   stand **around** the shrine and never on it: a guard is kept at least `ShrinePlacement.ObjectSize` (7) cells from the
+   shrine's cell, so the statue and its base stay clear, and out to `AreaPopulation.ShrineGuardRadius` (12) cells rather
+   than an ordinary pack's 9, where a pack of four still fits around a 2×2 shrine room. The log line says the spread
+   (`shrine Regen at (506, 643): guarded by Act1-Rhoa (2–4): 2 around it at (-6,6) (7,-7)`). The members are spread
+   around the statue rather than scattered from it: their bearings are `2π/n` apart from a rotation the instance's rng
+   gives, on radii `ObjectSize + 1` and `ObjectSize + 3` in turn (`RingCells`), so a pack of two stands on opposite sides
+   and neighbours never share a spot; a blocked ring cell falls back to the ordinary search. A guard has to be seen
+   standing, so an emerge variety — buried and rising only when the player is on top of it, which made a shrine guarded
+   by `Act1-ZombieMiredEmerge` look empty — is passed over while the pack has a standing variety (`guardSpawnable`); a
+   pack of emerge monsters only is still used rather than leaving the shrine bare. The guards
+   are planned with the area's monsters, so an instance keeps them: re-entry restores them rather than adding a pack, and
+   activating a shrine neither respawns nor removes its guards. The shrine's monster buff (`Monster_ShrineBuffsKey`) is
+   on the monsters around it while it is unclaimed (`MonsterAuraEffect`): every hostile monster within 20 cells
+   (`ShrineManager.NearbyRadius`) gets the row's own monster values as `EncounterStats`, the client is sent no buff icon,
+   and the buff comes off again when the shrine is claimed or the monster leaves the neighbourhood, restoring the
+   monster's previous `EncounterStats`. Live (2026-11-14, The Ledge, `/shrines Acceleration`): four Rhoas gained
+   `acceleration_monster` and lost it on the claim.
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
    (`BossMonster_MonsterVarietiesKeys`, at its `BossMonsterSpawnChance`) comes with it, unique when it is one of the
@@ -137,9 +197,8 @@ So:
    `a2b-Killed{Str,Int,Dex}Bandit` flags set) is Ralakesh's avatar, Greust when all three died or no bandit quest was
    done. The client's own lines say so: Eramir's `EramirRalakeshQuestOak`/`…Alira`/`…Kraityn`/`…Greust` and Helena's
    `HelenaOn…Quest` ("He truly believed that if he stood against Oak…").
-   Nothing on the server sets the `a2b-Killed…Bandit` flags yet but `/quest_flag` (the campaign's quest engine sets
-   them on the bandit lords' kills; their help-or-kill dialogue is not offered), and an instance's boss follows the first
-   character to enter it: others who join that instance meet the same boss.
+   The campaign's quest engine sets the kill flags. An instance's boss follows the first character to enter it, and
+   other players who join the instance meet the same boss.
    **Not placed** (the check below lists them with the reason): Marceus the Defaced (The Marketplace) is a tile's
    statue spawner (`Spawner_StoneStatueLargeMaleBoss`) that wakes as the player comes near, and tile spawners are not
    among the generated quest objects (`AreaObjects.QuestTypes`); The Solaris Temple Level 2's three Banners have their
@@ -164,9 +223,6 @@ So:
    room the layout did not place has no points or objects even if its doodads fit: sibling rooms share their doodads
    (The Broken Bridge's `broken_bridge` and `broken_bridge_left`, The Wetlands' four `bandit_boss_*` rooms) and the
    unplaced sibling's fit on the placed one was a second Kraityn, a third Oak.
-   `CampaignBossPlacementTests` (`$env:Game_BOSS_CHECK='1'`, needs the game files; skipped otherwise) generates every
-   act 1–10 area with Bosses at seeds 1, 2, 3 and 7 (`Game_BOSS_CHECK_SEEDS`) and fails when a boss is missing without
-   a listed reason, a unique stands twice or beyond the area's bosses, or the monster blob cannot write one.
    Doing so for every room would change
    other areas: it adds twelve nest packs around a1q4's Rhoa Nests and moves the start points of The Coast's
    `to_coast` and The Tidal Island's `toislandcliff`, so other rooms keep the fit.
@@ -177,7 +233,7 @@ So:
    blockage at Prisoner's Gate at (1275, 390), The Twilight Strand's force wall at (1403, 679) as before.
 
 The Coast seed 1 (live): `scavenger_camp_2a` at (1241, 598) turned [0 −1; 1 0], 32/33 doodads; `mapboss` (1135, 630),
-its `cannibalfire` (1173, 679); 8 bonfire rooms (12/12 or 21/21 doodads). The doodad angles agree (room angle + π/2).
+its `cannibalfire` (1173, 679); 8 bonfire rooms (12/12 or 21/21 doodads). The doodad angles agree (room angle + Ï€/2).
 Fire Fury stands at `mapboss`, about 30 cells from the campfire, with `1_1_2-bosspack` around her.
 The Tidal Island seed 1 (live 2026-10-25): `medicine_boat_1` captured at (138, 345), code 3; Hailrake stands at its
 `mapboss` (265, 437) on the shipwreck, with `1_1_2a-bosspack` at the room's `%area%-bosspack` (292, 420) (until the
@@ -205,8 +261,15 @@ placement algorithms remain unknown.
   ordinary monsters and are placed now (before, every "Emerge" Id was skipped; e.g. PusElementalEmerge in 1_4_6_3
   stands as usual); the 63 whose type waits to rise are placed waiting; the 13 whose Transitionable is something else
   (it sets `num_states`, or pauses no clip) are still skipped.
-- Fire Fury uses only her first granted effect. Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
+- A campaign boss plays its whole kit, not just its first granted effect (an act boss, or any variety with
+  `BossHealthBar`, whose row grants more than one attack, spell or projectile; `Modules/Core/Game/Monster/BossKits.cs`).
+  The skill it always had stands first and still chooses on a tie, a ready skill with a cooldown goes before one without,
+  the rest rotate by least recently used, and a skill that reaches nothing in range waits while the boss walks in.
+  Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
   extends `Metadata/Monsters/BossLifeBar` show the big life bar once they aggro (12-quests.md §6).
+- A layout whose room fit finds no boss room at all still places the area's unique bosses: each stands at the walk map's
+  deepest cell from the entrance (clear of the area transitions), the place a boss room would be. Our fallback, chosen so
+  a seed nobody recorded has its boss; the room itself stays unplaced.
 - **Rarity life:** a magic, rare or unique monster has `monster_life_+%_final_from_rarity` of its rarity's monster mod
   (Mods.dat MonsterMagic2 148, MonsterRare2 390, MonsterUnique2 698) on top of its base life; the Gateway applies it
   and sends the stat and the final `maximum_life` in the monster's Stats (the client applies no modifier itself: with
@@ -230,8 +293,7 @@ placement algorithms remain unknown.
 ## 5. Mods
 
 State of 2026-10-25, verified live (The Twilight Strand, The Coast). Code: `MonsterMods.cs` (`MonsterModCatalog`,
-`MonsterModEffects`), `Program.MonsterMods.cs` (the hooks), `MagicProperties.cs` (Core). Tests: `MonsterModsTests`,
-`InstanceEntitiesTests.Monster_mods_and_rare_name_go_in_the_magic_property_lists`.
+`MonsterModEffects`), `Modules/Core/Game/Monster/Mods/MonsterMods.cs` (the hooks), `MagicProperties.cs` (Core).
 
 **Rolling.** An affix is a Mods.dat row with the monster Domain (3) and GenerationType 1 (prefix) or 2 (suffix); 111
 rows have a spawn weight. It can roll when its `Level` is at most the monster's level and the first of its SpawnWeight
@@ -266,6 +328,10 @@ So the server sends the final `maximum_life`, the rarity's life stats, `movement
 monster at its base × (1 + value / 100), `0x141e827a0`: a Quick magic Hungry Corpse stepped every 0.083 s, 12
 cells/s, a normal one every 0.125–0.133 s; the server walks it at the same speed), `actor_scale_+%` and
 `life_regeneration_rate_per_minute_%`.
+
+**A change while it lives.** S→C 0x2bc to component 2 with the same ObjectMagicProperties data as the create (and its
+trailing `u8`) redraws a living monster's name plate: a monster a Tormented Spirit touched showed "Rogue's Touch" under
+its name (live 2026-11-18). Its stats still come only from the server (0x1b3).
 
 **Effects** (`MonsterModEffects`, summed per stat over all its mods):
 
@@ -323,9 +389,62 @@ whether the real server sends the rarity's own mods, and in which list. The mons
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.
 
+## Arakaali's arena lasers
+
+`SpiderGodActivateLaser` (ActionTypes row 722, HASH16 `0xf2d4`) enters
+`0x141c79bd0`, which gathers `ArakaaliTurret_A` and `ArakaaliTurret_B` objects. Its shuffle starts at `begin + 8`
+without checking an empty list: with both begin/end pairs null, the count becomes -1 and it dereferences address 8
+at `0x141c7a0e4`. The Toward/Away effects use the same action. These are encounter drivers, not standalone attacks;
+generic boss AI cannot call them without the turret objects. A missing `SpellProjectileCold` clip in the default
+stance is a separate phase-admission problem, not the faulting instruction.
+
+## ControlZone and Orion's projection
+
+The 3.29.3c ControlZone vtables `0x1435a86b0`, `0x1435a8840`, `0x1435a2078` and `0x1435a7218`
+all use `0x1400f1180` for slot 17: `ret 0`, with no component bytes.
+`AtlasExile5ApparitionDetached` therefore adds nothing after its StateMachine data.
+Orion's ACT maps animation types 36/37/38 to the meteor-maze start/hold/end sequence in both stances.
+His BeamBomb stat set gives separate per-type degeneration; its hit conversion does not convert that degeneration.
+
 ## Maps
 
 A map's area has no MonsterPacks row of its own: its packs are the map's Maps.dat `MonsterPacksKeys` (by
 `Regular_WorldAreasKey`; Beach → `atlas-crab1`, 6–9 parasite crabs), scattered like an area's with weight
 `PackCatalog.MapPackWeight` (100), at the area's level (Beach 69). The boss at `mapboss` comes from WorldAreas `Bosses`
 as for any area (Beach: Glace). 21-hideouts.md §5.
+
+Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from
+the older 3.29.3b capture support that range. Other emerge types retain 24; general AI parity remains unproven.
+
+## Essence monolith
+
+`Metadata/MiscellaneousObjects/Monolith` reads Positioned, Animated, MinimapIcon, InteractionAction,
+Transitionable, Monolith, StateMachine and BaseEvents, in that order.
+The Monolith reader `0x1415df360` takes little-endian `u8`, MonsterVarieties `HASH16`, `u8` count,
+then count × Essences `HASH32`, then `u32` (component +0x104; meaning unverified, currently sent as zero).
+The first byte is stored at component +0xf0; the essence references occupy +0xc8/+0xd0.
+The object's four Transitionable states start at 1 and release at 4; its interaction distance override is 20.
+Its `targetable` shared state is inverted: 0 enables targeting, 1 disables it.
+Transition 4 removes collision and hides its marker; use component indices 4 and 6 for transition and shared-state updates.
+Essence-list changes recreate the same object id; the verified `0x74` currency target is also used for monoliths.
+Vaal Orbs replaced Remnants in 3.27; the legacy `CurrencyCorruptMonolith` table row is not a current gameplay input.
+The historical `deal_chaos_damage_per_second_for_10_seconds_on_hit` id has an **8-second** duration in the pinned
+client's `stat_descriptions` block. Its Decay icon is BuffDefinitions row 766 (`IsRecovery=false`, `__col44=false`):
+no inline values or `u82`, despite its granted per-minute chaos-damage stat.
+
+`EssenceDaemonSummonMovingKaruiSpirit` resolves `alternate_minion=185` to `EssenceKaruiSpiritMovingAxe`;
+its cast/cooldown are 1/6 seconds and it summons one spirit.
+One is the cast batch; [Contempt's encounter](https://www.poewiki.net/wiki/Essence_of_Contempt) has three chasing spirits.
+Both it and `EssenceDaemonSummonSpectralSkull` carry implicit `minion_dies_when_parent_dies`,
+`minion_dies_when_parent_deleted` and `summoned_monsters_no_drops_or_experience`.
+`EssenceMovingAncestor.ot` makes the Karui spirit untargetable, damage/stun immune and unknockable.
+Its Heavy Strike has +50% damage and +80% **increased** attack speed, not a more-speed modifier.
+The server-only `.ais` files are absent; daemon activation, summon scatter and `DiesAfterTime` duration remain unverified.
+
+`essence_delirium_spawn_monster_on_death_variation=10` selects row 9 of `SummonedSpecificMonstersOnDeath`:
+`EssenceInsectWildExplosiveColossal`, one insect (`__col4`).
+Its `InsectSuicideExplosionHuge` action casts for 3 seconds and deals the stat set's level-scaled secondary fire damage.
+On 3.29.3d, `SuicideExplosion` factory `0x1419b53d0` constructs `0x141a46170`; its execute function `0x141a46250`
+computes `floor(15 * radius_percentage / 100)` at `0x141a462cc`–`0x141a462e5`.
+The percentage getter `0x14193efd0` reads stat `0x1591` plus 100; the skill's +100% final radius therefore gives 30 cells.
+These code addresses also hold for 3.29.3c; the disassembly used the allowed d executable, SHA-256 `e9ba3d31…f41f53d`.

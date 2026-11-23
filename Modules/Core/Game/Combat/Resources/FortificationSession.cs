@@ -1,15 +1,19 @@
 
 
+using GameServer.Core.Protocol.Instance;
+
 /// <summary>Serialized by the owner's combat lock. All deadlines and recovery use that owner's game clock.</summary>
-sealed class FortificationSession
+public sealed class FortificationSession
 {
-    public const string OnMeleeHit = "fortify_on_hit";
-    public const string ChanceOnMeleeHit = "chance_to_fortify_on_melee_hit_+%";
-    public const string CannotGain = "cannot_gain_fortification_from_hits";
-    public const string Current = "current_fortification", Uncapped = "uncapped_current_fortification";
-    public const string Maximum = "virtual_max_fortification";
-    public const string Regeneration = "life_regeneration_rate_per_minute_%";
-    public const string AttackSpeed = "attack_speed_+%";
+    public const uint OnMeleeHit = Stat.FortifyOnHit;
+    public const uint ChanceOnMeleeHit = Stat.ChanceToFortifyOnMeleeHitPlusPct;
+    public const uint DirectMeleeHitDurationMilliseconds = Stat.GainFortifyOnMeleeHitMs;
+    public const uint ChanceOnStun = Stat.ChanceToFortifyOnMeleeStunPct;
+    public const uint CannotGain = Stat.CannotGainFortificationFromHits;
+    public const uint Current = Stat.CurrentFortification, Uncapped = Stat.UncappedCurrentFortification;
+    public const uint Maximum = Stat.VirtualMaxFortification;
+    public const uint Regeneration = Stat.LifeRegenerationRatePerMinutePct;
+    public const uint AttackSpeed = Stat.AttackSpeedPlusPct;
     public readonly FortificationState State = new();
     public FortificationState.Value Value { get; private set; } = new(0, 0, 20, null);
     public int AddedMaximum { get; private set; }
@@ -17,6 +21,9 @@ sealed class FortificationSession
     public int SpeedPerStack { get; private set; }
     public long Revision { get; private set; }
     public long PresentedRevision = -1;
+    /// <summary>The stacks, their maximum or their effects changed (the stat steps that read them run again).</summary>
+    public Action? Changed;
+    void Bump() { Revision++; Changed?.Invoke(); }
     public ushort Buff;
     double accountedStackSeconds, regenerationPerStack, recovery;
     double? snapshotTime;
@@ -24,7 +31,7 @@ sealed class FortificationSession
     {
         now = snapshotTime ?? now;
         Read(now);
-        if (State.ExpiryRate != rate) Revision++;
+        if (State.ExpiryRate != rate) Bump();
         State.SetExpiryRate(now, rate);
         Read(now);
     }
@@ -49,16 +56,16 @@ sealed class FortificationSession
         Value = State.Read(now, AddedMaximum);
         recovery += (State.StackSeconds - accountedStackSeconds) * regenerationPerStack;
         accountedStackSeconds = State.StackSeconds;
-        if (before != Value) Revision++;
+        if (before != Value) Bump();
         return Value;
     }
 
-    public FortificationState.Value Observe(double now, Func<string, int> get)
+    public FortificationState.Value Observe(double now, Func<uint, int> get)
     {
         Read(now); // Settle the previous cap and recovery inputs before adopting new sources.
         int speed = get(FortificationState.AttackSpeedPerStack), regen = get(FortificationState.LifeRegenPerStack);
         int added = get(FortificationState.MaximumStat);
-        if (speed != SpeedPerStack || regen != RegenPerStack || added != AddedMaximum) Revision++;
+        if (speed != SpeedPerStack || regen != RegenPerStack || added != AddedMaximum) Bump();
         (SpeedPerStack, RegenPerStack, AddedMaximum) = (speed, regen, added);
         return Read(now);
     }
@@ -80,17 +87,37 @@ sealed class FortificationSession
     }
 
     public bool Hit(double now, decimal rawDamage, decimal maximumLife,
-        GameServer.Core.Protocol.Instance.MonsterRarity rarity, Func<string, int> get, Random random)
+        GameServer.Core.Protocol.Instance.MonsterRarity rarity, Func<uint, int> get, Random random)
     {
         Observe(now, get);
         if (get(CannotGain) != 0) return false;
-        bool always = get(OnMeleeHit) != 0;
+        double directDuration = get(DirectMeleeHitDurationMilliseconds) / 1000.0;
+        bool always = get(OnMeleeHit) != 0 || directDuration > 0;
         int chance = Math.Clamp(get(ChanceOnMeleeHit), 0, 100);
         if (!always && (chance == 0 || random.Next(100) >= chance)) return false;
         int count = FortificationGainModel.Calculate(rawDamage, maximumLife, rarity, Value.Maximum,
             FortificationGainModel.Modifiers.From(get));
-        if (!State.TryGrantFromHit(now, count, get(FortificationState.DurationStat))) return false;
-        Revision++;
+        if (!State.TryGrantFromHit(now, count, get(FortificationState.DurationStat),
+            directDuration > 0 ? directDuration : FortificationState.BaseDurationSeconds)) return false;
+        Bump();
+        Read(now);
+        return true;
+    }
+
+    /// <summary>"Melee Hits which Stun have X% chance to Fortify" (wiki Fortification): one roll on a successful melee
+    /// stun; the stacks use <see cref="FortificationGainModel"/> with the hit's raw damage and the target's life and
+    /// rarity, as <see cref="Hit"/> does.</summary>
+    public bool FortifyFromStun(double now, decimal rawDamage, decimal maximumLife, MonsterRarity rarity,
+        Func<uint, int> get, Random random)
+    {
+        Observe(now, get);
+        if (get(CannotGain) != 0) return false;
+        int chance = Math.Clamp(get(ChanceOnStun), 0, 100);
+        if (chance == 0 || random.Next(100) >= chance) return false;
+        int count = FortificationGainModel.Calculate(rawDamage, maximumLife, rarity, Value.Maximum,
+            FortificationGainModel.Modifiers.From(get));
+        if (count <= 0 || !State.TryGrantFromHit(now, count, get(FortificationState.DurationStat))) return false;
+        Bump();
         Read(now);
         return true;
     }
@@ -101,7 +128,21 @@ sealed class FortificationSession
         State.Clear();
         Value = new(0, 0, FortificationState.Maximum(AddedMaximum), null);
         accountedStackSeconds = regenerationPerStack = recovery = 0;
-        if (changed) Revision++;
+        if (changed) Bump();
+    }
+
+    /// <summary>Overheat Support: removes every effective stack and returns how many there were (the capped current
+    /// value). The stacks' accumulated regeneration is settled first, so the life recovery already earned is kept.</summary>
+    public int ConsumeAll(double now)
+    {
+        Read(now);
+        int consumed = Value.Current;
+        if (consumed == 0) return 0;
+        State.Clear();
+        Value = new(0, 0, FortificationState.Maximum(AddedMaximum), null);
+        accountedStackSeconds = 0;
+        Bump();
+        return consumed;
     }
 
     public void Restore(FortificationState.Transfer transfer, double now)

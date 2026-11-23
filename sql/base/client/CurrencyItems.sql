@@ -1,0 +1,27 @@
+-- Client table CurrencyItems (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "CurrencyItems" (
+    "_row" INTEGER PRIMARY KEY,
+    "BaseItemTypesKey" INTEGER,
+    "StackSize" INTEGER,
+    "CurrencyUseType" INTEGER,
+    "Action" TEXT,
+    "Directions" TEXT,
+    "FullStack_BaseItemTypesKey" INTEGER,
+    "Description" TEXT,
+    "Usage_AchievementItemsKeys" JSON,
+    "Scroll" BOOLEAN,
+    "Possession_AchievementItemsKey" INTEGER,
+    "__col10" JSON,
+    "__col11" JSON,
+    "CurrencyTab_StackSize" INTEGER,
+    "XBoxDirections" TEXT,
+    "__col14" INTEGER,
+    "ModifyMapsAchievements" JSON,
+    "ModifyContractsAchievements" JSON,
+    "CombineAchievements" JSON,
+    "ChangedForHardmode" BOOLEAN,
+    "DescriptionHardmode" TEXT,
+    "IsGold" BOOLEAN,
+    "__col21" BOOLEAN,
+    "__col22" BOOLEAN
+);

@@ -4,7 +4,7 @@
 /// chance and prohibition are evaluated per hit. The caller serializes access under the connection's monster lock.
 /// Random values are allocated lazily so cancelled/missed/prohibited contacts consume no critical randomness.
 /// That allocation order is local policy, not a claim about the official server's random-number stream.</summary>
-sealed class SkillCriticalRoll(int extraRolls)
+public sealed class SkillCriticalRoll(int extraRolls)
 {
     int? value;
 

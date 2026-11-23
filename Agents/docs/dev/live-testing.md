@@ -1,13 +1,13 @@
 # Live testing against the real client
 
-How to run the patched 3.29.3b client against our servers safely and repeatably.
+How to run the patched client (an allowed build, `ClientBuilds.cs`) against our servers safely and repeatably.
 
 ## Rules
 
 1. **Never let the client update.** An update replaces the patched client and data. Start it only through
    `scripts/dev/live.ps1`, which passes `--patching-server 127.0.0.1:12995`. The patch server advertises only
    `http://127.0.0.1:8080/` and answers 404 for everything except `gateway_list.txt`. Check
-   `Tools/re/out/live-patch.log` for `cdn passthrough off`.
+   `logs\live-patch.log` for `cdn passthrough off`.
 2. **Never start a second client other than through `live.ps1`** (that includes computer-use
    `open_application("Game.patched")`). A second instance started without the patching-server argument tried to
    download `PathOfExile.exe` from the real CDN on 2026-10-16. Several clients at once are named sessions
@@ -15,17 +15,17 @@ How to run the patched 3.29.3b client against our servers safely and repeatably.
    ```powershell
    Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);'
    $h = (Get-Process -Name Game.patched).MainWindowHandle; [W.U]::ShowWindow($h, 9); [W.U]::SetForegroundWindow($h)
+   ```
    If the window stays minimized (`ShowWindow` from a background process is ignored), post a restore command instead:
    ```powershell
    Add-Type -Namespace W3 -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr h, uint m, System.IntPtr w, System.IntPtr l);'
    [W3.U]::PostMessage((Get-Process -Name Game.patched).MainWindowHandle, 0x0112, [IntPtr]0xF120, [IntPtr]0)
    ```
-   ```
 3. With "Save Login Details" ticked the client auto-submits the saved login at startup. If it fails, Auth now closes
    the connection and Log In works again. In the client the password field needs a click before typing; Enter does not
    submit, click Log In.
-4. The dev account is `devtester` (password in `data/dev-login.txt`, untracked). Its characters live in
-   `data/saves.db` ([saves](../saves.md)).
+4. Accounts are made with `GameServer.Auth register` ([GettingStarted](../../GettingStarted.md) step 8); characters live in
+   `data/characters.db` ([saves](../saves.md)).
 
 ## One-time setup
 
@@ -35,12 +35,17 @@ dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.pa
 ```
 
 Also point the GGPK gateway list at the local login server (`GameServer.Patch gateway --login 127.0.0.1:20493`; the
-original is backed up to `data/gateway_list.original.txt`), and register the dev account with `GameServer.DevClient`.
+original is backed up to `data/gateway_list.original.txt`), and register an account with `GameServer.Auth register`.
+
+`live.ps1` checks that the patched copy's signing and static login keys match this checkout's
+`data/login-keys.json` before launching it. A mismatch can leave Auth logging only the key exchange, with no encrypted
+login from the client. `GameServer.Auth verify-patch Client/Game.patched.exe` checks this without changing either file.
+Stop clients using that copy, keep the existing keys, and explicitly repeat `patch` above to repair it.
+Do not regenerate server keys or run the official launcher to fix a mismatched local copy.
 
 ## A run
 
 ```powershell
-$env:Game_GATEWAY_ENTER = '1'      # also send 0x21 (enter area). Leave unset to stop after the player object
 & .\scripts\dev\live.ps1           # -NoClient keeps a running client, -NoBuild skips the builds
 ```
 
@@ -49,11 +54,11 @@ Gateway env: `Game_MOVE_MODE` = `echo` (default: only the 0x1ab echo), `move` (a
 default attack's hit past its contact keyframe ([11](../protocol/11-skills.md) §5).
 
 `live.ps1` stops this checkout's servers and clients (anything else on its ports is reported, not stopped), builds
-Auth, Patch and Gateway, starts all three (logs in `Tools/re/out/live-*.log`), waits for the patch server and launches the
+Auth, Patch and Gateway, starts all three (logs in `logs\live-*.log`), waits for the patch server and launches the
 client. Then:
 
 1. wait for "Loading in" in `Client/logs/Client.txt` (startup takes about a minute; the file check is local)
-2. log in as `devtester` and select DevWitch
+2. log in and select a character
 3. Play
 
 To restart only the Gateway: `.\scripts\dev\live.ps1 -Only Gateway`. The client drops to the login screen and you
@@ -85,13 +90,14 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
 - **Ports.** `-PortBase N` (or `Game_PORT_BASE`) puts the stack on N (Patch), N+1 (Patch web), N+2 (Auth login), N+3
   (Auth control) and N+4 (Gateway). `live.ps1` remembers the base in `data\stack.json`, so later runs, `-ClientOnly` and
   the bridge in the same checkout use it without being told again; `-PortBase 0` goes back to the default ports
-  (12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses. On the default ports a
-  server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins; with a base the shell's are not used.
+  (`Config\localexile.conf`'s, else 12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses.
+  On the default ports a server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins over the conf; with
+  a base neither is used.
   `data\stack.json` holds every port the servers got, and the bridge reads it. Auth sends the client to its own Gateway (`Game_GATEWAY_PORT` in login 0x14, as
   the Gateway does in 0x27). The levelgen server (`lg.ps1`) needs no port: its named pipe is per checkout.
 - **What is stopped.** `live.ps1` stops only this checkout's processes: servers whose command line, executable or cmd
   wrapper names a path inside the checkout (it starts them with absolute paths; a worktree nested in it under
-  `.claude\worktrees\` is another checkout), with everything they started (a watched Gateway's `dotnet watch` tree, but
+  `.claude\worktrees\` is another checkout), with everything they started (an older run's `dotnet watch` tree, but
   not the MSBuild nodes and compiler server its builds start, which every build shares); clients started from this
   checkout's `Client\` path (each checkout reaches the shared client through its own junction, so the path it was
   started by tells checkouts apart; Windows' image name resolves the junction) and, among those, the session's by the
@@ -137,7 +143,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
 - **Shared by everyone:** `Client\` (the executable and `Content.ggpk`, which every client opens read-only), the shader,
   pipeline and minimap caches in `%LOCALAPPDATA%\Path of Exile`, crash dumps in `Documents\My Games\Path of
   Exile\release`, and, in worktrees made by linking, whatever they link (`data\tables`, `data\walkability`). **Per
-  checkout:** the ports, `logs\`, the save database (`Game_SAVES_DB`), `data\stack.json`. **Per session:** the working
+  checkout:** the ports, `logs\`, the save database (`Game_CHARACTERS_DB`), `data\stack.json`. **Per session:** the working
   folder, `Client.txt`, settings, saved login and PID record.
 - **Walk maps** (`-Walkmaps`) only on the default ports and client session (elsewhere `live.ps1` warns and starts
   without the recorder): the recorder meets the Gateway in the shared `data\walkability\current.json`. It attaches to
@@ -176,51 +182,29 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
   a Gateway about 0.75 GB right after start, Auth and Patch under 0.05 GB. Check the free commit
   (`(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory`) before opening another client.
 
-## Changing the Gateway while it runs (hot reload)
+## Changing code while the stack runs (hot reload)
 
-`live.ps1` runs the Gateway under `dotnet watch` unless `-NoHotReload` is given
-([GettingStarted](../../GettingStarted.md) step 10).
+The servers (Gateway, Auth, Patch) have no hot reload: an edit to `src/` is a rebuild and restart,
+`live.ps1 -Only Gateway` (the client drops to the login screen; Auth keeps the session). Modules and mods do hot reload.
 These are suggestions that have worked well, for people and agents alike; use your judgment.
 
-- **Try saving before restarting.** Most behaviour edits (packet handlers, damage, drops, AI, chat commands) apply to
-  the running Gateway in about 15 s, and the player stays in game. A restart costs the player a login and the walk
-  back to what they were testing.
-- **Check that it applied.** `logs\live-gateway.log` gets `[gateway] hot reload: <file> saved` and then
-  `[gateway] hot reload #n applied in x.yz seconds`; players see the same two lines in chat.
-  `dotnet watch`'s own lines (`File updated`, `changes applied`, compile errors) are in `logs\live-gateway.err`.
-- **A compile error leaves the old code running.** `dotnet watch` reports it in `live-gateway.err` and waits for the
-  next save; nothing restarts. Players read "Hot-reload failed: n compile error(s)" in chat with the first three
-  errors (file, line, code). Fixing it and saving again is usually all that is needed; when the fix brings the code
-  back to what is running, `dotnet watch` applies nothing and players read "no code changes to apply".
-- **Group a multi-file change.** Each save that compiles starts a reload, so a half-done change across several files
-  can apply in between. Writing the files in quick succession (or in one tool call) keeps it to one reload.
-- **Know what needs more than a save.** Static fields and catalogs (`Items`, `Skills`, `Lazy<>` caches) keep the values
-  they were built with; new static fields start empty, not with their initializer. Per-connection setup (the chat
-  command table, character preparation) runs again on the next area change, which is a new connection. A loop that is
-  already running keeps its old body until it returns. For these, an area change or `live.ps1 -Only Gateway` helps.
-- **Some edits restart on their own.** A changed method signature or a removed member cannot be applied;
-  `dotnet watch` prints `Restart is needed to apply the changes`, rebuilds and restarts the Gateway, and the player
-  is back at the login screen (the Gateway tries to say so in chat first). It can be kind to tell the person playing
-  before saving such an edit. `dotnet watch` does not build the modules, so the restarted Gateway builds those older
-  than itself before it loads them (`StaleModules`); an older module would otherwise fail only when it runs, with a
-  `MissingFieldException` or `MissingMethodException`. A module that does not build is named in the log. `live.ps1`
-  builds all modules and mods first, in one parallel build, and records it in the Gateway's `bin\` (`modules-checked`),
-  so that start does not build them again.
 - **A module's edit needs only its own build.** `dotnet build <Module>.csproj -p:BuildProjectReferences=false` reloads
-  that module and leaves the Gateway running. It compiles against the Gateway's DLL on disk, so a member added only by a
-  hot reload is not visible to it until a restart.
-- **A reload wave costs one collection.** Forced collections stop every player's tick, so `UnloadCollector` runs one
-  pass after the last unload or load of a wave. While the game module reloads its old rules keep running, until the new
-  ones replace them; the other modules' hooks are absent between their unload and load.
-- **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
+  that module (and those that depend on it) and leaves the Gateway running; the player stays in game. Chat and
+  `live-gateway.log` say `[modules] loaded <id> …`, or why the new build did not load (the old one keeps running).
+- **Everything is compiled before it runs.** Every build precompiles the servers, the modules and mods to machine code
+  (crossgen2, `Directory.Build.targets`); what is left to compile on a first use in game is the framework's generic code
+  used with framework types only (`Dictionary<byte, uint>`, LINQ over tuples), which the runtime looks for only in the
+  framework's own images. A loaded module or mod also has
+  every method prepared before its `Load` runs (`[modules] <id>: n methods compiled in x ms`). A cold build of
+  everything takes about two minutes; a module's own build seconds.
+- **Reloaded versions stay in memory.** The runtime only uses precompiled code in a load context that is never
+  unloaded, so each version of a module stays loaded, inert, until the Gateway restarts. A long session of reloads of
+  the game module grows the Gateway's memory; a restart frees it.
+- **State starts over.** A reload starts the module's state over; static fields and catalogs of the Gateway keep theirs.
+  While the game module reloads its old rules keep running until the new ones replace them; the other modules' hooks
+  are absent between their unload and load.
+- **Tests while it runs.** The running Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
-  Keep the monster AI cadence collection nonparallel: its socket-latency assertion retains its 300 ms limit, so
-  parallel catalogue loads and their GC pauses must not run beside it. Arcane Might's area fixture measures its
-  projectile range from the weapon-contact origin to the target, rather than assuming the player is the origin.
-  Tests of a single area sweep await its executor, so a sustained channel cannot add a second contact during assertions.
-  Gateway collections run sequentially by default; this retains all tests, assertions and in-test concurrency while
-  avoiding unrelated catalogue-load/GC contention. Expect less overlap between test classes.
-- **Auth and Patch are not watched.** Changes there still need `live.ps1 -Only Auth` or `-Only Patch`.
 
 ## What a good run looks like
 
@@ -252,11 +236,26 @@ Source [Lioneye's Watch]". Then the HUD appears.
 | `WerFault.exe` appears / window masked in screenshots | client crash. Event log id 1000 has the fault offset (VA − 0x140000000). Attach Frida before Play next time |
 | "Area reported by instance does not exist" | the 0x14 area hash is not a WorldAreas.HASH16 |
 | client back at the login screen, "An unexpected disconnection occurred" | the instance connection closed (Gateway restarted or crashed) |
-| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` unset). The world queues 0x2bb and waits |
+| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` set to something other than `1`). The world queues 0x2bb and waits |
 | extra map icons with no label (e.g. three area transition icons at the town gate) | the client's **minimap cache** remembers icons of objects it has seen, per area, in `%LOCALAPPDATA%\Path of Exile\Minimap\` (hash-named, encrypted files). Moving an object around (dev commands, changed defaults) leaves its old icons there, across restarts. Close the client and move the files away; seen 2026-10-17 |
 
 Window position and size change between launches; take a screenshot before clicking. At half scale, the password
 field, character row and Play button were near (245, 217), (375, 61) and (455, 263) in one layout and moved in others.
+
+## Dev commands that lie
+
+Four things that made a live boss check read as broken when it was not (all seen 2026-11-11, checking the Pantheon):
+
+| What you do | What actually happens |
+|---|---|
+| `/tp <x> <y>` onto the monster's own cell (`/mobs` prints it) | it neither moves nor attacks: stand 8–10 cells off. A boss that reads as idle, or as never swinging, is usually this |
+| `/mob_life <id> 0` on a boss with life phases | one smite, so the life stops at the next threshold (the Brine King's 75, 50, 25) and the phase runs; smite again once the log says that phase is over. The phase only begins with the player inside the arena, so smiting from the entrance leaves the boss clamped and looking unkillable |
+| `/quest_flag <flag>-HaveItem` | it is set and the quest-item sync takes it back within the millisecond — the log shows `set` and then `cleared`. A gate that needs an item only opens with the real item in the bag |
+| `rawpacket` | the fields are big-endian: C→S 0x24 (use an object or a ground item) wants the entity id as `04 00 00 00` for `0x4000000`. Little-endian is accepted silently and the server reads `TargetId = 4` |
+
+Counting a boss's actions from the log has the same shape: `attacks the player` is not every swing — the Brine King's
+only ever show as `player hit by monster 0x…`. Count `player hit by monster <id>` and `uses area skill` instead, or a boss
+that deals damage every second reads as idle.
 
 ## Env vars
 
@@ -264,11 +263,14 @@ field, character row and Play button were near (245, 217), (375, 61) and (455, 2
 |---|---|---|
 | `Game_PORT_BASE` | unset | `live.ps1` (like `-PortBase`): every port below from one base |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly`, `client_control.py` (like `-Session` / `--session`) |
+| `Game_CONF` | `Config\localexile.conf` | every server, `live.ps1`: addresses, ports and the client folder (written with the defaults on the first start); each variable below wins over its key |
 | `Game_LOGIN_PORT` | 20493 | Auth |
 | `Game_GATEWAY_PORT` | 6112 | Gateway, and Auth (where Play sends the client) |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth and Gateway |
-| `Game_GATEWAY_ENTER` | unset | Gateway: `1` sends 0x21 |
+| `Game_GATEWAY_ENTER` | `1` (set by `live.ps1` and `LocalExile.exe`) | Gateway: `1` sends 0x21; unset, it stops after the player object |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | Auth and Gateway (must match) |
-| `Game_SAVES_DB` | `data/saves.db` | Gateway, Auth, Host |
-| `Game_PATCH_TCP_PORT`, `Game_PATCH_URL`, `Game_PATCH_WEB_ROOT` | 12995, http://0.0.0.0:8080, http://127.0.0.1:8080/ | Patch |
+| `Game_CHARACTERS_DB` | `data/characters.db` | Gateway, Auth, Host |
+| `Game_AUTH_DB` | `data/auth.db` (beside another characters database: `<name>-auth.db`) | Gateway, Auth, Host |
+| `Game_SQL_DIR` | `sql` | Gateway, Auth, Host |
+| `Game_PATCH_TCP_PORT`, `Game_PATCH_URL`, `Game_PATCH_WEB_ROOT` | 12995, http://127.0.0.1:8080, the listen URL as 127.0.0.1 | Patch |
 | `Game_CDN_PASSTHROUGH` | unset | Patch: `1` proxies to the real CDN (only to repair data on purpose, with a backup of `Client/`) |

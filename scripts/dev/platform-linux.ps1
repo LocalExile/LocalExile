@@ -106,6 +106,7 @@ function Start-WineClient([string]$client, [int]$patchPort) {
     Need (Get-Command $runner -ErrorAction SilentlyContinue) "$runner not found: install umu-launcher, or set Game_CLIENT_RUNNER"
     $settings = @{ WINEPREFIX = (Join-Path $repo 'data\wine-prefix'); PROTONPATH = 'GE-Proton'; GAMEID = 'umu-238960'; PROTON_VERB = 'run' }
     $before = @{}
+    if ($Walkmaps) { $settings['Game_RECORDER_CLIENT_RUNNER'] = $runner }
     foreach ($name in $settings.Keys) {
         $before[$name] = [Environment]::GetEnvironmentVariable($name)
         if (-not $before[$name]) { [Environment]::SetEnvironmentVariable($name, $settings[$name]) }
@@ -113,8 +114,22 @@ function Start-WineClient([string]$client, [int]$patchPort) {
     New-Item -ItemType Directory -Force ([Environment]::GetEnvironmentVariable('WINEPREFIX')) | Out-Null
     $log = Join-Path $out 'live-client.log'
     $err = Join-Path $out 'live-client.err'
-    try { $wrapper = Start-LinuxDetached $runner @((Join-Path $client 'Game.patched.exe'), '--patching-server', "127.0.0.1:$patchPort") $log $err $client }
-    finally { foreach ($name in $before.Keys) { [Environment]::SetEnvironmentVariable($name, $before[$name]) } }
+    try {
+        $arguments = @((Join-Path $client 'Game.patched.exe'), '--patching-server', "127.0.0.1:$patchPort")
+        if ($Walkmaps) {
+            # Load Gum before Wine replaces its main ELF image. The receiver still verifies this checkout's client PID.
+            [Environment]::SetEnvironmentVariable('Game_RECORDER_CLIENT_RUNNER', $runner)
+            $runner = $python
+            $arguments = @((Join-Path $repo 'scripts/walkmaps/proton.py'), 'run') + $arguments
+        }
+        $wrapper = Start-LinuxDetached $runner $arguments $log $err $client
+    }
+    finally {
+        foreach ($name in $before.Keys) {
+            if ($null -eq $before[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+            else { [Environment]::SetEnvironmentVariable($name, $before[$name]) }
+        }
+    }
     $waitStart = Get-Date
     $script:nextReport = 10
     while ($true) {
@@ -130,8 +145,7 @@ function Start-WineClient([string]$client, [int]$patchPort) {
     }
 }
 
-# What needs Frida's view of the client, or Windows' job objects and mutex renaming, stops here rather than half working.
+# Named clients still depend on Windows' job objects and mutex renaming.
 function Assert-LinuxSupport([bool]$walkmaps, [bool]$session) {
-    if ($walkmaps) { throw '-Walkmaps is not available on Linux yet: attaching Frida to a client under Proton is untested' }
     if ($session) { throw 'named -Session, -Nullifier and -Agent clients are not available on Linux yet: they start through scripts/dev/nullifier.py, which is Windows-only. -NoClient runs the servers.' }
 }

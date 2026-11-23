@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 /// between words ("RRGB" a 4-link, "RR GB" two 2-links, "R G B" three single sockets; dashes inside a word are ignored, so
 /// "R-R-G-B" is a 4-link too).
 /// </summary>
-static class SocketLayout
+public static class SocketLayout
 {
     public const int MaximumSockets = 6;
 

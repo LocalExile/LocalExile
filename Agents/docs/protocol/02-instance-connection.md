@@ -70,7 +70,7 @@ no fields):
   the 64 key bytes from 0x14 (info `+0x38`), and installs it on the stream with `0x140dfa6d0`. That function also
   decrypts any bytes already buffered after 0x11 in place.
 - builds a second pair for a side channel at `stream+0xd0` with `0x1429a7000` → `0x1429a6ec0`: the 64 key bytes are
-  XORed with the 64 bytes at `0x142feaed0`, bytes 0↔0x15, 4↔2, 0xd↔0x2a, 0x30↔1, 0x1d↔0x1e and 0x32↔0x13 are swapped,
+  XORed with the 64 bytes at `0x142feaed0` (3.29.3d: `0x142feaeb0`, unchanged SHA-256), bytes 0↔0x15, 4↔2, 0xd↔0x2a, 0x30↔1, 0x1d↔0x1e and 0x32↔0x13 are swapped,
   and `0x140e022d0(km', 1)` is called. This is **HNC**, a side channel hidden in carrier fields such as the 0x1c u32
   ([07](07-latency-visibility-movement.md) §2); the tick sends `0x1429a70e0(…, 0xdd, …)` packets through it.
 - clears the info pointer and records a timestamp.
@@ -138,7 +138,7 @@ disconnects with code 0xf through `0x1421505f0`, which sets state 1) and when th
 ## 7. The tick (`0x14214f1d0`) once connected
 
 - When `+0xe1f9` is set (the area finished generating) it sends **C→S 0x7d** (class `0x1435ca2c0`, two u32 = tile hash
-  and doodad hash, from world `+0x114`) and flushes. See [03](03-area-and-world.md#2-c→s-0x7d-area-generated).
+  and doodad hash, from world `+0x114`) and flushes. See [03](03-area-and-world.md#2-cs-0x7d-area-generated).
 - It pumps messages while the pump accepts them (`0x1429a77a0` in a loop), unless the stream is closing (`+0x251`).
 - In state 3 it sends **C→S 0x1b** (class `0x1435cad90`: u8 (a counter from world `+0xb98`, reset after sending, capped at 255), then
   4 more bytes) every 100–500 ms, then also 0x31 (skill/inventory actions) and 0xc7 (queued u16 + u8) when it has
@@ -150,7 +150,7 @@ every 0x1b with 0x1c, whose u32 must carry idle HNC bytes: see [07](07-latency-v
 
 ## 8. Our Gateway
 
-`src/GameServer.Gateway/Connection/Program.Connection.cs` (`HandleAsync`), per connection. `Program` is one partial class split by feature: `Program.cs` holds the startup and the shared constants and catalogs, `Program.<Feature>.cs` the handlers (`Messages` the C→S dispatch, `Combat`, `Monsters`, `Items`, `Stash`, `Npcs`, `Travel`, `Portals`, `Commands` …), `ClientState.cs` the per-connection state:
+`src/GameServer.Gateway/Connection/Program.Connection.cs` (`HandleAsync`), per connection. `Program` is one partial class split by feature: `Program.cs` holds the startup and the shared constants and catalogs, `Program.<Feature>.cs` the handlers (`Messages` the C→S dispatch, `Combat`, `Monsters`, `Items`, `Stash`, `Npcs`, `Travel`, `Portals`, `Commands` …), `Player.cs` the per-connection state:
 
 1. read until `TryReadOpening` succeeds (30 bytes) → `keyring.Ciphers(opening.Ticket)`
 2. send `00 11` plaintext

@@ -19,7 +19,7 @@ using GameServer.Core.Protocol.Instance;
 /// instance's ground. The stash does not count: it is the account's, so another character's copy must not keep this one
 /// from its item (a character that stashes its own gets another).
 /// </summary>
-static class QuestItems
+public static class QuestItems
 {
     /// <summary>Every item the character carries: each of its inventories and the cursor.</summary>
     public static IEnumerable<(byte Row, InventoryItem Item)> Carried(PlayerInventories items)

@@ -1,0 +1,25 @@
+-- Client table GrantedEffectsPerLevel (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "GrantedEffectsPerLevel" (
+    "_row" INTEGER PRIMARY KEY,
+    "GrantedEffect" INTEGER,
+    "Level" INTEGER,
+    "PlayerLevelReq" INTEGER,
+    "CostMultiplier" INTEGER,
+    "StoredUses" INTEGER,
+    "Cooldown" INTEGER,
+    "CooldownBypassType" INTEGER,
+    "VaalSouls" INTEGER,
+    "VaalStoredUses" INTEGER,
+    "CooldownGroup" INTEGER,
+    "PvPDamageMultiplier" INTEGER,
+    "SoulGainPreventionDuration" INTEGER,
+    "AttackSpeedMultiplier" INTEGER,
+    "__col13" INTEGER,
+    "CostAmounts" JSON,
+    "CostTypes" JSON,
+    "ManaReservationFlat" INTEGER,
+    "ManaReservationPercent" INTEGER,
+    "LifeReservationFlat" INTEGER,
+    "LifeReservationPercent" INTEGER,
+    "AttackTime" INTEGER
+);

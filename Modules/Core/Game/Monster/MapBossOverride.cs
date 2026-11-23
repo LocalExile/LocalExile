@@ -12,7 +12,7 @@
 /// sets those flags but /quest_flag (a quest engine sets them on the bandit lords' kills), and the instance's boss
 /// follows the first character to enter it.</para>
 /// </summary>
-static class MapBossOverride
+public static class MapBossOverride
 {
     const string AshenFields = "2_7_7", Ralakesh = "Metadata/Monsters/Ralakesh/";
 

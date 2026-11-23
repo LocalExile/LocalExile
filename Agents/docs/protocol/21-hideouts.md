@@ -178,6 +178,22 @@ item messages (13-items.md). The server takes the ItemClasses `Map`, `MapKey` an
 `0x1424b5290`: u8 flags, then optional u32/u16/u8; zeros are enough because `MapKeyTierN` names the tier, and the server
 sends one zero byte). `/item Map (Tier 5)` makes a tier-5 map.
 
+**Ctrl + click into the slots** is **C→S 0x00e4** (into) or **0x00e5** (out), 12 bytes: u32 BE item id, u8 flags (bit 0
+of +0x24, bit 1 of +0x26), u8 +0x28, u8 +0x29, u8 (bit 7 set: into the device; the low 7 bits are +0x27), u16 BE the open
+map device object's +0x7b (0 when it has none). The writers are `0x14216e300` and `0x14216e5d0`, serializer `0x141f9eac0`;
+the Ctrl + click handler `0x14030e970` picks them for any item class it finds "map-ish" (`0x140310fa6`). Both directions go
+through one handler (`ItemMoves.MoveToMapDevice`), which takes the direction from where the item is.
+
+- **A map never sends C→S 0xe8** — that is the Atlas Idol path: the handler tests the ItemClasses row 94 `AtlasRelic`
+  (`cmp eax,0x5f`, `0x140310f44`) and only that class reaches it, with a u32 BE item id, then five single bytes, no byte
+  swap (`0x14216e750`, serializer `0x141f9f660`); its first byte is 1 when the item is in inventory row 84
+  (`ExpandedMainInventory1`), and there is no row-13 byte. (The old note read `+0x10b8` as a window check: no such field is
+  used by this handler; what it tests are client UI state — a virtual at `[ui+0x10c8]`, `0x140310f63`, plus the branch
+  selector `[ui+0x6c0]`/`[ui+0x658]` — which no server message sets.)
+- Before these two ids were framed (`InstanceProtocol.KnownClientLength`), the click produced only an "unframed 0x00e4"
+  run in the gateway log and the map had to be dragged in. Live 2026-11-15: the click now arrives as `00E4 00000295 …` and
+  the map moves.
+
 **Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c284f0` (window mode 0xd)
 calls `0x14216ce30`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
 u8 (0 seen); the writer class is `0x1435ca958`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x297 instead.
@@ -206,7 +222,7 @@ type (`0x141e30280` stores it in the "portal" state; MultiplexPortal.ot: 1 playe
 
 | Field | Meaning |
 |---|---|
-| u8 | flags: bit0 → +0x32, bit1 → +0x33, bit2: a u64 follows at the end |
+| u8 | flags: bit0 → +0x32 (a portal listed as just opened; its own render path), bit1 → +0x33 (the label's completed suffix), bit2: a u64 follows at the end |
 | u8, u8 | +0x2e, +0x31 (0) |
 | u32 BE | the map device object (looked up; its Functions get `on_map_portal_opened` / `on_map_portal_closed`) |
 | u16 BE, u8, u8 | +0x2c, +0x2f, +0x30 (0) |
@@ -217,10 +233,37 @@ model and rendering, and the device runs `on_map_portal_opened` (index, object).
 is now missing or has area 0 closes (+0xc0) and runs `on_map_portal_closed`. Seen live:
 - 0x008f in the same burst as the portals' 0x2bb reaches none of them (they are not created yet); on entering an area
   the objects also wait for the world to activate. The Gateway sends it 1 s after creating them (2 s on entry).
+- The client reads its socket once per update and handles 0x008f at once, while a create waits for its world frame: a
+  list that arrives in the same read as the create is handled first and lost, and the portal is never drawn, only its
+  minimap icon (live 2026-11-12, a Portal Scroll's portal in a background window in the lockstep mode: 0x008f handled
+  3 ms before the object was built, sent 100 ms after the create; the same list sent again later drew it). So every
+  portal is listed twice: `MapPortalListMs` after its create and `MapPortalRelistMs` (600 ms) later (`Game.ListPortal`;
+  the device's portals each ride on the next one's list and the last gets its own). A list sent again unchanged leaves
+  the portal as it is, and one sent again with another variation restyles it, so a pick restyles a Portal Scroll's
+  portal and the portal back as well as the device's.
 - Type 3 (map device) gets its nametag but no model: MultiplexPortal.ot enables its rendering only `on_transition`.
   Created untransitioned and opened with S→C 0x2bc to Transitionable (component 5, u8 1), the client hung, or
   crashed with the update 2 s later; that was before 0x008f had given the portal its area. **Type 1 (player) renders**,
   so the Gateway uses it (`Game_MAP_PORTAL_TYPE` overrides).
+
+**The label over a portal is the Portal component's own nametag** (`0x14161bb60`, vtable `0x143477000`). For the player's
+own portal, slot +0xb8 (`0x14161c0e0`) calls the text getter `0x14161ca80`: `[rcx+8]` is the component, `[+0xb0]` the
+WorldAreas row the entry's area HASH16 resolved to and `[+8]` its localized name; `cmp byte ptr [rax], r8b`
+(`0x14161caa7`) then tests one byte of the component and, when it is set, appends `ClientStrings` row `0x1fe5`
+`MapPortalsSuffixMapCompleted`, "{0} (Completed)" (`0x14161caf1`). That byte is **native message +0x33**, filled by bit 1 of this
+message's flags and nothing else: the reader stores `flags & 1` at +0x32 and `(flags >> 1) & 1` at +0x33 (`0x1421a73b2`,
+`0x1421a73c1`), the dispatcher's case 0x21 hands bit 1 to the handler (`0x14218ca36`, kept at world +0xb7b), and the
+handler forwards it per listed portal as the 7th argument of slot +0xb8 (`0x14218cc2d`, call `0x14218cc4c`). Because it
+runs +0xb8 for every listed portal on every 0x008f, a re-sent list relabels them all. **Bit 0 must stay clear** for a
+plain list: it is a different byte, +0x32, and it selects the "just opened" render path. None of this is S→C
+0x1a3/0x1a4, the AtlasNode masks, section 0x4 or `MapDeviceRecipes`.
+
+So the Gateway sets bit 1 for the run whose map boss has died, and leaves it clear otherwise: before the boss dies, and
+for a map its character finished on another day, the label stays plain; so do the map's own portal back and the towns.
+The mark follows the exact device run and its instance, including guest kills; opening the same map again starts a
+new run. Only that area’s declared terminal bosses count, including every living twin, not unrelated unique monsters. Seen live 2026-11-14 (3.29.3c): after a
+map's boss died and the player returned to the hideout, the standing portals read "<area name> (已完成)" in a Chinese
+client, and the logged message began `008F02 00 00` (`00` before the change).
 
 **Portal cosmetics without the shop.** The entry's u16 is the portal's own visual, so a shop portal effect replaces the
 base one rather than adding a second object: `/cosmetic portal <name or index>` (Gateway) sets a per-connection
@@ -242,16 +285,47 @@ ship as whole portal objects (`Metadata/Effects/Microtransactions/Town_Portals/�
 Positioned, BaseEvents, StateMachine, Animated, Portal, Transitionable, MinimapIcon, InteractionAction, ControlZone);
 the variation route above covers the ones that are effect rigs only.
 
+**The device's instance.** A hideout's instance is gone six minutes after its last player leaves
+(`InstanceRegistry.Lifetime`), and the device and the portals standing at it go with it. Coming back into a new
+instance of the same area, the character's open run moves to it (the old instance is no longer in Auth's list): the
+portals left come up at the new device, and the map's portal back leads there rather than to an instance that is gone
+(live 2026-11-18: a disconnect inside the Simulacrum after the hideout had stood empty for six minutes came back to a
+device with no portals, while the map's own instance was still alive).
+A click on a portal back (the map's own, or a Portal Scroll's) asks Auth's instance list first: while the instance the
+portal was opened from is live the player enters it at the device, and a town's or a hideout's instance that is gone is
+made again and entered at the same cell by its device (seed 1), while a map's own instance is never made again.
+Before this the transfer to the gone instance was refused and the click did nothing (live 2026-11-18, the same
+Simulacrum run).
+The death screen's "Resurrect at Checkpoint" in a map asks that list too, for the area the map device stood in: an
+instance that is gone is made again and entered by its device, instead of a refused transfer that left the dead
+character in the map (live 2026-11-18, the same run).
+
 **Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter
 that one (`MapDevice.Entered`). The open map is kept per character in the Gateway (`MapDevice.OpenOf`; lost on a Gateway
 restart), so the portals left stand at the device again when the player comes back. A new Activate replaces them.
+A map's instance expires six minutes after its last player leaves (`InstanceRegistry.Lifetime`), which the run does not
+see: so before a portal is spent the Gateway asks Auth's instance list, and a click on a run whose instance is gone
+closes the map and its remaining portals with a chat line, instead of spending one on a transfer that cannot arrive
+(live 2026-11-18: the transfer failed, the run closed, and the client kept three portals that did nothing when clicked).
 `/map_portal [type] [created] [open ms] [model]` (dev) places one test portal.
 
 **Timing and order.** The portals left come up one after another, `Game_MAP_PORTAL_GAP_MS` (150) apart; each is listed
 in 0x008f `Game_MAP_PORTAL_LIST_MS` (100) after its create; on entering the hideout the first waits
 `Game_MAP_PORTAL_ENTRY_MS` (1500). With a list delay of 0 each portal is drawn only by the next one's list, so the last
 never is (live). The open map keeps the places left (0–5 on the ring), so the portal taken is the one missing later.
+
+**Opening or idle.** The 0x008f handler keeps every listed entry in a world table keyed by the portal object, and stores
+it even when that object does not exist yet. It calls Portal slot +0xb8 with a 4th argument "opened" (`0x14218c9e0`,
+the call at `0x14218cc4c`) when the message's bit 0 is set, or the entry is new in that table, or its area, variation,
+model or owner changed. With "opened" the Portal component plays its `townportalopen` clip (the Portal block key read
+by `0x14161bd10` into +0x18), otherwise `townportal`, the idle loop (+0x38), unless that clip already plays. The
+Transitionable state 1 we send (MultiplexPortal's `create_untransitioned`: `townportalclose` at its end) draws
+nothing before the list. So a portal's first list always plays its opening, and a portal that already stands when the
+player arrives is listed once **before** its create: the later lists find the same entry and leave it idle. On entry the
+hideout's portals come up together this way (no gap); the portal back in a map, the portal back in a town and a
+reopened town portal are listed the same way (`Game.ListStandingPortal`). An Activate and a Portal Scroll still open
+theirs.
 
 **In the map.** Every area a map opens (`MapDevice.IsMapArea`) gets a portal back next to the arrival point, listed in
 0x008f with device 0 (the handler then skips the device's events but still sets the portal's area): it leads to the
@@ -265,7 +339,7 @@ Maps. Beach's walk map is a `-Walkmaps` capture (2484 × 1656; spawn the deepest
 **Portal Scroll** (C→S 0x58, `UsePortalScroll`). Outside towns and hideouts one scroll is spent and the same portal object
 opens 3 cells beside the player, listed in 0x8f with device 0. There is one per player: a new scroll closes the old portal
 (0x8f with area 0, then 0x2bd) and moves it, the map's own portal back included. From a map area it leads to the hideout,
-anywhere else to the character's last town (`ClientState.ReturnPortalTo`), at its spawn. In a town or a hideout
+anywhere else to the character's last town (`Player.ReturnPortalTo`), at its spawn. In a town or a hideout
 nothing happens and nothing is spent. Live 2026-10-21: in a map and in the acts. Not yet: the portal's other end in the
 town (the way back), and the portal staying after the player leaves the area.
 
@@ -587,6 +661,35 @@ Before serializing the player, PrepareHideoutWaypoint restores the character's s
 It sets the hideout spawn and movement origin to that exact cell, rather than a nearby cell or old template spawn.
 This applies to login, waypoint travel and returns from other areas; moving the waypoint changes later arrivals.
 
+### Selected encounter inputs: Simulacrum
+
+C→S `0xd8`'s target is the selected `AtlasNode.HASH16`; Simulacrum is `0xb3a2`, node row 161.
+The native encounter panel shows its recipe input independently of other items left in the device.
+Live activation with a Simulacrum and three Winged Sulphite Scarabs consumed only the Simulacrum and opened six portals.
+The scarabs neither modify the encounter nor need to be removed.
+
+`MapDeviceRecipes` row 34 resolves to the abstract `AnyAfflictionEndgameArea`, which cannot be used as the actual arena.
+The concrete areas are `AfflictionTown6`, `AfflictionTown4`, `AfflictionTown7`, `AfflictionTown8` and `AfflictionTown10`.
+Hysteriagate loaded with native walkability and a return portal in the current client.
+The initiator is the arena's `AfflictionatorActN`, inheriting
+`Metadata/Terrain/Leagues/Affliction/Objects/Afflictionator.ot`, not the monster `TangmazuWild`.
+Its wire components are Positioned, Animated, StateMachine, MinimapIcon, Stats, ObjectMagicProperties, InteractionAction.
+The five shared states are `active`, `wave`, `hello`, `goodbye`, `play_interlude`; the local
+`affliction_endgame_initiator` state selects the client's Simulacrum prompt and is not sent.
+The prompt displays `wave + 1` out of 15 and reads the next wave's affixes from ObjectMagicProperties.
+`active=1` hides targeting and triggers native wave speech; `goodbye=1` / `play_interlude=1` provide the farewell / resolve music.
+The arena's authored initiator placement supplies the position where available.
+
+The module now sends these native object states and a stable affix preview; shared boss skill kits supply combat.
+Live Hysteriagate shows the familiar entity, native Wave 1/15 prompt and the rolled affixes.
+`AfflictionMinionBase.ot` independently hides its models in `create_state_visible_0` / `on_state_visible_0`;
+live waves were attacking and dying while their health bars floated over invisible bodies.
+The `visible` shared state is 1 (server override), including the shared monster origin used for re-entry.
+Updating an already-created monster from 0 to 1 also runs its native spawn effect.
+The separate in-combat reward HUD, fog, specialised boss behaviours and the full fifteen-wave clear remain incomplete or unverified.
+GGG's [3.25 notes](https://www.pathofexile.com/forum/view-thread/3531661) establish the fifteen-wave version;
+exact population, reward-tier and exclusive drop weights are server policy, not published GGG probabilities.
+
 ## Delve: sulphite and the Crawler (live 2026-10-29)
 
 S→C `0x226` carries two BE u16 values: previous and current sulphite.
@@ -599,10 +702,26 @@ That tick raises the fill-change event and moves the numeric label to the fill e
 overwrites current too and suppresses this invalidation (0x1404304d0, 0x1418cb100). Verified with 300 -> 301 -> 300.
 Area entry, chart opening and `/sulphite` synchronize this way; travelling resource changes can use single deltas.
 
+Map deposits use `DelveMineralVein` / `DelveMineralChest`, not the ordinary Chest component. Their read order is
+Positioned, InteractionAction, BaseEvents, Animated, MinimapIcon, StateMachine, Preload; the last component and
+BaseEvents consume no bytes. StateMachine index 5 has `activated`, `depleted`, `attach_ring`; activated=1 hides the
+native marker and disables targeting. Depleted art is a **create** callback, so later observers need that state in
+the creation blob. Wild Niko's mining/rummaging clips use 0x1b2 **kind 0**, indices 2/7. Putting the clip in kind
+instead leaves the speed float unread and desynchronizes the stream. `sulphite_enrage` (BuffDefinitions 2420) is
+not IsRecovery: 0x1c1 carries no stat-value array despite its five GrantedStats entries.
+
+Deposit placement, the Fumes radius (60 cells) and eight mine guards per deposit are server encounter parameters;
+the exported SulphiteEnrage rows do not disclose the official daemon's radius or monster AI tuning.
+
 - **S→C 0x228** (class `0x1435e77c0`, read `0x1421b3fe0`, dispatcher case 0xa9 at `0x1421598e8`): u8, 20 raw bytes, 14
   raw bytes. The handler builds a 34-byte record at instance `+0xd874`: the 14 bytes first, then the 20. It sets
   `+0xd896` = 0x101 and raises the event at `+0x2878`.
   - Record `+0x1e` (bytes 16..18 of the 20, little-endian) is the current Voltaxic Sulphite.
+  - Raw14 `+4` is u16 chart Y and `+6` is i16 chart X (little-endian). The native recenter routine
+    `0x14043ca50` reads instance `+0xd878/+0xd87a`; its initial focus comes from the preceding resource snapshot.
+    Inside a mine, `0x14043eda0` instead places the current-position arrow from the terrain header's i16 X/u16 Y
+    origin plus the player's native room-cell index (`0x141ea9aa0`); `0x14043ca50` uses that same path for centering.
+    Resource-snapshot focus cannot correct a mine window whose cells differ from the chart route.
   - Its capacity comes from bytes 0..16 (`0x142474e60`, the upgrade levels).
   - S→C 0x226 (u16 old, u16 new) changes the current value. 0x227 (u32) changes the record's `+0xe`.
   - `InstanceDelve.DelveData` writes it.
@@ -613,6 +732,10 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
     the gauge's own flag `+0x2f1` is set. Only the Subterranean Chart's windows (`0x140450310`, `0x140458c80`) set it.
 
   Delve_Hub is type 15, so in the encampment the sulphite shows in the chart (live: 300 after `/sulphite 300`).
+  Outside mines a differing-value 0x226 can show the transient HUD bar. Periodic loss-side UI hints
+  (previous=balance+1, target=the real balance) retain visibility without gain popups or a server debit.
+  This was verified in a Niko map across waiting and mining; ordinary equipment capacity is below u16 max.
+  Wild Niko must use Positioned terrain-following height, like town NPCs; fixed world Z floats above uneven floors.
 - **The Crawler**, `Metadata/Terrain/Leagues/Delve/Objects/DelveRobot`, deserializes 11 components (`read` 11; Render and
   Wheels are client-only). `DelveRobotObject` writes them:
   - Positioned, Animated (`DelveRobot.ao`) and Transitionable (state 1);
@@ -628,6 +751,21 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   Its native Targetable component uses league quest flag 68, already sent for Niko's chart access.
   Hover outlines the model and shows the localized chart label; a real mouse click sends C→S 0x24 and opens the chart
   with S→C 0x7b kind 0x1c, followed by 0x23f/0x240.
+  Its MinimapIcon override is flags 1, u16 154 (`MinimapIcons.DelveRobot`); the viewer's default circle belongs to a
+  stationary checkpoint, never a moving cart. Mines now use `DelveRobot` itself, whose native Wheels component
+  creates and rotates the wheel meshes. Separate `DelveMapViewer` objects keep their native floor model and circle
+  at the start/end; Transitionable states 2/1 distinguish completed/pending pads, and completion updates component 3 to 2.
+  On successful arrival the same cart id is recreated as the stationary interactive type, with static wheel attachments:
+  the real robot has no Targetable, so leaving it unchanged prevents opening the chart by clicking the parked cart.
+  The account save precedes the fresh 0x240 bitmap; opening any cart/pad also resends the saved chart, then resources.
+  Completion tracks the endpoint room's spawn markers inside the Crawler's 60-cell arrival light, separately from
+  tunnel packs. All endpoint packs finish spawning before the alive check; a final surviving defender blocks saving,
+  while tunnel stragglers do not. An already won encounter may commit while a menu pauses combat.
+  A per-character instance flag retains the parked endpoint presentation across module reload or resurrection.
+  C→S 0x241 includes corridor cells: native (3,2)→(4,2)→(5,2) has no checkpoint icon at (4,2).
+  Treat the entire selected path as one journey to its final node; clipping it to two cells saves an invisible
+  corridor checkpoint. The physical mine window runs once for that chosen destination, not once per path cell.
+  Arrival parks there; a new journey needs another explicit selection.
   It is created once on each Delve_Hub entry at (408, 310), facing 90°; repeated `/delve_crawler` does not duplicate it.
   Three invisible `Metadata/NPC/Blocker` objects provide matching client/server collision along its length.
   Moving the Crawler removes the old blockers, creates the new ones and pushes the player out of collision.
@@ -661,59 +799,54 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   Equipment, consumables and Azurite persist in the account/league stash header, with atomic debit/update and rollback.
   Equipment stats are projected while in Delve areas; sulphite still uses the existing character save.
   Resource use, darkness damage and the machine's upgraded cable visual tiers remain future work.
-- **Route selection.** Native chart click C→S 0x241 carries u8 count then count × four BE i32 coordinates
-  (block X/Y and cell X/Y).
-  The first observed selection was (0,0,2,0) → (0,0,2,1).
-  Framing handles every TCP split. The first quest route is admitted explicitly; other selections remain unavailable.
-  No sulphite is debited and no movement starts on an unsupported route.
-  [GGG's FAQ](https://www.pathofexile.com/forum/view-thread/2197540) and
-  [Delve announcement](https://www.pathofexile.com/delve) describe route travel, speed scaling/catch-up,
-  darkness and equipment upgrades.
-  Their 2018 ownership/progression details are historical; this protocol implementation targets client 3.29.3b.
-  The initial route resolves authored room objects (`DelvePathNode`, `DelvePathEndpoint`, `DelveNode`) and their
-  `next` links from `data/delve-paths.json` (read-only `atlas delve-paths`, registered in extract-data.ps1).
-  Captured room placements transform the graph; offset cell sleeves are joined only over captured walkable ground.
-  The first destination is depth 2, monster level 35, base cost 24. Native `0x141ea9bb0` excludes the origin from the
-  cost sum and applies a length discount only beyond a two-point path; arbitrary routes are not priced here.
-  Admission checks the complete balance without an upfront debit. Progress debits the difference between cumulative
-  floor(cost * distance / totalDistance) values; the endpoint commits the exact residual. A failed save does not move
-  progress. Pause, death, disconnect and area retirement stop further travel; duplicate requests cannot rearm it.
-  This gradual debit is the local server policy; it does not claim the original service's payment timing.
-  Travel follows that path at a fixed 24 cells/s. Escort stop/resume thresholds use hysteresis (90/65 cells);
-  the Crawler keeps its forward course while waiting. Positioned updates run at 50 ms with a 120 ms interpolation
-  buffer, the current rail tangent and orientation lock (Positioned atan2(dx,-dy), zero faces -Y). Attached parts follow their body instead of receiving
-  competing movement updates. Pack creation runs in a single separate worker so it cannot block the motion clock.
-  The Crawler's light determines darkness exposure; leaving a guessed player-centred circle is not a route request.
-  S→C 0x1ba moves the body and attached lamp/wheels with terrain height marker 0x7fffffff; 0x1b9 carries its
-  float-radian orientation and lock byte (writer 0x141fe5b90, Positioned handler 0x141e33fd0).
-  The first quest's authored spawn points activate within the base Crawler light radius. Its Weta/Spider packs supply
-  the initial quest's unnamed route spawns too; ordinary WorldAreas pack weights are absent for Delve_Mines.
-  General biome population, exact encounter wave scripting, darkness and the persistent mine graph remain unfinished.
-  Native checks confirmed escort waiting, rail travel and a terminal debit of exactly 24 (300 -> 276).
-  Debug server teleports were used to escort along the route; a continuous walking run remains unverified.
-  A real Leap Slam killed 18 spawned Hatchlings and produced normal drops. No completed mine graph is persisted.
-  The chart inside the mine currently shows a local terrain preview; start the first quest route from the hub chart.
-  The destination is marked with the original `DelveWaypointObject.ao` (default `idle_on`) on a nonblocking scenery
-  object. Arrival waits for all journey-spawned monster IDs to die; unrelated monsters do not hold the reward.
-  A connection-local completion latch prevents repeated chart requests/ticks from paying twice. Highest completed
-  physical depth is saved as the character's module data `delve.depth`; this does not yet unlock or persist a complete chart graph.
-  A new paid visit may reward the same depth again. Rewards follow the normal world-item pickup/save path; ground
-  items and the claim latch remain instance-local and are not a durable crash-recovery ledger.
-  Server reward policy: `delve_reward_min_items=15`, `delve_reward_max_items=20`,
-  `delve_reward_quantity_per_depth_pct=10`, `delve_reward_rarity_per_depth_pct=5`, `delve_reward_item_cap=250`.
-  Quantity and rarity increments multiply max(1, physicalDepth-1), so tutorial depth 2 gets +10%/+5%, depth 3
-  +20%/+10%. Fractional item counts use stochastic rounding: the first reward is 16–22 items. Rarity increases
-  equipment rarity chances, not the number of currency stacks. Container rolls use existing level-appropriate
-  equipment/currency/gem pools, independent of monster quantity multipliers; `Game_DROPS=0` suppresses them.
-  No client assets or executable are modified.
-  Native verification: the current client completed a paid route (199 -> 175), displayed the destination pad,
-  and received one 22-item reward after the final enemy died. A reward item was picked up into the saved inventory;
-  completed depth 2 persisted. Server teleports assisted the escort; a continuous walking run remains unverified.
-  Powered native `DelveLight` lamps remain every 30 cells of travelled arc length (radius 25). Each new lamp carries
-  the previous lamp's object id in its DelveLight link list. Client 0x1415d9a70 resolves that list; 0x1415d9e20 creates
-  the connector beam and 0x1415da5d0 powers its original lightRope glow. Native checks confirmed lamps, cables and
-  continuing illumination behind the moving Crawler. The trail is scoped to the current visit; reload persistence
-  remains separate work.
+- **Chart and route selection (3.29.3c).** C→S 0x241 carries u8 count followed by four BE i32 coordinates
+  per point (block X/Y, cell X/Y). S→C 0x240 carries BE u32 seed, u16, u16 block count, then each block:
+  BE u16 X/Y, **eight raw little-endian bitmap bytes**, u8, BE u32. The bitmap marks completed cells,
+  bit `cellY*8+cellX`; marking cell (2,1) changes the first Azurite node and its connection to gold.
+  Do not mark entrance (2,0): it is implicitly open, and setting its completed bit hides the native block.
+  The mixed byte order is confirmed by the native writer/reader (0x1421b3c70/0x1421b3d00).
+  The chart mask spreads five cells around completed cells, including across diagonal block seams. Supply all eight
+  neighbours of every completed 8×8 block: missing corner blocks clip the native fade into black rectangles.
+  Preview records keep a zero completed bitmap; generating their terrain must not unlock checkpoints.
+  The native radius is five chart cells, not five encounter nodes; the known packet has no independent fog-radius field.
+  `DelveOwner` (QuestFlags HASH32 0x52ac2d0a) is essential inside a mine: HUD handler 0x140ddc0f0
+  chooses the full chart for its owner, otherwise the local terrain preview. The normal 19-byte 0x7b
+  kind 0x1c opens it; 0x23f/0x240 then supplies the account's completed blocks.
+  Kind 0x1c opens the chart even with its first u32 set to 0; trip entry leaves this message out.
+  Only the initial entrance uses seed 1. Later journeys send fresh Mines windows with a completed origin and an
+  uncompleted destination; reusing the old directional seeds 12/13/14/15 also reused the client's explored minimap.
+  Keep allocated scene seeds per account, including aborted trips. The native terrain header's depth is a separate
+  u16 at byte 2 after the 0x20 marker; 0x1d's area level alone does not supply it.
+  Cell byte 2 holds four 2-bit portal slots (N/E/S/W), not room rotation. Opposite slots must sum to 3:
+  N/E slot 1 joins S/W slot 2. Zero on both sides creates disconnected rooms despite reciprocal connection bits
+  (native 0x141f2ff30). Mines generation injects the cell's DelveRooms ARM, adds boundary exits and degree-two bends,
+  then stitches cell sleeves before the outer pass. Vertical seams repick the bottom tile before the top tile;
+  reversing this order changes the native RNG stream. Cells with no exits use `_delve_cell_empty.dgr`, even when
+  their feature byte is nonzero; ordinary-room injection there changes the RNG stream and can let the server
+  accept a seed the client rejects. Other-biome passes remain unported.
+  A mine without connected authored rails returns to the real hub; its copied hub subarea must never become a
+  fallback Crawler spawn. Rails come from authored DelvePathNode/DelvePathEndpoint/DelveNode links in
+  `data/delve-paths.json`, transformed by generated room placements; sleeves join only over walkable ground.
+  S→C 0x1ba moves the body using terrain height marker 0x7fffffff, with interpolation matched to the server step.
+  For facing, `0x141e35920` ignores an already locked orientation. The 0x1b9 handler calls it before changing
+  the lock bit (`0x141e34313`), so send unlock first, then the new angle with lock; repeating locked angles does nothing.
+  Positioned component 0's 0x2bc update (mask 8, f32) sets the departing rail segment's facing without rounded-cell jitter.
+  DelveTractor/rig.ast's inverse-bind front/rear axle Y values are -50.029/+8.061: the model's nose faces +Y,
+  so its angle is atan2(dx,-dy) + pi, unlike the character. Native Wheels follow actual displacement; the lamp is bone-attached.
+  Powered DelveLight lamps every 30 cells carry the preceding lamp id; the native client joins and lights
+  their cable. Trails belong to the current visit, not the durable checkpoint graph.
+  The native `DelveRobotTrigger` uses `circles_of_virtue/aoe_circle.ao` at scale 43: its ~509-world-unit
+  mesh radius corresponds to 20 cells. The start marker uses that model through PermanentServerEffect;
+  the raw trigger's client scripts crashed during entry (3.29.3c, fault 0x141df0e19).
+  `DelveWaypointObject_paua.ao` plays `Audio/Sound Effects/Skills/DelveLeague/RobotCart/End` at time zero
+  of `Waypoint_rig` clip 0 (`activate`, 966 ms); the ordinary waypoint AO has no completion sound.
+  Replacing DelveRobot with the clickable DelveMapViewer removes the robot's own light. A powered static
+  DelveLight must survive that replacement; its -25% area modifier differs from the robot's +100%.
+  Gradual distance-proportional sulphite payment, the custom 34→86 level curve, increasing pack/reward
+  policy and whole-attempt rollback are LocalExile rules; they do not claim original-service parity.
+  Biome-specific populations, encounter types, darkness and consumables remain unfinished.
+  DelveMonkeyMortar adds an empty StateMachine after Projectile: its two zero counts must precede the task byte.
+  Omitting them throws Buffer Underflow at 0x141e42716 (observed while Mines apes fired).
 - **First mine entrance.** Delve_Hub's upper `DelveEntrance01_area_transition.ao` leads to `Delve_Main` (HASH16 64840).
   The unused lower elevator must not be paired with it as a generic local gate.
   Delve_Main receives `InstanceDelve.FirstMineTerrain()` in the area packet's extra terrain data.

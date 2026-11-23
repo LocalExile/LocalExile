@@ -2,18 +2,42 @@ using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
-public class UniqueStashFillTests
+public class UniqueStashFillTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     static PlayerInventories.Shape? Shape(Item item) => Program.Items.ByHash(item.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
+
+    [Fact]
+    public void Fresh_collection_accepts_cursor_and_inventory_deposits_before_fill()
+    {
+        string account = "FirstUnique" + Guid.NewGuid().ToString("N");
+        var stash = AccountStash.For(account, Program.Items);
+        var items = PlayerInventories.For(account, Program.Items);
+        int parent = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Unique && stash.UniqueParent(i) == i);
+        var belt = new UniqueCatalog(Program.Items).CollectionItems(new Random(1)).Single(e => e.Name == "Mageblood").Item!;
+        int child = stash.UniqueDestination(parent, belt);
+        Assert.Contains(child, stash.UniqueChildren(parent));
+        var held = items.Add(PlayerInventories.Cursor, 0, 0, belt);
+        Assert.NotNull(ItemMoves.HeldToStash(stash, items, parent, 0, 0, false, Shape, out _));
+        var stored = Assert.Single(stash.Inventory(child).Items);
+        Assert.Equal(124, stored.X);
+        Assert.NotNull(ItemMoves.StashToInventory(stash, items, child, stored.Id, Shape));
+        Assert.NotNull(ItemMoves.InventoryToStash(stash, items, parent, stored.Id, Shape, out _));
+        AccountStash.Forget(account);
+        var loaded = AccountStash.For(account, Program.Items);
+        Assert.Equal(child, loaded.UniqueDestination(parent, belt));
+        Assert.Single(loaded.Inventory(child).Items);
+    }
 
     [Fact]
     public void Fill_uses_native_categories_and_survives_reload_without_duplicate_items()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-unique-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("unique");
         var uniques = new UniqueCatalog(Program.Items);
         string account = "UniqueFill" + Guid.NewGuid().ToString("N");
         var stash = AccountStash.For(account, Program.Items);
-        int tab = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Unique);
+        int tab = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Unique && stash.UniqueParent(i) == i);
         var first = stash.FillUniques(tab, uniques, Shape);
         Console.WriteLine($"Unique fill: {first.Added} added; skipped {first.Skipped.Count}: {string.Join(", ", first.Skipped)}");
         Assert.Equal(0, first.Present);

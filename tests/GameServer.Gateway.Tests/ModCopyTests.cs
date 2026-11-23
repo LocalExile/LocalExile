@@ -8,7 +8,7 @@ public class ModCopyTests
     public void An_old_copy_in_use_survives_the_cleanup_and_a_stopped_runs_goes()
     {
         string assembly = typeof(GameServer.Modding.IMod).Assembly.Location;
-        var loaded = new ModLoadContext("in-use", Path.GetDirectoryName(assembly)!, false, []);
+        var loaded = new ModLoadContext("in-use", Path.GetDirectoryName(assembly)!, []);
         loaded.LoadCopy(assembly);
         // A copy no running Gateway holds: the same folder a run leaves behind when it ends.
         string left = Path.Combine(Path.GetDirectoryName(loaded.CopyDirectory)!, Guid.NewGuid().ToString("N"));

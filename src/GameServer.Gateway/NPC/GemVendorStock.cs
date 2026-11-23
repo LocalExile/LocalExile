@@ -1,11 +1,31 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Vendor-specific quest/class gem membership from the reviewed snapshot, joined to native quest offers.
 /// Siosa and campaign Lilly use their own all-class unlocks; hard mode keeps its native gem index.
 /// </summary>
-sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
+public sealed class GemVendorStock
 {
+    readonly ItemCatalog items;
+    readonly QuestRewardCatalog rewards;
+    readonly NpcCatalog npcs;
+    readonly SkillCatalog skills;
+    readonly string folder;
+
+    public GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
+    {
+        this.items = items;
+        this.rewards = rewards;
+        this.npcs = npcs;
+        this.skills = skills;
+        this.folder = folder;
+        hardModeRows = HardModeGemRows(folder);
+        sellable = new[] { false, true }
+            .SelectMany(support => new[] { 1, 2, 3, 4 }.SelectMany(colour => items.ShopGems(colour, support)))
+            .ToDictionary(t => t.Id,t => t.Row,StringComparer.Ordinal);
+    }
+
     // Cache immutable catalogues, never character stock: quest/class/rule filters are evaluated on every open.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,
         System.Collections.Concurrent.ConcurrentDictionary<(NpcCatalog Npcs, SkillCatalog Skills, bool Hard, bool Supports),
@@ -40,10 +60,8 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
 
     public static bool Sells(string npcId) => Vendors.Contains(npcId);
 
-    readonly Dictionary<string,int> sellable = new[] { false, true }
-        .SelectMany(support => new[] { 1, 2, 3, 4 }.SelectMany(colour => items.ShopGems(colour, support)))
-        .ToDictionary(t => t.Id,t => t.Row,StringComparer.Ordinal);
-    readonly Lazy<IReadOnlySet<int>> hardModeRows = new(() => HardModeGemRows(folder));
+    readonly Dictionary<string,int> sellable;
+    readonly IReadOnlySet<int> hardModeRows;
 
     /// <summary>The NPC's gem stock at character level/quest state: BaseItemTypes rows, in row order. Empty before the
     /// character has completed a quest that offers gems (or when campaign Lilly/Siosa's unlock is missing).
@@ -60,7 +78,7 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
         if (!rules.SellsGemsAt(npcId)) return [];
         // The HardMode index lists what its vendor exchanges.
         if (hardMode)
-            return [.. sellable.Values.Intersect(hardModeRows.Value).Where(row => items.Row(row) is { } type
+            return [.. sellable.Values.Intersect(hardModeRows).Where(row => items.Row(row) is { } type
                 && rules.AllowsGemBase(type.Id)
                 && items.Gem(type) is { Variants.Count: > 0 } gem && (rules.SellsSupportGems || !gem.IsSupport)
                 && skills.PlayerLevelReq(gem.Variant(0).Effect, 1) <= level).Order()];
@@ -87,12 +105,11 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
 
     static IReadOnlySet<int> HardModeGemRows(string folder)
     {
-        using var index = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/IndexableSkillGems.json")));
-        using var gems = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/SkillGems.json")));
-        return index.RootElement.EnumerateArray().Where(r => r.GetProperty("IndexRuthless").ValueKind == System.Text.Json.JsonValueKind.Number)
-            .SelectMany(r => r.GetProperty("SkillGem2").EnumerateArray().Select(x => x.GetInt32()))
-            .Where(row => row >= 0 && row < gems.RootElement.GetArrayLength())
-            .Select(row => gems.RootElement[row].GetProperty("BaseItemTypesKey").GetInt32()).ToHashSet();
+        var gems = ClientTables.Table("SkillGems");
+        return ClientTables.Table("IndexableSkillGems").Where(r => !r.IsNull("IndexRuthless"))
+            .SelectMany(r => r.Ints("SkillGem2"))
+            .Where(row => row >= 0 && row < gems.Count)
+            .Select(row => gems[row].Int("BaseItemTypesKey")).ToHashSet();
     }
 
     /// <summary>A vendor's price for one unlevelled gem: the currency by the gem's level-1 character level requirement

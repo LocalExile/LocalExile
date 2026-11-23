@@ -10,28 +10,28 @@ public class RationalDoctrineTests
     [Fact]
     public void Rational_Doctrine_exposes_its_ground_mods_and_attribute_rules()
     {
-        var jewel = CommandsRules.CreateUniqueJewel("Rational Doctrine");
+        var jewel = Game.CreateUniqueJewel("Rational Doctrine");
         Assert.NotNull(jewel);
         Assert.Equal(18, Stat(jewel!, "ConsecratedGroundStationarySTRHighestUnique__1"));
         Assert.Equal(25, Stat(jewel!, "ProfaneGroundCriticalStrikeINTHighestUnique__1"));
         Assert.Equal(4000, Stat(jewel!, "ConsecratedGroundLingersUnique__1"));
         Assert.Equal(4000, Stat(jewel!, "ProfaneGroundLingersUnique__1"));
 
-        var stats = new Dictionary<string, int>
+        var stats = new Dictionary<uint, int>
         {
-            ["strength"] = 100, ["dexterity"] = 50, ["intelligence"] = 99,
+            [global::Stat.Strength] = 100, [global::Stat.Dexterity] = 50, [global::Stat.Intelligence] = 99,
             [FlaskGrounds.ProfaneChanceStat] = 25,
         };
         Assert.Equal(0, FlaskGrounds.ProfaneChance(name => stats.GetValueOrDefault(name)));
-        stats["intelligence"] = 100;
+        stats[global::Stat.Intelligence] = 100;
         Assert.Equal(25, FlaskGrounds.ProfaneChance(name => stats.GetValueOrDefault(name)));
-        stats["intelligence"] = 101;
+        stats[global::Stat.Intelligence] = 101;
         Assert.Equal(25, FlaskGrounds.ProfaneChance(name => stats.GetValueOrDefault(name)));
 
-        var conn = new ClientState(new(1, "rational", 100, 100, 100, 100, null, []), 0, 1);
-        conn.FlaskGrounds.SetProfane(7, inside: true, alive: true, now: 1, () => 99);
-        Assert.Equal(900, global::Game.CriticalChanceOn(conn, 7, 500, null, 900));
-        Assert.Equal(500, global::Game.CriticalChanceOn(conn, 8, 500, null, 900));
+        var player = new Player(new(1, "rational", 100, 100, 100, 100, null, []), 0, 1);
+        player.FlaskGrounds.SetProfane(7, inside: true, alive: true, now: 1, () => 99);
+        Assert.Equal(900, global::Game.CriticalChanceOn(player, 7, 500, null, new(900, null, null)));
+        Assert.Equal(500, global::Game.CriticalChanceOn(player, 8, 500, null, new(900, null, null)));
     }
 
     [Fact]

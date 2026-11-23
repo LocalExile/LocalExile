@@ -1,0 +1,22 @@
+-- Client table DaressoPitFights: all 20 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "DaressoPitFights" ("_row", "Id", "MonsterPack", "__col2", "__col3", "__col4", "__col5", "__col6", "__col7", "__col8", "__col9") VALUES
+(0, 'pitbull', 685, 2, '[]', 0, 0, 0, 50, 8, 0),
+(1, 'pitbullB', 685, 2, '[]', 0, 0, 0, 50, 12, 1),
+(2, 'pitbull_m1', 685, 4, '[]', 0, 0, 75, 10, 12, 0),
+(3, 'pitbull_m2', 685, 3, '[]', 0, 0, 35, 20, 10, 0),
+(4, 'pitbull_rs', 685, 4, '[]', 1, 0, 0, 10, 16, 0),
+(5, 'pitbull_re', 685, 4, '[]', 0, 1, 0, 10, 8, 0),
+(6, 'cockerel', 686, 2, '[]', 0, 0, 0, 50, 8, 0),
+(7, 'cockerelB', 686, 2, '[]', 0, 0, 0, 50, 12, 1),
+(8, 'cockerel_m1', 686, 4, '[]', 0, 0, 75, 15, 10, 0),
+(9, 'cockerel_m2', 686, 6, '[]', 0, 0, 40, 10, 20, 1),
+(10, 'cockerel_rs', 686, 4, '[]', 1, 0, 0, 4, 16, 0),
+(11, 'cockerel_re', 686, 4, '[]', 0, 1, 0, 12, 8, 0),
+(12, 'cockerel_reB', 686, 4, '[]', 0, 1, 0, 12, 14, 1),
+(13, 'cockerelbow', 687, 2, '[]', 0, 0, 0, 50, 8, 0),
+(14, 'cockerelbowB', 687, 2, '[]', 0, 0, 0, 50, 12, 1),
+(15, 'cockerelbow_m1', 687, 4, '[]', 0, 0, 75, 15, 10, 0),
+(16, 'cockerelbow_m2', 687, 6, '[]', 0, 0, 40, 10, 20, 1),
+(17, 'cockerelbow_rs', 687, 4, '[]', 1, 0, 0, 4, 16, 0),
+(18, 'cockerelbow_re', 687, 4, '[]', 0, 1, 0, 12, 8, 0),
+(19, 'cockerelbow_reB', 687, 4, '[]', 0, 1, 0, 12, 14, 1);

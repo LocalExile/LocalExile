@@ -1,21 +1,21 @@
 
 
 /// <summary>Native flags that suppress inherent attribute grants while retaining attributes and item group terms.</summary>
-static class InherentAttributeBonuses
+public static class InherentAttributeBonuses
 {
     // 3.29.3b Stats.dat client keys 7964/7965/15532/18387/18388. Narrow flags do not suppress the other grant.
-    public const string NoLifeFromStrength = "gain_no_maximum_life_from_strength";
-    public const string NoManaFromIntelligence = "gain_no_maximum_mana_from_intelligence";
-    public const string NoStrengthBonuses = "gain_no_inherent_bonus_from_strength";
-    public const string NoDexterityBonuses = "gain_no_inherent_bonus_from_dexterity";
-    public const string NoIntelligenceBonuses = "gain_no_inherent_bonus_from_intelligence";
+    public const uint NoLifeFromStrength = Stat.GainNoMaximumLifeFromStrength;
+    public const uint NoManaFromIntelligence = Stat.GainNoMaximumManaFromIntelligence;
+    public const uint NoStrengthBonuses = Stat.GainNoInherentBonusFromStrength;
+    public const uint NoDexterityBonuses = Stat.GainNoInherentBonusFromDexterity;
+    public const uint NoIntelligenceBonuses = Stat.GainNoInherentBonusFromIntelligence;
 
-    public static bool IsInput(string name) => name is NoLifeFromStrength or NoManaFromIntelligence
+    public static bool IsInput(uint name) => name is NoLifeFromStrength or NoManaFromIntelligence
         or NoStrengthBonuses or NoDexterityBonuses or NoIntelligenceBonuses;
 
-    public static bool IsLifeInput(string name) => name is NoLifeFromStrength or NoStrengthBonuses;
+    public static bool IsLifeInput(uint name) => name is NoLifeFromStrength or NoStrengthBonuses;
 
-    public static bool IsManaInput(string name) => name is NoManaFromIntelligence or NoIntelligenceBonuses;
+    public static bool IsManaInput(uint name) => name is NoManaFromIntelligence or NoIntelligenceBonuses;
 
-    public static bool IsEnergyShieldInput(string name) => name == NoIntelligenceBonuses;
+    public static bool IsEnergyShieldInput(uint name) => name == NoIntelligenceBonuses;
 }

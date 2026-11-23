@@ -3,16 +3,23 @@ using System.Diagnostics;
 using System.Text.Json;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
+using LeagueCategory = GameServer.Core.World.LeagueCategory;
 
 /// <summary>Server-side level generation (GameServer.Data/Terrain/Generation, Agents/docs/re/011-level-generation.md):
 /// for an area the port reproduces 1:1, the Gateway generates the layout itself from the seed instead of reading the
 /// client's capture: the walkability grid (doodad collision included), every cell's ground height, and the area
-/// transitions and waypoint. Supported areas are the ones whose seed-1 trace passes every check of the level
-/// generator's gate (scripts/re/levelgen/gate-baseline.json, committed with each generator change), or whose seed-1
-/// failure the port reproduces (the client cannot build it either), and whose logged loads all match. Needs the game
+/// transitions and waypoint. Supported areas are world.db's server_level_areas rows with generated = 1 (taken from the
+/// level generator's gate, scripts/re/levelgen/gate-baseline.json, by a world update). Needs the game
 /// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
-static class ServerLevels
+public static class ServerLevels
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Levels = LoadLevels();
+    }
+
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
 
     /// <summary>A generated layout: Width × Height cells, one walk value (0 … 5, walkable from 2) and one ground height
@@ -33,23 +40,31 @@ static class ServerLevels
         /// <summary>The Labyrinth's objects its tiles place (server-only, as the room lines): the ElegantHouse doorways'
         /// roller traps, the abyss edges' blades, the smashable and hidden walls, the statues that wake.</summary>
         public IReadOnlyList<PlacedTileObject> TileLabyrinthObjects { get; init; } = [];
+        /// <summary>The lore interactables its tiles place (<c>Metadata/NPC/Info/</c>: Weathered Carvings, Arteri's
+        /// Letter, Library books, Stained Glass Windows, Kaom's Carvings, Victario's Graffiti).</summary>
+        public IReadOnlyList<PlacedTileObject> TileLoreObjects { get; init; } = [];
         /// <summary>The server objects of the placed rooms and the objects their point lists name (AreaObjects.RoomObjects):
         /// the quest engine's places for room objects data/room-points.json does not keep (QuestObjectTypes.AreaPlacements).</summary>
         public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
         /// <summary>The rooms' links between <see cref="RoomObjects"/> (indexes in it): the Labyrinth's puzzle wiring.</summary>
         public IReadOnlyList<PlacedLink> RoomLinks { get; init; } = [];
+        /// <summary>The placed rooms that have pack points, with those points (<see cref="AreaPopulation.PackRooms"/>).</summary>
+        public IReadOnlyList<AreaPopulation.PlacedRoom> PackRooms { get; init; } = [];
         public long Milliseconds { get; init; }
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
+        /// <summary>The cell rectangles (x0, y0, x1, y1; end exclusive) of the records an ExtraTerrainFeatures row added
+        /// as a sub-area (<see cref="DoodadRecord.FeatureWorldArea"/>, the Sacred Grove beside a map).</summary>
+        public IReadOnlyList<(int X0, int Y0, int X1, int Y1)> FeatureAreas { get; init; } = [];
         /// <summary>Every area transition object of the layout with its role from its room's graph node
         /// (<see cref="AreaExits"/>): what <see cref="AreaTransitionCatalog"/> creates.</summary>
         public IReadOnlyList<PlacedExit> Exits { get; init; } = [];
         /// <summary>Where each "entranceN" of the layout is (an arrival point, also for one-way entrances).</summary>
         public IReadOnlyList<EntrancePoint> Entrances { get; init; } = [];
+        /// <summary>Where the player arrives when a terrain plugin marks a start room (<see cref="AreaObjects.Start"/>);
+        /// null for every other area.</summary>
+        public (int X, int Y, float Angle)? Start { get; init; }
     }
-
-    /// <summary>Where the supported list comes from (the repository root is the Gateway's directory; tests replace it).</summary>
-    public static string BaselineFile { get; set; } = GameServer.Core.World.ServerLevelAreas.BaselineFile;
 
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
     static readonly object Gate = new();
@@ -79,13 +94,102 @@ static class ServerLevels
     // WorldAreas level 71, chateau_2.dgr at a tier-16 map's 83). Lookups without a level (monster packs, heights,
     // projectiles) get that generation. Never trimmed: one entry per map instance opened.
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedLevels = new();
+    // The area stats an (area, seed) is played with (0x1d's first list, 1-based Stats ids; InstanceEvents.AreaStats): the
+    // generator's extra terrain feature roll reads them as the client's does, so the level is generated with the same list.
+    // Part of the cache key (StatsKey): two instances of one (area, seed) with other stats are other levels.
+    static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<uint, int>> PlayedStats = new();
+    // A seed's rules cannot change after any client has received it. Reserve distinct seeds for conflicting rules.
+    // The league category an (area, seed) is played in (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the
+    // topology by it (the Deepwater variants of The Coast at 59), so the level is generated with the same. Part of the cache
+    // key (StatsKey) when it is not 60.
+    static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedCategories = new();
+    // The terrain plugin states an (area, seed) is played with (0x1d extra data, InstanceEvents.TerrainPluginStates): the
+    // client's plugin builds its part of the level from them. Part of the cache key (StatsKey).
+    static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<ushort, byte[]>> PlayedPluginStates = new();
+    static readonly ConcurrentDictionary<(string Area, uint Seed), string> PlayedStatsKeys = new();
+    static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats, int Category, string States)> PlayedContexts = new();
+    static readonly ConcurrentDictionary<uint, byte[]> DelveTerrains = new();
+
+    public static byte[]? DelveTerrain(uint seed) => DelveTerrains.GetValueOrDefault(seed);
+    public static Level? PrepareDelve(uint seed, byte level, byte[] terrain)
+    {
+        if (!DelveTerrains.TryAdd(seed, (byte[])terrain.Clone())) return null;
+        PlayedLevels[("Delve_Main", seed)] = level;
+        var generated = For("Delve_Main", seed, level);
+        if (generated is null) ForgetDelve(seed);
+        return generated;
+    }
+    public static void ForgetDelve(uint seed)
+    {
+        DelveTerrains.TryRemove(seed, out _);
+        PlayedLevels.TryRemove(("Delve_Main", seed), out _);
+        foreach (var key in Generated.Keys.Where(k => k.Area == "Delve_Main" && k.Seed == seed))
+        { Generated.TryRemove(key, out _); Live.TryRemove(key, out _); Errors.TryRemove(key, out _); }
+    }
 
     /// <summary>The exception of a failed generation of (area, seed), while it is among the last ones asked for.</summary>
-    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId, seed)), seed, LevelOf(areaId, seed, 0)));
+    public static string? Error(string areaId, uint seed) =>
+        Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId, seed)) + StatsKey(areaId, seed), seed, LevelOf(areaId, seed, 0)));
 
     /// <summary>The cache's area key: a Labyrinth room played in today's layout is generated with its labyrinth node
     /// (LabyrinthDay), so the day's seed is part of it and a new day generates the room again.</summary>
     static string CacheArea(string areaId, LabyrinthNodeKey? node) => node is null ? areaId : $"{areaId}@lab{node.Seed}";
+
+    /// <summary>The cache key's part for the area stats, league category and terrain plugin states (area, seed) is
+    /// played with: precomputed when the seed is reserved or updated so <see cref="For(string, uint, int)"/> does not
+    /// re-sort stats or re-hash plugin states on every lookup.</summary>
+    static string StatsKey(string areaId, uint seed) => PlayedStatsKeys.GetValueOrDefault((areaId, seed), "");
+
+    static string FormatStatsKey(string statsKey, int category, string statesKey) =>
+        (statsKey.Length > 0 ? "#" + statsKey : "")
+        + (category != LeagueCategory.None ? $"@c{category}" : "")
+        + (statesKey.Length > 0 ? "~p" + statesKey : "");
+
+    static void StoreStatsKey(string areaId, uint seed, string fullKey)
+    {
+        if (fullKey.Length > 0) PlayedStatsKeys[(areaId, seed)] = fullKey;
+        else PlayedStatsKeys.TryRemove((areaId, seed), out _);
+    }
+
+    /// <summary>The terrain plugin states (area, seed) is played with, null for none.</summary>
+    public static IReadOnlyDictionary<ushort, byte[]>? PluginStatesOf(string areaId, uint seed) =>
+        PlayedPluginStates.TryGetValue((areaId, seed), out var states) && states.Count > 0 ? states : null;
+
+    // A short stable key of the states: the first 8 hex digits of SHA-256 over "id:hex;" per plugin, in id order.
+    static string StatesKey(IReadOnlyDictionary<ushort, byte[]>? states) => states is not { Count: > 0 } ? "" :
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(
+            string.Concat(states.OrderBy(p => p.Key).Select(p => $"{p.Key}:{Convert.ToHexString(p.Value)};")))))[..8];
+
+    /// <summary>(area, seed) is played without the terrain plugin states <see cref="PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int, IReadOnlyList{ValueTuple{ushort, byte[]}}?)"/>
+    /// recorded: 0x1d carries other extra data in their place, so the client builds the level without them.</summary>
+    public static void PlayWithoutPluginStates(string areaId, uint seed)
+    {
+        lock (Gate)
+        {
+            PlayedPluginStates.TryRemove((areaId, seed), out _);
+            if (PlayedContexts.TryGetValue((areaId, seed), out var played))
+            {
+                PlayedContexts[(areaId, seed)] = played with { States = "" };
+                StoreStatsKey(areaId, seed, FormatStatsKey(played.Stats, played.Category, ""));
+            }
+            else PlayedStatsKeys.TryRemove((areaId, seed), out _);
+        }
+    }
+
+    /// <summary>(area, seed) is played at <paramref name="areaLevel"/> (a module's AreaHeader.Level override):
+    /// updates the recorded level so <see cref="For(string, uint)"/> matches what 0x1d sends.</summary>
+    public static void PlayAtLevel(string areaId, uint seed, int areaLevel)
+    {
+        if (areaLevel <= 0) return;
+        lock (Gate)
+        {
+            PlayedLevels[(areaId, seed)] = areaLevel;
+            if (PlayedContexts.TryGetValue((areaId, seed), out var played))
+                PlayedContexts[(areaId, seed)] = played with { Level = areaLevel };
+        }
+    }
+
+    static int CategoryOf(string areaId, uint seed) => PlayedCategories.GetValueOrDefault((areaId, seed), LeagueCategory.None);
 
     /// <summary>The area level (area, seed) is generated at: <paramref name="areaLevel"/> when given (above 0), else the
     /// one it was played at (<see cref="PlayedLevels"/>), else its WorldAreas level (what the client takes for a 0x1d
@@ -93,31 +197,57 @@ static class ServerLevels
     static int LevelOf(string areaId, uint seed, int areaLevel) =>
         areaLevel > 0 ? areaLevel : PlayedLevels.TryGetValue((areaId, seed), out int played) ? played : AreaLevel(areaId);
 
-    /// <summary>Whether the Gateway generates this area itself (<see cref="BaselineFile"/>).</summary>
-    public static bool IsSupported(string areaId)
+    /// <summary>Whether the Gateway generates this area itself (<see cref="Supported"/>).</summary>
+    public static bool IsSupported(string areaId) => Enabled && Supported.Contains(areaId);
+
+    /// <summary>The areas the Gateway generates itself: world.db's server_level_areas rows with generated = 1, read once
+    /// (Auth reads the same rows at its startup).</summary>
+    public static IReadOnlySet<string> Supported
     {
-        if (!Enabled) return false;
-        var supported = _supported;
-        if (supported is null)
-            lock (SupportedGate) supported = _supported ??= LoadSupported(BaselineFile);
-        return supported.Contains(areaId);
+        get
+        {
+            var supported = _supported;
+            if (supported is null) lock (SupportedGate) { LoadAreas(); supported = _supported!; }
+            return supported;
+        }
     }
 
     /// <summary>The seed played in place of seed 1 for an area whose seed-1 load the client fails too, or null
-    /// (<see cref="GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne"/>; Auth gives new instances the same).</summary>
+    /// (server_level_areas.seed_in_place_of_one; Auth gives new instances the same).</summary>
     public static uint? SeedInPlaceOfOne(string areaId)
     {
         lock (SupportedGate)
-            return (_inPlaceOfOne ??= GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(BaselineFile,
-                m => Console.WriteLine($"[gateway] server levels: {m}"))).TryGetValue(areaId, out uint seed) ? seed : null;
+        {
+            LoadAreas();
+            return _inPlaceOfOne!.TryGetValue(areaId, out uint seed) ? seed : null;
+        }
     }
 
-    /// <summary>Drops the lists read from the baseline, so the next check reads <see cref="BaselineFile"/> again (tests).</summary>
-    internal static void Reload() { lock (SupportedGate) { _supported = null; _inPlaceOfOne = null; } }
+    /// <summary>Drops the lists read from world.db, so the next check reads them again (tests).</summary>
+    public static void Reload() { lock (SupportedGate) { _supported = null; _inPlaceOfOne = null; } }
 
-    /// <summary>The supported areas of a gate baseline (<see cref="GameServer.Core.World.ServerLevelAreas.Load"/>).</summary>
-    internal static HashSet<string> LoadSupported(string file) =>
-        GameServer.Core.World.ServerLevelAreas.Load(file, m => Console.WriteLine($"[gateway] server levels: {m}"));
+    // Under SupportedGate. The Gateway's open world.db, or (a tool without it) data/world.db opened for the read.
+    static void LoadAreas()
+    {
+        if (_supported is not null && _inPlaceOfOne is not null) return;
+        IReadOnlyList<GameServer.Storage.GameDataStore.ServerLevelAreaRow> rows;
+        try
+        {
+            if (GameData.Store is { } store) rows = store.LoadServerLevelAreas();
+            else
+            {
+                using var opened = new GameServer.Storage.GameDataStore(GameData.DefaultPath);
+                rows = opened.LoadServerLevelAreas();
+            }
+        }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
+        {
+            Console.WriteLine($"[gateway] server levels: world.db: {ex.Message}");
+            rows = [];
+        }
+        _inPlaceOfOne = rows.Where(r => r.SeedInPlaceOfOne is not null).ToDictionary(r => r.AreaId, r => r.SeedInPlaceOfOne!.Value, StringComparer.Ordinal);
+        _supported = rows.Where(r => r.Generated).Select(r => r.AreaId).ToHashSet(StringComparer.Ordinal);
+    }
 
     /// <summary>The generated layout of (area, seed), or null when the area is not supported or generation failed
     /// (the Gateway then falls back to the capture). Generated once per (area, seed) and kept while among the
@@ -125,10 +255,10 @@ static class ServerLevels
     /// <paramref name="areaLevel"/>: the 0x1d level the instance is played at (0: none sent, <see cref="LevelOf"/>).</summary>
     public static Level? For(string areaId, uint seed, int areaLevel)
     {
-        if (!IsSupported(areaId)) return null;
+        if (!IsSupported(areaId) && !(areaId == "Delve_Main" && DelveTerrains.ContainsKey(seed))) return null;
         int at = LevelOf(areaId, seed, areaLevel);
         var node = LabyrinthDay.NodeFor(areaId, seed);
-        var key = (CacheArea(areaId, node), seed, at);
+        var key = (CacheArea(areaId, node) + StatsKey(areaId, seed), seed, at);
         if (Known(key, out var known)) return known;
         lock (Gate)
         {
@@ -170,7 +300,12 @@ static class ServerLevels
             Errors.TryRemove(oldest, out _);
         }
         foreach (var (key, weak) in Live)
-            if (!weak.TryGetTarget(out _)) Live.TryRemove(key, out _);
+            if (!weak.TryGetTarget(out _))
+            {
+                Live.TryRemove(key, out _);
+                if (key.Area == "Delve_Main" && !Generated.ContainsKey(key))
+                { DelveTerrains.TryRemove(key.Seed, out _); PlayedLevels.TryRemove(("Delve_Main", key.Seed), out _); }
+            }
     }
 
     /// <summary>The seed an instance is played at (sent in 0x1d). Seed 1 of an area whose seed-1 load the client fails
@@ -186,34 +321,64 @@ static class ServerLevels
     public static uint PlayableSeed(string areaId, uint seed) => PlayableSeed(areaId, seed, 0);
 
     /// <inheritdoc cref="PlayableSeed(string, uint)"/>
-    public static uint PlayableSeed(string areaId, uint seed, int areaLevel)
-    {
-        seed = Playable(areaId, seed, areaLevel);
-        if (areaLevel > 0) PlayedLevels[(areaId, seed)] = areaLevel;
-        return seed;
-    }
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel) => PlayableSeed(areaId, seed, areaLevel, null);
 
-    static uint Playable(string areaId, uint seed, int areaLevel)
+    /// <inheritdoc cref="PlayableSeed(string, uint)"/>
+    /// <param name="stats">The area stats the instance is played with (0x1d's first list), which the generation reads; a
+    /// seed tried in place of one the port cannot generate is tried with them too.</param>
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats) =>
+        PlayableSeed(areaId, seed, areaLevel, stats, LeagueCategory.None);
+
+    /// <inheritdoc cref="PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?)"/>
+    /// <param name="category">The league category the instance is played in (0x1d +0x28, 60 for none), which the
+    /// topology pick reads.</param>
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category) =>
+        PlayableSeed(areaId, seed, areaLevel, stats, category, null);
+
+    /// <inheritdoc cref="PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int)"/>
+    /// <param name="pluginStates">The terrain plugin states 0x1d's extra data sends (TerrainPlugins <c>__col1</c>, bytes),
+    /// which the area's plugin builds its part of the level from.</param>
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category,
+        IReadOnlyList<(ushort Plugin, byte[] State)>? pluginStates)
     {
-        if (AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 }) return seed;
-        if (seed == 1)
+        category = LeagueCategory.Clamp(category);
+        var states = (pluginStates ?? []).ToDictionary(p => p.Plugin, p => p.State);
+        string statesKey = StatesKey(states);
+        lock (Gate)
         {
-            if (SeedInPlaceOfOne(areaId) is not { } inPlace) return seed;
-            Console.WriteLine($"[gateway] server levels: the client cannot generate {areaId} at seed 1; played at seed {inPlace}");
-            seed = inPlace;
-        }
-        if (!IsSupported(areaId) || For(areaId, seed, areaLevel) is not null) return seed;
-        foreach (uint other in Replacements(seed))
-            if (For(areaId, other, areaLevel) is not null)
+            var snapshot = stats is null ? new Dictionary<uint, int>()
+                : stats.Where(p => p.Value != 0).ToDictionary(p => p.Key, p => p.Value);
+            string statsKey = string.Join(",", snapshot.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value}"));
+            int level = areaLevel > 0 ? areaLevel : AreaLevel(areaId);
+            bool exact = AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 };
+            if (!exact && seed == 1 && SeedInPlaceOfOne(areaId) is { } seedOneReplacement) seed = seedOneReplacement;
+            uint Reserve(uint candidate)
             {
+                while (PlayedContexts.TryGetValue((areaId, candidate), out var prior) && prior != (level, statsKey, category, statesKey))
+                    candidate = Replacements(candidate).First();
+                PlayedContexts[(areaId, candidate)] = (level, statsKey, category, statesKey);
+                PlayedPluginStates[(areaId, candidate)] = states;
+                PlayedCategories[(areaId, candidate)] = category;
+                PlayedLevels[(areaId, candidate)] = level;
+                PlayedStats[(areaId, candidate)] = snapshot;
+                StoreStatsKey(areaId, candidate, FormatStatsKey(statsKey, category, statesKey));
+                return candidate;
+            }
+            seed = Reserve(seed);
+            if (exact || !IsSupported(areaId) || For(areaId, seed, level) is not null) return seed;
+            foreach (uint replacement in Replacements(seed))
+            {
+                uint other = Reserve(replacement);
+                if (For(areaId, other, level) is null) continue;
                 Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} not generated; played at seed {other}");
                 return other;
             }
-        return seed;
+            return seed;
+        }
     }
 
     /// <summary>The seeds tried in place of one the port cannot generate, in order (1 … int.MaxValue, as Auth's).</summary>
-    internal static IEnumerable<uint> Replacements(uint seed)
+    public static IEnumerable<uint> Replacements(uint seed)
     {
         for (uint k = 1; k <= 8; k++)
         {
@@ -234,7 +399,12 @@ static class ServerLevels
         {
             var files = Files();
             var area = AreaInfo.Load(Read, areaId, areaLevel);
-            var result = LevelGenerator.Generate(files, area, seed, labyrinthNode: node);
+            if (PlayedStats.TryGetValue((areaId, seed), out var played) && played.Count > 0)
+                area = area with { Stats = played.ToDictionary(s => (int)s.Key, s => s.Value) };
+            int category = CategoryOf(areaId, seed);
+            var pluginStates = PluginStatesOf(areaId, seed);
+            var result = LevelGenerator.Generate(files, area, seed, topologyVariant: category, labyrinthNode: node,
+                delveTerrain: areaId == "Delve_Main" ? DelveTerrain(seed) : null, pluginStates: pluginStates);
             var walk = Walkability.Build(result.Grid, t => files.Walk(t.Path));
             // The doodad stage stamps the doodads' collision into the grids (re/011 §6c).
             var doodads = new DoodadStage(files, result.Random, result.Grid, walk, []);
@@ -246,26 +416,30 @@ static class ServerLevels
             var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
-            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")} ({walk.Width}x{walk.Height} cells, " +
-                $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
+            var start = AreaObjects.Start(result);
+            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")}{(area.Stats is { Count: > 0 } s ? $" with {s.Count} area stat(s)" : "")}{(category == LeagueCategory.None ? "" : $" league category {category}")}{(pluginStates is null ? "" : $" with {pluginStates.Count} terrain plugin state(s)")} ({walk.Width}x{walk.Height} cells, " +
+                $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads){(start is { } st ? $", start ({st.X}, {st.Y})" : "")}, tile hash {result.Grid.Hash()}, in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             var roomLinks = new List<PlacedLink>();
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
                 AreaObjects.QuestObjects(files, result), walk.Projectile)
             {
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
-                Exits = exits.Exits, Entrances = exits.Entrances,
+                Exits = exits.Exits, Entrances = exits.Entrances, Start = start,
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),
+                TileLoreObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/NPC/Info/", StringComparison.OrdinalIgnoreCase)),
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
+                PackRooms = AreaPopulation.PackRooms(result.Records),
+                FeatureAreas = [.. result.Records.Where(r => r.FeatureWorldArea >= 0).Select(r => (r.X * 23, r.Y * 23, (r.X + r.W) * 23, (r.Y + r.H) * 23))],
             };
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} level {areaLevel} not generated ({ex.GetType().Name}: {ex.Message.Split('\n')[0]})");
-            Errors[(CacheArea(areaId, node), seed, areaLevel)] = ex.ToString();
+            Errors[(CacheArea(areaId, node) + StatsKey(areaId, seed), seed, areaLevel)] = ex.ToString();
             return null;
         }
     }
@@ -284,21 +458,32 @@ static class ServerLevels
     // Opened on the first generation and kept.
     static TerrainCache Files() => _files ??= new TerrainCache(Read);
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DoodadHull?> ModelHulls = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The cells a model's Hull (its .ao, or the .ao it extends) closes to the player where the object stands, as
+    /// the client stamps it (a static object's at its creation, a TriggerableBlockage's when it blocks): the stamped cells
+    /// and the ring a stamp gives a value under the player's 2 (<see cref="Walkability.ClosedTo"/>); empty when the model
+    /// has none.</summary>
+    public static HashSet<(int X, int Y)> ModelWalkCells(string model, int x, int y, float angle, float scale = 1, bool mirrored = false) =>
+        ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
+            ? Walkability.ClosedTo(Walkability.WalkCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored))) : [];
+
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 
-    static readonly Lazy<Dictionary<string, int>> Levels = new(() =>
+    static Dictionary<string, int> Levels = default!;
+
+    static Dictionary<string, int> LoadLevels()
     {
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine("data", "tables", "WorldAreas.json")));
-            foreach (var row in doc.RootElement.EnumerateArray())
-                levels[row.GetProperty("Id").GetString() ?? ""] = row.GetProperty("AreaLevel").GetInt32();
+            foreach (var row in ClientTables.Table("WorldAreas"))
+                levels[row.Text("Id") ?? ""] = row.Int("AreaLevel");
         }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException) { }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
         return levels;
-    });
+    }
 
     // The WorldAreas row's area level (the generator's AreaInfo reads level-dependent rows); 1 without the table.
-    internal static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
+    public static int AreaLevel(string areaId) => Math.Max(1, Levels.GetValueOrDefault(areaId, 1));
 }

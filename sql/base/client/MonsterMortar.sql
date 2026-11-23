@@ -1,0 +1,28 @@
+-- Client table MonsterMortar (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "MonsterMortar" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" INTEGER,
+    "Projectile" INTEGER,
+    "Animation" INTEGER,
+    "ImpactAnimation" INTEGER,
+    "__col4" INTEGER,
+    "__col5" BOOLEAN,
+    "__col6" BOOLEAN,
+    "__col7" BOOLEAN,
+    "__col8" BOOLEAN,
+    "__col9" INTEGER,
+    "__col10" INTEGER,
+    "__col11" INTEGER,
+    "__col12" BOOLEAN,
+    "__col13" INTEGER,
+    "__col14" BOOLEAN,
+    "__col15" BOOLEAN,
+    "BounceAnimation" INTEGER,
+    "__col17" INTEGER,
+    "__col18" REAL,
+    "__col19" REAL,
+    "__col20" REAL,
+    "__col21" BOOLEAN,
+    "ImpactAnimation2" JSON,
+    "__col23" TEXT
+);

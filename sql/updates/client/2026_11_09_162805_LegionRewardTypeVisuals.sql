@@ -1,0 +1,20 @@
+-- Client table LegionRewardTypeVisuals: all 18 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "LegionRewardTypeVisuals" ("_row", "IntId", "MinimapIconsKey", "__col2", "MiscAnimatedKey", "__col4", "Id") VALUES
+(0, 0, 177, '', 3164, 3, 'LegionRewardCurrency'),
+(1, 1, 192, '', 3165, 3, 'LegionRewardUniques'),
+(2, 2, 182, '', 3166, 3, 'LegionRewardGems'),
+(3, 3, 186, '', 3167, 3, 'LegionRewardMaps'),
+(4, 4, 191, '', 3168, 3, 'LegionRewardTrinkets'),
+(5, 5, 174, '', 3169, 3, 'LegionRewardArmour'),
+(6, 6, 193, '', 3170, 3, 'LegionRewardWeapon'),
+(7, 7, 173, '', 3163, 3, 'LegionRewardAbyss'),
+(8, 8, 184, '', 3172, 3, 'LegionRewardHarbinger'),
+(9, 9, 176, '', 3173, 3.5, 'LegionRewardBreach'),
+(10, 10, 179, '', 3174, 3, 'LegionRewardEssences'),
+(11, 11, 179, '', 3174, 3, 'LegionRewardEssences'),
+(12, 12, 181, '', 3175, 3, 'LegionRewardFragments'),
+(13, 13, 189, '', 3176, 3, 'LegionRewardScarabs'),
+(14, 14, 180, '', 3177, 3, 'LegionRewardFossils'),
+(15, 15, 178, '', 3179, 3.5, 'LegionRewardDivination'),
+(16, 16, 183, '', 3180, 3, 'LegionRewardGeneric'),
+(17, 22, 194, '', 3184, 3, 'LegionRewardIncubators');

@@ -1,0 +1,23 @@
+-- Client table ExpeditionStorageLayout: all 21 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "ExpeditionStorageLayout" ("_row", "Id", "StoredItem", "XOffset", "YOffset", "__col4", "__col5", "Width", "Height", "__col8", "__col9", "Currency") VALUES
+(0, 'Metadata/Items/Currency/CurrencyRefreshBarter', 4218, 366, 571, 0, 4, 1, 1, 74, 1, NULL),
+(1, 'Metadata/Items/Currency/CurrencyRefreshDealer', 4219, 569, 571, 1, 4, 1, 1, 74, 1, NULL),
+(2, 'Metadata/Items/Currency/CurrencyRefreshGambler', 4220, 168, 571, 2, 4, 1, 1, 74, 1, NULL),
+(3, 'Metadata/Items/Currency/CurrencyRefreshSaga', 4221, 767, 571, 3, 4, 1, 1, 74, 1, NULL),
+(4, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction1_1', 4222, 118, 183, 0, 0, 1, 1, 74, 1, 0),
+(5, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction1_2', 4223, 118, 270, 0, 1, 1, 1, 74, 1, 4),
+(6, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction1_3', 4224, 211, 183, 1, 0, 1, 2, 82, 1, 8),
+(7, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction1_4', 4225, 123, 365, 0, 2, 2, 2, 82, 1, 12),
+(8, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction2_1', 4226, 319, 183, 0, 5, 1, 1, 74, 1, 1),
+(9, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction2_2', 4227, 319, 270, 0, 6, 1, 1, 74, 1, 5),
+(10, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction2_3', 4228, 414, 183, 1, 5, 1, 2, 82, 1, 9),
+(11, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction2_4', 4229, 324, 365, 0, 7, 2, 2, 82, 1, 13),
+(12, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction3_1', 4230, 517, 183, 2, 0, 1, 1, 74, 1, 2),
+(13, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction3_2', 4231, 517, 270, 2, 1, 1, 1, 74, 1, 6),
+(14, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction3_3', 4232, 613, 183, 3, 0, 1, 2, 82, 1, 10),
+(15, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction3_4', 4233, 523, 365, 2, 2, 2, 2, 82, 1, 14),
+(16, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction4_1', 4234, 719, 183, 2, 5, 1, 1, 74, 1, 3),
+(17, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction4_2', 4235, 719, 270, 2, 6, 1, 1, 74, 1, 7),
+(18, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction4_3', 4236, 813, 183, 3, 5, 1, 2, 82, 1, 11),
+(19, 'Metadata/Items/Expedition/ExpeditionVendorCurrencyFaction4_4', 4237, 725, 365, 2, 7, 2, 2, 82, 1, 15),
+(20, 'Metadata/Items/Expedition/ExpeditionLogbook', 4215, 112, 672, 4, 0, 10, 6, 78, 0, NULL);

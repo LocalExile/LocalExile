@@ -4,13 +4,14 @@
 /// area modifier as <see cref="SkillArea.Radius"/> does. The player's base_aura_area_of_effect_+% joins the gem's own
 /// area (quality) as the base form of increased area.
 /// </summary>
-static class AuraRadius
+public static class AuraRadius
 {
     public static int Of(AuraCatalog.Aura aura, int auraAreaPct, SkillCatalog skills, StatCatalog stats)
     {
-        var own = skills.EffectStats(aura.Effect, aura.Level, aura.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        int Get(string name) => (stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0)
-            + (name == SkillArea.BaseIncreased ? auraAreaPct : 0);
-        return SkillArea.Radius(AuraCatalog.BaseRadius, Get, spell: false);
+        var own = (aura.SkillStats ?? skills.EffectStats(aura.Effect, aura.Level, aura.Quality))
+            .ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        int Get(uint key) => own.GetValueOrDefault(key) + (key == SkillArea.BaseIncreased ? auraAreaPct : 0);
+        int basis = aura.EffectId == "Smite" ? Get(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius) : AuraCatalog.BaseRadius;
+        return SkillArea.Radius(basis, Get, spell: false);
     }
 }

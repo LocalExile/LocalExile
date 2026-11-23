@@ -1,0 +1,22 @@
+-- Client table BetrayalTargetJobAchievements: all 20 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "BetrayalTargetJobAchievements" ("_row", "BetrayalTargetsKey", "BetrayalJobsKey", "AchievementItemsKey") VALUES
+(0, 8, 1, 5375),
+(1, 8, 2, 5376),
+(2, 8, 4, 5377),
+(3, 8, 3, 5378),
+(4, 13, 1, 5379),
+(5, 13, 2, 5380),
+(6, 13, 4, 5381),
+(7, 13, 3, 5382),
+(8, 14, 1, 5383),
+(9, 14, 2, 5384),
+(10, 14, 4, 5385),
+(11, 14, 3, 5386),
+(12, 16, 1, 5387),
+(13, 16, 2, 5388),
+(14, 16, 4, 5389),
+(15, 16, 3, 5390),
+(16, 17, 1, 5391),
+(17, 17, 2, 5392),
+(18, 17, 4, 5393),
+(19, 17, 3, 5394);

@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
 /// <summary>The functional furniture and NPCs of a hideout, placed on its own floor rather than Lush's coordinates.</summary>
-sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Guild,
+public sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Guild,
     HideoutCatalog.Doodad Bench, (int X, int Y) LargeStation, HideoutCatalog.Doodad Device, IReadOnlyList<NpcCatalog.Placement> Npcs)
 {
     /// <summary>A reserved spot, for a module's furniture.</summary>

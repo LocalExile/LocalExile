@@ -2,304 +2,324 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // The account's stash (AccountStash): every character of the account shares it. Without an account (an old Auth) the
     // character's name stands in.
-    internal static AccountStash StashOf(ClientState conn) => conn.GuildStashOpen && !conn.Ssf ? GuildStashOf(conn) : PersonalStashOf(conn);
+    public static AccountStash StashOf(Player player) => player.GuildStashOpen && !player.Character.Ssf ? GuildStashOf(player) : PersonalStashOf(player);
 
     // The personal stash (and the account's gold, kept with it), whichever stash panel is open: the account's in the
     // character's league (AccountStash.Key).
-    internal static AccountStash PersonalStashOf(ClientState conn) => AccountStash.For(AccountStash.Key(conn.Account ?? CharacterName(conn), conn.League), ItemsFor(conn));
+    public static AccountStash PersonalStashOf(Player player) => AccountStash.For(AccountStash.Key(player.Character.Account ?? CharacterName(player), player.Character.League), ItemsFor(player));
 
     // The guild stash: no guilds yet, so each account has its own per league. SSF refuses this storage boundary.
-    internal static AccountStash GuildStashOf(ClientState conn) =>
-        AccountStash.ForGuild(conn.Account ?? CharacterName(conn), ItemsFor(conn), conn.League, conn.Ssf);
+    public static AccountStash GuildStashOf(Player player) =>
+        AccountStash.ForGuild(player.Character.Account ?? CharacterName(player), ItemsFor(player), player.Character.League, player.Character.Ssf);
 
     // The tabs of that stash whose contents this connection has.
-    internal static HashSet<int> TabsSentOf(ClientState conn, AccountStash stash) => stash.IsGuild ? conn.GuildStashTabsSent : conn.StashTabsSent;
+    public static HashSet<int> TabsSentOf(Player player, AccountStash stash) => stash.IsGuild ? player.Connection.GuildStashTabsSent : player.Connection.StashTabsSent;
 
-    // The town's Stash object (Agents/docs/protocol/18-stash.md §1) where the town has one (StashCatalog).
-    internal static async Task SpawnTownStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static (StashCatalog.Placement Personal, StashCatalog.Placement Guild)? AdditionalTownStashes(Player player) => player.Layout.Id switch
     {
-        var scene = HideoutFurniture(conn);
+        "1_2_town" => (new(192, 283, 0), new(182, 283, 0)),
+        "1_4_town" or "2_9_town" => (new(214, 512, 310 * MathF.PI / 180), new(213, 485, 210 * MathF.PI / 180)),
+        "1_5_town" => (new(337, 336, 282 * MathF.PI / 180), new(335, 347, 282 * MathF.PI / 180)),
+        "2_7_town" => (new(598, 628, 0), new(598, 588, MathF.PI)),
+        "2_8_town" => (new(296, 423, 31 * MathF.PI / 180), new(287, 418, 31 * MathF.PI / 180)),
+        _ => null,
+    };
+
+    // The town's Stash object (Agents/docs/protocol/18-stash.md §1) where it has one.
+    public static async Task SpawnTownStash(Player player)
+    {
+        var scene = HideoutFurniture(player);
+        var additional = AdditionalTownStashes(player);
+        var town = additional?.Personal ?? StashCatalog.In(player.Layout.Hash);
         var at = scene is { } furnished ? new StashCatalog.Placement(furnished.Stash.X, furnished.Stash.Y, furnished.Stash.Rotation)
-            : StashCatalog.In(conn.Layout.Hash) is { } town && StashCatalog.FromArrival(conn.Layout.Hash)
-                ? town with { X = conn.Layout.SpawnX + town.X, Y = conn.Layout.SpawnY + town.Y } : StashCatalog.In(conn.Layout.Hash);
+            : town is not null && StashCatalog.FromArrival(player.Layout.Hash)
+                ? town with { X = player.Layout.SpawnX + town.X, Y = player.Layout.SpawnY + town.Y } : town;
         if (at is null || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
-        uint id = conn.NextObjectId++;
+        uint id = player.TakeObjectId();
         var stash = new StashObject(at.X, at.Y, at.Rotation);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), stash.Blob()),
+        await SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), stash.Blob()),
             $"0x02bb create stash 0x{id:x} at ({at.X}, {at.Y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 stash 0x{id:x} enters wake zone");
-        conn.StashObject = id;
-        conn.StashAt = (at.X, at.Y);
-        await RegisterStationaryCollision(remote, stream, ciphers, conn, id, StashObject.MetadataPath, at.X, at.Y, at.Rotation,
+        await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 stash 0x{id:x} enters wake zone");
+        player.StashObject = id;
+        player.StashAt = (at.X, at.Y);
+        SetAreaStash(player, id, (at.X, at.Y));
+        await RegisterStationaryCollision(player, id, StashObject.MetadataPath, at.X, at.Y, at.Rotation,
             scene is not null ? "stash" : null);
-        // Hideouts, Lioneye's Watch (Acts 1 and 6), the Sarn Encampment and the Mine Encampment also get a guild stash.
-        if (HideoutCatalog.ByArea(conn.Layout.Hash) is null
-            && conn.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or AreaLayouts.LioneyesWatch
-                or StashCatalog.SarnEncampment or StashCatalog.LioneyesWatchAct6)) return;
-        var townGuild = scene is null ? StashCatalog.GuildIn(conn.Layout.Hash) : null;
-        if (townGuild is { } offset && StashCatalog.FromArrival(conn.Layout.Hash))
-            townGuild = offset with { X = conn.Layout.SpawnX + offset.X, Y = conn.Layout.SpawnY + offset.Y };
-        var (gx, gy) = scene?.Guild ?? (townGuild is { } tg ? (tg.X, tg.Y) : conn.Layout.Near((at.X, at.Y)));
-        float guildRotation = SavedHideoutPlacements(conn)?.GetValueOrDefault("guild-stash")?.Rotation ?? townGuild?.Rotation ?? at.Rotation;
-        if (!conn.Ssf)
+        // The supplied towns and hideouts also get a guild stash, except in SSF.
+        if (additional is null && HideoutCatalog.ByArea(player.Layout.Hash) is null
+            && player.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or StashCatalog.DeepwaterHub or AreaLayouts.LioneyesWatch
+                or StashCatalog.SarnEncampment or StashCatalog.LioneyesWatchAct6 or StashCatalog.OriathDocks)) return;
+        var townGuild = scene is null ? additional?.Guild ?? StashCatalog.GuildIn(player.Layout.Hash) : null;
+        if (townGuild is { } offset && StashCatalog.FromArrival(player.Layout.Hash))
+            townGuild = offset with { X = player.Layout.SpawnX + offset.X, Y = player.Layout.SpawnY + offset.Y };
+        var (gx, gy) = scene?.Guild ?? (townGuild is { } tg ? (tg.X, tg.Y) : player.Layout.Near((at.X, at.Y)));
+        float guildRotation = SavedHideoutPlacements(player)?.GetValueOrDefault("guild-stash")?.Rotation ?? townGuild?.Rotation ?? at.Rotation;
+        if (!player.Character.Ssf)
         {
-            uint guild = conn.NextObjectId++;
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
-                new StashObject(gx, gy, guildRotation).Blob()), $"0x02bb create guild stash 0x{guild:x} at ({gx}, {gy})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(guild), null);
-            conn.GuildStashObject = guild;
-            conn.GuildStashAt = (gx, gy);
-            await RegisterStationaryCollision(remote, stream, ciphers, conn, guild, StashObject.GuildMetadataPath, gx, gy, guildRotation,
+            uint guild = player.TakeObjectId();
+            await SendWorldCreate(player, guild, () => InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
+                new StashObject(gx, gy, guildRotation).Blob()),
+                    $"0x02bb create guild stash 0x{guild:x} at ({gx}, {gy})", wake: true, awaitBirth: false);
+            player.GuildStashObject = guild;
+            player.GuildStashAt = (gx, gy);
+            SetAreaGuildStash(player, guild, (gx, gy));
+            await RegisterStationaryCollision(player, guild, StashObject.GuildMetadataPath, gx, gy, guildRotation,
                 scene is not null ? "guild-stash" : null);
         }
         // The stations of the modules this league uses. One taken away is simply not placed: its spot stays free.
-        conn.CurrentHideoutScene = scene;
-        if (scene is not null) await Program.ServerHooks.HideoutReady(PlayerOf(conn));
+        player.CurrentHideoutScene = scene;
+        if (scene is not null) await GameEvents.RunHideoutReady(player);
     }
 
     // A click on the Stash (C→S 0x24): walk there, then S→C 0x7b kind 1 opens the stash panel. Its affinity argument selects
     // the tab carrying that affinity bit in the tab list, which only the account's last tab does (AccountStash.Records).
-    internal static async Task OpenStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task OpenStash(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
-        conn.BenchOpen = false;
-        conn.ModuleWindow = null;
-        if (conn.StashObject == 0) return;
-        var at = conn.StashAt;
-        if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, ClientState.StashBlockerSize, out var objectWalk)) return;
+        await RefreshBenchBalance(player, clear: true);
+        player.BenchOpen = false;
+        player.ModuleWindow = null;
+        if (player.StashObject == 0) return;
+        var at = player.StashAt;
+        if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, Player.StashBlockerSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
-        Console.WriteLine($"[gateway] {remote} <= 0x0024 stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (!PlayerActionCurrent(conn, action)) return;
-        conn.GuildStashOpen = false;
-        var stash = StashOf(conn);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (!PlayerActionCurrent(player, action)) return;
+        player.GuildStashOpen = false;
+        var stash = StashOf(player);
         // The panel keeps its tab while this connection lasts; only its first open here is moved to the account's last tab.
         // A second 0x7b while it is open would close it (0x140dc2640 toggles), so the choice is made now.
-        if (!conn.StashOpened)
+        if (!player.StashOpened)
         {
-            conn.StashOpened = true;
-            conn.StashForcedTab = stash.LastTab;
-            conn.StashForcedUntil = conn.Clock.Elapsed.TotalSeconds + StashForcedWindow;
-            await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceStash.OpenStashUi, conn.StashObject, StashSelectAffinity),
+            player.StashOpened = true;
+            player.StashForcedTab = stash.LastTab;
+            player.StashForcedUntil = AreaTime(player) + StashForcedWindow;
+            await Send(player, InstanceWaypoints.OpenUi(InstanceStash.OpenStashUi, player.StashObject, StashSelectAffinity),
                 $"0x007b open the stash on tab {stash.LastTab} \"{stash.NameOf(stash.LastTab)}\" (affinity {StashSelectAffinity})",
-                still: () => PlayerActionCurrent(conn, action));
+                still: () => PlayerActionCurrent(player, action));
         }
         else
-            await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceStash.OpenStashUi, conn.StashObject, InstanceStash.NoAffinity),
-                "0x007b open the stash on the panel's own tab", still: () => PlayerActionCurrent(conn, action));
+        {
+            if (player.Connection.StashTabsSent.Count > 0)
+            {
+                var tabs = stash.Records(null, player.Connection.StashTabsSent, ItemsFor(player));
+                if (tabs.Any(t => !t.Loaded && player.Connection.StashTabsSent.Contains(t.Index)))
+                    await Send(player, InstanceStash.TabList(tabs), "0x0136 stash pages before reopen");
+            }
+            await Send(player, InstanceWaypoints.OpenUi(InstanceStash.OpenStashUi, player.StashObject, InstanceStash.NoAffinity),
+                "0x007b open the stash on the panel's own tab", still: () => PlayerActionCurrent(player, action));
+        }
     }
 
     // C→S 0xc7: the panel shows a tab whose contents it does not have (or it just opened on it). The first time per
     // connection the tab's inventory goes out (S→C 0xc0, manager 0, row 26), then S→C 0xc8 marks the tab loaded and the panel
     // builds its page. The tab asked for is the one on screen: the stash opens on it next time.
-    internal static async Task SendStashTab(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort tab, byte kind)
+    public static async Task SendStashTab(Player player, ushort tab, byte kind)
     {
-        if (conn.Ssf && kind == InstanceStash.Guild) return;
-        var stash = StashOf(conn);
+        if (player.Character.Ssf && kind == InstanceStash.Guild) return;
+        var stash = StashOf(player);
         if (kind != (stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal) || tab >= stash.Count)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x00c7 stash {kind} tab {tab}: no such tab");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00c7 stash {kind} tab {tab}: no such tab");
             return;
         }
         if (stash.UniqueParent(tab) != tab)
         {
-            await SendUniqueChild(remote, stream, ciphers, conn, stash, tab);
+            await SendUniqueChild(player, stash, tab);
             return;
         }
         // The panel asks for the tab it shows: as it opens (its tab before the selection) and when a tab without contents
         // is picked. The client sends its queue newest first, so during the first open the forced tab's request comes before
         // the panel's old one; that one is answered but not taken as the player's choice.
-        bool forcedOpen = !stash.IsGuild && conn.StashForcedTab >= 0 && conn.Clock.Elapsed.TotalSeconds < conn.StashForcedUntil;
-        bool chosen = !forcedOpen || tab == conn.StashForcedTab;
-        Console.WriteLine($"[gateway] {remote} <= 0x00c7 stash tab {tab} \"{stash.NameOf(tab)}\" ({stash.TypeOf(tab)})" +
-            (chosen ? "" : $" (the panel's tab before it opened on {conn.StashForcedTab}: not kept as the last tab)"));
+        bool forcedOpen = !stash.IsGuild && player.StashForcedTab >= 0 && AreaTime(player) < player.StashForcedUntil;
+        bool chosen = !forcedOpen || tab == player.StashForcedTab;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00c7 stash tab {tab} \"{stash.NameOf(tab)}\" ({stash.TypeOf(tab)})" +
+            (chosen ? "" : $" (the panel's tab before it opened on {player.StashForcedTab}: not kept as the last tab)"));
         if (chosen) stash.SetLastTab(tab);
         uint inventory = stash.InventoryOf(tab);
         byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
-        var sent = TabsSentOf(conn, stash);
-        // Every loaded tab makes each later stash open slower by its item count (the panel walks them all as it shows), so
-        // when the player picks a tab the others the panel doesn't show are unloaded (0xc1), and the tab list goes out
-        // again with them marked not loaded, so the panel asks for them (0xc7) when shown again. Never during the first
-        // open's two requests (the shown tab would go), and never the tabs with shop currency (PreloadsForPrices).
-        var unload = chosen && !forcedOpen
-            ? sent.Where(o => o != tab && (stash.IsGuild || !PreloadsForPrices(stash.TabType(o), stash.Inventory(o).Items, ItemsFor(conn)))).ToList()
-            : [];
-        foreach (int other in unload)
-        {
-            sent.Remove(other);
-            await Send(remote, stream, ciphers, InstanceInventories.RemoveInventory(stash.InventoryOf(other), manager),
-                $"0x00c1 unload stash tab {other} inventory {stash.InventoryOf(other)} (the panel shows tab {tab})");
-        }
+        var sent = TabsSentOf(player, stash);
         if (sent.Add(tab))
         {
             var (slot, items) = stash.Inventory(tab);
-            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(inventory, slot, manager, items),
+            await Send(player, InstanceInventories.AddInventory(inventory, slot, manager, items),
                 $"0x00c0 stash tab {tab} inventory {inventory} ({slot.Width} x {slot.Height}): {items.Count} item(s)");
         }
-        if (unload.Count > 0)
-        {
-            var tabs = stash.Records(null, sent);
-            await Send(remote, stream, ciphers, InstanceStash.TabList(tabs, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal),
-                $"0x0136 stash tab list again ({tabs.Count} tabs): {unload.Count} unloaded tab(s) marked not loaded");
-        }
-        await Send(remote, stream, ciphers, InstanceStash.TabLoaded(tab, inventory, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded");
-        foreach (int child in stash.UniqueChildren(tab)) await SendUniqueChild(remote, stream, ciphers, conn, stash, child);
+        await Send(player, InstanceStash.TabLoaded(tab, inventory, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded");
+        foreach (int child in stash.UniqueChildren(tab)) await SendUniqueChild(player, stash, child);
     }
 
-    static async Task SendUniqueChild(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab)
+    static async Task SendUniqueChild(Player player, AccountStash stash, int tab)
     {
-        var sent = TabsSentOf(conn, stash);
+        var sent = TabsSentOf(player, stash);
         byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
         if (sent.Add(tab))
         {
             var (slot, items) = stash.Inventory(tab);
-            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(stash.InventoryOf(tab), slot, manager, items),
+            await Send(player, InstanceInventories.AddInventory(stash.InventoryOf(tab), slot, manager, items),
                 $"Unique category {stash.NameOf(tab)}: {items.Count} items");
         }
-        await Send(remote, stream, ciphers, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
+        await Send(player, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
             stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), null);
     }
 
-    internal static async Task RefreshUniqueCollection(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int parent)
+    public static async Task RefreshUniqueCollection(Player player, AccountStash stash, int parent)
     {
-        var sent = TabsSentOf(conn, stash);
+        var sent = TabsSentOf(player, stash);
         byte kind = stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal;
         // Advertise hidden category records before the loaded notifications that bind the native collection pages.
-        await Send(remote, stream, ciphers, InstanceStash.TabList(stash.Records(null, sent), kind), "Unique collection category list");
+        await Send(player, InstanceStash.TabList(stash.Records(null, sent), kind), "Unique collection category list");
         foreach (int child in stash.UniqueChildren(parent))
         {
-            if (sent.Remove(child)) await Send(remote, stream, ciphers, InstanceInventories.RemoveInventory(stash.InventoryOf(child),
+            if (sent.Remove(child)) await Send(player, InstanceInventories.RemoveInventory(stash.InventoryOf(child),
                 stash.IsGuild ? InstanceStash.GuildManager : (byte)0), null);
-            await SendUniqueChild(remote, stream, ciphers, conn, stash, child);
+            await SendUniqueChild(player, stash, child);
         }
     }
 
-    /// <summary>The client's set of inventories: a tab switch unloads the other tabs (0xc1), and the panel can still show
-    /// one of them for a moment while the player clicks it. A 0xbf for an inventory the client no longer has aborts the
-    /// game ("Got an inventory set change for an inventory that isn't in the set", #605), and the panel had the tab marked
-    /// not loaded, so it drops that tab's 0xbfs until it is told the tab is loaded again. Both go out here, before the
-    /// 0xbf for the click.</summary>
-    static async Task EnsureTabLoaded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab)
+    /// <summary>Registers a stash tab's inventory (0xc0 + 0xc8) before a 0xbf when this connection has not sent it yet
+    /// (for example an affinity Ctrl+click or a Map/Unique parent drop routed into an unopened child). A 0xbf for an
+    /// inventory the client does not have aborts the game ("Got an inventory set change for an inventory that isn't in the
+    /// set", #605, #710).</summary>
+    static async Task EnsureTabLoaded(Player player, AccountStash stash, int tab)
     {
-        var sent = TabsSentOf(conn, stash);
+        var sent = TabsSentOf(player, stash);
         if (!sent.Add(tab)) return;
         var (slot, items) = stash.Inventory(tab);
         byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
-        await Send(remote, stream, ciphers, InstanceInventories.AddInventory(stash.InventoryOf(tab), slot, manager, items),
-            $"0x00c0 stash tab {tab} inventory {stash.InventoryOf(tab)} (again: the panel still shows it)");
-        await Send(remote, stream, ciphers, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
-            stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded again");
+        await Send(player, InstanceInventories.AddInventory(stash.InventoryOf(tab), slot, manager, items),
+            $"0x00c0 stash tab {tab} inventory {stash.InventoryOf(tab)} (registered before change)");
+        await Send(player, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
+            stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded");
+    }
+
+    /// <summary>A change to a stash tab's items (S→C 0xbf). Every one goes out through here: an unopened tab is registered
+    /// first (EnsureTabLoaded), and the message names the server's inventory id for the tab, not one the client sent.</summary>
+    public static async Task SendTabChange(Player player, AccountStash stash, int tab,
+        IReadOnlyList<uint> gone, IReadOnlyList<InventoryItem> now, string? label)
+    {
+        await EnsureTabLoaded(player, stash, tab);
+        await Send(player, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), gone, now,
+            stash.IsGuild ? InstanceStash.GuildManager : (byte)0), label);
     }
 
     // C→S 0x28 on a stash tab: the item leaves the tab for the (empty) cursor, keeping its id; both saves in one transaction
     // (ItemMoves).
-    internal static async Task PickUpFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, InstanceItems.PickUpItem pick)
+    public static async Task PickUpFromStash(Player player, int tab, InstanceItems.PickUpItem pick)
     {
-        var stash = StashOf(conn);
-        var items = ItemsOf(conn);
+        var stash = StashOf(player);
+        var items = ItemsOf(player);
+        if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == pick.ItemId) is { } source
+            && ShapeOf(source.Item) is { } shape && source.Item.StackSize > Math.Max(1, (int)shape.MaxStack))
+        {
+            await SplitStack(player,
+                new(stash.InventoryOf(tab), pick.ItemId, (uint)Math.Max(1, (int)shape.MaxStack), 0), "");
+            return;
+        }
         if (ItemMoves.StashToCursor(stash, items, tab, pick.ItemId) is not { } held)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick} from stash tab {tab}: refused");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0028 pick up {pick} from stash tab {tab}: refused");
             return;
         }
         // The tab the click names, not the id the client sent: that id can be one it just unloaded (live 2026-11-06, #605).
-        await EnsureTabLoaded(remote, stream, ciphers, conn, stash, tab);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [held.Id], [], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
-            $"0x00bf stash tab {tab}: remove item {held.Id}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await SendTabChange(player, stash, tab, [held.Id], [], $"0x00bf stash tab {tab}: remove item {held.Id}");
+        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: add item {held.Id} (from the stash)");
     }
 
     // C→S 0x2a on a stash tab: the held item goes into the tab (with a stash id, AccountStash.Place) or onto a stack of its
     // type there; the one item it was dropped on comes onto the cursor. One transaction (ItemMoves.HeldToStash).
-    internal static async Task PlaceInStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, InstanceItems.PlaceItem place)
+    public static async Task PlaceInStash(Player player, int tab, InstanceItems.PlaceItem place)
     {
-        var stash = StashOf(conn);
-        var items = ItemsOf(conn);
+        var stash = StashOf(player);
+        var items = ItemsOf(player);
         if (ItemMoves.HeldToStash(stash, items, tab, (int)place.X, (int)place.Y, place.A != 0, ShapeOf, out string why) is not { } done)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x002a place {place} in stash tab {tab}: refused ({why})");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x002a place {place} in stash tab {tab}: refused ({why})");
             return;
         }
         tab = done.Tab;
-        await EnsureTabLoaded(remote, stream, ciphers, conn, stash, tab);
         var (inTab, before) = (done.InTab, done.HeldBefore);
         if (done.Merged)
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [inTab.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
-                $"0x00bf stash tab {tab}: stack {inTab.Id} now {inTab.Item.StackSize}");
+            await SendTabChange(player, stash, tab, [inTab.Id], [inTab], $"0x00bf stash tab {tab}: stack {inTab.Id} now {inTab.Item.StackSize}");
         else
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), done.Displaced is null ? [] : [done.Displaced.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await SendTabChange(player, stash, tab, done.Displaced is null ? [] : [done.Displaced.Id], [inTab],
                 $"0x00bf stash tab {tab}: add item {inTab.Id} at ({inTab.X}, {inTab.Y})" + (done.Displaced is null ? "" : $", remove item {done.Displaced.Id}"));
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], done.Held is null ? [] : [done.Held]),
             "0x00bf cursor: " + (done.Held is null ? $"remove item {before.Id}" : done.Displaced is null ? $"stack {before.Id} now {done.Held.Item.StackSize}" : $"remove item {before.Id}, hold item {done.Held.Id}"));
     }
 
     // C→S 0xe0: Ctrl + click on an inventory item while a stash tab is shown: into that tab (ItemMoves.InventoryToStash: a
     // stack onto the tab's stacks, a special tab only its own items, a slotted tab into the item's slot), one transaction.
-    internal static async Task MoveToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.MoveToTab move)
+    public static async Task MoveToStash(Player player, InstanceStash.MoveToTab move)
     {
         if (move.Kind != InstanceStash.Personal)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x00e0 move item {move.ItemId} to stash tab {move.Tab} ({move}): refused (not the personal stash)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e0 move item {move.ItemId} to stash tab {move.Tab} ({move}): refused (not the personal stash)");
             return;
         }
-        await CtrlClickToStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, $"0x00e0 ({move})");
+        await CtrlClickToStash(player, move.Tab, move.ItemId, move.Flags, $"0x00e0 ({move})");
     }
 
     // C→S 0xe1: Ctrl + click on an inventory item that has an affinity tab (currency …): into the tab the client picked for it
     // (StashTabAffinities), whichever tab is shown.
-    internal static async Task MoveToAffinityTab(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.MoveToAffinityTab move, string hex)
+    public static async Task MoveToAffinityTab(Player player, InstanceStash.MoveToAffinityTab move, string hex)
     {
         if (move.Tabs is not [var (tab, affinity), ..])
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x00e1 move item {move.ItemId} to its affinity tab: refused (no tab named): {hex}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e1 move item {move.ItemId} to its affinity tab: refused (no tab named): {hex}");
             return;
         }
-        // Ctrl + right click: every stack of that type in the same inventory goes, the clicked one first; each stack is one
-        // Ctrl + click (its own transaction), so a full slot stops only what doesn't fit.
-        var items = ItemsOf(conn);
-        if ((move.Flags & InstanceStash.MoveAllOfType) != 0 && items.RowOf(move.ItemId) is byte row
-            && items.Items(row).FirstOrDefault(i => i.Id == move.ItemId) is { } clicked)
+        await CtrlClickToStash(player, tab, move.ItemId, move.Flags, $"0x00e1 (affinity {affinity})");
+    }
+
+    // Ctrl + right click (both messages' flag): every stack of that type in the same inventory goes, the clicked one first; each
+    // stack is one Ctrl + click (its own transaction), so a full slot stops only what doesn't fit.
+    static async Task CtrlClickToStash(Player player, int tab, uint itemId, byte flags, string why)
+    {
+        var items = ItemsOf(player);
+        if ((flags & InstanceStash.MoveAllOfType) != 0 && items.RowOf(itemId) is byte row
+            && items.Items(row).FirstOrDefault(i => i.Id == itemId) is { } clicked)
         {
             uint[] ids = [clicked.Id, .. items.Items(row).Where(i => i.Item.TypeHash == clicked.Item.TypeHash && i.Id != clicked.Id).Select(i => i.Id)];
             foreach (uint id in ids)
-                await CtrlClickToStash(remote, stream, ciphers, conn, tab, id, $"0x00e1 Ctrl + right click, all {ids.Length} stacks (affinity {affinity})");
+                await CtrlClickToStash(player, tab, id, $"{why} Ctrl + right click, all {ids.Length} stacks");
             return;
         }
-        await CtrlClickToStash(remote, stream, ciphers, conn, tab, move.ItemId, $"0x00e1 (affinity {affinity})");
+        await CtrlClickToStash(player, tab, itemId, why);
     }
 
-    internal static async Task CtrlClickToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, string why)
+    public static async Task CtrlClickToStash(Player player, int tab, uint itemId, string why)
     {
-        var stash = StashOf(conn);
-        var items = ItemsOf(conn);
+        var stash = StashOf(player);
+        var items = ItemsOf(player);
         var moved = ItemMoves.InventoryToStash(stash, items, tab, itemId, ShapeOf, out string refused);
-        Console.WriteLine($"[gateway] {remote} <= {why}: move item {itemId} to stash tab {tab}" + (moved is null ? $": refused ({refused})" : ""));
-        if (moved is not null) await SendTransfer(remote, stream, ciphers, conn, items, stash, moved, tabFirst: false);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= {why}: move item {itemId} to stash tab {tab}" + (moved is null ? $": refused ({refused})" : ""));
+        if (moved is not null) await SendTransfer(player, items, stash, moved, tabFirst: false);
     }
 
     // An item out of a stash tab into the main inventory (C→S 0xe3), a stack onto the inventory's stacks first
     // (ItemMoves.StashToInventory), one transaction.
-    internal static async Task TakeFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, bool all)
+    public static async Task TakeFromStash(Player player, int tab, uint itemId, bool all)
     {
-        var stash = StashOf(conn);
-        var items = ItemsOf(conn);
+        var stash = StashOf(player);
+        var items = ItemsOf(player);
         if (ItemMoves.StashToInventory(stash, items, tab, itemId, ShapeOf, all) is not { } moved)
         {
-            Console.WriteLine($"[gateway] {remote} stash tab {tab} item {itemId}: refused (not there, unknown type or no room in the inventory)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} stash tab {tab} item {itemId}: refused (not there, unknown type or no room in the inventory)");
             return;
         }
-        await SendTransfer(remote, stream, ciphers, conn, items, stash, moved, tabFirst: true);
+        await SendTransfer(player, items, stash, moved, tabFirst: true);
     }
 
-    // What a Ctrl + click moved (ItemMoves.Transfer), to the client: one 0xbf for the inventory row, one for the tab (only if
-    // this connection has the tab's contents: else it gets them whole when it asks, 0xc7).
-    internal static async Task SendTransfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
+    // What a Ctrl + click moved (ItemMoves.Transfer), to the client: one 0xbf for the inventory row, one for the tab
+    // (SendTabChange).
+    public static async Task SendTransfer(Player player, PlayerInventories items,
         AccountStash stash, ItemMoves.Transfer t, bool tabFirst)
     {
         List<uint> invGone = [.. t.InventoryChanged.Select(i => i.Id)], tabGone = [.. t.TabChanged.Select(i => i.Id)];
@@ -309,43 +329,42 @@ static partial class Game
         async Task Inventory()
         {
             if (invGone.Count + invNow.Count == 0) return;
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(t.Row), items.NextRevision(t.Row), invGone, invNow),
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(t.Row), items.NextRevision(t.Row), invGone, invNow),
                 $"0x00bf inventory {PlayerInventories.InventoryId(t.Row)}: remove [{string.Join(", ", invGone)}], add [{string.Join(", ", invNow.Select(i => $"{i.Id} at ({i.X}, {i.Y}) x{i.Item.StackSize}"))}]");
         }
         async Task Tab()
         {
             if (tabGone.Count + tabNow.Count == 0) return;
-            // The tab may have been unloaded by a tab switch while the panel still shows it: load it again instead of
+            // The tab may have been unloaded by a tab switch while the panel still shows it: it is loaded again instead of
             // skipping the update, which left the moved item's icon in place until the panel asked again (#605).
-            await EnsureTabLoaded(remote, stream, ciphers, conn, stash, t.Tab);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(t.Tab), stash.NextRevision(t.Tab), tabGone, tabNow, stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await SendTabChange(player, stash, t.Tab, tabGone, tabNow,
                 $"0x00bf stash tab {t.Tab}: remove [{string.Join(", ", tabGone)}], add [{string.Join(", ", tabNow.Select(i => $"{i.Id} at ({i.X}, {i.Y}) x{i.Item.StackSize}"))}]");
         }
         if (tabFirst) { await Tab(); await Inventory(); }
         else { await Inventory(); await Tab(); }
-        if (t.InventoryItemId != 0 && PlayerInventories.ShowsOnModel(t.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (t.InventoryItemId != 0 && PlayerInventories.ShowsOnModel(t.Row)) await SendEquipment(player, items);
     }
 
     // C→S 0xd3: the tab settings' affinities, confirmed: saved with the tab, and the tab list again (S→C 0x136), which the
     // settings window waits for.
     // After the tab settings change a tab (0xcd, 0xce): the tab list again (S→C 0x136), as after the affinities; the
     // settings window waits for it before it closes.
-    internal static async Task SendTabListAgain(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte kind)
+    public static async Task SendTabListAgain(Player player, byte kind)
     {
-        if (conn.Ssf && kind == InstanceStash.Guild) return;
-        var stash = kind == InstanceStash.Guild ? GuildStashOf(conn) : PersonalStashOf(conn);
-        var tabs = stash.Records(null, TabsSentOf(conn, stash));
-        await Send(remote, stream, ciphers, InstanceStash.TabList(tabs, kind == InstanceStash.Guild ? InstanceStash.Guild : InstanceStash.Personal),
+        if (player.Character.Ssf && kind == InstanceStash.Guild) return;
+        var stash = kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player);
+        var tabs = stash.Records(null, TabsSentOf(player, stash));
+        await Send(player, InstanceStash.TabList(tabs, kind == InstanceStash.Guild ? InstanceStash.Guild : InstanceStash.Personal),
             $"0x0136 stash {kind} tab list again ({tabs.Count} tabs, after the tab settings)");
     }
 
-    internal static async Task SetTabAffinities(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.SetAffinities set)
+    public static async Task SetTabAffinities(Player player, InstanceStash.SetAffinities set)
     {
-        var stash = StashOf(conn);
+        var stash = StashOf(player);
         uint? now = set.Kind == InstanceStash.Personal ? stash.SetAffinities(set.Tab, set.Changes) : null;
-        Console.WriteLine($"[gateway] {remote} <= 0x00d3 stash tab {set.Tab} affinities [{string.Join(", ", set.Changes.Select(c => $"{c.Affinity}={(c.On ? "on" : "off")}"))}]" +
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d3 stash tab {set.Tab} affinities [{string.Join(", ", set.Changes.Select(c => $"{c.Affinity}={(c.On ? "on" : "off")}"))}]" +
             (now is uint bits ? $": now 0x{bits:x}" : ": refused (no such personal tab)"));
-        var tabs = stash.Records(null, TabsSentOf(conn, stash));
-        await Send(remote, stream, ciphers, InstanceStash.TabList(tabs), $"0x0136 stash tab list again ({tabs.Count} tabs, after the affinities)");
+        var tabs = stash.Records(null, TabsSentOf(player, stash));
+        await Send(player, InstanceStash.TabList(tabs), $"0x0136 stash tab list again ({tabs.Count} tabs, after the affinities)");
     }
 }

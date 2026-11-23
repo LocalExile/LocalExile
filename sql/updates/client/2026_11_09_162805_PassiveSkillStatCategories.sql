@@ -1,0 +1,22 @@
+-- Client table PassiveSkillStatCategories: all 20 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "PassiveSkillStatCategories" ("_row", "Id", "Name") VALUES
+(0, 'Attributes', 'Attributes'),
+(1, 'Damage', 'Damage'),
+(2, 'Ailments', 'Ailments'),
+(3, 'Skill Speed', 'Skill Speed'),
+(4, 'Critical Strikes', 'Critical Strike'),
+(5, 'Accuracy', 'Accuracy'),
+(6, 'Other Offensive Stats', 'Other Offensive Stats'),
+(7, 'Life', 'Life'),
+(8, 'Mana', 'Mana'),
+(9, 'Defences', 'Defences'),
+(10, 'Resistances', 'Resistances'),
+(11, 'Other Survivability Stats', 'Other Survivability Stats'),
+(12, 'Minions', 'Minions'),
+(13, 'Totems', 'Totems'),
+(14, 'Traps', 'Traps'),
+(15, 'Mines', 'Mines'),
+(16, 'Charges', 'Charges'),
+(17, 'Flasks', 'Flasks'),
+(18, 'Misc', 'Misc'),
+(19, 'Ascendancy', 'Ascendancy');

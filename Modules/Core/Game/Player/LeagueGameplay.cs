@@ -1,6 +1,6 @@
 
 
-static class LeagueGameplay
+public static class LeagueGameplay
 {
     public static bool CanGainUtilityCharges(bool restricted, bool active, bool exception) => !restricted || !active || exception;
 

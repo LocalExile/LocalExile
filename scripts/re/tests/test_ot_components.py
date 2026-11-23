@@ -78,6 +78,22 @@ class LifeMetadataTests(unittest.TestCase):
     def test_item_output_does_not_acquire_life_data(self):
         result = ot.merge("Item", {"Item": ot.parse('Base {} Mods {}')}, {}, first=())
         self.assertNotIn("life", result)
+        self.assertNotIn("actor", result)
+
+    def test_actor_idle_flag_defaults_inherits_and_overrides(self):
+        self.assertEqual({"slow_animations_go_to_idle": False}, self.merged('Actor {}')["actor"])
+        parent = 'Actor { slow_animations_go_to_idle = true }'
+        self.assertTrue(self.merged(parent, 'extends "Type0" Actor {}')["actor"]["slow_animations_go_to_idle"])
+        child = 'extends "Type0" Actor { slow_animations_go_to_idle = false }'
+        self.assertFalse(self.merged(parent, child)["actor"]["slow_animations_go_to_idle"])
+        nested = 'Actor { on_event = { slow_animations_go_to_idle = true } } client { Actor { slow_animations_go_to_idle = true } }'
+        self.assertFalse(self.merged(nested)["actor"]["slow_animations_go_to_idle"])
+
+    def test_actor_idle_flag_remains_unknown_across_missing_parent_or_bad_value(self):
+        self.assertIsNone(self.merged('extends "Missing" Actor {}')["actor"]["slow_animations_go_to_idle"])
+        self.assertIsNone(self.merged('Actor { slow_animations_go_to_idle = unknown }')["actor"]["slow_animations_go_to_idle"])
+        explicit = 'extends "Missing" Actor { slow_animations_go_to_idle = false }'
+        self.assertFalse(self.merged(explicit)["actor"]["slow_animations_go_to_idle"])
 
     def test_collision_metadata_and_life_flags_survive_the_same_inheritance_chain(self):
         result = self.merged('''Positioned { object_size = 5 blocking = true }

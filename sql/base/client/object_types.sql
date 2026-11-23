@@ -1,0 +1,28 @@
+-- Generated table object_types (new in 3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "object_types" (
+    "_row" INTEGER PRIMARY KEY,
+    "type" TEXT,
+    "chain" JSON,
+    "missing" JSON,
+    "abstract" BOOLEAN,
+    "components" JSON,
+    "read" INTEGER,
+    "positioned_object_size" TEXT,
+    "positioned_blocking" TEXT,
+    "animated_object" TEXT,
+    "shared_timers" JSON,
+    "basic_actions" JSON,
+    "client_targetable" BOOLEAN,
+    "transitionable_num_states" INTEGER,
+    "transitionable_no_serialise" BOOLEAN,
+    "life_corpse_usable" BOOLEAN,
+    "life_prevent_corpse_sinking" BOOLEAN,
+    "life_corpse_use_veto" BOOLEAN,
+    "positioned_static" TEXT,
+    "client_transitionable_create_untransitioned" TEXT,
+    "client_transitionable_create_transitioned" TEXT,
+    "client_transitionable_on_transition" TEXT,
+    "phases" BOOLEAN,
+    "immobile" BOOLEAN,
+    "positioned_block_league_flag" TEXT
+);

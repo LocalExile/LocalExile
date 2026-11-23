@@ -57,14 +57,7 @@ Map. LocalExile refuses it, as with the other currency checks.
 refuses a base with no eligible ordinary affix, so the orb is not spent and an item is never left with no affixes by
 missing data.
 
-## Automated coverage
-
-`AlterationTests` checks the 50/50 count distribution over 10,000 rolls, one-affix-per-side and family rules, the full
-wand pool and values, the two-mod flask pool, preserved implicits/quality/sockets/links/charges, unmodifiable,
-unsupported, no-Mods, unknown and empty-pool bases, corrupted/mirrored and non-magic items.
-`AlterationGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, two consecutive rerolls spending one orb each, saved mods after cache eviction, and
-refused normal/unmodifiable targets without spending.
+## Verification
 
 No fresh real-client run was made for this change yet.
 The old live check of the unvalidated path (2026-10-21) is not evidence for the new admission rules; native

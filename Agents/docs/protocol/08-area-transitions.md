@@ -51,6 +51,7 @@ Stats `0x1435e7f88`, ObjectMagicProperties `0x1435b3740` (slot 17 → slot 20 `0
 | ObjectMagicProperties | 4 | **base magic properties first** (`0x142208700`, called with the reader still in `rdx`: u16 flags, rarity = low 3 bits, u8 `+0x7a`, sections behind flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's own u8 flags (bit1 → u16 flavour text key, bit2 → string) |
 | MinimapIcon | `00` | u8 flags (bit1 hidden/shown, bit0 → u16 icon override, bit3 → variant) |
 | InteractionAction | `00` | u8 flags (bit2 → u8 [+ u16 action]) |
+| StateMachine *(optional)* | `00 00` | only when the object's `.ot` appends `StateMachine` after `InteractionAction` (e.g. `Boat_AreaTransition_Animate`, which sets `no_highlight = true` and has 0 shared states and 0 timers); keeping the native type avoids the plain `AreaTransition` fallback's hover highlight |
 | tasks | `00` | |
 
 The Coast exit: `00 00 | 80010000 D9000000 00000000 0000 0000 | 00 | 00 02 D27A 00 | 00 00000000 00000000 00 | 0000 00 00 | 00 | 00 | 00`.
@@ -140,11 +141,11 @@ must end with .ao", `0x141dab410`); its bit1 form is a `Data/MiscAnimated.dat` r
   at (256.5, 168.5); live the player reads (256, 170) there.
 - rotation: Positioned's float `+0x29c`. The plane must face across the gate, so 90° or 270° (the room's R270); live,
   **π/2** matches the real game. The sign convention is not derived yet.
-- **height:** Positioned flags0 bit2 (`0x04`) adds i32 `+0x290` (steps of 7.8125) and f32 `+0x2b4` (world z); when
+- **height:** Positioned flags0 bit2 (`0x04`) adds i32 `+0x290` (−z / 7.8125) and f32 `+0x2b4` (world z); when
   `+0x290` ≠ `0x7fffffff` the client uses that z instead of the terrain height (`0x141e36520`, `0x141e38b40`). Sent as
-  −45 and **−351.04**. Without it the arch's base sat on the terrain and the beam hid its top.
+  45 and **−351.04**. Without it the arch's base sat on the terrain and the beam hid its top.
 
-The server's blob: Positioned `84010000 E6000000 DB0FC93F 0000 04 00 D3FFFFFF 1F85AFC3`, Animated `01 49000000` + the
+The server's blob: Positioned `84010000 E6000000 DB0FC93F 0000 04 00 2D000000 1F85AFC3`, Animated `01 49000000` + the
 path. Dev command in the Gateway: `/transition [pos [here | x y | +dx +dy] | rot <degrees> | z <z | none> | model
 <path | none> | index <n>]` re-creates the first area transition with that change (`index` is the AreaTransition compact int,
 sent in towns only, §2). Every position the client has seen stays
@@ -154,6 +155,8 @@ so after moving an area transition around, clear that cache before judging the m
 
 Other exits: an exit that is a `.tmd` record takes its model, rotation and height this way. The Twilight Strand gate is
 `transition_twilightstrand` (type `AreaTransitionMapMarker`) at tile cell (37.5, 45.5), grid (114.5, 306.5).
+A record whose virtual `.ao` is no file keeps the `.ao` it names (its handle `+0x38`, §7): The Sovereign's waypoint
+`DeepwaterHubBoat_waypoint` is placed with `Deepwater/Waypoint/waypoint.ao`.
 
 ## Open
 
@@ -184,7 +187,7 @@ match, their .tmd).
 ### How it resolves an area
 
 1. `WorldAreas.datc64` gives Id, Name, Connections and HASH16 (read directly). `TopologiesKeys` come from
-   `data/tables/WorldAreas.json` (checked row by row by Id) and lead to `Topologies.DGRFile`.
+   the `WorldAreas` table (checked row by row by Id) and lead to `Topologies.DGRFile`.
 2. Graph (.dgr / .tgr, versions 19 and 25): a node line is `x y edgeCount edges… "tag" rotation nameCount "names"… …`.
    A node tagged **`graph`** embeds a sub-graph. Its first name is either a graph path or a group of the master's
    `FileGroups` (.fgp: `"group"`, then graph paths relative to the .fgp, of which the generator picks one). Every
@@ -307,6 +310,9 @@ placed tile's `.tmd` records). For records of AreaTransition, Waypoint or quest 
 | angle | 2π − angle for codes ≥ 4, then + (code & 3) · π/2 (`0x1436ae110`), wrapped to [0, 2π] |
 | z | record z − height offset · 7.8125 |
 
+The `.ao` written is the record's handle `+0x38`: the virtual name, or the record's own `.ao` when the virtual one is
+no file (§5, §8's rule); a generated layout's objects (`AreaObjects`) take the same.
+
 The client spawns only its own doodads from these records; server types (AreaTransition, Waypoint …) fail its type
 filter, which is why nothing in the client ever creates them. The Frida trace `scripts/re/frida/trace-tile-records.js`
 is the same hook for one-off use.
@@ -404,7 +410,7 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
    `AreaLayout.Near`) beside the gate back: in the room of `telepadN`, the gate (another number's) whose own telepad is
    in the gate's room, at its object (The Hall of Grandmasters' main.arm: eight arrivals at "telepad" points that
    repeat, each beside the door back to its arena); without one, the telepad's slot. Its destination is the label:
-   the description's ClientStrings key as variant 1 (HASH32 from `data/tables/ClientStrings.json`, e.g.
+   the description's ClientStrings key as variant 1 (HASH32 from the `ClientStrings` table, e.g.
    BrutusAreaName 0x169BA21A "The Warden's Quarters", MerveilArenaName "Merveil's Lair"), else (`%areaname%`, no key,
    no table) the area itself as variant 2; no compact int (type 1). `teleportNdisabled` gates (an arena's way in or a
    shortcut back, which the game unlocks; the Upper Prison's only door into Brutus's room is
@@ -436,7 +442,9 @@ special case each. A gate or exit the game enables later is sent enabled (no Tra
 
 A `telepadN` no node's `teleportN` leads to is where the game moves the player when a fight ends (The Harvest's and
 The Rotting Core's organ rooms, telepad11–14). The Rotting Core's weylam.arm ("telepad16" "zone=7" "entrance2") is
-reached only that way, after the Depraved Trinity dies; its exit to Oriath is created, the move there is not.
+reached that way after the Depraved Trinity dies: its `UnholyTrioLootLocator` supplies the blood passage's landing.
+The organ portals reuse their art at both ends, so their direction must also use the placed boss room.
+`BloodVortex.ot` plays rig clip 0 to cover the arena and clip 1 on arrival; Lilly's NPCTalk 1395 then sails to Oriath.
 
 **The audit** (`scripts/re/exits`, from the repository root):
 

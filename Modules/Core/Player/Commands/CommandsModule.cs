@@ -1,34 +1,28 @@
-using System.Net.Sockets;
-using GameServer.Core.Protocol.Instance;
-using GameServer.Core.Protocol.Login;
-using GameServer.Core.World;
 using GameServer.Modding;
-using GameServer.Core.Accounts;
-using Progression = GameServer.Core.World.Progression;
-using DamageModel = GameServer.Core.World.DamageModel;
-using DamageType = GameServer.Core.World.DamageType;
-using static Program;
-using static CommandsFeature;
 
 namespace GameServer.Modules.M_commands;
 
-/// <summary>The chat commands for development and testing.</summary>
-public sealed class CommandsModule : IModule, IDisposable
+/// <summary>The chat commands GGG's servers have (/oos, /passives, /played). The development and testing commands are the gm-commands
+/// mod in LocalExile-Mods.</summary>
+public sealed class CommandsModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Commands", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
+    // Commands.dat ShowTimePlayed is row 1; generic commands carry row + 1.
+    const byte PlayedCommand = 2;
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        On(GameEvents.CommandsBuilding, CommandsFeature.Register);
-        // The campaign driver's /state, /kill and /quest_preset (Rules.Campaign.cs).
-        On(GameEvents.CommandsBuilding, AddCampaignCommands);
+        var played = new CharacterPlaytime();
+        module.Lifetime.Own(played);
+        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, player) =>
+            CommandsFeature.Register(commands, player, played));
+        GameEvents.EnterMessages.Add(module.Manifest.Id, player => { played.Begin(player); return []; });
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => { played.Step(player); return Task.CompletedTask; }));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { played.End(player); return Task.CompletedTask; });
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.CommandId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (GameServer.Core.Protocol.Instance.InstanceItems.ReadCommand(bytes).Id != PlayedCommand) return false;
+            await player.Commands!.Reply(CharacterPlaytime.Describe(played.Seconds(player)));
+            return true;
+        });
     }
 }

@@ -2,7 +2,7 @@
 
 /// <summary>The ordinary ranged attack's projectile from the active weapon set. These are exact Projectiles.dat ids,
 /// not gem effects: the native default attack still uses the character's first skill and weapon stance.</summary>
-static class OrdinaryRangedAttack
+public static class OrdinaryRangedAttack
 {
     public const string Arrow = "Metadata/Projectiles/DefaultArrow";
     public const string Wand = "Metadata/Projectiles/WandProjectile";

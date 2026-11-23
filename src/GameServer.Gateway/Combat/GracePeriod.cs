@@ -1,7 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Per-entry protection. Never saved; the deadline uses the connection's game clock.</summary>
-sealed class GracePeriod
+public sealed class GracePeriod
 {
     public const ushort BuffRow = 6; // BuffDefinitions: grace_period; BuffVisuals 8 (invulnerability.dds).
 
@@ -18,7 +18,7 @@ sealed class GracePeriod
         lock (_lock)
         {
             int seconds = Seconds;
-            _buff = town || hideout || seconds <= 0 ? null : buff;
+            _buff = town || seconds <= 0 ? null : buff;
             _protecting = _buff is not null;
             _origin = origin;
             _until = now + seconds;
@@ -48,6 +48,5 @@ sealed class GracePeriod
         }
     }
 
-    public static byte[] BeginPacket(uint player, ushort buff) =>
-        InstanceEntities.AddBuff(player, buff, BuffRow, player, u68: BitConverter.SingleToUInt32Bits(Seconds));
+    public static Buff Buff(uint player) => new(BuffRow, player, U68: global::Buff.Seconds(Seconds));
 }

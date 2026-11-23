@@ -1,16 +1,25 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The hideout's map device (Agents/docs/protocol/21-hideouts.md §5): what its slots (Inventories row 13 <c>Map1</c>)
 /// may hold when Activate (C→S 0x00d8) is pressed, which area a map opens (Maps.dat <c>Regular_WorldAreasKey</c>), and
 /// each character's open map: its area, its instance once someone entered it, and the portals left.
 /// </summary>
-sealed class MapDevice
+public sealed class MapDevice
 {
     /// <summary>Portals one activation opens; each takes one player into the map once.</summary>
     public const int PortalCount = 6;
+
+    public const string CampaignDeviceArea = "2_7_5_1", CampaignMapArea = "2_7_5_map",
+        CampaignDeviceType = "Metadata/QuestObjects/Act7/MaligaroOrrery",
+        CampaignMapItem = "Metadata/Items/QuestItems/Act7/MaligaroMap";
+    public static readonly uint CampaignMapHash = InstanceEntities.ObjectTypeHash(CampaignMapItem);
+
+    public static bool AcceptsItem(uint typeHash, string itemClass) =>
+        typeHash == CampaignMapHash || AcceptsClass(itemClass);
 
     /// <summary>ItemClasses Ids the slots take.</summary>
     public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment",
@@ -28,18 +37,15 @@ sealed class MapDevice
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
-    private readonly Dictionary<uint, MapArea> _byFragment;
     private readonly AtlasCatalog? _atlas;
     private readonly MapRunCatalog _runs;
     private readonly List<MapArea?> _worldAreas;
     private readonly HashSet<ushort> _recipeAreas;
 
     public MapDevice(IReadOnlyDictionary<uint, MapArea> byItemType, AtlasCatalog? atlas = null,
-        IReadOnlyDictionary<uint, MapArea>? byFragment = null, MapRunCatalog? runs = null,
-        IReadOnlyList<MapArea?>? worldAreas = null)
+        MapRunCatalog? runs = null, IReadOnlyList<MapArea?>? worldAreas = null)
     {
         _byItemType = new(byItemType);
-        _byFragment = byFragment is null ? [] : new(byFragment);
         _atlas = atlas;
         _runs = runs ?? new MapRunCatalog(new Dictionary<int, MapRunCatalog.Fragment>(), []);
         _worldAreas = worldAreas is null ? [] : [.. worldAreas];
@@ -53,62 +59,45 @@ sealed class MapDevice
     public static MapDevice Load(string folder, Func<int, uint?> hashOfRow, ItemCatalog? catalog = null)
     {
         var byType = new Dictionary<uint, MapArea>();
-        var byFragment = new Dictionary<uint, MapArea>();
-        string maps = Path.Combine(folder, "tables", "Maps.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (File.Exists(maps) && File.Exists(areas))
+        if (ClientTables.Has("Maps") && ClientTables.Has("WorldAreas"))
         {
-            using var m = GameTables.Open(maps);
-            using var a = GameTables.Open(areas);
-            int areaCount = a.RootElement.GetArrayLength();
-            foreach (var row in m.RootElement.EnumerateArray())
+            var m = ClientTables.Table("Maps");
+            var a = ClientTables.Table("WorldAreas");
+            int areaCount = a.Count;
+            foreach (var row in m)
             {
-                if (row.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } item
-                    || row.GetProperty("Regular_WorldAreasKey") is not { ValueKind: JsonValueKind.Number } area
-                    || area.GetInt32() >= areaCount || hashOfRow(item.GetInt32()) is not uint hash) continue;
-                var wa = a.RootElement[area.GetInt32()];
-                byType.TryAdd(hash, new MapArea((ushort)wa.GetProperty("HASH16").GetInt32(), wa.GetProperty("Id").GetString() ?? "",
-                    wa.GetProperty("Name").GetString() ?? "", row.GetProperty("Tier").GetInt32())
+                if (row.IntOrNull("BaseItemTypesKey") is not int item
+                    || row.IntOrNull("Regular_WorldAreasKey") is not int area
+                    || area >= areaCount || hashOfRow(item) is not uint hash) continue;
+                var wa = a[area];
+                byType.TryAdd(hash, new MapArea((ushort)wa.Int("HASH16"), wa.Text("Id") ?? "",
+                    wa.Text("Name") ?? "", row.Int("Tier"))
                 {
-                    Level = wa.GetProperty("AreaLevel").GetInt32(),
+                    Level = wa.Int("AreaLevel"),
                 });
             }
-            // A map fragment may open an area by itself: An Audience With The King opens the Crux of Nothingness.
-            // The fragment's BaseItemTypes row is the map-device slot's type hash, not a Maps.dat row.
-            if (catalog?.Find("Metadata/Items/MapFragments/RitualBossFragment") is { } fragment)
-                for (int i = 0; i < areaCount; i++)
-                    if (a.RootElement[i].GetProperty("Id").GetString() == "AzmeriLeagueBoss")
-                    {
-                        var wa = a.RootElement[i];
-                        byFragment[fragment.Hash] = new MapArea((ushort)wa.GetProperty("HASH16").GetInt32(),
-                            wa.GetProperty("Id").GetString() ?? "", wa.GetProperty("Name").GetString() ?? "", 0)
-                        {
-                            Level = wa.GetProperty("AreaLevel").GetInt32(),
-                        };
-                        break;
-                    }
         }
         var worldAreas = LoadWorldAreas(folder);
-        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder), byFragment,
+        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder),
             MapRunCatalog.Load(folder), worldAreas);
     }
 
     static List<MapArea?> LoadWorldAreas(string folder)
     {
-        string areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!File.Exists(areas)) return [];
-        using var a = GameTables.Open(areas);
-        var list = new List<MapArea?>(a.RootElement.GetArrayLength());
-        foreach (var wa in a.RootElement.EnumerateArray())
+        if (!ClientTables.Has("WorldAreas")) return [];
+        var a = ClientTables.Table("WorldAreas");
+        var list = new List<MapArea?>(a.Count);
+        foreach (var wa in a)
         {
-            if (wa.GetProperty("HASH16") is not { ValueKind: JsonValueKind.Number } hash)
+            if (wa.IntOrNull("HASH16") is not int hash)
             {
                 list.Add(null);
                 continue;
             }
-            list.Add(new MapArea((ushort)hash.GetInt32(), wa.GetProperty("Id").GetString() ?? "",
-                wa.GetProperty("Name").GetString() ?? "", 0)
+            list.Add(new MapArea((ushort)hash, wa.Text("Id") ?? "",
+                wa.Text("Name") ?? "", 0)
             {
-                Level = wa.TryGetProperty("AreaLevel", out var lv) && lv.ValueKind == JsonValueKind.Number ? lv.GetInt32() : 0,
+                Level = (wa.IntOrNull("AreaLevel") ?? 0),
             });
         }
         return list;
@@ -120,13 +109,9 @@ sealed class MapDevice
 
     public MapArea? AreaOf(uint itemType) => _byItemType.GetValueOrDefault(itemType);
 
-    /// <summary>The area a fragment opens by itself, or null (An Audience With The King opens Crux of Nothingness).</summary>
-    public MapArea? AreaOfFragment(uint itemType) => _byFragment.GetValueOrDefault(itemType);
-
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
-    public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16) ||
-        _byFragment.Values.Any(a => a.Hash16 == hash16) || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true
-        || _recipeAreas.Contains(hash16);
+    public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16)
+        || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true || _recipeAreas.Contains(hash16);
 
     /// <summary>One item in the slots: its type, class, BaseItemTypes row, rolled mods and quality.</summary>
     public readonly record struct Slot(uint TypeHash, string Class, string Name, int BaseRow, IReadOnlyList<ItemMod> Mods, byte Quality)
@@ -136,6 +121,12 @@ sealed class MapDevice
 
         /// <summary>The item's .it components when known; Map / MapKey admit a slot even if ItemClasses later rename it.</summary>
         public IReadOnlyList<string>? Components { get; init; }
+
+        /// <summary>The item's rarity and corruption and its BaseItemTypes Id: the area stats name them (map_rarity,
+        /// map_is_corrupted, the scarabs by kind; <see cref="MapMods"/>).</summary>
+        public ItemRarity Rarity { get; init; }
+        public bool Corrupted { get; init; }
+        public string BaseId { get; init; } = "";
 
         public bool IsMap =>
             Class is MapClass or MapKeyClass
@@ -153,22 +144,27 @@ sealed class MapDevice
     /// </summary>
     public Opening? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, null, out why);
 
-    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why)
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false)
     {
         why = "";
+        if (campaign)
+        {
+            if (slots.Count != 1 || slots[0].TypeHash != CampaignMapHash)
+            {
+                why = "Place only Maligaro's Map in this device.";
+                return null;
+            }
+            var sanctum = _worldAreas.FirstOrDefault(a => a?.Id == CampaignMapArea);
+            if (sanctum is not null) return new Opening(sanctum, MapMods.None);
+            why = "Maligaro's Sanctum is not available.";
+            return null;
+        }
         if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
             return null;
         }
         var maps = slots.Where(s => s.IsMap).ToList();
-        if (maps.Count == 0)
-        {
-            // A fragment alone may open its area (An Audience With The King).
-            var fragments = slots.Where(s => s.Class == FragmentClass).ToList();
-            if (fragments.Count == 1 && AreaOfFragment(fragments[0].TypeHash) is { } fragmentArea)
-                return new Opening(fragmentArea, MapMods.None);
-        }
         if (maps.Count > 1) { why = "Only one map can be activated at a time."; return null; }
         if (maps.Count == 1)
         {
@@ -211,46 +207,177 @@ sealed class MapDevice
     /// the device (0 to <see cref="PortalCount"/> - 1, <see cref="PortalCell"/>) whose portal is still there.</summary>
     public sealed record OpenMap(MapArea Area, ulong Instance, IReadOnlyList<int> Left, MapMods Mods, int ItemRow = 0)
     {
+        public Guid Run { get; init; } = Guid.NewGuid();
+        public string Owner { get; init; } = "";
+        public bool EntryPending { get; init; }
         public int PortalsLeft => Left.Count;
+        public Origin? ReturnTo { get; init; }
+        /// <summary>The device's exact source instance and arrival cell, retained independently of return routing.</summary>
+        public Origin? Entrance { get; init; }
+    }
+
+    public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
+
+    /// <summary>What a map instance plays with for its whole life (<see cref="InstanceState.Map"/>): who opened it, its
+    /// area, level, tier and mods, the first slot's row and the way back. Unlike <see cref="OpenOf"/>, it stays when the
+    /// last portal is taken or the owner opens another map, and guests see the same one.</summary>
+    public sealed record Run(string Owner, MapArea Area, MapMods Mods, int ItemRow = 0, Origin? ReturnTo = null)
+    {
+        public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo);
+
+        /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
+        /// module starts with its own mods (only those mods' stats apply).</summary>
+        public bool Atlas { get; init; } = true;
+    }
+
+    /// <summary>The map a transfer's ticket opens its instance with (<see cref="PendingTransfer.Map"/>), until that
+    /// connection opens.</summary>
+    public static readonly ConcurrentDictionary<uint, Run> TicketArrivals = new();
+
+    /// <summary>A connection with <paramref name="ticket"/> opens in <paramref name="instance"/> (Auth's
+    /// <paramref name="instanceId"/>) of area <paramref name="areaHash"/>: the map it plays with. The portal's map (also
+    /// its last one), else the map whose instance this is (a guest, a login inside it); the first one fixes it.</summary>
+    public static Run? Admit(InstanceState instance, uint ticket, ushort areaHash, ulong instanceId)
+    {
+        var retained = ForInstance(areaHash, instanceId, instance);
+        var brought = TicketArrivals.TryRemove(ticket, out var arriving) ? arriving
+            : retained is { } open ? Run.Of(open.Owner, open) : null;
+        return instance.OpenedWith(brought?.Area.Hash16 == areaHash ? brought : null) is { } run && run.Area.Hash16 == areaHash
+            ? run : null;
     }
 
     private static readonly ConcurrentDictionary<string, OpenMap> Open = new(StringComparer.OrdinalIgnoreCase);
+    // A transfer can finish after its owner has replaced the device. Retain that arrival until the destination world
+    // owns it; an abandoned client must not retain it indefinitely.
+    static readonly ConcurrentDictionary<(ushort Area, ulong Instance), (OpenMap Map, long Until)> Arrivals = new();
 
     /// <summary>The character's open map, or null.</summary>
     public static OpenMap? OpenOf(string character) => Open.GetValueOrDefault(character);
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
-    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0) =>
-        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow);
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null,
+        Origin? entrance = null)
+    {
+        lock (Open)
+        {
+            if ((entrance ?? returnTo) is { Instance: not 0 } origin)
+                foreach (var other in Open.Where(p => (p.Value.Entrance ?? p.Value.ReturnTo) is { } at
+                    && at.Area == origin.Area && at.Instance == origin.Instance).ToArray())
+                    Open.TryRemove(other);
+            return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow)
+                { Owner = character, ReturnTo = returnTo, Entrance = entrance };
+        }
+    }
+
+    // Keep the original callable signature for compiled consumers.
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo) =>
+        Activate(character, area, mods, itemRow, returnTo, null);
+
+    /// <summary>The run whose portals belong to this exact device instance.</summary>
+    public static OpenMap? AtEntrance(ushort area, ulong instance) => instance == 0 ? null
+        : Open.Values.FirstOrDefault(m => (m.Entrance ?? m.ReturnTo) is { } o && o.Area == area && o.Instance == instance);
+
+    /// <summary>The device's area is a new instance of the same area (a hideout's instance is gone six minutes after its
+    /// last player leaves, and the device with it): the run's entrance and way back move to that instance, so the
+    /// portals left stand at the new device and the map's portal back leads to where the character is. The character's
+    /// open map after the move, or null without one; unchanged when neither points at the old instance.</summary>
+    public static OpenMap? Rebind(string character, ushort area, ulong instance)
+    {
+        if (instance == 0) return null;
+        while (Open.TryGetValue(character, out var map))
+        {
+            ulong[] gone = [.. new[] { map.Entrance, map.ReturnTo }.OfType<Origin>()
+                .Where(o => o.Area == area && o.Instance != 0 && o.Instance != instance)
+                .Select(o => o.Instance).Distinct()];
+            if (gone.Length == 0) return map;
+            var after = map with { Entrance = At(map.Entrance), ReturnTo = At(map.ReturnTo) };
+            if (Open.TryUpdate(character, after, map)) return after;
+            Origin? At(Origin? origin) => origin is { } at && at.Area == area && gone.Contains(at.Instance)
+                ? at with { Instance = instance } : origin;
+        }
+        return null;
+    }
+
+    sealed class InstanceMap(OpenMap map) { public OpenMap Map { get; } = map; }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstanceState, InstanceMap> InstanceMaps = new();
+
+    /// <summary>The entered instance's rules and return route survive spending the last portal or replacing the device's run.</summary>
+    public static OpenMap? ForInstance(Player player) => ForInstance(player.Layout.Hash, player.InstanceNumber, player.Instance);
+
+    public static OpenMap? ForInstance(ushort area, ulong number, InstanceState? state)
+    {
+        if (state is not null && InstanceMaps.TryGetValue(state, out var remembered))
+        {
+            var kept = remembered.Map;
+            // The device's instance can move while this map stays alive (an expired hideout, <see cref="Rebind"/>): the
+            // owner's live run of this same map carries the current way back, the kept copy the one from its entry.
+            return OpenOf(kept.Owner) is { } live && live.Run == kept.Run
+                ? kept with { Entrance = live.Entrance, ReturnTo = live.ReturnTo } : kept;
+        }
+        var map = InInstance(area, number)?.Map;
+        if (map is not null && state is not null)
+        {
+            map = InstanceMaps.GetValue(state, _ => new(map)).Map;
+            Arrivals.TryRemove((area, number), out _);
+        }
+        return map;
+    }
 
     /// <summary>The character's open map when they are in that area.</summary>
     public static OpenMap? Current(string character, ushort areaHash) =>
         OpenOf(character) is { } open && open.Area.Hash16 == areaHash ? open : null;
 
+    /// <summary>The map owner and run for this exact instance, including guests after its owner leaves.</summary>
+    public static (string Owner, OpenMap Map)? InInstance(ushort areaHash, ulong instance)
+    {
+        if (instance == 0) return null;
+        if (Arrivals.TryGetValue((areaHash, instance), out var arrival) && arrival.Until > Environment.TickCount64)
+            return (arrival.Map.Owner, arrival.Map);
+        return Open.Where(p => p.Value.Area.Hash16 == areaHash && p.Value.Instance == instance)
+            .Select(p => ((string Owner, OpenMap Map)?)(p.Key, p.Value)).FirstOrDefault();
+    }
+
     /// <summary>Takes the portal at place <paramref name="index"/> of the character's open map, so it does not come back.
     /// Returns the map as it was (its instance to enter, 0 for a new one) and how many portals are left, or null when no
-    /// map is open or that portal was taken already. The last one taken closes the map.</summary>
-    public static (OpenMap Map, int Left)? TakePortal(string character, int index)
+    /// map is open or that portal was taken already. Only one entrant can create its first instance.</summary>
+    public static (OpenMap Map, int Left)? TakePortal(string character, int index) => TakePortal(character, index, null);
+
+    public static (OpenMap Map, int Left)? TakePortal(string character, int index, Guid? run)
     {
         while (Open.TryGetValue(character, out var map))
         {
-            if (!map.Left.Contains(index)) return null;
-            var after = map with { Left = [.. map.Left.Where(i => i != index)] };
-            bool done = after.Left.Count == 0 ? Open.TryRemove(new(character, map)) : Open.TryUpdate(character, after, map);
-            if (done) return (map, after.Left.Count);
+            if (run is { } expected && map.Run != expected || map.EntryPending || !map.Left.Contains(index)) return null;
+            var after = map with { Left = [.. map.Left.Where(i => i != index)], EntryPending = map.Instance == 0 };
+            if (Open.TryUpdate(character, after, map)) return (map, after.Left.Count);
         }
         return null;
     }
 
     /// <summary>The first portal's transfer created the map's instance: the other portals lead there.</summary>
-    public static void Entered(string character, MapArea area, ulong instance)
+    public static void Entered(string character, MapArea area, ulong instance) => Entered(character, area, instance, null);
+
+    public static void Entered(string character, MapArea area, ulong instance, Guid? run)
     {
-        if (Open.TryGetValue(character, out var map) && map.Area == area && map.Instance == 0)
-            Open.TryUpdate(character, map with { Instance = instance }, map);
+        while (Open.TryGetValue(character, out var map) && map.Area == area && map.Instance == 0
+            && (run is null || map.Run == run))
+            if (Open.TryUpdate(character, map with { Instance = instance, EntryPending = false }, map)) return;
+    }
+
+    public static void Entered(OpenMap run, ulong instance)
+    {
+        long now = Environment.TickCount64;
+        foreach (var old in Arrivals.Where(p => p.Value.Until <= now)) Arrivals.TryRemove(old.Key, out _);
+        Arrivals[(run.Area.Hash16, instance)] = (run with { Instance = instance, EntryPending = false }, now + 600_000);
+        Entered(run.Owner, run.Area, instance, run.Run);
     }
 
     /// <summary>The map's instance is gone (expired): the map closes.</summary>
     public static void Close(string character) => Open.TryRemove(character, out _);
+
+    public static void Close(string character, Guid run)
+    {
+        if (Open.TryGetValue(character, out var map) && map.Run == run) Open.TryRemove(new(character, map));
+    }
 
     /// <summary>Where portal <paramref name="index"/> of <paramref name="count"/> stands: on a ring around the device,
     /// starting in front of it (south, +y).</summary>

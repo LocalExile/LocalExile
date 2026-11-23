@@ -115,6 +115,70 @@ public class ChatHubTests
     }
 
     [Fact]
+    public async Task Cleaning_chat_frames_keeps_links_on_their_original_marks()
+    {
+        var hub = new ChatHub();
+        var (ann, annHeard) = Enter(hub, "Ann");
+        var (bob, bobHeard) = Enter(hub, "Bob");
+        foreach (var member in new[] { ann, bob })
+            hub.Handle(member, new ChatFrame(ChatFrame.Join, Kind: ChatChannelKind.Global, Channel: 1));
+
+        ChatFrame input = new(ChatFrame.Say, Kind: ChatChannelKind.Global, Text: "_\n__\t_", Items:
+            [new(5, "last"), new(1, "not a mark"), new(2, "second"), new(0, "first"),
+             new(3, "third"), new(2, "duplicate"), new(4, "also not a mark"), new(-1, "negative"), new(6, "past the end")]);
+        ChatFrameItem[] expected = [new(0, "first"), new(1, "second"), new(2, "third"), new(3, "last")];
+        hub.Handle(ann, input);
+        Assert.Equal(ChatFrame.Line, bobHeard[0].Type);
+        Assert.Equal("Ann", bobHeard[0].Name);
+        Assert.Equal("____", bobHeard[0].Text);
+        Assert.Equal(expected, bobHeard[0].Items);
+        Assert.Equal(expected, annHeard[0].Items);
+
+        hub.Handle(ann, input with { Type = ChatFrame.Whisper, Name = "Bob" });
+        Assert.Equal(ChatFrame.Whisper, bobHeard[1].Type);
+        Assert.Equal(ChatFrame.Whispered, annHeard[1].Type);
+        Assert.Equal("____", bobHeard[1].Text);
+        Assert.Equal("____", annHeard[1].Text);
+        Assert.Equal(expected, bobHeard[1].Items);
+        Assert.Equal(expected, annHeard[1].Items);
+
+        // A received frame is cleaned again at the Gateway; its serialized offsets stay unchanged.
+        using var wire = new MemoryStream();
+        await ChatWire.WriteAsync(wire, bobHeard[1], default);
+        wire.Position = 0;
+        var received = ChatWire.CleanLine((await ChatWire.ReadAsync(wire, default))!);
+        Assert.Equal("____", received.Text);
+        Assert.Equal(expected, received.Items);
+        Assert.Equal(5, input.Items![0].At);
+        Assert.Equal("_\n__\t_", input.Text);
+    }
+
+    [Fact]
+    public void Chat_frame_cleanup_validates_original_positions_before_truncating()
+    {
+        var boundary = ChatWire.CleanLine(new ChatFrame(ChatFrame.Line,
+            Text: new string('x', ChatWire.MaxText - 1) + "\n__", Items:
+            [new(ChatWire.MaxText, "kept"), new(ChatWire.MaxText - 1, "not a mark"), new(ChatWire.MaxText + 1, "truncated")]));
+        Assert.Equal(new string('x', ChatWire.MaxText - 1) + "_", boundary.Text);
+        Assert.Equal(new ChatFrameItem[] { new(ChatWire.MaxText - 1, "kept") }, boundary.Items);
+
+        var limited = ChatWire.CleanLine(new ChatFrame(ChatFrame.Line, Text: "\t______",
+            Items: [new(6, "sixth"), new(5, "fifth"), new(4, "fourth"), new(3, "third"), new(2, "second"), new(1, "first")]));
+        Assert.Equal("______", limited.Text);
+        Assert.Equal(new ChatFrameItem[] { new(0, "first"), new(1, "second"), new(2, "third"), new(3, "fourth"), new(4, "fifth") }, limited.Items);
+
+        var unchanged = ChatWire.CleanLine(new ChatFrame(ChatFrame.Line, Text: "\u00e9\U0001f600 _", Items: [new(4, "item")]));
+        Assert.Equal("\u00e9\U0001f600 _", unchanged.Text);
+        Assert.Equal(new ChatFrameItem[] { new(4, "item") }, unchanged.Items);
+        foreach (string? text in new string?[] { null, "", "\r\n\t", "plain" })
+        {
+            var clean = ChatWire.CleanLine(new ChatFrame(ChatFrame.Line, Text: text, Items: [new(0, "not a mark")]));
+            Assert.Equal(text == "plain" ? "plain" : "", clean.Text);
+            Assert.Null(clean.Items);
+        }
+    }
+
+    [Fact]
     public void A_linked_item_from_a_chat_server_is_built_from_the_game_data()
     {
         var catalog = new ItemCatalog("data");

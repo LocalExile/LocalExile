@@ -1,0 +1,26 @@
+-- Client table NPCDialogueStyles (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "NPCDialogueStyles" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "HeaderBaseFile" TEXT,
+    "ButtomFile" TEXT,
+    "BannerFiles" JSON,
+    "HeaderFiles" JSON,
+    "__col5" INTEGER,
+    "__col6" INTEGER,
+    "__col7" INTEGER,
+    "__col8" INTEGER,
+    "__col9" INTEGER,
+    "__col10" JSON,
+    "__col11" INTEGER,
+    "__col12" TEXT,
+    "__col13" JSON,
+    "__col14" JSON,
+    "__col15" INTEGER,
+    "__col16" INTEGER,
+    "__col17" REAL,
+    "__col18" TEXT,
+    "__col19" TEXT,
+    "__col20" INTEGER,
+    "__col21" INTEGER
+);

@@ -21,8 +21,8 @@ Pantheon module's `/state` field).
 From the repository root, on a copy of the saves, with this checkout's own ports and client session:
 
 ```powershell
-Copy-Item data\saves.db data\campaign-saves.db        # once, or any copied database
-$env:Game_SAVES_DB = "$PWD\data\campaign-saves.db"
+Copy-Item data\characters.db data\campaign-characters.db        # once, or any copied database
+$env:Game_CHARACTERS_DB = "$PWD\data\campaign-characters.db"
 .\scripts\dev\campaign.ps1 -PortBase 25000 -Nullifier  # new level-1 Witch, the whole order
 ```
 
@@ -57,9 +57,9 @@ CharacterStartQuestState flags (`Act1Complete` …) are missing, and the time.
   for a quick start in a later act (sets flags by hand: not a real playthrough), `-PortBase`, `-Session`,
   `-Nullifier`. Runner flags pass through (`--stop-on-fail`, `--retries N`, `--spend-passives`, `--no-auto-rewards`,
   `--dry-run`, `--list`).
-- **Its own save database.** Without `Game_SAVES_DB` the script stops before anything starts: the run creates
+- **Its own save database.** Without `Game_CHARACTERS_DB` the script stops before anything starts: the run creates
   characters, puts items into the stash and (`--replace`) deletes characters, which must not happen in the user's
-  `data\saves.db` by accident; `-AllowDefaultSaves` plays there on purpose. Servers it reuses must have logged the same
+  `data\characters.db` by accident; `-AllowDefaultSaves` plays there on purpose. Servers it reuses must have logged the same
   database (the Gateway's `[gateway] saves: <path>` line in `logs\live-gateway.log`), and so must the servers it starts;
   otherwise it stops and prints the path the Gateway really uses.
 - **Afterwards:** the client and servers keep running, so the character can be played on; `live.ps1 -Stop` (this
@@ -72,10 +72,10 @@ CharacterStartQuestState flags (`Act1Complete` …) are missing, and the time.
   repository `.venv` with `frida` (as for `client_control.py`).
 - The local account's password in `data/offline-login.txt` (untracked; a `Password: <x>` line). Without it the runner
   asks once. The password is never logged.
-- A copied save database: set `$env:Game_SAVES_DB` before starting (required unless `-AllowDefaultSaves`). The
+- A copied save database: set `$env:Game_CHARACTERS_DB` before starting (required unless `-AllowDefaultSaves`). The
   scripts never set or change it.
 - An account has 24 character slots; each fresh run creates one. Delete old campaign characters, or reuse a name with
-  `-Name <name> --replace` (the old one goes to `deleted_characters` in the save database).
+  `-Name <name> --replace` (the old one is set aside in the save database: `character_saves.deleted_utc`).
 
 ## Running
 
@@ -124,7 +124,7 @@ The runner itself, from the repository root:
 
 ## Quest order and resume
 
-`order.py` `ORDER` lists the Quest.json Ids in the usual levelling route, side quests where their area is passed
+`order.py` `ORDER` lists the Quest table Ids in the usual levelling route, side quests where their area is passed
 (Labyrinth trials and league tutorials are left out). `implemented()` lists those with a step file. For each quest:
 
 - **skipped (already)** when its `DONE` flag is in `/state` `flags`; a second run of the same selection does nothing.
@@ -213,7 +213,8 @@ owned by the driver; tell it where a new quest belongs if it is not in `ORDER`.
 
 ## Server interface
 
-The dev commands are in the Commands module (`Modules/Core/Player/Commands/Rules.Campaign.cs`, `CampaignState.cs`;
+The dev commands are in the `gm-commands` mod (LocalExile-Mods: `mods/gm-commands/Rules.Campaign.cs`, `CampaignState.cs`;
+install it first;
 [10](../protocol/10-chat-and-commands.md)). `/state` answers `STATE {json}`; a long reply continues on lines starting
 `STATE+ ` (the runner joins them in order). Schema v1: `area`, `areaName`, `town`, `seed`, `instance`, `character`,
 `classRow`, `level`, `xp`, `life`, `maxLife`, `dead`, `god`, `immune`, `pos` [x,y], `passives` {`unspent` (level,
@@ -229,7 +230,7 @@ is sent, e.g. `Visited-1_2_town`), `waypoints` (WorldAreas Ids), `talking` (NPC 
 `inventory` {`w`, `h`, `items` [{`id`, `base`, `name`, `class`, `x`, `y`, `w`, `h`, `quest`}]}. `/state brief` leaves
 out monsters, NPCs, objects, items, transitions, the waypoint and the inventory. Monsters are the bosses and the living
 ones within 120 cells (at most 60); `/state all` lists every monster. The objects are the server's interactive ones:
-the tutorial chest, Rhoa Nests, Glyph Wall, and the quest engine's chests and objects (`StateObjects`); `/tp` finds
+the tutorial chest, Rhoa Nests, Glyph Wall, and the quest engine's chests and objects (`StateObjects` in the gm-commands mod's `Rules.Campaign.cs`); `/tp` finds
 them by these ids, and the room objects quest rules watch (`On.Near`, `On.SpawnsNear`: `PietyBlockage`) by type.
 In a league with the Pantheon module /state has `pantheon` {`major`, `minor` (the chosen gods' PantheonPanelLayout Ids
 or null), `unlocked` [{`id`, `name`, `major`, `row`}] (majors first), `canChoose` (a town, a hideout, the Rogue Harbour
@@ -250,7 +251,7 @@ experience, drops, quest flags; a boss's stage is skipped), `/quest_preset <Id>`
 The tests drive the runner against a simulated server (no client): `/state` joining, goto method choice, kill,
 pickup, equip, talk texts, reward choice and free cells, skip/resume, selection, not implemented/blocked, the shipped
 step files, retries with diagnostics and recovery (including logging in again), passives, the session and password
-file parsing. `CampaignCommandTests` checks `/state`'s JSON and reply lines and `/quest_preset`'s flags.
+file parsing.
 
 Live history: the same driver (then in `Program.Campaign.cs`, before the game moved into modules) played all 82
 entries of `order.py` from a fresh level-1 Witch unattended in 1 h 00 min on 2026-10-31 (seed 1, copied save

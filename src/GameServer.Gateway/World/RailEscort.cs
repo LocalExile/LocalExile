@@ -1,6 +1,6 @@
 /// <summary>A one-way rail walk: game time advances it only while escorted. Presentation can send the remaining leg
 /// once, and interrupt it at Position when the escort leaves.</summary>
-sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
+public sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
 {
     public IReadOnlyList<(int X, int Y)> Path { get; } = path.Count >= 2 && double.IsFinite(speed) && speed > 0 ? path : throw new ArgumentException("A rail escort needs a path and positive speed.");
     public double Speed { get; } = speed;
@@ -23,7 +23,15 @@ sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
 
     public void Advance(double seconds, bool escorted)
     {
-        if (!escorted || !double.IsFinite(seconds) || seconds <= 0) return;
+        if (escorted) AdvancePath(seconds, stopAtWaypoint: false);
+    }
+
+    /// <summary>Advance the leg the client is playing. Time after arrival is spent waiting for its next move.</summary>
+    public void AdvanceCurrentLeg(double seconds) => AdvancePath(seconds, stopAtWaypoint: true);
+
+    void AdvancePath(double seconds, bool stopAtWaypoint)
+    {
+        if (!double.IsFinite(seconds) || seconds <= 0) return;
         double distance = seconds * Speed;
         while (!Complete)
         {
@@ -31,6 +39,7 @@ sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
             double left = Math.Sqrt(Math.Pow(b.X - a.X, 2) + Math.Pow(b.Y - a.Y, 2)) - along;
             if (distance < left) { along += distance; return; }
             distance -= left; along = 0; Target++;
+            if (stopAtWaypoint) return;
         }
     }
 

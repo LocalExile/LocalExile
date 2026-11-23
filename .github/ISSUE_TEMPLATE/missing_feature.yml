@@ -1,0 +1,32 @@
+name: Missing or incomplete feature
+description: A skill, item, monster, area or system the real game has and this server lacks or only partly has.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `Agents/Status.md` lists what works today and `Agents/Roadmap.md` what is planned.
+  - type: textarea
+    id: what-is-missing
+    attributes:
+      label: What is missing
+      description: One feature per issue. Name the skill, item, monster, area or system.
+    validations:
+      required: true
+  - type: textarea
+    id: real-game
+    attributes:
+      label: What the real game does
+      description: The behaviour to match, and how you know (the wiki, patch notes, a video, your own play).
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What the server does today
+      description: What happens now when you try it, and its line in the status files if it has one.
+  - type: input
+    id: version
+    attributes:
+      label: LocalExile version
+      description: The release (for example v0.5.0-beta), or the commit of main you looked at.

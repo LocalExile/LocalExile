@@ -32,7 +32,7 @@ was dropped silently: S→C **0xa7** adds an entry, S→C 0xa8 (case 0x29) remov
 - wstr account (the key; entry `+0x30`), wstr (`+0x50`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
   u16 pair (`+0xb0`, `+0xb2`), bit 2 (`+0xba`) the character section, bits 3–6 `+0xbb` / `+0xbc` / `+0xbd` / `+0xbe`;
 - with bit 2 (or bit 5): wstr character (`+0x70`), u8 (`+0xb9`), u8 (`+0xb8`, the packed class); with bit 2 also u16 BE
-  (`+0xa8`, sent as the level), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
+  (`+0xa8`, the area the player is in), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
 - without bit 2: u64 (`+0xa0`).
 
 The bit 1 pair is the portrait frame (`+0xb0`) and the portrait (`+0xb2`); the client's writer leaves it out when both are
@@ -65,7 +65,7 @@ player's offer grid (the window copies the struct at `0x140c32980`; `0x140c372c0
 - The player trade uses the sale's offer inventory ids (`NpcShops.FirstTabId + 0x10` and `+ 0x11`); a player is never in
   both.
 
-## 4. The Gateway (`Program.Social.cs`)
+## 4. The server (the Social module, `Modules/Core/Player/Social/SocialModule.cs`)
 
 Trade requires living, connected players in the same instance presence and full league, with matching modes.
 Either SSF flag refuses the request and acceptance, including forged packets in a shared SSF town.
@@ -86,7 +86,7 @@ containing both inventory saves. Failed settlement leaves both durable inventori
 
 ## 5. Party (live 2026-10-29, two clients in one town)
 
-Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs`: `PartyInvites`, `Parties`).
+Invite, accept and leave work. The Social module keeps human and module-owned participants in `Modules/Core/Player/Social/PartyRoster.cs`.
 
 - **S→C 0xa9** (class `0x1435e7740`, read `0x1421a8220`, dispatcher case 0x2a at `0x142152e8c`) has this layout:
   1. u32 party id (`+0x68`);
@@ -104,7 +104,8 @@ Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs
   - the second wstr is an account name in the known players (`0x14216d350` → `0x14216d400`), so both sides get 0xa7 first;
   - `+0x6c` is 0 and `+0x6d` is non-zero.
 
-  The Gateway sends a fresh id per invite, `+0x6d` = 1, and both members with status 0.
+  To reuse an existing party id, discard only the invitee's old known-party entry with 0xaa before the invite.
+  Invitations set `+0x6d` = 1; accepted membership uses the same id with `+0x6d` = 0.
 - **Accept** is C→S 0x95. Accept and Decline call `0x142169480` and `0x1421693e0` (C→S 0x80 with u16 0x200 / 0x100) only
   for a non-empty name; live, Accept sent 0x95. Decline is not answered yet.
 - **The party.** Every member gets 0xa9 with its own `+0x6e`, the leader with status 2 and the others with 1, members by
@@ -112,6 +113,17 @@ Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs
   - Every member, the player itself too, must be in the known players first.
   - Without its own entry, the joining client threw (a huge string copy in `0x14020b5a0`) from the party-changed event
     (`+0x7578`, raised by `0x14215ddc0`).
+- **A member's area, and the travel button.** The panel's row draws its member's area from that member's known-player
+  `+0xa8`, a `WorldAreas` HASH16: `0x140207a95` reads it and `0x140208210` resolves it through the area data, and a
+  value that is no area (a level, say) is drawn as "Travelling..." with the row's button disabled.
+  - The button sends **C→S 0x92** with that member's character name in a wstr (live 2026-11-14:
+    `0092000F` + `CorvinRavencall`); the client only asks, and the server moves the player, as the real one does.
+    The answer is the area change (0x2b4, then 0x27), or a refusal. The selected human must still own its party connection.
+    Campaign travel uses that member's checkpoint or open portal in their exact instance and checks area access flags.
+    Map travel goes to the source device, preserving portal consumption; missing source destinations are refused.
+    These routes follow [GGG�s party travel rules](https://www.pathofexile.com/forum/view-thread/2163379).
+    Labyrinth and areas that disable portals cannot be entered this way. Campaign travel and quest-gate refusal were
+    checked through the native client, including guest entry through the source device and return after the sixth portal.
 - **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435c9f88`, read `0x141fa2ae0`, case 0x2b at
   `0x142153495`): u32 party id, u8 reason.
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
@@ -152,7 +164,7 @@ Friend notes, ignore lists and account status editing remain separate features.
 
 ## Open
 
-- Party: Decline, kicking and promoting members, a member's disconnect or area change, the party panel's other fields
+- Party: Decline and promoting members, a member's disconnect or area change, the party panel's other fields
   (`+0x6c`, `+0x6f`, the leader's character string), and parties across instances.
 - Friends: notes, ignore lists and account status editing.
 - The exact meaning of 0xa7's other fields (class, league, online state) and of the request option `0x19`.

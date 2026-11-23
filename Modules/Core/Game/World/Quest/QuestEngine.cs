@@ -3,311 +3,330 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using GameServer.Core;
 
 // The quest engine's hooks (Quests, Agents/docs/protocol/12-quests.md §5, Agents/docs/game/campaign-quests.md): what the
 // quests' tables and the client's data ask of the game on entering an area, on a kill, a pickup, an item move or use, a click
-// on a quest object, a dialogue choice and every player tick. The tables come from a module (QuestObjects' Acts/); with none
+// on a quest object, a dialogue choice and the nearby presentations. The tables come from a module (QuestObjects' Acts/); with none
 // registered every query is empty and these do nothing. Quest flags are read through conn.QuestFlagsSnapshot /
-// ClientHasQuestFlag and changed through SetQuestFlags (under the Monsters lock); flag changes and the item syncs hold
+// ClientHasQuestFlag and changed through SetQuestFlags (in the area's frame); flag changes and the item syncs hold
 // conn.QuestGate, inventory removals happen only on the message path (area entry, after a read that moved items) so their
 // 0xbf revisions keep their order.
-static partial class Game
+public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadQuestEngineData()
+    {
+        ChestModels = LoadChestModels();
+    }
+
     // Ids of the server's walk blockers that mirror the client's own quest blockers (Quests.BlockerRule): blockers only,
     // never created on the client (it spawns those objects itself from the room).
-    internal const uint QuestBlockerFirstId = 0xfe000000;
+    public const uint QuestBlockerFirstId = 0xfe000000;
 
     // ---- quest items (QuestItems: the .it Quest component) ----
 
-    internal static QuestItemFlags? QuestFlagsOf(ClientState conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.Quest;
+    public static QuestItemFlags? QuestFlagsOf(Player player, Item item) => ItemsFor(player).ByHash(item.TypeHash)?.Quest;
 
-    internal static IEnumerable<QuestItemFlags> QuestItemTypes(ClientState conn) => ItemsFor(conn).QuestItemTypes.Select(t => t.Quest!);
+    public static IEnumerable<QuestItemFlags> QuestItemTypes(Player player) => ItemsFor(player).QuestItemTypes.Select(t => t.Quest!);
 
     // The grant flags follow the quest items carried and the extra flags come with them (QuestItems.Sync), whatever moved
     // them (a pickup, a drop, a sale, the stash). With removeItems (the message path only), carried items whose
     // remove_flag is set go: the glyphs once placed, a Medicine Chest after Nessa has one, a used book's copies.
-    internal static async Task SyncQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool removeItems)
+    public static async Task SyncQuestItems(Player player, bool removeItems)
     {
-        await conn.QuestGate.WaitAsync();
+        await player.Character.QuestGate.WaitAsync();
         try
         {
-            var items = ItemsOf(conn);
+            var items = ItemsOf(player);
             List<string> set, clear;
             List<(byte Row, InventoryItem Item)> removed = [];
-            lock (conn.Monsters)
-            {
-                if (HardcoreProgressBlocked(conn)) return;
-                var own = conn.QuestFlagsSnapshot();
-                var client = PlayerQuestFlags(conn);
-                bool Has(string flag) => Quests.ClientHas(flag, own, client);
-                var carried = QuestItems.Carried(items).Select(c => QuestFlagsOf(conn, c.Item.Item)).OfType<QuestItemFlags>().ToHashSet();
-                (set, clear, var remove) = QuestItems.Sync(QuestItemTypes(conn), carried, Has);
-                if (removeItems && remove.Count > 0) removed = QuestItems.RemoveAll(items, i => QuestFlagsOf(conn, i), remove);
-            }
+            if (HardcoreProgressBlocked(player)) return;
+            var own = player.Character.QuestFlagsSnapshot();
+            var client = PlayerQuestFlags(player);
+            bool Has(string flag) => Quests.ClientHas(flag, own, client);
+            var carried = QuestItems.Carried(items).Select(c => QuestFlagsOf(player, c.Item.Item)).OfType<QuestItemFlags>().ToHashSet();
+            (set, clear, var remove) = QuestItems.Sync(QuestItemTypes(player), carried, Has);
+            if (removeItems && remove.Count > 0) removed = QuestItems.RemoveAll(items, i => QuestFlagsOf(player, i), remove);
             foreach (var row in removed.GroupBy(r => r.Row))
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
                     [.. row.Select(r => r.Item.Id)], []),
                     $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: quest items {string.Join(", ", row.Select(r => r.Item.Id))} removed (remove_flag set)");
-            if (set.Count > 0) await SetQuestFlagsHeld(remote, stream, ciphers, conn, set, true);
-            if (clear.Count > 0) await SetQuestFlagsHeld(remote, stream, ciphers, conn, clear, false);
+            if (set.Count > 0) await SetQuestFlagsHeld(player, set, true);
+            if (clear.Count > 0) await SetQuestFlagsHeld(player, clear, false);
+            await HideCollectedQuestMarkers(player);
         }
-        finally { conn.QuestGate.Release(); }
+        finally { player.Character.QuestGate.Release(); }
     }
 
     // Quest items on this instance's ground whose remove_flag the character has are not needed any more: they go (a glyph
     // left behind before the glyphs were placed).
-    internal static async Task RemoveDoneQuestItemsFromGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RemoveDoneQuestItemsFromGround(Player player)
     {
-        var done = conn.Instance.Ground.All().Where(e => QuestFlagsOf(conn, e.Item.Item) is { } q && QuestItems.Removed(q, f => ClientHasQuestFlag(conn, f)))
+        var done = player.Instance.Ground.All().Where(e => QuestFlagsOf(player, e.Item.Item) is { } q
+            && QuestItems.Removed(q, f => ClientHasQuestFlag(player, f)) && QuestDropVisibleTo(player, e.Id))
             .Select(e => e.Id).ToList();
         foreach (uint id in done)
-            if (conn.Instance.Ground.Take(id) is not null)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove quest item 0x{id:x}: its remove_flag is set");
+            if (player.Instance.Ground.Take(id) is not null)
+                await Game.SendWorldRemoval(player, id, $"0x02bd remove quest item 0x{id:x}: its remove_flag is set");
     }
 
     // A quest item dropped by a monster or a chest where it stands (on the nearest walkable cell), unless the character no
     // longer needs it (QuestItems.Drops: remove_flag set, one carried or on this instance's ground).
-    internal static async Task DropQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
+    public static async Task DropQuestItem(Player player, string itemId, (int X, int Y) at, string source)
     {
-        foreach (var (packet, log) in CommitQuestItem(conn, itemId, at, source))
-            await Send(remote, stream, ciphers, packet, log);
+        foreach (var output in CommitQuestItem(player, itemId, at, source))
+            await SendWorldReceipt(player, output);
     }
 
-    static List<(byte[] Packet, string? Log)> CommitQuestItem(ClientState conn, string itemId, (int X, int Y) at, string source)
+    static List<PlayerMinions.Output> CommitQuestItem(Player player, string itemId, (int X, int Y) at, string source)
     {
-        string remote = conn.Wire.Remote;
-        if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
+        string remote = player.Connection.Remote;
+        if (ItemsFor(player).Find(itemId) is not { Supported: true } type || type.Id != itemId)
         {
             Console.WriteLine($"[gateway] {remote} quest drop {itemId} from {source}: not in the item data");
             return [];
         }
-        bool carried = QuestItems.Carried(ItemsOf(conn)).Any(c => c.Item.Item.TypeHash == type.Hash);
+        bool carried = QuestItems.Carried(ItemsOf(player)).Any(c => c.Item.Item.TypeHash == type.Hash);
         // This character's copy only: in a shared instance another player's quest item is theirs (SharedKills.cs).
-        bool onGround = conn.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
-            && conn.Instance.Ground.Origin(e.Id) is var (by, shared) && (shared || by is ClientState c && CharacterName(c) == CharacterName(conn)));
-        if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(conn, f), carried, onGround))
+        bool onGround = player.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
+            && QuestDropVisibleTo(player, e.Id));
+        if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround))
         {
             Console.WriteLine($"[gateway] {remote} {source}: no {type.Name}, the character has one or does not need it");
             return [];
         }
-        var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
+        var (x, y) = player.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? player.Layout.Near(at) : at;
         var ground = new WorldItemObject(x, y, ItemCatalog.Create(type));
-        uint id = conn.Instance.Ground.Add(ground, conn, shared: false);
-        return [(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-            $"0x02bb quest item {type.Name} 0x{id:x} from {source} at ({x}, {y})"), (InstanceProtocol.EnterWakeZone(id), null)];
+        uint id = player.Instance.Ground.Add(ground, player, shared: false);
+        return [new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+            $"0x02bb quest item {type.Name} 0x{id:x} from {source} at ({x}, {y})", WorldId: id, CreatesObject: true), new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id)];
+    }
+
+    internal static bool QuestDropVisibleTo(Player player, uint id)
+    {
+        var (by, shared) = player.Instance.Ground.Origin(id);
+        return shared || ReferenceEquals(by, player) || by is Player { Character.Name: { } name } && name == player.Character.Name;
     }
 
     // A party kill's quest items for another player in the instance (SharedKills.cs): their own copy, on their own client.
-    internal static async Task DropQuestItemsForKill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task DropQuestItemsForKill(Player player,
         string varietyId, (int X, int Y) at, string source)
     {
-        foreach (string item in QuestsOf(conn).DropsOnKill(conn.Layout.Id, varietyId))
-            foreach (var (packet, log) in CommitQuestItem(conn, item, at, source))
-                await Send(remote, stream, ciphers, packet, log);
+        foreach (string item in QuestsOf(player).DropsOnKill(player.Layout.Id, varietyId))
+            foreach (var output in CommitQuestItem(player, item, at, source))
+                await SendWorldReceipt(player, output);
     }
 
-    internal static void CommitAcceptedQuestKill(KillContext kill)
+    public static void CommitAcceptedQuestKill(KillContext kill)
     {
-        foreach (string item in QuestsOf(kill.Conn).DropsOnKill(kill.Conn.Layout.Id, kill.VarietyId))
-            kill.CommittedOutput!.AddRange(CommitQuestItem(kill.Conn, item, kill.At, kill.Monster.Label));
-        kill.Conn.Minions.OutputQueue.Add(new([], "quest kill effects (current Game)", Target: kill.Monster,
+        foreach (string item in QuestsOf(kill.Player).DropsOnKill(kill.Player.Layout.Id, kill.VarietyId))
+            kill.Player.Minions.OutputQueue.AddRange(CommitQuestItem(kill.Player, item, kill.At, kill.Monster.Label));
+        kill.Player.Minions.OutputQueue.Add(new([], "quest kill effects (current Game)", Target: kill.Monster,
             Kind: PlayerMinions.OutputKind.QuestKill, At: kill.At));
     }
 
-    internal static async Task DropGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
+    public static async Task DropGroundItem(Player player, string itemId, (int X, int Y) at, string source)
     {
-        if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
+        if (ItemsFor(player).Find(itemId) is not { Supported: true } type || type.Id != itemId)
         {
-            Console.WriteLine($"[gateway] {remote} drop {itemId} from {source}: not in the item data");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} drop {itemId} from {source}: not in the item data");
             return;
         }
-        var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
+        var (x, y) = player.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? player.Layout.Near(at) : at;
         var ground = new WorldItemObject(x, y, ItemCatalog.Create(type));
-        uint id = conn.Instance.Ground.Add(ground, conn, shared: false);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-            $"0x02bb {type.Name} 0x{id:x} from {source} at ({x}, {y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        uint id = player.Instance.Ground.Add(ground, player, shared: false);
+        await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+            $"0x02bb {type.Name} 0x{id:x} from {source} at ({x}, {y})", wake: true, awaitBirth: false);
     }
 
     // C→S 0x82 on a dialogue row that sets a quest item's remove_flag (QuestItems.HandedIn: Nessa's "The Medicine Chest",
     // Fairgraves' "Thank You"): the item is handed in with the flag, in one save. Without one carried the talk does not
     // happen: the option list comes back. True when the talk may go on.
-    internal static async Task<bool> HandInQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Talk talk,
+    public static async Task<bool> HandInQuestItems(Player player, NpcCatalog.Talk talk,
         string npcId)
     {
         // A row whose script sets carried quest items' remove_flag (Eramir's "Bandit Amulets", NPCTalk 95:
         // SetQuestFlag(…, "a2b-DeliveredAmulets")) takes them with that flag, in one save; so does a row a hand-in rule
         // names (Quests.HandInRule: Hargan's busts), for each of its items carried.
-        var carried = QuestItems.Carried(ItemsOf(conn)).Select(c => ItemsFor(conn).ByHash(c.Item.Item.TypeHash)?.Id).OfType<string>().ToHashSet();
-        var ruled = QuestsOf(conn).HandsIn(npcId, talk.Option, talk.Row).Where(carried.Contains)
-            .Select(i => ItemsFor(conn).Find(i)?.Quest?.Remove).OfType<string>();
-        bool Has(string f) => ClientHasQuestFlag(conn, f);
-        var carriedTypes = carried.Select(i => ItemsFor(conn).Find(i)?.Quest).OfType<QuestItemFlags>().ToList();
+        var carried = QuestItems.Carried(ItemsOf(player)).Select(c => ItemsFor(player).ByHash(c.Item.Item.TypeHash)?.Id).OfType<string>().ToHashSet();
+        var ruled = QuestsOf(player).HandsIn(npcId, talk.Option, talk.Row).Where(carried.Contains)
+            .Select(i => ItemsFor(player).Find(i)?.Quest?.Remove).OfType<string>();
+        bool Has(string f) => ClientHasQuestFlag(player, f);
+        var carriedTypes = carried.Select(i => ItemsFor(player).Find(i)?.Quest).OfType<QuestItemFlags>().ToList();
         // Every item the row takes goes in this one click and one save, as the official servers do: the items whose
         // remove_flag its QuestFlag4 sets (Silk's "Black Venom": the venom and the map; Yeena's "Fireflies": all seven), its
         // script sets or a hand-in rule names, and those whose remove_flag its QuestFlag3 lists for an item it requires
         // (Sin's "_take_ingredients_", NPCTalk 1336: QuestFlag4 only DeliveredItem1, QuestFlag3 both ingredients).
-        var flags = talk.ScriptSets.Where(f => QuestItemTypes(conn).Any(t => t.Remove == f)).Concat(ruled).ToList();
-        if (QuestItems.HandedIn(talk.StartFlag, QuestItemTypes(conn), Has) is { } type)
+        var flags = talk.ScriptSets.Where(f => QuestItemTypes(player).Any(t => t.Remove == f)).Concat(ruled).ToList();
+        if (QuestItems.HandedIn(talk.StartFlag, QuestItemTypes(player), Has) is { } type)
         {
             if (!carriedTypes.Any(t => t.Remove == type.Remove))
             {
-                Console.WriteLine($"[gateway] {remote} {talk.Option}: the quest item for {type.Remove} is not carried");
-                await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
-                await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options again (no quest item)");
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {talk.Option}: the quest item for {type.Remove} is not carried");
+                await SyncQuestItems(player, removeItems: true);
+                await Send(player, InstanceNpcs.Talk(player.TalkingTo), $"0x0084 npc 0x{player.TalkingTo:x}: options again (no quest item)");
                 return false;
             }
             flags.Add(type.Remove!);
         }
         flags.AddRange(QuestItems.HandInsOfRow(talk, carriedTypes));
-        if (Npcs.Value.Find(npcId) is { } speaker)
+        if (Npcs.Find(npcId) is { } speaker)
         {
-            var all = new HashSet<string>(Quests.Names(PlayerQuestFlags(conn)));
-            all.UnionWith(conn.QuestFlagsSnapshot());
-            flags.AddRange(QuestItems.SiblingHandIns(talk, Npcs.Value.TalksOf(speaker), all, carriedTypes));
+            var all = new HashSet<string>(Quests.Names(PlayerQuestFlags(player)));
+            all.UnionWith(player.Character.QuestFlagsSnapshot());
+            flags.AddRange(QuestItems.SiblingHandIns(talk, Npcs.TalksOf(speaker), all, carriedTypes));
         }
         flags = [.. flags.Where(f => !Has(f)).Distinct()];
-        if (flags.Count > 0) await ConsumeQuestItemsAndSet(remote, stream, ciphers, conn, flags, $"{talk.Option} (NPCTalk {talk.Row})");
+        if (flags.Count > 0) await ConsumeQuestItemsAndSet(player, flags, $"{talk.Option} (NPCTalk {talk.Row})");
         return true;
     }
 
     // C→S 0x58 on a quest item with a use_flag (the quest books): it is used up and its flag set, in one save; the
     // QuestStaticRewards of the flag (passive or refund points) follow from it (SetQuestFlags sends the tree).
-    internal static async Task UseQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
+    public static async Task UseQuestItem(Player player, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         var flags = type.Quest!;
-        await conn.QuestGate.WaitAsync();
+        await player.Character.QuestGate.WaitAsync();
         try
         {
             PlayerInventories.Consumption? taken;
-            lock (conn.Monsters)
-            {
-                if (HardcoreProgressBlocked(conn)) return;
-                taken = QuestItems.Use(items, CharacterName(conn), row, item.Id, flags);
-            }
+            if (HardcoreProgressBlocked(player)) return;
+            taken = QuestItems.Use(items, CharacterName(player), row, item.Id, flags);
             if (taken is null) return;
             uint inventoryId = PlayerInventories.InventoryId(row);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
+            await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventoryId}: {type.Name} used ({flags.Use})");
-            await SetQuestFlagsHeld(remote, stream, ciphers, conn, [flags.Use!]);
-            if (flags.Grant is { } grant) await SetQuestFlagsHeld(remote, stream, ciphers, conn, [grant], on: false);
+            await SetQuestFlagsHeld(player, [flags.Use!]);
+            if (flags.Grant is { } grant) await SetQuestFlagsHeld(player, [grant], on: false);
         }
-        finally { conn.QuestGate.Release(); }
+        finally { player.Character.QuestGate.Release(); }
     }
 
     // ---- static rewards (QuestStaticRewards) ----
 
     // The passive skill points the character's quest flags give (a1q6/a1q7/a1q9 books …): part of 0x33's extra_skill_points.
-    internal static int QuestPassivePoints(ClientState conn) => QuestStaticRewards.Default.Value.PassivePoints(conn.QuestFlagsSnapshot());
+    public static int QuestPassivePoints(Player player) => QuestStaticRewards.Default.PassivePoints(player.Character.QuestFlagsSnapshot());
 
     // QuestStaticRewards' permanent stats as stat sources, as a passive's would be: the bandit lords' help rewards (a2q1: 8%
     // movement speed, a2q2: +15% to all elemental resistances, a2q3: +40 life). Kitava's two penalties are
     // ResistancePenalty's (Player/Player.cs), so their flags are left out here.
-    internal static Dictionary<uint, int> WithQuestStats(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithQuestStats(Player player, Dictionary<uint, int> sources)
     {
-        var rewards = QuestStaticRewards.Default.Value.Stats(conn.QuestFlagsSnapshot().Except(ResistancePenaltyAct5).Except(ResistancePenaltyAct10));
+        IReadOnlyDictionary<uint, int> rewards;
+        var slot = QuestStatCaches.GetOrCreateValue(player);
+        if (slot.Flags is null || !slot.Flags.SetEquals(player.Character.QuestFlags))
+        {
+            slot.Flags = [.. player.Character.QuestFlags];
+            slot.Stats = QuestStaticRewards.Default.Stats(slot.Flags.Except(ResistancePenaltyAct5).Except(ResistancePenaltyAct10));
+        }
+        rewards = slot.Stats;
         if (rewards.Count == 0) return sources;
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in rewards)
-            if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+            stats[stat] = stats.GetValueOrDefault(stat) + value;
         return stats;
     }
 
+    sealed class QuestStatCache
+    {
+        public HashSet<string>? Flags;
+        public IReadOnlyDictionary<uint, int> Stats = new Dictionary<uint, int>();
+    }
+    static readonly Store<Player, QuestStatCache> QuestStatCaches = new();
+
     // Whether a flag change moves QuestStaticRewards' permanent stats (the pools and the panel follow).
-    internal static bool ChangesQuestStats(IEnumerable<string> changed) =>
-        changed.Any(f => !ResistancePenaltyAct5.Contains(f) && !ResistancePenaltyAct10.Contains(f) && QuestStaticRewards.Default.Value.Find(f) is { Stats.Count: > 0 });
+    public static bool ChangesQuestStats(IEnumerable<string> changed) =>
+        changed.Any(f => !ResistancePenaltyAct5.Contains(f) && !ResistancePenaltyAct10.Contains(f) && QuestStaticRewards.Default.Find(f) is { Stats.Count: > 0 });
 
     // Whether a flag change moves what QuestStaticRewards gives (the tree must be sent again).
-    internal static bool ChangesStaticRewards(IEnumerable<string> changed) =>
-        changed.Any(f => QuestStaticRewards.Default.Value.Find(f) is { PassivePoints: > 0 } or { RefundPoints: > 0 } or { AscendancyPoints: > 0 });
+    public static bool ChangesStaticRewards(IEnumerable<string> changed) =>
+        changed.Any(f => QuestStaticRewards.Default.Find(f) is { PassivePoints: > 0 } or { RefundPoints: > 0 } or { AscendancyPoints: > 0 });
 
     // ---- kills ----
 
     // After a monster's kill flags (both kill paths commit those first; the QuestObjects module runs this from the kill's
     // GameEvents.Kill, after the commit): its quest drops, a fight of several bosses, a boss that forms, NPCs that appear or
     // are freed, its second form, and whether the area is now cleared.
-    internal static async Task QuestKillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m,
+    public static async Task QuestKillEffects(Player player, SpawnedMonster m,
         MonsterCatalog.Variety variety, (int X, int Y) at, bool dropsCommitted = false)
     {
-        string area = conn.Layout.Id;
-        foreach (string item in dropsCommitted ? [] : QuestsOf(conn).DropsOnKill(area, variety.Id))
-            await DropQuestItem(remote, stream, ciphers, conn, item, at, m.Label);
+        string area = player.Layout.Id;
+        if (QuestsOf(player).Doors(area).Any(r => r.Monster == variety.Id))
+        {
+            string opened = Quests.InstanceFlag("door-kill:" + variety.Id);
+            if (player.Instance.SetState(opened))
+            {
+                QueueDoorRefresh(player, [opened]);
+                foreach (var peer in player.Instance.PlayersExcept(player.Id))
+                    if (peer is { } other) QueueDoorRefresh(other, [opened]);
+            }
+        }
+        foreach (string item in dropsCommitted ? [] : QuestsOf(player).DropsOnKill(area, variety.Id))
+            await DropQuestItem(player, item, at, m.Label);
         // A fight of several bosses (Quests.KilledAllRule): its flags once none of them is left alive in the instance.
-        foreach (var rule in QuestsOf(conn).KilledAllOf(area, variety.Id))
+        foreach (var rule in QuestsOf(player).KilledAllOf(area, variety.Id))
         {
             bool left;
-            lock (conn.Monsters) left = conn.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
-            if (!left) await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags);
+            left = player.Area.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
+            if (!left) await SetQuestFlags(player, rule.Flags);
         }
         // A boss that forms once these are all dead (Quests.FormsRule: The Depraved Trinity), at its own boss point.
-        foreach (var rule in QuestsOf(conn).FormsAfter(area, variety.Id))
-        {
-            bool left, formed;
-            (int X, int Y) where;
-            lock (conn.Monsters)
-            {
-                left = conn.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
-                formed = conn.Monsters.Values.Any(o => o.Variety?.Id == rule.Next);
-                where = conn.LaterFormPoints.GetValueOrDefault(rule.Next, at);
-            }
-            if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
-            Console.WriteLine($"[gateway] {remote} {m.Label} died, the last of {rule.Varieties.Length}: {boss.Name} forms at ({where.X}, {where.Y})");
-            await SpawnMonster(remote, stream, ciphers, conn, boss, m.Level, MonsterRarity.Unique, where.X, where.Y);
-        }
+        await FormQuestBosses(player, m, variety.Id, at);
         // Device-recipe phases (Maven's Nucleus, Sirus after the throne, Atziri): not quest flags, same spawn path.
-        if (MapBossFights.Current.FormsAfter(area, variety.Id, id =>
+        if (area != Sirus.Area && MapBossFights.Current.FormsAfter(area, variety.Id, id =>
             {
-                lock (conn.Monsters)
-                    return conn.Monsters.Values.Any(o => o.Variety?.Id == id && !o.Dead && o.Life > 0);
+                return player.Area.Monsters.Values.Any(o => o.Variety?.Id == id && !o.Dead && o.Life > 0);
             }) is { } formedId)
         {
             bool formed;
             (int X, int Y) where;
-            lock (conn.Monsters)
-            {
-                formed = conn.Monsters.Values.Any(o => o.Variety?.Id == formedId);
-                // Nucleus forms where The Maven fell, not at mapboss2 36 cells east (that looked like the fight had ended).
-                where = formedId == MavenNucleus.Nucleus ? at : conn.LaterFormPoints.GetValueOrDefault(formedId, at);
-            }
+            formed = player.Area.Monsters.Values.Any(o => o.Variety?.Id == formedId);
+            // Nucleus forms where The Maven fell, not at mapboss2 36 cells east (that looked like the fight had ended).
+            where = formedId == MavenNucleus.Nucleus ? at : player.LaterFormPoints.GetValueOrDefault(formedId, at);
             if (!formed && Monsters.Find(formedId) is { Supported: true } phaseBoss && phaseBoss.Id == formedId)
             {
-                Console.WriteLine($"[gateway] {remote} {m.Label} died: {phaseBoss.Name} forms at ({where.X}, {where.Y})");
-                await SpawnMonster(remote, stream, ciphers, conn, phaseBoss, m.Level, MonsterRarity.Unique, where.X, where.Y,
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} died: {phaseBoss.Name} forms at ({where.X}, {where.Y})");
+                await SpawnMonster(player, phaseBoss, m.Level, MonsterRarity.Unique, where.X, where.Y,
                     owned: formedId == MavenNucleus.Nucleus ? (_, spawned) => spawned.Aggro = true : null);
                 if (formedId == MavenNucleus.Nucleus)
-                    await SpawnMavenRing(remote, stream, ciphers, conn, MavenNucleus.Phase2Cores, where,
+                    await SpawnMavenRing(player, MavenNucleus.Phase2Cores, where,
                         MavenNucleus.Phase2Radius, m.Level);
                 if (MapBossFights.StormsWith(formedId) && Monsters.Find(MapBossFights.StormVariety) is { Supported: true } storm
                     && storm.Id == MapBossFights.StormVariety)
                     for (int i = 0; i < MapBossFights.StormCount; i++)
-                        await SpawnMonster(remote, stream, ciphers, conn, storm, m.Level, MonsterRarity.Unique,
+                        await SpawnMonster(player, storm, m.Level, MonsterRarity.Unique,
                             where.X + (i + 1) * 6, where.Y, log: true, alone: false);
             }
         }
-        if (MapBossFights.Current.Unlock(CharacterName(conn), variety.Id) is { } stone)
+        if (MapBossFights.Current.Unlock(CharacterName(player), variety.Id) is { } stone)
         {
-            if (stone.Flag.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, [stone.Flag]);
-            await DropGroundItem(remote, stream, ciphers, conn, stone.ItemId, at, m.Label);
-            string name = ItemsFor(conn).Find(stone.ItemId)?.Name ?? stone.ItemId.Split('/')[^1];
-            await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Atlas: {name} unlocked."),
+            if (stone.Flag.Length > 0) await SetQuestFlags(player, [stone.Flag]);
+            var stoneType = ItemsFor(player).Find(stone.ItemId);
+            if (stoneType is not null
+                && QuestRewardCatalog.Load().Find(111)?.Choices.FirstOrDefault(c => c.ItemRow == stoneType.Row)?.RequiredLeagueFlag is int voidstoneLqf)
+                await SetLeagueQuestFlags(player, [voidstoneLqf]);
+            await DropGroundItem(player, stone.ItemId, at, m.Label);
+            string name = stoneType?.Name ?? stone.ItemId.Split('/')[^1];
+            await Send(player, InstanceChat.ChatLine($"Atlas: {name} unlocked."),
                 $"0x0017 Voidstone slot {stone.Slot} from {m.Label}");
         }
-        if (QuestsOf(conn).AppearOnKill(area, variety.Id).Count > 0) await QuestNpcsAppear(remote, stream, ciphers, conn, variety, at);
-        if (QuestsOf(conn).SecondForm(area, variety.Id) is { } next && Monsters.Find(next) is { Supported: true } form && form.Id == next)
+        if (QuestsOf(player).AppearOnKill(area, variety.Id).Count > 0) await QuestNpcsAppear(player, variety, at);
+        if (QuestsOf(player).SecondForm(area, variety.Id) is { } next && Monsters.Find(next) is { Supported: true } form && form.Id == next)
         {
-            Console.WriteLine($"[gateway] {remote} {m.Label} died: its second form {form.Name} appears");
-            await SpawnMonster(remote, stream, ciphers, conn, form, m.Level, MonsterRarity.Unique, at.X, at.Y);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} died: its second form {form.Name} appears");
+            await SpawnMonster(player, form, m.Level, MonsterRarity.Unique, at.X, at.Y);
         }
         // A room NPC this death frees (Quests.NpcRule.FreedBy): its last Transitionable state (UpdateQuestNpcs, QuestNpcs.cs).
         bool frees;
-        lock (conn.QuestNpcs) frees = conn.KilledVarieties.Add(variety.Id) && QuestsOf(conn).Frees(area, variety.Id);
-        if (frees) await UpdateQuestNpcs(remote, stream, ciphers, conn, $"{m.Label} died");
-        if (QuestsOf(conn).WatchesClear(area))
+        lock (player.QuestNpcs) frees = player.Character.KilledVarieties.Add(variety.Id) && QuestsOf(player).Frees(area, variety.Id);
+        if (frees) await UpdateQuestNpcs(player, $"{m.Label} died");
+        if (QuestsOf(player).WatchesClear(area))
         {
             bool alive;
-            lock (conn.Monsters) alive = conn.Monsters.Values.Any(o => o.Hostile && !o.Dead && o.Life > 0);
-            if (!alive) await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnCleared(area, f => ClientHasQuestFlag(conn, f)));
+            alive = HeldBackLocked(player).Count > 0 || player.Area.Monsters.Values.Any(MonsterLiving);
+            if (!alive) await SetQuestFlags(player, QuestsOf(player).OnCleared(area, f => ClientHasQuestFlag(player, f)));
         }
     }
 
@@ -316,388 +335,567 @@ static partial class Game
     // Entering an area: quest items synced (and done ones removed), the entered flags, and the quest objects of the area's
     // rooms and tiles: chests, NPCs, the engine's own quest objects (seals, levers, altars), the mirrored blockers and the
     // objects the sight rules watch.
-    internal static async Task StartQuestArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task StartQuestArea(Player player)
     {
-        await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
-        await RemoveDoneQuestItemsFromGround(remote, stream, ciphers, conn);
-        string area = conn.Layout.Id;
-        if (QuestsOf(conn).OnEntered(area) is { Count: > 0 } entered) await SetQuestFlags(remote, stream, ciphers, conn, entered);
-        var chests = QuestsOf(conn).Chests(area);
-        var near = QuestsOf(conn).NearObjects(area);
-        var blockers = QuestsOf(conn).Blockers(area);
-        var questObjects = QuestsOf(conn).Objects(area);
-        var notes = new List<string>();
-        var placed = new QuestObjectTypes.AreaPlacements(area, conn.Seed, notes);
-        lock (conn.QuestNpcs) conn.QuestNpcs.AddRange([.. QuestNpcCandidates(remote, conn, placed), .. AppearedBefore(conn)]);
-        await UpdateQuestNpcs(remote, stream, ciphers, conn, "entering the area");
-        var nearSpawns = QuestsOf(conn).NearSpawns(area);
-        if (chests.Count + near.Count + blockers.Count + questObjects.Count + nearSpawns.Count == 0) return;
-        lock (conn.Monsters)
+        await SyncQuestItems(player, removeItems: true);
+        await RemoveDoneQuestItemsFromGround(player);
+        string area = player.Layout.Id;
+        if (area is "1_1_11_1" or "1_1_11_2" && !ClientHasQuestFlag(player, "a1q3-KilledSeaWitch"))
         {
-            conn.QuestNear = [.. near.SelectMany(r => placed.Of(r.ObjectType).Select(o => (r, o.X, o.Y)))];
-            conn.QuestNearSpawns = [.. nearSpawns.SelectMany(r => placed.Of(r.ObjectType).Take(1).Select(o => (r, o.X, o.Y, false)))];
-            conn.QuestBlockers = [.. blockers.SelectMany(r => placed.Of(r.ObjectType).Select(o => (r, o.X, o.Y)))];
-            UpdateQuestBlockers(conn);
+            ushort merveilLine = area == "1_1_11_1" ? (ushort)68 : (ushort)69; // MerveilEnterWrath / MerveilEnterAnger
+            await Send(player, InstanceNpcs.TextAudio(0, 8, merveilLine),
+                $"0x01c7 Merveil area entry dialogue {merveilLine}");
         }
-        foreach (var n in notes.Where(n => n.StartsWith("no ", StringComparison.Ordinal))) Console.WriteLine($"[gateway] {remote} quest objects: {n}");
-        if (conn.QuestBlockers.Count > 0)
-            Console.WriteLine($"[gateway] {remote} quest blockers: {conn.QuestBlockers.Count} on the server's walk map until " +
-                string.Join(", ", conn.QuestBlockers.Select(b => b.Rule.UnblockedBy).Distinct()));
-        var scattered = ScatterQuestChests(conn, [.. chests.Where(r => r.Scattered && placed.Of(r.ChestType).Count == 0)]);
+        if (QuestsOf(player).OnEntered(area) is { Count: > 0 } entered) await SetQuestFlags(player, entered);
+        var chests = QuestsOf(player).Chests(area);
+        var near = QuestsOf(player).NearObjects(area);
+        var blockers = QuestsOf(player).Blockers(area);
+        var questObjects = QuestsOf(player).Objects(area);
+        var notes = new List<string>();
+        var placed = new QuestObjectTypes.AreaPlacements(area, player.Seed, notes);
+        var doors = PlacedQuestDoors(player, placed);
+        lock (player.QuestNpcs) player.QuestNpcs.AddRange([.. QuestNpcCandidates(player, placed), .. AppearedBefore(player, placed)]);
+        await UpdateQuestNpcs(player, "entering the area");
+        var nearSpawns = QuestsOf(player).NearSpawns(area);
+        if (chests.Count + near.Count + blockers.Count + questObjects.Count + nearSpawns.Count + doors.Count == 0) return;
+        player.QuestNear = [.. near.SelectMany(r => placed.Of(r.ObjectType).Select(o => (r, o.X, o.Y)))];
+        player.QuestNearSpawns = [.. nearSpawns.SelectMany(r => placed.Of(r.ObjectType).Take(1).Select(o => (r, o.X, o.Y, false)))];
+        player.QuestBlockers = [.. blockers.SelectMany(r => placed.Of(r.ObjectType).Select(o => (r, o.X, o.Y)))];
+        player.QuestBlockers.AddRange(doors.Select(d => (d.Blocker, d.At.X, d.At.Y)));
+        UpdateQuestBlockers(player);
+        foreach (var n in notes.Where(n => n.StartsWith("no ", StringComparison.Ordinal))) Console.WriteLine($"[gateway] {player.Connection.Remote} quest objects: {n}");
+        if (player.QuestBlockers.Count > 0)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} quest blockers: {player.QuestBlockers.Count} on the server's walk map until " +
+                string.Join(", ", player.QuestBlockers.Select(b => b.Rule.UnblockedBy).Distinct()));
+        var scattered = ScatterQuestChests(player, [.. chests.Where(r => r.Scattered && placed.Of(r.ChestType).Count == 0)]);
         foreach (var rule in chests)
         {
             var at = placed.Of(rule.ChestType);
             if (at.Count == 0 && scattered.TryGetValue(rule, out var spot)) at = [spot];
-            if (at.Count == 0) Console.WriteLine($"[gateway] {remote} quest chest {rule.ChestType}: no room or tile places it");
+            if (at.Count == 0) Console.WriteLine($"[gateway] {player.Connection.Remote} quest chest {rule.ChestType}: no room or tile places it");
             foreach (var o in at)
-                await CreateQuestChest(remote, stream, ciphers, conn, rule, o with { Model = QuestChestModel(o.Type) ?? o.Model });
+                await CreateQuestChest(player, rule, o with { Model = QuestChestModel(o.Type) ?? o.Model });
         }
+        foreach (var door in doors) await CreateQuestObject(player, door.Object, door.At);
         foreach (var rule in questObjects)
         {
             var at = placed.Of(rule.ObjectType);
-            if (at.Count == 0) Console.WriteLine($"[gateway] {remote} quest object {rule.ObjectType}: no room or tile places it");
-            foreach (var o in at) await CreateQuestObject(remote, stream, ciphers, conn, rule, o);
+            if (at.Count == 0) Console.WriteLine($"[gateway] {player.Connection.Remote} quest object {rule.ObjectType}: no room or tile places it");
+            foreach (var o in at) await CreateQuestObject(player, rule, o);
+            if (at.Count > 0 && QuestObjectTransitioned(player, rule))
+                await SpawnQuestEncounter(player, rule, at[0], restoring: true);
         }
+        await HideCollectedQuestMarkers(player);
+    }
+
+    internal static List<(Quests.ObjectRule Object, Quests.BlockerRule Blocker, GlyphQuest.Placement At)> PlacedQuestDoors(
+        Player player, QuestObjectTypes.AreaPlacements placements)
+    {
+        var doors = new List<(Quests.ObjectRule, Quests.BlockerRule, GlyphQuest.Placement)>();
+        foreach (var rule in QuestsOf(player).Doors(player.Layout.Id))
+        {
+            if (QuestObjectTypes.Find(rule.Type) is not { } info || !QuestObject.CanSerialize(info.Components)) continue;
+            foreach (var at in placements.Of(rule.Type))
+            {
+                if (rule.Room is not null)
+                {
+                    var room = player.Layout.Level?.Records.SelectMany(r => r.Rooms).FirstOrDefault(r =>
+                        r.Room.Path.Equals(rule.Room, StringComparison.OrdinalIgnoreCase) && at.X >= r.X * 23 && at.X < (r.X + r.Width) * 23
+                        && at.Y >= r.Y * 23 && at.Y < (r.Y + r.Height) * 23);
+                    if (room is null) continue;
+                    // A closed arena door is safe only with a usable teleport across it in this placed room.
+                    bool Inside(int x, int y) => x >= room.X * 23 && x < (room.X + room.Width) * 23
+                        && y >= room.Y * 23 && y < (room.Y + room.Height) * 23;
+                    if (!player.Layout.AreaTransitions.Any(t => t.Transition.SourceType == rule.Entrance &&
+                        t.Transition.TeleportTo is { } pad && Inside(t.Transition.GridX, t.Transition.GridY) && Inside(pad.X, pad.Y)
+                        && (long)(t.Transition.GridX - at.X) * (pad.X - at.X) + (long)(t.Transition.GridY - at.Y) * (pad.Y - at.Y) < 0
+                        && player.Layout.WalkableFor(pad.X, pad.Y, 1) && TransitionShown(player, t.Id, t.Transition))) continue;
+                }
+                string flag = rule.Monster is { } monster ? Quests.InstanceFlag("door-kill:" + monster)
+                    : Quests.InstanceFlag($"door:{rule.Type}:{at.X},{at.Y}");
+                var obj = new Quests.ObjectRule(rule.Area, rule.Type, flag) { OpensOnUse = rule.Monster is null, GoneWhenTransitioned = true };
+                doors.Add((obj, new(rule.Area, rule.Type, info.Size, flag), at));
+            }
+        }
+        return doors;
+    }
+
+    static void QueueDoorRefresh(Player player, IReadOnlyCollection<string> flags)
+    {
+        player.KillShares.Enqueue(async _ =>
+        {
+            if (player.Closed || player.LeavingArea) return;
+            UpdateQuestBlockers(player);
+            await UpdateQuestObjectStates(player, flags);
+            await UpdateShownTransitions(player, "instance door opened");
+        });
     }
 
     // ---- the engine's quest objects (Quests.ObjectRule) ----
 
-    // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned).
-    internal static bool QuestObjectTransitioned(ClientState conn, Quests.ObjectRule rule) => rule.TransitionedBy is { } flag && ClientHasQuestFlag(conn, flag);
+    // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned), unless an
+    // UntransitionedBy flag has returned it to state 1 (Prisoner's Gate spikes reopening on a1q9-RoadOpened).
+    public static bool QuestObjectTransitioned(Player player, Quests.ObjectRule rule) =>
+        rule.TransitionedBy is { } flag && ClientHasQuestFlag(player, flag)
+        && (rule.UntransitionedBy is null || !ClientHasQuestFlag(player, rule.UntransitionedBy));
 
-    internal static byte[] QuestObjectBlob(ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
+    public static byte[] QuestObjectBlob(Player player, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
     {
-        bool done = QuestObjectTransitioned(conn, rule);
+        bool done = QuestObjectTransitioned(player, rule);
         // A tile record's virtual model; a room line's object keeps its type's own, or takes the line's without one.
         string? model = at.Z is not null ? at.Model : info.Model ?? (info.OwnModel ? null : at.Model);
         return new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, model, (byte)(done ? info.States : 1), Blocked: !done).Blob();
     }
 
-    internal static async Task CreateQuestObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at)
+    public static async Task CreateQuestObject(Player player, Quests.ObjectRule rule, GlyphQuest.Placement at)
     {
         if (QuestObjectTypes.Find(rule.ObjectType) is not { } info || !QuestObject.CanSerialize(info.Components))
         {
-            Console.WriteLine($"[gateway] {remote} quest object {rule.ObjectType}: not in data/object-types.json or components not written " +
+            Console.WriteLine($"[gateway] {player.Connection.Remote} quest object {rule.ObjectType}: not in data/object-types.json or components not written " +
                 $"({string.Join(", ", QuestObjectTypes.Find(rule.ObjectType)?.Components ?? [])})");
             return;
         }
-        if (rule.GoneWhenTransitioned && QuestObjectTransitioned(conn, rule)) return;
-        uint id = conn.NextObjectId++;
-        lock (conn.QuestObjects) conn.QuestObjects[id] = (rule, at, info);
-        if (info.Blocking) conn.SetBlocker(id, at.X, at.Y, info.Size);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(conn, rule, at, info)),
-            $"0x02bb quest object 0x{id:x} {rule.ObjectType} at ({at.X}, {at.Y}), {(QuestObjectTransitioned(conn, rule) ? "transitioned" : "untransitioned")}" +
-            (rule.TransitionedBy is { } f ? $" (flag {f})" : ""));
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        if (rule.GoneWhenTransitioned && QuestObjectTransitioned(player, rule)) return;
+        uint id = player.TakeObjectId();
+        lock (player.QuestObjects) player.QuestObjects[id] = (rule, at, info);
+        if (info.Blocking) player.SetBlocker(id, at.X, at.Y, info.Size);
+        await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(player, rule, at, info)),
+            $"0x02bb quest object 0x{id:x} {rule.ObjectType} at ({at.X}, {at.Y}), {(QuestObjectTransitioned(player, rule) ? "transitioned" : "untransitioned")}" +
+            (rule.TransitionedBy is { } f ? $" (flag {f})" : ""), wake: true, awaitBirth: false);
     }
 
     // C→S 0x24 on a quest object: walk up; with the needs of its use rule the flags are set and the carried quest items
     // they finish are taken (QuestItems.Consume), in one save; then what the use brings (Quests.SpawnRule).
-    internal static async Task UseQuestObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use,
+    public static async Task UseQuestObject(Player player, InstanceTransfer.UseSkillOnObject use,
         Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info, double requestedAt, Func<Task>? reached = null)
     {
-        if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, info.Size, out var objectWalk)) return;
+        if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, info.Size, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player uses quest object 0x{use.TargetId:x} {rule.ObjectType.Split('/')[^1]} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s",
-                still: () => PlayerActionCurrent(conn, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (!PlayerActionCurrent(conn, action)) return;
+                still: () => PlayerActionCurrent(player, action));
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (!PlayerActionCurrent(player, action)) return;
         try
         {
-            if (!GameServer.Core.World.PlayerWalk.InReach(stop, (at.X, at.Y), info.Size, conn.Layout.Walkable))
+            if (!GameServer.Core.World.PlayerWalk.InReach(stop, (at.X, at.Y), info.Size, player.Layout.Walkable))
             {
-                Console.WriteLine($"[gateway] {remote} {rule.ObjectType}: out of reach from ({stop.X}, {stop.Y})");
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {rule.ObjectType}: out of reach from ({stop.X}, {stop.Y})");
                 return;
             }
             // What the object does besides its rules' flags (the Sarn plaque's trials window), once the player is there.
             if (reached is not null) await reached();
-            string area = conn.Layout.Id;
-            bool Has(string f) => ClientHasQuestFlag(conn, f);
-            var flags = QuestsOf(conn).OnUsed(area, rule.ObjectType, Has).Where(f => !Has(f)).ToList();
+            string area = player.Layout.Id;
+            bool Has(string f) => ClientHasQuestFlag(player, f);
+            var flags = QuestsOf(player).OnUsed(area, rule.ObjectType, Has).Where(f => !Has(f)).ToList();
+            if (rule.OpensOnUse && rule.TransitionedBy is { } door && !Has(door)) flags.Add(door);
             if (flags.Count == 0)
             {
-                var missing = QuestsOf(conn).UseMissing(area, rule.ObjectType, Has);
-                Console.WriteLine($"[gateway] {remote} {rule.ObjectType}: nothing to do" + (missing.Count > 0 ? $" (needs {string.Join(", ", missing)})" : " (done)"));
+                var missing = QuestsOf(player).UseMissing(area, rule.ObjectType, Has);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {rule.ObjectType}: nothing to do" + (missing.Count > 0 ? $" (needs {string.Join(", ", missing)})" : " (done)"));
                 return;
             }
             // The instance's own states (the Library's hidden door) are kept on the instance; the rest are the character's.
-            var instance = flags.Where(Quests.IsInstanceFlag).Where(conn.Instance.SetState).ToList();
+            var instance = flags.Where(Quests.IsInstanceFlag).Where(player.Instance.SetState).ToList();
             if (instance.Count > 0)
             {
-                Console.WriteLine($"[gateway] {remote} {rule.ObjectType.Split('/')[^1]} used: instance state {string.Join(", ", instance)} set");
-                await UpdateShownTransitions(remote, stream, ciphers, conn, $"instance state {string.Join(", ", instance)}");
-                await UpdateQuestObjectStates(remote, stream, ciphers, conn, instance);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {rule.ObjectType.Split('/')[^1]} used: instance state {string.Join(", ", instance)} set");
+                UpdateQuestBlockers(player);
+                await UpdateShownTransitions(player, $"instance state {string.Join(", ", instance)}");
+                await UpdateQuestObjectStates(player, instance);
+                foreach (var peer in player.Instance.PlayersExcept(player.Id))
+                    if (peer is { } other) QueueDoorRefresh(other, instance);
             }
             if (flags.Where(f => !Quests.IsInstanceFlag(f)).ToList() is { Count: > 0 } own)
-                await ConsumeQuestItemsAndSet(remote, stream, ciphers, conn, own, rule.ObjectType.Split('/')[^1]);
-            byte level = (byte)Math.Clamp(Packs.For(area)?.AreaLevel ?? 1, 1, 100);
-            foreach (string id in QuestsOf(conn).SpawnsOnUse(area, rule.ObjectType))
-            {
-                if (Monsters.Find(id) is not { Supported: true } variety || variety.Id != id)
-                {
-                    Console.WriteLine($"[gateway] {remote} {rule.ObjectType}: {id} cannot be created");
-                    continue;
-                }
-                bool already;
-                lock (conn.Monsters) already = conn.Monsters.Values.Any(m => m.Variety?.Id == id && !m.Dead && m.Life > 0);
-                if (already) continue;
-                var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
-                Console.WriteLine($"[gateway] {remote} {rule.ObjectType.Split('/')[^1]} used: {variety.Name} appears at ({x}, {y})");
-                await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, x, y);
-            }
+                await ConsumeQuestItemsAndSet(player, own, rule.ObjectType.Split('/')[^1]);
+            await SpawnQuestEncounter(player, rule, at);
         }
-        finally { await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), null); }
+        finally { await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null); }
+    }
+
+    // Claim each encounter member once per instance. Joining a live fight or returning after its
+    // first phase must not create another first body, even when two players enter together.
+    static async Task SpawnQuestEncounter(Player player, Quests.ObjectRule rule, GlyphQuest.Placement at, bool restoring = false)
+    {
+        string area = player.Layout.Id;
+        var quests = QuestsOf(player);
+        foreach (string id in quests.SpawnsOnUse(area, rule.ObjectType))
+        {
+            bool Has(string flag) => ClientHasQuestFlag(player, flag);
+            if (restoring && quests.SpawnEncounterFinished(area, id, Has)) continue;
+            if (Monsters.Find(id) is not { Supported: true } variety || variety.Id != id) continue;
+            string claim = Quests.InstanceFlag($"quest-spawn:{rule.ObjectType}:{id}");
+            var instance = player.Instance;
+            if (!instance.SetState(claim)) continue;
+            bool spawned = false;
+            try
+            {
+                // A hot-reloaded instance can already contain a fight created before the claim existed.
+                spawned = instance.World.Area.Monsters.Values.Any(m => m.Variety?.Id == id
+                    || id == KitavaActFive.First && KitavaActFive.IsActor(m.Variety));
+                if (spawned) continue;
+                var owner = player.Frames.View ?? (instance.World.Runner is { Closed: false, LeavingArea: false } runner ? runner : player);
+                var point = area == KitavaActFive.Area && id == KitavaActFive.First
+                    ? KitavaActFive.SpawnPoint(owner, (at.X, at.Y))
+                    : owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
+                byte level = (byte)Math.Clamp(Packs.For(area)?.AreaLevel ?? 1, 1, 100);
+                spawned = await SpawnMonster(owner, variety, level,
+                    MonsterRarity.Unique, point.Item1, point.Item2) != 0;
+            }
+            finally { if (!spawned) instance.ClearState(claim); }
+        }
     }
 
     // Sets the flags and takes the carried quest items whose remove_flag is among them (and clears their grant flags), in
     // one save (QuestItems.Consume): the emblem into its seal, the spike and the gem into the tree, the Apex on the altar.
-    internal static async Task ConsumeQuestItemsAndSet(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyList<string> flags, string what)
+    public static async Task ConsumeQuestItemsAndSet(Player player, IReadOnlyList<string> flags, string what)
     {
-        var items = ItemsOf(conn);
-        await conn.QuestGate.WaitAsync();
+        var items = ItemsOf(player);
+        await player.Character.QuestGate.WaitAsync();
         try
         {
             QuestItems.Consumed? consumed;
-            lock (conn.Monsters)
-            {
-                if (HardcoreProgressBlocked(conn)) return;
-                consumed = QuestItems.Consume(CharacterName(conn), items, i => QuestFlagsOf(conn, i), flags);
-            }
+            if (HardcoreProgressBlocked(player)) return;
+            consumed = QuestItems.Consume(CharacterName(player), items, i => QuestFlagsOf(player, i), flags);
             if (consumed is null) return;
             foreach (var row in consumed.Removed.GroupBy(r => r.Row))
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key), [.. row.Select(r => r.Item.Id)], []),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key), [.. row.Select(r => r.Item.Id)], []),
                     $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: quest items {string.Join(", ", row.Select(r => r.Item.Id))} used on {what}");
-            await SetQuestFlagsHeld(remote, stream, ciphers, conn, flags);
-            if (consumed.Cleared.Count > 0) await SetQuestFlagsHeld(remote, stream, ciphers, conn, consumed.Cleared, on: false);
+            await SetQuestFlagsHeld(player, flags);
+            if (consumed.Cleared.Count > 0) await SetQuestFlagsHeld(player, consumed.Cleared, on: false);
         }
-        finally { conn.QuestGate.Release(); }
+        finally { player.Character.QuestGate.Release(); }
     }
 
     // The quest objects and chests whose state follows a flag the client now has differently: their Transitionable steps
     // (0x2bc); an object with a TriggerableBlockage (no update reader) is created again, unblocked. (The quest NPCs follow
     // their flags in UpdateQuestNpcs, QuestNpcs.cs.)
-    internal static async Task UpdateQuestObjectStates(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<string> effective)
+    public static async Task UpdateQuestObjectStates(Player player, IReadOnlyCollection<string> effective)
     {
         List<(uint Id, Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)> objects;
-        lock (conn.QuestObjects)
-            objects = [.. conn.QuestObjects.Where(o => o.Value.Rule.TransitionedBy is { } f && effective.Contains(f)).Select(o => (o.Key, o.Value.Rule, o.Value.At, o.Value.Info))];
+        lock (player.QuestObjects)
+            objects = [.. player.QuestObjects.Where(o => o.Value.Rule.TransitionedBy is { } f && effective.Contains(f)
+                || o.Value.Rule.UntransitionedBy is { } u && effective.Contains(u)).Select(o => (o.Key, o.Value.Rule, o.Value.At, o.Value.Info))];
         foreach (var (id, rule, at, info) in objects)
         {
-            bool done = QuestObjectTransitioned(conn, rule);
+            bool done = QuestObjectTransitioned(player, rule);
             if (done && QuestObjectTypes.OpensInPlace(rule.ObjectType) && QuestObject.TransitionableIndex(info.Components) is int opening and >= 0)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)opening, (byte)info.States),
+                await SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)opening, (byte)info.States),
                     $"0x02bc quest object 0x{id:x} {rule.ObjectType.Split('/')[^1]} opens: Transitionable → {info.States}");
-                await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 quest object 0x{id:x} unblocked");
+                await Send(player, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 quest object 0x{id:x} unblocked");
                 continue;
             }
             if (done && rule.GoneWhenTransitioned)
             {
-                lock (conn.QuestObjects) conn.QuestObjects.Remove(id);
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+                lock (player.QuestObjects) player.QuestObjects.Remove(id);
+                await Game.SendWorldRemoval(player, id,
                     $"0x02bd quest object 0x{id:x} {rule.ObjectType.Split('/')[^1]} removed (transitioned)");
                 continue;
             }
             if (info.Components.Contains("TriggerableBlockage"))
             {
-                uint next = conn.NextObjectId++;
-                lock (conn.QuestObjects) { conn.QuestObjects.Remove(id); conn.QuestObjects[next] = (rule, at, info); }
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(conn, rule, at, info)),
-                    $"0x02bb quest object 0x{next:x} {rule.ObjectType.Split('/')[^1]} again (was 0x{id:x}), {(done ? "transitioned, unblocked" : "blocked")}");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(next), null);
+                uint next = player.TakeObjectId();
+                lock (player.QuestObjects) { player.QuestObjects.Remove(id); player.QuestObjects[next] = (rule, at, info); }
+                await Game.SendWorldRemoval(player, id, null);
+                await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(player, rule, at, info)),
+                    $"0x02bb quest object 0x{next:x} {rule.ObjectType.Split('/')[^1]} again (was 0x{id:x}), {(done ? "transitioned, unblocked" : "blocked")}",
+                    wake: true, awaitBirth: false);
                 continue;
             }
             if (QuestObject.TransitionableIndex(info.Components) is int index and >= 0)
-                await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)index, (byte)(done ? info.States : 1)),
+                await SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)index, (byte)(done ? info.States : 1)),
                     $"0x02bc quest object 0x{id:x} {rule.ObjectType.Split('/')[^1]} Transitionable → {(done ? info.States : 1)}");
         }
         List<(uint Id, Quests.ChestRule Rule, GlyphQuest.Placement At)> chests;
-        lock (conn.QuestChests) chests = [.. conn.QuestChests.Where(c => c.Value.Rule.OpensWith is { } f && effective.Contains(f)).Select(c => (c.Key, c.Value.Rule, c.Value.At))];
+        lock (player.QuestChests) chests = [.. player.QuestChests.Where(c => c.Value.Rule.OpensWith is { } f && effective.Contains(f)).Select(c => (c.Key, c.Value.Rule, c.Value.At))];
         foreach (var (id, rule, at) in chests)
-            if (QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.TransitionableIndex(info.Components) is int index and >= 0 && !conn.Instance.ChestOpened(at.X, at.Y))
-                await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)index, QuestChestState(conn, rule, info, false)),
-                    $"0x02bc quest chest 0x{id:x} {rule.ChestType.Split('/')[^1]} Transitionable → {QuestChestState(conn, rule, info, false)}");
+            if (QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.TransitionableIndex(info.Components) is int index and >= 0 && !player.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(player, rule)))
+                await SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)index, QuestChestState(player, rule, info, false)),
+                    $"0x02bc quest chest 0x{id:x} {rule.ChestType.Split('/')[^1]} Transitionable → {QuestChestState(player, rule, info, false)}");
     }
 
     // The mirrored blockers (Quests.BlockerRule) as the client has their flags: on the server's walk map until then.
-    // Under the Monsters lock.
-    internal static void UpdateQuestBlockers(ClientState conn)
+    // In the area's frame.
+    public static void UpdateQuestBlockers(Player player)
     {
-        for (int i = 0; i < conn.QuestBlockers.Count; i++)
+        for (int i = 0; i < player.QuestBlockers.Count; i++)
         {
-            var (rule, x, y) = conn.QuestBlockers[i];
-            if (ClientHasQuestFlag(conn, rule.UnblockedBy)) conn.RemoveBlocker(QuestBlockerFirstId + (uint)i);
-            else conn.SetBlocker(QuestBlockerFirstId + (uint)i, x, y, rule.Size);
+            var (rule, x, y) = player.QuestBlockers[i];
+            if (ClientHasQuestFlag(player, rule.UnblockedBy)) player.RemoveBlocker(QuestBlockerFirstId + (uint)i);
+            else player.SetBlocker(QuestBlockerFirstId + (uint)i, x, y, rule.Size);
         }
     }
 
     // ---- quest chests (Quests.ChestRule) ----
 
     // Chests.dat AOFiles: a chest's model by its Id.
-    internal static readonly Lazy<Dictionary<string, string>> ChestModels = new(() =>
+    public static Dictionary<string, string> ChestModels = default!;
+
+    static Dictionary<string, string> LoadChestModels()
     {
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
-        string path = Path.Combine("data", "tables", "Chests.json");
-        if (!File.Exists(path)) return models;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
-        foreach (var r in doc.RootElement.EnumerateArray())
-            if (r.GetProperty("Id").GetString() is { Length: > 0 } id && r.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString() is { Length: > 0 } model)
+        if (!ClientTables.Has("Chests")) return models;
+        var doc = ClientTables.Table("Chests");
+        foreach (var r in doc)
+            if (r.Text("Id") is { Length: > 0 } id && r.Texts("AOFiles").FirstOrDefault() is { Length: > 0 } model)
                 models.TryAdd(id, model);
         return models;
-    });
+    }
 
-    internal static string? QuestChestModel(string type) => ChestModels.Value.GetValueOrDefault(type);
+    public static string? QuestChestModel(string type) => ChestModels.GetValueOrDefault(type);
 
     // A quest chest's Positioned size (Chest.ot object_size 2, blocking).
-    internal const int QuestChestSize = 1;
+    public const int QuestChestSize = 1;
 
-    // A quest chest's Transitionable state: its last once opened; else 2 once it may be opened (OpensWith), 1 before.
-    internal static byte QuestChestState(ClientState conn, Quests.ChestRule rule, QuestObjectTypes.Info info, bool opened) =>
-        (byte)(opened ? info.States : rule.OpensWith is not { } flag || ClientHasQuestFlag(conn, flag) ? Math.Min(2, info.States) : 1);
+    static string? QuestChestOwner(Player player, Quests.ChestRule rule) => rule.Guards is null ? null : CharacterName(player);
+
+    static bool PersonalChestComplete(Player player, Quests.ChestRule rule) => rule.Guards is not null &&
+        QuestMarkerCollected(player, rule.Item, QuestItems.Carried(ItemsOf(player)).Select(i => i.Item.Item.TypeHash).ToHashSet());
+
+    public static bool QuestChestReady(Player player, Quests.ChestRule rule)
+    {
+        if (rule.OpensWith is not { } flag || !ClientHasQuestFlag(player, flag)) return false;
+        if (rule.Guards is null) return true;
+        return !player.Area.Monsters.Values.Any(m => MonsterLiving(m) && m.Variety is { } v && rule.Guards.Contains(v.Id))
+            && !HeldBackLocked(player).Any(h => Monsters.Find(h.Variety.ToString()) is { } v && rule.Guards.Contains(v.Id));
+    }
+
+    // Only pending encounter chests need a transition when another player finishes the fight.
+    static readonly Store<Player,
+        System.Collections.Concurrent.ConcurrentDictionary<uint, Quests.ChestRule>> PendingEncounterChests = new();
+
+    // Ordinary chests start untransitioned: FireflyChestBase disables targeting in create_transitioned.
+    // Only a gated chest uses state 2 to signal that its prerequisite has unlocked it.
+    public static byte QuestChestState(Player player, Quests.ChestRule rule, QuestObjectTypes.Info info, bool opened) =>
+        (byte)(opened ? info.States : QuestChestReady(player, rule) ? Math.Min(2, info.States) : 1);
 
     // A quest chest's 0x2bb blob: its type's components (QuestObjectTypes; a Chests.dat row without an .ot as its
     // InheritsFrom), else the Rhoa Nest's.
-    internal static byte[] QuestChestBlob(ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at, bool opened) =>
+    public static byte[] QuestChestBlob(Player player, Quests.ChestRule rule, GlyphQuest.Placement at, bool opened, bool hideMinimapIcon = false) =>
         QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.CanSerialize(info.Components)
-            ? new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, at.Model, QuestChestState(conn, rule, info, opened), opened).Blob()
-            : GlyphQuest.NestBlob(at, opened);
+            ? new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, at.Model, QuestChestState(player, rule, info, opened), opened)
+                { HideMinimapIcon = hideMinimapIcon }.Blob()
+            : GlyphQuest.NestBlob(at, opened, hideMinimapIcon);
 
-    internal static async Task CreateQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at)
+    static readonly Store<Player, HashSet<uint>> HiddenQuestMarkers = new();
+
+    public static bool QuestMarkerCollected(Player player, string itemId, IReadOnlySet<uint> carried) =>
+        ItemsFor(player).Find(itemId) is { } type && (carried.Contains(type.Hash)
+            || type.Quest is { } quest && QuestItems.Removed(quest, f => ClientHasQuestFlag(player, f)));
+
+    // MinimapIcon has no component-update reader. Recreate only the source object with its explicit hidden bit;
+    // keep the opened model, blockers and per-player quest state. Other party members keep their own markers.
+    public static async Task HideCollectedQuestMarkers(Player player)
     {
-        bool opened = conn.Instance.ChestOpened(at.X, at.Y);
-        uint id = conn.NextObjectId++;
-        lock (conn.QuestChests) conn.QuestChests[id] = (rule, at);
-        conn.SetBlocker(id, at.X, at.Y, QuestChestSize);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, opened)),
-            $"0x02bb quest chest 0x{id:x} {rule.ChestType} at ({at.X}, {at.Y}), opened={opened}" + (rule.OpensWith is { } f ? $", opens with {f}" : ""));
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        List<(uint Id, Quests.ChestRule Rule, GlyphQuest.Placement At)> chests;
+        lock (player.QuestChests) chests = [.. player.QuestChests.Select(c => (c.Key, c.Value.Rule, c.Value.At))];
+        List<(uint Id, GlyphQuest.Nest Nest)> nests;
+        lock (player.GlyphNests) nests = [.. player.GlyphNests.Select(c => (c.Key, c.Value))];
+        if (chests.Count + nests.Count == 0) return;
+        var hidden = HiddenQuestMarkers.GetOrCreateValue(player);
+        hidden.IntersectWith(chests.Select(c => c.Id).Concat(nests.Select(c => c.Id)));
+        if (chests.All(c => hidden.Contains(c.Id)) && nests.All(c => hidden.Contains(c.Id))) return;
+        HashSet<uint> carried;
+        carried = [.. QuestItems.Carried(ItemsOf(player)).Select(c => c.Item.Item.TypeHash)];
+        foreach (var (id, rule, at) in chests)
+        {
+            if (hidden.Contains(id) || !QuestMarkerCollected(player, rule.Item, carried)) continue;
+            uint next = player.TakeObjectId();
+            lock (player.QuestChests) { player.QuestChests.Remove(id); player.QuestChests[next] = (rule, at); }
+            player.RemoveBlocker(id);
+            player.SetBlocker(next, at.X, at.Y, QuestChestSize);
+            await SendWorldRemoval(player, id, null);
+            await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
+                QuestChestBlob(player, rule, at, rule.Guards is not null || player.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
+                    $"0x02bb quest chest 0x{next:x}: hide collected item marker ({rule.Item})", wake: true, awaitBirth: false);
+            hidden.Add(next);
+        }
+        foreach (var (id, nest) in nests)
+        {
+            if (hidden.Contains(id) || !QuestMarkerCollected(player, GlyphQuest.Glyphs[nest.Glyph], carried)) continue;
+            uint next = player.TakeObjectId();
+            lock (player.GlyphNests) { player.GlyphNests.Remove(id); player.GlyphNests[next] = nest; }
+            player.RemoveBlocker(id);
+            player.SetBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
+            await SendWorldRemoval(player, id, null);
+            await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
+                GlyphQuest.NestBlob(nest.At, player.Instance.ChestOpened(nest.At.X, nest.At.Y), hideMinimapIcon: true)),
+                    $"0x02bb Rhoa Nest 0x{next:x}: hide collected glyph marker", wake: true, awaitBirth: false);
+            hidden.Add(next);
+        }
+    }
+
+    public static async Task CreateQuestChest(Player player, Quests.ChestRule rule, GlyphQuest.Placement at)
+    {
+        bool collected = PersonalChestComplete(player, rule);
+        bool opened = collected || player.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(player, rule));
+        uint id = player.TakeObjectId();
+        lock (player.QuestChests) player.QuestChests[id] = (rule, at);
+        player.SetBlocker(id, at.X, at.Y, QuestChestSize);
+        bool pending = !opened && rule.Guards is not null && !QuestChestReady(player, rule);
+        await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, opened, hideMinimapIcon: collected)),
+            $"0x02bb quest chest 0x{id:x} {rule.ChestType} at ({at.X}, {at.Y}), opened={opened}" + (rule.OpensWith is { } f ? $", opens with {f}" : ""), wake: true, awaitBirth: false);
+        if (pending) PendingEncounterChests.GetOrCreateValue(player)[id] = rule;
     }
 
     // C→S 0x24 on a quest chest: walk up, open it (once per instance; the opened chest replaces it under a new id, as
     // Chest has no update reader), its used flags, and its item while the character needs it.
-    internal static async Task OpenQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use,
+    public static async Task OpenQuestChest(Player player, InstanceTransfer.UseSkillOnObject use,
         Quests.ChestRule rule, GlyphQuest.Placement at, double requestedAt)
     {
-        if (conn.Instance.ChestOpened(at.X, at.Y)) return;
-        if (rule.OpensWith is { } needs && !ClientHasQuestFlag(conn, needs))
+        if (player.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(player, rule)) || PersonalChestComplete(player, rule)) return;
+        if (rule.OpensWith is { } needs && !QuestChestReady(player, rule))
         {
-            Console.WriteLine($"[gateway] {remote} {rule.ChestType}: cannot be opened before {needs}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {rule.ChestType}: cannot be opened before {needs}");
             return;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, QuestChestSize, out var objectWalk)) return;
+        if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, QuestChestSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player opens quest chest 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s",
-                still: () => PlayerActionCurrent(conn, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (!PlayerActionCurrent(conn, action)) return;
-        if (!GameServer.Core.World.PlayerWalk.InReach(stop, (at.X, at.Y), QuestChestSize, conn.Layout.Walkable) || !conn.Instance.OpenChest(at.X, at.Y))
+                still: () => PlayerActionCurrent(player, action));
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (!PlayerActionCurrent(player, action)) return;
+        if (!GameServer.Core.World.PlayerWalk.InReach(stop, (at.X, at.Y), QuestChestSize, player.Layout.Walkable) || !player.Instance.OpenChest(at.X, at.Y, QuestChestOwner(player, rule)))
         {
-            Console.WriteLine($"[gateway] {remote} {rule.ChestType}: out of reach from ({stop.X}, {stop.Y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), null);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {rule.ChestType}: out of reach from ({stop.X}, {stop.Y})");
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
             return;
         }
-        uint opened = conn.NextObjectId++;
-        lock (conn.QuestChests) { conn.QuestChests.Remove(use.TargetId); conn.QuestChests[opened] = (rule, at); }
-        conn.RemoveBlocker(use.TargetId);
-        conn.SetBlocker(opened, at.X, at.Y, QuestChestSize);
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(use.TargetId), null);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, true)),
-            $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(opened), null);
-        if (QuestsOf(conn).OnUsed(conn.Layout.Id, rule.ChestType, f => ClientHasQuestFlag(conn, f)) is { Count: > 0 } used) await SetQuestFlags(remote, stream, ciphers, conn, used);
-        await DropQuestItem(remote, stream, ciphers, conn, rule.Item, (at.X, at.Y), rule.ChestType.Split('/')[^1]);
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), null);
+        uint opened = player.TakeObjectId();
+        lock (player.QuestChests) { player.QuestChests.Remove(use.TargetId); player.QuestChests[opened] = (rule, at); }
+        player.RemoveBlocker(use.TargetId);
+        player.SetBlocker(opened, at.X, at.Y, QuestChestSize);
+        await Game.SendWorldRemoval(player, use.TargetId, null);
+        await SendWorldCreate(player, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, true)),
+            $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})", wake: true, awaitBirth: false);
+        if (QuestsOf(player).OnUsed(player.Layout.Id, rule.ChestType, f => ClientHasQuestFlag(player, f)) is { Count: > 0 } used) await SetQuestFlags(player, used);
+        await DropQuestItem(player, rule.Item, (at.X, at.Y), rule.ChestType.Split('/')[^1]);
+        await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
     }
 
     // ---- dialogue ----
 
     // A dialogue row chosen (after its availability and hand-in checks): its scripts' flags, and an NPC whose script
     // transitions a monster variety turns into it (Quests.TurnsIntoRule: Fairgraves).
-    internal static async Task OnQuestTalk(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
+    public static async Task OnQuestTalk(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
     {
-        if (talk.ScriptSets is { Count: > 0 } sets) await SetQuestFlags(remote, stream, ciphers, conn, sets);
-        if (talk.ScriptClears is { Count: > 0 } clears) await SetQuestFlags(remote, stream, ciphers, conn, clears, on: false);
-        await RunTalkWorldScript(remote, stream, ciphers, conn, npcId, npc, talk);
-        foreach (var rule in QuestsOf(conn).TurnsInto(conn.Layout.Id).Where(r => r.NpcType == npc.Npc.Id && talk.TransitionsVarieties.Contains(r.Variety)))
+        if (talk.ScriptSets is { Count: > 0 } sets) await SetQuestFlags(player, sets);
+        if (talk.ScriptClears is { Count: > 0 } clears) await SetQuestFlags(player, clears, on: false);
+        await RunTalkWorldScript(player, npcId, npc, talk);
+        foreach (var rule in QuestsOf(player).TurnsInto(player.Layout.Id).Where(r => r.NpcType == npc.Npc.Id && talk.TransitionsVarieties.Contains(r.Variety)))
         {
             bool already;
-            lock (conn.Monsters) already = conn.Monsters.Values.Any(m => m.Variety?.Id == rule.Variety && !m.Dead && m.Life > 0);
+            already = player.Area.Monsters.Values.Any(m => m.Variety?.Id == rule.Variety && !m.Dead && m.Life > 0);
             if (already || Monsters.Find(rule.Variety) is not { Supported: true } variety || variety.Id != rule.Variety) continue;
             // The NPC's Transitionable steps to 2: its on_transition disables targeting, fades it out and hides its marker.
             int component = npc.Npc.Components!.ToList().IndexOf("Transitionable");
             if (component >= 0)
-                await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(npcId, (byte)component, 2), $"0x02bc npc 0x{npcId:x} {npc.Npc.Name} transitions");
-            lock (conn.Npcs) conn.Npcs.Remove(npcId);
-            byte level = (byte)Math.Clamp(Packs.For(conn.Layout.Id)?.AreaLevel ?? 1, 1, 100);
-            Console.WriteLine($"[gateway] {remote} {npc.Npc.Name} turns into {variety.Name} ({talk.Option})");
-            await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, npc.X, npc.Y);
+                await SendWorldRecord(player, npcId, InstanceEntities.TransitionableUpdate(npcId, (byte)component, 2), $"0x02bc npc 0x{npcId:x} {npc.Npc.Name} transitions");
+            lock (player.Npcs) player.Npcs.Remove(npcId);
+            byte level = (byte)Math.Clamp(Packs.For(player.Layout.Id)?.AreaLevel ?? 1, 1, 100);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {npc.Npc.Name} turns into {variety.Name} ({talk.Option})");
+            uint bossId = await SpawnMonster(player, variety, level, MonsterRarity.Unique, npc.X, npc.Y);
+            if (rule.Variety == "Metadata/Monsters/Skeletons/SkeletonBossFairgraves")
+                await Send(player, InstanceNpcs.TextAudio(bossId, 4, 153),
+                    "0x01c7 Fairgraves combat dialogue (FairgravesAttacks)");
         }
     }
 
-    // ---- the player tick ----
+    // ---- the nearby presentations ----
 
-    // Every player tick: the sight rules for room objects and exits (Quests.NearRule, NearExitRule).
-    internal static async Task CheckQuestSights(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
+    // Where the player stands (a nearby presentation): the sight rules for room objects and exits (Quests.NearRule, NearExitRule).
+    public static async Task CheckQuestSights(Player player, (int X, int Y) at)
     {
-        foreach (var (rule, x, y) in conn.QuestNear)
+        if (PendingEncounterChests.TryGetValue(player, out var pending) && !pending.IsEmpty)
+            foreach (var (id, chest) in pending)
+            {
+                lock (player.QuestChests)
+                    if (!player.QuestChests.ContainsKey(id)) { pending.TryRemove(id, out _); continue; }
+                if (QuestChestReady(player, chest) && pending.TryRemove(id, out _) &&
+                    QuestObjectTypes.Find(chest.ChestType) is { } info && QuestObject.TransitionableIndex(info.Components) is int slot and >= 0)
+                    await SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)slot, 2),
+                        $"quest chest 0x{id:x} {chest.ChestType} unlocked");
+            }
+        foreach (var (rule, x, y) in player.QuestNear)
         {
-            if (Dist(at, (x, y)) > Quests.SightRange || rule.Flags.All(conn.HasQuestFlag)) continue;
-            if (rule.Needs is null) { await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags); continue; }
+            if (Dist(at, (x, y)) > Quests.SightRange || rule.Flags.All(player.Character.HasQuestFlag)) continue;
+            bool pietySpikeIntro = rule.ObjectType == "Metadata/NPC/Act1/PietyBlockage" && !player.Character.HasQuestFlag("a1q9-RoadBlocked");
+            if (rule.Needs is null)
+            {
+                await SetQuestFlags(player, rule.Flags);
+                if (pietySpikeIntro)
+                {
+                    // PietyBlockage.ot has no client PlayTextAudio; send her class-specific Prisoner's Gate line via 0x1c7.
+                    ushort line = player.Character.ClassRow switch
+                    {
+                        4 => 388, // Duelist
+                        5 => 389, // Shadow
+                        6 => 390, // Templar
+                        1 => 391, // Witch
+                        0 => 392, // Marauder
+                        3 => 393, // Ranger
+                        2 => 394, // Scion
+                        _ => 387, // PietyIntroSpikePassageNormal
+                    };
+                    await Send(player, InstanceNpcs.TextAudio(0, 31, line),
+                        $"0x01c7 Piety Prisoner's Gate dialogue {line}");
+                }
+                continue;
+            }
             // A conditional sight (Quests.NearWith): only with its needs, and the quest items its flags finish go.
-            if (!rule.Needs.All(f => ClientHasQuestFlag(conn, f))) continue;
-            await ConsumeQuestItemsAndSet(remote, stream, ciphers, conn, [.. rule.Flags.Where(f => !conn.HasQuestFlag(f))],
+            if (!rule.Needs.All(f => ClientHasQuestFlag(player, f))) continue;
+            await ConsumeQuestItemsAndSet(player, [.. rule.Flags.Where(f => !player.Character.HasQuestFlag(f))],
                 rule.ObjectType.Split('/')[^1]);
         }
-        foreach (var rule in QuestsOf(conn).NearExits(conn.Layout.Id))
-            if (!rule.Flags.All(conn.HasQuestFlag) && conn.Layout.AreaTransitions.Any(t => AreaTransitionCatalog.IdOf(t.Transition.DestinationHash16) == rule.To
+        foreach (var rule in QuestsOf(player).NearExits(player.Layout.Id))
+            if (!rule.Flags.All(player.Character.HasQuestFlag) && player.Layout.AreaTransitions.Any(t => AreaTransitionCatalog.IdOf(t.Transition.DestinationHash16) == rule.To
                 && Dist(at, (t.Transition.GridX, t.Transition.GridY)) <= Quests.SightRange))
-                await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags);
+                await SetQuestFlags(player, rule.Flags);
     }
 
     // The proximity spawns (Quests.NearSpawnRule): the monster appears at its object once per instance as the player comes
     // near (NearSpawnRange: a little beyond sight, as the event starts around the scene: Plaguewing's spawner is 61 cells
     // from Bannon), unless its Until flag is set.
-    internal const double NearSpawnRange = Quests.SightRange * 1.5;
+    public const double NearSpawnRange = Quests.SightRange * 1.5;
 
-    internal static async Task CheckQuestNearSpawns(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
+    public static async Task CheckQuestNearSpawns(Player player, (int X, int Y) at)
     {
-        for (int i = 0; i < conn.QuestNearSpawns.Count; i++)
+        for (int i = 0; i < player.QuestNearSpawns.Count; i++)
         {
-            var (rule, x, y, spawned) = conn.QuestNearSpawns[i];
-            if (spawned || Dist(at, (x, y)) > NearSpawnRange || rule.Until is { } until && ClientHasQuestFlag(conn, until)) continue;
-            conn.QuestNearSpawns[i] = (rule, x, y, true);
+            var (rule, x, y, spawned) = player.QuestNearSpawns[i];
+            if (spawned || Dist(at, (x, y)) > NearSpawnRange || rule.Until is { } until && ClientHasQuestFlag(player, until)) continue;
+            player.QuestNearSpawns[i] = (rule, x, y, true);
             if (Monsters.Find(rule.Variety) is not { Supported: true } variety || variety.Id != rule.Variety)
             {
-                Console.WriteLine($"[gateway] {remote} {rule.ObjectType}: {rule.Variety} cannot be created");
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {rule.ObjectType}: {rule.Variety} cannot be created");
                 continue;
             }
-            byte level = (byte)Math.Clamp(Packs.For(conn.Layout.Id)?.AreaLevel ?? 1, 1, 100);
-            var (sx, sy) = conn.Layout.Walkable is { } walks && !walks(x, y) ? conn.Layout.Near((x, y)) : (x, y);
-            Console.WriteLine($"[gateway] {remote} near {rule.ObjectType.Split('/')[^1]}: {variety.Name} appears at ({sx}, {sy})");
-            await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, sx, sy);
+            byte level = (byte)Math.Clamp(Packs.For(player.Layout.Id)?.AreaLevel ?? 1, 1, 100);
+            var (sx, sy) = player.Layout.Walkable is { } walks && !walks(x, y) ? player.Layout.Near((x, y)) : (x, y);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} near {rule.ObjectType.Split('/')[^1]}: {variety.Name} appears at ({sx}, {sy})");
+            await SpawnMonster(player, variety, level, MonsterRarity.Unique, sx, sy);
         }
     }
 
     // Places for the area's scattered quest chests (Quests.ChestRule.Scattered: no room or tile has them): walkable cells of
     // a coarse grid, away from the arrival, each as far from the others as can be (farthest-point picking from a first cell
     // the seed chooses), so the same seed gives the same cells.
-    internal static Dictionary<Quests.ChestRule, GlyphQuest.Placement> ScatterQuestChests(ClientState conn, IReadOnlyList<Quests.ChestRule> rules)
+    public static Dictionary<Quests.ChestRule, GlyphQuest.Placement> ScatterQuestChests(Player player, IReadOnlyList<Quests.ChestRule> rules)
     {
         var result = new Dictionary<Quests.ChestRule, GlyphQuest.Placement>();
-        var layout = conn.Layout;
+        var layout = player.Layout;
         if (rules.Count == 0 || layout.Walkable is not { } walkable || layout.GridW <= 0 || layout.GridH <= 0) return result;
-        var cells = ScatterCells(walkable, layout.GridW, layout.GridH, (layout.SpawnX, layout.SpawnY), rules.Count, HashCode.Combine(layout.Hash, conn.Seed, 0x7f1a));
+        var cells = ScatterCells(walkable, layout.GridW, layout.GridH, (layout.SpawnX, layout.SpawnY), rules.Count, HashCode.Combine(layout.Hash, player.Seed, 0x7f1a));
         for (int i = 0; i < cells.Count; i++)
             result[rules[i]] = new GlyphQuest.Placement(rules[i].ChestType, QuestChestModel(rules[i].ChestType) ?? "", cells[i].X, cells[i].Y, 0, null, 0);
         return result;
     }
 
-    internal static List<(int X, int Y)> ScatterCells(Func<int, int, bool> walkable, int width, int height, (int X, int Y) arrival, int count, int seed)
+    public static List<(int X, int Y)> ScatterCells(Func<int, int, bool> walkable, int width, int height, (int X, int Y) arrival, int count, int seed)
     {
         const int Step = 12, Margin = 40;
         var cells = new List<(int X, int Y)>();
@@ -715,33 +913,50 @@ static partial class Game
 
     // ---- thresholds (Quests.ThresholdRule) ----
 
-    // Every player tick in an area with a quest threshold: a monster any hit took to its threshold (a projectile, Rampage, a
+    // A nearby presentation in an area with a quest threshold: a monster any hit took to its threshold (a projectile, Rampage, a
     // monster mod's damage: every path that takes life marks it, TakeDamageLocked) leaves the fight here, wherever the hit
     // came from; melee and spell hits also call QuestThreshold at once.
-    internal static async Task CheckQuestThresholds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task CheckQuestThresholds(Player player)
     {
-        if (!QuestsOf(conn).HasThresholds(conn.Layout.Id)) return;
+        if (!QuestsOf(player).HasThresholds(player.Layout.Id)) return;
         List<(uint Id, SpawnedMonster Monster)> reached;
-        lock (conn.Monsters) reached = [.. conn.Monsters.Where(m => m.Value.ThresholdReached && !m.Value.Dead).Select(m => (m.Key, m.Value))];
-        foreach (var (id, m) in reached) await QuestThreshold(remote, stream, ciphers, conn, id, m);
+        reached = [.. player.Area.Monsters.Where(m => m.Value.ThresholdReached && !m.Value.Dead).Select(m => (m.Key, m.Value))];
+        foreach (var (id, m) in reached) await QuestThreshold(player, id, m);
     }
 
     // A monster that never dies reached its quest threshold (Kitava destroys the Sign of Purity): its flags, once, and it
     // leaves the fight (removed from the instance, no death, no drops, no experience).
-    internal static async Task QuestThreshold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    public static async Task QuestThreshold(Player player, uint id, SpawnedMonster m)
     {
         Quests.ThresholdRule? rule;
-        lock (conn.Monsters)
-        {
-            if (!m.ThresholdReached || m.Dead || !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m)) return;
-            rule = m.Threshold;
-            m.Dead = true;
-            m.Aggro = false;
-            conn.Monsters.Remove(id);
-        }
+        if (!m.ThresholdReached || m.Dead || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), m)) return;
+        rule = m.Threshold;
+        if (rule is not null)
+            foreach (string state in rule.Flags.Where(Quests.IsInstanceFlag)) player.Instance.SetState(state);
+        m.Dead = true;
+        m.Aggro = false;
+        player.Area.Monsters.Remove(id);
         if (rule is null) return;
-        Console.WriteLine($"[gateway] {remote} {m.Label} 0x{id:x} reached {rule.LifePct}% life: {string.Join(", ", rule.Flags)}; it leaves the fight");
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
-        await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} 0x{id:x} reached {rule.LifePct}% life: {string.Join(", ", rule.Flags)}; it leaves the fight");
+        await Game.SendWorldRemoval(player, id, $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
+        var own = rule.Flags.Where(f => !Quests.IsInstanceFlag(f)).ToArray();
+        if (own.Length > 0) await SetQuestFlags(player, own);
+        if (m.Variety is { } variety)
+            await FormQuestBosses(player, m, variety.Id, m.Walk.Position(ProjectileWorldTime(player)));
+    }
+
+    // A FormsRule can follow either a death or a quest threshold, using the point fitted for the new variety.
+    static async Task FormQuestBosses(Player player, SpawnedMonster source, string variety, (int X, int Y) at)
+    {
+        foreach (var rule in QuestsOf(player).FormsAfter(player.Layout.Id, variety))
+        {
+            bool left = player.Area.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
+            bool formed = player.Area.Monsters.Values.Any(o => o.Variety?.Id == rule.Next);
+            var where = player.LaterFormPoints.GetValueOrDefault(rule.Next, at);
+            if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {source.Label} leaves: {boss.Name} forms at ({where.X}, {where.Y})");
+            await SpawnMonster(player, boss, source.Level, MonsterRarity.Unique, where.X, where.Y,
+                lifePercent: rule.InitialLifePercent);
+        }
     }
 }

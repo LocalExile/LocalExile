@@ -1,0 +1,2 @@
+ALTER TABLE items ADD COLUMN vestigial INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE items ADD COLUMN heist_blueprint TEXT;

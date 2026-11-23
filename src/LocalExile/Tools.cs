@@ -2,22 +2,18 @@ using System.Diagnostics;
 
 namespace LocalExile;
 
-/// <summary>Runs the release's own programs, with the bundled Node and Python found first and output in logs\.
+/// <summary>Runs the release's own programs, with the bundled Node found first and output in logs\.
 /// While one works, a line every 10 s says so, with the newest line of its output.</summary>
 static class Tools
 {
     public const string App = "app";
     public static string Auth => Path.Combine(App, Platform.Program("GameServer.Auth"));
     public static string Patch => Path.Combine(App, Platform.Program("GameServer.Patch"));
-    /// <summary>The bundled Python; Linux systems have their own.</summary>
-    public static string Python => OperatingSystem.IsWindows() ? Path.GetFullPath(Path.Combine("Tools", "python", "python.exe"))
-        : Platform.OnPath("python3") ?? throw new LauncherException(ExitCode.Extraction, "Python 3 was not found: install python3");
 
-    /// <summary>The child environment of everything here: tools call "node" and the generators the file dumper.</summary>
+    /// <summary>The child environment of everything here: GamePack calls "node" for the Oodle decoder.</summary>
     public static void Prepare(ProcessStartInfo start)
     {
         start.Environment["PATH"] = $"{Path.GetFullPath(Path.Combine("Tools", "node"))}{Path.PathSeparator}{Environment.GetEnvironmentVariable("PATH")}";
-        start.Environment["Game_GGDUMP_EXE"] = Path.GetFullPath(Path.Combine(App, Platform.Program("GgDump")));
     }
 
     static ProcessStartInfo Info(string exe, IEnumerable<string> arguments)

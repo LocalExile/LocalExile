@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Impossible Escape (Viridian Jewel, Small, limited to 1): a generated unique whose variant is one of the client's
@@ -7,20 +8,34 @@ using GameServer.Core.Protocol.Instance;
 /// <c>JewelUniqueAllocateDisconnectedPassivesAroundKeystone</c> mod stores the chosen row and the 800 radius.
 /// The server uses that value for the allocation bypass around the keystone.
 /// </summary>
-static class ImpossibleEscapeCatalogue
+public static class ImpossibleEscapeCatalogue
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Entries = Load();
+    }
+
     const string ModId = "JewelUniqueAllocateDisconnectedPassivesAroundKeystone";
-    const string KeystoneStat = "local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash";
-    const string RadiusStat = "local_jewel_effect_base_radius";
+    const uint KeystoneStat = Stat.LocalUniqueJewelDisconnectedPassivesCanBeAllocatedAroundKeystoneHash;
+    const uint RadiusStat = Stat.LocalJewelEffectBaseRadius;
     // Path of Building 3_16's Small radius is 960 (the client's PassiveJewelRadii row is the 800 display/base
     // value). Impossible Escape's keystone ring follows the 3_16 effect radius.
     const int Radius = 960;
 
     public sealed record Keystone(int Row, ushort GraphId, string Name);
 
-    static readonly Lazy<List<Keystone>> Entries = new(Load);
+    static List<Keystone> Entries = default!;
 
-    public static IReadOnlyList<Keystone> All => Entries.Value;
+    public static IReadOnlyList<Keystone> All => Entries;
+
+    // Current items store a graph ID; older items stored the row of the same Maven keystone.
+    public static Keystone? ForStoredValue(int value)
+    {
+        // Native API exports can carry this HASH16 in a signed short (-1916 == 63620).
+        int hash = value is >= short.MinValue and < 0 ? unchecked((ushort)value) : value;
+        return All.FirstOrDefault(entry => entry.GraphId == hash) ?? All.FirstOrDefault(entry => entry.Row == value);
+    }
 
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 
@@ -62,8 +77,7 @@ static class ImpossibleEscapeCatalogue
     public static Item Migrate(Item item, ModCatalog mods)
     {
         if (Read(item, mods) is not { } read) return item;
-        if (Program.Passives.Find((ushort)read.Value) is { IsKeystone: true }) return item;
-        if (Program.Passives.GraphIdForRow(read.Value) is not ushort graphId) return item;
+        if (ForStoredValue(read.Value) is not { GraphId: var graphId } || graphId == read.Value) return item;
         var rewritten = new List<ItemMod>(item.Mods.Count);
         foreach (var itemMod in item.Mods)
         {
@@ -114,12 +128,10 @@ static class ImpossibleEscapeCatalogue
     static List<Keystone> Load()
     {
         var result = new List<Keystone>();
-        string path = Path.Combine("data", "tables", "MavenJewelRadiusKeystones.json");
-        if (!File.Exists(path)) return result;
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
-        foreach (var entry in document.RootElement.EnumerateArray())
+        if (!ClientTables.Has("MavenJewelRadiusKeystones")) return result;
+        foreach (var entry in ClientTables.Table("MavenJewelRadiusKeystones"))
         {
-            int row = entry.GetProperty("Keystone").GetInt32();
+            int row = entry.Int("Keystone");
             ushort? graphId = Program.Passives.GraphIdForRow(row);
             if (graphId is null && Program.Passives.Find((ushort)row) is { IsKeystone: true } direct)
                 graphId = direct.GraphId;

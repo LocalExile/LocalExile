@@ -1,0 +1,27 @@
+-- Client table SanctumPersistentEffects (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "SanctumPersistentEffects" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "Stats" JSON,
+    "StatValues" JSON,
+    "Name" TEXT,
+    "Icon" TEXT,
+    "__col5" INTEGER,
+    "__col6" BOOLEAN,
+    "EffectCategory" INTEGER,
+    "NextEffect" INTEGER,
+    "__col9" TEXT,
+    "BoonDesc" TEXT,
+    "CurseDesc" TEXT,
+    "__col12" INTEGER,
+    "__col13" INTEGER,
+    "__col14" BOOLEAN,
+    "ConditionalAchievement" JSON,
+    "Achievements" JSON,
+    "FirstEffect" INTEGER,
+    "__col18" INTEGER,
+    "__col19" INTEGER,
+    "__col20" BOOLEAN,
+    "__col21" BOOLEAN,
+    "HASH16" INTEGER
+);

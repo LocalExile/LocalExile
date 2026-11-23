@@ -62,14 +62,7 @@ The local pool includes those variants, weighted by the base's tags.
   allow them.
 - The four Ember handlers are named correctly in CoE, unlike the Greater Ichor entry.
 
-## Automated coverage
-
-`EldritchEmberTests` checks the Lesser/tier variants, normal-implicit removal with Eater preservation, replacement of
-an existing Exarch implicit, non-armour and unique/corrupted/mirrored refusal, unknown/no-Mods bases, preserved
-explicits/quality/sockets/links/name, and the four CoE base keys plus the tier-3/4 presence variants.
-`EldritchEmberGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-combinations for Lesser, two uses replacing one Exarch implicit, all four tier suffixes, saved implicit after cache
-eviction, and refused non-armour/unique/corrupted/mirrored targets without spending.
+## Verification
 
 No native client run was made for this change; item tooltip/display acceptance of the new implicit remains to be
 recorded.

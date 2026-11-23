@@ -1,0 +1,225 @@
+using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using static Game;
+
+/// <summary>
+/// The Slayer's node effects that need state the stat sum does not have (Agents/docs/game/slayer.md): the counts the
+/// client reads for Overwhelm and Impact, Headsman's on-kill buffs and Bane of Legends' damage. The client computes its
+/// own panel from <c>number_of_nearby_enemies</c> and <c>number_of_enemies_killed_recently</c> (0x14276e1f0,
+/// 0x14274c820) but never counts them: the server does and sends them, and the pools read the same values.
+/// </summary>
+public static class Slayer
+{
+    public const uint MovementOnKill = Stat.GainMovementSpeedPlusPctFor20SecondsOnKill;
+    public const uint AttackSpeedOnRareKill = Stat.GainAttackSpeedPlusPctFor20SecondsOnKillingRareOrUniqueEnemy;
+    public const uint CritPerNearbyEnemy = Stat.SlayerCriticalStrikeMultiplierPlusPerNearbyEnemyUpTo100;
+    public const uint AreaPerEnemyKilled = Stat.SlayerAreaOfEffectPlusPctPerEnemyKilledRecentlyUpTo50Pct;
+    public const uint MoreVsUnique = Stat.SlayerDamagePlusPctFinalAgainstUniqueEnemies;
+    public const uint MoreIfKilledRecently = Stat.DamagePlusPctIfEnemyKilledRecentlyFinal;
+    public const uint NearbyEnemies = Stat.NumberOfNearbyEnemies, EnemiesKilledRecently = Stat.NumberOfEnemiesKilledRecently,
+        HaveKilledRecently = Stat.HaveKilledRecently;
+
+    /// <summary>"for 20 seconds" (both Headsman stats' descriptions).</summary>
+    public const double HeadsmanSeconds = 20;
+
+    /// <summary>"Nearby": 60 cells (6 m), the radius of Overwhelm's own enemy aura (BuffTemplates SlayerCritMultiplier).
+    /// The client does not count nearby enemies, so the radius is not in its code.</summary>
+    public const int NearbyRadius = 60;
+
+    // BuffDefinitions bane_of_legends_movement_speed and bane_of_legends_attack_speed: invisible, not IsRecovery (no
+    // values in 0x1c1), CancelOnDeath. Headsman was once called Bane of Legends.
+    const ushort MovementBuffRow = 1341, AttackSpeedBuffRow = 1342;
+
+    /// <summary>Overwhelm's crit multiplier: +X per nearby enemy, the product capped at +100 (client 0x14276e1f0:
+    /// <c>min(100, S[26a6] × S[18a1])</c>, no lower bound).</summary>
+    public static long CritMultiplierFromNearby(Func<uint, int> get) =>
+        Math.Min(100, (long)get(CritPerNearbyEnemy) * get(NearbyEnemies));
+
+    /// <summary>Impact's increased area: X per enemy killed recently, the product capped at 50 (client 0x14274c820,
+    /// RE area-increased-terms §4: <c>min(50, S[26a2] × S[1f22])</c>).</summary>
+    public static long AreaFromKills(Func<uint, int> get) =>
+        Math.Min(50, (long)get(AreaPerEnemyKilled) * get(EnemiesKilledRecently));
+
+    /// <summary>A count stopped where the capped product above stops changing (10 enemies at +10 per enemy, 10 kills at
+    /// 5% per kill). The tick compares these to decide a resend; the counts it sends stay uncapped, as other stats read
+    /// them with their own caps (the client reads number_of_nearby_enemies in about ten calculators).</summary>
+    public static int UpToCap(int count, int perUnit, int cap) =>
+        perUnit > 0 ? Math.Min(count, (cap + perUnit - 1) / perUnit) : count;
+
+    // Other stats the client reads in the same calculators as number_of_nearby_enemies (0x18a1: 0x14251aa40,
+    // 0x142525b99, 0x142710f20, 0x142753203, 0x14285d770) or number_of_enemies_killed_recently (0x1f22, area
+    // 0x14274c820), each with its own cap or threshold.
+    static readonly uint[] OtherNearbyReaders =
+    [
+        Stat.PhysicalDamageReductionPctPerNearbyEnemy, Stat.MovementSpeedPlusPctPerNearbyEnemy,
+        Stat.MovementSpeedPlusPctPerNearbyEnemyUpTo50Pct, Stat.AttackAndCastSpeedPlusPctPerNearbyEnemyUpTo30Pct,
+        Stat.AdditionalBlockPctWith5OrMoreNearbyEnemies, Stat.SelfTakeNoExtraDamageFromCriticalStrikesIfOnlyOneNearbyEnemy,
+    ];
+    static readonly uint[] OtherKillReaders =
+        [Stat.AreaOfEffectPlusPctPerEnemyKilledRecently, Stat.AreaOfEffectPlusPctPerEnemyKilledRecentlyUpTo25Pct];
+
+    /// <summary>Bane of Legends' two more multipliers on one hit, against a unique target or not.</summary>
+    public static double DamageMore(Func<uint, int> get, bool uniqueTarget) =>
+        (uniqueTarget ? Math.Max(0, 1 + get(MoreVsUnique) / 100.0) : 1)
+        * (get(HaveKilledRecently) != 0 ? Math.Max(0, 1 + get(MoreIfKilledRecently) / 100.0) : 1);
+
+    public sealed class State
+    {
+        public readonly Queue<double> Kills = new();
+        public double MovementUntil = double.NegativeInfinity, AttackSpeedUntil = double.NegativeInfinity;
+        public double MovementShown, AttackSpeedShown;
+        public ushort MovementBuff, AttackSpeedBuff;
+        // What the stat sum adds now (PlayerStats). Only the tick changes them, so pools and client switch together.
+        public int Nearby, Killed, Movement, AttackSpeed;
+        // Counts each applied change: the player stats cache (PlayerStatsKey) rebuilds on it, as the pools do not hold
+        // everything these values change (the area total).
+        public long Revision;
+        // Bane of Legends' last logged multiplier: an area hit changes target on every hit, so only a new value logs.
+        public double BaneLogged = 1;
+
+        public int KilledWithin(double now)
+        {
+            while (Kills.Count > 0 && now - Kills.Peek() >= RecentEvents.WindowSeconds) Kills.Dequeue();
+            return Kills.Count;
+        }
+    }
+
+    static readonly Store<Player, State> States = new();
+    public static State Of(Player player) => States.GetValue(player, _ => new());
+
+    public static long Revision(Player player) => States.TryGetValue(player, out var state) ? state.Revision : 0;
+
+    // The passive and item sum (the stat sources cache), without what PlayerStats adds.
+    static int Raw(Player player, uint name) => name is var key && player.StatSourcesCache is { } cached
+        ? cached.Sources.GetValueOrDefault(key) : 0;
+
+    /// <summary>A kill of the player's (GameEvents.Kill): it counts as killed recently, and starts or refreshes
+    /// Headsman's buffs (attack speed only for a rare or unique enemy). The tick applies them.</summary>
+    public static void Kill(KillContext kill)
+    {
+        if (!kill.PlayerKill) return;
+        var player = kill.Player;
+        if (player.PlayerLife == 0) return;
+        double now = AreaTime(player);
+        var state = Of(player);
+        state.Kills.Enqueue(now);
+        if (Raw(player, MovementOnKill) != 0) state.MovementUntil = now + HeadsmanSeconds;
+        if (Raw(player, AttackSpeedOnRareKill) != 0 && kill.Monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
+            state.AttackSpeedUntil = now + HeadsmanSeconds;
+    }
+
+    /// <summary>GameEvents.PlayerStatSources: the counts and Headsman's speeds as last applied.</summary>
+    public static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> stats)
+    {
+        if (!States.TryGetValue(player, out var state)) return stats;
+        void Add(uint name, int value)
+        {
+            if (value != 0 && name is var k)
+                stats[k] = (int)Math.Clamp((long)stats.GetValueOrDefault(k) + value, int.MinValue, int.MaxValue);
+        }
+        Add(NearbyEnemies, state.Nearby);
+        Add(EnemiesKilledRecently, state.Killed);
+        Add(HaveKilledRecently, state.Killed > 0 ? 1 : 0);
+        // Impact's area joins the base form, which the panel's total and every skill read (as Rampage's does): the
+        // client takes the player's stats as sent and evaluates none of them (04-player-entity.md §4.1a).
+        Add(SkillArea.BaseIncreased, (int)AreaFromKills(name => name is var k ? stats.GetValueOrDefault(k) : 0));
+        Add(Stat.BaseMovementVelocityPlusPct, state.Movement);
+        Add(Stat.AttackSpeedPlusPct, state.AttackSpeed);
+        return stats;
+    }
+
+    /// <summary>GameEvents.OutgoingDamage: Bane of Legends' more damage on the rolled hit, which its ailments read.</summary>
+    public static DamagePacket OutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster target,
+        DamagePacket rolled)
+    {
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
+        double more = DamageMore(Get, target.Rarity == MonsterRarity.Unique);
+        var state = Of(player);
+        if (state.BaneLogged == more) return more == 1 ? rolled : rolled.Scale(more);
+        state.BaneLogged = more;
+        if (more == 1) return rolled;
+        Console.WriteLine($"[gateway] Bane of Legends: {more:0.###}x on {target.Rarity} {target.Label}"
+            + $" ({(target.Rarity == MonsterRarity.Unique ? "unique" : "not unique")}, killed recently: {Get(HaveKilledRecently) != 0})");
+        return rolled.Scale(more);
+    }
+
+    /// <summary>The player tick: count the hostile enemies near the living player and those killed in the last four
+    /// seconds (only with a stat that reads the count), end Headsman's buffs at their time or at death, and when a value
+    /// changed rebuild the pools and send the stats and skills.</summary>
+    public static async Task Tick(Player player)
+    {
+        if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
+        bool changed;
+        var packets = new List<byte[]>();
+        var state = Of(player);
+        double now = AreaTime(player);
+        bool alive = player.PlayerLife > 0;
+        if (!alive)
+        {
+            state.MovementUntil = state.AttackSpeedUntil = double.NegativeInfinity;
+            state.Kills.Clear();
+        }
+        int killed = state.KilledWithin(now), areaPerKill = Raw(player, AreaPerEnemyKilled);
+        bool readsKills = areaPerKill != 0 || Raw(player, MoreIfKilledRecently) != 0;
+        if (!readsKills) killed = 0;
+        int nearby = 0, critPerEnemy = Raw(player, CritPerNearbyEnemy);
+        if (alive && critPerEnemy != 0)
+        {
+            // Awake hostile monsters the client has been shown, as Flicker Strike's targets (FlickerDestination).
+            var here = player.Walk.Position(now);
+            foreach (var (id, m) in player.Area.Monsters)
+                if (m is { Hostile: true, Dead: false, Life: > 0 } && !MonsterAsleep(player, id)
+                    && (player.Instance is null || MonsterShown(player, id))
+                    && Dist(m.Walk.Position(now), here) <= NearbyRadius) nearby++;
+        }
+        int movement = now < state.MovementUntil ? Raw(player, MovementOnKill) : 0;
+        int attackSpeed = now < state.AttackSpeedUntil ? Raw(player, AttackSpeedOnRareKill) : 0;
+        // The counts sent are the real ones; a resend happens when a value one of the player's stats reads changes.
+        // With only Slayer's stats that is each count up to where its capped product stops (at one for Bane's
+        // "killed recently" alone); another stat reading a count makes every change of it count.
+        bool otherNearby = OtherNearbyReaders.Any(n => Raw(player, n) != 0), otherKills = OtherKillReaders.Any(n => Raw(player, n) != 0);
+        int Near(int count) => otherNearby ? count : UpToCap(count, critPerEnemy, 100);
+        int Kills(int count) => otherKills ? count : areaPerKill != 0 ? UpToCap(count, areaPerKill, 50) : Math.Min(count, 1);
+        changed = (Near(nearby), Kills(killed), movement, attackSpeed)
+            != (Near(state.Nearby), Kills(state.Killed), state.Movement, state.AttackSpeed);
+        Present(player, ref state.MovementBuff, ref state.MovementShown, MovementBuffRow, movement != 0, state.MovementUntil, now, packets);
+        Present(player, ref state.AttackSpeedBuff, ref state.AttackSpeedShown, AttackSpeedBuffRow, attackSpeed != 0,
+            state.AttackSpeedUntil, now, packets);
+        if (changed) (state.Nearby, state.Killed, state.Movement, state.AttackSpeed) = (nearby, killed, movement, attackSpeed);
+        if (changed)
+        {
+            state.Revision++; MarkPlayerStats(player, PlayerStatStep.Sources);
+            RecomputePoolsAndSpeed(player);
+            int Stat(uint key) => CharacterPlayerStats(player).GetValueOrDefault(key);
+            Console.WriteLine($"[gateway] Slayer: {nearby} nearby enemies, {killed} killed recently, Headsman +{movement}% "
+                + $"movement +{attackSpeed}% attack speed; crit multiplier {player.Pools.CriticalStrikeMultiplier}%, "
+                + $"area +{Stat(global::Stat.SkillAreaOfEffectPlusPct)}%");
+        }
+        foreach (var packet in packets) await Send(player, packet, null);
+        if (changed) await SendCharacterStats(player, PlayerStatChange.Sources);
+    }
+
+    // A Headsman buff: shown for its time left while on, shown again when a kill moved its deadline, taken off when it
+    // ends. Its stats are in PlayerStats, not in the buff.
+    static void Present(Player player, ref ushort buff, ref double shown, ushort row, bool on, double until, double now,
+        List<byte[]> packets)
+    {
+        if (buff != 0 && (!on || shown != until))
+        {
+            player.Area.Buffs.Clear(player.Id, row, player.Id);
+            buff = 0;
+        }
+        if (!on || buff != 0) return;
+        buff = 1;
+        shown = until;
+        player.Area.Buffs.Set(player.Id, new(row, player.Id, U68: Buff.Seconds(until - now)));
+    }
+
+    /// <summary>A new area is a new connection: the leaving one forgets its state.</summary>
+    public static Task Leaving(Player player)
+    {
+        States.Remove(player);
+        return Task.CompletedTask;
+    }
+}

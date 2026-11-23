@@ -13,28 +13,32 @@
 /// gains, expiry, per-charge effects) are <see cref="Charges"/>, which takes its standard maxima from here. No Mods.dat
 /// row uses the max_*_charges_override stats today; if supported later, those must replace the sum rather than add to it.
 /// </summary>
-static class ChargePanelStats
+public static class ChargePanelStats
 {
     /// <summary>Metadata/Characters/Character.ot's <c>max_endurance_charges</c>, <c>max_frenzy_charges</c> and
     /// <c>max_power_charges</c>: every character starts with three of each.</summary>
     public const int BaseMaximumCharges = 3;
 
+    /// <summary>Slayer's Masterful Form (Stats row 9891).</summary>
+    public const uint EnduranceEqualsFrenzy = Stat.MaximumEnduranceChargesIsEqualToMaximumFrenzyCharges;
+
     /// <summary>The three panel rows, from the stats as the server holds them (<paramref name="get"/>: by Stats.dat Id,
     /// 0 when absent). Reductions that would take a maximum below zero show zero instead.</summary>
-    public static List<(string Stat, int Value)> Compute(Func<string, int> get)
+    public static List<(uint Stat, int Value)> Compute(Func<uint, int> get)
     {
-        int powerAndEndurance = get("maximum_power_and_endurance_charges_+");
-        int powerAndFrenzy = get("maximum_power_and_frenzy_charges_+");
-        int all = get("maximum_frenzy_power_endurance_charges");
+        int powerAndEndurance = get(Stat.MaximumPowerAndEnduranceChargesPlus);
+        int powerAndFrenzy = get(Stat.MaximumPowerAndFrenzyChargesPlus);
+        int all = get(Stat.MaximumFrenzyPowerEnduranceCharges);
         static int Maximum(long value) => (int)Math.Clamp(value, 0, int.MaxValue);
+        int frenzy = Maximum((long)BaseMaximumCharges + get(Stat.MaxFrenzyCharges) + powerAndFrenzy + all);
         return
         [
-            ("virtual_maximum_endurance_charges",
-                Maximum((long)BaseMaximumCharges + get("max_endurance_charges") + powerAndEndurance + all)),
-            ("virtual_maximum_frenzy_charges",
-                Maximum((long)BaseMaximumCharges + get("max_frenzy_charges") + powerAndFrenzy + all)),
-            ("virtual_maximum_power_charges",
-                Maximum((long)BaseMaximumCharges + get("max_power_charges") + powerAndEndurance + powerAndFrenzy + all)),
+            // Masterful Form: the endurance maximum is the frenzy one instead of its own sum (client 0x142811290).
+            (Stat.VirtualMaximumEnduranceCharges, get(EnduranceEqualsFrenzy) != 0 ? frenzy
+                : Maximum((long)BaseMaximumCharges + get(Stat.MaxEnduranceCharges) + powerAndEndurance + all)),
+            (Stat.VirtualMaximumFrenzyCharges, frenzy),
+            (Stat.VirtualMaximumPowerCharges,
+                Maximum((long)BaseMaximumCharges + get(Stat.MaxPowerCharges) + powerAndEndurance + powerAndFrenzy + all)),
         ];
     }
 
@@ -42,15 +46,15 @@ static class ChargePanelStats
     /// their explicit replacements. Pinned PoB CalcPerform mirrors Endurance/Frenzy/Power into Brutal/Affliction/
     /// Absorption respectively, or zero without the flag. Always emit zero to clear a removed source's native gates.
     /// No direct special maximum, minimum conversion, gain-instead flag or current charge state is inferred.</summary>
-    public static List<(string Stat, int Value)> MirroredMaximums(Func<string, int> completed)
+    public static List<(uint Stat, int Value)> MirroredMaximums(Func<uint, int> completed)
     {
         return
         [
-            ("virtual_maximum_brutal_charges", Mirror("maximum_brutal_charges_is_equal_to_maximum_endurance_charges", "endurance")),
-            ("virtual_maximum_affliction_charges", Mirror("maximum_affliction_charges_is_equal_to_maximum_frenzy_charges", "frenzy")),
-            ("virtual_maximum_absorption_charges", Mirror("maximum_absorption_charges_is_equal_to_maximum_power_charges", "power")),
+            (Stat.VirtualMaximumBrutalCharges, Mirror(Stat.MaximumBrutalChargesIsEqualToMaximumEnduranceCharges, "endurance")),
+            (Stat.VirtualMaximumAfflictionCharges, Mirror(Stat.MaximumAfflictionChargesIsEqualToMaximumFrenzyCharges, "frenzy")),
+            (Stat.VirtualMaximumAbsorptionCharges, Mirror(Stat.MaximumAbsorptionChargesIsEqualToMaximumPowerCharges, "power")),
         ];
-        int Mirror(string flag, string standard) => completed(flag) != 0
-            ? Math.Max(0, completed($"virtual_maximum_{standard}_charges")) : 0;
+        int Mirror(uint flag, string standard) => completed(flag) != 0
+            ? Math.Max(0, completed(Stat.Of($"virtual_maximum_{standard}_charges"))) : 0;
     }
 }

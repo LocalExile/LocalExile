@@ -1,13 +1,21 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core;
 
 /// <summary>Opening objects use fitted .arm placements and captured .tmd placements, never seed-specific coordinates.</summary>
-static class TutorialObjects
+public static class TutorialObjects
 {
     public const string Strand = "1_1_1", Exile = "Metadata/NPC/Act1/WoundedExile",
         Zombie = "Metadata/Monsters/Zombies/ZombieBite", Spawner = "Metadata/Monsters/Zombies/BiteZombieSpawner",
-        Chest = "Metadata/Chests/TutorialSupportGemChest";
+        Chest = "Metadata/Chests/TutorialSupportGemChest",
+        Blocker1 = "Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_1",
+        Blocker2 = "Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_2",
+        Blocker3 = "Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_3",
+        Doorman = "Metadata/NPC/Act1/Doorman",
+        SkillGemTutorialFlag = "CompletedSkillGemTutorial",
+        SupportGemTutorialFlag = "CompletedSupportGemTutorial";
+    public static bool IsTutorialWall(string type) => type is Blocker1 or Blocker2;
     public sealed record Placement(string Type, string Model, int X, int Y, float Rotation);
 
     // TalkToWoundedExile(8.2,22.8) supplies the two voice lengths, not two stages of one scene.
@@ -29,11 +37,11 @@ static class TutorialObjects
           ChestOpened: false, SkillClaimed: false, SupportClaimed: false };
 
     /// <summary>The exile's voice line ends when its window closes: the running scene goes on to the bite now.</summary>
-    public static void SkipDialogue(ClientState conn)
+    public static void SkipDialogue(Player player)
     {
         bool exile;
-        lock (conn.Npcs) exile = conn.Npcs.GetValueOrDefault(conn.TalkingTo)?.Npc.Id == Exile;
-        if (exile && conn.TutorialSceneRunning) conn.TutorialDialogueSkipped?.TrySetResult();
+        lock (player.Npcs) exile = player.Npcs.GetValueOrDefault(player.TalkingTo)?.Npc.Id == Exile;
+        if (exile && player.TutorialSceneRunning) player.TutorialDialogueSkipped?.TrySetResult();
     }
 
     public sealed record RoomPlacement(int X,int Y,int Width,int Height,int Code)
@@ -77,9 +85,9 @@ static class TutorialObjects
     }
     public static Placement? ChestAt(AreaPopulation.RoomPoint point,string folder="data")
     {
-        using var doc=GameTables.Open(Path.Combine(folder,"tables","Chests.json"));
-        foreach(var row in doc.RootElement.EnumerateArray())
-            if(row.GetProperty("Id").GetString()==Chest && row.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString() is {Length:>0} model)
+        var doc = ClientTables.Table("Chests");
+        foreach(var row in doc)
+            if(row.Text("Id")==Chest && row.Texts("AOFiles").FirstOrDefault() is {Length:>0} model)
                 return new(Chest,model,point.X,point.Y,point.Angle);
         return null;
     }
@@ -134,5 +142,5 @@ static class TutorialObjects
         return w.U8(0).U8(0).ToArray(); // Animated, tasks; BaseEvents consumes no bytes.
     }
     static void Positioned(BlobWriter w,int x,int y,float rotation) =>
-        w.I32(x).I32(y).F32(rotation).U16(0).U8(0).U8(2).U8(0).U8(1);
+        w.Positioned(x, y, rotation);
 }

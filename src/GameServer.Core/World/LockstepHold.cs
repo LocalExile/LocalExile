@@ -18,6 +18,9 @@ public sealed class LockstepHold
     /// <summary>The Move skill of the click (0x18e).</summary>
     public ushort Skill { get; private set; }
 
+    /// <summary>Whether a held or pending movement request still has a destination.</summary>
+    public bool Active => _target is not null;
+
     /// <summary>C→S 0x18e: a click, with the target as a cell.</summary>
     public void Press((int X, int Y) target, ushort skill, ushort flags)
     {

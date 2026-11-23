@@ -8,14 +8,14 @@ using GameServer.Core.Protocol.Instance;
 /// current maximum. Rarity factors are our policy: Normal 1, Magic 1.5, Rare 2, Unique 3. The default threshold is
 /// maximum Life. rawHit is the accepted melee hit AFTER its critical multiplier and BEFORE target mitigation.
 /// </summary>
-static class FortificationGainModel
+public static class FortificationGainModel
 {
     public const int Version = 1;
-    public const string GainedFromHitsStat = "fortification_gained_from_hits_+%";
-    public const string GainedAgainstUniqueStat = "fortification_gained_from_hits_+%_against_unique_enemies";
+    public const uint GainedFromHitsStat = Stat.FortificationGainedFromHitsPlusPct;
+    public const uint GainedAgainstUniqueStat = Stat.FortificationGainedFromHitsPlusPctAgainstUniqueEnemies;
     public readonly record struct Modifiers(int Increased = 0, int IncreasedAgainstUnique = 0)
     {
-        public static Modifiers From(Func<string, int> get) => new(get(GainedFromHitsStat), get(GainedAgainstUniqueStat));
+        public static Modifiers From(Func<uint, int> get) => new(get(GainedFromHitsStat), get(GainedAgainstUniqueStat));
     }
 
     public static int Calculate(decimal rawHit, decimal maximumLife, MonsterRarity rarity, int maximum,

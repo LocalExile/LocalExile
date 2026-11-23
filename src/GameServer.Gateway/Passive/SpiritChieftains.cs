@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core;
 
 /// <summary>
 /// The Spirit chieftain skills that Ancestral Commander's Ancestral Spirit options trigger (Summon Spirit of Kahuturoa,
@@ -9,10 +10,16 @@ using GameServer.Core.Protocol.Login;
 /// (GrantedEffectsPerLevel CooldownGroup 24, 20 s, one use) and the Leadership buff the summoned chieftain gives the
 /// player for the skill's duration, while the immortal chieftain it summons fights beside him (PlayerMinions,
 /// Game.MinionAttacks). The buff's <c>ancestral_buff_cooldown_does_not_tick</c> stops that cooldown while it lasts.
-/// Guarded by the Monsters lock; times are the connection's game seconds.
+/// Owned by the area's frame; times are the connection's game seconds.
 /// </summary>
-sealed class SpiritChieftains
+public sealed class SpiritChieftains
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Templates = Load();
+    }
+
     /// <summary>A Leadership buff: its BuffDefinitions row, its stats by client key and when it ends.</summary>
     public sealed record Leadership(ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, double Until);
 
@@ -26,7 +33,9 @@ sealed class SpiritChieftains
     public Summon? Pending;
     /// <summary>The buff the client was last sent and its instance (Program.SpiritChieftainPresentation).</summary>
     public Leadership? Sent;
-    public ushort SentInstance;
+
+    /// <summary>A Leadership buff started or ended early (the stat steps that read it run again).</summary>
+    public Action? Changed;
 
     public Leadership? Active(double now) => buff is { } b && now < b.Until ? b : null;
 
@@ -40,13 +49,14 @@ sealed class SpiritChieftains
         if (Active(now) is not null || !cooldown.TryUse(now, plan)) return false;
         buff = new(row, stats, now + seconds);
         cooldown.Refresh(now, 0);
+        Changed?.Invoke();
         return true;
     }
 
     /// <summary>The buff ends now (the player died: the chieftain dies with him); the cooldown recovers from here.</summary>
     public void End(double now)
     {
-        if (buff is { } b && b.Until > now) buff = b with { Until = now };
+        if (buff is { } b && b.Until > now) { buff = b with { Until = now }; Changed?.Invoke(); }
     }
 
     void Settle(double now, double rate)
@@ -63,40 +73,31 @@ sealed class SpiritChieftains
     /// none.</summary>
     public static (ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, int? Minion)? LeadershipOf(IReadOnlyDictionary<uint, int> own)
     {
-        foreach (var (row, values, stats, minion) in Templates.Value)
+        foreach (var (row, values, stats, minion) in Templates)
             if (values.All(own.ContainsKey))
                 return (row, [.. stats.Zip(values, (stat, value) => (stat, own[value]))], minion);
         return null;
     }
 
-    static readonly Lazy<(ushort Row, uint[] Values, uint[] Stats, int? Minion)[]> Templates = new(() => Load("data/tables"));
+    static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Templates = default!;
 
-    static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Load(string tables)
+    static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Load()
     {
-        string Path(string name) => System.IO.Path.Combine(tables, name + ".json");
-        if (!File.Exists(Path("BuffTemplates")) || !File.Exists(Path("BuffDefinitions"))) return [];
-        using var templates = JsonDocument.Parse(File.ReadAllBytes(Path("BuffTemplates")));
-        using var definitions = JsonDocument.Parse(File.ReadAllBytes(Path("BuffDefinitions")));
+        if (!ClientTables.Has("BuffTemplates") || !ClientTables.Has("BuffDefinitions")) return [];
+        var definitions = ClientTables.Table("BuffDefinitions");
         var minions = new Dictionary<int, int>();
-        if (File.Exists(Path("AncestralEmbraceVariations")))
-        {
-            using var embraces = JsonDocument.Parse(File.ReadAllBytes(Path("AncestralEmbraceVariations")));
-            foreach (var e in embraces.RootElement.EnumerateArray())
-                if (e.TryGetProperty("BuffTemplate", out var t) && t.ValueKind == JsonValueKind.Number
-                    && e.TryGetProperty("Minion", out var m) && m.ValueKind == JsonValueKind.Number)
-                    minions.TryAdd(t.GetInt32(), m.GetInt32());
-        }
-        static uint[] Keys(JsonElement row, string column) => row.TryGetProperty(column, out var v) && v.ValueKind == JsonValueKind.Array
-            ? [.. v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Number).Select(e => (uint)e.GetInt32() + 1)] : [];
+        foreach (var e in (IEnumerable<ClientRow>?)ClientTables.TableOrNull("AncestralEmbraceVariations") ?? [])
+            if (e.IntOrNull("BuffTemplate") is int t && e.IntOrNull("Minion") is int m)
+                minions.TryAdd(t, m);
+        static uint[] Keys(ClientRow row, string column) => [.. row.Ints(column).Select(e => (uint)e + 1)];
         var result = new List<(ushort, uint[], uint[], int?)>();
-        int index = 0;
-        foreach (var template in templates.RootElement.EnumerateArray())
+        foreach (var template in ClientTables.Table("BuffTemplates"))
         {
-            int row = index++;
-            if (template.GetProperty("BuffDefinitionsKey") is not { ValueKind: JsonValueKind.Number } key) continue;
-            uint[] values = Keys(template, "StatsKey"), stats = Keys(definitions.RootElement[key.GetInt32()], "StatsKeys");
+            int row = template.Index;
+            if (template.IntOrNull("BuffDefinitionsKey") is not int key) continue;
+            uint[] values = Keys(template, "StatsKey"), stats = Keys(definitions[key], "StatsKeys");
             if (values.Length > 0 && values.Length == stats.Length)
-                result.Add(((ushort)key.GetInt32(), values, stats, minions.TryGetValue(row, out int minion) ? minion : null));
+                result.Add(((ushort)key, values, stats, minions.TryGetValue(row, out int minion) ? minion : null));
         }
         return [.. result];
     }

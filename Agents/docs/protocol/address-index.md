@@ -3,6 +3,10 @@
 Every address used in the protocol docs, grouped by subsystem. Fn = function, Vt = vtable, Cls = message class vtable,
 G = global / static data.
 
+Fn addresses hold for every allowed client build (`ClientBuilds.cs`: 3.29.3c, its 3.29.3.5 hotfix, 3.29.3d). Vt, Cls and
+G addresses are the 3.29.3c release's: data moves between builds whose code does not
+([re/tooling.md](../re/tooling.md) §11).
+
 ## Network core
 | Address | Kind | What |
 |---|---|---|
@@ -85,6 +89,17 @@ G = global / static data.
 | `0x14218f630` | Fn | registers the world group on the instance pump |
 | `0x142189fe0` | Fn | world activation (world vtable +0x1c8): replay queue |
 | `0x141d87640` → `0x141d7fb50` | Fn | spatial index insert (23×23 buckets, no bounds check) |
+| `0x142149550` | Fn | 0x1d +0x28 → world `+0xd0` league category ([03](03-area-and-world.md), [re/011](../re/011-level-generation.md) §3) |
+| `0x1415a6800` | Fn | S→C 0x1f add ruleset (dispatcher case 8, slot 8): builds the Rulesets row's ruleset unless held ([03](03-area-and-world.md) §8) |
+| `0x1416851b0` / `0x141685030` | Fn | DeepwaterRules (row 171) per-frame update / DeepwaterPlugin lookup (0x28 when missing, no null check) |
+| `0x141f32870` | Fn | DeepwaterPlugin +0x20: main record N × N, The Sovereign (area type 53) as a sub-area inside an encounter ([re/011](../re/011-level-generation.md) §3c4) |
+| `0x141ecdad0` / `0x141eca930` → `0x141ecab90`, `0x141ecb130` | Fn | 0x1d extra-data decoder / terrain plugins created at generation start: each sent state, then the area's own ([03](03-area-and-world.md) §1) |
+| `0x141d93260` → `0x141f32690` → `0x141f35280` (`0x141f350c0`, `0x141f565f0`) | Fn | DeepwaterPlugin factory / ctor / state parser (cell, room row) |
+| `0x142436e50` / `0x141e4c7e0` | Fn | a mod record (u16 Mods HASH16, compact ints) / the compact signed int reader |
+| `0x141f32a70` | Fn | DeepwaterPlugin +0x30: the main graph's cells and each cell's room node |
+| `0x141f331e0` → `0x141f34ee0` | Fn | DeepwaterPlugin +0x28: the seams; `0x141f33de0` across, `0x141f34900` down (ends trimmed by `0x141f34200`, `0x141f33260` plain fill), `0x141f33c90` edge merge, `0x141f33560` re-pick, `0x141f33340` fill pick |
+| `0x1416850c0` | Fn | DeepwaterRules: region r ≥ 2 → plugin cell r − 2 |
+| `0x14041b5d0` | Fn | The Sovereign's C→S 0x2ca ruleset action opcodes 0-7 |
 
 ## Objects and components
 | Address | Kind | What |
@@ -180,13 +195,19 @@ G = global / static data.
 | `0x1435b31a8`, `0x141e76860` | Vt, Fn | Monster component type; slot 9 parses the `@level` suffix |
 | `0x141e30ba0` | Fn | Positioned .ot keys (`serialise_collidable` → +0x1b, …) |
 | `0x14161d160` (3.29.3b; not found in 3.29.3c) | Fn | Targetable deleter (where a failed object build crashes) |
+| `0x14346cd80` (read `0x140e27980`) | Cls | S→C 0x1a0 monsters remaining, one byte: handler case 0x7e at `0x14215718b` stores it at `instance+0xd7cd` ([14](14-monster-packs.md) §2) |
+| `0x1406b25f0` | Fn | map overlay builder: area name from the WorldAreas row, the count at `instance+0xd7cd` → `0x1406b24e0`, the level at `+0xd7cc` → `0x1406b2400` |
+| `0x1406b24e0` | Fn | map overlay "X monsters remain": 1 → ClientStrings `0x1ab6`, 0..50 → `0x1ab7`, 51..255 → `0x1ab8` ([14](14-monster-packs.md) §2) |
 
 ## Patching
 | Address | Kind | What |
 |---|---|---|
 | `0x1428f3c7e` | call site | "No patching required" decision |
 | `0x1421d3460` | Fn | local GGPK root hash is non-zero |
-| `0x1428f31c0` | Fn | compare a local directory hash with the welcome |
+| `0x1428f31c0` | Fn | compare a local directory hash with the welcome; no pack file → "differs" (`0x1428f3221`, `LooseFilesPatch`) |
+| `0x140df9010` | Fn | distribution mode from the exe name or a flag: 0 standalone, 1 Steam ("Steam", `--steam`), 4 Kakao ("KG"), 5 Epic ("EGS"); 2/3 a "Hotcool" build |
+| `0x1400fc3f0` | Fn | opens `Content.ggpk` unless the mode is 1, 3 or 5 (loose files; branch `0x1400fc426`, `LooseFilesPatch`) |
+| `0x1400f8654` | call site | `SteamAPI_Init` in Steam mode ("Unable to init Steam API"), after `SteamAPI_RestartAppIfNecessary` |
 
 ## Inventories and UI
 | Address | Kind | What |
@@ -224,6 +245,12 @@ G = global / static data.
 | `0x1421f2b40` / `0x1421f2980` | Fn | item write (u16 length + data) / data |
 | `0x1421f2c30` / `0x1421f2d00` | Fn | item read (length) / data: type hash → ItemTypeRegister, flags, components (slot 5) |
 | `0x141fabcc0` | Fn | ItemTypeRegister lookup by HASH32 |
+| `0x142401e00` | Fn | item description builder (tooltip and header): the bytes the name symbol is picked from ([13](13-items.md) §2f) |
+| `0x140c99de7` / `0x1416d10d8` | code | name-symbol selection in the tooltip / item header ([13](13-items.md) §2f) |
+| `0x140c9a7e5` / `0x1416d11b5` | call site | resolve the selected sprite name through `0x1400f2c70` in the tooltip / item header |
+| `0x1400f2c70` | Fn | sprite from a UI image name (`art/uiimages1.txt`) |
+| `0x1416edcb0` | Fn | item description copy, field by field |
+| `0x14013fb60` | Fn | look up the Mods component on an entity |
 | `0x1421f2800` | Fn | the four type hashes with a trailing u16 |
 | `0x1421ed330`, `0x1421e6050`, `0x1421e9790`, `0x1424b5720`, `0x1424a3f80`, `0x1423fb5f0`, `0x1424755d0` | Fn | item component reads: Base, Mods, Sockets, Quality, Charges, Stack, SkillGem |
 | `0x1421edee0`, `0x1421e7b00` | Fn | debug dumps of the Base and Mods components: each field's name ([13](13-items.md) §2f) |
@@ -296,6 +323,8 @@ G = global / static data.
 | `0x142169dd0` | Fn | 0x7b's switch over UI kinds; kind 0 → listeners at instance +0xff8 |
 | `0x140dcae00` | Fn | in-game UI: open the World panel in travel mode (`0x140aafe50` → `0x140aa2b10`, panel +0x522) |
 | `0x140aa6d60` | Fn | World panel pin click → C→S 0x4d |
+| `0x140aa3880` | Fn | special pin click: switch on SpecialMapPins row → 0x17a-0x185, 0x4d (12 Deepwater → 0x183); u8 1 with Ctrl |
+| `0x140aa76f0` | Fn | special pin "already there": current area type equals the row's `__col15` |
 | `0x141fe37b0` | Fn | is an area's waypoint bit set (bit = index among HasWaypoint rows with +0x1e4 in {1, 2, 5, 11}) |
 | `0x14214b340` | Fn | waypoint look of the current area (0 idle, 1 inactive, 2 activation), from 0x4c |
 | `0x140aaed40` | Fn | pin widget update: revealed (+0x329) and waypoint (+0x32a) states |
@@ -306,6 +335,12 @@ G = global / static data.
 | `0x141e89be0` | Fn | flag set reader (u16 n × (u8 block, u64 bits)); Player +0x1b8 quest flags, +0x1d0 |
 | `0x14012ae40` | Fn | flag set test `(set, bit)` |
 | `0x141e85520` | Fn | Player component update reader (0x2bc): u16 flags, 0x02 quest flags, 0x08 league quest flags, 0x10 Hideouts keys, 0x200 9 bytes, 0x01 experience |
+| `0x140108c80` | Fn | `CharacterAudioController` area-entry baseline: checks `WorldAreas.StartQuestFlags` against `0x2bb` Player flags and snapshots the bitset (`+0xe1`) |
+| `0x14010bd30` | Fn | `CharacterAudioController` QuestFlags update listener (vtable `0x143027020` +0x10): diffs `0x2bc` quest flags against `+0xe1` and plays the first matching `CharacterAudioEvents` row |
+| `0x14010c960` / `0x14010cad0` | Fn | `CharacterAudioController::PlayEvent` by UTF-16 `Id` (client-local triggers) / by `CharacterAudioEvents` row (applies `+0x18` delay ms, `+0x1c` cooldown ms via `0x140145d10`) |
+| `0x14012b660` | Fn | `Data/CharacterAudioEvents.dat` table getter (0x52-byte rows) |
+| `0x140d52f70` / `0x14015f040` | Fn | `InGameState` vtable `0x1431f66b0` `+0xf8` / `+0x100`: forward to `CharacterAudioController` (`+0x268`) `0x14010cad0` / `0x14010c960` |
+| `0x140d5b2f0` | Fn | `InGameState::OnPlayerLevelUp` (vtable `0x1431f6458` +0x08): formats `"LevelUp" + level` and plays matching `CharacterAudioEvents` row |
 | `0x141e1fbb0` | Fn | HideoutDoodad reader: u32 MTX hash, u8 variation, u8 flag, only when the object's data +0x14e is set (in hideouts) |
 
 ## Hideouts ([21](21-hideouts.md))
@@ -561,6 +596,8 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x141e9fa80` | Fn | Duration-based ACT animation eligibility and weighted reservoir selection |
 | `0x141fe51f0` | Fn | 0x1d1/0x1d2 reader: duration float, Animation.dat type byte, boolean |
 | `0x141e9c700` | Fn | 0x1d1 Actor animation: cancel prediction, select stance ACT, lock input during recovery |
+| `0x141e9c200` | Fn | Actor death handler: cancel the action, pick the death clip, clear Positioned blocking when the clip has no remove_collidability event |
+| `0x141e9a160` | Fn | Actor animation event handler: event 0xbbd2 (remove_collidability) clears Positioned blocking (+0x1e5 & 8) |
 | `0x14219b333` | Code | Actor 0x1d1 dispatch to virtual `+0xe0` recovery handler |
 | `0x141e941a0` | Fn | Action-start gate: Actor `+0x219` bit 2 blocks input during recovery |
 | `0x141e96fe0` | Fn | End local predicted action (Actor +0x1b8) |

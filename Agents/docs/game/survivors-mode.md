@@ -8,7 +8,7 @@ Ordinary exits and waypoint travel are refused during a run, so they cannot bypa
 Carry is bound to Auth's destination ticket, not the character name; a failed transfer retains the current run.
 Run progress is not saved across server restarts.
 
-The three modules under `Modules/Survivors/` separate automatic skills, rewards and the run's lifecycle.
+The three modules under `Modules/Custom/Survivors/` separate automatic skills, rewards and the run's lifecycle.
 The existing `/survivors` diagnostics and restart controls are available only to characters in this league.
 A run keeps the uniques it has collected: the equipment and bag carry over from run to run, and only the life flask is
 replaced with a fresh full one. Starting a run removes nothing else; stopping a run removes its transient skills.
@@ -110,7 +110,7 @@ The world clock stops for a choice, and S→C `0x1d3` pauses the client's world 
 message): the server already stops ordering monster walks, but only `0x1d3` stops the client walking each monster to
 its last ordered cell. Closing the window (or the run ending) sends `0x1d3 00` and restarts the clock.
 The window owns the pause: the client's own Escape-menu unpause (`C→S 0x1d4 0`, which the window's opening can send)
-is ignored while it is open (`ClientState.PauseHeld`), so the horde cannot kill the player mid-choice; a multi-level
+is ignored while it is open (`Player.PauseHeld`), so the horde cannot kill the player mid-choice; a multi-level
 kill deals its windows one at a time and the clock resumes only after the last choice.
 The opening window is dealt before the runner starts, so the first reward pauses the run before any monster spawns:
 the horde is already frozen at the very first second, not after the first wave.

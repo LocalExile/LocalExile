@@ -14,7 +14,7 @@ using GameServer.Core.Protocol.Instance;
 /// so <see cref="MapDestination"/> routes it to the first page of its own kind that has room: its base type, its visual
 /// identity for a legendary map, or the guardian named by its map modifiers (#382).
 /// </summary>
-sealed partial class AccountStash
+public sealed partial class AccountStash
 {
     /// <summary>Pages the client expects per map base (its tier button's page strip).</summary>
     public const int MapPages = 6;
@@ -89,7 +89,7 @@ sealed partial class AccountStash
             int parent = -1;
             for (int i = 0; i < _tabs.Count; i++)
                 if (_tabs[i].Saved.Type == StashRules.Map && _tabs[i].Saved.UniqueCategory == 0
-                    && _tabs[i].Saved.Parent == ushort.MaxValue) { parent = i; break; }
+                    && !_tabs[i].Saved.Hidden) { parent = i; break; }
             if (parent < 0) return 0;
             var have = MapChildren(parent).Select(i => _tabs[i].Saved.UniqueCategory).ToHashSet();
             int added = 0;

@@ -3,7 +3,7 @@
 /// immutable override snapshot so a database edit can be published without rebuilding the catalogues or the mod
 /// records. Readers take one snapshot reference; a writer swaps it atomically.
 /// </summary>
-sealed class ModRangeProvider
+public sealed class ModRangeProvider
 {
     static readonly IReadOnlyDictionary<(string ModId, int Index), (int Min, int Max)> Empty =
         new Dictionary<(string, int), (int, int)>();

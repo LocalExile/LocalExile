@@ -22,10 +22,10 @@ public sealed class SurvivorsLeagueTests
         Assert.Equal("Void", league.Parent);
         Assert.True(leagues.CanEnter("Survivors"));
         Assert.Contains(leagues.Entries(), entry => entry.Name == "Survivors");
-        Assert.Contains("Survivors/SurvivorsRun", league.Modules);
-        Assert.Contains("Survivors/SurvivorsSkills", league.Modules);
-        Assert.Contains("Survivors/SurvivorsRewards", league.Modules);
-        Assert.DoesNotContain(leagues.Find("Standard")!.Modules, module => module.StartsWith("Survivors/"));
+        Assert.Contains("Custom/Survivors/SurvivorsRun", league.Modules);
+        Assert.Contains("Custom/Survivors/SurvivorsSkills", league.Modules);
+        Assert.Contains("Custom/Survivors/SurvivorsRewards", league.Modules);
+        Assert.DoesNotContain(leagues.Find("Standard")!.Modules, module => module.StartsWith("Custom/Survivors/"));
 
         var skills = new ModuleLifetime("SurvivorsSkills");
         var rewards = new ModuleLifetime("SurvivorsRewards");
@@ -35,12 +35,13 @@ public sealed class SurvivorsLeagueTests
             runs.Stop(ex => throw ex);
             rewards.Stop(ex => throw ex);
             skills.Stop(ex => throw ex);
+            foreach (string id in new[] { "SurvivorsRun", "SurvivorsRewards", "SurvivorsSkills" }) GameEventOwners.Release(id, GameEventOwners.ModuleRank);
         });
         new SurvivorsSkillsModule().Load(Context(skills));
         new SurvivorsRewardsModule().Load(Context(rewards));
         new SurvivorsRunModule().Load(Context(runs));
-        var standard = Connection("ordinary", leagues.Find("Standard")!);
-        var survivor = Connection("survivor", league);
+        var standard = PlayerOf("ordinary", leagues.Find("Standard")!);
+        var survivor = PlayerOf("survivor", league);
         var state = SurvivorsSkills.StateOf(survivor);
         state.Survivors = new();
         state.SurvivorsItemIds.Add(123);
@@ -143,14 +144,14 @@ public sealed class SurvivorsLeagueTests
         new UniqueCatalogueTests().Every_unique_resolves_its_mods_and_every_equipment_unique_has_a_stat();
     }
 
-    static ClientState Connection(string name, GameServer.Core.Accounts.League league) =>
+    static Player PlayerOf(string name, GameServer.Core.Accounts.League league) =>
         new(new(1, name, 100, 100, 100, 100, null, []), 1, 1)
         {
-            Character = name,
-            LeagueModule = new(league, ServerLeagues.ModulesOf(league)),
+            Character = { Name = name },
+            LeagueModule = new(league, ServerLeagues.ModulesOf(league))
         };
 
-    static async Task OwnedContinuations(ClientState conn, GameServer.Core.Accounts.League league)
+    static async Task OwnedContinuations(Player player, GameServer.Core.Accounts.League league)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-ownership-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -158,30 +159,37 @@ public sealed class SurvivorsLeagueTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
         var gate = Program.SendGates.GetValue(ciphers, _ => new(1, 1));
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        using var writer = new System.Net.Sockets.TcpClient();
+        var accepting = listener.AcceptTcpClientAsync();
+        await writer.ConnectAsync(System.Net.IPAddress.Loopback, ((System.Net.IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader = await accepting;
+        player.Connection.Session = new("survivors-test", writer.GetStream(), ciphers);
         try
         {
             var run = new SurvivorsRun();
             run.RecordExperience(5);
             var choice = Assert.Single(run.DealOffer(new Random(1), 0, 0, 0));
             Assert.Equal(SurvivorsChoiceKind.Heal, choice.Kind);
-            var old = SurvivorsRunRules.BindRun(conn, run);
-            var state = SurvivorsSkills.StateOf(conn);
+            var old = SurvivorsRunRules.BindRun(player, run);
+            var state = SurvivorsSkills.StateOf(player);
             state.SurvivorsOffer = new() { [1] = choice };
             state.SurvivorsOfferInventoryRegistered = true;
             state.SurvivorsCatalog = [];
-            conn.PlayerLife = 1;
+            player.PlayerLife = 1;
             Assert.True(gate.Wait(0));
-            var pick = SurvivorsRewards.ApplySurvivorsChoice("ownership-test", null!, ciphers, conn, choice);
+            var pick = SurvivorsRewards.ApplySurvivorsChoice(player, choice);
             Assert.False(pick.IsCompleted);
-            SurvivorsRunRules.Release(conn, run);
+            SurvivorsRunRules.Release(player, run);
             var replacement = new SurvivorsRun();
-            SurvivorsRunRules.BindRun(conn, replacement);
+            SurvivorsRunRules.BindRun(player, replacement);
             state.SurvivorsPausedByWindow = true;
-            conn.Clock.Stop();
+            player.Clock.Stop();
             gate.Release();
             Assert.False(await pick);
-            Assert.Equal(1u, conn.PlayerLife);
-            Assert.False(conn.Clock.IsRunning);
+            Assert.Equal(1u, player.PlayerLife);
+            Assert.False(player.Clock.IsRunning);
             Assert.False(old.Current);
 
             var runtime = new ProjectileRuntime(new EmptyWorld());
@@ -193,25 +201,25 @@ public sealed class SurvivorsLeagueTests
             runtime.Discard(u => u.Payload is ProjectileOffense offense && ReferenceEquals(offense.Owner, old));
             Assert.Equal("unrelated", Assert.Single(runtime.Projectiles).Use.Payload);
 
-            Assert.NotNull(SurvivorsRunRules.TravelRefusal(conn, new(1, 0, false)));
+            Assert.NotNull(SurvivorsRunRules.TravelRefusal(player, new(1, 0, false)));
             var transfer = new PendingTransfer(2, 0, false);
             state.StageTransfer = transfer;
-            Assert.Null(SurvivorsRunRules.TravelRefusal(conn, transfer));
-            var carry = new SurvivorsRunRules.SurvivorsCarry(replacement, 1, DateTime.UtcNow, [123], conn.Character);
-            SurvivorsRunRules.PendingRuns[conn] = carry;
-            await SurvivorsRunRules.TransferResolved(conn, transfer, new() { Ok = true, Ticket = 99 });
-            Assert.False(SurvivorsRunRules.SurvivorsCarried.ContainsKey(conn.Ticket));
+            Assert.Null(SurvivorsRunRules.TravelRefusal(player, transfer));
+            var carry = new SurvivorsRunRules.SurvivorsCarry(replacement, 1, DateTime.UtcNow, [123], player.Character.Name);
+            SurvivorsRunRules.PendingRuns[player] = carry;
+            await SurvivorsRunRules.TransferResolved(player, transfer, new() { Ok = true, Ticket = 99 });
+            Assert.False(SurvivorsRunRules.SurvivorsCarried.ContainsKey(player.Ticket));
             Assert.Same(replacement, SurvivorsRunRules.SurvivorsCarried[99].Run);
             Assert.Equal([123u], SurvivorsRunRules.SurvivorsCarried[99].ItemIds);
             // Fresh login has a different ticket and cannot consume the previous connection's carry.
-            var login = Connection(conn.Character!, league);
-            await SurvivorsRunRules.ResumeSurvivors("fresh-login-test", null!, ciphers, login);
+            var login = PlayerOf(player.Character.Name!, league);
+            await SurvivorsRunRules.ResumeSurvivors(login);
             Assert.Null(SurvivorsSkills.StateOf(login).Survivors);
         }
         finally
         {
-            SurvivorsRunRules.Release(conn);
-            PlayerInventories.Forget(conn.Character!);
+            SurvivorsRunRules.Release(player);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
@@ -238,10 +246,9 @@ public sealed class SurvivorsLeagueTests
         protected override object? Invoke(MethodInfo? method, object?[]? args) => method!.Name switch
         {
             "get_Lifetime" => Lifetime,
-            "OnChatCommand" or "OnAreaGenerated" or "OnPlayerLeaving" or "OnPacket" => new Registration(),
+            "get_Manifest" => new ModManifest(Lifetime.Id, "0", ModKind.Feature, [], Lifetime.Id + ".dll"),
             _ => throw new NotSupportedException(method.Name),
         };
-        sealed class Registration : IDisposable { public void Dispose() { } }
     }
 
     sealed class Cleanup(Action run) : IDisposable { public void Dispose() => run(); }

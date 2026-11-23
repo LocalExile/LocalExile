@@ -1,9 +1,9 @@
 using System.Numerics;
 
 /// <summary>Power of Purpose's explicit PoB-based model, not a recovered official server algorithm.</summary>
-static class PowerOfPurpose
+public static class PowerOfPurpose
 {
-    public const string RawFlag = "keystone_mental_conditioning";
+    public const uint RawFlag = Stat.KeystoneMentalConditioning;
 
     // All existing branches have denominators dividing this scale, including half a point of Intelligence mana.
     // BigInteger keeps signed contributions exact even when several int-sized modifiers would overflow decimal.

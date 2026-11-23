@@ -29,16 +29,9 @@ claimed here.
 
 The official Orb of Chance can create uniques and uses per-unique rarity weights; the local server rule does not.
 Implementing the official table is a separate feature per the roadmap, together with the Vaal outcomes.
-The local 30%/70% split and the 2-4 magic count are server rules maintained by their own regression tests.
+The local 30%/70% split and the 2-4 magic count are server rules.
 
-## Automated coverage
-
-`ChanceTests` checks 500 mixed outcomes for the documented rare/magic shapes, names, side limits, families, values and
-the full modifier pool; the 30% rare share over 5,000 rolls; preserved implicits/quality/sockets/links/charges; and
-refusal of mirrored/corrupted/unsupported/unmodifiable/unknown/no-Mods/empty-pool items and non-weapon/armour targets.
-`ChanceGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, one orb spent, saved magic/rare result after cache eviction, refused second use, and
-refused corrupted/mirrored/unsupported/jewel targets without spending.
+## Verification
 
 No fresh real-client run was made for this change.
 The old live check (2026-10-21) is not evidence for the new admission rules; native re-acceptance remains to be

@@ -18,8 +18,10 @@ import logging
 import math
 from pathlib import Path
 import re
+import sqlite3
 
 from bridge import ROOT, WaitTimeout
+import clientdb  # scripts/dev, on the path through bridge
 
 log = logging.getLogger("campaign")
 
@@ -35,11 +37,11 @@ class StepFailed(RuntimeError):
 class Context:
     """What the steps share: the bridge, the character's class (gem choice) and run options."""
 
-    def __init__(self, bridge, class_name=None, seed=1, data_dir=ROOT / "data" / "tables"):
+    def __init__(self, bridge, class_name=None, seed=1, db=None):
         self.bridge = bridge
         self.class_name = class_name
         self.seed = seed
-        self.data_dir = Path(data_dir)
+        self.db = db  # client.db (clientdb's default) or another database
         self._gems = None
         self._classes = None
         self._connections = None
@@ -52,35 +54,35 @@ class Context:
         if self._gates is None:
             self._gates = {}
             try:
-                flags = [r.get("Id") for r in json.loads((self.data_dir / "QuestFlags.json").read_text(encoding="utf-8"))]
-                for r in json.loads((self.data_dir / "WorldAreas.json").read_text(encoding="utf-8")):
+                flags = [r.get("Id") for r in clientdb.table("QuestFlags", self.db)]
+                for r in clientdb.table("WorldAreas", self.db):
                     keys = r.get("EndQuestFlags") or []
                     self._gates[r.get("Id")] = [flags[k] for k in keys if isinstance(k, int) and 0 <= k < len(flags)]
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, KeyError, sqlite3.Error) as error:
                 log.debug("area gates unavailable: %s", error)
         return self._gates
 
     def connections(self):
-        """WorldAreas Id -> the Ids its exits lead to (WorldAreas.json Connections_WorldAreasKeys); {} without the table."""
+        """WorldAreas Id -> the Ids its exits lead to (WorldAreas Connections_WorldAreasKeys); {} without the table."""
         if self._connections is None:
             self._connections = {}
             try:
-                rows = json.loads((self.data_dir / "WorldAreas.json").read_text(encoding="utf-8"))
+                rows = clientdb.table("WorldAreas", self.db)
                 ids = [r.get("Id") for r in rows]
                 for r in rows:
                     keys = r.get("Connections_WorldAreasKeys") or []
                     self._connections[r.get("Id")] = [ids[k] for k in keys if isinstance(k, int) and 0 <= k < len(ids)]
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, KeyError, sqlite3.Error) as error:
                 log.debug("area connections unavailable: %s", error)
         return self._connections
 
     def gem_attributes(self):
-        """BaseItemTypes Id -> (str%, dex%, int%, is_support) from SkillGems.json; {} without the tables."""
+        """BaseItemTypes Id -> (str%, dex%, int%, is_support) from the SkillGems table; {} without the tables."""
         if self._gems is None:
             self._gems = {}
             try:
-                bases = json.loads((self.data_dir / "BaseItemTypes.json").read_text(encoding="utf-8"))
-                gems = json.loads((self.data_dir / "SkillGems.json").read_text(encoding="utf-8"))
+                bases = clientdb.table("BaseItemTypes", self.db)
+                gems = clientdb.table("SkillGems", self.db)
                 for gem in gems:
                     key = gem.get("BaseItemTypesKey")
                     if isinstance(key, int) and 0 <= key < len(bases):
@@ -88,16 +90,16 @@ class Context:
                                                         gem.get("DexterityRequirementPercent", 0),
                                                         gem.get("IntelligenceRequirementPercent", 0),
                                                         bool(gem.get("IsSupport")))
-            except (OSError, ValueError, KeyError) as error:
+            except (OSError, ValueError, KeyError, sqlite3.Error) as error:
                 log.debug("gem table unavailable: %s", error)
         return self._gems
 
     def class_attributes(self, state=None):
-        """(str, dex, int) starting attributes of the character's class (Characters.json), or None."""
+        """(str, dex, int) starting attributes of the character's class (the Characters table), or None."""
         if self._classes is None:
             try:
-                self._classes = json.loads((self.data_dir / "Characters.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+                self._classes = clientdb.table("Characters", self.db)
+            except (OSError, ValueError, KeyError, sqlite3.Error):
                 self._classes = []
         row = None
         if self.class_name:

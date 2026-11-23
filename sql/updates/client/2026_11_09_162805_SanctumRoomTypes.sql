@@ -1,0 +1,21 @@
+-- Client table SanctumRoomTypes: all 19 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "SanctumRoomTypes" ("_row", "Id", "__col1", "__col2", "QuestFlagEnter", "QuestFlagComplete", "__col5", "Icon", "__col7", "Description", "__col9", "Rooms", "__col11", "__col12") VALUES
+(0, 'Explore', 0, 0, 234, 233, 0, '', 0, '', '["Abandoned Library","Decrepit Cellar","Halls of Worship","Undercroft"]', '[0,5]', '', 0),
+(1, 'Arena', 0, 1, 236, 235, 0, '', 0, '', '["Templar Annals","Battleground","Infernum","Desecrated Crypts"]', '[1,5]', '', 0),
+(2, 'Lair', 0, 1, 236, 235, 0, '', 0, '', '["Chambers of Inscription","Derelict Caverns","Unholy Lair","Lost Catacombs"]', '[2,5]', '', 0),
+(3, 'Maze', 0, 0, 234, 233, 0, '', 0, '', '["Sacred Chronicles","Sacred Chronicles","Sacred Chronicles","Sacred Chronicles"]', '[5]', '', 0),
+(4, 'Gauntlet', 0, 0, 234, 233, 0, '', 0, '', '["Holy Trials","Gauntlet","Crucible","Entombment"]', '[4,5]', '', 0),
+(5, 'Miniboss', 0, 1, 240, 239, 0, '', 1, '', '["Scriptorium","Reliquary","Sanctum Bellum","Mausoleum"]', '[3,5,9]', '', 0),
+(6, 'Vault', 0, 0, 234, 233, 0, '', 0, '', '["Repository","Treasury","Forsaken Arcae","Templar Coffers"]', '[5]', '', 0),
+(7, 'Puzzle', 0, 0, 238, 237, 0, '', 0, '', '["Puzzle","Conundrum","Enigma","Quandary"]', '[5]', '', 0),
+(8, 'Boss', 0, 0, 242, 243, 1, '', 1, '', '["Candlelit Chapel","Experimentation Chamber","Hall of Mirrors","Sanctum Sanctorum"]', '[6]', '', 0),
+(9, 'Merchant', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/MerchantIcon', 0, 'Contains Merchant', '["Merchant","Merchant","Merchant","Merchant"]', '[]', '', 0),
+(10, 'Fountain', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/HealingFountainIcon', 0, 'Contains Fountain', '["Fountain","Fountain","Fountain","Fountain"]', '[]', '', 0),
+(11, 'Deal', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/LyciaPactIcon', 0, 'Contains Accursed Pact', '["Accursed Pact","Accursed Pact","Accursed Pact","Accursed Pact"]', '[]', '', 0),
+(12, 'Deferral', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/CurrencyRewardIcon', 0, 'Offers Items on Completion', '["Offer","Offer","Offer","Offer"]', '[]', '', 1),
+(13, 'CurseFountain', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/CurseFountainIcon', 0, 'Contains Afflicted Fountain', '["Afflicted Fountain","Afflicted Fountain","Afflicted Fountain","Afflicted Fountain"]', '[]', '', 0),
+(14, 'BoonFountain', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/BoonFountainIcon', 0, 'Contains Benevolent Fountain', '["Benevolent Fountain","Benevolent Fountain","Benevolent Fountain","Benevolent Fountain"]', '[]', '', 0),
+(15, 'RainbowFountain', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/RainbowFountainIcon', 0, 'Contains Radiant Fountain', '["Radiant Fountain","Radiant Fountain","Radiant Fountain","Radiant Fountain"]', '[]', '', 0),
+(16, 'Treasure', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/TreasureIcon', 0, 'Contains Major Treasure Reward', '["Major Treasure","Major Treasure","Major Treasure","Major Treasure"]', '[]', '', 0),
+(17, 'TreasureMinor', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/MinorTreasureIcon', 0, 'Contains Minor Treasure Reward', '["Minor Treasure","Minor Treasure","Minor Treasure","Minor Treasure"]', '[]', '', 0),
+(18, 'Final', 1, 0, NULL, NULL, 0, 'Art/2DArt/UIImages/InGame/Sanctum/GargoyleBossIcon', 0, '', '["Candlelit Chapel","Candlelit Chapel","Candlelit Chapel","Candlelit Chapel"]', '[]', '', 0);

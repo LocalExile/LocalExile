@@ -1,18 +1,27 @@
 using System.Text.Json;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>Base monster resistance from MonsterTypes.Resistances → MonsterResistances. The level's
 /// DefaultMonsterStats.Difficulty selects Normal/Cruel/Merciless columns; it is not guessed from area names.
 /// Spawned monster modifiers, exposure and curses are additional sources, outside this base table.</summary>
-sealed class MonsterResistanceCatalog(string folder = "data")
+public sealed class MonsterResistanceCatalog
 {
+    readonly string folder;
+
+    public MonsterResistanceCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        _tables = Load(folder);
+    }
+
     private sealed record Tables(int[] TypeResistance, int[] Difficulty, int[][] Resistances);
-    private readonly Lazy<Tables?> _tables = new(() => Load(folder));
+    private readonly Tables? _tables;
 
     public int? BaseResistance(int monsterType, int level, DamageType type)
     {
         if (type == DamageType.Physical) return 0;
-        if (_tables.Value is not { } t || monsterType < 0 || monsterType >= t.TypeResistance.Length
+        if (_tables is not { } t || monsterType < 0 || monsterType >= t.TypeResistance.Length
             || level < 1 || level > t.Difficulty.Length) return null;
         int row = t.TypeResistance[monsterType], difficulty = t.Difficulty[level - 1];
         if (row < 0 || row >= t.Resistances.Length || difficulty is < 1 or > 3) return null;
@@ -22,19 +31,15 @@ sealed class MonsterResistanceCatalog(string folder = "data")
 
     private static Tables? Load(string folder)
     {
-        string types = Path.Combine(folder, "tables", "MonsterTypes.json"),
-            levels = Path.Combine(folder, "tables", "DefaultMonsterStats.json"),
-            resistance = Path.Combine(folder, "tables", "MonsterResistances.json");
-        if (!File.Exists(types) || !File.Exists(levels) || !File.Exists(resistance)) return null;
-        using var t = JsonDocument.Parse(File.ReadAllBytes(types));
-        using var l = JsonDocument.Parse(File.ReadAllBytes(levels));
-        using var r = JsonDocument.Parse(File.ReadAllBytes(resistance));
+        if (!ClientTables.Has("MonsterTypes") || !ClientTables.Has("DefaultMonsterStats") || !ClientTables.Has("MonsterResistances")) return null;
+        var t = ClientTables.Table("MonsterTypes");
+        var l = ClientTables.Table("DefaultMonsterStats");
+        var r = ClientTables.Table("MonsterResistances");
         return new(
-            [.. t.RootElement.EnumerateArray().Select(row => row.TryGetProperty("Resistances", out var value)
-                && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : -1)],
-            [.. l.RootElement.EnumerateArray().Select(row => row.GetProperty("Difficulty").GetInt32())],
-            [.. r.RootElement.EnumerateArray().Select(row => (from difficulty in new[] { "Normal", "Cruel", "Merciless" }
+            [.. t.Select(row => row.IntOrNull("Resistances") ?? -1)],
+            [.. l.Select(row => row.Int("Difficulty"))],
+            [.. r.Select(row => (from difficulty in new[] { "Normal", "Cruel", "Merciless" }
                 from element in new[] { "Fire", "Cold", "Lightning", "Chaos" }
-                select row.GetProperty(element + difficulty).GetInt32()).ToArray())]);
+                select row.Int(element + difficulty)).ToArray())]);
     }
 }

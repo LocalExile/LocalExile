@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
@@ -5,17 +6,41 @@ namespace GameServer.Gateway.Tests;
 public sealed class LabyrinthTrialTests
 {
     [Fact]
+    public void GoddessOfJusticeRidesOnIzarosBackBone()
+    {
+        string[] components = [.. MonsterObject.BaseComponents, "Transitionable"];
+        var alone = new MonsterObject(100, 120, 500, components, Rarity: MonsterRarity.Unique, TransitionState: 2).Blob();
+        var riding = (new MonsterObject(100, 120, 500, components, Rarity: MonsterRarity.Unique, TransitionState: 2)
+            { Parent = 0x1234, Bone = IzaroGoddess.Bone }).Blob();
+
+        // Animated (0x141e5afd0): bit 2 alone, then the attachment record (0x141e5f300): parent, two f32, the bone as a
+        // u32-counted byte string, the kind (4: her own facing), the mask, three offsets. Every other byte is the same.
+        int at = Enumerable.Range(0, alone.Length).First(i => alone[i] != riding[i]);
+        Assert.Equal(0, alone[at]);
+        Assert.Equal(4, riding[at]);
+        var record = new List<byte>();
+        record.AddRange(BitConverter.GetBytes(0x1234u));
+        record.AddRange(new byte[8]);
+        record.AddRange(BitConverter.GetBytes((uint)IzaroGoddess.Bone.Length));
+        record.AddRange(System.Text.Encoding.ASCII.GetBytes(IzaroGoddess.Bone));
+        record.AddRange([4, 0]);
+        record.AddRange(new byte[12]);
+        Assert.Equal(record, riding[(at + 1)..(at + 1 + record.Count)]);
+        Assert.Equal(alone[(at + 1)..], riding[(at + 1 + record.Count)..]);
+    }
+
+    [Fact]
     public void TrialDoorBlobAndUnblockFollowTheClientReaders()
     {
         const string model = "Metadata/Terrain/Doodads/Labyrinth/LabyrinthDoor.ao";
         byte[] closed = LabyrinthTrials.Blob(LabyrinthTrials.IntroDoor, model, 160, 57, 0, 1, LabyrinthTrials.Closed);
         byte[] open = LabyrinthTrials.Blob(LabyrinthTrials.IntroDoor, model, 160, 57, 0, 1, LabyrinthTrials.Open);
 
-        // Positioned (19: flags1 0x20 no static position, 0x08 blocks no walker with its u8), Animated (1 + u32 count +
+        // Positioned (17: flags1 0x20 no static position, 0x08 blocks no walker with its u8), Animated (1 + u32 count +
         // UTF-16), InteractionAction, Transitionable, TriggerableBlockage, tasks.
-        int animated = 2 + 19, after = animated + 1 + 4 + model.Length * 2;
+        int animated = 2 + 17, after = animated + 1 + 4 + model.Length * 2;
         Assert.Equal(160, BitConverter.ToInt32(closed, 2));
-        Assert.Equal(new byte[] { 0, 0x2a, 0, 1, 1 }, closed[16..21]);
+        Assert.Equal(new byte[] { 0, 0x28, 1 }, closed[16..19]);
         Assert.Equal(1, closed[animated]);
         Assert.Equal(model.Length, BitConverter.ToInt32(closed, animated + 1));
         Assert.Equal(new byte[] { 0, LabyrinthTrials.Closed, 1, 0, 0 }, closed[after..]);
@@ -26,13 +51,13 @@ public sealed class LabyrinthTrialTests
         // 0x1c6: id, world header, u8 0 (unblocked: no sections follow).
         Assert.Equal(new byte[] { 0x01, 0xc6, 0, 0, 0x30, 0x05, 0, 0, 0, 0, 0, 0, 0 }, InstanceEntities.BlockageUpdate(0x3005, false));
 
-        // The Crematorium's hot plate: Positioned (f0 0x04: its fixed height, 125 below, after flags1; 26), Animated,
+        // The Crematorium's hot plate: Positioned (f0 0x04: its fixed height, 125 below, after flags1; 24), Animated,
         // Transitionable, Buffs (u16 count), tasks. A 1x3 lies three tiles along its angle.
         const string plate = "Metadata/Terrain/Doodads/Traps/hotplate1_3.ao";
         byte[] lava = LabyrinthTrials.Blob(LabyrinthTrials.Lava1x3, plate, 57, 103, 0, 1, LabyrinthTrials.Open, 125);
-        Assert.Equal(new byte[] { 0x04, 0x02, 16, 0, 0, 0 }, lava[16..22]);
+        Assert.Equal(new byte[] { 0x04, 0, 0xf0, 0xff, 0xff, 0xff }, lava[16..22]);
         Assert.Equal(125f, BitConverter.ToSingle(lava, 22));
-        Assert.Equal(new byte[] { LabyrinthTrials.Open, 0, 0, 0 }, lava[(2 + 26 + 1 + 4 + plate.Length * 2)..]);
+        Assert.Equal(new byte[] { LabyrinthTrials.Open, 0, 0, 0 }, lava[(2 + 24 + 1 + 4 + plate.Length * 2)..]);
         Assert.Equal(3, LabyrinthTrials.TransitionableIndex(LabyrinthTrials.Lava1x3));
         Assert.True(LabyrinthTrials.OnPlate(LabyrinthTrials.Lava1x3, 57, 103, 0, (90, 110)));
         Assert.False(LabyrinthTrials.OnPlate(LabyrinthTrials.Lava1x3, 57, 103, 0, (57, 120)));
@@ -89,8 +114,8 @@ public sealed class LabyrinthTrialTests
         byte[] blob = LabyrinthTrials.ArrowTrapBlob(195, 138, 0.785397f, model);
         Assert.Equal(0.785397f, BitConverter.ToSingle(blob, 10));
         Assert.Equal(14, BitConverter.ToUInt16(blob, 14));
-        Assert.Equal(new byte[] { 1, 1 }, blob[20..22]);
-        Assert.Equal(model.Length, BitConverter.ToInt32(blob, 22));
+        Assert.Equal(new byte[] { 1, 1 }, blob[18..20]);
+        Assert.Equal(model.Length, BitConverter.ToInt32(blob, 20));
     }
 
     [Fact]
@@ -167,14 +192,14 @@ public sealed class LabyrinthTrialTests
     [Fact]
     public void TrialsTakeTheirAreaAndCompletionFlag()
     {
-        const string json = """
-            [{"WorldAreas":1,"__col1":263,"__col7":2,"__col2":151},
-             {"WorldAreas":9,"__col1":264,"__col7":2},
-             {"WorldAreas":0,"__col1":265,"__col7":7}]
-            """;
+        var table = ClientTable.FromRows("LabyrinthTrials", [
+            new Dictionary<string, object?> { ["WorldAreas"] = 1, ["__col1"] = 263, ["__col7"] = 2, ["__col2"] = 151 },
+            new Dictionary<string, object?> { ["WorldAreas"] = 9, ["__col1"] = 264, ["__col7"] = 2 },
+            new Dictionary<string, object?> { ["WorldAreas"] = 0, ["__col1"] = 265, ["__col7"] = 7 },
+        ]);
         var flags = new Dictionary<int, string> { [2] = "NormalLabyrinthCompletedPrison" };
 
-        var trials = LabyrinthTrials.Parse(json, ["1_1_1", "1_1_7_1"], flags);
+        var trials = LabyrinthTrials.Parse(table, ["1_1_1", "1_1_7_1"], flags);
 
         Assert.Equal([new LabyrinthTrials.Trial("1_1_7_1", "NormalLabyrinthCompletedPrison", 263)], trials);
     }

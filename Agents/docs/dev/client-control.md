@@ -1,6 +1,6 @@
 # Native client control
 
-`scripts/dev/client_control.py` provides CLI and persistent JSON-lines RPC for the copied standalone **3.29.3b**
+`scripts/dev/client_control.py` provides CLI and persistent JSON-lines RPC for the copied standalone **3.29.3c**
 client. It calls existing client functions through [Frida RPC](https://frida.re/docs/javascript-api/#rpc), on the
 game thread. It uses the normal local authentication, character list, Play, instance connection, and Gateway command
 handlers. No screenshots, keyboard/mouse events, HTTP listener, save editing, or server authentication bypass are used.
@@ -97,7 +97,7 @@ The bridge refuses a different executable path or code signatures. Addresses bel
 | Address | Purpose |
 |---|---|
 | `0x141528fbf` | State-stack update after its `+0x38` transition guard is entered. Calling transitions before this guard can destroy live UI state. One pending RPC is serviced here, with a five-second cancellation if no frame arrives. |
-| `0x1445d6fd8` / `0x1445d6fb0` | App and state-stack singleton pointers. App `+0x358` is login; `+0x348` is instance. |
+| `0x1445d6fd8` / `0x1445d6fb0` | App and state-stack singleton pointers in 3.29.3c (0x10 higher in 3.29.3d). App `+0x358` is login; `+0x348` is instance. The bridge reads both addresses from the instructions `0x1400f3b30` and `0x1400f29e3` (`globalAt`), so it follows every allowed build. |
 | `0x142144340` | Connect using UTF-16 host/port strings; bridge forces `127.0.0.1`. |
 | `0x142142fb0` | Native account-login writer. The handshake listener can auto-submit its saved form before a second RPC arrives; supply the requested account/digest to this **one** submission. The native string assignment owns its allocation; the digest is cleared from bridge memory after copying. |
 | `0x142145360` | Login sender, used only if the handshake listener has not already submitted. |
@@ -134,8 +134,8 @@ local gateway selection, and failed preflights with mocked processes and no GGPK
 
 From character selection, `{"command":"character:create","name":"CampaignWitch","class":"Witch","league":"Standard"}`
 calls the client's own 0x12 sender (`league` defaults to Standard; `startState`, e.g. `IntDefault`, replaces `class`).
-The class's default start state (set 0, level 1) comes from `data/tables/Characters.json` and
-`CharacterStartStates.json`. Names follow Auth's rule: 3–23 letters, digits, `_` or `-`. The call waits until the new
+The class's default start state (set 0, level 1) comes from the `Characters` and
+`CharacterStartStates` client tables (`data/client.db`). Names follow Auth's rule: 3–23 letters, digits, `_` or `-`. The call waits until the new
 name is in the received list and returns `{"character":{index,name,league,level,classId},"startState",…}`. A non-zero
 0x13 result raises its meaning, e.g. 21 name taken or 49 no slots. After a successful create the client itself moves
 to the loading state (11) and waits for the Play its create screen would send; `character:play` sends that Play from
@@ -143,7 +143,8 @@ there without pushing state 11 again (live: create 0.6 s, Play into The Twilight
 `{"command":"character:delete","name":"X"}` writes 0x0c with the class writer and waits until the name leaves the
 list; with `"missingOk":true` an unlisted name returns `{"deleted":false}`. A non-zero 0x0d result raises, e.g. 16.
 
-`game:status` has `area` (WorldAreas Id) and `areaHash` (HASH16) while instanceState is 3; they are null when the row
+`game:status` has `build`, the version the executable names itself (`3.29.3d`), and `area` (WorldAreas Id) and
+`areaHash` (HASH16) while instanceState is 3; they are null when the row
 cannot be read. `{"command":"waypoint:travel","area":"1_1_2"}` (or `"hash":31442`, or the HASH16 as `area`) sends the World panel's 9-byte 0x4d
 (u32 0x2f00, Ctrl 0) on the instance socket. With `"wait":true` the response adds a `status` once the area is entered.
 `{"command":"area:wait","area":"1_1_2","timeout":60}` waits for that area. `{"command":"area:wait","from":<status>}`
@@ -182,7 +183,7 @@ Get-FileHash src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll -Al
 ## Targeted development interactions
 
 JSON RPC also accepts `game:resources` (read-only Life component pools and recent 0x1b1 corrections),
-`object:interact` with an object `id` (and an optional `skill`, e.g. `258` = 0x0102, the default attack, to attack it), `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
+`object:interact` with an object `id` (and an optional `skill`, e.g. `258` = 0x0102, the default attack, to attack it; `ctrl` / `alt` true for an NPC's shortcuts), `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
 `reward:claim` with choice `id` and main-inventory `x`/`y`, and `inventory:pickup`/`inventory:place` with `inventoryId`
 and item `id` or destination `x`/`y`, `item:use` with an item `id` (and `inventoryId`, default 1: the main inventory;
 CLI `item:use 0x403`), which sends the right-click C→S 0x58 (a quest book's use, an Orb of Regret), and `flask:use` with

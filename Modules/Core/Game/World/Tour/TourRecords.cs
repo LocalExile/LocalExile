@@ -10,12 +10,20 @@ using GameServer.Data.Terrain.Generation;
 /// time, the exception in full), each layer of the two compared (walk and projectile grids, cell heights, doodads,
 /// transitions, rooms, quest objects), and the rooms' monster points fitted from the client's doodads against those fitted
 /// from the Gateway's. The draw-by-draw comparison stays with `lg.ps1 loads` (it needs the port's draw log).</summary>
-static class TourRecords
+public static class TourRecords
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadTourRecordsData()
+    {
+        Commit = LoadCommit();
+    }
+
     public static string File { get; set; } = "data/tour-records/stops.jsonl";
 
     static readonly Regex Recorded = new("AreaTransition|Waypoint$|TownEntrance$");
-    static readonly Lazy<string> Commit = new(() =>
+    static string Commit = default!;
+
+    static string LoadCommit()
     {
         string Git(string args)
         {
@@ -31,7 +39,7 @@ static class TourRecords
         string head = Git("rev-parse --short HEAD");
         // Changes not committed yet (the Gateway runs what is in the working tree).
         return Git("status --porcelain --untracked-files=no -- src scripts/re/levelgen").Length > 0 ? head + "+dirty" : head;
-    });
+    }
 
     /// <summary>Appends the record of one stop: <paramref name="outcome"/> is captured, not captured or client failed.</summary>
     public static void Write(string area, uint seed, string outcome, string? clientFailure = null, AreaLayout? layout = null)
@@ -39,7 +47,7 @@ static class TourRecords
         var clock = Stopwatch.StartNew();
         var record = new Dictionary<string, object?>
         {
-            ["time"] = DateTime.Now.ToString("s"), ["commit"] = Commit.Value, ["area"] = area, ["seed"] = seed,
+            ["time"] = DateTime.Now.ToString("s"), ["commit"] = Commit, ["area"] = area, ["seed"] = seed,
             ["outcome"] = outcome, ["clientFailure"] = clientFailure,
         };
         string stem = $"data/walkability/{area}_seed{seed}";

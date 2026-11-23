@@ -2,7 +2,7 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Shield Charge's movement (11-skills.md "Shield Charge"). The client moves the charge at the player's own movement
     // speed: 0x141e827a0 reads movement_velocity_+% from the player's Stats, not the skill's. The game adds the gem's
@@ -11,15 +11,15 @@ static partial class Game
     // movement_velocity_+% it sends (the pools) from the use until its own walk arrives, and walks its estimate to the aimed
     // cell at that speed instead of the generic movement skill's teleport. Without it the charge ran at walk speed.
     sealed class ShieldChargeRun { public int Percent, Token; public (int X, int Y) Start; public double MaxDistance; }
-    static readonly ConditionalWeakTable<ClientState, ShieldChargeRun> ShieldChargeRuns = new();
+    static readonly Store<Player, ShieldChargeRun> ShieldChargeRuns = new();
 
     // The running charge's movement bonus, for the pools (PoolsFor); 0 when none runs.
-    internal static int ShieldChargeMovementPct(ClientState conn) => ShieldChargeRuns.TryGetValue(conn, out var run) ? run.Percent : 0;
+    public static int ShieldChargeMovementPct(Player player) => ShieldChargeRuns.TryGetValue(player, out var run) ? run.Percent : 0;
 
     // A movement skill that needs a shield and carries its own movement bonus: it walks there faster, it does not blink.
-    internal static int ShieldChargeBonusPct(ClientState conn, ushort skillId, int effect) =>
-        SkillsFor(conn).IsMovement(effect) && SkillsFor(conn).RequiresShield(effect)
-            && Stats.Key("base_movement_velocity_+%") is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
+    public static int ShieldChargeBonusPct(Player player, ushort skillId, int effect) =>
+        SkillsFor(player).IsMovement(effect) && SkillsFor(player).RequiresShield(effect)
+            && Stat.BaseMovementVelocityPlusPct is var key ? SupportedSkill(player, skillId).Stats.GetValueOrDefault(key) : 0;
 
     // The client's setup 0x141a6e4f0 stops a charge aimed further away at 75 cells × (1 + shield_charge_range_+% / 100)
     // from where it starts (integer, (100 + range) * 75 / 100), along the aim: the "Maximum Charge Distance" of the gem's
@@ -27,46 +27,43 @@ static partial class Game
     // action counter (+0x2d0 below +0x2d4) is short; neither is modelled.
     const int ShieldChargeBaseDistance = 75;
 
-    internal static int ShieldChargeMaxDistance(ClientState conn, ushort skillId) =>
-        (100 + (Stats.Key("shield_charge_range_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0))
+    public static int ShieldChargeMaxDistance(Player player, ushort skillId) =>
+        (100 + (Stat.ShieldChargeRangePlusPct is var k ? SupportedStats(player, skillId).GetValueOrDefault(k) : 0))
             * ShieldChargeBaseDistance / 100;
 
     // In the use's StartAction: the bonus on, the pools and walk speed with it, and the walk to the aimed cell, no further
     // than the charge's maximum distance. Returns the run's token, which only the latest charge's end may clear.
-    internal static int BeginShieldCharge(ClientState conn, ushort skillId, int percent, int x, int y, double at)
+    public static int BeginShieldCharge(Player player, ushort skillId, int percent, int x, int y, double at)
     {
-        var run = ShieldChargeRuns.GetOrCreateValue(conn);
-        int max = ShieldChargeMaxDistance(conn, skillId);
-        lock (conn.Monsters)
-        {
-            run.Percent = percent;
-            run.Start = conn.Walk.Position(at);
-            run.MaxDistance = Math.Max(1, max);
-            int token = ++run.Token;
-            RecomputePoolsAndSpeed(conn);
-            conn.Walk.Charge(x, y, max, at);
-            return token;
-        }
+        var run = ShieldChargeRuns.GetOrCreateValue(player);
+        int max = ShieldChargeMaxDistance(player, skillId);
+        run.Percent = percent;
+        run.Start = player.Walk.Position(at);
+        run.MaxDistance = Math.Max(1, max);
+        int token = ++run.Token;
+        RecomputePoolsAndSpeed(player);
+        player.Walk.Charge(x, y, max, at);
+        return token;
     }
 
     // A shield skill's attack swings the shield (Shield Charge, Shield Crush), which has no weapon damage: the gem's own
     // off_hand_local_minimum/maximum_added_physical_damage plus its added damage per 15 of the shield's armour and evasion
     // rating (the item's own, local values: "per 15 Armour or Evasion Rating on Shield"), at the gem's AttackTime. Null
     // for other skills and without a shield, whose attacks use the main hand's weapon.
-    internal static SkillCatalog.Unarmed? ShieldWeapon(ClientState conn, ushort skillId)
+    public static SkillCatalog.Unarmed? ShieldWeapon(Player player, ushort skillId)
     {
-        var gem = SupportedSkill(conn, skillId);
-        if (!SkillsFor(conn).IsAttack(gem.Effect) || !SkillsFor(conn).RequiresShield(gem.Effect)
-            || ActiveOffHand(conn)?.Type?.Class != "Shield") return null;
-        int Own(string name) => Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
-        var shield = EquippedArmourDefences(conn).FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
+        var gem = SupportedSkill(player, skillId);
+        if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).RequiresShield(gem.Effect)
+            || ActiveOffHand(player)?.Type?.Class != "Shield") return null;
+        int Own(uint k) => gem.Stats.GetValueOrDefault(k);
+        var shield = EquippedArmourDefences(player).FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
         int per15 = (int)((shield.Armour + shield.Evasion) / 15);
-        int min = Own("off_hand_local_minimum_added_physical_damage")
-            + per15 * Own("off_hand_minimum_added_physical_damage_per_15_shield_armour_and_evasion_rating");
-        int max = Own("off_hand_local_maximum_added_physical_damage")
-            + per15 * Own("off_hand_maximum_added_physical_damage_per_15_shield_armour_and_evasion_rating");
-        int attackMs = SkillsFor(conn).AttackTimeMs(gem.Effect, gem.Level);
-        return new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(conn).AttackMs, min, Math.Max(min, max), WeaponFor(conn).Range);
+        int min = Own(Stat.OffHandLocalMinimumAddedPhysicalDamage)
+            + per15 * Own(Stat.OffHandMinimumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating);
+        int max = Own(Stat.OffHandLocalMaximumAddedPhysicalDamage)
+            + per15 * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating);
+        int attackMs = SkillsFor(player).AttackTimeMs(gem.Effect, gem.Level);
+        return new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(player).AttackMs, min, Math.Max(min, max), WeaponFor(player).Range);
     }
 
     // The client's charge hits (Frida 2026-11-01, scripts/re/frida/trace-charge-hits.js): a path hit at its position as it
@@ -78,47 +75,44 @@ static partial class Game
 
     // After the use's echo: the faster movement speed to the client, the path hits while the server's walk runs, the final
     // hit and the speed back where it arrives (a later charge takes over the run, its hits and its end).
-    internal static async Task RunShieldCharge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task RunShieldCharge(Player player,
         int token, double arrivesAt, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse)
     {
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
-            $"0x01b3 player stats (Shield Charge starts: movement_velocity_+% {conn.Pools.MovementVelocityPct}, " +
-            $"+{ShieldChargeMovementPct(conn)} while charging, until t={arrivesAt:0.000})");
-        bool Current() => ShieldChargeRuns.TryGetValue(conn, out var r) && r.Token == token && !conn.Closed;
-        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
+            $"0x01b3 player stats (Shield Charge starts: movement_velocity_+% {player.Pools.MovementVelocityPct}, " +
+            $"+{ShieldChargeMovementPct(player)} while charging, until t={arrivesAt:0.000})");
+        bool Current() => ShieldChargeRuns.TryGetValue(player, out var r) && r.Token == token && !player.Closed;
+        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         var pathHit = new HashSet<uint>();
         // "{0}% more Damage with Hits at Maximum Charge Distance" (shield_charge_damage_+%_maximum, 100): each hit's share
         // of it is the distance charged so far over the maximum. shortcut: a linear ramp, not read from the client.
-        var (start, maxDistance) = ShieldChargeRuns.TryGetValue(conn, out var begun) ? (begun.Start, begun.MaxDistance) : default;
-        int maximumMore = Stats.Key("shield_charge_damage_+%_maximum") is uint moreKey
-            ? SupportedStats(conn, skillId).GetValueOrDefault(moreKey) : 0;
+        var (start, maxDistance) = ShieldChargeRuns.TryGetValue(player, out var begun) ? (begun.Start, begun.MaxDistance) : default;
+        int maximumMore = Stat.ShieldChargeDamagePlusPctMaximum is var moreKey
+            ? SupportedStats(player, skillId).GetValueOrDefault(moreKey) : 0;
         double More((int X, int Y) at) => maxDistance > 0 ? 1 + maximumMore / 100.0 * Math.Min(1, Dist(start, at) / maxDistance) : 1;
-        if (ShieldWeapon(conn, skillId) is { } shieldWeapon)
-            Console.WriteLine($"[gateway] {remote} Shield Charge damage: shield base {shieldWeapon.MinDamage}-{shieldWeapon.MaxDamage}, " +
+        if (ShieldWeapon(player, skillId) is { } shieldWeapon)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} Shield Charge damage: shield base {shieldWeapon.MinDamage}-{shieldWeapon.MaxDamage}, " +
                 $"up to {maximumMore}% more at {maxDistance:0} cells");
         Task Hit((int X, int Y) at, int radius, ISet<uint>? once) => gem.Name is null ? Task.CompletedTask
-            : AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true, sequence: sequence,
+            : AreaSkillHit(player, skillId, gem, at, at, immediate: true, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, damageMore: More(at), radiusOverride: radius, once: once);
         // The step pass may end the run early, on a body or a wall.
-        double Arrival() => Math.Min(arrivesAt, conn.Walk.ArrivesAt);
-        for (double tick = conn.Clock.Elapsed.TotalSeconds; tick < Arrival(); tick += ShieldChargePathSeconds)
+        double Arrival() => Math.Min(arrivesAt, player.Walk.ArrivesAt);
+        for (double tick = AreaTime(player); tick < Arrival(); tick += ShieldChargePathSeconds)
         {
-            double wait = tick - conn.Clock.Elapsed.TotalSeconds;
-            if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
-            await WhilePaused(conn);
+            double wait = tick - AreaTime(player);
+            if (wait > 0) await AreaDelay(player, wait);
+            await WhilePaused(player);
             if (!Current()) return;
-            await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargePathRadius, pathHit);
+            await Hit(player.Walk.Position(AreaTime(player)), ShieldChargePathRadius, pathHit);
         }
-        double rest = Arrival() - conn.Clock.Elapsed.TotalSeconds;
-        if (rest > 0) await Task.Delay(TimeSpan.FromSeconds(rest));
-        if (!ShieldChargeRuns.TryGetValue(conn, out var run) || run.Token != token || conn.Closed) return;
-        await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargeEndRadius, null);
-        lock (conn.Monsters)
-        {
-            run.Percent = 0;
-            RecomputePoolsAndSpeed(conn);
-        }
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
-            $"0x01b3 player stats (Shield Charge ends: movement_velocity_+% {conn.Pools.MovementVelocityPct})");
+        double rest = Arrival() - AreaTime(player);
+        if (rest > 0) await AreaDelay(player, rest);
+        if (!ShieldChargeRuns.TryGetValue(player, out var run) || run.Token != token || player.Closed) return;
+        await Hit(player.Walk.Position(AreaTime(player)), ShieldChargeEndRadius, null);
+        run.Percent = 0;
+        RecomputePoolsAndSpeed(player);
+        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
+            $"0x01b3 player stats (Shield Charge ends: movement_velocity_+% {player.Pools.MovementVelocityPct})");
     }
 }

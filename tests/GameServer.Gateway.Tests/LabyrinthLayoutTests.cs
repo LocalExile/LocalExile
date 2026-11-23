@@ -5,9 +5,81 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class LabyrinthLayoutTests
 {
+    [Fact]
+    public void CruelAdmissionRequiresLevelNormalCompletionAndThreeTrials()
+    {
+        var plaza = new AreaLayout(0, LabyrinthDay.Plaza, 100, 100, 10, 10, null, []);
+        var player = new Player(plaza, 0, 0);
+        var trials = LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 2)
+            .OrderBy(t => t.Area, StringComparer.Ordinal).ToArray();
+        Assert.Equal(["2_6_7_1", "2_7_4", "2_7_5_2"], trials.Select(t => t.Area));
+        player.Pools = CharacterStats.For(Program.Skills.ClassFor(0), 39);
+        player.Character.QuestFlags.UnionWith(["LabyrinthComplete1", trials[0].Flag]);
+        player.Character.LeagueQuestFlags.UnionWith(trials.Skip(1).Select(t => t.LeagueFlag));
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
+
+        player.Pools = CharacterStats.For(Program.Skills.ClassFor(0), 40);
+        player.Character.QuestFlags.Remove("LabyrinthComplete1");
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
+        player.Character.QuestFlags.Add("LabyrinthComplete1");
+        player.Character.LeagueQuestFlags.Remove(trials[2].LeagueFlag);
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
+        player.Character.LeagueQuestFlags.Add(trials[2].LeagueFlag);
+        Assert.Null(Game.LabyrinthAdmissionFailure(player, 2));
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 3));
+    }
+
+    [GameFilesFact]
+    public void PlazaEntryStartsEachPlayersSelectedDayAndDifficulty()
+    {
+        const uint day = 20764;
+        const uint portalId = AreaTransitionCatalog.FirstId;
+        var portal = new GameServer.Core.Protocol.Instance.AreaTransitionObject(20, 20, 0)
+        { SourceType = LabyrinthDay.Entrance };
+        var plaza = new AreaLayout(0, LabyrinthDay.Plaza, 100, 100, 10, 10, null, [(portalId, portal)]);
+        var normal = new Player(plaza, 1, 0);
+        var cruel = new Player(plaza, 2, 0) { Pools = CharacterStats.For(Program.Skills.ClassFor(0), 40) };
+        normal.Character.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 1).Select(t => t.Flag));
+        cruel.Character.QuestFlags.Add("LabyrinthComplete1");
+        cruel.Character.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 2).Select(t => t.Flag));
+
+        Assert.False(Game.ClientHasQuestFlag(normal, LabyrinthDay.PlazaDoorOpen));
+        Assert.False(Game.TransitionShown(normal, portalId, portal));
+        Assert.Null(Game.OpenLabyrinthEntrance(cruel, 2, day));
+        Assert.False(Game.ClientHasQuestFlag(normal, LabyrinthDay.PlazaDoorOpen));
+        Assert.Null(Game.OpenLabyrinthEntrance(normal, 1, day));
+        Assert.NotNull(Game.OpenLabyrinthEntrance(cruel, 1, day + 1));
+        Assert.Equal(0, portal.DestinationHash16);
+
+        foreach (var (player, tier) in new[] { (normal, 1), (cruel, 2) })
+        {
+            string character = $"Labyrinth entry test {tier}";
+            var transition = Assert.Single(player.Layout.AreaTransitions).Transition;
+            var entry = Assert.IsType<LabyrinthDay.Entry>(player.LabyrinthEntry);
+            var layout = LabyrinthDay.For(day, tier);
+            var area = Assert.IsType<string>(layout.Areas[0]);
+            Assert.Equal(AreaTransitionCatalog.HashOf(area), transition.DestinationHash16);
+            Assert.True(Game.ClientHasQuestFlag(player, LabyrinthDay.PlazaDoorOpen));
+            Assert.True(Game.TransitionShown(player, portalId, transition));
+            Assert.False(Game.TransitionShown(player, portalId, portal));
+            Assert.Null(LabyrinthDay.Transfer(character, plaza.Id, 0, portal.SourceType, transition.DestinationHash16, area));
+            var transfer = Assert.IsType<PendingTransfer>(LabyrinthDay.Transfer(character, plaza.Id, 0, portal.SourceType,
+                transition.DestinationHash16, area, entry: entry));
+            Assert.True(transfer.New);
+            Assert.Equal(transition.DestinationHash16, transfer.Area);
+            Assert.Equal(new LabyrinthNodeKey(day, layout.Layout.Nodes[0].Row, tier), LabyrinthDay.NodeFor(area, transfer.Seed));
+            Assert.NotNull(LabyrinthDay.Enter(character, area, transfer.Seed));
+            Assert.Null(LabyrinthDay.Enter(character, plaza.Id, 0));
+            // Back out of the first room: at the plaza's spawn, not behind the door that is shut again.
+            var real = AreaLayouts.For(AreaTransitionCatalog.HashOf(LabyrinthDay.Plaza)!.Value, 1);
+            Assert.Contains(real.AreaTransitions, t => t.Transition.SourceType == LabyrinthDay.Entrance);
+            Assert.Equal((real.SpawnX, real.SpawnY), real.Arrival(entry.Destination));
+        }
+    }
+
     // The client's own layout for seed 0, Normal (scripts/re/frida/lab-layout.py): its rooms, connections (-1: out) and
     // secrets with their numbers; the port matched all 168 dumped (42 seeds × 4 tiers, lg.ps1 lablayout).
-    [Fact]
+    [GameFilesFact]
     public void TheDaysLayoutMatchesTheClients()
     {
         static byte[]? Read(string path) => GamePack.Default.TryRead(path);
@@ -36,7 +108,7 @@ public sealed class LabyrinthLayoutTests
 
     // The official Eternal Labyrinth of 2026-11-07 (poelab.com's layout, its rooms' names and areacodes): the day's seed is
     // the day's number since 1970 (20764), and each room's area is the official server's pick (LabyrinthLayout.AreaPick).
-    [Fact]
+    [GameFilesFact]
     public void TheDaysRoomsAreTheOfficialOnes() => Assert.Equal(
     [
         "OH_branch", "RT_straight", "DG_quad_door", "RT_end_bottleneck", "boss_1",
@@ -47,7 +119,7 @@ public sealed class LabyrinthLayoutTests
     // `GameServer.Gateway labyrinth 2026-11-07` (LabyrinthDay.Listing), the Eternal tier against poelab.com's map of that
     // day: Argus in room 2, the silver key in 3, gauntlets in 4, 6 (escort: Payload) and 7, the puzzle in 11, Darkshrines
     // (Hidden) in 1, 11 and 12, Izaro after 5, 10 and 16; the rooms where their map positions put them.
-    [Fact]
+    [GameFilesFact]
     public void TheListingDrawsTheDaysMap()
     {
         var lines = LabyrinthDay.Listing(LabyrinthDay.SeedOf(new DateOnly(2026, 11, 7)), true).ToList();
@@ -70,7 +142,7 @@ public sealed class LabyrinthLayoutTests
 
     // Two exits of a room can lead to rooms played in the same area (seed 0's room 7 → 6 and 8 here): the exit's entranceN
     // picks the neighbour; a way without one (a passage secret's) takes the first played in its area.
-    [Fact]
+    [GameFilesFact]
     public void AnExitLeadsToItsOwnNeighbour()
     {
         var layout = LabyrinthLayout.Build(path => GamePack.Default.TryRead(path), 0, 1);
@@ -97,7 +169,7 @@ public sealed class LabyrinthLayoutTests
     // Izaro's three Aspirant's Trials of a Normal day (each section's last room) share his life bar: each starts where
     // the one before left him, the last ends at 0 in the Ascendancy Chamber's area; winning one takes his icon off the
     // run's map (0x1cb bit = the section's number).
-    [Fact]
+    [GameFilesFact]
     public void IzarosTrialsShareHisLife()
     {
         var trials = IzaroFights.Trials(20764, 1).ToList();
@@ -106,5 +178,72 @@ public sealed class LabyrinthLayoutTests
         Assert.True(trials[^1].Trial.Last && LabyrinthDay.IsChamber(trials[^1].Area!));
         Assert.Single(trials.Select(t => t.Trial.Variety).Distinct());
         Assert.Equal(0b0000_0100, LabyrinthDay.Progress([], [2])[2]);
+    }
+
+    // Izaro's weapon as poelab.com's archived layouts of those days give it (all tiers): 0 mace, 1 sword and shield, 2 two swords.
+    [Theory]
+    [InlineData("2026-07-09", 1, 1)]
+    [InlineData("2026-07-09", 4, 0)]
+    [InlineData("2026-06-03", 2, 2)]
+    [InlineData("2026-06-03", 4, 1)]
+    [InlineData("2026-05-06", 1, 2)]
+    [InlineData("2026-04-08", 1, 0)]
+    [InlineData("2026-03-04", 2, 0)]
+    [InlineData("2025-01-11", 3, 2)]
+    public void IzarosWeaponIsTheOfficialOne(string day, int tier, int weapon) =>
+        Assert.Equal(weapon, IzaroFights.WeaponOf(LabyrinthDay.SeedOf(DateOnly.Parse(day)), tier));
+
+    // EH bottleneck_06: lever 0's numbered disable to lever 1 of the same counter would leave the door shut for good. A
+    // lever's plain disable (a pair) and a door's numbered one count.
+    [Fact]
+    public void ALeverFollowsOnlyAPlainDisable()
+    {
+        const string lever = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch_Once";
+        string[] types = [lever, lever, LabyrinthTrials.Door, lever];
+        var wiring = new LabyrinthWiring(types, [new(0, 1, "disable3"), new(2, 1, "disable3"), new(0, 3, "disable")]);
+        wiring.Turn(0, true);
+        Assert.False(wiring.IsDisabled(1));
+        Assert.True(wiring.IsDisabled(3));
+        wiring.Turn(2, true);
+        Assert.True(wiring.IsDisabled(1));
+    }
+
+    // PortalSummon rows have no tier, and only the returning ones have a buff; the portals and what they bring can be created.
+    [Fact]
+    public void IzarosPortalsAreEveryTiersAndCanBeCreated()
+    {
+        foreach (int tier in new[] { 1, 4 })
+        {
+            var own = IzaroEffects.Of(IzaroPortals.Mechanic, tier, returning: false);
+            Assert.Equal(["PortalSummon1_Fire", "PortalSummon1_Cold", "PortalSummon1_Lightning"], own.Select(e => e.Id));
+            Assert.All(own, e => Assert.Empty(e.Stats));
+            var returning = own.Select(e => IzaroEffects.ReturningOf(e.Id)!).ToList();
+            Assert.Equal(["PortalSummon2_Fire", "PortalSummon2_Cold", "PortalSummon2_Lightning"], returning.Select(e => e.Id));
+            Assert.All(returning, e => Assert.NotEmpty(e.Stats));
+            foreach (var effect in own.Concat(returning))
+            {
+                var portal = Game.Monsters.Find(effect.Variety)!;
+                Assert.True(portal.Supported, effect.Variety);
+                var summon = Program.Skills.MonsterSummon(portal.GrantedEffects![0], 33)!;
+                Assert.True(Game.Monsters.Find(summon.Variety.ToString())!.Supported, effect.Variety);
+            }
+        }
+    }
+
+    // The Chrono Statues' and the Lieutenants' rows have no tier either, in their lifts' order; their monsters can be created.
+    [Theory]
+    [InlineData("ChronoStatues", "ChronoStatues1_1", "ChronoStatues1_2", "ChronoStatues1_3")]
+    [InlineData("Lieutenants", "Lieutenants1_Bull", "Lieutenants1_Melee", "Lieutenants1_Ranged")]
+    public void IzarosIdolsAndLieutenantsAreEveryTiersAndCanBeCreated(string mechanic, string first, string second, string third)
+    {
+        foreach (int tier in new[] { 1, 4 })
+        {
+            var own = IzaroEffects.Of(mechanic, tier, returning: false);
+            Assert.Equal([first, second, third], own.Select(e => e.Id));
+            var returning = own.Select(e => IzaroEffects.ReturningOf(e.Id)!).ToList();
+            Assert.Equal(own.Select(e => e.Id.Replace("1_", "2_", StringComparison.Ordinal)), returning.Select(e => e.Id));
+            Assert.All(returning, e => Assert.NotEmpty(e.Stats));
+            foreach (var effect in own.Concat(returning)) Assert.True(Game.Monsters.Find(effect.Variety)!.Supported, effect.Variety);
+        }
     }
 }

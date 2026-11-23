@@ -28,6 +28,7 @@ static class Act10Items
 /// <summary>Act 10's quest objects, chests and NPCs (Oriath Docks' two stages of Bannon included).</summary>
 static class Act10Objects
 {
+    public static readonly string ShortcutOpen = InstanceFlag("AvariusShortcutOpen");
     public const string PlaguewingSpawner = "Metadata/Monsters/KitavaDemon/KitavaDemonSpawnerPlaguewing",
         HornBlockage = "Metadata/QuestObjects/Act10/Square/CanalHornBlockage", HornBlocker = "Metadata/QuestObjects/Act10/Square/HornBlocker_1",
         ElixirChest = "Metadata/Chests/QuestChests/Potion", TeardropChest = "Metadata/Chests/QuestChests/Teardrop",
@@ -74,7 +75,8 @@ sealed class Act10 : Act
             new Quest("a10q2")
             {
                 On.Seen(DesecratedChambers, Act10Monsters.Avarius, "a10q2-SeenBoss"),
-                On.Killed(DesecratedChambers, Act10Monsters.Avarius, "a10q2-KilledBoss"),
+                On.Killed(DesecratedChambers, Act10Monsters.Avarius, "a10q2-KilledBoss", Act10Objects.ShortcutOpen),
+                new DisabledTeleportRule(DesecratedChambers, Act10Objects.ShortcutOpen),
                 On.Drops(DesecratedChambers, Act10Monsters.Avarius, Act10Items.AvariusStaff),
                 On.Npc(OriathDocks, Act10Objects.BannonTown, "a10q2-BannonTransformed"),
                 On.Npc(OriathDocks, Act10Objects.InnocenceTown, null, transitionedBy: "a10q2-BannonTransformed", shownBy: "a10q2-BannonTransformed"),
@@ -88,7 +90,7 @@ sealed class Act10 : Act
             // is QuestStaticRewards 39 (another −30% to elemental and chaos resistances: Game ResistancePenalty), the
             // Epilogue's gate (Karui Shores' and Oriath's EndQuestFlags) and the condition of Lilly's 1433 and Lani's
             // 1415/1416; every character is given it for the Atlas, but until earned here it is sent only in a hideout
-            // and the maps (Quests.EndgameOnly, ClientState.UnearnedQuestFlags). Sin's portal back to the docks
+            // and the maps (Quests.EndgameOnly, Player.UnearnedQuestFlags). Sin's portal back to the docks
             // (EpiloguePortal, kitava.arm) opens with the fight's end: in the real game the post-fight Sin's 1942 opens
             // it, a monster with an NPC component that is not created, so it opens with EndGameAvailable. Lani's
             // "Kitava Reward" (offer 66, Oriath Docks 1416 or Karui Shores 1498) is a book of two passive points (QSR

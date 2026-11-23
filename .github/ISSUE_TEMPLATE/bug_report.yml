@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in the game or the server behaves wrongly, crashes or disconnects.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: What you did and what the game or the server did. One bug per issue.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Class and level, area, the skill or item involved, then each step. Say how often it happens.
+      placeholder: |
+        1. Witch, level 12, The Ledge
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: real-game
+    attributes:
+      label: What the real game does
+      description: How it should behave, and how you know (the wiki, a video, your own play).
+  - type: input
+    id: version
+    attributes:
+      label: LocalExile version
+      description: The release (for example v0.5.0-beta), or the commit of main you built.
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you run it
+      options:
+        - A release, started with Waypoint
+        - A release, started with the LocalExile launcher
+        - Built from source
+  - type: input
+    id: client
+    attributes:
+      label: Client version
+      description: The Path of Exile client version, and Standalone or Steam.
+      placeholder: 3.29.3d, Standalone
+  - type: input
+    id: league-and-mods
+    attributes:
+      label: League and mods
+      description: The character's league or mode, and the mods installed, if any.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The lines from the logs folder around the time it happened. Take account names out first.
+      render: text

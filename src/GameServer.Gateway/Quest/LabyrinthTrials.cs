@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The Trials of Ascendancy (Agents/docs/game/labyrinth-trials.md): LabyrinthTrials.dat names each trial's area. Its
@@ -7,8 +8,19 @@ using GameServer.Core.Protocol.Instance;
 /// plaque and the portal back as server object lines. The client counts a trial done when the character has the row's
 /// quest flag (column 7, e.g. NormalLabyrinthCompletedPrison) or the league quest flag of column 1 (0x141f6fb00).
 /// </summary>
-static class LabyrinthTrials
+public static class LabyrinthTrials
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        BuffRows = LoadBuffRows();
+        SpikeStats = TrapStats("LbRetractableTrap");
+        EdgeStats = TrapStats("LbEdgeTrap");
+        ArrowStats = TrapStats("LbArrowTrap");
+        LabyrinthAreas = LoadLabyrinthAreas();
+        All = LoadAll();
+    }
+
     public sealed record Trial(string Area, string Flag, int LeagueFlag);
 
     public const string IntroDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIntroDoor",
@@ -41,8 +53,11 @@ static class LabyrinthTrials
         SpikeTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthCascadeSpikeTrap",
         ArrowTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthArrowTrap",
         // The trials' Bronze Monographs (NPCs.dat LabyrinthTrialGlyphPrison, …Sins, …Church, …Crematorium, …Hedge,
-        // …Catacombs), placed as NPCs.
-        GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph";
+        // …Catacombs) and the Labyrinth's Bronze Inscriptions (LabyrinthGlyph0-4), placed as NPCs.
+        GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph", InscriptionPrefix = "Metadata/NPC/Labyrinth/LabyrinthGlyph";
+
+    public static bool IsGlyph(string id) =>
+        id.StartsWith(GlyphPrefix, StringComparison.Ordinal) || id.StartsWith(InscriptionPrefix, StringComparison.Ordinal);
 
     /// <summary>The Labyrinth's rooms' spike traps: the ElegantHouse cascade (<c>_EH</c>, <c>spiketrap_house.ao</c>,
     /// the trial's otherwise) and the ones a step fires (<c>LabyrinthSpikeTrap_Pressure</c>, <c>_EH_Pressure</c>:
@@ -104,14 +119,18 @@ static class LabyrinthTrials
         return dx * fx + dy * fy >= dx * sx + dy * sy;
     }
 
+    /// <summary>Whether a room line is mirrored as placed: its room (orientation codes 4–7) or its own flip, not both
+    /// (ElegantHouse secret_payload_01 was laid out with most of its track flipped).</summary>
+    public static bool PlacedMirrored(int code, bool flip) => (code is >= 4 and < 8) != flip;
+
     /// <summary>A room line's angle as the Gateway sends it: a corner piece (<c>spinner_rail_corner</c>,
-    /// <c>SpinnerStopper_Corner</c>) in a mirrored room (orientation codes 4–7) turned a quarter back. The room's angle
+    /// <c>SpinnerStopper_Corner</c>) mirrored as placed (<see cref="PlacedMirrored"/>) turned a quarter back. The room's angle
     /// only mirrors the line's angle, and the client draws the piece unmirrored: a mirrored L is the L turned a quarter
     /// (live 2026-11-01: the Labyrinth's spinner rooms showed their corners facing away from the track).</summary>
-    public static float PlacedAngle(string model, float angle, int code)
+    public static float PlacedAngle(string model, float angle, bool mirrored)
     {
         string name = Path.GetFileName(model);
-        if (code is < 4 or >= 8 || !(name.StartsWith("spinner_rail_corner", StringComparison.OrdinalIgnoreCase)
+        if (!mirrored || !(name.StartsWith("spinner_rail_corner", StringComparison.OrdinalIgnoreCase)
             || name.StartsWith("SpinnerStopper_Corner", StringComparison.OrdinalIgnoreCase))) return angle;
         return (angle - MathF.PI / 2 + MathF.PI * 2) % (MathF.PI * 2);
     }
@@ -176,7 +195,7 @@ static class LabyrinthTrials
     public static (double Life, double EnergyShield) LavaDamagePerSecond = (0.40, 0.50);
 
     /// <summary>The <c>labyrinth_lava_aura</c> BuffDefinitions row, or null without the table.</summary>
-    public static ushort? LavaBuffRow => BuffRows.Value.TryGetValue("labyrinth_lava_aura", out ushort row) ? row : null;
+    public static ushort? LavaBuffRow => BuffRows.TryGetValue("labyrinth_lava_aura", out ushort row) ? row : null;
 
     public static bool IsSawblade(string type) => type is Sawblade or SlowSawblade;
 
@@ -228,7 +247,7 @@ static class LabyrinthTrials
     public static byte[] RoombaBlob(string type, int x, int y, float angle, string model, byte state = Closed)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1);    // Positioned: the .ot's team 14
+        w.Positioned(x, y, angle, team: 14);                                // Positioned: the .ot's team 14
         w.U8(1).WStr32(model);                                              // Animated (BaseEvents reads nothing)
         w.Stats(null).U32(0).U32(0).U8(0);                                  // Stats
         w.U16(0);                                                           // Buffs
@@ -247,7 +266,7 @@ static class LabyrinthTrials
     public static byte[] SpinnerBlob(int x, int y, float angle, string model)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1);    // Positioned: the .ot's team 14
+        w.Positioned(x, y, angle, team: 14);                                // Positioned: the .ot's team 14
         w.U8(1).WStr32(model);                                              // Animated (BaseEvents reads nothing)
         w.Stats(null).U32(0).U32(0).U8(0);                                  // Stats
         w.U8(0).I32(x).I32(y).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0);      // Movement
@@ -261,7 +280,7 @@ static class LabyrinthTrials
     public static byte[] RailBlob(int x, int y, float angle, string model)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(0).U8(0).U8(0x02).U8(0).U8(1);      // Positioned
+        w.Positioned(x, y, angle);                                          // Positioned
         w.U8(1).WStr32(model);                                              // Animated
         return w.U8(0).ToArray();                                           // tasks
     }
@@ -995,40 +1014,45 @@ static class LabyrinthTrials
     public const double SpikeBleedPerSecond = 0.10, SpikeBleedMovingFactor = 3, SpikeBleedSeconds = 5 * (1 - 0.8);
 
     /// <summary>The <c>bleeding</c> BuffDefinitions row, or null without the table.</summary>
-    public static ushort? BleedingBuffRow => BuffRows.Value.TryGetValue("bleeding", out ushort row) ? row : null;
+    public static ushort? BleedingBuffRow => BuffRows.TryGetValue("bleeding", out ushort row) ? row : null;
 
     /// <summary>The <c>poison</c> BuffDefinitions row ("Poisoned", a count of its stacks), or null without the table.</summary>
-    public static ushort? PoisonBuffRow => BuffRows.Value.TryGetValue("poison", out ushort row) ? row : null;
+    public static ushort? PoisonBuffRow => BuffRows.TryGetValue("poison", out ushort row) ? row : null;
 
     /// <summary>The buff a roomba of this type puts on the player in it (<c>roomba_damage</c>, <c>flying_roomba_damage</c>:
     /// invisible, BuffVisuals <c>rhoomba_damage</c> playing <c>labyrinth/traps/roomba/roomba.epk</c>), or null without the
     /// table.</summary>
     public static ushort? RoombaBuffRow(string type) =>
-        BuffRows.Value.TryGetValue(type == FlyingRoomba ? "flying_roomba_damage" : IsSawblade(type) ? "sawblade_damage" : "roomba_damage", out ushort row) ? row : null;
+        BuffRows.TryGetValue(type == FlyingRoomba ? "flying_roomba_damage" : IsSawblade(type) ? "sawblade_damage" : "roomba_damage", out ushort row) ? row : null;
 
-    static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
+    static Dictionary<string, ushort> BuffRows = default!;
+
+    static Dictionary<string, ushort> LoadBuffRows()
     {
-        const string file = "data/tables/BuffDefinitions.json";
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
-        if (!File.Exists(file)) return rows;
-        using var table = GameTables.Open(file);
+        if (!ClientTables.Has("BuffDefinitions")) return rows;
+        var table = ClientTables.Table("BuffDefinitions");
         int row = 0;
-        foreach (var buff in table.RootElement.EnumerateArray())
+        foreach (var buff in table)
         {
-            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage"
+            if (buff.Text("Id") is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage"
                     or "flying_roomba_damage" or "sawblade_damage" or "labyrinth_lava_aura")) rows.TryAdd(id, (ushort)row);
             row++;
         }
         return rows;
-    });
+    }
 
     /// <summary>A spike trap's hit on a player (GrantedEffectStatSets <c>LbRetractableTrap</c>):
     /// <c>%_of_life_to_deal_as_damage</c> of maximum life plus <c>%_of_es_to_deal_as_damage</c> of maximum energy
     /// shield, with <c>damage_+%_vs_players</c>; it always hits and cannot be blocked. Null without the table. Armour and
     /// resistances are not applied (our reading: the trap deals a share of the pools).</summary>
-    public static int? SpikeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(SpikeStats.Value, maxLife, maxEnergyShield);
+    public static int? SpikeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(SpikeStats, maxLife, maxEnergyShield);
 
-    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> SpikeStats = new(() => TrapStats("LbRetractableTrap"));
+    /// <summary>A spike trap's hit on a monster: the same shares of its pools, without the trap's damage_+%_vs_players.</summary>
+    public static int? SpikeDamageToMonster(uint maxLife) =>
+        SpikeStats is { } s ? (int)Math.Min(int.MaxValue, (long)maxLife * s.Life / 100) : null;
+
+    static (int Life, int EnergyShield, int VsPlayers)? SpikeStats = default!;
 
     static int? TrapDamage((int Life, int EnergyShield, int VsPlayers)? stats, uint maxLife, uint maxEnergyShield) =>
         stats is { } s ? (int)Math.Min(int.MaxValue,
@@ -1037,27 +1061,26 @@ static class LabyrinthTrials
     // A trap's stat set (GrantedEffectStatSets): its shares of the pools and its damage_+%_vs_players.
     static (int Life, int EnergyShield, int VsPlayers)? TrapStats(string id)
     {
-        const string file = "data/tables/GrantedEffectStatSets.json";
         try
         {
-            if (!File.Exists(file) || !File.Exists("data/tables/Stats.json")) return null;
-            using var stats = JsonDocument.Parse(File.ReadAllBytes("data/tables/Stats.json"));
-            var names = stats.RootElement.EnumerateArray().Select(s => s.GetProperty("Id").GetString() ?? "").ToList();
-            using var sets = JsonDocument.Parse(File.ReadAllBytes(file));
-            foreach (var set in sets.RootElement.EnumerateArray())
+            if (!ClientTables.Has("GrantedEffectStatSets") || !ClientTables.Has("Stats")) return null;
+            var stats = ClientTables.Table("Stats");
+            var names = stats.Select(s => s.Text("Id") ?? "").ToList();
+            var sets = ClientTables.Table("GrantedEffectStatSets");
+            foreach (var set in sets)
             {
-                if (set.GetProperty("Id").GetString() != id) continue;
-                var values = set.GetProperty("ConstantStats").EnumerateArray().Select(k => names[k.GetInt32()])
-                    .Zip(set.GetProperty("ConstantStatsValues").EnumerateArray().Select(v => v.GetInt32()))
+                if (set.Text("Id") != id) continue;
+                var values = set.Ints("ConstantStats").Select(k => (uint)k + 1)
+                    .Zip(set.Ints("ConstantStatsValues"))
                     .ToDictionary(p => p.First, p => p.Second);
-                return (values.GetValueOrDefault("%_of_life_to_deal_as_damage"), values.GetValueOrDefault("%_of_es_to_deal_as_damage"),
-                    values.GetValueOrDefault("damage_+%_vs_players"));
+                return (values.GetValueOrDefault(Stat.PctOfLifeToDealAsDamage), values.GetValueOrDefault(Stat.PctOfEsToDealAsDamage),
+                    values.GetValueOrDefault(Stat.DamagePlusPctVsPlayers));
             }
             return null;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or InvalidCastException or ArgumentOutOfRangeException)
         {
-            Console.WriteLine($"[gateway] {file}: {ex.Message}");
+            Console.WriteLine($"[gateway] GrantedEffectStatSets: {ex.Message}");
             return null;
         }
     }
@@ -1073,13 +1096,12 @@ static class LabyrinthTrials
     {
         var w = new BlobWriter().U8(0).U8(0);
         bool pressure = type is not null && IsPressureSpikeTrap(type);
-        // A pressure trap's object_size 11 made it a wall round its tile (live 2026-11-01): flags1 0x08 with its u8, blocks
-        // no walker (the doors' too, Blob).
+        // flags1 0x08 with its u8: blocks no walker (+0x1e6 bit 0x40, which the client's body test 0x141e65ae0 skips; the
+        // doors' too, Blob). Without it the trap is a body at its tile's middle: a pressure trap's object_size 11 made it a
+        // wall round its tile (live 2026-11-01), and a cascade trap's 2 bent the client's walks round its middle while the
+        // server's went straight over the lowered spikes (live 2026-11-16).
         // f0 0x04: a fixed height (a doorway roller's tile line), as Blob sends the plates'.
-        w.I32(x).I32(y).F32(angle).U16(14).U8((byte)(height is null ? 0 : 0x04)).U8((byte)(pressure ? 0x0a : 0x02));
-        if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
-        w.U8(0).U8(1);                                                  // Positioned
-        if (pressure) w.U8(1);
+        w.Positioned(x, y, angle, team: 14, fixedHeight: height is float z ? BlobWriter.FixedHeight(z) : null, blocksNoWalker: true);
         w.U8(0);                                                        // Animated: the .ot's
         if (pressure) w.U8(1).U8(0);                                    // Transitionable, TriggerableBlockage: unblocked
         else w.U8(0).U8(1);                                             // TriggerableBlockage: unblocked, Transitionable
@@ -1187,9 +1209,9 @@ static class LabyrinthTrials
 
     /// <summary>A blade's hit on a player (GrantedEffectStatSets <c>LbEdgeTrap</c>: 25% of maximum life plus 15% of
     /// maximum energy shield, 20% more against players), read as the spike trap's (<see cref="SpikeDamage"/>).</summary>
-    public static int? EdgeBladeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(EdgeStats.Value, maxLife, maxEnergyShield);
+    public static int? EdgeBladeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(EdgeStats, maxLife, maxEnergyShield);
 
-    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> EdgeStats = new(() => TrapStats("LbEdgeTrap"));
+    static (int Life, int EnergyShield, int VsPlayers)? EdgeStats = default!;
 
     /// <summary>A blade's 0x2bb blob (Positioned, BaseEvents, Animated, TriggerableBlockage, Pathfinding, Stats, Buffs, Life,
     /// Transitionable, Actor): the room line's angle, team 14, flags1 0x08 (blocks no walker, as the pressure spikes),
@@ -1197,7 +1219,7 @@ static class LabyrinthTrials
     public static byte[] EdgeBladeBlob(int x, int y, float angle)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x0a).U8(0).U8(1).U8(1); // Positioned
+        w.Positioned(x, y, angle, team: 14, blocksNoWalker: true);      // Positioned
         w.U8(0);                                                        // Animated: the .ot's
         w.U8(0);                                                        // TriggerableBlockage: unblocked
         w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
@@ -1275,11 +1297,11 @@ static class LabyrinthTrials
 
     public static double ArrowForwardCells => 50 / WorldUnits.PerCell;
 
-    /// <summary>A turret's Hull (<c>statueturret_circleclean.ao</c>, as every turret model but <c>_noblock</c>): squares
-    /// of ±3.25 cells for walking and ±2.26 for projectiles, turned with the turret. The client stamps it, so a dart stops
-    /// at another turret and a player walks round one (live 2026-10-31: the darts vanished at the turrets while the
-    /// server's flew on).</summary>
-    public const double ArrowTrapWalkHalf = 3.25, ArrowTrapProjectileHalf = 2.26;
+    /// <summary>A turret's projectile Hull (<c>statueturret_circleclean.ao</c>, as every turret model but <c>_noblock</c>):
+    /// a square of ±2.26 cells, turned with the turret. The client stamps it, so a dart stops at another turret (live
+    /// 2026-10-31: the darts vanished at the turrets while the server's flew on). Its walk Hull is the model's own
+    /// (ServerLevels.ModelWalkCells).</summary>
+    public const double ArrowTrapProjectileHalf = 2.26;
 
     /// <summary>The cells whose centres lie in an object's Hull rectangle of these half sizes (cells, its model's
     /// walk_tri / proj_tri), turned by its angle.</summary>
@@ -1306,6 +1328,8 @@ static class LabyrinthTrials
         // A Door_Counter gate in a fence line, a tile wide (our estimate from the fence pieces a tile apart); a smashable
         // thin wall and a secret wall, a tile of wall each (ours).
         "ruinedtemple_smallgate.ao" or "drygarden_smallgate.ao" => (11.5, 3),
+        // Izaro's arena's alcove railing, across the alcove's three places (ours, from their spread).
+        "alcove_railing.ao" => (17, 2.5),
         "eleganthouse_thinwallstraight_smashable_openanimation_v01_01_animation.ao" => (11.5, 2.5),
         "gardendry_wall_straight_secretwall_v01_01_openanimation.ao" => (11.5, 4),
         _ => (14, 6),
@@ -1320,9 +1344,9 @@ static class LabyrinthTrials
 
     /// <summary>A dart's hit on a player (GrantedEffectStatSets <c>LbArrowTrap</c>: 15% of maximum life plus 9% of maximum
     /// energy shield, 33% more against players), read as the spike trap's (<see cref="SpikeDamage"/>).</summary>
-    public static int? ArrowDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(ArrowStats.Value, maxLife, maxEnergyShield);
+    public static int? ArrowDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(ArrowStats, maxLife, maxEnergyShield);
 
-    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> ArrowStats = new(() => TrapStats("LbArrowTrap"));
+    static (int Life, int EnergyShield, int VsPlayers)? ArrowStats = default!;
 
     /// <summary>What a dart's poison is reckoned from: its hit's share of maximum life alone. The poison goes past energy
     /// shield, so the whole hit's would turn an energy shield character's own pool against their life (live 2026-10-31:
@@ -1341,12 +1365,12 @@ static class LabyrinthTrials
     /// <c>base_skill_effect_duration</c> (2 s) from the latest hit. Its value is not in the client data: live
     /// (2026-10-31, the original) a character's movement speed went from +19% to −52% under the darts,
     /// (1 − 0.52) / 1.19 ≈ 0.40 of it, so 60% less, final.</summary>
-    public const string ArrowSlowStat = "labyrinth_arrow_movement_speed_+%_final";
+    public const uint ArrowSlowStat = Stat.LabyrinthArrowMovementSpeedPlusPctFinal;
     public const int ArrowSlowPercent = -60;
     public const double ArrowSlowSeconds = 2;
 
     /// <summary>The <c>labyrinth_arrow_slow</c> BuffDefinitions row, or null without the table.</summary>
-    public static ushort? ArrowSlowBuffRow => BuffRows.Value.TryGetValue("labyrinth_arrow_slow", out ushort row) ? row : null;
+    public static ushort? ArrowSlowBuffRow => BuffRows.TryGetValue("labyrinth_arrow_slow", out ushort row) ? row : null;
 
     /// <summary>A dart trap's 0x2bb blob (LabyrinthArrowTrap.ot: Positioned, Transitionable, Animated, Pathfinding,
     /// BaseEvents, Stats, Buffs, Life, Actor), as the spike trap's (<see cref="SpikeTrapBlob"/>): the .ot's team 14, the
@@ -1355,7 +1379,7 @@ static class LabyrinthTrials
     public static byte[] ArrowTrapBlob(int x, int y, float angle, string model, string? type = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1); // Positioned
+        w.Positioned(x, y, angle, team: 14);                           // Positioned
         if (type == TriggeredArrowTrap) w.U8(1).WStr32(model).U8(1);    // Animated: the room line's, Transitionable
         else w.U8(1).U8(1).WStr32(model);                               // Transitionable, Animated: the room line's
         w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
@@ -1458,30 +1482,32 @@ static class LabyrinthTrials
     public static byte TransitionableIndex(string type) => (byte)Array.IndexOf(Components[Kind(type)], "Transitionable");
 
     /// <summary>The trial in this area, or null.</summary>
-    public static Trial? For(string areaId) => All.Value.GetValueOrDefault(areaId);
+    public static Trial? For(string areaId) => All.GetValueOrDefault(areaId);
 
     /// <summary>Whether the area is one of the Labyrinth's own (WorldAreas IsLabyrinthArea: the <c>1_Labyrinth_*</c> rooms
     /// of a run and Izaro's; not the plaza, not a trial): its rooms have the trials' traps.</summary>
-    public static bool InLabyrinth(string areaId) => LabyrinthAreas.Value.Contains(areaId);
+    public static bool InLabyrinth(string areaId) => LabyrinthAreas.Contains(areaId);
 
-    static readonly Lazy<HashSet<string>> LabyrinthAreas = new(() =>
+    static HashSet<string> LabyrinthAreas = default!;
+
+    static HashSet<string> LoadLabyrinthAreas()
     {
         try
         {
-            if (!File.Exists("data/tables/WorldAreas.json")) return [];
-            using var areas = JsonDocument.Parse(File.ReadAllBytes("data/tables/WorldAreas.json"));
-            return [.. areas.RootElement.EnumerateArray().Where(a => a.GetProperty("IsLabyrinthArea").GetBoolean())
-                .Select(a => a.GetProperty("Id").GetString() ?? "")];
+            if (!ClientTables.Has("WorldAreas")) return [];
+            var areas = ClientTables.Table("WorldAreas");
+            return [.. areas.Where(a => a.Bool("IsLabyrinthArea"))
+                .Select(a => a.Text("Id") ?? "")];
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidCastException or KeyNotFoundException or InvalidOperationException)
         {
-            Console.WriteLine($"[gateway] data/tables/WorldAreas.json: {ex.Message}");
+            Console.WriteLine($"[gateway] WorldAreas: {ex.Message}");
             return [];
         }
-    });
+    }
 
     /// <summary>Every trial of the table (Normal, Cruel, Merciless and Eternal).</summary>
-    public static IReadOnlyCollection<Trial> Trials => All.Value.Values;
+    public static IReadOnlyCollection<Trial> Trials => All.Values;
 
     /// <summary>The Labyrinth tier that needs the trial (Labyrinths RequiredTrials): 1 Normal's six, 2 Cruel's three,
     /// 3 Merciless's three, 4 Eternal's six (the map trials), by its quest flag (NormalLabyrinthCompleted…, Cruel…,
@@ -1490,34 +1516,34 @@ static class LabyrinthTrials
         trial.Flag.StartsWith("Normal", StringComparison.Ordinal) ? 1 : trial.Flag.StartsWith("Cruel", StringComparison.Ordinal) ? 2
         : trial.Flag.StartsWith("Merciless", StringComparison.Ordinal) ? 3 : 4;
 
-    static readonly Lazy<Dictionary<string, Trial>> All = new(() =>
+    static Dictionary<string, Trial> All = default!;
+
+    static Dictionary<string, Trial> LoadAll()
     {
         try
         {
-            if (!File.Exists("data/tables/LabyrinthTrials.json") || !File.Exists("data/tables/WorldAreas.json")) return [];
-            using var areas = JsonDocument.Parse(File.ReadAllBytes("data/tables/WorldAreas.json"));
-            var areaIds = areas.RootElement.EnumerateArray().Select(a => a.GetProperty("Id").GetString() ?? "").ToList();
-            var flags = Quests.ParseRows(File.Exists("data/tables/QuestFlags.json") ? File.ReadAllText("data/tables/QuestFlags.json") : "[]")
+            if (!ClientTables.Has("LabyrinthTrials") || !ClientTables.Has("WorldAreas")) return [];
+            var areaIds = ClientTables.Table("WorldAreas").Select(a => a.Text("Id") ?? "").ToList();
+            var flags = Quests.FlagRows(ClientTables.TableOrNull("QuestFlags"))
                 .ToDictionary(kv => kv.Value, kv => kv.Key);
-            return Parse(File.ReadAllText("data/tables/LabyrinthTrials.json"), areaIds, flags).ToDictionary(t => t.Area);
+            return Parse(ClientTables.Table("LabyrinthTrials"), areaIds, flags).ToDictionary(t => t.Area);
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or InvalidCastException)
         {
-            Console.WriteLine($"[gateway] data/tables/LabyrinthTrials.json: {ex.Message}");
+            Console.WriteLine($"[gateway] LabyrinthTrials: {ex.Message}");
             return [];
         }
-    });
+    }
 
     /// <summary>LabyrinthTrials rows: WorldAreas key, column 1 the league quest flag id, column 7 the QuestFlags row.</summary>
-    public static List<Trial> Parse(string json, IReadOnlyList<string> areaIds, IReadOnlyDictionary<int, string> flagIds)
+    public static List<Trial> Parse(ClientTable table, IReadOnlyList<string> areaIds, IReadOnlyDictionary<int, string> flagIds)
     {
-        using var doc = JsonDocument.Parse(json);
         var trials = new List<Trial>();
-        foreach (var row in doc.RootElement.EnumerateArray())
+        foreach (var row in table)
         {
-            int area = row.GetProperty("WorldAreas").GetInt32(), flag = row.GetProperty("__col7").GetInt32();
+            int area = row.Int("WorldAreas"), flag = row.Int("__col7");
             if (area < 0 || area >= areaIds.Count || !flagIds.TryGetValue(flag, out var name)) continue;
-            trials.Add(new Trial(areaIds[area], name, row.GetProperty("__col1").GetInt32()));
+            trials.Add(new Trial(areaIds[area], name, row.Int("__col1")));
         }
         return trials;
     }
@@ -1528,8 +1554,12 @@ static class LabyrinthTrials
     /// checked live on the terrain, keep standing on it. TriggerableBlockage (0x141e47880) is blocked with no
     /// sections while closed.</summary>
     public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null) =>
-        Blob(Components[Kind(type)], model, x, y, angle, scale, state, height,
-            blockage: Components[Kind(type)].Contains("TriggerableBlockage") && type != SmashableWall, blocked: Blocks(type, state));
+        Blob(Components[Kind(type)], model, x, y, angle, scale, state, height, blockage: !SentStatic(type), blocked: Blocks(type, state));
+
+    /// <summary>Whether <see cref="Blob(string, string, int, int, float, float, byte, float?)"/> sends the object with its
+    /// static position (flags1 0x02): all but those with a TriggerableBlockage, a smashable wall excepted.</summary>
+    public static bool SentStatic(string type) =>
+        !Components[Kind(type)].Contains("TriggerableBlockage") || type == SmashableWall;
 
     /// <summary>The blob of an object with these components (in the client's order), as <see cref="Blob(string, string,
     /// int, int, float, float, byte, float?)"/> writes a trial object's: <paramref name="blockage"/> gives Positioned a
@@ -1541,8 +1571,8 @@ static class LabyrinthTrials
         foreach (string c in components)
             switch (c)
             {
-                // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown). A door
-                // also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d8bd20)
+                // x, y, rotation, u16, the room line's scale and height; blocking is the type's own (BlobWriter.Positioned).
+                // A door also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d8bd20)
                 // stamps its Hull whatever its TriggerableBlockage says and an opened door stays closed to walking, and
                 // 0x08 with 1 (+0x1e6 bit 0x40: blocks no walker), so only the blockage closes its cells.
                 // f0 0x04: the fixed height, i32 whole steps of 7.8125 and the f32 z the client uses (as an area
@@ -1550,12 +1580,8 @@ static class LabyrinthTrials
                 case "Positioned":
                     // A smashable wall keeps its static position: the client stamps its Hull (walking and projectiles) and
                     // its transition removes it (RemoveCollidability).
-                    bool scaled = scale != 1;
-                    w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
-                    if (scaled) w.F32(scale).F32(1).F32(1);
-                    if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
-                    w.U8(0).U8(1);
-                    if (blockage) w.U8(1);
+                    w.Positioned(x, y, angle, scale: scale, fixedHeight: height is float z ? BlobWriter.FixedHeight(z) : null,
+                        dynamic: blockage, blocksNoWalker: blockage);
                     break;
                 case "Animated": if (model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)) w.U8(1).WStr32(model); else w.U8(0); break;
                 case "InteractionAction": w.U8(0); break;

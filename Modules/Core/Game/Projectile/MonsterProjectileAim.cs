@@ -1,10 +1,10 @@
 using GameServer.Core.Projectiles;
 
-static partial class Game
+public static partial class Game
 {
     // MonsterMortarAttack's target setup (3.29.3c, 141b6c630). Minimum range is measured from the
     // actor in cells; scatter follows it. The animation-speed draw is consumed even with zero variation.
-    internal static ProjectileVector MonsterMortarTarget(ProjectileVector actor, ProjectileVector origin,
+    public static ProjectileVector MonsterMortarTarget(ProjectileVector actor, ProjectileVector origin,
         ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index)
     {
         var random = new AnimationVariantSelector.NativeRandom([sequence, (uint)(index + 2), owner, 0, 0, 0, 0, 0]);

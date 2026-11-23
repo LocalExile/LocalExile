@@ -33,41 +33,69 @@ public static class Progression
     }
 
     /// <summary>
-    /// The level penalty: monsters within a safe zone of 3 + level / 16 levels give full experience; beyond it the
-    /// experience is scaled by ((L + 5) / (L + 5 + d^2.5))^1.5, d the levels past the safe zone (L the player's level).
-    /// The extra penalty of levels 95 and above is not modelled.
+    /// The monster level the experience penalty uses: above 70 a monster counts as a lower level,
+    /// -0.03 * level² + 5.17 * level - 144.9 (the wiki's Experience page; 75 → 74.10, 82 → 77.32). It changes the
+    /// penalty only, not the monster's stats, loot or base experience.
+    /// </summary>
+    public static double EffectiveMonsterLevel(int monsterLevel) => monsterLevel > 70
+        ? -0.03 * monsterLevel * monsterLevel + 5.17 * monsterLevel - 144.9
+        : monsterLevel;
+
+    /// <summary>
+    /// The level penalty (the wiki's Experience page): monsters within a safe zone of 3 + level / 16 levels give full
+    /// experience; beyond it the experience is scaled by ((L + 5) / (L + 5 + d^2.5))^1.5, d the levels past the safe
+    /// zone (L the player's level), at least 0.01. From level 95 another 1 / (1 + 0.1 * (L - 94)) applies, even in the
+    /// safe zone. Monsters above level 70 use <see cref="EffectiveMonsterLevel"/> for d.
     /// </summary>
     public static double LevelPenalty(int playerLevel, int monsterLevel)
     {
         int safeZone = 3 + playerLevel / 16;
-        int d = Math.Max(Math.Abs(playerLevel - monsterLevel) - safeZone, 0);
-        if (d == 0) return 1;
+        double d = Math.Max(Math.Abs(playerLevel - EffectiveMonsterLevel(monsterLevel)) - safeZone, 0);
         double l = playerLevel + 5;
-        return Math.Max(0.01, Math.Pow(l / (l + Math.Pow(d, 2.5)), 1.5));
+        double penalty = Math.Pow(l / (l + Math.Pow(d, 2.5)), 1.5);
+        if (playerLevel >= 95) penalty /= 1 + 0.1 * (playerLevel - 94);
+        return Math.Max(0.01, penalty);
     }
 
     /// <summary>
-    /// How much more experience a monster of this rarity gives than a normal one. Our own numbers (the client's are
-    /// not found yet): magic ×2, rare ×5, unique ×5.
+    /// How much more experience a monster of this rarity gives than a normal one, from the hidden rarity mods in the
+    /// client's Mods table (<c>monster_slain_experience_+%</c>): magic 250% (×3.5), rare 750% (×8.5), unique 450% (×5.5).
     /// </summary>
     public static double RarityMultiplier(MonsterRarity rarity) => rarity switch
     {
-        MonsterRarity.Magic => 2,
-        MonsterRarity.Rare or MonsterRarity.Unique => 5,
+        MonsterRarity.Magic => 3.5,
+        MonsterRarity.Rare => 8.5,
+        MonsterRarity.Unique => 5.5,
         _ => 1,
     };
 
     /// <summary>
-    /// The experience a kill gives: DefaultMonsterStats' Experience at the monster's level × the variety's
-    /// ExperienceMultiplier (percent) × the rarity multiplier × the level penalty, rounded, at least 1 when the base is.
+    /// The party's share for one player (the wiki's Experience page): a monster's experience is multiplied by the
+    /// party size and split by (level + 10)^2.71, capped at the player's solo experience, so min{1, N * weight / Σ weights}.
     /// </summary>
-    public static uint MonsterExperience(int baseExperience, int multiplierPercent, MonsterRarity rarity, int playerLevel, int monsterLevel)
+    public static double PartyMultiplier(IReadOnlyList<int> levels, int index)
+    {
+        if (levels.Count <= 1) return 1;
+        double total = 0;
+        foreach (int level in levels) total += Math.Pow(level + 10, 2.71);
+        if (total <= 0) return 1;
+        return Math.Min(1, levels.Count * Math.Pow(levels[index] + 10, 2.71) / total);
+    }
+
+    /// <summary>
+    /// The experience a kill gives: DefaultMonsterStats' Experience at the monster's level × the variety's
+    /// ExperienceMultiplier (percent) × the rarity multiplier × the level penalty × the party share, rounded, at least
+    /// 1 when the base is. With <paramref name="levelPenalty"/> false the penalty is skipped: the gems' 10% share is
+    /// taken before it.
+    /// </summary>
+    public static uint MonsterExperience(int baseExperience, int multiplierPercent, MonsterRarity rarity, int playerLevel,
+        int monsterLevel, bool levelPenalty = true, double partyMultiplier = 1)
     {
         if (baseExperience <= 0 || multiplierPercent <= 0) return 0;
         double experienceMultiplier = ExperienceMultiplier;
         if (experienceMultiplier <= 0) return 0;
         double xp = baseExperience * (multiplierPercent / 100.0) * RarityMultiplier(rarity)
-            * LevelPenalty(playerLevel, monsterLevel) * experienceMultiplier;
+            * (levelPenalty ? LevelPenalty(playerLevel, monsterLevel) : 1) * partyMultiplier * experienceMultiplier;
         return (uint)Math.Max(1, Math.Round(xp));
     }
 
