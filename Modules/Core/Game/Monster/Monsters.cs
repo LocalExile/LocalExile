@@ -2161,11 +2161,21 @@ public static partial class Game
         }
         if (a.Strike is { } strike)
         {
-            await PlaceMonsterMarker(player, id, m, a, strike, areaAim);
-            // A skill that raises several (BossMoves.Strikes: Merveil's ten geysers): the rest come up around the first.
-            if (a.Effect is int strikeEffect && BossMoves.StrikeOf(SkillsFor(player), strikeEffect, m.Level) is { Count: > 1 } many)
-                foreach (var spot in BossMoves.StrikeSpots(areaAim, many.Count - 1, many.Spread, AreaRng(player), player.Layout))
+            // A hazard that stays (BossMoves.Strikes: Merveil's geysers): several come up, the first under the player and
+            // the rest around it, and each strikes again while its art stands.
+            if (a.Effect is int strikeEffect && BossMoves.StrikeOf(SkillsFor(player), strikeEffect, m.Level) is { } many)
+            {
+                List<(int X, int Y)> spots = [areaAim, .. BossMoves.StrikeSpots(areaAim, many.Count - 1, many.Spread, AreaRng(player), player.Layout)];
+                foreach (var spot in spots)
+                {
                     await PlaceMonsterMarker(player, id, m, a, strike, spot);
+                    for (int pulse = 1; pulse <= many.Pulses; pulse++)
+                        await PlaceMonsterMarker(player, id, m, a,
+                            strike with { Seconds = strike.Seconds + pulse * many.Pulse, MarkerArt = null, ImpactArt = null }, spot);
+                }
+                return false;
+            }
+            await PlaceMonsterMarker(player, id, m, a, strike, areaAim);
             return false;
         }
         if (a.Projectile is { } projectile)

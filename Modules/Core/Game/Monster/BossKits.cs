@@ -145,6 +145,7 @@ public static class BossKits
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             if (BossMoves.BarrageOf(catalog, effect) is not null) Barraged[effect] = true;
+            if (BossMoves.IsTeleport(catalog, effect)) Teleports[effect] = true;
             int trigger = DamageTakenThreshold(catalog, effect, effectLevel);
             ushort id = (ushort)(0x4000 + kit.Count);
             var built = AttackFor(player, variety, level, effect, id);
@@ -190,7 +191,10 @@ public static class BossKits
                 {
                     // A hazard raised under the player that strikes a moment later (Merveil's geysers).
                     if (BossMoves.StrikeOf(catalog, effect, level) is { } hazard)
+                    {
                         attack = attack with { Strike = hazard.Strike, AreaRadius = hazard.Radius, Projectile = null, Release = null, ReleaseEffect = null };
+                        cooldown = Math.Max(cooldown, hazard.Cooldown);
+                    }
                     else if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
                     // A monster's own skill the shaping has no form for stays the action it was: the client plays its
                     // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
@@ -555,6 +559,11 @@ public static class BossKits
     public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance, Func<MonsterAttack, bool>? usable = null)
     {
         if (monster.Kit.Count == 0) return monster.Attack;
+        // A form that has just taken shape teleports first (OpenWithTeleport), when it has a teleport and the player is
+        // in its reach.
+        if (Openers.Remove(monster) && monster.Kit.FirstOrDefault(k => Teleports.ContainsKey(k.Effect)) is { } opener
+            && opener.Attack.Range >= distance && Arakaali.Allowed(monster, opener.Effect))
+            return opener.Attack;
         // A ranged default attack comes in a burst (Merveil, the Siren's Ice Spears follow one another): once begun it
         // is used again until the burst is full, then the list takes its turns.
         if (monster.Kit[0] is { CooldownSeconds: 0, Attack: { Ranged: true, Use: null, Summon: null } first } opening
@@ -616,6 +625,13 @@ public static class BossKits
 
     // Kit skills that fire a barrage from one cast (BossMoves.Barrages): they are not also repeated as a burst.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> Barraged = new();
+
+    // The kit's teleports by effect, filled as kits are built (Choose has no catalog), and the monsters that open with one.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> Teleports = new();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, object> Openers = new();
+
+    /// <summary>Makes the monster's first kit action its teleport, if its kit has one (a boss's later form).</summary>
+    public static void OpenWithTeleport(SpawnedMonster monster) => Openers.AddOrUpdate(monster, monster);
 
     sealed class Streak { public int Count; public double At = double.NegativeInfinity; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, Streak> Streaks = new();

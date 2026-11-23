@@ -12,6 +12,9 @@ public static partial class Game
         double.TryParse(Environment.GetEnvironmentVariable("Game_MONSTER_MORTAR_RADIUS"), out double radius) && radius > 0
             ? radius : MonsterMortarRadiusCells;
 
+    /// <summary>The switch for a monster turning to a shot it aims afresh (MonsterProjectileUse).</summary>
+    public static bool TurnToShot = true;
+
     /// <summary>The use for a monster's ranged attack released now: native straight mortars retain their ordered aim;
     /// other shots target the player's current cell. A
     /// mortar lands there and damages the area; a straight shot flies on past it. Team 2, so only the player (and friendly
@@ -29,6 +32,10 @@ public static partial class Game
         var from = ProjectileSession.Vector(releasedFrom ?? m.Walk.Position(now));
         var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(player, targetId) is { } golem
             ? golem.Monster.Walk.Position(now) : player.Walk.Position(now)));
+        // A shot aimed at where its target stands now, not where the action was ordered (a barrage's later shots), turns
+        // the monster to it: the action's own facing is the ordered aim's.
+        if (TurnToShot && orderedAim is null && releasedFrom is null && (aim - from).Length >= 1)
+            _ = SendWorldRecord(player, id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id, MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);

@@ -48,22 +48,32 @@ public static partial class BossMoves
     /// radius it hits within, the stat that says how many come up (0: one) and how far around the first the others
     /// scatter (cells). The object and its timing are the official server's; the client has only the art
     /// (MiscObjects MerveilGeyser), so every number is ours.</summary>
-    public sealed record StrikeRow(string Art, double Seconds, double Radius, uint CountStat, double Spread, double StaySeconds);
+    /// <param name="Count">How many come up when the skill's CountStat is 0 or absent.</param>
+    /// <param name="Pulse">While it stays (the skill's base_skill_effect_duration, else StaySeconds) it strikes again
+    /// this often (seconds).</param>
+    /// <param name="Cooldown">The least cooldown the kit gives it: a field of them is not raised every turn.</param>
+    public sealed record StrikeRow(string Art, double Seconds, double Radius, uint CountStat, int Count, double Spread,
+        double StaySeconds, double Pulse, double Cooldown);
 
     public static readonly Dictionary<string, StrikeRow> Strikes = new(StringComparer.Ordinal)
     {
-        ["MerveilGeyser"] = new(GeyserArt, 1.0, 6, 0, 0, 3),
-        ["MerveilMultiGeyser"] = new(GeyserArt, 1.2, 6, Stat.MerveilNumberOfGeysers, 28, 3),
+        // One under the player and a few around; ten across the arena.
+        ["MerveilGeyser"] = new(GeyserArt, 1.0, 6, 0, 4, 22, 10, 1, 4),
+        ["MerveilMultiGeyser"] = new(GeyserArt, 1.2, 6, Stat.MerveilNumberOfGeysers, 10, 55, 6, 1, 9),
     };
 
     const string GeyserArt = "Metadata/Effects/Spells/monsters_effects/act1/merveil/water_geyser/watertest.ao";
 
     /// <summary>The delayed strike a kit skill places instead of a plain hit, or null.</summary>
-    public static (MonsterDelayedStrike Strike, double Radius, int Count, double Spread)? StrikeOf(SkillCatalog catalog, int effect, byte level)
+    public static (MonsterDelayedStrike Strike, double Radius, int Count, double Spread, int Pulses, double Pulse, double Cooldown)? StrikeOf(
+        SkillCatalog catalog, int effect, byte level)
     {
         if (catalog.EffectId(effect) is not { } id || !Strikes.TryGetValue(id, out var row)) return null;
-        int count = row.CountStat == 0 ? 1 : Math.Clamp(Game.GolemData.Skill(catalog, effect, level).Stats.GetValueOrDefault(row.CountStat), 1, 20);
-        return (new(row.Seconds, row.Art, row.Art, row.StaySeconds, false), row.Radius, count, row.Spread);
+        var stats = Game.GolemData.Skill(catalog, effect, level).Stats;
+        int count = row.CountStat != 0 && stats.GetValueOrDefault(row.CountStat) is > 0 and var named ? Math.Min(named, 30) : Math.Max(1, row.Count);
+        double stay = stats.GetValueOrDefault(Stat.BaseSkillEffectDuration) is > 0 and var ms ? ms / 1000d : row.StaySeconds;
+        int pulses = row.Pulse > 0 ? (int)Math.Floor(Math.Max(0, stay - row.Seconds) / row.Pulse) : 0;
+        return (new(row.Seconds, row.Art, row.Art, stay, false), row.Radius, count, row.Spread, pulses, row.Pulse, row.Cooldown);
     }
 
     /// <summary>Where the other hazards of one use come up: scattered within <paramref name="spread"/> cells of the
@@ -73,7 +83,8 @@ public static partial class BossMoves
         List<(int X, int Y)> spots = [];
         for (int tries = 0; spots.Count < count && tries < count * 6; tries++)
         {
-            double turn = random.NextDouble() * Math.Tau, far = 6 + random.NextDouble() * Math.Max(0, spread - 6);
+            // Evenly over the disc, not bunched at its centre.
+            double turn = random.NextDouble() * Math.Tau, far = Math.Max(6, spread * Math.Sqrt(random.NextDouble()));
             var spot = (at.X + (int)Math.Round(Math.Cos(turn) * far), at.Y + (int)Math.Round(Math.Sin(turn) * far));
             if (layout.WalkableFor(spot.Item1, spot.Item2, 0)) spots.Add(spot);
         }
