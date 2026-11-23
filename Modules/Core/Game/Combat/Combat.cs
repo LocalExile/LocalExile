@@ -2319,6 +2319,7 @@ public static partial class Game
         sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(player, skillId);
         var skillStats = admittedGem.Stats;
+        bool retaliation = SkillsFor(player).IsRetaliation(gem.Effect);
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
@@ -2757,6 +2758,25 @@ public static partial class Game
                         critical ? criticalImpale : impale, more).Damage;
                     stun = OwnerStun(player, m, damage, mitigated, !spell && SkillsFor(player).IsMelee(gem.Effect), spell, critical,
                         playerStats, skillStats, weaponClass: sweepWeaponClass);
+                    var ailmentStats = skillStats;
+                    if (retaliation)
+                    {
+                        long Bonus(uint key) => (long)playerStats.GetValueOrDefault(key) + skillStats.GetValueOrDefault(key);
+                        stun = stun with
+                        {
+                            // The native modifier is negative for reduced enemy threshold.
+                            ThresholdReductionPct = ActorScale.Saturate(stun.ThresholdReductionPct - Bonus(global::Stat.RetaliationSkillStunThresholdPlusPct)),
+                            DurationPct = ActorScale.Saturate(stun.DurationPct + Bonus(global::Stat.RetaliationSkillStunDurationPlusPct)),
+                        };
+                        if (Bonus(global::Stat.RetaliationSkillsAllAilmentDurationPlusPct) is long duration and not 0)
+                        {
+                            uint key = global::Stat.BaseAllAilmentDurationPlusPct;
+                            ailmentStats = new Dictionary<uint, int>(skillStats)
+                            {
+                                [key] = ActorScale.Saturate(skillStats.GetValueOrDefault(key) + duration),
+                            };
+                        }
+                    }
                     // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
                     // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                     var rampagePlayer = freshPlayer ? playerStats : null;
@@ -2791,7 +2811,7 @@ public static partial class Game
                         if (!spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(player, m, skillStats);
-                        AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, skillStats, at,
+                        AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentStats, at,
                             AreaRng(player), reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: IsLeapSlam(player, gem.Effect) ? centre : null,

@@ -73,6 +73,7 @@ Nothing yet.
   The trap, mine and totem supports' own more or less damage scales the supported hit. Traps and mines take their
   scoped critical multiplier. Herald passives apply to their secondary AoE and damage, and skill timing reads its
   curse, mark, link and retaliation speed bonuses.
+  Retaliation hits apply their damage, stun and ailment duration modifiers (offline regression checks).
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.

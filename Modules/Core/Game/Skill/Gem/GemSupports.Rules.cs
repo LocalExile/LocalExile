@@ -733,6 +733,12 @@ public static partial class Game
             : name is var k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        if (skills.IsRetaliation(gem.Effect))
+        {
+            if (Get(Stat.RetaliationSkillDamagePlusPct) is int retaliation and not 0)
+                stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct), retaliation);
+            ApplyRetaliationAilmentDuration(stats);
+        }
         // Lightning Strike's two components share a gem, not a damage context. Its bolts do not gain melee
         // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
         bool lightningStrike = IsLightningStrike(gem.Effect);
