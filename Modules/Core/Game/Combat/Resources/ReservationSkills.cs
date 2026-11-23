@@ -121,14 +121,18 @@ public static partial class Game
         return (increased, webs, ignited, bleeding, lowLife) =>
         {
             int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
+            var target = TargetModifiers(Get, lowLife);
             increased += herald + SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(player, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
                 spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
-                supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased);
+                supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased + target.HitIncrease);
             var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat, increased);
-            return new(hit, MonsterIgnites.Settings.From(rows, "secondary", TargetStat), MonsterIgnites.Settings.None,
-                MonsterPoisons.Settings.From(rows, "secondary", TargetStat));
+            var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
+            var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+            return target.More == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
+                : new(hit.Scale(target.More), RepeatAilment(ignite, target.More), MonsterIgnites.Settings.None,
+                    RepeatAilment(poison, target.More));
         };
     }
 

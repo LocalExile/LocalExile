@@ -704,6 +704,7 @@ public static partial class Game
         public int WeaponIncreased { get; init; }
         public HitIncreases WeaponTypedIncreases { get; init; }
         public bool Armed { get; init; }
+        public bool Claw { get; init; }
     }
 
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
@@ -838,6 +839,8 @@ public static partial class Game
                     && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
             WeaponTypedIncreases = attackWeapon is null || secondary ? default : WeaponTypeDamage.Of(attackWeapon, Get),
             Armed = attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon),
+            Claw = attackWeapon is not null && !secondary
+                && WeaponIdentity.CountsAs(attackWeapon.ItemClass, attackWeapon.LocalSources, "Claw"),
         };
     }
 
@@ -858,14 +861,20 @@ public static partial class Game
             additional: inputs.WeaponTypedIncreases, trackPhysicalOrigin: inputs.Melee && !inputs.Secondary
                 && inputs.Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) != 0);
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
+        double intensityMore = SupportedHitIntensityMore(inputs);
+        if (intensityMore != 1) hit = hit.Scale(intensityMore);
+        return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
+    }
+
+    static double SupportedHitIntensityMore(SupportedHitInputs inputs)
+    {
         double intensityMore = 1;
         if (inputs.Projectile)
             intensityMore *= Math.Max(0, 1 + inputs.Get(Stat.SupportGreaterProjectileIntensityProjectileDamagePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + inputs.Get(Stat.SupportGreaterProjectileIntensityProjectileDamagePlusPctFinalFromIntensity) / 100d);
         if (inputs.Area)
             intensityMore *= Math.Max(0, 1 + inputs.Get(Stat.AreaDamagePlusPctFinalFromSpellBoostCharges) / 100d);
-        if (intensityMore != 1) hit = hit.Scale(intensityMore);
-        return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
+        return intensityMore;
     }
 
     // The damaging-ailment rows of a supported skill's hit in one context (AilmentPanelStats): the main or off hand of

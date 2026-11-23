@@ -53,13 +53,17 @@ public static partial class Game
             ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false, bool lowLife = false)
             {
                 int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
+                var target = TargetModifiers(Get, lowLife);
                 increased += SpiderDamageIncrease(Get, webs);
                 var woven = SpiderRawDamage(receipt.Raw, Get, webs);
                 var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion, spell: false, area: true,
-                    secondary: true, additionalIncreased: increased);
+                    secondary: true, additionalIncreased: increased + target.HitIncrease);
                 var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat, increased);
-                return new(hit, MonsterIgnites.Settings.From(rows, "secondary", TargetStat), MonsterIgnites.Settings.None,
-                    MonsterPoisons.Settings.From(rows, "secondary", TargetStat));
+                var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
+                var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+                return target.More == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
+                    : new(hit.Scale(target.More), RepeatAilment(ignite, target.More), MonsterIgnites.Settings.None,
+                        RepeatAilment(poison, target.More));
             }
             var normal = Profile(0);
             var blinded = Get(PlayerHitDamage.VsBlindedDamageStat) is var increased && increased != 0
@@ -76,7 +80,7 @@ public static partial class Game
                     if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
                         || MonsterAsleep(player, id) || Dist(at, target.Walk.Position(now)) > receipt.Radius) continue;
                     var profile = target.SpiderWebs.Count(now) > 0 || target.Ignites.Burning || target.Bleeds.Burning
-                        || EnemyOnLowLife(target) && Get(DamageVsLowLifePerFrenzy) != 0
+                        || EnemyOnLowLife(target) && (Get(DamageVsLowLifePerFrenzy) != 0 || HasLowLifeDamage(Get))
                         ? Profile(Blinded(player, id) ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0,
                             target.SpiderWebs.Count(now), target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target))
                         : Blinded(player, id) ? blinded : normal;

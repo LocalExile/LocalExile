@@ -674,14 +674,23 @@ public static partial class Game
         int webs = target.SpiderWebs.Count(at);
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(playerStats, n), webs);
         playerStats = SpiderAttackStats(playerStats, webs);
-        playerStats = TypedTargetDamageStats(playerStats, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
+        bool lowLife = EnemyOnLowLife(target);
+        int Get(uint key) => GolemStat(playerStats, key);
+        var modifiers = TargetModifiers(Get, lowLife, target.MaimedUntil > at,
+            weapon.Melee && Get(Stat.MeleeDamagePlusPctAtCloseRange) != 0 && InCloseRange(player, target, at),
+            claw: lowLife && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"));
+        playerStats = TypedTargetDamageStats(playerStats, target.Ignites.Burning, target.Bleeds.Burning, lowLife);
         playerStats = WithElementalOverload(player, SkillCatalog.FirstSkillId, playerStats);
         int rating = accuracy ?? PlayerAccuracy(player, playerStats);
         // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
-        return new(AttackHitConverted(weapon, playerStats, weapon.Melee, conversion, new(rating), additionalIncreased),
-            DefaultAttackIgnite(player, playerStats, weapon, additionalIncreased, conversion, rating),
-            DefaultAttackBleed(player, playerStats, weapon, additionalIncreased, conversion, rating),
-            DefaultAttackPoison(player, playerStats, weapon, additionalIncreased, conversion, rating));
+        var hit = AttackHitConverted(weapon, playerStats, weapon.Melee, conversion, new(rating),
+            additionalIncreased + modifiers.HitIncrease);
+        long ailmentIncrease = additionalIncreased + modifiers.AilmentIncrease;
+        var ignite = DefaultAttackIgnite(player, playerStats, weapon, ailmentIncrease, conversion, rating);
+        var bleed = DefaultAttackBleed(player, playerStats, weapon, ailmentIncrease, conversion, rating);
+        var poison = DefaultAttackPoison(player, playerStats, weapon, ailmentIncrease, conversion, rating);
+        return modifiers.More == 1 ? new(hit, ignite, bleed, poison) : new(hit.Scale(modifiers.More),
+            RepeatAilment(ignite, modifiers.More), RepeatAilment(bleed, modifiers.More), RepeatAilment(poison, modifiers.More));
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from
@@ -2569,7 +2578,8 @@ public static partial class Game
         HitResistances.Mods mods = default;
         AreaSkillDamageProfile sweepProfile = default!;
         AreaSkillDamageProfile? blindedProfile = null;
-        SpiderDamageSource? sweepSpider = null;
+        SpiderDamageSource? sweepSpider = null, sweepOffSpider = null;
+        double mainHandMore = 1, dualWieldMore = 1;
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
@@ -2671,8 +2681,19 @@ public static partial class Game
                                 SupportedPoison(player, skillId, spell, playerStats, swingWeapon, increased, capturedInputs));
                         }
                         sweepProfile = Profile(0);
-                        sweepSpider = CaptureSpiderDamage(player, capturedInputs,
-                            AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level), context: true, local: local);
+                        double targetEffectiveness = AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level);
+                        sweepSpider = CaptureSpiderDamage(player, capturedInputs, targetEffectiveness, context: true, local: local,
+                            bow: false, offHand: hand == AttackHand.Off);
+                        if (sweepSpider is not null && !spell && shield is null)
+                        {
+                            if (hand != AttackHand.Off)
+                                (mainHandMore, dualWieldMore) = HandDamageMore(player, admittedGem.Stats);
+                            else
+                                (_, dualWieldMore) = HandDamageMore(player, admittedGem.Stats);
+                            if (offInputs is not null)
+                                sweepOffSpider = CaptureSpiderDamage(player, offInputs, targetEffectiveness, context: true,
+                                    local: OffhandWeaponFor(player)?.LocalSources, bow: false, offHand: true, required: true);
+                        }
                         if (additionalIncreased != 0) blindedProfile = Profile(additionalIncreased);
                         pen = Penetration.Of(playerStats, Stats, attack: !spell, skillStats, local);
                         mods = HitResistMods(playerStats, skillStats);
@@ -2687,9 +2708,22 @@ public static partial class Game
                         ? blindedProfile : sweepProfile;
                     if (sweepSpider is { } spider)
                     {
-                        var woven = SpiderDamageProfile(spider, m.SpiderWebs.Count(ProjectileWorldTime(player)),
-                            Blinded(player, id), m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
-                        profile = new(woven.Hit.Scale(ruthless), woven.Ignite, woven.Bleed, woven.Poison);
+                        double hitAt = ProjectileWorldTime(player);
+                        int webs = m.SpiderWebs.Count(hitAt);
+                        bool maimed = m.MaimedUntil > hitAt, lowLife = EnemyOnLowLife(m);
+                        bool close = spider.Melee && spider.Stats.GetValueOrDefault(global::Stat.MeleeDamagePlusPctAtCloseRange) != 0
+                            && InCloseRange(player, m, hitAt);
+                        bool blinded = Blinded(player, id, hitAt);
+                        var woven = SpiderDamageProfile(spider, webs, blinded, m.Ignites.Burning, m.Bleeds.Burning,
+                            lowLife, maimed, close);
+                        var conditionalHit = mainHandMore == 1 ? woven.Hit : woven.Hit.Scale(mainHandMore);
+                        if (sweepOffSpider is { } off)
+                            conditionalHit = conditionalHit.Add(SpiderDamageProfile(off, webs, blinded, m.Ignites.Burning, m.Bleeds.Burning,
+                                lowLife, maimed, close).Hit);
+                        double contactMore = ruthless * dualWieldMore;
+                        if (contactMore != 1) conditionalHit = conditionalHit.Scale(contactMore);
+                        if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));
+                        profile = new(conditionalHit, woven.Ignite, woven.Bleed, woven.Poison);
                     }
                     if (!spell && repeat > 0)
                     {
