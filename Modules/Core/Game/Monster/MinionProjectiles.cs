@@ -33,7 +33,7 @@ public static partial class Game
             || targetMonster.Dead || targetMonster.Life == 0 || !targetMonster.Hostile
             || !player.Area.Monsters.TryGetValue(targetId, out var target) || !ReferenceEquals(target, targetMonster))
             return false;
-        if (m.TemporarilyAllied) return AreaTime(player) < m.TemporaryAllyUntil && IsMonsterRunner(player);
+        if (attack.ConversionUntil is not null) return ConversionAttackCurrent(attack, AreaTime(player));
         if (!player.Minions.Fights(id) || !player.Minions.Owns(id, m)
             || player.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, m)
             || !ReferenceEquals(active.Area, player.Instance) || !ReferenceEquals(active.Lifetime, CombatLifetime))
@@ -77,7 +77,7 @@ public static partial class Game
         return new ProjectileUse(profile, owner, owner, 1, origin, aim)
         {
             Payload = new MinionProjectileOffense(id, m, m.Attack!, accuracy, $"{m.Label} {projectile.Metadata}")
-                { Presentation = presentation, ConversionUntil = m.TemporarilyAllied ? m.TemporaryAllyUntil : null },
+                { Presentation = presentation, ConversionUntil = attack.ConversionUntil },
         };
     }
 

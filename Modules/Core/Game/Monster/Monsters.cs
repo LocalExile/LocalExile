@@ -884,7 +884,7 @@ public static partial class Game
                     || !MonsterAiCadence.Due(double.IsNaN(plan.FrameStart) ? now : plan.FrameStart, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
                 // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
-                if (MonsterAsleep(player, id) || m.TemporarilyAllied && !runner) continue;
+                if (MonsterAsleep(player, id)) continue;
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
                 // controller activates; the ordinary chase would slowly drag them toward the player.
@@ -1009,7 +1009,8 @@ public static partial class Game
                 }
                 if (player.Minions.Attacks.TryGetValue(id, out var pendingMinion))
                 {
-                    if (ReferenceEquals(pendingMinion.Monster, m) && (player.Minions.Fights(id) || m.FightsForPlayers))
+                    if (ReferenceEquals(pendingMinion.Monster, m) && (player.Minions.Fights(id) || m.FightsForPlayers)
+                        && ConversionAttackCurrent(pendingMinion, now))
                     { plan.MinionSwings.Add(pendingMinion); continue; }
                     player.Minions.Attacks.Remove(id);
                 }
@@ -1038,7 +1039,8 @@ public static partial class Game
                         m.BusyUntil = begins + ma.Seconds;
                         m.LastTarget = null;
                         var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At,
-                            begins + ma.Seconds * (ma.Release?.Fraction ?? .5));
+                            begins + ma.Seconds * (ma.Release?.Fraction ?? .5))
+                            { ConversionUntil = m.TemporarilyAllied ? m.TemporaryAllyUntil : null };
                         player.Minions.Attacks[id] = attack;
                         plan.MinionSwings.Add(attack);
                     }

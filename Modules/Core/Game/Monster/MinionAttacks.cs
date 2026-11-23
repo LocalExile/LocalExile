@@ -122,7 +122,7 @@ public static partial class Game
         var target = new MinionTarget(targetId, targetMonster, toAt, true, toAt);
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !player.Closed && !player.LeavingArea
             && (player.Minions.Fights(id) || m.FightsForPlayers)
-            && (!m.TemporarilyAllied || IsMonsterRunner(player))
+            && ConversionAttackCurrent(attack, AreaTime(player))
             && player.Area.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead
             && player.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack);
         if (!Current()) return;

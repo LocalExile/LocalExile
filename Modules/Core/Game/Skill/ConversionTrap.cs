@@ -4,6 +4,9 @@ public static partial class Game
 {
     const ushort ConversionTrapBuffRow = 165; // trap_convert_buff
 
+    static bool ConversionAttackCurrent(PlayerMinions.Attack attack, double at) =>
+        attack.ConversionUntil is not double until || at < until && attack.Monster.TemporaryAllyUntil == until;
+
     static KeyValuePair<uint, SpawnedMonster> ConversionTrapTarget(Player player, PlacedSkills.Placed placed, double now)
     {
         KeyValuePair<uint, SpawnedMonster> closest = default;
