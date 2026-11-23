@@ -17,6 +17,7 @@ public static partial class Game
     // the Game module loads, so that first login also reads the shared selection through its existing fields.
     public static void InitializeAccountHideouts(string? preferredSource = null)
     {
+        if (!Saves.IsOpen) return;
         if (!string.IsNullOrWhiteSpace(preferredSource)) InitializeAccountHideout(preferredSource);
         var store = new SqliteAccountStore(Saves.Db);
         foreach (var account in store.Accounts())

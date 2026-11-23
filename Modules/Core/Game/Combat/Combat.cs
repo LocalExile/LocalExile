@@ -3477,7 +3477,8 @@ public static partial class Game
         {
             if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
                 drops.AddRange(DropsFor(player).EncounterJewels(boss.Id, m.Level, AreaRng(player), DropDataProvider.Default.Current));
-            // The run's tier gates base card/scarab and Atlas base drops. Its declared bosses have the higher map cap.
+            // A generic map drop (approximate rates): use the open map's tier in a map, or tier 1 in the late campaign
+            // once the monster meets MapKeyTier1's DropLevel. The same tier gates base card/scarab and atlas-base drops.
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(player).Roll(m.Level, m.Rarity, AreaRng(player), IncreasedItemRarity(player, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
