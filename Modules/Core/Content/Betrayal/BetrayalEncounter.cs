@@ -104,11 +104,9 @@ public sealed class BetrayalEncounter
             byte[] cart = BetrayalWire.Create(id, BetrayalWire.CartType, BetrayalWire.CartBody(cell, BetrayalPlan.CartRotation(plan.Angle)));
             await SendWorldCreate(player, id, () => cart, $"0x02bb Betrayal cart 0x{id:x}", wake: true, awaitBirth: false);
         }
-        if (run.RulesetPayload is { } payload && AssassinationRules is { } row)
-        {
-            await Broadcast(player, InstanceProtocol.AddRuleset(row), $"0x001f ruleset JobAssassinationRules (row {row})");
-            await Broadcast(player, InstanceRulesets.Data(row, [payload]), $"0x02c9 JobAssassinationRules {payload}");
-        }
+        // No ruleset broadcast here: at population time only the entering player is in the instance, and that player
+        // already gets the ruleset row from EnterMessages (0x001f) and its data from Entered (0x02c9) on this same
+        // entry, so broadcasting either would send it twice (review #1379 point 4).
         Console.WriteLine($"[betrayal] {layout.Id}: {plan.Job} with {member.Id} at ({plan.Spot.X}, {plan.Spot.Y}), level {area.Level}");
     }
 
@@ -193,7 +191,8 @@ public sealed class BetrayalEncounter
             await Leave(player, live);
             return;
         }
-        run.Portal = instance.World.NewMonsterId();
+        // A server object, not a monster: a monster id would make AreaObjectRecords skip it as a shared monster.
+        run.Portal = instance.World.TakeObjectId();
         byte[] portal = BetrayalWire.Create(run.Portal, BetrayalWire.EffectType, BetrayalWire.PortalBody(cell, plan.MemberRotation, run.Member));
         if (await SendWorldCreate(player, run.Portal, () => portal, $"0x02bb entrance portal 0x{run.Portal:x}", awaitBirth: false))
             run.After(BetrayalRun.PortalFrames, BetrayalRun.Due.RemovePortal);
@@ -232,7 +231,14 @@ public sealed class BetrayalEncounter
             }
             // The NPC component's two fields (InstanceNpcs.DialogueAvailability's): 01 01 at the kneel [capture 4/4].
             if (npc >= 0)
+            {
                 await SendWorldRecord(player, run.Member, InstanceEntities.ComponentUpdate(run.Member, (byte)npc, [1, 1]), "0x02bc member NPC 01 01");
+                // And the instance's copy, so a late joiner or re-entrant reconstructs the member with dialogue
+                // available instead of NPC 00 ff (review #1379 point 4). The create blob writes the second byte
+                // as 0xff by design (MonsterObject), so the origin carries [01 ff], not the live update's [01 01].
+                if (player.Instance.World.MonsterOrigins.TryGetValue(run.Member, out var origin))
+                    player.Instance.World.MonsterOrigins[run.Member] = origin with { Object = origin.Object with { HasDialogue = true } };
+            }
             body.Aggro = false;
             body.BusyUntil = double.PositiveInfinity;
             // Stop it where it kneels: an in-flight swing would otherwise still complete and hit while it kneels
@@ -343,7 +349,13 @@ public sealed class BetrayalEncounter
         var plan = run.Plan;
         if (Monsters.All.ElementAtOrDefault(plan.Member.Variety) is { } variety
             && variety.ComponentsOrBase.ToList().IndexOf("Life") is int life and >= 0)
+        {
             await SendWorldRecord(player, run.Member, InstanceEntities.ComponentUpdate(run.Member, (byte)life, [0]), "0x02bc member Life 00");
+            // And the instance's copy, so a late joiner or re-entrant reconstructs the member with Life 00 instead
+            // of its kneel-floor life (review #1379 point 4).
+            if (player.Instance.World.MonsterOrigins.TryGetValue(run.Member, out var origin))
+                player.Instance.World.MonsterOrigins[run.Member] = origin with { Object = origin.Object with { Life = 0 } };
+        }
         await SendWorldRemoval(player, run.Choice, $"0x02bd MakeChoice 0x{run.Choice:x}");
         run.Choice = 0;
         run.Jun = player.Instance.World.TakeObjectId();
