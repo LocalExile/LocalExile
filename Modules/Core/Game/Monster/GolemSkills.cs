@@ -93,6 +93,8 @@ public static partial class Game
                 + 50 * charges.Held(ChargeType.Power);
         }
         int Get(uint n) => GolemStat(playerStats, n);
+        if (Get(Stat.NecromancerMinionDamagePlusPctFinal) is int damageMore and not 0)
+            values[Stat.NecromancerMinionDamagePlusPctFinal] = damageMore;
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
         // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
         // maximum kernel as the owner's charge session; its maximum already includes Character.ot's base three.

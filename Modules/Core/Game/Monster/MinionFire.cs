@@ -28,7 +28,7 @@ public static partial class Game
         double factor = Math.Max(0, 1 + increased / 100d) * general * typed
             * Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100d)
             * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100d)
-            * MindlessAggressionDamage(minion.Player);
+            * Math.Max(0, 1 + effects[Stat.NecromancerMinionDamagePlusPctFinal] / 100d);
         if (damageOverTime)
             factor *= Math.Max(0, 1 + (effects[Stat.DotMultiplierPlus] + effects[Stat.FireDotMultiplierPlus]) / 100d);
         return basis * factor;
