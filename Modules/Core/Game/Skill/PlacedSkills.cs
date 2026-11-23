@@ -749,7 +749,7 @@ public static partial class Game
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
-                        player.RecentEvents.Record(StatConditions.DetonatedMine, AreaTime(player));
+                        player.RecentEvents.RecordAmount(StatConditions.DetonatedMine, now);
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
