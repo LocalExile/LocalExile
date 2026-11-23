@@ -160,6 +160,10 @@ public static partial class Game
                 stats[attackDamage] = ArmourAttackDamage.Total(Get(Stat.AttackDamagePlusPct),
                     Get(Stat.PhysicalDamageReductionRating), Get(ArmourAttackDamage.Per450Armour),
                     Get(Stat.EvasionRating), Get(ArmourAttackDamage.Per450Evasion));
+            if (Get(Stat.AttackDamagePlus1PctPer300OfMinOfArmourOrEvasion) is int perseverance and not 0
+                && Stat.AttackDamagePlusPct is var perseveranceAttack)
+                stats[perseveranceAttack] = ActorScale.Saturate(Get(perseveranceAttack)
+                    + (long)perseverance * (Math.Max(0, Math.Min(Get(Stat.PhysicalDamageReductionRating), Get(Stat.EvasionRating))) / 300L));
             return stats;
         }
         if (stage == StatSnapshotStage.Offence)

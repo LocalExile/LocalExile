@@ -97,9 +97,12 @@ public static class AilmentPanelStats
         }
         bool tinctureWeapon = context.Attack && !context.Spell && get(Stat.TinctureApplied) != 0;
         if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
-        Add("ignite", DamageType.Fire, get(Stat.AllDamageCanIgnite) != 0
+        DamageType[] ignite = get(Stat.AllDamageCanIgnite) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0
-            ? DamageTypes.ConversionOrder : [DamageType.Fire], IgnitePercent);
+            ? DamageTypes.ConversionOrder : get(Stat.UniqueColdDamageIgnites) != 0
+                ? [DamageType.Fire, DamageType.Cold] : [DamageType.Fire];
+        if (get(Stat.UniqueFireDamageShocks) != 0) ignite = [.. ignite.Where(type => type != DamageType.Fire)];
+        Add("ignite", DamageType.Fire, ignite, IgnitePercent);
         Add("poison", DamageType.Chaos, get(Stat.AllDamageCanPoison) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanPoison) != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
@@ -132,7 +135,8 @@ public static class AilmentPanelStats
             };
         bool bowAttack = context.Attack && !context.Spell
             && get(context.Hand == "off_hand" ? Stat.OffHandWeaponType : Stat.MainHandWeaponType) == WeaponTypeStats.Bow;
-        if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowAilmentDamagePlusPct) + get(Stat.BowHitAndAilmentDamagePlusPct);
+        if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowAilmentDamagePlusPct)
+            + get(Stat.BowHitAndAilmentDamagePlusPct) + get(Stat.DamageOverTimePlusPctWithBowSkills);
         // The tree's "with <weapon type>" rows reach an ailment as they reach the hit (issue #1102): the plain and
         // hit-and-ailment rows, the family's own ailment row, and the two families' shared ailment rows.
         (int weaponAny, HitIncreases weaponExtra) = context.Attack && !context.Spell
@@ -159,6 +163,8 @@ public static class AilmentPanelStats
                 + (tinctureWeapon ? get(Stat.CriticalStrikeMultiplierPlusWithTincturedWeapons) : 0)) / 100.0)
             : Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.Of(Slug(ailmentType) + "_dot_multiplier_+"))
                 + get(Stat.AilmentDotMultiplierPlus) + get(Stat.Of(ailment + "_dot_multiplier_+"))
+                + (ailmentType == DamageType.Fire && context.Attack ? get(Stat.FireDamageOverTimeMultiplierPlusWithAttacks) : 0)
+                + (context.Spell && ailment == "poison" ? get(Stat.PoisonDotMultiplierPlusWithSpells) : 0)
                 + (tinctureWeapon ? get(Stat.DamageOverTimeMultiplierPlusWithTincturedWeapons) : 0)
                 + (critical && !neverFromCrit ? get(Stat.CriticalAilmentDotMultiplierPlus) + get(Stat.Of("critical_" + ailment + "_dot_multiplier_+")) : 0)) / 100);
         double multiplier = dotMultiplier

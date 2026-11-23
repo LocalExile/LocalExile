@@ -235,6 +235,7 @@ public static partial class Game
         player.ChannelMovement = default;
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
+        ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
         ClearAntiquarianOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
@@ -380,12 +381,16 @@ public static partial class Game
         if (CombatLifetime is not null && !CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
             return false;
         playerStats = SupportedStats(player, skillId);
-        cost = (uint)Math.Max(0, playerStats.GetValueOrDefault(Stat.ManaCost));
+        var paying = playerStats;
+        int Read(uint stat) => paying.GetValueOrDefault(stat);
+        var skills = SkillsFor(player);
+        int effect = SupportedSkill(player, skillId).Effect;
+        bool channelled = skills.IsChannelled(effect);
+        cost = (uint)Math.Max(0, Read(Stat.ManaCost));
         int Own(uint key) => own.GetValueOrDefault(key);
-        int nativeLife = Math.Max(0, playerStats.GetValueOrDefault(Stat.LifeCost));
-        if (nativeLife > 0 && BloodCharges.Uses(Own))
-            nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
-                * BloodCharges.More(Own(BloodCharges.CostPerCharge), player.BloodCharges)));
+        int nativeLife = Math.Max(0, Read(Stat.LifeCost));
+        int convertedLife = 0;
+        int petrifiedLife = 0;
         // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
         // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
         // it would divide no longer exists.
@@ -393,24 +398,39 @@ public static partial class Game
         {
             // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
             // therefore zero: the two conversions do not stack into 140%.
-            life = (int)Math.Min(cost, int.MaxValue);
+            convertedLife = (int)Math.Min(cost, int.MaxValue);
             cost = 0;
         }
         else
         {
-            int lifeBasis = (int)Math.Min(cost, int.MaxValue);
-            if (player.PetrifiedBlood.Active && ItemChargeCosts.ManaEfficiency is var efficiency
-                && playerStats.GetValueOrDefault(efficiency) != 0)
+            int lifeBasis;
+            if (Read(Stat.MarkSkillsCostNoMana) != 0 && skills.HasType(effect, "Mark"))
             {
-                var costStats = playerStats;
-                lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stat.ManaCost),
-                    name => name is var key ? costStats.GetValueOrDefault(key) : 0,
-                    SkillsFor(player).IsChannelled(SupportedSkill(player, skillId).Effect), SkillCostMore(player, own), applyManaEfficiency: false);
+                cost = 0;
+                lifeBasis = 0;
             }
-            life = PetrifiedBlood.LifeCost(player, lifeBasis);
+            else if (Math.Clamp(Read(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100) is int split and > 0
+                && skills.IsAttack(effect) && own.TryGetValue(Stat.ManaCost, out int baseMana))
+            {
+                (int remainingMana, lifeBasis, convertedLife) = ManaRecoveryRules.SplitCostToLife(
+                    baseMana, Read, channelled, SkillCostMore(player, own), split);
+                cost = (uint)remainingMana;
+            }
+            else
+            {
+                lifeBasis = (int)Math.Min(cost, int.MaxValue);
+                if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
+                    && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                    lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
+                        applyManaEfficiency: false);
+            }
+            petrifiedLife = PetrifiedBlood.LifeCost(player, lifeBasis);
         }
-        life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
-        es = (uint)Math.Max(0, playerStats.GetValueOrDefault(Stat.EsCost));
+        if (nativeLife > 0 && BloodCharges.Uses(Own))
+            nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
+                * BloodCharges.More(Own(BloodCharges.CostPerCharge), player.BloodCharges)));
+        life = (int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife);
+        es = (uint)Math.Max(0, Read(Stat.EsCost));
         if (costPercent != 100)
         {
             cost = (uint)((long)cost * costPercent / 100);
@@ -418,8 +438,7 @@ public static partial class Game
             es = (uint)((long)es * costPercent / 100);
         }
         if (es > player.EnergyShield.Current) return false;
-        var paying = playerStats;
-        bool Has(uint name) => name is var key && paying.GetValueOrDefault(key) != 0;
+        bool Has(uint name) => Read(name) != 0;
         if (Has(Stat.VirtualSpendEnergyShieldForCostsBeforeMana) || Has(Stat.KeystoneEldritchBattery))
             fromEs = Math.Min(cost, player.EnergyShield.Current - es);
         return player.PlayerMana >= cost - fromEs && !(life > 0 && player.PlayerLife <= (uint)life);
@@ -442,7 +461,7 @@ public static partial class Game
     public static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(player, skillId, out cost, out lifeCost, 100);
 
-    static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent)
+    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent, bool useSpell = true)
     {
         var supported = SupportedSkill(player, skillId);
         var own = supported.Stats;
@@ -468,7 +487,8 @@ public static partial class Game
         }
         ManaSpentLocked(player, cost, playerStats);
         ApplyPaidSupportCostsLocked(player, skillId, own, cost, life);
-        if (life > 0) PresentStats(player);
+        if (useSpell) lifeCost += SacrificeItemLifeLocked(player, supported.Effect, playerStats);
+        if (lifeCost > 0) PresentStats(player);
         ConsumeCombatRush(player, skillId, supported, AreaTime(player));
         return true;
     }
@@ -1069,6 +1089,9 @@ public static partial class Game
                         player.EnergyShield.Current >= player.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(uint name) => RecoveryStat(name);
+                    double mapRecovery = PanelStats.MapRecoveryMultiplier(RecoveryStat);
+                    bool noRegeneration = RecoveryStat(Stat.MapPlayersNoRegenerationIncludingEs) != 0;
+                    life *= mapRecovery;
                     double takenFactor = IncomingStat(Stat.BaseCannotBeDamaged) > 0 ? 0
                         : IncomingResourceDefences.FinalTakenFactor(player.Pools, IncomingStat);
                     double trapTakenFactor = takenFactor
@@ -1089,15 +1112,16 @@ public static partial class Game
                     player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
                     if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife);
-                    double antiquarianLife = player.Antiquarian.TakeRecovery(now);
+                    double antiquarianLife = player.Antiquarian.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
                     if (convertLifeRegen) player.EnergyShield.Gain(antiquarianLife);
-                    double enduringCryLife = player.EnduringCryRecovery.Take(now);
+                    double enduringCryLife = player.EnduringCryRecovery.Take(now) * (noRegeneration ? 0 : mapRecovery);
                     double unhingedHitLife = player.Unhinged.HitRecovery.Take(now);
+                    if (noRegeneration) unhingedHitLife = 0;
                     if (convertLifeRegen) player.EnergyShield.Gain(enduringCryLife);
                     double preventedLife = PreventedDamageOf(player).Take(recoveryFrom, now, preventedPerSecond);
                     if (convertLifeRegen) player.EnergyShield.Gain(preventedLife);
                     if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife);
-                    double recoupLife = player.LifeRecoup.Take(now);
+                    double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
@@ -1366,17 +1390,24 @@ public static partial class Game
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
     public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(Player player)
+        => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
+            player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+
+    public static (int Suppression, int Dodge) SpellDefences(Player player)
     {
         double now = AreaTime(player);
         bool fullLife, fullEnergyShield, hitRecently;
         fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player));
         fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
         hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
-        return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving: player.Walk.Moving(now), hitRecently,
-                fullEnergyShield),
-            Math.Max(0, player.Pools.SpellSuppressionEffect),
-            player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+        bool moving = player.Walk.Moving(now);
+        return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield),
+            CharacterStats.SpellDodgeChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield));
     }
+
+    static bool DodgesSpellHit(Player player) =>
+        (player.Pools.ConvertSuppressionToSpellDodge || player.Pools.BaseSpellDodgeChance > 0)
+        && GameServer.Core.World.RandomRolls.Chance(SpellDefences(player).Dodge, 100, player.IncomingHitRandom);
 
     // Devout of Garukhan's while-moving evasion and regeneration as finals, again when a walk starts or ends, for a
     // character with a while-moving stat. The client steps its pools from life/mana_recovery_per_minute and does not
