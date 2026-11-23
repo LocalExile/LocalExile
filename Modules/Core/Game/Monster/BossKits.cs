@@ -551,6 +551,12 @@ public static class BossKits
     public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance, Func<MonsterAttack, bool>? usable = null)
     {
         if (monster.Kit.Count == 0) return monster.Attack;
+        // A ranged default attack comes in a burst (Merveil, the Siren's Ice Spears follow one another): once begun it
+        // is used again until the burst is full, then the list takes its turns.
+        if (monster.Kit[0] is { CooldownSeconds: 0, Attack: { Ranged: true, Use: null, Summon: null } first } opening
+            && Streaks.TryGetValue(monster, out var streak) && streak.Count is > 0 && streak.Count < DefaultBurst
+            && first.Range >= distance && Arakaali.Allowed(monster, opening.Effect) && (usable is null || usable(first)))
+            return first;
         // A boss whose other skills all reach across the room (Merveil's Ice Spear: her whole aggro range) would never
         // walk again: its melee swing is only a candidate in reach, and the spell always is. When the swing has waited
         // its turn, the boss walks up for it (the ordinary chase does, with the swing as its attack).
@@ -602,6 +608,13 @@ public static class BossKits
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, System.Runtime.CompilerServices.StrongBox<double>> WalkingSince = new();
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, System.Runtime.CompilerServices.StrongBox<double>> FightSince = new();
+
+    sealed class Streak { public int Count; public double At = double.NegativeInfinity; }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, Streak> Streaks = new();
+
+    /// <summary>How many times in a row a boss uses a ranged default attack once it begins (ours: the official AI's
+    /// weights are not in the client).</summary>
+    public static int DefaultBurst = 3;
 
     /// <summary>How long a melee swing waits before the boss walks up for it, how long it tries, and the farthest player
     /// it walks to (seconds, seconds, cells; ours).</summary>
@@ -668,6 +681,10 @@ public static class BossKits
         foreach (var entry in monster.Kit)
             if (entry.Attack.SkillId == attack.SkillId)
             {
+                // The burst of the default attack (Choose): counted once a swing, ended by any other skill.
+                var streak = Streaks.GetOrCreateValue(monster);
+                if (entry != monster.Kit[0]) streak.Count = 0;
+                else if (now - streak.At > .2) (streak.Count, streak.At) = (streak.Count >= DefaultBurst ? 1 : streak.Count + 1, now);
                 monster.KitReadyAt[entry.Effect] = now + entry.CooldownSeconds;
                 if (entry.TriggerThreshold > 0) monster.KitDamageTaken[entry.Effect] = 0;
                 return;
