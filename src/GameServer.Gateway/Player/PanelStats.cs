@@ -534,12 +534,16 @@ public static class PanelStats
 
     static int RecoveryValue(double rate) => (int)Math.Clamp(Math.Round(rate), int.MinValue, int.MaxValue);
 
+    public static double MapRecoveryMultiplier(Func<uint, int> get) =>
+        Math.Max(0, 1 + get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal) / 100.0);
+
     /// <summary>Ordinary Life regeneration increases and recovery increases are distinct multiplicative buckets.
     /// Shared with the expiry-aware Fortification recovery writer so its added source follows the same rules.</summary>
     public static double LifeRegenerationMultiplier(Func<uint, int> get) =>
-        get(Stat.NoLifeRegeneration) != 0 || get(Stat.CannotRecoverLife) != 0 ? 0 :
+        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoLifeRegeneration) != 0
+            || get(Stat.CannotRecoverLife) != 0 ? 0 :
         Math.Max(0, 1 + get(Stat.LifeRegenerationRatePlusPct) / 100.0)
-        * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0);
+        * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0) * MapRecoveryMultiplier(get);
 
     /// <summary>Flat plus percentage Life regeneration, scaled by regeneration and recovery increases.
     /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.
@@ -569,7 +573,8 @@ public static class PanelStats
     /// mana and flat <c>base_mana_regeneration_rate_per_minute</c> (Clarity), raised by regeneration then recovery increases.
     /// </summary>
     public static double ManaPerMinute(Func<uint, int> get, uint maxMana) =>
-        get(Stat.NoManaRegeneration) != 0 || get(Stat.CannotLeechOrRegenerateMana) != 0 ? 0 :
+        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoManaRegeneration) != 0
+            || get(Stat.CannotLeechOrRegenerateMana) != 0 ? 0 :
         (maxMana * (BaseManaRegenPctPerMinute + (double)get(Stat.ManaRegenerationRatePerMinutePct)) / 100.0
             + get(Stat.BaseManaRegenerationRatePerMinute))
         * Math.Max(0, 1 + get(Stat.ManaRegenerationRatePlusPct) / 100.0)

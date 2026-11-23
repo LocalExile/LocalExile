@@ -50,7 +50,7 @@ public static partial class Game
 
     public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix";
     public static SupportedGem SupportedSkill(Player player, ushort skillId) =>
-        ApplyCurrentIntensity(player, skillId, BaseSupportedSkill(player, skillId));
+        ApplyCurrentMomentum(player, skillId, ApplyCurrentIntensity(player, skillId, BaseSupportedSkill(player, skillId)));
 
     static SupportedGem BaseSupportedSkill(Player player, ushort skillId)
     {
@@ -678,6 +678,13 @@ public static partial class Game
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
         if (totem && Stat.DamagePlusPct is var damage)
             stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, Stat.TotemDamagePlusPct);
+        var placed = PlacedKind(gem);
+        if (placed is { Trap: true } or { Mine: true })
+        {
+            uint placedDamage = placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct;
+            long increased = (long)GolemStat(stats, placedDamage) + GolemStat(stats, Stat.TrapOrMineDamagePlusPct);
+            if (increased != 0) stats[Stat.DamagePlusPct] = ActorScale.Saturate(stats.GetValueOrDefault(Stat.DamagePlusPct) + increased);
+        }
         int Get(uint name) => name == Stat.IsAreaDamage && area is bool isArea ? isArea ? 1 : 0
             : name is var k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
@@ -707,6 +714,9 @@ public static partial class Game
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats)),
                 coefficients.Base, coefficients.Added)
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+        if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
+            && WeaponIn(player, ActiveMainHand(player))?.LocalDamage is { } mainHandDamage)
+            raw = raw.Add(mainHandDamage.Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
