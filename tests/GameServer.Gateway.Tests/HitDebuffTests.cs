@@ -4,10 +4,10 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class HitDebuffTests
 {
-    static Func<string, int> Get(params (string Name, int Value)[] stats) =>
+    static Func<uint, int> Get(params (uint Name, int Value)[] stats) =>
         name => stats.FirstOrDefault(s => s.Name == name).Value;
 
-    static Func<string, int> Chances(params string[] stats) => name => stats.Contains(name) ? 100 : 0;
+    static Func<uint, int> Chances(params string[] stats) => name => stats.Contains(Program.Stats.Name(name)) ? 100 : 0;
 
     // Intimidate, Unnerve, Blind and Withered from the player's hits: each rolls its own chances and lasts its own time
     // from the latest hit, and Intimidate, Unnerve and Withered raise the damage the monster takes.
@@ -19,7 +19,7 @@ public sealed class HitDebuffTests
         {
             const string conditional = "hit_and_ailment_damage_+%_vs_blinded_enemies";
             var raw = DamagePacket.Of(DamageType.Physical, 100, 100);
-            var conditionalStats = Get(("damage_+%", 100), (conditional, 50));
+            var conditionalStats = Get((Stat.DamagePlusPct, 100), (Stat.Of(conditional), 50));
             var neutralAttack = PlayerHitDamage.Resolve(raw, conditionalStats, new DamageConversion(),
                 spell: false);
             var explicitAttack = PlayerHitDamage.Resolve(raw, conditionalStats, new DamageConversion(),
@@ -42,7 +42,7 @@ public sealed class HitDebuffTests
             var mixedRaw = DamagePacket.Of(DamageType.Physical, 100, 100)
                 .Add(DamagePacket.Of(DamageType.Fire, 100, 100));
             var conversion = new DamageConversion().Add(DamageType.Physical, DamageType.Fire, 100);
-            var mixedStats = Get(("damage_+%", 100), ("physical_damage_+%", 100), (conditional, 50));
+            var mixedStats = Get((Stat.DamagePlusPct, 100), (Stat.PhysicalDamagePlusPct, 100), (Stat.Of(conditional), 50));
             var mixedPaths = conversion.Trace(mixedRaw);
             Assert.Collection(mixedPaths,
                 path =>
@@ -69,11 +69,11 @@ public sealed class HitDebuffTests
 
             // Hit-only attack, spell, area, and projectile increases do not leak into Ignite. The 500 fire baseline
             // burns at 450 DPS; the explicit additive 50 gives 540 DPS (27,000 and 32,400 per minute).
-            var ailmentStats = Get(("damage_+%", 100), ("physical_damage_+%", 100),
-                ("attack_damage_+%", 1_000), ("spell_damage_+%", 1_000),
-                ("area_damage_+%", 1_000), ("projectile_damage_+%", 1_000), (conditional, 50));
-            const string igniteRow =
-                "minimum_ignite_damage_to_deal_per_minute_from_non_critical_spell_damage";
+            var ailmentStats = Get((Stat.DamagePlusPct, 100), (Stat.PhysicalDamagePlusPct, 100),
+                (Stat.AttackDamagePlusPct, 1_000), (Stat.SpellDamagePlusPct, 1_000),
+                (Stat.AreaDamagePlusPct, 1_000), (Stat.ProjectileDamagePlusPct, 1_000), (Stat.Of(conditional), 50));
+            uint igniteRow = Stat.Of(
+                "minimum_ignite_damage_to_deal_per_minute_from_non_critical_spell_damage");
             var ignite = AilmentPanelStats.Compute(new("spell", Spell: true), mixedRaw, conversion, ailmentStats);
             var effectiveIgnite = AilmentPanelStats.Compute(new("spell", Spell: true), mixedRaw, conversion,
                 ailmentStats, additionalIncreased: 50);
@@ -95,8 +95,8 @@ public sealed class HitDebuffTests
             Assert.Equal((true, true), Game.HitDebuffRolls(Chances("chance_to_intimidate_on_hit_%", "chance_to_unnerve_on_hit_%"), true, false, random));
 
             var m = new SpawnedMonster("intimidated", new(105, 100, 0), 0, 0, 100);
-            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 10);
-            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 12);
+            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 10, random: new Random(1));
+            Game.HitDebuffsOnHitLocked(m, Chances("chance_to_intimidate_on_hit_%"), spell: false, critical: false, now: 12, random: new Random(1));
             Assert.Equal(16, m.IntimidatedUntil);
             Assert.Equal(10, Game.HitDebuffTaken(m, spell: false, 15.9));
             Assert.Equal(0, Game.HitDebuffTaken(m, spell: true, 15.9));
@@ -106,9 +106,9 @@ public sealed class HitDebuffTests
         // Blind: the general chance, the attack-only one and the critical one sum only after the accepted hit selects
         // attack/spell and critical. The owned timed state keeps each source and lets the strongest effect win.
         {
-            var input = BlindHitInput.Capture(Get(("global_chance_to_blind_on_hit_%", 40),
-                ("attacks_chance_to_blind_on_hit_%", 30), ("%_chance_to_blind_on_critical_strike", 30),
-                ("blind_duration_+%", 50)));
+            var input = BlindHitInput.Capture(Get((Stat.GlobalChanceToBlindOnHitPct, 40),
+                (Stat.AttacksChanceToBlindOnHitPct, 30), (Stat.PctChanceToBlindOnCriticalStrike, 30),
+                (Stat.BlindDurationPlusPct, 50)));
             Assert.Equal(70, input.Chance(spell: false, critical: false));
             Assert.Equal(40, input.Chance(spell: true, critical: false));
             Assert.Equal(70, input.Chance(spell: true, critical: true));
@@ -117,9 +117,9 @@ public sealed class HitDebuffTests
             Assert.Equal(0, input.Effect);
             var wide = BlindHitInput.Capture(name => name switch
             {
-                "global_chance_to_blind_on_hit_%" => 2_000_000_000L,
-                "attacks_chance_to_blind_on_hit_%" => 2_000_000_000L,
-                "%_chance_to_blind_on_critical_strike" => 2_000_000_000L,
+                Stat.GlobalChanceToBlindOnHitPct => 2_000_000_000L,
+                Stat.AttacksChanceToBlindOnHitPct => 2_000_000_000L,
+                Stat.PctChanceToBlindOnCriticalStrike => 2_000_000_000L,
                 _ => 0L,
             });
             Assert.Equal(100, wide.Chance(spell: false, critical: true));
@@ -138,11 +138,11 @@ public sealed class HitDebuffTests
         // taken per stack (with withered_effect_+%), up to 15 stacks with their own ends, on chaos damage only.
         {
             var random = new Random(1);
-            var wither = Get(("withered_on_hit_for_2_seconds_%_chance", 100));
+            var wither = Get((Stat.WitheredOnHitFor2SecondsPctChance, 100));
             Assert.Equal(0, Game.WitherRoll(Get(), random));
             Assert.Equal(2, Game.WitherRoll(wither, random), 9);
-            Assert.Equal(2.5, Game.WitherRoll(Get(("withered_on_hit_chance_%", 100), ("support_withered_base_duration_ms", 2000),
-                ("wither_expire_speed_+%", -20)), random), 9);
+            Assert.Equal(2.5, Game.WitherRoll(Get((Stat.WitheredOnHitChancePct, 100), (Stat.SupportWitheredBaseDurationMs, 2000),
+                (Stat.WitherExpireSpeedPlusPct, -20)), random), 9);
 
             var m = new SpawnedMonster("withered", new(105, 100, 0), 0, 0, 1000);
             for (int i = 0; i < 16; i++) Game.WitherOnHitLocked(m, wither, now: 10 + i * 0.1, random);
@@ -154,7 +154,7 @@ public sealed class HitDebuffTests
             Assert.Equal(100, Game.MonsterTakesMitigated(m, DamagePacket.Of(DamageType.Fire, 100, 100), spell: false, now: 11.6));
 
             var stronger = new SpawnedMonster("withered more", new(105, 100, 0), 0, 0, 1000);
-            Game.WitherOnHitLocked(stronger, Get(("withered_on_hit_for_2_seconds_%_chance", 100), ("withered_effect_+%", 50)), 10, random);
+            Game.WitherOnHitLocked(stronger, Get((Stat.WitheredOnHitFor2SecondsPctChance, 100), (Stat.WitheredEffectPlusPct, 50)), 10, random);
             Assert.Equal(9, Game.WitheredTaken(stronger, 10.5), 9);
         }
     }
@@ -168,23 +168,23 @@ public sealed class HitDebuffTests
     {
         {
             var random = new Random(1);
-            Assert.Equal(-10, Game.ExposureRoll(Get(("base_inflict_fire_exposure_on_hit_%_chance", 100)), DamageType.Fire, false, random));
-            Assert.Equal(0, Game.ExposureRoll(Get(("base_inflict_fire_exposure_on_hit_%_chance", 100)), DamageType.Cold, false, random));
-            var withCold = Get(("chance_to_inflict_cold_exposure_on_hit_with_cold_damage_%", 100));
+            Assert.Equal(-10, Game.ExposureRoll(Get((Stat.BaseInflictFireExposureOnHitPctChance, 100)), DamageType.Fire, false, random));
+            Assert.Equal(0, Game.ExposureRoll(Get((Stat.BaseInflictFireExposureOnHitPctChance, 100)), DamageType.Cold, false, random));
+            var withCold = Get((Stat.ChanceToInflictColdExposureOnHitWithColdDamagePct, 100));
             Assert.Equal(0, Game.ExposureRoll(withCold, DamageType.Cold, withType: false, random));
             Assert.Equal(-10, Game.ExposureRoll(withCold, DamageType.Cold, withType: true, random));
-            Assert.Equal(-14, Game.ExposureRoll(Get(("lightning_exposure_on_hit_magnitude", -14)), DamageType.Lightning, false, random));
-            Assert.Equal(-22, Game.ExposureRoll(Get(("inflict_all_exposure_on_hit", 1),
-                ("cold_exposure_you_inflict_applies_extra_cold_resistance_+%", -12)), DamageType.Cold, false, random));
-            Assert.Equal(-25, Game.ExposureRoll(Get(("inflict_all_exposure_on_hit", 1),
-                ("exposure_you_inflict_has_minimum_resistance_%", -25)), DamageType.Fire, false, random));
-            Assert.Equal(0, Game.ExposureRoll(Get(("inflict_all_exposure_on_hit", 1), ("cannot_inflict_exposure", 1)),
+            Assert.Equal(-14, Game.ExposureRoll(Get((Stat.LightningExposureOnHitMagnitude, -14)), DamageType.Lightning, false, random));
+            Assert.Equal(-22, Game.ExposureRoll(Get((Stat.InflictAllExposureOnHit, 1),
+                (Stat.ColdExposureYouInflictAppliesExtraColdResistancePlusPct, -12)), DamageType.Cold, false, random));
+            Assert.Equal(-25, Game.ExposureRoll(Get((Stat.InflictAllExposureOnHit, 1),
+                (Stat.ExposureYouInflictHasMinimumResistancePct, -25)), DamageType.Fire, false, random));
+            Assert.Equal(0, Game.ExposureRoll(Get((Stat.InflictAllExposureOnHit, 1), (Stat.CannotInflictExposure, 1)),
                 DamageType.Fire, false, random));
 
             var m = new SpawnedMonster("exposed", new(105, 100, 0), 0, 0, 100);
             var fire = DamagePacket.Of(DamageType.Fire, 10, 10);
-            Game.ExposureOnHitLocked(m, Get(("base_inflict_fire_exposure_on_hit_%_chance", 100)), fire, now: 10, random);
-            Game.ExposureOnHitLocked(m, Get(("fire_exposure_on_hit_magnitude", -14)), fire, now: 8, random);
+            Game.ExposureOnHitLocked(m, Get((Stat.BaseInflictFireExposureOnHitPctChance, 100)), fire, now: 10, random);
+            Game.ExposureOnHitLocked(m, Get((Stat.FireExposureOnHitMagnitude, -14)), fire, now: 8, random);
             int unexposed = Game.MonsterHitResistance(m, DamageType.Fire, default).Value;
             Assert.Equal(unexposed - 14, Game.MonsterHitResistance(m, DamageType.Fire, default, now: 11).Value);
             Assert.Equal(unexposed - 10, Game.MonsterHitResistance(m, DamageType.Fire, default, now: 12.5).Value);
@@ -196,9 +196,9 @@ public sealed class HitDebuffTests
         {
             var random = new Random(1);
             var m = new SpawnedMonster("balanced", new(105, 100, 0), 0, 0, 100);
-            var keystone = Get(("keystone_elemental_equilibrium", 1));
+            var keystone = Get((Stat.KeystoneElementalEquilibrium, 1));
             var physical = DamagePacket.Of(DamageType.Physical, 10, 10);
-            Game.ExposureOnHitLocked(m, Get(("base_inflict_fire_exposure_on_hit_%_chance", 100)), physical, now: 10, random);
+            Game.ExposureOnHitLocked(m, Get((Stat.BaseInflictFireExposureOnHitPctChance, 100)), physical, now: 10, random);
             Game.ExposureOnHitLocked(m, keystone, physical, now: 10.5, random);
             Assert.Equal(-10, Game.MonsterExposure(m, DamageType.Fire, 11));
             Assert.Equal(0, Game.MonsterExposure(m, DamageType.Cold, 11));
@@ -208,7 +208,7 @@ public sealed class HitDebuffTests
             Assert.Equal(-25, Game.MonsterExposure(m, DamageType.Lightning, 12));
             Assert.Equal(0, Game.MonsterExposure(m, DamageType.Cold, 12));
 
-            Game.ExposureOnHitLocked(m, Get(("keystone_elemental_equilibrium", 1), ("elemental_equilibrium_effect_+%", 20)),
+            Game.ExposureOnHitLocked(m, Get((Stat.KeystoneElementalEquilibrium, 1), (Stat.ElementalEquilibriumEffectPlusPct, 20)),
                 DamagePacket.Of(DamageType.Fire, 10, 10), now: 12, random);
             Assert.Equal(0, Game.MonsterExposure(m, DamageType.Fire, 12.5));
             Assert.Equal(double.NegativeInfinity, m.ExposureUntil[0]);

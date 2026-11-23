@@ -9,22 +9,22 @@ public sealed class LabyrinthLayoutTests
     public void CruelAdmissionRequiresLevelNormalCompletionAndThreeTrials()
     {
         var plaza = new AreaLayout(0, LabyrinthDay.Plaza, 100, 100, 10, 10, null, []);
-        var player = new ClientState(plaza, 0, 0);
+        var player = new Player(plaza, 0, 0);
         var trials = LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 2)
             .OrderBy(t => t.Area, StringComparer.Ordinal).ToArray();
         Assert.Equal(["2_6_7_1", "2_7_4", "2_7_5_2"], trials.Select(t => t.Area));
         player.Pools = CharacterStats.For(Program.Skills.ClassFor(0), 39);
-        player.QuestFlags.UnionWith(["LabyrinthComplete1", trials[0].Flag]);
-        player.LeagueQuestFlags.UnionWith(trials.Skip(1).Select(t => t.LeagueFlag));
+        player.Character.QuestFlags.UnionWith(["LabyrinthComplete1", trials[0].Flag]);
+        player.Character.LeagueQuestFlags.UnionWith(trials.Skip(1).Select(t => t.LeagueFlag));
         Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
 
         player.Pools = CharacterStats.For(Program.Skills.ClassFor(0), 40);
-        player.QuestFlags.Remove("LabyrinthComplete1");
+        player.Character.QuestFlags.Remove("LabyrinthComplete1");
         Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
-        player.QuestFlags.Add("LabyrinthComplete1");
-        player.LeagueQuestFlags.Remove(trials[2].LeagueFlag);
+        player.Character.QuestFlags.Add("LabyrinthComplete1");
+        player.Character.LeagueQuestFlags.Remove(trials[2].LeagueFlag);
         Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
-        player.LeagueQuestFlags.Add(trials[2].LeagueFlag);
+        player.Character.LeagueQuestFlags.Add(trials[2].LeagueFlag);
         Assert.Null(Game.LabyrinthAdmissionFailure(player, 2));
         Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 3));
     }
@@ -37,11 +37,11 @@ public sealed class LabyrinthLayoutTests
         var portal = new GameServer.Core.Protocol.Instance.AreaTransitionObject(20, 20, 0)
         { SourceType = LabyrinthDay.Entrance };
         var plaza = new AreaLayout(0, LabyrinthDay.Plaza, 100, 100, 10, 10, null, [(portalId, portal)]);
-        var normal = new ClientState(plaza, 1, 0);
-        var cruel = new ClientState(plaza, 2, 0) { Pools = CharacterStats.For(Program.Skills.ClassFor(0), 40) };
-        normal.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 1).Select(t => t.Flag));
-        cruel.QuestFlags.Add("LabyrinthComplete1");
-        cruel.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 2).Select(t => t.Flag));
+        var normal = new Player(plaza, 1, 0);
+        var cruel = new Player(plaza, 2, 0) { Pools = CharacterStats.For(Program.Skills.ClassFor(0), 40) };
+        normal.Character.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 1).Select(t => t.Flag));
+        cruel.Character.QuestFlags.Add("LabyrinthComplete1");
+        cruel.Character.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 2).Select(t => t.Flag));
 
         Assert.False(Game.ClientHasQuestFlag(normal, LabyrinthDay.PlazaDoorOpen));
         Assert.False(Game.TransitionShown(normal, portalId, portal));

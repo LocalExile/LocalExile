@@ -9,21 +9,23 @@ using GameServer.Core.World;
 /// <c>__col4</c> world units (120 for Caustic Arrow's five).</summary>
 public sealed record GroundArt(string[] Pieces, int PieceRadius)
 {
-    static readonly Lazy<Dictionary<(string, int), GroundArt>> Rows = new(() =>
+    static Dictionary<(string, int), GroundArt> Rows = [];
+
+    public static void LoadGameData()
     {
         var rows = new Dictionary<(string, int), (int Version, GroundArt Art)>();
         IReadOnlyList<ClientRow>? types = ClientTables.TableOrNull("GroundEffectTypes"), effects = ClientTables.TableOrNull("GroundEffects");
-        if (types is null || effects is null) return new Dictionary<(string, int), GroundArt>();
+        if (types is null || effects is null) { Rows = []; return; }
         foreach (var r in effects)
             if (r.IntOrNull("GroundEffectTypesKey") is int type && type >= 0 && type < types.Count
                 && types[type].Text("Id") is { Length: > 0 } id && r.IntOrNull("__col1") is int variation
                 && r.Texts("AOFile") is { Length: > 0 } aos && r.IntOrNull("__col4") is int size and > 0
                 && (!rows.TryGetValue((id, variation), out var have) || (r.IntOrNull("__col2") ?? 0) > have.Version))
                 rows[(id, variation)] = (r.IntOrNull("__col2") ?? 0, new GroundArt([.. aos.Distinct()], size));
-        return rows.ToDictionary(kv => kv.Key, kv => kv.Value.Art);
-    });
+        Rows = rows.ToDictionary(kv => kv.Key, kv => kv.Value.Art);
+    }
 
-    public static GroundArt? Of(string type, int variation) => Rows.Value.GetValueOrDefault((type, variation));
+    public static GroundArt? Of(string type, int variation) => Rows.GetValueOrDefault((type, variation));
 }
 
 public static partial class Game
@@ -68,18 +70,19 @@ public static partial class Game
             if (value.Kind != ProjectileEventKind.End || p.Use.Payload is not ProjectileOffense shot
                 || value.Reason is not (ProjectileEndReason.Enemy or ProjectileEndReason.Terrain
                     or ProjectileEndReason.Distance or ProjectileEndReason.Lifetime or ProjectileEndReason.Landing)
-                || SkillsFor(Conn).EffectId(shot.Effect)?.StartsWith("CausticArrow", StringComparison.Ordinal) != true) return;
+                || SkillsFor(Player).EffectId(shot.Effect)?.StartsWith("CausticArrow", StringComparison.Ordinal) != true) return;
             var own = shot.SkillStats;
-            var player = CharacterPlayerStats(Conn);
-            int Own(string key) => Stats.Key(key) is uint stat ? own.GetValueOrDefault(stat) : 0;
-            int Player(string key) => Stats.Key(key) is uint stat ? player.GetValueOrDefault(stat) : 0;
-            int Get(string key) => Own(key) + Player(key);
-            if (Own("base_chaos_damage_to_deal_per_minute") <= 0) return;
-            double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+            var player = CharacterPlayerStats(Player);
+            int Own(uint stat) => own.GetValueOrDefault(stat);
+            int PlayerStat(uint stat) => player.GetValueOrDefault(stat);
+            int Get(uint stat) => Own(stat) + PlayerStat(stat);
+            if (Own(Stat.BaseChaosDamageToDealPerMinute) <= 0) return;
+            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), PlayerStat,
+                k => k == Stat.SkillEffectDurationPlusPct ? Own(k) + Get(Stat.CausticArrowDurationPlusPct) : Own(k));
             if (duration <= 0) return;
             double dps = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player).Suppressed
-                ? 0 : ChaosGroundDps(Get, Own, "caustic_arrow_damage_+%") * (shot.Mirage ? MirageDamageFactor(own) : 1);
-            int worn = SkillCosmeticStat(Conn, shot.Gem, "ground_caustic_art_variation");
+                ? 0 : ChaosGroundDps(Get, Own, Stat.CausticArrowDamagePlusPct) * (shot.Mirage ? MirageDamageFactor(own) : 1);
+            int worn = SkillCosmeticStat(Player, shot.Gem, Stat.GroundCausticArtVariation);
             PlaceCausticGround(value.Position, SkillArea.Radius(20, Get, false), duration, dps,
                 (worn > 0 ? GroundArt.Of("CausticCloud", worn) : null) ?? GroundArt.Of("CausticCloud", CausticArrowGroundVariation));
         }
@@ -137,7 +140,7 @@ public static partial class Game
             {
                 long now = Runtime.Now;
                 double at = now / (double)ProjectileRuntime.QuantaPerSecond;
-                foreach (var (id, monster) in Conn.Monsters.ToArray())
+                foreach (var (id, monster) in Player.Area.Monsters.ToArray())
                 {
                     if (!monster.Hostile || monster.Dead || monster.Life == 0
                         || (Vector(monster.Walk.Position(at)) - centre).Length > radius) continue;
@@ -150,18 +153,23 @@ public static partial class Game
                     int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
                     cover.Fraction = total - Math.Floor(total);
                     if (damage == 0) continue;
-                    var (life, stage) = TakeOwnerDamageLocked(Conn, monster, damage);
+                    var (life, stage) = TakeOwnerDamageLocked(Player, monster, damage);
                     monster.Life = life;
                     monster.Aggro = life > 0;
                     if (stage) CommitProjectileBossStage(this, id, monster, now);
-                    World(id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(monster, life)));
                     if (life == 0)
                     {
+                        SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
+                        if (DotDeathKind(monster, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                            World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
+                                orderKey: Player.Connection.LockstepClient ? uint.MaxValue : 0u));
                         monster.Dead = true;
-                        monster.LastHitBy = Conn;
-                        CollectVaalSoulAtDeathLocked(Conn, monster);
-                        Enqueue(() => DotKilled(remote, stream, ciphers, Conn, id, monster));
+                        monster.LastHitBy = Player;
+                        CollectVaalSoulAtDeathLocked(Player, monster);
+                        Enqueue(() => DotKilled(Player, id, monster));
                     }
+                    else if (!Player.Connection.LockstepClient)
+                        World(id, InstanceProtocol.LifeUpdate(id, life));
                 }
                 previous = now;
                 if (now < end) Runtime.Schedule(Math.Min(end, now + ProjectileRuntime.QuantaPerSecond / 10), Tick);

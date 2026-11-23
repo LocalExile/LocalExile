@@ -28,27 +28,19 @@ public static class ChargeBuffs
     /// <summary>The BuffDefinitions Id of each row.</summary>
     public static string Id(ChargeType type, bool converted = false) => $"{Charges.Label(type, converted)}_charge";
 
-    /// <summary>The messages for one change: the old buff off (S→C 0x1c2), then the new one on (S→C 0x1c1) with its count
-    /// and, for charges that expire, the seconds left. The player is its own source.</summary>
+    /// <summary>One change on the player's Buffs component: the type's buff (its row, or its special row when converted)
+    /// with its count and, for charges that expire, the seconds left; none at 0. The player is its own source. The log
+    /// line comes back.</summary>
     /// <paramref name="art"/> gives a type's BuffVisuals row when its art is not the buff's own (an Alternate Charge Skin).
-    public static IEnumerable<(byte[] Packet, string Label)> Packets(ChargeSession.BuffChange change, uint player,
-        Func<ChargeType, ushort?>? art = null)
+    public static string Apply(ChargeSession.BuffChange change, Player player, Func<ChargeType, ushort?>? art = null)
     {
-        if (change.Remove != 0)
-            yield return (InstanceEntities.RemoveBuff(player, change.Remove),
-                $"0x01c2 player buff {change.Remove}: {Id(change.Type)} off");
-        if (change.Count > 0 && change.Add != 0)
-            yield return (Add(change.Type, change.Add, change.Count, change.Remaining, player, change.Converted,
-                    change.Converted ? null : art?.Invoke(change.Type)),
-                $"0x01c1 player buff {change.Add}: {Id(change.Type, change.Converted)} (BuffDefinitions row {Row(change.Type, change.Converted)}) × {change.Count}" +
-                (change.Remaining is double s ? $", {s:0.###} s" : ", no duration"));
+        var buffs = player.Area.Buffs;
+        ushort row = Row(change.Type, change.Converted), other = Row(change.Type, !change.Converted);
+        buffs.Clear(player.Id, other, player.Id);
+        if (change.Count <= 0) { buffs.Clear(player.Id, row, player.Id); return $"{Id(change.Type)} off"; }
+        buffs.Set(player.Id, new(row, player.Id, Visual: change.Converted ? null : art?.Invoke(change.Type),
+            U68: change.Remaining is double s ? Buff.Seconds(s) : null, Stacks: (ushort)Math.Clamp(change.Count, 0, ushort.MaxValue)));
+        return $"{Id(change.Type, change.Converted)} (BuffDefinitions row {row}) × {change.Count}"
+            + (change.Remaining is double left ? $", {left:0.###} s" : ", no duration");
     }
-
-    /// <summary>One charge buff: row, the player as source, stacks = the count, duration = the seconds left.</summary>
-    /// <paramref name="visual"/> is a BuffVisuals row shown in place of the buff's own (0x1c1 flags bit4), null for its own.
-    public static byte[] Add(ChargeType type, ushort buff, int count, double? remaining, uint player, bool converted = false,
-        ushort? visual = null) =>
-        InstanceEntities.AddBuff(player, buff, Row(type, converted), player, visual: visual,
-            u68: remaining is double s ? BitConverter.SingleToUInt32Bits((float)s) : null,
-            stacks: (ushort)Math.Clamp(count, 0, ushort.MaxValue));
 }

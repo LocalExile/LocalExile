@@ -8,26 +8,34 @@ using GameServer.Core;
 /// (PassiveSkillGraphId) for the S→C 0x3d preset lists and the C→S 0x3e/0x3f allocation requests. A HardMode catalog
 /// holds the HardMode stat vectors (PassiveTree's rule: a row with HasHardmodeAlternate replaces its whole vector).
 /// </summary>
-public sealed class AtlasPassives(string folder = "data", bool hardMode = false)
+public sealed class AtlasPassives
 {
+    readonly string folder;
+
+    public AtlasPassives(string folder = "data", bool hardMode = false)
+    {
+        this.folder = folder;
+        _nodes = LoadNodes(folder, hardMode);
+    }
+
     public sealed record Node(ushort GraphId, string Id, string Name, bool IsNotable, bool IsKeystone,
         IReadOnlyList<(uint Key, int Value)> Stats, bool IsJustIcon = false, int SkillPoints = 0, int SkillPointsHardMode = 0,
         bool IsWormhole = false);
 
-    readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder, hardMode));
+    readonly Dictionary<ushort, Node> _nodes;
 
-    public IReadOnlyCollection<Node> Nodes => _nodes.Value.Values;
+    public IReadOnlyCollection<Node> Nodes => _nodes.Values;
 
-    public int Count => _nodes.Value.Count;
+    public int Count => _nodes.Count;
 
-    public bool Loaded => _nodes.Value.Count > 0;
+    public bool Loaded => _nodes.Count > 0;
 
-    readonly Lazy<Dictionary<ushort, HashSet<ushort>>> _links = new(() =>
-        PassiveGraphs.Available && PassiveGraphs.Graph("atlas") is not null ? PassiveGraphs.Links("atlas") : []);
+    readonly Dictionary<ushort, HashSet<ushort>> _links =
+        PassiveGraphs.Available && PassiveGraphs.Graph("atlas") is not null ? PassiveGraphs.Links("atlas") : [];
 
     /// <summary>The Atlas graph's undirected links by node (client.db passive_graph_nodes, graph "atlas"); empty when the
     /// database has no Atlas graph.</summary>
-    public IReadOnlyDictionary<ushort, HashSet<ushort>> Links => _links.Value;
+    public IReadOnlyDictionary<ushort, HashSet<ushort>> Links => _links;
 
     /// <summary>The graph's one root, the start node.</summary>
     public const ushort StartGraphId = 29045;
@@ -72,14 +80,14 @@ public sealed class AtlasPassives(string folder = "data", bool hardMode = false)
         return seen;
     }
 
-    public Node? Find(ushort graphId) => _nodes.Value.GetValueOrDefault(graphId);
+    public Node? Find(ushort graphId) => _nodes.GetValueOrDefault(graphId);
 
     /// <summary>A preset's point budget: the character's points plus what its allocated nodes grant (SkillPointsGranted,
     /// the Hardmode column in a HardMode league; the client counts the same, 0x141ef4840).</summary>
     public int Budget(int points, IEnumerable<ushort> allocated, bool hardMode) =>
         points + allocated.Sum(n => Find(n) is { } node ? hardMode ? node.SkillPointsHardMode : node.SkillPoints : 0);
 
-    public Node? FindById(string id) => _nodes.Value.Values.FirstOrDefault(n => n.Id == id);
+    public Node? FindById(string id) => _nodes.Values.FirstOrDefault(n => n.Id == id);
 
     static Dictionary<ushort, Node> LoadNodes(string folder, bool hardMode)
     {

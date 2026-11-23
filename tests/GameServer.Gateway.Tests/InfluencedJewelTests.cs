@@ -20,7 +20,7 @@ public class InfluencedJewelTests
         var both = baseItem with { Influences = ItemInfluence.Elder | ItemInfluence.Warlord };
         var elder = baseItem with { Influences = ItemInfluence.Elder };
         var warlord = baseItem with { Influences = ItemInfluence.Warlord };
-        uint life = Program.Stats.Key("maximum_life_+%")!.Value;
+        uint life = Stat.MaximumLifePlusPct;
         var nearby = jewel with { Mods = [
             new(ModSection.Explicit, items.Mods.ById("NearbyEnemiesAreBlinded2RedeemerItemsUnique__1")!.Hash, [1]),
             new(ModSection.Explicit, items.Mods.ById("NearbyEnemiesAreIntimidated2WarlordItemsUnique__1")!.Hash, [1]),
@@ -44,8 +44,8 @@ public class InfluencedJewelTests
         Assert.Equal(0, oneEach.GetValueOrDefault(life));
         var twoElder = ItemModStats.Global([both, elder, jewel], items.Mods, Program.Stats);
         Assert.Equal(15, twoElder[life]);
-        Assert.Equal(0, ItemModStats.RawAttributes([both, elder, jewel], items.Mods).GetValueOrDefault("strength_+%"));
-        Assert.Equal(12, ItemModStats.RawAttributes([both, warlord, jewel], items.Mods)["strength_+%"]);
+        Assert.Equal(0, ItemModStats.RawAttributes([both, elder, jewel], items.Mods).GetValueOrDefault(Stat.StrengthPlusPct));
+        Assert.Equal(12, ItemModStats.RawAttributes([both, warlord, jewel], items.Mods)[Stat.StrengthPlusPct]);
     }
 
     [Fact]

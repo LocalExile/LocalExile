@@ -6,11 +6,11 @@ using GameServer.Core.World;
 
 /// <summary>
 /// The player's summoned totems (Agents/docs/protocol/11-skills.md section 10g): team-0 monster objects of the skill's
-/// SkillTotemVariations variety, kept here rather than in <see cref="ClientState.Monsters"/>, so area hits, monster AI,
+/// SkillTotemVariations variety, kept here rather than in <see cref="Player.Monsters"/>, so area hits, monster AI,
 /// loot, experience and the instance save never see them. A totem dies when its Life reaches 0, its duration ends, a new
 /// one replaces it past the limit, or the player dies (wiki Totem, Soul Mantle); it then plays its death (0x1b1 at 0) and
 /// is removed (0x2bd) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by
-/// the Monsters lock; times are the connection's game seconds.
+/// the area's frame; times are the connection's game seconds.
 /// </summary>
 public sealed class TotemState
 {
@@ -67,6 +67,13 @@ public sealed class TotemState
         public ushort GrantedId => grantedId;
         /// <summary>Its corpse meal; null unless it is a Devouring Totem.</summary>
         public Devour? Devour => devour;
+        public double DecoyRadius { get; init; }
+        public int BodySize { get; init; }
+        public double? TauntAt;
+        /// <summary>A Decoy Totem's chasers: the cell each was last sent to and where it stood then, and the cells an
+        /// order never moved a chaser toward (walled in by other bodies), which no chaser is given again.</summary>
+        public readonly Dictionary<uint, ((int X, int Y) Slot, (int X, int Y) From)> DecoyOrders = [];
+        public readonly HashSet<(int X, int Y)> DecoyUnreachable = [];
         public int Effect = -1;
         public uint SourceGem;
         public uint SourceHost;
@@ -79,8 +86,6 @@ public sealed class TotemState
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
-        public uint SentLife = maxLife;
-        public bool SentDeath;
         public bool Alive(double now) => DiedAt is null && Life > 0 && now < Until;
     }
 
@@ -88,6 +93,9 @@ public sealed class TotemState
     /// <summary>The aura buff the client was last sent: its source totem and instance (Program.TotemPresentation).</summary>
     public uint SentAuraTotem;
     public ushort SentAuraInstance;
+
+    /// <summary>A totem was placed or died before its time (the stat steps that read it run again).</summary>
+    public Action? Changed;
 
     public IReadOnlyList<Totem> All => _totems;
     public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
@@ -112,6 +120,7 @@ public sealed class TotemState
             foreach (var old in Living(now).ToArray())
                 if (Living(now).Count() >= limit) Retire(old);
         _totems.Add(totem);
+        Changed?.Invoke();
         return replaced;
     }
 
@@ -135,7 +144,9 @@ public sealed class TotemState
     /// <summary>Every living totem dies (the player died).</summary>
     public void KillAll(double now)
     {
-        foreach (var t in _totems.Where(t => t.DiedAt is null)) t.DiedAt = now;
+        bool any = false;
+        foreach (var t in _totems.Where(t => t.DiedAt is null)) { t.DiedAt = now; any = true; }
+        if (any) Changed?.Invoke();
     }
 
     /// <summary>The dead totems whose death animation is over leave.</summary>

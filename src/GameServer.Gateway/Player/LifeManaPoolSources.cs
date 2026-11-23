@@ -2,12 +2,12 @@
 /// before pool increases (pinned PoB ModParser.lua1471-1472 and ModStore.lua501,525).</summary>
 public static class LifeManaPoolSources
 {
-    public const string LifePerLevel = "life_per_level";
-    public const string ManaPerLevel = "mana_per_level";
-    public const string LifePerTenDexterity = "maximum_life_per_10_dexterity";
-    public const string LifePerTenIntelligence = "maximum_life_per_10_intelligence";
-    public const string LifePerFourDexterity = "X_life_per_4_dexterity";
-    public const string LifePerTwoIntelligence = "x_to_maximum_life_per_2_intelligence";
+    public const uint LifePerLevel = Stat.LifePerLevel;
+    public const uint ManaPerLevel = Stat.ManaPerLevel;
+    public const uint LifePerTenDexterity = Stat.MaximumLifePer10Dexterity;
+    public const uint LifePerTenIntelligence = Stat.MaximumLifePer10Intelligence;
+    public const uint LifePerFourDexterity = Stat.XLifePer4Dexterity;
+    public const uint LifePerTwoIntelligence = Stat.XToMaximumLifePer2Intelligence;
 
     // CharacterStats.For supplies its clamped level and completed nonnegative attributes. Coefficients stay signed:
     // native life_per_level penalties of -12/-6/-3 subtract from the inherent 12 per level, rather than disappearing.
@@ -20,10 +20,10 @@ public static class LifeManaPoolSources
 
     public static long AdditionalMana(int level, CharacterStats.Bonus bonus) => (long)level * bonus.ManaPerLevel;
 
-    public static bool IsLifeInput(string name) => name is LifePerLevel or LifePerTenDexterity
+    public static bool IsLifeInput(uint name) => name is LifePerLevel or LifePerTenDexterity
         or LifePerTenIntelligence or LifePerFourDexterity or LifePerTwoIntelligence;
 
-    public static bool IsManaInput(string name) => name == ManaPerLevel;
+    public static bool IsManaInput(uint name) => name == ManaPerLevel;
 
-    public static bool IsInput(string name) => IsLifeInput(name) || IsManaInput(name);
+    public static bool IsInput(uint name) => IsLifeInput(name) || IsManaInput(name);
 }

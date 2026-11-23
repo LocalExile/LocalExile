@@ -6,10 +6,10 @@ using System.Collections.Frozen;
 public static class ForbiddenJewelNotables
 {
     public const string FlameMod = "PuzzlePieceCleansingFireUnique__1", FleshMod = "PuzzlePieceGreatTangleUnique__1";
-    static readonly Lazy<FrozenDictionary<ushort, byte>> ClassByNotable = new(Load);
-    static readonly Lazy<ushort[]> RollPool = new(() => ClassByNotable.Value.Keys.Order().ToArray());
+    static FrozenDictionary<ushort, byte> ClassByNotable = FrozenDictionary<ushort, byte>.Empty;
+    static ushort[] RollPool = [];
 
-    static FrozenDictionary<ushort, byte> Load()
+    internal static void LoadGameData()
     {
         var ordinary = new AscendancyCatalog().Definitions.Where(d => d.Identity.Family == AscendancyFamily.Normal
             && d.Name != "Reliquarian").ToArray();
@@ -33,11 +33,12 @@ public static class ForbiddenJewelNotables
                 && row.IntOrNull("AscendancyKey") is int key && classes.TryGetValue(key, out byte family))
                 result[id] = family;
         }
-        return result.ToFrozenDictionary();
+        ClassByNotable = result.ToFrozenDictionary();
+        RollPool = [.. result.Keys.Order()];
     }
 
     public static ushort? Roll(Random random) =>
-        RollPool.Value is { Length: > 0 } pool ? pool[random.Next(pool.Length)] : null;
+        RollPool is { Length: > 0 } pool ? pool[random.Next(pool.Length)] : null;
 
     public static ushort? Granted(IEnumerable<InventoryItem> equipped, ItemCatalog items, byte baseClass, int level)
     {
@@ -53,7 +54,7 @@ public static class ForbiddenJewelNotables
                 if (id is not (FlameMod or FleshMod) ||
                     items.ByHash(item.TypeHash) is not { } type ||
                     ItemModStats.LevelRequirement(item, type.DropLevel, items.Mods) > level) continue;
-                if (!ClassByNotable.Value.TryGetValue((ushort)value, out byte family) || family != baseClass) continue;
+                if (!ClassByNotable.TryGetValue((ushort)value, out byte family) || family != baseClass) continue;
                 switch (id, type.Id)
                 {
                     case (FlameMod, "Metadata/Items/Jewels/JewelStr"): flame = (ushort)value; break;

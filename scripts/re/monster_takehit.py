@@ -172,7 +172,7 @@ def main():
             entry["emerge"] = emerge
         if death:
             # The death clips and when they clear the corpse's body (ms; null = at once): PlayerWalk's bodies on a
-            # lockstep client (ClientState.LivingCollision.cs).
+            # lockstep client (Player.LivingCollision.cs).
             entry["death"] = death
         if entry:
             out[row["Id"]] = entry

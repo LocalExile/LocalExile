@@ -14,7 +14,7 @@ creates the local player and shows the in-game HUD.
 | `GameServer.Patch` | tcp/12995 + http/8080 | patching protocol (version 7) and a web root that serves only `gateway_list.txt` | started with `--patching-server 127.0.0.1:12995` |
 | `GameServer.Auth serve` | tcp/20493 | login server: key exchange, account login, character list, instance assignment | host:port from `gateway_list.txt` |
 | `GameServer.Gateway` | tcp/6112 | instance (game) server: area, player, inventories, enter area | host:port from login message 0x14 |
-| `GameServer.Host` | tcp/7000 | separate JSON-lines dev protocol (not the official client) | `GameServer.DevClient` |
+| `GameServer.Host` | tcp/7000 | separate JSON-lines dev protocol (not the official client) | Waypoint's Accounts tab |
 
 Auth and Gateway share `data/instance-secret.bin`. The instance key for a session is
 `HMAC-SHA512(secret, ticket)`, and the ticket travels in login 0x14 (see [01](01-login.md) and [02](02-instance-connection.md)).

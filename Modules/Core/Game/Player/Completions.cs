@@ -17,7 +17,7 @@ public static partial class Game
             .Concat(Named(Items.All.Where(t => t.Supported && !t.Name.StartsWith('[') && Items.Gem(t) is null), t => t.Name, t => t.Id)),
         "gem" => Items.GemNames().Order(StringComparer.OrdinalIgnoreCase).Select(n => (n, "")),
         "stat" => Stats.Names.Select((n, i) => (n, $"key {i + 1}")),
-        "npc" => Named(Npcs.Value.Rows.Where(n => n.Supported), n => n.Name, n => n.Id),
+        "npc" => Named(Npcs.Rows.Where(n => n.Supported), n => n.Name, n => n.Id),
         "quest_flag" => Quests.FlagRows(ClientTables.TableOrNull("QuestFlags")).Keys.Select(id => (id, "")),
         _ => null,
     };

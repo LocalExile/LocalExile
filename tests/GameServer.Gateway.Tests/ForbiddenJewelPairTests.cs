@@ -35,14 +35,14 @@ public sealed class ForbiddenJewelPairTests
     public void Pair_grants_only_an_eligible_matching_notable_and_removal_clears_its_stats()
     {
         using var f = new MinionUtilityTests.Fixture();
-        var conn = f.Conn;
-        var tree = Game.PassivesFor(conn);
-        var inventory = Game.ItemsOf(conn);
+        var player = f.Player;
+        var tree = Game.PassivesFor(player);
+        var inventory = Game.ItemsOf(player);
         var catalog = new UniqueCatalog(Program.Items);
         const ushort shaper = 53123;
         const ushort wrongClass = 42469; // Fatal Flourish, Duelist only
-        uint ignite = Program.Stats.Key("always_ignite")!.Value;
-        uint allDamage = Program.Stats.Key("all_damage_can_ignite")!.Value;
+        uint ignite = Stat.AlwaysIgnite;
+        uint allDamage = Stat.AllDamageCanIgnite;
         Item Named(string name, ushort id, bool identified = true)
         {
             var jewel = catalog.Create(name, new Random(6))!;
@@ -53,7 +53,7 @@ public sealed class ForbiddenJewelPairTests
         var b = tree.JewelNodeForSlot(1)!.Value;
         (int Ignite, int AllDamage) Read(params ushort[] nodes)
         {
-            var s = Game.EquipmentStatSources(conn, [], nodes, 100).Sources;
+            var s = Game.EquipmentStatSources(player, [], nodes, 100).Sources;
             return (s.GetValueOrDefault(ignite), s.GetValueOrDefault(allDamage));
         }
 
@@ -66,7 +66,7 @@ public sealed class ForbiddenJewelPairTests
         Assert.Equal((0, 0), Read(a));
         Assert.Equal((1, 1), Read(a, b));
         Assert.Equal((1, 1), Read(a, b));
-        Assert.Empty(conn.MainAscendancy.Allocated);
+        Assert.Empty(player.Character.MainAscendancy.Allocated);
         Assert.Equal((1, 1), Read(a, b, shaper)); // an already-paid copy would contribute only its own stats
         inventory.Remove(PlayerInventories.PassiveJewels, 13);
         Assert.Equal((0, 0), Read(a, b));

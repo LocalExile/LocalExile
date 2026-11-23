@@ -5,16 +5,25 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Native ItemCosts, selected by item level and rarity; explicit prices remain authoritative.</summary>
 public sealed class VendorPrices
 {
-    sealed class Modes(ItemCatalog items)
+    sealed class Modes
     {
-        public readonly Lazy<VendorPrices> Normal = new(() => new(items));
-        public readonly Lazy<VendorPrices> Hard = new(() => new(items,true));
+        readonly ItemCatalog items;
+
+        public Modes(ItemCatalog items)
+        {
+            this.items = items;
+            Normal = new(items);
+            Hard = new(items,true);
+        }
+
+        public readonly VendorPrices Normal;
+        public readonly VendorPrices Hard;
     }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,Modes> Cache = new();
     public static VendorPrices For(ItemCatalog items, bool hardMode = false)
     {
         var modes = Cache.GetValue(items, static catalog => new(catalog));
-        return (hardMode ? modes.Hard : modes.Normal).Value;
+        return hardMode ? modes.Hard : modes.Normal;
     }
     readonly Dictionary<int, List<(int Level, int Cost)>> levels = [];
     readonly Dictionary<int, int> mapCosts = [];
