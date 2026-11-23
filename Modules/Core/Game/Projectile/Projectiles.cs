@@ -685,8 +685,7 @@ public static partial class Game
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random));
-            if (shot.FromTrapOrMine) damage = MonsterTakesTrapOrMineHit(target, mitigated, shot.Spell, at);
+                shot.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
             LeechOnHitLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage, shot.Leech);
@@ -751,7 +750,7 @@ public static partial class Game
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Player, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
-                    localStunReduction: shot.LocalStunThresholdReduction));
+                    localStunReduction: shot.LocalStunThresholdReduction, weaponClass: shot.WeaponClass));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(Player, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;
         }

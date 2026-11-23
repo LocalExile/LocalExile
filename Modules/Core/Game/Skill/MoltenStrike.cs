@@ -369,7 +369,7 @@ public static partial class Game
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, mods, pen,
-                    gambler.InvertsResistance(AreaRng(player)));
+                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
@@ -377,7 +377,8 @@ public static partial class Game
                 LeechOnHitLocked(player, m, taken, damage, leech);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, critical, criticalMultiplierBase,
                     critical ? criticalImpale : impale, more).Damage;
-                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
+                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
+                    weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);
                 uint lifeBefore = m.Life;

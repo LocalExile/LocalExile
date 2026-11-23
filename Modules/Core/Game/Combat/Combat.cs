@@ -437,8 +437,7 @@ public static partial class Game
             return;
         }
         bool cryExerted;
-        player.RecentEvents.Record(StatConditions.UsedSkill, begun);
-        SiphoningSkillUsedLocked(player, begun);
+        RecordUsedSkillLocked(player, begun);
         cryExerted = ConsumeIntimidatingCryExertLocked(player, weapon.Melee && !ranged);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -561,7 +560,7 @@ public static partial class Game
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier, playerStats, ownPenetration);
                 double at = ProjectileWorldTime(player);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
-                    gambler.InvertsResistance(AreaRng(player)));
+                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
@@ -573,7 +572,8 @@ public static partial class Game
                 var fortificationDamage = RawFortificationDamage(ownRolled, critical, criticalMultiplier);
                 bool fortifiedThisHit = !fortified && (fortified = FortificationOnHitLocked(player, m, fortificationDamage,
                     weapon.Melee, playerStats, ownPenetration));
-                stun = OwnerStun(player, m, damage, mitigated, weapon.Melee, spell: false, critical, playerStats, ownPenetration)
+                stun = OwnerStun(player, m, damage, mitigated, weapon.Melee, spell: false, critical, playerStats, ownPenetration,
+                    weaponClass: weapon.ItemClass ?? "")
                     with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 uint lifeBefore = m.Life;
                 var rampageSource = RampageOnMeleeHitLocked(player, m, weapon.Melee, playerStats);
@@ -1411,8 +1411,7 @@ public static partial class Game
 
     static void RecordAcceptedGemUseAt(Player player, int effect, double acceptedAt)
     {
-        player.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
-        SiphoningSkillUsedLocked(player, acceptedAt);
+        RecordUsedSkillLocked(player, acceptedAt);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
@@ -2452,6 +2451,7 @@ public static partial class Game
         bool weaponAttack = false;
         TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<uint, int>? weaponLocal = null;
+        string? sweepWeaponClass = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
@@ -2503,6 +2503,7 @@ public static partial class Game
                         // hit to the main hand's (SupportedSwingHit), each from its own captured inputs.
                         var swingWeapon = shield ?? OffHandSwing(player, hand);
                         var sourceWeapon = shield ?? HandWeapon(player, hand);
+                        if (!spell) sweepWeaponClass = sourceWeapon.ItemClass ?? "";
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
                         weaponLocal = local;
                         weaponAttack = !spell && shield is null && sourceWeapon.ItemClass is not null && SkillsFor(player).IsAttack(gem.Effect);
@@ -2619,7 +2620,7 @@ public static partial class Game
                     int multiplier = CriticalMultiplierOn(m, sweepMultiplier, playerStats, skillStats);
                     double at = ProjectileWorldTime(player);
                     (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
-                        gambler.InvertsResistance(AreaRng(player)));
+                        gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                     hitCode = HitCode(mitigated);
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -2631,7 +2632,8 @@ public static partial class Game
                     LeechOnHitLocked(player, m, taken, damage, leech!);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sweepMultiplier,
                         critical ? criticalImpale : impale, more).Damage;
-                    stun = OwnerStun(player, m, damage, mitigated, !spell && SkillsFor(player).IsMelee(gem.Effect), spell, critical, playerStats, skillStats);
+                    stun = OwnerStun(player, m, damage, mitigated, !spell && SkillsFor(player).IsMelee(gem.Effect), spell, critical,
+                        playerStats, skillStats, weaponClass: sweepWeaponClass);
                     // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
                     // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                     var rampagePlayer = freshPlayer ? playerStats : null;
@@ -2942,7 +2944,7 @@ public static partial class Game
     // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
     public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
-        bool invertElemental = false)
+        bool invertElemental = false, Random? random = null, bool trapOrMine = false)
     {
         var described = new List<string>();
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
@@ -2953,9 +2955,13 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        bool ignorePhys = attack && mods.IgnorePhysicalReductionChance > 0
-            && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared);
-        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys),
+        int ignorePhysicalChance = ActorScale.Saturate((long)mods.IgnorePhysicalReductionChance
+            + (attack ? mods.TincturedWeaponIgnorePhysicalReductionChance : 0));
+        bool ignorePhys = rolled[DamageType.Physical].Max > 0
+            && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared);
+        int damage = trapOrMine ? MonsterTakesTrapOrMineHit(m, mitigated, spell: !attack, now, random, ignorePhys)
+            : MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys, random);
+        return (damage,
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 
@@ -2964,19 +2970,21 @@ public static partial class Game
     {
         var a = HitResistances.Mods.From(player, Stats.Key);
         var b = skill is null ? default : HitResistances.Mods.From(skill, Stats.Key);
-        int ignorePhys = Has(Stat.TinctureApplied)
-            ? Math.Clamp(Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChanceWithTincturedWeapons), 0, 100)
-            : 0;
         return new(a.CriticalIgnoreElemental | b.CriticalIgnoreElemental,
             a.AttackCriticalIgnoreElemental | b.AttackCriticalIgnoreElemental,
             a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore,
             IgnoreFire: Has(Stat.VirtualHitsIgnoreEnemyFireResistance),
             IgnoreChaos: Has(Stat.VirtualHitsIgnoreEnemyChaosResistance),
-            IgnorePhysicalReductionChance: ignorePhys);
+            IgnorePhysicalReductionChance: Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChance))
+        {
+            TincturedWeaponIgnorePhysicalReductionChance = Has(Stat.TinctureApplied)
+                ? Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChanceWithTincturedWeapons) : 0,
+            CriticalPenetration = Value(Stat.CriticalStrikesPenetratesPctElementalResistancesWhileAffectedByZealotry),
+        };
 
         bool Has(uint name) => name is var key
             && (player.GetValueOrDefault(key) != 0 || (skill?.GetValueOrDefault(key) ?? 0) != 0);
-        int Value(uint key) => player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
+        int Value(uint key) => ActorScale.Saturate((long)player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0));
     }
 
     // The short state mutation is shared with projectile impact; no awaits in the area's frame. A minion's hit (allyAt: where
@@ -3492,8 +3500,9 @@ public static partial class Game
             // A generic map drop (approximate rates): use the open map's tier in a map, or tier 1 in the late campaign
             // once the monster meets MapKeyTier1's DropLevel. The same tier gates base card/scarab and atlas-base drops.
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
+            var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(m.Level, m.Rarity, AreaRng(player), IncreasedItemRarity(player, m),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
             if (DropsFor(player).Map(m.Level, m.Rarity, mapTier, AreaRng(player), chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.

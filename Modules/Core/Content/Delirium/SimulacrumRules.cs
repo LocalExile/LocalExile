@@ -28,7 +28,8 @@ public static class SimulacrumRules
 
     public static MapDevice.MapArea[] Arenas() => [.. ClientTables.Table("WorldAreas")
         .Where(r => IsArena(r.Text("Id") ?? ""))
-        .Select(r => new MapDevice.MapArea((ushort)r.Int("HASH16"), r.Text("Id")!, r.Text("Name") ?? "Simulacrum", 0) { Level = 75 })];
+        .Select(r => new MapDevice.MapArea((ushort)r.Int("HASH16"), r.Text("Id")!, r.Text("Name") ?? "Simulacrum", 0)
+        { Level = 75, UsesAtlas = false })];
 
     public static void Resolve(MapOpening request, Random random)
     {

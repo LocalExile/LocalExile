@@ -65,6 +65,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
+  Trap and mine damage, Battlemage, Perseverance, physical reduction bypass and elemental ailment swaps apply offline.
+- Acrobatics, The Agnostic, Imbalanced Guard, Wicked Ward, Corrupted Soul and Transcendence resolve their defences.
+  Two-handed melee and mace stun modifiers, and doubled stun duration, apply on qualifying hits.
+
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) Â§12.
@@ -158,6 +163,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Ordinary aura expansion: Determination, Grace, Anger, Hatred, Wrath, Zealotry, Malevolence and Envy.
   Docs: [11](../docs/protocol/11-skills.md) Â§13.
+- Watcher's Eye modifiers for Pride combat, elemental and critical penetration, Grace blind, Haste debuff expiry,
+  and Clarity mana recovery apply while the matching aura is active. The legacy Zealotry modifiers apply to
+  owned Consecrated Ground and grant Arcane Surge when creating it.
 - Flesh and Stone and Blood and Sand. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Passive-granted skills and Summon Elemental Relic.
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
