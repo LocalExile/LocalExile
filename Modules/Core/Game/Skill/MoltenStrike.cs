@@ -383,7 +383,7 @@ public static partial class Game
                 LeechOnHitTargetLocked(player, m, taken, damage, leech, id);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
                     critical ? criticalImpale : impale, more).Damage;
-                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
+                var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
                     weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);

@@ -382,7 +382,7 @@ public static partial class Game
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
                     gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, playerStats, own));
-                var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
+                var stun = OwnerStun(player, skill.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
                 var applied = ApplyMonsterHitLocked(player, m, damage);
                 if (applied is { StageStarts: true } staged)
                 {

@@ -1591,7 +1591,7 @@ public static partial class Game
         var leech = HitLeechSources(playerStats, attack: false, gem.Stats, null, melee: false);
         LeechOnHitLocked(player, m, taken, damage, leech);
 
-        var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
+        var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
         if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: null,
                 cull: Cull.Of(playerStats, gem.Stats, critical, spell: true), cullPlayer: playerStats)
             is not { } applied) return;

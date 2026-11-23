@@ -96,7 +96,13 @@ public static partial class Game
     /// Monsters lock.</summary>
     public static StunHit OwnerStun(Player player, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
         bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own, uint? lifeBefore = null,
-        int? localStunReduction = null, string? weaponClass = null)
+        int? localStunReduction = null, string? weaponClass = null) =>
+        OwnerStun(player, -1, m, damage, mitigated, melee, spell, critical, playerStats, own, lifeBefore,
+            localStunReduction, weaponClass);
+
+    static StunHit OwnerStun(Player player, int effect, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own,
+        uint? lifeBefore = null, int? localStunReduction = null, string? weaponClass = null)
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
         var taken = MonsterTakenComponents(m, mitigated, spell);
@@ -114,6 +120,9 @@ public static partial class Game
             + (critical ? Get(Stat.StunDurationOnCriticalStrikePlusPct) : 0);
         long thresholdReduction = (long)Get(Stat.BaseStunThresholdReductionPlusPct) + local
             + (tinctureWeapon ? Get(Stat.StunThresholdReductionPlusPctWithTincturedWeapons) : 0);
+        int lightningReduction = Get(Stat.LightningSkillStunThresholdPlusPct);
+        if (effect >= 0 && lightningReduction != 0 && SkillsFor(player).HasType(effect, "Lightning"))
+            thresholdReduction += lightningReduction;
         int finalDuration = 0;
         if (!spell)
         {
